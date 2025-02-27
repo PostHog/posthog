@@ -2,7 +2,9 @@ import { ErrorTrackingException } from 'lib/components/Errors/types'
 import { dayjs } from 'lib/dayjs'
 import { range } from 'lib/utils'
 
-import { ErrorTrackingIssue, ErrorTrackingSparklineConfig } from '~/queries/schema'
+import { ErrorTrackingIssue, ErrorTrackingSparklineConfig } from '~/queries/schema/schema-general'
+
+const THIRD_PARTY_SCRIPT_ERROR = 'Script error.'
 
 const volumePeriods: ('customVolume' | 'volumeDay' | 'volumeMonth')[] = ['customVolume', 'volumeDay', 'volumeMonth']
 const sumVolumes = (...arrays: number[][]): number[] =>
@@ -12,10 +14,6 @@ export const mergeIssues = (
     primaryIssue: ErrorTrackingIssue,
     mergingIssues: ErrorTrackingIssue[]
 ): ErrorTrackingIssue => {
-    const sum = (value: 'occurrences' | 'users' | 'sessions'): number => {
-        return mergingIssues.reduce((sum, g) => sum + g[value], primaryIssue[value])
-    }
-
     const [firstSeen, lastSeen] = mergingIssues.reduce(
         (res, g) => {
             const firstSeen = dayjs(g.first_seen)
@@ -25,19 +23,31 @@ export const mergeIssues = (
         [dayjs(primaryIssue.first_seen), dayjs(primaryIssue.last_seen)]
     )
 
-    volumePeriods.forEach((period) => {
-        const volume = primaryIssue[period]
-        if (volume) {
-            const mergingVolumes = mergingIssues.map((issue) => issue[period]).filter((v) => !!v) as number[][]
-            primaryIssue[period] = sumVolumes(...mergingVolumes, volume)
+    const aggregations = primaryIssue.aggregations
+
+    if (aggregations) {
+        const sum = (value: 'occurrences' | 'users' | 'sessions'): number => {
+            return mergingIssues.reduce((sum, g) => sum + (g.aggregations?.[value] || 0), aggregations[value])
         }
-    })
+
+        volumePeriods.forEach((period) => {
+            const volume = aggregations[period]
+            if (volume) {
+                const mergingVolumes = mergingIssues
+                    .map((issue) => issue.aggregations?.[period])
+                    .filter((v) => !!v) as number[][]
+                aggregations[period] = sumVolumes(...mergingVolumes, volume)
+            }
+        })
+
+        aggregations.users = sum('users')
+        aggregations.sessions = sum('sessions')
+        aggregations.occurrences = sum('occurrences')
+    }
 
     return {
         ...primaryIssue,
-        occurrences: sum('occurrences'),
-        sessions: sum('sessions'),
-        users: sum('users'),
+        aggregations,
         first_seen: firstSeen.toISOString(),
         last_seen: lastSeen.toISOString(),
     }
@@ -104,6 +114,10 @@ export function getExceptionAttributes(
 
 export function hasStacktrace(exceptionList: ErrorTrackingException[]): boolean {
     return exceptionList?.length > 0 && exceptionList.some((e) => !!e.stacktrace)
+}
+
+export function isThirdPartyScriptError(value: ErrorTrackingException['value']): boolean {
+    return value === THIRD_PARTY_SCRIPT_ERROR
 }
 
 export function hasAnyInAppFrames(exceptionList: ErrorTrackingException[]): boolean {

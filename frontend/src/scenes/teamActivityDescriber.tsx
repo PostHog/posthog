@@ -143,6 +143,35 @@ const teamActionsMapping: Record<
             ],
         }
     },
+    session_recording_masking_config(change: ActivityChange | undefined): ChangeMapping | null {
+        const maskAllInputsBefore = isObject(change?.before) ? change?.before.maskAllInputs : !!change?.before
+        const maskAllInputsAfter = isObject(change?.after) ? change?.after.maskAllInputs : !!change?.after
+        const maskAllInputsChanged = maskAllInputsBefore !== maskAllInputsAfter
+
+        const maskTextSelectorBefore = isObject(change?.before) ? change?.before.maskTextSelector : !!change?.before
+        const maskTextSelectorAfter = isObject(change?.after) ? change?.after.maskTextSelector : !!change?.after
+        const maskTextSelectorChanged = maskTextSelectorBefore !== maskTextSelectorAfter
+
+        const descriptions = []
+        if (maskAllInputsChanged) {
+            descriptions.push(<>{maskAllInputsAfter ? 'enabled' : 'disabled'} masking all inputs in session replay</>)
+        }
+
+        if (maskTextSelectorChanged) {
+            descriptions.push(
+                <>
+                    {change?.action === 'created' ? 'set' : 'changed'} masking text selector to {maskTextSelectorAfter}{' '}
+                    in session replay
+                </>
+            )
+        }
+
+        return descriptions.length
+            ? {
+                  description: descriptions,
+              }
+            : null
+    },
     session_recording_network_payload_capture_config(change: ActivityChange | undefined): ChangeMapping | null {
         const payloadBefore = isObject(change?.before) ? change?.before.recordBody : !!change?.before
         const payloadAfter = isObject(change?.after) ? change?.after.recordBody : !!change?.after
@@ -444,6 +473,7 @@ const teamActionsMapping: Record<
     week_start_day: () => null,
     default_modifiers: () => null,
     has_completed_onboarding_for: () => null,
+    onboarding_tasks: () => null,
 
     // should never come from the backend
     created_at: () => null,

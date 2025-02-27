@@ -24,6 +24,7 @@ import { FunnelStepsTable } from 'scenes/insights/views/Funnels/FunnelStepsTable
 import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
 import { Paths } from 'scenes/paths/Paths'
 import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
+import { PathsV2 } from 'scenes/paths-v2/PathsV2'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { TrendInsight } from 'scenes/trends/Trends'
 
@@ -57,7 +58,7 @@ export function InsightVizDisplay({
     embedded: boolean
     inSharedMode?: boolean
 }): JSX.Element | null {
-    const { insightProps, canEditInsight } = useValues(insightLogic)
+    const { insightProps, canEditInsight, isUsingPathsV1, isUsingPathsV2 } = useValues(insightLogic)
 
     const { activeView } = useValues(insightNavLogic(insightProps))
 
@@ -84,9 +85,12 @@ export function InsightVizDisplay({
     const BlockingEmptyState = (() => {
         if (insightDataLoading) {
             return (
-                <div className="flex flex-col flex-1 justify-center items-center p-2">
-                    <InsightLoadingState queryId={queryId} key={queryId} insightProps={insightProps} />
-                </div>
+                <InsightLoadingState
+                    queryId={queryId}
+                    key={queryId}
+                    insightProps={insightProps}
+                    renderEmptyStateAsSkeleton={context?.renderEmptyStateAsSkeleton}
+                />
             )
         }
 
@@ -156,7 +160,7 @@ export function InsightVizDisplay({
                     />
                 )
             case InsightType.PATHS:
-                return <Paths />
+                return isUsingPathsV2 ? <PathsV2 /> : <Paths />
             default:
                 return null
         }
@@ -248,7 +252,7 @@ export function InsightVizDisplay({
                                 </div>
 
                                 <div className="flex items-center gap-2">
-                                    {isPaths && <PathCanvasLabel />}
+                                    {isPaths && isUsingPathsV1 && <PathCanvasLabel />}
                                     {isFunnels && <FunnelCanvasLabel />}
                                 </div>
                             </div>

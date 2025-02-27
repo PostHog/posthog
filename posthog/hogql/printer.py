@@ -1,7 +1,7 @@
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime, date
+from datetime import date, datetime
 from difflib import get_close_matches
 from typing import Literal, Optional, Union, cast
 from uuid import UUID
@@ -13,23 +13,17 @@ from posthog.clickhouse.materialized_columns import (
 )
 from posthog.clickhouse.property_groups import property_groups
 from posthog.hogql import ast
-from posthog.hogql.base import AST, _T_AST
+from posthog.hogql.ast import StringType, Constant
+from posthog.hogql.base import _T_AST, AST
 from posthog.hogql.constants import (
     MAX_SELECT_RETURNED_ROWS,
     HogQLGlobalSettings,
 )
-from posthog.hogql.database.schema.query_log import RawQueryLogTable
-from posthog.hogql.functions import (
-    ADD_OR_NULL_DATETIME_FUNCTIONS,
-    FIRST_ARG_DATETIME_FUNCTIONS,
-    find_hogql_aggregation,
-    find_hogql_posthog_function,
-    find_hogql_function,
-)
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import Table, FunctionCallTable, SavedQuery
 from posthog.hogql.database.database import create_hogql_database
+from posthog.hogql.database.models import FunctionCallTable, SavedQuery, Table
 from posthog.hogql.database.s3_table import S3Table
+from posthog.hogql.database.schema.query_log import RawQueryLogTable
 from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryError, ResolutionError
 from posthog.hogql.escape_sql import (
     escape_clickhouse_identifier,
@@ -37,17 +31,24 @@ from posthog.hogql.escape_sql import (
     escape_hogql_identifier,
     escape_hogql_string,
 )
-from posthog.hogql.functions.mapping import ALL_EXPOSED_FUNCTION_NAMES, validate_function_args, HOGQL_COMPARISON_MAPPING
+from posthog.hogql.functions import (
+    ADD_OR_NULL_DATETIME_FUNCTIONS,
+    FIRST_ARG_DATETIME_FUNCTIONS,
+    find_hogql_aggregation,
+    find_hogql_function,
+    find_hogql_posthog_function,
+)
+from posthog.hogql.functions.mapping import ALL_EXPOSED_FUNCTION_NAMES, HOGQL_COMPARISON_MAPPING, validate_function_args
 from posthog.hogql.modifiers import create_default_modifiers_for_team, set_default_in_cohort_via
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.resolver_utils import lookup_field_by_name
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
-from posthog.hogql.transforms.property_types import build_property_swapper, PropertySwapper
+from posthog.hogql.transforms.property_types import PropertySwapper, build_property_swapper
 from posthog.hogql.visitor import Visitor, clone_expr
 from posthog.models.property import PropertyName, TableColumn
-from posthog.models.team.team import WeekStartDay
 from posthog.models.team import Team
+from posthog.models.team.team import WeekStartDay
 from posthog.models.utils import UUIDT
 from posthog.schema import (
     HogQLQueryModifiers,
@@ -115,7 +116,9 @@ def prepare_ast_for_printing(
 ) -> _T_AST | None:
     if context.database is None:
         with context.timings.measure("create_hogql_database"):
-            context.database = create_hogql_database(context.team_id, context.modifiers, context.team)
+            context.database = create_hogql_database(
+                context.team_id, context.modifiers, context.team, timings=context.timings
+            )
 
     context.modifiers = set_default_in_cohort_via(context.modifiers)
 
@@ -439,6 +442,9 @@ class _Printer(Visitor):
                 clauses.append(f"OFFSET {self.visit(node.offset)}")
             if node.limit_by is not None:
                 clauses.append(f"BY {', '.join([self.visit(expr) for expr in node.limit_by])}")
+
+        if self.context.output_format and self.dialect == "clickhouse" and is_top_level_query:
+            clauses.append(f"FORMAT{space}{self.context.output_format}")
 
         if node.settings is not None and self.dialect == "clickhouse":
             settings = self._print_settings(node.settings)
@@ -1048,7 +1054,9 @@ class _Printer(Visitor):
                 )
 
             # check that we're not running inside another aggregate
-            for stack_node in self.stack:
+            for stack_node in reversed(self.stack):
+                if isinstance(stack_node, ast.SelectQuery):
+                    break
                 if stack_node != node and isinstance(stack_node, ast.Call) and find_hogql_aggregation(stack_node.name):
                     raise QueryError(
                         f"Aggregation '{node.name}' cannot be nested inside another aggregation '{stack_node.name}'."
@@ -1134,11 +1142,29 @@ class _Printer(Visitor):
                     if not has_tz_override:
                         args.append(self.visit(ast.Constant(value=self._get_timezone())))
 
+                    # If the datetime is in correct format, use optimal toDateTime, it's stricter but faster
+                    # and it allows CH to use index efficiently.
+                    if (
+                        relevant_clickhouse_name == "parseDateTime64BestEffortOrNull"
+                        and len(node.args) == 1
+                        and isinstance(node.args[0], Constant)
+                        and isinstance(node.args[0].type, StringType)
+                    ):
+                        relevant_clickhouse_name = "parseDateTime64BestEffort"
+                        pattern_with_microseconds_str = r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{1,6}$"
+                        pattern_mysql_str = r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$"
+                        if re.match(pattern_with_microseconds_str, node.args[0].value):
+                            relevant_clickhouse_name = "toDateTime64"
+                        elif re.match(pattern_mysql_str, node.args[0].value) or re.match(
+                            r"^\d{4}-\d{2}-\d{2}$", node.args[0].value
+                        ):
+                            relevant_clickhouse_name = "toDateTime"
                     if (
                         relevant_clickhouse_name == "now64"
                         and (len(node.args) == 0 or (has_tz_override and len(node.args) == 1))
                     ) or (
-                        relevant_clickhouse_name == "parseDateTime64BestEffortOrNull"
+                        relevant_clickhouse_name
+                        in ("parseDateTime64BestEffortOrNull", "parseDateTime64BestEffort", "toDateTime64")
                         and (len(node.args) == 1 or (has_tz_override and len(node.args) == 2))
                     ):
                         # These two CH functions require a precision argument before timezone

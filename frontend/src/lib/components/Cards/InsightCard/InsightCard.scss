@@ -37,13 +37,6 @@
         padding: 0.5rem;
     }
 
-    .insight-empty-state {
-        height: 100%; // Fix wonkiness when SpinnerOverlay is shown
-        padding-top: 0;
-        padding-bottom: 0;
-        font-size: 0.875rem; // Reduce font size
-    }
-
     .LemonTable {
         background: none;
         border: none;
@@ -139,7 +132,7 @@
     font-size: 0.6875rem;
     font-weight: 600;
     line-height: 1rem;
-    color: var(--text-3000);
+    color: var(--text-secondary);
     vertical-align: middle;
     background: var(--accent-primary-highlight);
     border-radius: var(--radius);
@@ -180,5 +173,5 @@
     flex-shrink: 0;
     margin-right: 0.25rem;
     font-size: 1.25rem;
-    color: var(--border-bold);
+    color: var(--text-secondary);
 }

@@ -9,7 +9,12 @@ import { humanFriendlyNumber } from 'lib/utils'
 import posthog from 'posthog-js'
 import { urls } from 'scenes/urls'
 
-import { ExperimentFunnelsQuery, ExperimentTrendsQuery, NodeKind } from '~/queries/schema'
+import {
+    ExperimentFunnelsQuery,
+    ExperimentMetric,
+    ExperimentTrendsQuery,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 import {
     FilterLogicalOperator,
     InsightType,
@@ -27,7 +32,7 @@ export function SummaryTable({
     metricIndex = 0,
     isSecondary = false,
 }: {
-    metric: ExperimentTrendsQuery | ExperimentFunnelsQuery
+    metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery
     metricIndex?: number
     isSecondary?: boolean
 }): JSX.Element {
@@ -310,12 +315,17 @@ export function SummaryTable({
         },
         render: function Key(_, item): JSX.Element {
             const variantKey = item.key
-            const percentage = result?.probability?.[variantKey] != undefined && result.probability?.[variantKey] * 100
+            const percentage = result?.probability?.[variantKey] !== undefined && result.probability?.[variantKey] * 100
             const isWinning = variantKey === winningVariant
+
+            // Only show the win probability if the conversion rate exists
+            // TODO: move this to the backend
+            const conversionRate = conversionRateForVariant(result, variantKey)
+            const hasValidConversionRate = conversionRate !== null && conversionRate !== undefined
 
             return (
                 <>
-                    {percentage ? (
+                    {percentage && (metricType === InsightType.FUNNELS ? hasValidConversionRate : true) ? (
                         <span className="inline-flex items-center w-52 space-x-4">
                             <LemonProgress className="inline-flex w-3/4" percent={percentage} />
                             <span className={`w-1/4 font-semibold ${isWinning && 'text-success'}`}>
@@ -358,7 +368,9 @@ export function SummaryTable({
                             date_from: experiment?.start_date,
                             date_to: experiment?.end_date,
                             filter_test_accounts:
-                                metric.kind === NodeKind.ExperimentTrendsQuery
+                                metric.kind === NodeKind.ExperimentMetric
+                                    ? false
+                                    : metric.kind === NodeKind.ExperimentTrendsQuery
                                     ? metric.count_query.filterTestAccounts
                                     : metric.funnels_query.filterTestAccounts,
                         }

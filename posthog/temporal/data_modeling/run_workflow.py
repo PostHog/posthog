@@ -28,7 +28,7 @@ from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.query import execute_hogql_query
 from posthog.models import Team
 from posthog.settings.base_variables import TEST
-from posthog.temporal.batch_exports.base import PostHogWorkflow
+from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.warehouse.models import DataWarehouseModelPath, DataWarehouseSavedQuery
 from posthog.warehouse.util import database_sync_to_async
@@ -291,7 +291,10 @@ async def materialize_model(model_label: str, team: Team) -> tuple[str, DeltaTab
         filter_params["name"] = model_name
 
     saved_query = await database_sync_to_async(
-        DataWarehouseSavedQuery.objects.prefetch_related("team").filter(team=team, **filter_params).get
+        DataWarehouseSavedQuery.objects.prefetch_related("team")
+        .exclude(deleted=True)
+        .filter(team=team, **filter_params)
+        .get
     )()
 
     query_columns = saved_query.columns
@@ -611,7 +614,9 @@ async def update_saved_query_status(
     except ValueError:
         filter_params["name"] = label
 
-    saved_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.filter(**filter_params).get)()
+    saved_query = await database_sync_to_async(
+        DataWarehouseSavedQuery.objects.exclude(deleted=True).filter(**filter_params).get
+    )()
 
     if run_at:
         saved_query.last_run_at = run_at

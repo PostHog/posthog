@@ -1,12 +1,10 @@
 """Source that loads tables form any SQLAlchemy supported database, supports batching requests and incremental loads."""
 
-from datetime import datetime, date
 from typing import Optional, Union, Any
 from collections.abc import Callable, Iterable
 
 from sqlalchemy import MetaData, Table, create_engine
 from sqlalchemy.engine import Engine
-from zoneinfo import ZoneInfo
 
 import dlt
 from dlt.sources import DltResource, DltSource
@@ -15,6 +13,7 @@ from dlt.common.libs.pyarrow import pyarrow as pa
 from dlt.sources.credentials import ConnectionStringCredentials
 
 from posthog.settings.utils import get_from_env
+from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from posthog.temporal.data_imports.pipelines.sql_database.settings import DEFAULT_CHUNK_SIZE
 from posthog.temporal.data_imports.pipelines.sql_database._json import BigQueryJSON
 from posthog.utils import str_to_bool
@@ -47,15 +46,6 @@ from sqlalchemy_bigquery._types import _type_map
 BigQueryDialect.JSON = BigQueryJSON
 _type_map["JSON"] = BigQueryJSON
 __all__.append("JSON")
-
-
-def incremental_type_to_initial_value(field_type: IncrementalFieldType) -> Any:
-    if field_type == IncrementalFieldType.Integer or field_type == IncrementalFieldType.Numeric:
-        return 0
-    if field_type == IncrementalFieldType.DateTime or field_type == IncrementalFieldType.Timestamp:
-        return datetime(1970, 1, 1, 0, 0, 0, 0, tzinfo=ZoneInfo("UTC"))
-    if field_type == IncrementalFieldType.Date:
-        return date(1970, 1, 1)
 
 
 def sql_source_for_type(
@@ -91,7 +81,7 @@ def sql_source_for_type(
 
     if source_type == ExternalDataSource.Type.POSTGRES:
         credentials = ConnectionStringCredentials(
-            f"postgresql://{user}:{password}@{host}:{port}/{database}?sslmode={sslmode}"
+            f"postgresql+psycopg://{user}:{password}@{host}:{port}/{database}?sslmode={sslmode}"
         )
     elif source_type == ExternalDataSource.Type.MYSQL:
         query_params = ""
@@ -311,8 +301,7 @@ def sql_database(
         reflection_level = reflection_level or "minimal"
 
     # set up alchemy engine
-    engine = engine_from_credentials(credentials)
-    engine.execution_options(stream_results=True, max_row_buffer=2 * chunk_size)
+    engine = engine_from_credentials(credentials).execution_options(stream_results=True, max_row_buffer=2 * chunk_size)
     metadata = metadata or MetaData(schema=schema)
 
     # use provided tables or all tables
@@ -370,7 +359,7 @@ def sql_table(
     metadata: Optional[MetaData] = None,
     incremental: Optional[dlt.sources.incremental[Any]] = None,
     chunk_size: int = DEFAULT_CHUNK_SIZE,
-    backend: TableBackend = "sqlalchemy",
+    backend: TableBackend = "pyarrow",
     detect_precision_hints: Optional[bool] = None,
     reflection_level: Optional[ReflectionLevel] = "full",
     defer_table_reflect: Optional[bool] = None,
@@ -422,8 +411,9 @@ def sql_table(
     else:
         reflection_level = reflection_level or "minimal"
 
-    engine = engine_from_credentials(credentials, may_dispose_after_use=True)
-    engine.execution_options(stream_results=True, max_row_buffer=2 * chunk_size)
+    engine = engine_from_credentials(credentials, may_dispose_after_use=True).execution_options(
+        stream_results=True, max_row_buffer=2 * chunk_size
+    )
     metadata = metadata or MetaData(schema=schema)
 
     table_obj: Table | None = metadata.tables.get("table")

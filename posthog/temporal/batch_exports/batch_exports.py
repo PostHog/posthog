@@ -14,9 +14,8 @@ from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.models import BatchExportBackfill, BatchExportRun
 from posthog.batch_exports.service import (
+    BackfillDetails,
     BatchExportField,
-    BatchExportModel,
-    BatchExportSchema,
     acount_failed_batch_export_runs,
     apause_batch_export,
     cancel_running_batch_export_backfill,
@@ -31,7 +30,7 @@ from posthog.temporal.batch_exports.metrics import (
     get_export_finished_metric,
     get_export_started_metric,
 )
-from posthog.temporal.batch_exports.spmc import compose_filters_clause
+from posthog.temporal.batch_exports.spmc import use_distributed_events_recent_table
 from posthog.temporal.batch_exports.sql import (
     SELECT_FROM_DISTRIBUTED_EVENTS_RECENT,
     SELECT_FROM_EVENTS_VIEW,
@@ -41,7 +40,10 @@ from posthog.temporal.batch_exports.sql import (
 )
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
-from posthog.temporal.common.logger import bind_temporal_worker_logger
+from posthog.temporal.common.logger import (
+    bind_temporal_worker_logger,
+    get_internal_logger,
+)
 from posthog.warehouse.util import database_sync_to_async
 
 logger = structlog.get_logger()
@@ -51,100 +53,6 @@ RecordsGenerator = collections.abc.Generator[pa.RecordBatch, None, None]
 
 AsyncBytesGenerator = collections.abc.AsyncGenerator[bytes, None]
 AsyncRecordsGenerator = collections.abc.AsyncGenerator[pa.RecordBatch, None]
-
-SELECT_FROM_PERSONS_VIEW = """
-SELECT
-    persons.team_id AS team_id,
-    persons.distinct_id AS distinct_id,
-    persons.person_id AS person_id,
-    persons.properties AS properties,
-    persons.person_distinct_id_version AS person_distinct_id_version,
-    persons.person_version AS person_version,
-    persons._inserted_at AS _inserted_at
-FROM
-    persons_batch_export(
-        team_id={team_id},
-        interval_start={interval_start},
-        interval_end={interval_end}
-    ) AS persons
-FORMAT ArrowStream
-SETTINGS
-    max_bytes_before_external_group_by=50000000000,
-    max_bytes_before_external_sort=50000000000,
-    optimize_aggregation_in_order=1
-"""
-
-# This is an updated version of the view that we will use going forward
-# We will migrate each batch export destination over one at a time to migitate
-# risk, and once this is done we can clean this up.
-SELECT_FROM_PERSONS_VIEW_NEW = """
-SELECT
-    persons.team_id AS team_id,
-    persons.distinct_id AS distinct_id,
-    persons.person_id AS person_id,
-    persons.properties AS properties,
-    persons.person_distinct_id_version AS person_distinct_id_version,
-    persons.person_version AS person_version,
-    persons.created_at AS created_at,
-    persons._inserted_at AS _inserted_at
-FROM
-    persons_batch_export(
-        team_id={team_id},
-        interval_start={interval_start},
-        interval_end={interval_end}
-    ) AS persons
-FORMAT ArrowStream
-SETTINGS
-    max_bytes_before_external_group_by=50000000000,
-    max_bytes_before_external_sort=50000000000,
-    optimize_aggregation_in_order=1
-"""
-
-SELECT_FROM_PERSONS_VIEW_BACKFILL = """
-SELECT
-    persons.team_id AS team_id,
-    persons.distinct_id AS distinct_id,
-    persons.person_id AS person_id,
-    persons.properties AS properties,
-    persons.person_distinct_id_version AS person_distinct_id_version,
-    persons.person_version AS person_version,
-    persons._inserted_at AS _inserted_at
-FROM
-    persons_batch_export_backfill(
-        team_id={team_id},
-        interval_end={interval_end}
-    ) AS persons
-FORMAT ArrowStream
-SETTINGS
-    max_bytes_before_external_group_by=50000000000,
-    max_bytes_before_external_sort=50000000000,
-    optimize_aggregation_in_order=1
-"""
-
-# This is an updated version of the view that we will use going forward
-# We will migrate each batch export destination over one at a time to migitate
-# risk, and once this is done we can clean this up.
-SELECT_FROM_PERSONS_VIEW_BACKFILL_NEW = """
-SELECT
-    persons.team_id AS team_id,
-    persons.distinct_id AS distinct_id,
-    persons.person_id AS person_id,
-    persons.properties AS properties,
-    persons.person_distinct_id_version AS person_distinct_id_version,
-    persons.person_version AS person_version,
-    persons.created_at AS created_at,
-    persons._inserted_at AS _inserted_at
-FROM
-    persons_batch_export_backfill(
-        team_id={team_id},
-        interval_end={interval_end}
-    ) AS persons
-FORMAT ArrowStream
-SETTINGS
-    max_bytes_before_external_group_by=50000000000,
-    max_bytes_before_external_sort=50000000000,
-    optimize_aggregation_in_order=1
-"""
 
 
 def default_fields() -> list[BatchExportField]:
@@ -164,174 +72,6 @@ def default_fields() -> list[BatchExportField]:
             alias="set_once",
         ),
     ]
-
-
-async def iter_model_records(
-    client: ClickHouseClient,
-    model: BatchExportModel | BatchExportSchema | None,
-    team_id: int,
-    is_backfill: bool,
-    interval_start: str | None,
-    interval_end: str,
-    destination_default_fields: list[BatchExportField] | None = None,
-    # TODO - remove this once all batch exports are using the latest schema
-    use_latest_schema: bool = False,
-    **parameters,
-) -> AsyncRecordsGenerator:
-    if not is_backfill and interval_start is None:
-        raise ValueError("'interval_start' is required if not backfilling")
-
-    if destination_default_fields is None:
-        batch_export_default_fields = default_fields()
-    else:
-        batch_export_default_fields = destination_default_fields
-
-    if isinstance(model, BatchExportModel):
-        async for record in iter_records_from_model_view(
-            client=client,
-            model_name=model.name,
-            team_id=team_id,
-            is_backfill=is_backfill,
-            fields=model.schema["fields"] if model.schema is not None else batch_export_default_fields,
-            filters=model.filters,
-            extra_query_parameters=model.schema["values"] if model.schema is not None else None,
-            interval_start=interval_start,
-            interval_end=interval_end,
-            use_latest_schema=use_latest_schema,
-            **parameters,
-        ):
-            yield record
-
-    else:
-        for record in iter_records(
-            client,
-            team_id=team_id,
-            is_backfill=is_backfill,
-            fields=model["fields"] if model is not None else batch_export_default_fields,
-            extra_query_parameters=model["values"] if model is not None else None,
-            interval_start=interval_start,
-            interval_end=interval_end,
-            **parameters,
-        ):
-            yield record
-
-
-async def iter_records_from_model_view(
-    client: ClickHouseClient,
-    model_name: str,
-    is_backfill: bool,
-    team_id: int,
-    interval_start: str | None,
-    interval_end: str,
-    fields: list[BatchExportField],
-    # TODO - remove this once all batch exports are using the latest schema
-    use_latest_schema: bool = False,
-    **parameters,
-) -> AsyncRecordsGenerator:
-    extra_query_parameters = parameters.pop("extra_query_parameters", {}) or {}
-    filters = parameters.pop("filters", None) or None
-
-    if filters is not None:
-        filters_str, extra_query_parameters = await database_sync_to_async(compose_filters_clause)(
-            filters, team_id=team_id, values=extra_query_parameters
-        )
-    else:
-        filters_str, extra_query_parameters = "", extra_query_parameters
-
-    if filters_str:
-        filters_str = f"AND {filters_str}"
-
-    if model_name == "persons":
-        if is_backfill and interval_start is None:
-            if use_latest_schema:
-                view = SELECT_FROM_PERSONS_VIEW_BACKFILL_NEW
-            else:
-                view = SELECT_FROM_PERSONS_VIEW_BACKFILL
-        else:
-            if use_latest_schema:
-                view = SELECT_FROM_PERSONS_VIEW_NEW
-            else:
-                view = SELECT_FROM_PERSONS_VIEW
-    elif str(team_id) not in settings.ASYNC_ARROW_STREAMING_TEAM_IDS:
-        # TODO: Let this model be exported by `astream_query_as_arrow`.
-        # Just to reduce risk, I don't want to change the function that runs 100% of the exports
-        # without battle testing it first.
-        # There are already changes going out to the queries themselves that will impact events in a
-        # positive way. So, we can come back later and drop this block.
-        # UPDATE: Will start moving teams over to `astream_query_as_arrow` by setting their ids
-        # in `ASYNC_ARROW_STREAMING_TEAM_IDS`. If testing goes well, we'll remove this block.
-        for record_batch in iter_records(
-            client,
-            team_id=team_id,
-            is_backfill=is_backfill,
-            interval_start=interval_start,
-            interval_end=interval_end,
-            fields=fields,
-            filters_str=filters_str,
-            extra_query_parameters=extra_query_parameters,
-            **parameters,
-        ):
-            yield record_batch
-        return
-    else:
-        if parameters["exclude_events"]:
-            parameters["exclude_events"] = list(parameters["exclude_events"])
-        else:
-            parameters["exclude_events"] = []
-
-        if parameters["include_events"]:
-            parameters["include_events"] = list(parameters["include_events"])
-        else:
-            parameters["include_events"] = []
-
-        start_at = dt.datetime.fromisoformat(interval_start) if interval_start is not None else None
-        end_at = dt.datetime.fromisoformat(interval_end)
-
-        if start_at:
-            is_5_min_batch_export = (end_at - start_at) == dt.timedelta(seconds=300)
-        else:
-            is_5_min_batch_export = False
-
-        # for 5 min batch exports we query the events_recent table, which is known to have zero replication lag, but
-        # may not be able to handle the load from all batch exports
-        if is_5_min_batch_export and not is_backfill:
-            query_template = SELECT_FROM_EVENTS_VIEW_RECENT
-        # for other batch exports that should use `events_recent` we use the `distributed_events_recent` table
-        # which is a distributed table that sits in front of the `events_recent` table
-        elif use_distributed_events_recent_table(is_backfill=is_backfill, team_id=team_id):
-            query_template = SELECT_FROM_DISTRIBUTED_EVENTS_RECENT
-        elif str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
-            query_template = SELECT_FROM_EVENTS_VIEW_UNBOUNDED
-        elif is_backfill:
-            query_template = SELECT_FROM_EVENTS_VIEW_BACKFILL
-        else:
-            query_template = SELECT_FROM_EVENTS_VIEW
-            lookback_days = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS)
-            parameters["lookback_days"] = lookback_days
-
-        if "_inserted_at" not in [field["alias"] for field in fields]:
-            control_fields = [BatchExportField(expression="_inserted_at", alias="_inserted_at")]
-        else:
-            control_fields = []
-
-        query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in fields + control_fields)
-
-        view = query_template.safe_substitute(fields=query_fields, filters=filters_str)
-
-    if interval_start is not None:
-        parameters["interval_start"] = dt.datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
-    else:
-        parameters["interval_start"] = None
-
-    parameters["team_id"] = team_id
-    parameters["interval_end"] = dt.datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
-    parameters = {**parameters, **extra_query_parameters}
-
-    async for record_batch in client.astream_query_as_arrow(
-        query=view,
-        query_parameters=parameters,
-    ):
-        yield record_batch
 
 
 class RecordBatchProducerError(Exception):
@@ -411,21 +151,6 @@ def generate_query_ranges(
         yield (candidate_start_at, candidate_end_at)
 
 
-def use_distributed_events_recent_table(is_backfill: bool, team_id: int) -> bool:
-    if is_backfill:
-        return False
-
-    events_recent_rollout: float = settings.BATCH_EXPORT_DISTRIBUTED_EVENTS_RECENT_ROLLOUT
-    # sanity check
-    if events_recent_rollout < 0:
-        events_recent_rollout = 0
-    elif events_recent_rollout > 1:
-        events_recent_rollout = 1
-
-    bucket = team_id % 10
-    return bucket < events_recent_rollout * 10
-
-
 def iter_records(
     client: ClickHouseClient,
     team_id: int,
@@ -437,8 +162,11 @@ def iter_records(
     filters_str: str | None = None,
     extra_query_parameters: dict[str, typing.Any] | None = None,
     is_backfill: bool = False,
+    backfill_details: BackfillDetails | None = None,
 ) -> RecordsGenerator:
     """Iterate over Arrow batch records for a batch export.
+
+    TODO: this can be removed once HTTP batch exports are migrated to SPMC
 
     Args:
         client: The ClickHouse client used to query for the batch records.
@@ -492,6 +220,9 @@ def iter_records(
     start_at = dt.datetime.fromisoformat(interval_start) if interval_start is not None else None
     end_at = dt.datetime.fromisoformat(interval_end)
 
+    # TODO: this can be simplified once all backfill inputs are migrated
+    is_backfill = (backfill_details is not None) or is_backfill
+
     if start_at:
         is_5_min_batch_export = (end_at - start_at) == dt.timedelta(seconds=300)
     else:
@@ -503,7 +234,9 @@ def iter_records(
         query = SELECT_FROM_EVENTS_VIEW_RECENT
     # for other batch exports that should use `events_recent` we use the `distributed_events_recent` table
     # which is a distributed table that sits in front of the `events_recent` table
-    elif use_distributed_events_recent_table(is_backfill=is_backfill, team_id=team_id):
+    elif use_distributed_events_recent_table(
+        is_backfill=is_backfill, backfill_details=backfill_details, data_interval_start=start_at
+    ):
         query = SELECT_FROM_DISTRIBUTED_EVENTS_RECENT
     elif str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
         query = SELECT_FROM_EVENTS_VIEW_UNBOUNDED
@@ -604,7 +337,9 @@ class StartBatchExportRunInputs:
     data_interval_end: str
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
+    # this can be removed once all backfills are finished
     is_backfill: bool = False
+    backfill_id: str | None = None
 
 
 BatchExportRunId = str
@@ -624,11 +359,20 @@ async def start_batch_export_run(inputs: StartBatchExportRunInputs) -> BatchExpo
         inputs.data_interval_end,
     )
 
+    # TODO - this internal logging can be removed once we're happy with the migration of the inputs
+    internal_logger = get_internal_logger()
+    internal_logger.info(
+        "Backfill inputs migration: is_backfill=%s, backfill_id=%s",
+        inputs.is_backfill,
+        inputs.backfill_id,
+    )
+
     run = await database_sync_to_async(create_batch_export_run)(
         batch_export_id=uuid.UUID(inputs.batch_export_id),
         data_interval_start=inputs.data_interval_start,
         data_interval_end=inputs.data_interval_end,
         status=BatchExportRun.Status.STARTING,
+        backfill_id=uuid.UUID(inputs.backfill_id) if inputs.backfill_id else None,
     )
 
     return str(run.id)
@@ -871,7 +615,7 @@ async def create_batch_export_backfill_model(inputs: CreateBatchExportBackfillIn
         inputs.start_at,
         inputs.end_at,
     )
-    run = await database_sync_to_async(create_batch_export_backfill)(
+    backfill = await database_sync_to_async(create_batch_export_backfill)(
         batch_export_id=uuid.UUID(inputs.batch_export_id),
         start_at=inputs.start_at,
         end_at=inputs.end_at,
@@ -879,7 +623,7 @@ async def create_batch_export_backfill_model(inputs: CreateBatchExportBackfillIn
         team_id=inputs.team_id,
     )
 
-    return str(run.id)
+    return str(backfill.id)
 
 
 @dataclasses.dataclass
@@ -892,7 +636,7 @@ class UpdateBatchExportBackfillStatusInputs:
 
 @activity.defn
 async def update_batch_export_backfill_model_status(inputs: UpdateBatchExportBackfillStatusInputs) -> None:
-    """Activity that updates the status of an BatchExportRun."""
+    """Activity that updates the status of an BatchExportBackfill."""
     backfill = await database_sync_to_async(update_batch_export_backfill_status)(
         backfill_id=uuid.UUID(inputs.id),
         status=inputs.status,

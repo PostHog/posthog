@@ -19,6 +19,7 @@ from posthog.renderers import SafeJSONRenderer
 from posthog.schema import ClickhouseQueryProgress, QueryStatus
 from posthog.tasks.tasks import process_query_task
 
+
 if TYPE_CHECKING:
     from posthog.models.team.team import Team
 
@@ -263,25 +264,41 @@ def get_query_status(team_id: int, query_id: str, show_progress: bool = False) -
     return manager.get_query_status(show_progress=show_progress)
 
 
-def cancel_query(team_id: int, query_id: str) -> bool:
+def cancel_query(team_id: int, query_id: str, dequeue_only: bool = False) -> str:
+    """
+    Cancel a query.
+    First tries to see if the query is queued in celery and revokes it.
+    If the query is not queued, it will be cancelled on clickhouse.
+
+    If dequeue_only is True, only tries to revoke the task, not cancel the query on clickhouse.
+    Useful as we don't want to overwhelm clickhouse with KILL queries.
+    """
     manager = QueryStatusManager(query_id, team_id)
+    message = "Query task revoked"
 
     try:
         query_status = manager.get_query_status()
 
+        if query_status.complete:
+            return "Query already complete"
+
         if query_status.task_id:
             logger.info("Got task id %s, attempting to revoke", query_status.task_id)
-            celery.app.control.revoke(query_status.task_id, terminate=True)
+            celery.app.control.revoke(query_status.task_id)
 
             logger.info("Revoked task id %s", query_status.task_id)
     except QueryNotFoundError:
         # Continue, to attempt to cancel the query even if it's not a task
         pass
 
-    from posthog.clickhouse.cancel import cancel_query_on_cluster
+    if dequeue_only:
+        message = "Only tried to dequeue, not cancelling query on clickhouse"
+    else:
+        from posthog.clickhouse.cancel import cancel_query_on_cluster
 
-    cancel_query_on_cluster(team_id, query_id)
+        cancel_query_on_cluster(team_id, query_id)
+        message = "Cancelled query on clickhouse"
 
     manager.delete_query_status()
 
-    return True
+    return message

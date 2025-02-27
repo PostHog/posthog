@@ -1,6 +1,14 @@
 packages:
     - '.'
-    - plugin-server
-    - common/plugin_transpiler
+    - common/esbuilder
+    - common/eslint_rules
     - common/hogvm/typescript
+    - common/plugin_transpiler
+    - common/storybook
+    - cypress
+    - ee/frontend
+    - frontend
+    - plugin-server
+    - products/*
     - rust/cyclotron-node
+    - playwright

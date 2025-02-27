@@ -154,6 +154,7 @@ export const sessionRecordingFilePlaybackSceneLogic = kea<sessionRecordingFilePl
             dataLogic.actions.loadRecordingMetaSuccess({
                 id: values.sessionRecording.id,
                 viewed: false,
+                viewers: [],
                 recording_duration: snapshots[snapshots.length - 1].timestamp - snapshots[0].timestamp,
                 person: values.sessionRecording.person || undefined,
                 start_time: dayjs(snapshots[0].timestamp).toISOString(),

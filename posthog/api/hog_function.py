@@ -155,7 +155,9 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         instance = cast(Optional[HogFunction], self.context.get("instance", self.instance))
 
         hog_type = attrs.get("type", instance.type if instance else "destination")
-        is_create = self.context.get("view") and self.context["view"].action == "create"
+        is_create = self.context.get("is_create") or (
+            self.context.get("view") and self.context["view"].action == "create"
+        )
 
         template_id = attrs.get("template_id", instance.template_id if instance else None)
         template = HogFunctionTemplates.template(template_id) if template_id else None
@@ -252,9 +254,6 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             else:
                 attrs["bytecode"] = compile_hog(attrs["hog"], hog_type)
                 attrs["transpiled"] = None
-        else:
-            attrs["bytecode"] = None
-            attrs["transpiled"] = None
 
         if is_create:
             if not attrs.get("hog"):
@@ -312,10 +311,12 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
 class HogFunctionInvocationSerializer(serializers.Serializer):
     configuration = HogFunctionSerializer(write_only=True)
-    globals = serializers.DictField(write_only=True)
+    globals = serializers.DictField(write_only=True, required=False)
+    clickhouse_event = serializers.DictField(write_only=True, required=False)
     mock_async_functions = serializers.BooleanField(default=True, write_only=True)
     status = serializers.CharField(read_only=True)
     logs = serializers.ListField(read_only=True)
+    invocation_id = serializers.CharField(required=False, allow_null=True)
 
 
 class HogFunctionViewSet(
@@ -407,15 +408,10 @@ class HogFunctionViewSet(
         # Remove the team from the config
         configuration.pop("team")
 
-        hog_globals = serializer.validated_data["globals"]
-        mock_async_functions = serializer.validated_data["mock_async_functions"]
-
         res = create_hog_invocation_test(
             team_id=self.team_id,
             hog_function_id=str(hog_function.id) if hog_function else "new",
-            globals=hog_globals,
-            configuration=configuration,
-            mock_async_functions=mock_async_functions,
+            payload=serializer.validated_data,
         )
 
         if res.status_code != 200:

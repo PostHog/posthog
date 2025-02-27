@@ -104,7 +104,6 @@ function SidebarSearchBar({
     return (
         <div className="h-10">
             <LemonInput
-                className="h-full"
                 inputRef={inputElementRef}
                 type="search"
                 value={localSearchTerm}

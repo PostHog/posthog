@@ -2,12 +2,24 @@ import { LemonInput, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { PathCleanFilters } from 'lib/components/PathCleanFilters/PathCleanFilters'
+import { isValidRegexp } from 'lib/utils/regexp'
 import { useState } from 'react'
+import { INSIGHT_TYPE_URLS } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature, InsightType } from '~/types'
+import { AvailableFeature, InsightType, PathCleaningFilter } from '~/types'
+
+const cleanPathWithRegexes = (path: string, filters: PathCleaningFilter[]): string => {
+    return filters.reduce((text, filter) => {
+        // If for some reason we don't have a valid RegExp, don't attempt to clean the path
+        if (!isValidRegexp(filter.regex ?? '')) {
+            return text
+        }
+
+        return text.replace(new RegExp(filter.regex ?? '', 'gi'), filter.alias ?? '')
+    }, path)
+}
 
 export function PathCleaningFiltersConfig(): JSX.Element | null {
     const [testValue, setTestValue] = useState('')
@@ -33,17 +45,14 @@ export function PathCleaningFiltersConfig(): JSX.Element | null {
         )
     }
 
-    const cleanedTestPath =
-        currentTeam.path_cleaning_filters?.reduce((text, filter) => {
-            return text.replace(new RegExp(filter.regex ?? ''), filter.alias ?? '')
-        }, testValue) ?? ''
+    const cleanedTestPath = cleanPathWithRegexes(testValue, currentTeam.path_cleaning_filters ?? [])
     const readableTestPath = parseAliasToReadable(cleanedTestPath)
 
     return (
         <>
             <p>
-                Make your <Link to={urls.insightNew(InsightType.PATHS)}>Paths</Link> clearer by aliasing one or multiple
-                URLs.{' '}
+                Make your <Link to={INSIGHT_TYPE_URLS[InsightType.PATHS]}>Paths</Link> clearer by aliasing one or
+                multiple URLs.{' '}
                 <i>
                     Example: <code>http://tenant-one.mydomain.com/accounts</code> and{' '}
                     <code>http://tenant-two.mydomain.com/accounts</code> can become a single <code>/accounts</code>{' '}

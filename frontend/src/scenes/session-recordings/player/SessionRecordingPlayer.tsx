@@ -6,7 +6,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { BuilderHog2 } from 'lib/components/hedgehogs'
 import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 import { HotkeysInterface, useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
-import { usePageVisibility } from 'lib/hooks/usePageVisibility'
+import { usePageVisibilityCb } from 'lib/hooks/usePageVisibility'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { useMemo, useRef } from 'react'
 import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
@@ -16,9 +16,9 @@ import { urls } from 'scenes/urls'
 
 import { NetworkView } from '../apm/NetworkView'
 import { PlayerController } from './controller/PlayerController'
+import { PlayerMeta } from './player-meta/PlayerMeta'
 import { PlayerFrame } from './PlayerFrame'
 import { PlayerFrameOverlay } from './PlayerFrameOverlay'
-import { PlayerMeta } from './PlayerMeta'
 import { PlaybackMode, playerSettingsLogic } from './playerSettingsLogic'
 import { PlayerSidebar } from './PlayerSidebar'
 import { sessionRecordingDataLogic } from './sessionRecordingDataLogic'
@@ -130,7 +130,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         [isFullScreen]
     )
 
-    usePageVisibility((pageIsVisible) => {
+    usePageVisibilityCb((pageIsVisible) => {
         if (!pageIsVisible) {
             setPause()
         }
@@ -144,15 +144,6 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         },
         {
             ref: playerRef,
-        }
-    )
-    const { size: playerMainSize } = useResizeBreakpoints(
-        {
-            0: 'small',
-            750: 'medium',
-        },
-        {
-            ref: playerMainRef,
         }
     )
 
@@ -210,9 +201,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                                         <div className="flex flex-col flex-1 w-full">
                                             {playbackMode === PlaybackMode.Recording ? (
                                                 <>
-                                                    {!noMeta || isFullScreen ? (
-                                                        <PlayerMeta iconsOnly={playerMainSize === 'small'} />
-                                                    ) : null}
+                                                    {!noMeta || isFullScreen ? <PlayerMeta /> : null}
 
                                                     <div
                                                         className="SessionRecordingPlayer__body"

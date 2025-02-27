@@ -15,9 +15,8 @@ export const WebAnalyticsModal = (): JSX.Element | null => {
     const {
         modal,
         dateFilter: { dateFrom, dateTo },
-        webAnalyticsFilters,
     } = useValues(webAnalyticsLogic)
-    const { closeModal, setDates, setWebAnalyticsFilters } = useActions(webAnalyticsLogic)
+    const { closeModal, setDates } = useActions(webAnalyticsLogic)
 
     if (!modal) {
         return null
@@ -35,10 +34,7 @@ export const WebAnalyticsModal = (): JSX.Element | null => {
         >
             <div className="WebAnalyticsModal space-y-4">
                 <div className="flex flex-row flex-wrap gap-2">
-                    <WebPropertyFilters
-                        setWebAnalyticsFilters={setWebAnalyticsFilters}
-                        webAnalyticsFilters={webAnalyticsFilters}
-                    />
+                    <WebPropertyFilters />
                     <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
                 </div>
                 <LemonModal.Content embedded>
@@ -52,7 +48,7 @@ export const WebAnalyticsModal = (): JSX.Element | null => {
                 <div className="flex flex-row justify-end">
                     {modal.canOpenInsight ? (
                         <LemonButton
-                            to={urls.insightNew(undefined, undefined, modal.query)}
+                            to={urls.insightNew({ query: modal.query })}
                             icon={<IconOpenInNew />}
                             size="small"
                             type="secondary"

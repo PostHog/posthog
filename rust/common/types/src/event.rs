@@ -109,19 +109,14 @@ pub struct ClickHouseEvent {
     pub group3_properties: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub group4_properties: Option<String>,
-    // TODO: verify timestamp format
     #[serde(skip_serializing_if = "Option::is_none")]
     pub group0_created_at: Option<String>,
-    // TODO: verify timestamp format
     #[serde(skip_serializing_if = "Option::is_none")]
     pub group1_created_at: Option<String>,
-    // TODO: verify timestamp format
     #[serde(skip_serializing_if = "Option::is_none")]
     pub group2_created_at: Option<String>,
-    // TODO: verify timestamp format
     #[serde(skip_serializing_if = "Option::is_none")]
     pub group3_created_at: Option<String>,
-    // TODO: verify timestamp format
     #[serde(skip_serializing_if = "Option::is_none")]
     pub group4_created_at: Option<String>,
     pub person_mode: PersonMode,
@@ -199,6 +194,15 @@ impl RawEvent {
             Some(Value::Bool(b)) => Some(*b),
             Some(_) => None,
             None => Some(false),
+        }
+    }
+
+    pub fn map_property<F>(&mut self, key: &str, f: F)
+    where
+        F: FnOnce(Value) -> Value,
+    {
+        if let Some(value) = self.properties.get_mut(key) {
+            *value = f(value.take());
         }
     }
 }

@@ -12,7 +12,8 @@
         "build:cargo:debug": "pnpm run build:cargo",
         "build:cross": "cross build --message-format=json > cross.log",
         "build:typescript": "tsc",
-        "package": "NODE_ENV=development pnpm --filter=@posthog/cyclotron i --dev && pnpm run build"
+        "clean": "rm -rf index.node",
+        "package": "NODE_ENV=development pnpm --filter=@posthog/cyclotron run build"
     },
     "author": "",
     "license": "MIT",

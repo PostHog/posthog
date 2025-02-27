@@ -11,7 +11,7 @@ from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import sort_cohorts_topologically
 from products.early_access_features.backend.models import EarlyAccessFeature
 from posthog.models.experiment import Experiment
-from posthog.models.feedback.survey import Survey
+from posthog.models.surveys.survey import Survey
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
@@ -131,6 +131,10 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "tags": [],
             "user_access_level": "editor",
             "is_remote_configuration": False,
+            "has_encrypted_payloads": False,
+            "status": "ACTIVE",
+            "version": 0,
+            "last_modified_by": ANY,
         }
 
         flag_response = response.json()["success"][0]
@@ -209,6 +213,10 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "analytics_dashboards": ANY,
             "user_access_level": "editor",
             "is_remote_configuration": False,
+            "has_encrypted_payloads": False,
+            "status": "ACTIVE",
+            "version": 1,
+            "last_modified_by": ANY,
         }
 
         flag_response = response.json()["success"][0]
@@ -331,6 +339,10 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "analytics_dashboards": ANY,
             "user_access_level": "editor",
             "is_remote_configuration": False,
+            "has_encrypted_payloads": False,
+            "status": "ACTIVE",
+            "version": 0,
+            "last_modified_by": ANY,
         }
         flag_response = response.json()["success"][0]
 

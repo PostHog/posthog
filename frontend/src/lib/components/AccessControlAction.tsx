@@ -19,7 +19,7 @@ const orderedAccessLevels = (resourceType: AccessControlResourceType): AccessCon
     return ['none', 'viewer', 'editor']
 }
 
-const resourceTypeToString = (resourceType: AccessControlResourceType): string => {
+export const resourceTypeToString = (resourceType: AccessControlResourceType): string => {
     if (resourceType === AccessControlResourceType.FeatureFlag) {
         return 'feature flag'
     }

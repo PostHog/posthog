@@ -1,6 +1,6 @@
 import { dayjs } from 'lib/dayjs'
 
-import { LLMTrace, LLMTraceEvent } from '~/queries/schema'
+import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
 import {
     AnthropicInputMessage,
@@ -45,6 +45,21 @@ export function formatLLMCost(cost: number): string {
 
 export function isLLMTraceEvent(item: LLMTrace | LLMTraceEvent): item is LLMTraceEvent {
     return 'properties' in item
+}
+
+export function hasSessionID(event: LLMTrace | LLMTraceEvent): boolean {
+    if (isLLMTraceEvent(event)) {
+        return 'properties' in event && typeof event.properties.$session_id === 'string'
+    }
+    return '$session_id' in event
+}
+
+export function getSessionID(event: LLMTrace | LLMTraceEvent): string | null {
+    if (isLLMTraceEvent(event)) {
+        return event.properties.$session_id || null
+    }
+
+    return event.events.find((e) => e.properties.$session_id !== null)?.properties.$session_id || null
 }
 
 export function isOpenAICompatToolCall(input: unknown): input is OpenAIToolCall {

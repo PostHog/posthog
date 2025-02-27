@@ -6,23 +6,12 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import posthog from 'posthog-js'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
-import { DatabaseSchemaDataWarehouseTable } from '~/queries/schema'
-import { DataWarehouseSettingsTab, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
+import { DatabaseSchemaDataWarehouseTable } from '~/queries/schema/schema-general'
+import { ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
 import type { dataWarehouseSettingsLogicType } from './dataWarehouseSettingsLogicType'
 
 const REFRESH_INTERVAL = 10000
-
-export interface DataWarehouseSource {}
-
-export const humanFriendlyDataWarehouseSettingsTabName = (tab: DataWarehouseSettingsTab): string => {
-    switch (tab) {
-        case DataWarehouseSettingsTab.Managed:
-            return 'Managed'
-        case DataWarehouseSettingsTab.SelfManaged:
-            return 'Self managed'
-    }
-}
 
 export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
     path(['scenes', 'data-warehouse', 'settings', 'dataWarehouseSettingsLogic']),

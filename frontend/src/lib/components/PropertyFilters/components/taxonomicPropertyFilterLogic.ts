@@ -14,9 +14,8 @@ import {
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
 
-import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { AnyPropertyFilter, PropertyFilterType } from '~/types'
+import { AnyPropertyFilter, CohortPropertyFilter, PropertyFilterType } from '~/types'
 
 import type { taxonomicPropertyFilterLogicType } from './taxonomicPropertyFilterLogicType'
 
@@ -31,6 +30,7 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                 taxonomicGroupTypes: props.taxonomicGroupTypes,
                 onChange: props.taxonomicOnChange,
                 eventNames: props.eventNames,
+                excludedProperties: props.excludedProperties,
                 propertyAllowList: props.propertyAllowList,
             } as TaxonomicFilterLogicProps),
             ['taxonomicGroups'],
@@ -42,11 +42,13 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
         selectItem: (
             taxonomicGroup: TaxonomicFilterGroup,
             propertyKey?: TaxonomicFilterValue,
-            itemPropertyFilterType?: PropertyFilterType
+            itemPropertyFilterType?: PropertyFilterType,
+            item?: any
         ) => ({
             taxonomicGroup,
             propertyKey,
             itemPropertyFilterType,
+            item,
         }),
         openDropdown: true,
         closeDropdown: true,
@@ -66,11 +68,6 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
             (filters, filterIndex): AnyPropertyFilter | null =>
                 filters[filterIndex] ? sanitizePropertyFilter(filters[filterIndex]) : null,
         ],
-        selectedCohortName: [
-            (s) => [s.filter, cohortsModel.selectors.cohorts],
-            (filter, cohorts) =>
-                filter?.type === 'cohort' ? cohorts.results.find((c) => c.id === filter?.value)?.name : null,
-        ],
         activeTaxonomicGroup: [
             (s) => [s.filter, s.taxonomicGroups],
             (filter, groups): TaxonomicFilterGroup | undefined => {
@@ -82,7 +79,7 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
         ],
     }),
     listeners(({ actions, values, props }) => ({
-        selectItem: ({ taxonomicGroup, propertyKey, itemPropertyFilterType }) => {
+        selectItem: ({ taxonomicGroup, propertyKey, itemPropertyFilterType, item }) => {
             const propertyType = itemPropertyFilterType ?? taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type)
             if (propertyKey && propertyType) {
                 const filter = createDefaultPropertyFilter(
@@ -92,6 +89,13 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                     taxonomicGroup,
                     values.describeProperty
                 )
+
+                // Add cohort name if this is a cohort filter
+                if (propertyType === 'cohort' && item?.name) {
+                    const cohortFilter = filter as CohortPropertyFilter
+                    cohortFilter.cohort_name = item.name
+                }
+
                 props.setFilter(props.filterIndex, filter)
                 actions.closeDropdown()
             }

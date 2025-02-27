@@ -6,7 +6,7 @@ import { beforeUnload, router } from 'kea-router'
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
 
-import { DatabaseSchemaBatchExportTable } from '~/queries/schema'
+import { DatabaseSchemaBatchExportTable } from '~/queries/schema/schema-general'
 import { BatchExportConfiguration, BatchExportService, PipelineNodeTab, PipelineStage } from '~/types'
 
 import { humanizeBatchExportName } from './batch-exports/utils'
@@ -199,6 +199,230 @@ const personsTable: DatabaseSchemaBatchExportTable = {
             type: 'datetime',
             schema_valid: true,
         },
+        is_deleted: {
+            name: 'is_deleted',
+            hogql_value: 'is_deleted',
+            type: 'boolean',
+            schema_valid: true,
+        },
+    },
+}
+
+const sessionsTable: DatabaseSchemaBatchExportTable = {
+    type: 'batch_export',
+    id: 'Sessions',
+    name: 'sessions',
+    fields: {
+        team_id: {
+            name: 'team_id',
+            hogql_value: 'team_id',
+            type: 'integer',
+            schema_valid: true,
+        },
+        session_id: {
+            name: 'session_id',
+            type: 'string',
+            hogql_value: 'session_id',
+            schema_valid: true,
+        },
+        session_id_v7: {
+            name: 'session_id_v7',
+            type: 'integer',
+            hogql_value: 'session_id_v7',
+            schema_valid: true,
+        },
+        distinct_id: {
+            name: 'distinct_id',
+            type: 'string',
+            hogql_value: 'distinct_id',
+            schema_valid: true,
+        },
+        start_timestamp: {
+            name: 'start_timestamp',
+            type: 'datetime',
+            hogql_value: 'start_timestamp',
+            schema_valid: true,
+        },
+        end_timestamp: {
+            name: 'end_timestamp',
+            type: 'datetime',
+            hogql_value: 'end_timestamp',
+            schema_valid: true,
+        },
+        urls: {
+            name: 'urls',
+            type: 'array',
+            hogql_value: 'urls',
+            schema_valid: true,
+        },
+        num_uniq_urls: {
+            name: 'num_uniq_urls',
+            type: 'integer',
+            hogql_value: 'num_uniq_urls',
+            schema_valid: true,
+        },
+        entry_current_url: {
+            name: 'entry_current_url',
+            type: 'string',
+            hogql_value: 'entry_current_url',
+            schema_valid: true,
+        },
+        entry_pathname: {
+            name: 'entry_pathname',
+            type: 'string',
+            hogql_value: 'entry_pathname',
+            schema_valid: true,
+        },
+        entry_hostname: {
+            name: 'entry_hostname',
+            type: 'string',
+            hogql_value: 'entry_hostname',
+            schema_valid: true,
+        },
+        end_current_url: {
+            name: 'end_current_url',
+            type: 'string',
+            hogql_value: 'end_current_url',
+            schema_valid: true,
+        },
+        end_pathname: {
+            name: 'end_pathname',
+            type: 'string',
+            hogql_value: 'end_pathname',
+            schema_valid: true,
+        },
+        end_hostname: {
+            name: 'end_hostname',
+            type: 'string',
+            hogql_value: 'end_hostname',
+            schema_valid: true,
+        },
+        entry_utm_source: {
+            name: 'entry_utm_source',
+            type: 'string',
+            hogql_value: 'entry_utm_source',
+            schema_valid: true,
+        },
+        entry_utm_campaign: {
+            name: 'entry_utm_campaign',
+            type: 'string',
+            hogql_value: 'entry_utm_campaign',
+            schema_valid: true,
+        },
+        entry_utm_medium: {
+            name: 'entry_utm_medium',
+            type: 'string',
+            hogql_value: 'entry_utm_medium',
+            schema_valid: true,
+        },
+        entry_utm_term: {
+            name: 'entry_utm_term',
+            type: 'string',
+            hogql_value: 'entry_utm_term',
+            schema_valid: true,
+        },
+        entry_utm_content: {
+            name: 'entry_utm_content',
+            type: 'string',
+            hogql_value: 'entry_utm_content',
+            schema_valid: true,
+        },
+        entry_referring_domain: {
+            name: 'entry_referring_domain',
+            type: 'string',
+            hogql_value: 'entry_referring_domain',
+            schema_valid: true,
+        },
+        entry_gclid: {
+            name: 'entry_gclid',
+            type: 'string',
+            hogql_value: 'entry_gclid',
+            schema_valid: true,
+        },
+        entry_fbclid: {
+            name: 'entry_fbclid',
+            type: 'string',
+            hogql_value: 'entry_fbclid',
+            schema_valid: true,
+        },
+        entry_gad_source: {
+            name: 'entry_gad_source',
+            type: 'string',
+            hogql_value: 'entry_gad_source',
+            schema_valid: true,
+        },
+        pageview_count: {
+            name: 'pageview_count',
+            type: 'integer',
+            hogql_value: 'pageview_count',
+            schema_valid: true,
+        },
+        autocapture_count: {
+            name: 'autocapture_count',
+            type: 'integer',
+            hogql_value: 'autocapture_count',
+            schema_valid: true,
+        },
+        screen_count: {
+            name: 'screen_count',
+            type: 'integer',
+            hogql_value: 'screen_count',
+            schema_valid: true,
+        },
+        channel_type: {
+            name: 'channel_type',
+            type: 'string',
+            hogql_value: 'channel_type',
+            schema_valid: true,
+        },
+        session_duration: {
+            name: 'session_duration',
+            type: 'integer',
+            hogql_value: 'session_duration',
+            schema_valid: true,
+        },
+        duration: {
+            name: 'duration',
+            type: 'integer',
+            hogql_value: 'duration',
+            schema_valid: true,
+        },
+        is_bounce: {
+            name: 'is_bounce',
+            type: 'boolean',
+            hogql_value: 'is_bounce',
+            schema_valid: true,
+        },
+        last_external_click_url: {
+            name: 'last_external_click_url',
+            type: 'string',
+            hogql_value: 'last_external_click_url',
+            schema_valid: true,
+        },
+        page_screen_autocapture_count_up_to: {
+            name: 'page_screen_autocapture_count_up_to',
+            type: 'string',
+            hogql_value: 'page_screen_autocapture_count_up_to',
+            schema_valid: true,
+        },
+        exit_current_url: {
+            name: 'exit_current_url',
+            type: 'string',
+            hogql_value: 'exit_current_url',
+            schema_valid: true,
+        },
+        exit_pathname: {
+            name: 'exit_pathname',
+            type: 'string',
+            hogql_value: 'exit_pathname',
+            schema_valid: true,
+        },
+        vital_lcp: {
+            name: 'vital_lcp',
+            type: 'float',
+            hogql_value: 'vital_lcp',
+            schema_valid: true,
+        },
     },
 }
 
@@ -276,21 +500,23 @@ export const pipelineBatchExportConfigurationLogic = kea<pipelineBatchExportConf
     })),
     reducers(({ props }) => ({
         tables: [
-            props.service ? [getEventTable(props.service), personsTable] : ([] as DatabaseSchemaBatchExportTable[]),
+            props.service
+                ? [getEventTable(props.service), personsTable, sessionsTable]
+                : ([] as DatabaseSchemaBatchExportTable[]),
             {
                 loadBatchExportConfigSuccess: (state, { batchExportConfig }) => {
                     if (!batchExportConfig) {
                         return state
                     }
 
-                    return [getEventTable(batchExportConfig.destination.type), personsTable]
+                    return [getEventTable(batchExportConfig.destination.type), personsTable, sessionsTable]
                 },
                 updateBatchExportConfigSuccess: (state, { batchExportConfig }) => {
                     if (!batchExportConfig) {
                         return state
                     }
 
-                    return [getEventTable(batchExportConfig.destination.type), personsTable]
+                    return [getEventTable(batchExportConfig.destination.type), personsTable, sessionsTable]
                 },
             },
         ],

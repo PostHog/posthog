@@ -2,10 +2,10 @@ import os
 from boto3 import resource
 
 from rest_framework import status
-
-
+from freezegun import freeze_time
 from django.test import override_settings
 from django.core.files.uploadedfile import SimpleUploadedFile
+from unittest.mock import ANY
 
 from posthog.test.base import APIBaseTest
 from posthog.models import (
@@ -15,6 +15,7 @@ from posthog.models import (
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueFingerprintV2,
 )
+from posthog.models.utils import uuid7
 from botocore.config import Config
 from posthog.settings import (
     OBJECT_STORAGE_ENDPOINT,
@@ -51,8 +52,47 @@ class TestErrorTracking(APIBaseTest):
         bucket = s3.Bucket(OBJECT_STORAGE_BUCKET)
         bucket.objects.filter(Prefix=TEST_BUCKET).delete()
 
+    def test_issue_not_found_fingerprint_redirect(self):
+        deleted_issue_id = uuid7()
+        merged_fingerprint = "merged_fingerprint"
+
+        merged_issue = self.create_issue()
+        ErrorTrackingIssueFingerprintV2.objects.create(
+            team=self.team, issue=merged_issue, fingerprint=merged_fingerprint
+        )
+
+        # no fingerprint
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/error_tracking/issue/{deleted_issue_id}",
+        )
+        assert response.status_code == 404
+
+        # with fingerprint hint
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/error_tracking/issue/{deleted_issue_id}?fingerprint={merged_fingerprint}",
+        )
+        assert response.status_code == 308
+        assert response.json() == {"issue_id": str(merged_issue.id)}
+
+    @freeze_time("2025-01-01")
+    def test_issue_fetch(self):
+        issue = self.create_issue(["fingerprint"])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/error_tracking/issue/{issue.id}")
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "id": str(issue.id),
+            "name": None,
+            "description": None,
+            "status": "active",
+            "assignee": None,
+            "first_seen": "2025-01-01T00:00:00Z",
+        }
+
+    @freeze_time("2025-01-01")
     def test_issue_update(self):
-        issue = self.create_issue()
+        issue = self.create_issue(["fingerprint"])
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/error_tracking/issue/{issue.id}", data={"status": "resolved"}
@@ -60,8 +100,43 @@ class TestErrorTracking(APIBaseTest):
         issue.refresh_from_db()
 
         assert response.status_code == 200
-        assert response.json() == {"status": "resolved"}
+        assert response.json() == {
+            "id": str(issue.id),
+            "name": None,
+            "description": None,
+            "status": "resolved",
+            "assignee": None,
+            "first_seen": "2025-01-01T00:00:00Z",
+        }
         assert issue.status == ErrorTrackingIssue.Status.RESOLVED
+
+        self._assert_logs_the_activity(
+            issue.id,
+            [
+                {
+                    "activity": "updated",
+                    "created_at": ANY,
+                    "detail": {
+                        "changes": [
+                            {
+                                "action": "changed",
+                                "after": "resolved",
+                                "before": "active",
+                                "field": "status",
+                                "type": "ErrorTrackingIssue",
+                            }
+                        ],
+                        "name": issue.name,
+                        "short_id": None,
+                        "trigger": None,
+                        "type": None,
+                    },
+                    "item_id": str(issue.id),
+                    "scope": "ErrorTrackingIssue",
+                    "user": {"email": "user1@posthog.com", "first_name": ""},
+                }
+            ],
+        )
 
     def test_issue_merge(self):
         issue_one = self.create_issue(fingerprints=["fingerprint_one"])
@@ -192,6 +267,34 @@ class TestErrorTracking(APIBaseTest):
         self.assertEqual(ErrorTrackingIssueAssignment.objects.count(), 1)
         self.assertEqual(ErrorTrackingIssueAssignment.objects.filter(issue=issue, user_id=self.user.id).count(), 1)
 
+        self._assert_logs_the_activity(
+            issue.id,
+            [
+                {
+                    "activity": "assigned",
+                    "created_at": ANY,
+                    "detail": {
+                        "changes": [
+                            {
+                                "action": "changed",
+                                "after": {"id": self.user.id, "type": "user"},
+                                "before": None,
+                                "field": "assignee",
+                                "type": "ErrorTrackingIssue",
+                            }
+                        ],
+                        "name": issue.name,
+                        "short_id": None,
+                        "trigger": None,
+                        "type": None,
+                    },
+                    "item_id": str(issue.id),
+                    "scope": "ErrorTrackingIssue",
+                    "user": {"email": "user1@posthog.com", "first_name": ""},
+                }
+            ],
+        )
+
         self.client.patch(
             f"/api/projects/{self.team.id}/error_tracking/issue/{issue.id}/assign",
             data={"assignee": None},
@@ -206,3 +309,17 @@ class TestErrorTracking(APIBaseTest):
         )
         # cannot assign issues from other teams
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def _assert_logs_the_activity(self, error_tracking_issue_id: int, expected: list[dict]) -> None:
+        activity_response = self._get_error_tracking_issue_activity(error_tracking_issue_id)
+        activity: list[dict] = activity_response["results"]
+        self.maxDiff = None
+        self.assertEqual(activity, expected)
+
+    def _get_error_tracking_issue_activity(
+        self, error_tracking_issue_id: int, expected_status: int = status.HTTP_200_OK
+    ) -> dict:
+        url = f"/api/projects/{self.team.id}/error_tracking/issue/{error_tracking_issue_id}/activity"
+        activity = self.client.get(url)
+        self.assertEqual(activity.status_code, expected_status)
+        return activity.json()

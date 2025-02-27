@@ -195,11 +195,11 @@ class CookielessServerHashMode(models.IntegerChoices):
 
 
 class Team(UUIDClassicModel):
-    """Team means "environment" (historically it meant "project", but now we have the Project model for that)."""
+    """Team means "environment" (historically it meant "project", but now we have the parent Project model for that)."""
 
     class Meta:
-        verbose_name = "team (soon to be environment)"
-        verbose_name_plural = "teams (soon to be environments)"
+        verbose_name = "environment (aka team)"
+        verbose_name_plural = "environments (aka teams)"
         constraints = [
             models.CheckConstraint(
                 name="project_id_is_not_null",
@@ -237,6 +237,7 @@ class Team(UUIDClassicModel):
     anonymize_ips = models.BooleanField(default=False)
     completed_snippet_onboarding = models.BooleanField(default=False)
     has_completed_onboarding_for = models.JSONField(null=True, blank=True)
+    onboarding_tasks = models.JSONField(null=True, blank=True)
     ingested_event = models.BooleanField(default=False)
     autocapture_opt_out = models.BooleanField(null=True, blank=True)
     autocapture_web_vitals_opt_in = models.BooleanField(null=True, blank=True)
@@ -260,6 +261,7 @@ class Team(UUIDClassicModel):
     )
     session_recording_linked_flag = models.JSONField(null=True, blank=True)
     session_recording_network_payload_capture_config = models.JSONField(null=True, blank=True)
+    session_recording_masking_config = models.JSONField(null=True, blank=True)
     session_recording_url_trigger_config = ArrayField(
         models.JSONField(null=True, blank=True), default=list, blank=True, null=True
     )

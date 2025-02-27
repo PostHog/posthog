@@ -10,6 +10,7 @@ from django.conf import settings
 from posthog.exceptions_capture import capture_exception
 from posthog.settings.base_variables import TEST
 from posthog.temporal.common.logger import FilteringBoundLogger
+from posthog.temporal.data_imports.pipelines.pipeline.utils import normalize_column_name
 from posthog.warehouse.models import ExternalDataJob
 from posthog.warehouse.s3 import get_s3_client
 
@@ -18,6 +19,7 @@ class DeltaTableHelper:
     _resource_name: str
     _job: ExternalDataJob
     _logger: FilteringBoundLogger
+    _is_first_sync: bool = False
 
     def __init__(self, resource_name: str, job: ExternalDataJob, logger: FilteringBoundLogger) -> None:
         self._resource_name = resource_name
@@ -79,7 +81,8 @@ class DeltaTableHelper:
                 if "parse decimal overflow" in "".join(e.args):
                     s3 = get_s3_client()
                     s3.delete(delta_uri, recursive=True)
-                    return None
+
+        self._is_first_sync = True
 
         return None
 
@@ -97,6 +100,8 @@ class DeltaTableHelper:
 
         self.get_delta_table.cache_clear()
 
+        self._is_first_sync = True
+
     def write_to_deltalake(
         self, data: pa.Table, is_incremental: bool, chunk_index: int, primary_keys: Sequence[Any] | None
     ) -> deltalake.DeltaTable:
@@ -105,15 +110,25 @@ class DeltaTableHelper:
         if delta_table:
             delta_table = self._evolve_delta_schema(data.schema)
 
-        if is_incremental and delta_table is not None:
+        self._logger.debug(f"write_to_deltalake: _is_first_sync = {self._is_first_sync}")
+
+        if is_incremental and delta_table is not None and not self._is_first_sync:
             if not primary_keys or len(primary_keys) == 0:
                 raise Exception("Primary key required for incremental syncs")
+
+            self._logger.debug(f"write_to_deltalake: merging...")
+
+            # Normalize keys and check the keys actually exist in the dataset
+            py_table_column_names = data.column_names
+            normalized_primary_keys = [
+                normalize_column_name(x) for x in primary_keys if normalize_column_name(x) in py_table_column_names
+            ]
 
             delta_table.merge(
                 source=data,
                 source_alias="source",
                 target_alias="target",
-                predicate=" AND ".join([f"source.{c} = target.{c}" for c in primary_keys]),
+                predicate=" AND ".join([f"source.{c} = target.{c}" for c in normalized_primary_keys]),
             ).when_matched_update_all().when_not_matched_insert_all().execute()
         else:
             mode = "append"
@@ -121,6 +136,8 @@ class DeltaTableHelper:
             if chunk_index == 0 or delta_table is None:
                 mode = "overwrite"
                 schema_mode = "overwrite"
+
+            self._logger.debug(f"write_to_deltalake: mode = {mode}")
 
             if delta_table is None:
                 storage_options = self._get_credentials()

@@ -52,9 +52,11 @@ def redis_heartbeat() -> None:
     expires=60 * 10,  # Do not run queries that got stuck for more than this
     reject_on_worker_lost=True,
 )
-@limit_concurrency(90)  # Do not go above what CH can handle (max_concurrent_queries)
+@limit_concurrency(150, limit_name="global")  # Do not go above what CH can handle (max_concurrent_queries)
 @limit_concurrency(
-    10, key=lambda *args, **kwargs: kwargs.get("team_id") or args[0]
+    50,
+    key=lambda *args, **kwargs: kwargs.get("team_id") or args[0],
+    limit_name="per_team",
 )  # Do not run too many queries at once for the same team
 def process_query_task(
     team_id: int,
@@ -836,13 +838,19 @@ def send_org_usage_reports() -> None:
 @shared_task(ignore_result=True)
 def update_quota_limiting() -> None:
     try:
+        from ee.billing.quota_limiting import report_quota_limiting_event
         from ee.billing.quota_limiting import update_all_orgs_billing_quotas
 
+        report_quota_limiting_event("update_quota_limiting task started", {})
+
         update_all_orgs_billing_quotas()
+
+        report_quota_limiting_event("update_quota_limiting task finished", {})
     except ImportError:
-        pass
+        report_quota_limiting_event("update_quota_limiting task failed", {"error": "ImportError"})
     except Exception as e:
         capture_exception(e)
+        report_quota_limiting_event("update_quota_limiting task failed", {"error": str(e)})
 
 
 @shared_task(ignore_result=True)
@@ -896,6 +904,18 @@ def ee_persist_finished_recordings() -> None:
         pass
     else:
         persist_finished_recordings()
+
+
+@shared_task(ignore_result=True)
+def ee_count_items_in_playlists() -> None:
+    try:
+        from ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters import (
+            enqueue_recordings_that_match_playlist_filters,
+        )
+    except ImportError:
+        pass
+    else:
+        enqueue_recordings_that_match_playlist_filters()
 
 
 @shared_task(ignore_result=True)

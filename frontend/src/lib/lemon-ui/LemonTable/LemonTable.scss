@@ -51,13 +51,13 @@
     }
 
     &--embedded {
-        background: none;
+        background: none !important;
         border: none;
         border-radius: 0;
     }
 
     &--stealth {
-        background: none;
+        background: none !important;
 
         .LemonTable__content > table {
             > thead {
@@ -176,7 +176,7 @@
             > td {
                 padding-top: 0.3125rem;
                 padding-bottom: 0.3125rem;
-                color: var(--text-tertiary);
+                color: var(--text-secondary);
 
                 // Cancel the vertical margin for CodeSnippet actions
                 // This is annoyingly specific, but really needed for CodeSnippet to look good in expanded table rows
@@ -257,7 +257,7 @@
     cursor: default;
 
     .LemonTable__header-content {
-        color: var(--text-tertiary);
+        color: var(--text-secondary);
     }
 
     &.LemonTable__header--actionable {

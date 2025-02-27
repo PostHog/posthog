@@ -18,7 +18,7 @@ export default function SearchHighlight({ string, substring, className }: Props)
                 <span
                     key={index}
                     className={`text-xs ${
-                        part.toLowerCase() === substring.toLowerCase() ? 'bg-primary-highlight bg-opacity-60' : ''
+                        part.toLowerCase() === substring.toLowerCase() ? 'bg-accent-primary bg-opacity-60' : ''
                     }`}
                 >
                     {part}

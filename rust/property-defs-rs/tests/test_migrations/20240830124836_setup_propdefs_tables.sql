@@ -1,7 +1,5 @@
--- These mimic the posthog main-db property, event and event-property tables, and are only used
+-- These mimic the posthog main-db property, event, hostdefinition, and event-property tables, and are only used
 -- for testing (so we can use `sqlx::test`)
-
--- Create a unique contraint on posthog_eventdefinition for team_id and name, matching the django one
 
 CREATE TABLE IF NOT EXISTS posthog_eventdefinition (
     id UUID PRIMARY KEY,
@@ -15,7 +13,7 @@ CREATE TABLE IF NOT EXISTS posthog_eventdefinition (
     CONSTRAINT posthog_eventdefinition_team_id_name_80fa0b87_uniq UNIQUE (team_id, name)
 );
 
-CREATE UNIQUE INDEX event_definition_proj_uniq ON posthog_eventdefinition (coalesce(project_id, team_id), name);
+CREATE UNIQUE INDEX IF NOT EXISTS event_definition_proj_uniq ON posthog_eventdefinition (coalesce(project_id, team_id), name);
 
 CREATE TABLE IF NOT EXISTS posthog_propertydefinition (
     id UUID PRIMARY KEY,
@@ -31,8 +29,8 @@ CREATE TABLE IF NOT EXISTS posthog_propertydefinition (
     type SMALLINT NOT NULL DEFAULT 1
 );
 
-CREATE UNIQUE INDEX posthog_propertydefinition_uniq ON posthog_propertydefinition (team_id, name, type, coalesce(group_type_index, -1));
-CREATE UNIQUE INDEX posthog_propdef_proj_uniq ON posthog_propertydefinition (coalesce(project_id, team_id), name, type, coalesce(group_type_index, -1));
+CREATE UNIQUE INDEX IF NOT EXISTS posthog_propertydefinition_uniq ON posthog_propertydefinition (team_id, name, type, coalesce(group_type_index, -1));
+CREATE UNIQUE INDEX IF NOT EXISTS posthog_propdef_proj_uniq ON posthog_propertydefinition (coalesce(project_id, team_id), name, type, coalesce(group_type_index, -1));
 
 
 CREATE TABLE IF NOT EXISTS posthog_eventproperty (
@@ -43,5 +41,19 @@ CREATE TABLE IF NOT EXISTS posthog_eventproperty (
     project_id BIGINT NULL
 );
 
-CREATE UNIQUE INDEX posthog_event_property_unique_team_event_property ON posthog_eventproperty (team_id, event, property);
-CREATE UNIQUE INDEX posthog_event_property_unique_proj_event_property ON posthog_eventproperty (coalesce(project_id, team_id), event, property);
+CREATE UNIQUE INDEX IF NOT EXISTS posthog_event_property_unique_team_event_property ON posthog_eventproperty (team_id, event, property);
+CREATE UNIQUE INDEX IF NOT EXISTS posthog_event_property_unique_proj_event_property ON posthog_eventproperty (coalesce(project_id, team_id), event, property);
+
+CREATE TABLE IF NOT EXISTS posthog_grouptypemapping (
+    id UUID PRIMARY KEY,
+    group_type VARCHAR(400) NOT NULL,
+    group_type_index INTEGER NOT NULL,
+    team_id INTEGER NOT NULL,
+    project_id BIGINT NULL,
+    name_plural VARCHAR(400) NULL,
+    name_singular VARCHAR(400) NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS posthog_grouptypemapping_pkey ON posthog_grouptypemapping (id);
+CREATE UNIQUE INDEX IF NOT EXISTS "unique group types for project" ON posthog_grouptypemapping USING btree (project_id, group_type);
+CREATE UNIQUE INDEX IF NOT EXISTS "unique event column indexes for project" ON posthog_grouptypemapping USING btree (project_id, group_type_index);
