@@ -24,6 +24,7 @@ import {
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { PostgresUse } from '../../src/utils/db/postgres'
 import { personInitialAndUTMProperties } from '../../src/utils/db/utils'
+import posthog from '../../src/utils/posthog'
 import { UUIDT } from '../../src/utils/utils'
 import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
 import { EventsProcessor } from '../../src/worker/ingestion/process-event'
@@ -870,6 +871,8 @@ test('long htext', async () => {
 })
 
 test('capture first team event', async () => {
+    const captureTeamEventMock = jest.spyOn(posthog, 'captureTeamEvent')
+
     await hub.db.postgres.query(
         PostgresUse.COMMON_WRITE,
         `UPDATE posthog_team
@@ -878,12 +881,6 @@ test('capture first team event', async () => {
         [false, team.id],
         'testTag'
     )
-
-    const captureTeamEventMock = jest.fn()
-    jest.mock('../../src/utils/posthog.ts', () => ({
-        ...jest.requireActual('../../src/utils/posthog.ts'),
-        captureTeamEvent: captureTeamEventMock,
-    }))
 
     await processEvent(
         '2',

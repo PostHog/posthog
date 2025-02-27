@@ -16,7 +16,7 @@ if (process.env.NODE_ENV === 'test' && posthog) {
     void posthog.disable()
 }
 
-export const captureTeamEvent = (
+const captureTeamEvent = (
     team: Team,
     event: string,
     properties: Record<string, any> = {},
@@ -41,14 +41,14 @@ export const captureTeamEvent = (
 
 // We use sentry-style hints rather than our flat property list all over the place,
 // so define a type for them that we can flatten internally
-export type Primitive = number | string | boolean | bigint | symbol | null | undefined
-export interface ExceptionHint {
+type Primitive = number | string | boolean | bigint | symbol | null | undefined
+interface ExceptionHint {
     level: SeverityLevel
     tags: Record<string, Primitive>
     extra: Record<string, any>
 }
 
-export function captureException(exception: any, hint?: Partial<ExceptionHint>): string {
+function captureException(exception: any, hint?: Partial<ExceptionHint>): string {
     //If the passed "exception" is a string, capture it as a message, otherwise, capture it as an exception
     let sentryId: string
     if (typeof exception === 'string') {
@@ -72,12 +72,19 @@ export function captureException(exception: any, hint?: Partial<ExceptionHint>):
     return sentryId
 }
 
-export function shutdown(): Promise<void> | null {
+function shutdown(): Promise<void> | null {
     return posthog && posthog.shutdown()
 }
 
-export function flush(): void {
+function flush(): void {
     if (posthog) {
         void posthog.flush().catch(() => null)
     }
+}
+
+export default {
+    flush,
+    shutdown,
+    captureException,
+    captureTeamEvent,
 }
