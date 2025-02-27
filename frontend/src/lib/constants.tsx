@@ -194,6 +194,7 @@ export const FEATURE_FLAGS = {
     SETTINGS_SESSION_TABLE_VERSION: 'settings-session-table-version', // owner: @robbie-c
     INSIGHT_FUNNELS_USE_UDF: 'insight-funnels-use-udf', // owner: @aspicer #team-product-analytics
     INSIGHT_FUNNELS_USE_UDF_TRENDS: 'insight-funnels-use-udf-trends', // owner: @aspicer #team-product-analytics
+    INSIGHT_FUNNELS_USE_UDF_TIME_TO_CONVERT: 'insight-funnels-use-udf-time-to-convert', // owner: @aspicer #team-product-analytics
     BATCH_EXPORTS_POSTHOG_HTTP: 'posthog-http-batch-exports',
     DATA_MODELING: 'data-modeling', // owner: @EDsCODE #team-data-warehouse
     HEDGEHOG_SKIN_SPIDERHOG: 'hedgehog-skin-spiderhog', // owner: @benjackwhite
