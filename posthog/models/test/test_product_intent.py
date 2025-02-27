@@ -5,7 +5,7 @@ from freezegun import freeze_time
 
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag
-from posthog.models.feedback.survey import Survey
+from posthog.models.surveys.survey import Survey
 from posthog.models.insight import Insight
 from posthog.models.product_intent.product_intent import (
     ProductIntent,
