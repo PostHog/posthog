@@ -4,9 +4,7 @@ from django.db import migrations
 
 
 class Migration(migrations.Migration):
-    dependencies = [
-        ("posthog", "0676_team_session_recording_masking_config"),
-    ]
+    dependencies = [("posthog", "0677_datawarehousesavedquery_deleted_name")]
 
     operations = [
         migrations.AlterModelOptions(

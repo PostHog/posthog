@@ -1,5 +1,5 @@
 import { dayjs } from 'lib/dayjs'
-import recordingMetaJson from 'scenes/session-recordings/__mocks__/recording_meta.json'
+import { recordingMetaJson } from 'scenes/session-recordings/__mocks__/recording_meta'
 import {
     convertSnapshotsResponse,
     sortedRecordingSnapshots,
