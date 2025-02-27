@@ -189,11 +189,6 @@ FunnelTimeToConvertInsight.args = {
 export const RetentionInsight: Story = Template.bind({})
 RetentionInsight.args = { insight: require('../mocks/fixtures/api/projects/team_id/insights/retention.json') }
 
-export const RetentionBreakdownInsight: Story = Template.bind({})
-RetentionBreakdownInsight.args = {
-    insight: require('../mocks/fixtures/api/projects/team_id/insights/retentionBreakdown.json'),
-}
-
 export const LifecycleInsight: Story = Template.bind({})
 LifecycleInsight.args = { insight: require('../mocks/fixtures/api/projects/team_id/insights/lifecycle.json') }
 LifecycleInsight.tags = ['test-skip'] // doesn't produce a helpful reference image, as canvas can't be captured
