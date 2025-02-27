@@ -23,8 +23,6 @@ class EnterpriseEventDefinition(EventDefinition):
         blank=True,
         related_name="verifying_user",
     )
-    # Store default columns for event definition view, similar to team.live_events_columns
-    default_columns = ArrayField(models.TextField(), null=True, blank=True)
 
     # Deprecated in favour of app-wide tagging model. See EnterpriseTaggedItem
     deprecated_tags: ArrayField = ArrayField(models.CharField(max_length=32), null=True, blank=True, default=list)
