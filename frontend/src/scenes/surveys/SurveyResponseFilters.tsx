@@ -53,7 +53,7 @@ const OPERATOR_OPTIONS: Record<SurveyQuestionType, OperatorOption[]> = {
     [SurveyQuestionType.Link]: [],
 }
 
-function _SurveyAnswerFilters(): JSX.Element {
+function _SurveyResponseFilters(): JSX.Element {
     const { survey, answerFilters, propertyFilters } = useValues(surveyLogic)
     const { setAnswerFilters, setPropertyFilters } = useActions(surveyLogic)
 
@@ -190,4 +190,4 @@ function _SurveyAnswerFilters(): JSX.Element {
     )
 }
 
-export const SurveyAnswerFilters = React.memo(_SurveyAnswerFilters)
+export const SurveyResponseFilters = React.memo(_SurveyResponseFilters)

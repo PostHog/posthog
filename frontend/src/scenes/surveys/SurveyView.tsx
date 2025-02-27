@@ -18,7 +18,7 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils'
 import { useEffect, useState } from 'react'
 import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
-import { SurveyAnswerFilters } from 'scenes/surveys/SurveyAnswerFilters'
+import { SurveyResponseFilters } from 'scenes/surveys/SurveyResponseFilters'
 import { getSurveyResponseKey } from 'scenes/surveys/utils'
 
 import { Query } from '~/queries/Query/Query'
@@ -507,7 +507,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
 
     return (
         <div className="space-y-4">
-            <SurveyAnswerFilters />
+            <SurveyResponseFilters />
             {isAnyResultsLoading && (
                 <div className="flex gap-1">
                     <span className="text-sm text-secondary">Loading results...</span>
