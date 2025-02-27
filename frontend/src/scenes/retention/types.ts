@@ -1,10 +1,20 @@
+import { Dayjs } from 'lib/dayjs'
+
 import { ActorType } from '~/types'
 
-export interface RetentionTablePayload {
+export interface ProcessedRetentionValue {
+    count: number
+    percentage: number
+    cellDate: Dayjs
+    isCurrentPeriod: boolean
+    isFuture: boolean
+}
+
+export interface ProcessedRetentionPayload {
     date: string
     label: string
     people_url: string
-    values: Record<string, any>[]
+    values: ProcessedRetentionValue[]
 }
 
 export interface RetentionTrendPayload {

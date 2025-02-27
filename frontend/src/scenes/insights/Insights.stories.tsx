@@ -342,20 +342,6 @@ RetentionEdit.parameters = {
     testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
 }
 
-export const RetentionBreakdown: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/retentionBreakdown.json')
-)
-RetentionBreakdown.parameters = {
-    testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
-}
-export const RetentionBreakdownEdit: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/retentionBreakdown.json'),
-    'edit'
-)
-RetentionBreakdownEdit.parameters = {
-    testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
-}
-
 // Lifecycle
 
 export const Lifecycle: Story = createInsightStory(

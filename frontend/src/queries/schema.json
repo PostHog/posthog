@@ -13231,6 +13231,10 @@
             "required": ["assignmentBy", "color"],
             "type": "object"
         },
+        "RetentionDashboardDisplayType": {
+            "enum": ["table_only", "graph_only", "all"],
+            "type": "string"
+        },
         "RetentionEntity": {
             "additionalProperties": false,
             "properties": {
@@ -13274,6 +13278,13 @@
             "properties": {
                 "cumulative": {
                     "type": "boolean"
+                },
+                "dashboardDisplay": {
+                    "$ref": "#/definitions/RetentionDashboardDisplayType"
+                },
+                "display": {
+                    "$ref": "#/definitions/ChartDisplayType",
+                    "description": "controls the display of the retention graph"
                 },
                 "period": {
                     "$ref": "#/definitions/RetentionPeriod",
