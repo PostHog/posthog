@@ -10,7 +10,7 @@ describe('sendgrid', () => {
             config: {
                 sendgridApiKey: 'SENDGRID_API_KEY',
             },
-            global: global,
+            global: {},
             fetch: mockFetch,
         } as any
 
@@ -72,6 +72,7 @@ describe('sendgrid', () => {
                 sendgridApiKey: 'SENDGRID_API_KEY',
                 customFields: 'myProp1=my_prop1,my_prop2',
             },
+            global: {},
             fetch: mockFetch,
         } as any
 
@@ -88,6 +89,7 @@ describe('sendgrid', () => {
                 sendgridApiKey: 'SENDGRID_API_KEY',
                 customFields: 'myProp1=my_prop1,my_prop2',
             },
+            global: {},
             fetch: mockFetch,
         } as any
 

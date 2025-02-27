@@ -1,19 +1,10 @@
 import { City } from '@maxmind/geoip2-node'
 
-import { PluginEvent } from '~/src/types'
-
 import { defaultConfig } from '../../../../config/config'
 import { GeoIp, GeoIPService } from '../../../../utils/geoip'
 import { LegacyTransformationPluginMeta } from '../../types'
+import { createPageview } from '../_tests/utils'
 import { processEvent } from './index'
-
-const createPageview = (): PluginEvent =>
-    ({
-        distinctId: '123',
-        event: 'pageview',
-        properties: {},
-        timestamp: new Date(),
-    } as any)
 
 describe('posthog-plugin-geoip', () => {
     let geoip: GeoIp

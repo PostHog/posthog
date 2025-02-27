@@ -1,17 +1,8 @@
-import { PluginEvent } from '~/src/types'
-
 import { LegacyTransformationPluginMeta } from '../../types'
+import { createPageview } from '../_tests/utils'
 import { processEvent } from './index'
 
-const createPageview = (): PluginEvent =>
-    ({
-        distinctId: '123',
-        event: 'pageview',
-        properties: {},
-        timestamp: new Date(),
-    } as any)
-
-describe('`Event and Timestamp` mode', () => {
+describe('Unduplicator plugin', () => {
     const meta: LegacyTransformationPluginMeta = {
         config: {
             dedupMode: 'Event and Timestamp',

@@ -1,15 +1,5 @@
-import { PluginEvent } from '~/src/types'
-
+import { createEvent } from '../_tests/utils'
 import { processEvent } from './index'
-
-const createEvent = (event: Partial<PluginEvent>): PluginEvent =>
-    ({
-        distinct_id: '1',
-        event: '$pageview',
-        properties: {
-            ...event.properties,
-        },
-    } as unknown as PluginEvent)
 
 const nestedEventProperties = {
     a: {
