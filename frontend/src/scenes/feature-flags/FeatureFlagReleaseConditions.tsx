@@ -201,7 +201,7 @@ export function FeatureFlagReleaseConditions({
                                         <LemonButton
                                             icon={<IconArrowUp />}
                                             noPadding
-                                            tooltip="Move condition set up in precendence"
+                                            tooltip="Move condition set up in precedence"
                                             disabledReason={index === 0 ? 'Cannot move first condition set up' : null}
                                             onClick={() => moveConditionSetUp(index)}
                                         />
