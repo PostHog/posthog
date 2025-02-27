@@ -1,10 +1,8 @@
-import { City } from '@maxmind/geoip2-node'
 import { PluginEvent, ProcessedPluginEvent, RetryError, StorageExtension } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
-import { Counter, Histogram } from 'prom-client'
+import { Histogram } from 'prom-client'
 
 import { Hub } from '~/src/types'
-import { GeoIp } from '~/src/utils/geoip'
 
 import { PostgresUse } from '../../utils/db/postgres'
 import { Response, trackedFetch } from '../../utils/fetch'
