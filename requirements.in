@@ -113,7 +113,7 @@ more-itertools==9.0.0
 django-two-factor-auth==1.14.0
 phonenumberslite==8.13.6
 openai==1.56.2
-tiktoken==0.8.0
+tiktoken==0.9.*
 nh3==0.2.14
 hogql-parser==1.0.459
 zxcvbn==4.4.28
