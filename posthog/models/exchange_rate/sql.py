@@ -1,0 +1,166 @@
+import csv
+import datetime
+import os
+
+from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
+from posthog.clickhouse.table_engines import (
+    MergeTreeEngine,
+    ReplicationScheme,
+)
+from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_PASSWORD
+
+
+# This loads historical data from `historical.csv`
+# and generates a dictionary containing all entries for all dates and all currencies
+# from January 1st 2000 to December 31st 2024
+#
+# All of the rates are in comparison to the USD at that time.
+# There's no inflation adjustment, that would be nonsense.
+# If you want to convert from currency A to currency B, you need to:
+# 1. Convert A to USD
+# 2. Convert USD to B
+#
+# This is easily achieved by: `amount` B = `amount` A * `rate_A` / `rate_B`
+#
+# This CSV was originally downloaded from https://github.com/xriss/freechange/blob/master/csv/usd_to_xxx_by_day.csv
+# and then slightly optimized:
+# 1. Remove all dates older than 2000-01-01
+# 2. Truncate all rates to 4 decimal places
+# 3. Remove USD because it's the base currency, therefore it's always 1:1
+# 4. Add UYU rate for 2000-01-01 because we only had from 2010 onwards, based on https://fred.stlouisfed.org/series/FXRATEUYA618NUPN
+#
+# The resulting CSV is stored in `historical.csv`
+#
+# This won't return values for dates where we didn't have a value.
+# When querying the table/dictionary, you'll need to look for the previous closest date with a value.
+def HISTORICAL_EXCHANGE_RATE_DICTIONARY():
+    rates_dict = {}
+    currencies = []
+
+    # Load the CSV file
+    with open(os.path.join(os.path.dirname(__file__), "historical.csv")) as f:
+        reader = csv.reader(f)
+
+        # Get header row with currency codes
+        currencies = next(reader)
+        currencies = [c.strip() for c in currencies]
+
+        # Parse each row
+        for row in reader:
+            if not row:  # Skip empty rows
+                continue
+
+            date_str = row[0].strip()
+            try:
+                # Parse the date
+                date = datetime.datetime.strptime(date_str, "%Y-%m-%d")
+                date_key = date.strftime("%Y-%m-%d")
+
+                # Create dictionary for this date
+                rates = {}
+                for i, value in enumerate(row[1:], 1):
+                    currency = currencies[i]
+
+                    # Only add non-empty values
+                    value = value.strip()
+                    if value:
+                        try:
+                            rates[currency] = float(value)
+                        except ValueError:
+                            # Just ignore non-numeric values
+                            pass
+
+                rates_dict[date_key] = rates
+            except ValueError:
+                # Skip rows with invalid dates
+                continue
+
+    # Fill in missing dates
+    start_date = datetime.datetime(2000, 1, 1)
+    end_date = datetime.datetime(2024, 12, 31)
+    current_date = start_date
+
+    while current_date <= end_date:
+        date_str = current_date.strftime("%Y-%m-%d")
+
+        if date_str not in rates_dict:
+            rates_dict[date_str] = {}
+
+        current_date += datetime.timedelta(days=1)
+
+    return rates_dict
+
+
+# Yield from HISTORICAL_EXCHANGE_RATE_DICTIONARY()
+# a tuple in the form of (date, currency, rate)
+def HISTORICAL_EXCHANGE_RATE_TUPLES():
+    rates_dict = HISTORICAL_EXCHANGE_RATE_DICTIONARY()
+    for date, rates in rates_dict.items():
+        for currency, rate in rates.items():
+            yield (date, currency, rate)
+
+
+EXCHANGE_RATE_TABLE_NAME = "exchange_rate"
+EXCHANGE_RATE_DICTIONARY_NAME = "exchange_rate_dict"
+
+# `version` is used to ensure the latest version is kept, see `MergeTreeEngine`
+EXCHANGE_RATE_TABLE_SQL = (
+    lambda on_cluster=True: """
+CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause} (
+    date Date,
+    currency String,
+    rate Decimal64(4),
+    version UInt32 DEFAULT toUnixTimestamp(now())
+) ENGINE = {engine}
+ORDER BY (date, currency);
+""".format(
+        table_name=EXCHANGE_RATE_TABLE_NAME,
+        engine=MergeTreeEngine(
+            "exchange_rate", replication_scheme=ReplicationScheme.REPLICATED, replacing_col="version"
+        ),
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+    )
+)
+
+
+DROP_EXCHANGE_RATE_TABLE_SQL = f"DROP TABLE IF EXISTS {EXCHANGE_RATE_TABLE_NAME} ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
+
+
+TRUNCATE_EXCHANGE_RATE_TABLE_SQL = (
+    f"TRUNCATE TABLE IF EXISTS {EXCHANGE_RATE_TABLE_NAME} ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
+)
+
+
+def EXCHANGE_RATE_DATA_BACKFILL_SQL(exchange_rates=None):
+    if exchange_rates is None:
+        exchange_rates = HISTORICAL_EXCHANGE_RATE_TUPLES()
+
+    return f"""
+INSERT INTO exchange_rate (date, currency, rate) VALUES
+{
+''',
+'''.join(f"(toDate('{date}'), '{currency}', {rate})" for date, currency, rate in exchange_rates)},
+;
+"""
+
+
+# Use COMPLEX_KEY_HASHED, as we have a composite key
+# Also, note the `anyLast` function, which is used to get the latest rate for a given date and currency
+# given that we might have more than one while the merges haven't finished yet
+EXCHANGE_RATE_DICTIONARY_SQL = (
+    lambda on_cluster=True: f"""
+CREATE DICTIONARY IF NOT EXISTS {EXCHANGE_RATE_DICTIONARY_NAME} {ON_CLUSTER_CLAUSE(on_cluster)} (
+    date Date,
+    currency String,
+    rate Decimal64(4)
+)
+PRIMARY KEY (date, currency)
+SOURCE(CLICKHOUSE(TABLE '(SELECT date, currency, anyLast(rate) AS rate FROM {EXCHANGE_RATE_TABLE_NAME} GROUP BY date, currency)' PASSWORD '{CLICKHOUSE_PASSWORD}'))
+LIFETIME(MIN 3000 MAX 3600)
+LAYOUT(COMPLEX_KEY_HASHED())
+"""
+)
+
+DROP_EXCHANGE_RATE_DICTIONARY_SQL = (
+    f"DROP DICTIONARY IF EXISTS {EXCHANGE_RATE_DICTIONARY_NAME} ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
+)
