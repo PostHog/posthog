@@ -19,6 +19,7 @@ class DeltaTableHelper:
     _resource_name: str
     _job: ExternalDataJob
     _logger: FilteringBoundLogger
+    _is_first_sync: bool = False
 
     def __init__(self, resource_name: str, job: ExternalDataJob, logger: FilteringBoundLogger) -> None:
         self._resource_name = resource_name
@@ -80,7 +81,8 @@ class DeltaTableHelper:
                 if "parse decimal overflow" in "".join(e.args):
                     s3 = get_s3_client()
                     s3.delete(delta_uri, recursive=True)
-                    return None
+
+        self._is_first_sync = True
 
         return None
 
@@ -98,6 +100,8 @@ class DeltaTableHelper:
 
         self.get_delta_table.cache_clear()
 
+        self._is_first_sync = True
+
     def write_to_deltalake(
         self, data: pa.Table, is_incremental: bool, chunk_index: int, primary_keys: Sequence[Any] | None
     ) -> deltalake.DeltaTable:
@@ -106,7 +110,7 @@ class DeltaTableHelper:
         if delta_table:
             delta_table = self._evolve_delta_schema(data.schema)
 
-        if is_incremental and delta_table is not None:
+        if is_incremental and delta_table is not None and not self._is_first_sync:
             if not primary_keys or len(primary_keys) == 0:
                 raise Exception("Primary key required for incremental syncs")
 
