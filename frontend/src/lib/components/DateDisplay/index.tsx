@@ -58,7 +58,7 @@ export function DateDisplay({ date, secondaryDate, interval, hideWeekRange }: Da
                 <>
                     {/* TODO: @EDsCODE will help validate; this should probably come from the backend  */}
                     {/* A week ends on the 7th day of the week, so we add 6 days to the start date to get the end date */}
-                    {' - '}
+                    {' – '}
                     <DateDisplay interval="day" date={parsedDate.add(6, 'day').toJSON()} />
                 </>
             )}
