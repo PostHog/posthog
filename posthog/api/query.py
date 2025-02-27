@@ -12,6 +12,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from sentry_sdk import set_tag
 from asgiref.sync import sync_to_async
+from concurrent.futures import ThreadPoolExecutor
 
 from posthog.exceptions_capture import capture_exception
 from posthog.api.documentation import extend_schema
@@ -51,6 +52,15 @@ from posthog.schema import (
     QueryStatusResponse,
 )
 from typing import cast
+
+
+# Create a dedicated thread pool for query processing
+# Setting max_workers to ensure we don't overwhelm the system
+# while still allowing concurrent queries
+QUERY_EXECUTOR = ThreadPoolExecutor(
+    max_workers=50,  # 50 should be enough to have 200 simultaneous queries across clickhouse
+    thread_name_prefix="query_processor",
+)
 
 
 def _process_query_request(
@@ -262,9 +272,9 @@ async def query_awaited(request: Request, *args, **kwargs) -> StreamingHttpRespo
             execution_mode = ExecutionMode.CALCULATE_BLOCKING_ALWAYS
 
         # Start the query processing in a background thread
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         query_task = loop.run_in_executor(
-            None,
+            QUERY_EXECUTOR,  # Use our dedicated executor instead of None
             lambda: process_query_model(
                 team=team,
                 query=query,

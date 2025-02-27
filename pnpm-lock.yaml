@@ -778,8 +778,8 @@ importers:
         specifier: ^2.11.0
         version: 2.11.0
       posthog-js:
-        specifier: 1.223.5
-        version: 1.223.5(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.224.0
+        version: 1.224.0(@rrweb/types@2.0.0-alpha.17)
       posthog-js-lite:
         specifier: 3.0.0
         version: 3.0.0
@@ -2867,6 +2867,7 @@ packages:
 
   '@effect/schema@0.75.5':
     resolution: {integrity: sha512-TQInulTVCuF+9EIbJpyLP6dvxbQJMphrnRqgexm/Ze39rSjfhJuufF7XvU3SxTgg3HnL7B/kpORTJbHhlE6thw==}
+    deprecated: this package has been merged into the main effect package
     peerDependencies:
       effect: ^3.9.2
 
@@ -12668,8 +12669,8 @@ packages:
   posthog-js@1.217.2:
     resolution: {integrity: sha512-3KC+UjI0UT5zh8kAOVqe/AfvRjBMKynRIBQNlv0TXnfpZG0+h3r/1ONecDgCCGLs/a/55SJCExrugDlx+HPH3w==}
 
-  posthog-js@1.223.5:
-    resolution: {integrity: sha512-QCapVOZ0zusWR2BryAc3utuEwlsK4xhbpaHWi56cUJwdHOi3gThmXL/bpS5KZtYAJN3UUEwN5Ef3IcfDLp9fMQ==}
+  posthog-js@1.224.0:
+    resolution: {integrity: sha512-JT1XQQeYs0CKb4lU2vujmeLTDLWc61I5lT7d6oG/H/cnCpXAqBi5rMuCFFeotHeMy3hqJ/Tpu3eAPFE2p5ErHA==}
     peerDependencies:
       '@rrweb/types': 2.0.0-alpha.17
 
@@ -29985,7 +29986,7 @@ snapshots:
       preact: 10.25.4
       web-vitals: 4.2.4
 
-  posthog-js@1.223.5(@rrweb/types@2.0.0-alpha.17):
+  posthog-js@1.224.0(@rrweb/types@2.0.0-alpha.17):
     dependencies:
       '@rrweb/types': 2.0.0-alpha.17
       core-js: 3.40.0

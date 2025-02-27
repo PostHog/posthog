@@ -2,6 +2,13 @@ import type { ModelRow } from './types'
 
 export const costs: ModelRow[] = [
     {
+        model: 'gemini-2.0-flash-lite-001',
+        cost: {
+            prompt_token: 0.000000075,
+            completion_token: 0.0000003,
+        },
+    },
+    {
         model: 'gemini-2.0-flash-001',
         cost: {
             prompt_token: 0.0000001,
