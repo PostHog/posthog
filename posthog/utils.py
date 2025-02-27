@@ -84,7 +84,7 @@ def format_label_date(date: datetime.datetime, interval: str = "default") -> str
         "default": "%-d-%b-%Y",
         "minute": "%-d-%b %H:%M",
         "hour": "%-d-%b %H:%M",
-        "week": "%-d-%b - %-d-%b",
+        "week": "%-d-%b – %-d-%b",
         "month": "%b %Y",
     }
     labels_format = date_formats.get(interval, date_formats["default"])
