@@ -19,7 +19,7 @@ import { capitalizeFirstLetter, pluralize } from 'lib/utils'
 import { useEffect, useState } from 'react'
 import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
 import { SurveyResponseFilters } from 'scenes/surveys/SurveyResponseFilters'
-import { getSurveyResponseKey } from 'scenes/surveys/utils'
+import { getResponseFieldWithId } from 'scenes/surveys/utils'
 
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -524,6 +524,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                                     survey={survey as Survey}
                                     surveyNPSScore={surveyNPSScore}
                                     questionIndex={i}
+                                    questionId={question.id}
                                 />
                             )}
 
@@ -598,10 +599,12 @@ function SurveyNPSResults({
     survey,
     surveyNPSScore,
     questionIndex,
+    questionId,
 }: {
     survey: Survey
     surveyNPSScore?: string | null
     questionIndex: number
+    questionId?: string
 }): JSX.Element {
     const { dateRange, interval, compareFilter, defaultInterval, npsBreakdown } = useValues(surveyLogic)
     const { setDateRange, setInterval, setCompareFilter } = useActions(surveyLogic)
@@ -681,7 +684,7 @@ function SurveyNPSResults({
                                     properties: [
                                         {
                                             type: PropertyFilterType.Event,
-                                            key: getSurveyResponseKey(questionIndex),
+                                            key: getResponseFieldWithId(questionIndex, questionId).indexBasedKey,
                                             operator: PropertyOperator.Exact,
                                             value: ['9', '10'],
                                         },
@@ -694,7 +697,33 @@ function SurveyNPSResults({
                                     properties: [
                                         {
                                             type: PropertyFilterType.Event,
-                                            key: getSurveyResponseKey(questionIndex),
+                                            key: getResponseFieldWithId(questionIndex, questionId).idBasedKey,
+                                            operator: PropertyOperator.Exact,
+                                            value: ['9', '10'],
+                                        },
+                                    ],
+                                },
+                                {
+                                    event: SURVEY_EVENT_NAME,
+                                    kind: NodeKind.EventsNode,
+                                    custom_name: NPS_PASSIVE_LABEL,
+                                    properties: [
+                                        {
+                                            type: PropertyFilterType.Event,
+                                            key: getResponseFieldWithId(questionIndex, questionId).indexBasedKey,
+                                            operator: PropertyOperator.Exact,
+                                            value: ['7', '8'],
+                                        },
+                                    ],
+                                },
+                                {
+                                    event: SURVEY_EVENT_NAME,
+                                    kind: NodeKind.EventsNode,
+                                    custom_name: NPS_PASSIVE_LABEL,
+                                    properties: [
+                                        {
+                                            type: PropertyFilterType.Event,
+                                            key: getResponseFieldWithId(questionIndex, questionId).idBasedKey,
                                             operator: PropertyOperator.Exact,
                                             value: ['7', '8'],
                                         },
@@ -707,7 +736,20 @@ function SurveyNPSResults({
                                     properties: [
                                         {
                                             type: PropertyFilterType.Event,
-                                            key: getSurveyResponseKey(questionIndex),
+                                            key: getResponseFieldWithId(questionIndex, questionId).indexBasedKey,
+                                            operator: PropertyOperator.Exact,
+                                            value: ['0', '1', '2', '3', '4', '5', '6'],
+                                        },
+                                    ],
+                                },
+                                {
+                                    event: SURVEY_EVENT_NAME,
+                                    kind: NodeKind.EventsNode,
+                                    custom_name: NPS_DETRACTOR_LABEL,
+                                    properties: [
+                                        {
+                                            type: PropertyFilterType.Event,
+                                            key: getResponseFieldWithId(questionIndex, questionId).idBasedKey,
                                             operator: PropertyOperator.Exact,
                                             value: ['0', '1', '2', '3', '4', '5', '6'],
                                         },
@@ -723,7 +765,20 @@ function SurveyNPSResults({
                                 },
                             ],
                             trendsFilter: {
-                                formula: '(A / (A+B+C) * 100) - (C / (A+B+C) * 100)',
+                                /**
+                                 * We now have two response fields to consider: both index-based and id-based.
+                                 * So we need to sum up the promoters and detractors from both fields.
+                                 * A+B is promoters
+                                 * C+D is passives
+                                 * E+F is detractors
+                                 *
+                                 * A+B+C+D+E+F is total responses
+                                 *
+                                 * The old formula is formula: '(A / (A+B+C) * 100) - (C / (A+B+C) * 100)',
+                                 *
+                                 * The new formula is formula: '((A+B) / (A+B+C+D+E+F) * 100) - ((E+F) / (A+B+C+D+E+F) * 100)',
+                                 */
+                                formula: '((A+B) / (A+B+C+D+E+F) * 100) - ((E+F) / (A+B+C+D+E+F) * 100)',
                                 display: 'ActionsBar',
                             },
                         },
