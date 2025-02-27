@@ -1,10 +1,12 @@
-import { IconGearFilled } from '@posthog/icons'
+import { IconGearFilled, IconHeadset } from '@posthog/icons'
 import clsx from 'clsx'
 import {
     IconAndroidOS,
     IconAppleIOS,
+    IconBlackberry,
     IconChrome,
     IconDevices,
+    IconFacebook,
     IconFirefox,
     IconInternetExplorer,
     IconLinux,
@@ -14,7 +16,9 @@ import {
     IconOpera,
     IconPhone,
     IconSafari,
+    IconSamsungInternet,
     IconTablet,
+    IconUCBrowser,
     IconWeb,
     IconWindows,
 } from 'lib/lemon-ui/icons'
@@ -30,6 +34,14 @@ const osIcons = {
     ['android']: <IconAndroidOS />,
     ['ios']: <IconAppleIOS />,
     ['other']: <IconGearFilled />,
+    ['chrome os']: <IconChrome />,
+    ['windows mobile']: <IconWindows />,
+    ['windows phone']: <IconWindows />,
+    ['xbox']: <IconWindows />,
+    ['playstation']: <IconHeadset />,
+    ['nintendo']: <IconHeadset />,
+    ['blackberry']: <IconBlackberry />,
+    ['watchos']: <IconMacOS />,
 }
 
 export const PROPERTIES_ICON_MAP = {
@@ -42,15 +54,24 @@ export const PROPERTIES_ICON_MAP = {
         ['safari']: <IconSafari />,
         ['mobile safari']: <IconSafari />,
         ['microsoft edge']: <IconMicrosoftEdge />,
-        ['internet Explorer']: <IconInternetExplorer />,
+        ['internet explorer']: <IconInternetExplorer />,
+        ['internet explorer mobile']: <IconInternetExplorer />,
         ['opera']: <IconOpera />,
-        ['opera Mini']: <IconOpera />,
+        ['opera mini']: <IconOpera />,
+        ['android mobile']: <IconAndroidOS />,
+        ['samsung internet']: <IconSamsungInternet />,
+        ['facebook mobile']: <IconFacebook />,
+        ['blackberry']: <IconBlackberry />,
+        ['uc browser']: <IconUCBrowser />,
+        ['konqueror']: <IconGearFilled />,
         ['other']: <IconWeb />,
     },
     $device_type: {
         ['desktop']: <IconMonitor />,
         ['mobile']: <IconPhone />,
         ['tablet']: <IconTablet />,
+        ['console']: <IconHeadset />,
+        ['wearable']: <IconDevices />,
         ['other']: <IconDevices />,
     },
     $os: osIcons,

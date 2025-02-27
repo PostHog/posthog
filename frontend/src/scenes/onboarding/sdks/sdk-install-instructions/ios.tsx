@@ -8,7 +8,7 @@ export interface iOSSetupProps {
 }
 
 function IOSInstallCocoaPodsSnippet(): JSX.Element {
-    return <CodeSnippet language={Language.Ruby}>{'pod "PostHog", "~> 3.0.0"'}</CodeSnippet>
+    return <CodeSnippet language={Language.Ruby}>{'pod "PostHog", "~> 3.0"'}</CodeSnippet>
 }
 
 function IOSInstallSPMSnippet(): JSX.Element {

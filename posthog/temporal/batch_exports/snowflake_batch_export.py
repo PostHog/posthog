@@ -700,7 +700,7 @@ def get_snowflake_fields_from_record_schema(
             snowflake_type = "FLOAT"
 
         elif pa.types.is_boolean(pa_field.type):
-            snowflake_type = "BOOL"
+            snowflake_type = "BOOLEAN"
 
         elif pa.types.is_timestamp(pa_field.type):
             snowflake_type = "TIMESTAMP"
@@ -768,7 +768,6 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             extra_query_parameters=extra_query_parameters,
-            use_latest_schema=True,
         )
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
@@ -852,28 +851,32 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Recor
                     snowflake_table=snow_stage_table if requires_merge else snow_table,
                     snowflake_table_stage_prefix=data_interval_end_str,
                 )
-                _ = await run_consumer(
-                    consumer=consumer,
-                    queue=queue,
-                    producer_task=producer_task,
-                    schema=record_batch_schema,
-                    max_bytes=settings.BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES,
-                    json_columns=known_variant_columns,
-                    multiple_files=True,
-                )
-
-                await snow_client.copy_loaded_files_to_snowflake_table(
-                    snow_stage_table if requires_merge else snow_table, data_interval_end_str
-                )
-
-                if requires_merge:
-                    await snow_client.amerge_mutable_tables(
-                        final_table=snow_table,
-                        stage_table=snow_stage_table,
-                        update_when_matched=table_fields,
-                        merge_key=merge_key,
-                        update_key=update_key,
+                try:
+                    await run_consumer(
+                        consumer=consumer,
+                        queue=queue,
+                        producer_task=producer_task,
+                        schema=record_batch_schema,
+                        max_bytes=settings.BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES,
+                        json_columns=known_variant_columns,
+                        multiple_files=True,
                     )
+
+                # ensure we always write data to final table, even if we fail halfway through, as if we resume from
+                # a heartbeat, we can continue without losing data
+                finally:
+                    await snow_client.copy_loaded_files_to_snowflake_table(
+                        snow_stage_table if requires_merge else snow_table, data_interval_end_str
+                    )
+
+                    if requires_merge:
+                        await snow_client.amerge_mutable_tables(
+                            final_table=snow_table,
+                            stage_table=snow_stage_table,
+                            update_when_matched=table_fields,
+                            merge_key=merge_key,
+                            update_key=update_key,
+                        )
 
         return details.records_completed
 

@@ -10,6 +10,7 @@ from django.conf import settings
 from posthog.exceptions_capture import capture_exception
 from posthog.settings.base_variables import TEST
 from posthog.temporal.common.logger import FilteringBoundLogger
+from posthog.temporal.data_imports.pipelines.pipeline.utils import normalize_column_name
 from posthog.warehouse.models import ExternalDataJob
 from posthog.warehouse.s3 import get_s3_client
 
@@ -109,11 +110,17 @@ class DeltaTableHelper:
             if not primary_keys or len(primary_keys) == 0:
                 raise Exception("Primary key required for incremental syncs")
 
+            # Normalize keys and check the keys actually exist in the dataset
+            py_table_column_names = data.column_names
+            normalized_primary_keys = [
+                normalize_column_name(x) for x in primary_keys if normalize_column_name(x) in py_table_column_names
+            ]
+
             delta_table.merge(
                 source=data,
                 source_alias="source",
                 target_alias="target",
-                predicate=" AND ".join([f"source.{c} = target.{c}" for c in primary_keys]),
+                predicate=" AND ".join([f"source.{c} = target.{c}" for c in normalized_primary_keys]),
             ).when_matched_update_all().when_not_matched_insert_all().execute()
         else:
             mode = "append"

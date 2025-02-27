@@ -32,6 +32,11 @@ class Survey(UUIDModel):
         WEEK = "week", "week"
         MONTH = "month", "month"
 
+    class Schedule(models.TextChoices):
+        ONCE = "once", "once"
+        RECURRING = "recurring", "recurring"
+        ALWAYS = "always", "always"
+
     class Meta:
         constraints = [models.UniqueConstraint(fields=["team", "name"], name="unique survey name for team")]
 
@@ -203,6 +208,14 @@ class Survey(UUIDModel):
     )
     current_iteration = models.PositiveIntegerField(null=True)
     current_iteration_start_date = models.DateTimeField(null=True)
+    schedule = models.CharField(
+        max_length=40,
+        choices=Schedule.choices,
+        default=Schedule.ONCE,
+        null=True,
+        blank=True,
+    )
+
     actions = models.ManyToManyField(Action)
 
 

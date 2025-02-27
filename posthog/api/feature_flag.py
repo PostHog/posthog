@@ -389,6 +389,8 @@ class FeatureFlagSerializer(
                 "Feature flag with this key already exists and is used in an experiment. Please delete the experiment before deleting the flag."
             )
 
+        analytics_dashboards = validated_data.pop("analytics_dashboards", None)
+
         self.check_flag_evaluation(validated_data)
 
         instance: FeatureFlag = super().create(validated_data)
@@ -396,6 +398,10 @@ class FeatureFlagSerializer(
         self._attempt_set_tags(tags, instance)
 
         _create_usage_dashboard(instance, request.user)
+
+        if analytics_dashboards is not None:
+            for dashboard in analytics_dashboards:
+                FeatureFlagDashboards.objects.get_or_create(dashboard=dashboard, feature_flag=instance)
 
         analytics_metadata = instance.get_analytics_metadata()
         analytics_metadata["creation_context"] = creation_context
@@ -567,7 +573,7 @@ class FeatureFlagViewSet(
     viewsets.ModelViewSet,
 ):
     """
-    Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/user-guides/feature-flags) for more information on feature flags.
+    Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
 
     If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
     """
@@ -804,6 +810,23 @@ class FeatureFlagViewSet(
         methods=["GET"], detail=False, throttle_classes=[FeatureFlagThrottle], required_scopes=["feature_flag:read"]
     )
     def local_evaluation(self, request: request.Request, **kwargs):
+        # Check if team is quota limited for feature flags
+        if settings.DECIDE_FEATURE_FLAG_QUOTA_CHECK:
+            from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
+
+            limited_tokens_flags = list_limited_team_attributes(
+                QuotaResource.FEATURE_FLAG_REQUESTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+            )
+            if self.team.api_token in limited_tokens_flags:
+                return Response(
+                    {
+                        "type": "quota_limited",
+                        "detail": "You have exceeded your feature flag request quota",
+                        "code": "payment_required",
+                    },
+                    status=status.HTTP_402_PAYMENT_REQUIRED,
+                )
+
         feature_flags: QuerySet[FeatureFlag] = FeatureFlag.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION).filter(
             ~Q(is_remote_configuration=True),
             team__project_id=self.project_id,

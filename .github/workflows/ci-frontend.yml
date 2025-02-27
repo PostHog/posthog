@@ -16,7 +16,7 @@ jobs:
     # we skip each step individually, so   they are still reported as success
     # because many of them are required for CI checks to be green
     changes:
-        runs-on: ubuntu-24.04
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         name: Determine need to run frontend checks
         outputs:
@@ -36,6 +36,9 @@ jobs:
                         - 'bin/**'
                         - 'frontend/**'
                         - 'ee/frontend/**'
+                        - 'common/esbuilder/**'
+                        - 'products/**/*.ts'
+                        - 'products/**/*.tsx'
                         # Make sure we run if someone is explicitly change the workflow
                         - .github/workflows/ci-frontend.yml
                         # various JS config files
@@ -54,7 +57,7 @@ jobs:
         name: Code quality checks
         needs: changes
         # kea typegen and typescript:check need some more oomph
-        runs-on: ubuntu-24.04
+        runs-on: depot-ubuntu-24.04-4
         steps:
             # we need at least one thing to run to make sure we include everything for required jobs
             - uses: actions/checkout@v3
@@ -68,6 +71,7 @@ jobs:
               uses: actions/setup-node@v4
               with:
                   node-version: 18.12.1
+                  cache: 'pnpm'
 
             - name: Get pnpm cache directory path
               if: needs.changes.outputs.frontend == 'true'
@@ -84,44 +88,51 @@ jobs:
 
             - name: Install package.json dependencies with pnpm
               if: needs.changes.outputs.frontend == 'true'
-              run: pnpm --filter=@posthog/frontend install --frozen-lockfile
+              run: |
+                  pnpm --filter=@posthog/playwright... install --frozen-lockfile
+                  bin/turbo --filter=@posthog/frontend prepare
 
             - name: Check formatting with prettier
               if: needs.changes.outputs.frontend == 'true'
-              run: pnpm prettier:check
+              run: pnpm --filter=@posthog/frontend prettier:check
 
             - name: Lint with Stylelint
               if: needs.changes.outputs.frontend == 'true'
-              run: pnpm lint:css
+              run: pnpm --filter=@posthog/frontend lint:css
 
             - name: Generate logic types and run typescript with strict
               if: needs.changes.outputs.frontend == 'true'
-              run: pnpm typegen:write && pnpm typescript:check
+              run: pnpm --filter=@posthog/frontend typegen:write && pnpm --filter=@posthog/frontend typescript:check
+              env:
+                  NODE_OPTIONS: --max-old-space-size=6144
 
             - name: Lint with ESLint
               if: needs.changes.outputs.frontend == 'true'
-              run: pnpm lint:js
+              run: pnpm --filter=@posthog/frontend lint:js
+              env:
+                  NODE_OPTIONS: --max-old-space-size=6144
 
             - name: Check if "schema.json" is up to date
               if: needs.changes.outputs.frontend == 'true'
-              run: pnpm schema:build:json && git diff --exit-code
+              run: pnpm --filter=@posthog/frontend schema:build:json && git diff --exit-code
 
             - name: Check if mobile replay "schema.json" is up to date
               if: needs.changes.outputs.frontend == 'true'
-              run: pnpm mobile-replay:schema:build:json && git diff --exit-code
+              run: pnpm --filter=@posthog/ee mobile-replay:schema:build:json && git diff --exit-code
 
             - name: Check toolbar bundle size
               if: needs.changes.outputs.frontend == 'true'
               uses: preactjs/compressed-size-action@v2
               with:
-                  build-script: 'build'
+                  build-script: '--filter=@posthog/frontend build'
+                  install-script: 'pnpm --filter=@posthog/frontend... install'
                   compression: 'none'
                   pattern: 'frontend/dist/toolbar.js'
                   # we only care if the toolbar will increase a lot
                   minimum-change-threshold: 1000
 
     jest:
-        runs-on: ubuntu-24.04
+        runs-on: depot-ubuntu-24.04
         needs: changes
         name: Jest test (${{ matrix.segment }} - ${{ matrix.chunk }})
 
@@ -153,19 +164,20 @@ jobs:
 
             - name: Install package.json dependencies with pnpm
               if: needs.changes.outputs.frontend == 'true'
-              run: pnpm --filter=@posthog/frontend install --frozen-lockfile
+              run: pnpm --filter=@posthog/frontend... install --frozen-lockfile
 
             - name: Test with Jest
-              # set maxWorkers or Jest only uses 1 CPU in GitHub Actions
-              run: pnpm test:unit --maxWorkers=2 --shard=${{ matrix.chunk }}/3
+              run: bin/turbo run test --filter=@posthog/frontend
               if: needs.changes.outputs.frontend == 'true'
               env:
                   NODE_OPTIONS: --max-old-space-size=6144
+                  SHARD_INDEX: ${{ matrix.chunk }}
+                  SHARD_COUNT: 3
 
     calculate-running-time:
         name: Calculate running time
         needs: [jest, frontend-code-quality, changes]
-        runs-on: ubuntu-24.04
+        runs-on: depot-ubuntu-24.04
         if: needs.changes.outputs.frontend == 'true'
         steps:
             - name: Calculate running time
@@ -197,4 +209,4 @@ jobs:
               with:
                   posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
                   event: 'posthog-ci-running-time'
-                  properties: '{"duration_seconds": ${{ env.running_time_duration_seconds }}, "run_url": "${{ env.running_time_run_url }}", "run_attempt": "${{ env.running_time_run_attempt }}", "run_id": "${{ env.running_time_run_id }}", "run_started_at": "${{ env.running_time_run_started_at }}"}'
+                  properties: '{"runner": "depot", "duration_seconds": ${{ env.running_time_duration_seconds }}, "run_url": "${{ env.running_time_run_url }}", "run_attempt": "${{ env.running_time_run_attempt }}", "run_id": "${{ env.running_time_run_id }}", "run_started_at": "${{ env.running_time_run_started_at }}"}'

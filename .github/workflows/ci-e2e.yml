@@ -39,15 +39,12 @@ jobs:
                         - requirements-dev.txt
                         - package.json
                         - pnpm-lock.yaml
-                        # Make sure we run if someone is explicitly change the workflow
-                        - .github/workflows/ci-e2e.yml
                         - .github/actions/build-n-cache-image/action.yml
                         # We use docker compose for tests, make sure we rerun on
                         # changes to docker-compose.dev.yml e.g. dependency
                         # version changes
                         - docker-compose.dev.yml
                         - Dockerfile
-                        - cypress/**
 
     # Job that lists and chunks spec file names and caches node modules
     chunks:
@@ -63,7 +60,31 @@ jobs:
 
             - name: Group spec files into chunks of three
               id: chunk
-              run: echo "chunks=$(ls cypress/e2e/* | jq --slurp --raw-input -c 'split("\n")[:-1] | _nwise(2) | join("\n")' | jq --slurp -c .)" >> $GITHUB_OUTPUT
+              run: |
+                  cd cypress
+                  # Grab all .cy.ts files in e2e/
+                  files=$(ls e2e/*.cy.ts || true)
+
+                  # If no files exist, handle that gracefully:
+                  if [ -z "$files" ]; then
+                    echo "chunks=[]" >> "$GITHUB_OUTPUT"
+                    exit 0
+                  fi
+
+                  # 1. Chunk these filenames in groups of 2, then join each group with commas
+                  chunked=$(echo "$files" | xargs -n2 | sed 's/ /,/g')
+
+                  # 2. Convert each line into a JSON string, then produce a SINGLE-LINE JSON array
+                  #    Use `-c` for "compact" (no extra newlines).
+                  chunk_array=$(echo "$chunked" | jq -R . | jq -s -c .)
+
+                  # 3. Escape special characters for GitHub output:
+                  chunk_array="${chunk_array//'%'/'%25'}"
+                  chunk_array="${chunk_array//$'\n'/'%0A'}"
+                  chunk_array="${chunk_array//$'\r'/'%0D'}"
+
+                  # 4. Finally, write to GITHUB_OUTPUT in valid "key=value" form
+                  echo "chunks=$chunk_array" >> "$GITHUB_OUTPUT"
 
     container:
         name: Build and cache container image
@@ -119,6 +140,7 @@ jobs:
               uses: actions/setup-node@v4
               with:
                   node-version: 18.12.1
+                  cache: 'pnpm'
 
             - name: Get pnpm cache directory path
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
@@ -143,7 +165,12 @@ jobs:
 
             - name: Install package.json dependencies with pnpm
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
-              run: pnpm --filter=@posthog/frontend install --frozen-lockfile
+              run: pnpm --filter=@posthog/cypress... install --frozen-lockfile
+
+            - name: Prepare cypress
+              # these are required checks so, we can't skip entire sections
+              if: needs.changes.outputs.shouldTriggerCypress == 'true'
+              run: bin/turbo --filter=@posthog/cypress prepare
 
             - name: Stop/Start stack with Docker Compose
               # these are required checks so, we can't skip entire sections
@@ -201,7 +228,7 @@ jobs:
                   mkdir -p /tmp/logs
 
                   echo "Starting PostHog using the container image ${{ needs.container.outputs.tag }}"
-                  DOCKER_RUN="docker run --rm --network host --add-host kafka:127.0.0.1 --env-file .env ${{ needs.container.outputs.tag }}"
+                  DOCKER_RUN="docker run --rm --network host --add-host kafka:127.0.0.1 --add-host clickhouse:127.0.0.1 --env-file .env ${{ needs.container.outputs.tag }}"
 
                   $DOCKER_RUN ./bin/migrate
                   $DOCKER_RUN python manage.py setup_dev
@@ -228,12 +255,10 @@ jobs:
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
               uses: cypress-io/github-action@v6
               with:
-                  config-file: cypress.e2e.config.ts
-                  spec: ${{ matrix.chunk }}
-                  install: false
+                  install-command: 'pnpm --filter=@posthog/cypress... install --frozen-lockfile'
+                  command: 'pnpm --filter=@posthog/cypress exec cypress run --config-file cypress.e2e.config.ts --spec ${{ matrix.chunk }} --headed'
                   # We were seeing suprising crashes in headless mode
                   # See https://github.com/cypress-io/cypress/issues/28893#issuecomment-1956480875
-                  headed: true
               env:
                   E2E_TESTING: 1
                   OPT_OUT_CAPTURE: 0

@@ -22,12 +22,25 @@ export interface ChatMessage {
     timestamp: string
     isRateLimited?: boolean
     isError?: boolean
+    limitType?: string
 }
 
 interface MaxResponse {
     content: string | { text: string; type: string }
     rate_limits?: RateLimits
     isError?: boolean
+    limit_type?: string
+}
+
+interface RetryAction {
+    message: string
+    retryAfter: number
+    limitType?: string
+}
+
+interface RateLimitAction {
+    isLimited: boolean
+    limitType?: string
 }
 
 export const sidePanelMaxAILogic = kea<sidePanelMaxAILogicType>([
@@ -38,16 +51,31 @@ export const sidePanelMaxAILogic = kea<sidePanelMaxAILogicType>([
         clearChatHistory: true,
         appendAssistantMessage: (content: string) => ({ content }),
         setSearchingThinking: (isSearching: boolean) => ({ isSearching }),
-        setRateLimited: (isLimited: boolean) => ({ isLimited }),
+        setRateLimited: (isLimited: boolean, limitType?: string) => ({ isLimited, limitType }),
         setServerError: (isError: boolean) => ({ isError }),
-        retryAfter: (message: string, retryAfter: number) => ({ message, retryAfter }),
+        retryAfter: (message: string, retryAfter: number, limitType?: string) => ({ message, retryAfter, limitType }),
     }),
 
     reducers({
+        retryAttempts: [
+            0,
+            {
+                submitMessage: () => 0,
+                retryAfter: (state) => state + 1,
+                setRateLimited: (state, { isLimited }) => (isLimited ? state : 0),
+            },
+        ],
         retryAfter: [
             null as number | null,
             {
                 retryAfter: (_, { retryAfter }) => retryAfter,
+            },
+        ],
+        rateLimitType: [
+            null as string | null,
+            {
+                setRateLimited: (_, { limitType }: RateLimitAction) => limitType || null,
+                retryAfter: (_, { limitType }: RetryAction) => limitType || null,
             },
         ],
         currentMessages: [
@@ -88,7 +116,7 @@ export const sidePanelMaxAILogic = kea<sidePanelMaxAILogicType>([
         isRateLimited: [
             false,
             {
-                setRateLimited: (_, { isLimited }) => isLimited,
+                setRateLimited: (_, { isLimited }: RateLimitAction) => isLimited,
             },
         ],
         hasServerError: [
@@ -105,6 +133,15 @@ export const sidePanelMaxAILogic = kea<sidePanelMaxAILogicType>([
             {
                 submitMessage: async ({ message }, breakpoint) => {
                     try {
+                        // Don't retry more than twice
+                        if (values.retryAttempts >= 3) {
+                            actions.appendAssistantMessage(
+                                "😮‍💨 I'm still experiencing rate limits. Please leave me alone for a few minutes. Scroll down and hit `End chat`, then try me again after I've had a nap. 🦔"
+                            )
+                            actions.setSearchingThinking(false)
+                            return null
+                        }
+
                         actions.setSearchingThinking(true)
                         actions.setServerError(false)
                         if (!values.isRateLimited) {
@@ -130,11 +167,23 @@ export const sidePanelMaxAILogic = kea<sidePanelMaxAILogicType>([
                             typeof error.status === 'number'
                         ) {
                             if (error.status === 429) {
-                                actions.setRateLimited(true)
-                                const retryPeriod = (error as any).data?.retry_after || 180
-                                actions.retryAfter(message, retryPeriod)
+                                const MAX_BACKOFF = 40 // Maximum backoff in seconds to prevent gateway timeouts
+                                const retryPeriod = Math.min(
+                                    (error as any).data?.retry_after || MAX_BACKOFF,
+                                    MAX_BACKOFF
+                                )
+                                const limitType = (error as any).data?.limit_type
+                                actions.setRateLimited(true, limitType)
+                                if (values.retryAttempts < 2) {
+                                    actions.retryAfter(message, retryPeriod, limitType)
+                                } else {
+                                    actions.appendAssistantMessage(
+                                        "I'm still experiencing rate limits. Please wait a minute or two before trying again."
+                                    )
+                                    actions.setSearchingThinking(false)
+                                }
                                 await breakpoint(100)
-                            } else if ([500, 524, 529].includes(error.status)) {
+                            } else if ([500, 504, 524, 529].includes(error.status)) {
                                 actions.setServerError(true)
                                 await breakpoint(100)
                                 actions.setSearchingThinking(false)
@@ -155,7 +204,7 @@ export const sidePanelMaxAILogic = kea<sidePanelMaxAILogicType>([
     listeners(({ actions }) => ({
         retryAfter: async ({ retryAfter, message }, breakpoint) => {
             await breakpoint(retryAfter * 1000)
-            actions.setRateLimited(false)
+            actions.setRateLimited(false, undefined)
             actions.submitMessage(message)
         },
     })),

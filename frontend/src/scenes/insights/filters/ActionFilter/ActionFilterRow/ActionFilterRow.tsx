@@ -18,7 +18,8 @@ import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SeriesGlyph, SeriesLetter } from 'lib/components/SeriesGlyph'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { defaultDataWarehousePopoverFields } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
+import { DataWarehousePopoverField, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover, TaxonomicStringPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { IconWithCount, SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -128,6 +129,8 @@ export interface ActionFilterRowProps {
     showNumericalPropsOnly?: boolean
     /** Only allow these math types in the selector */
     allowedMathTypes?: readonly string[]
+    /** Fields to display in the data warehouse filter popover */
+    dataWarehousePopoverFields?: DataWarehousePopoverField[]
 }
 
 export function ActionFilterRow({
@@ -158,6 +161,7 @@ export function ActionFilterRow({
     trendsDisplayCategory,
     showNumericalPropsOnly,
     allowedMathTypes,
+    dataWarehousePopoverFields = defaultDataWarehousePopoverFields,
 }: ActionFilterRowProps): JSX.Element {
     const { entityFilterVisible } = useValues(logic)
     const {
@@ -265,15 +269,16 @@ export function ActionFilterRow({
             onChange={(changedValue, taxonomicGroupType, item) => {
                 const groupType = taxonomicFilterGroupTypeToEntityType(taxonomicGroupType)
                 if (groupType === EntityTypes.DATA_WAREHOUSE) {
+                    const extraValues = Object.fromEntries(
+                        dataWarehousePopoverFields.map(({ key }) => [key, item?.[key]])
+                    )
                     updateFilter({
                         type: groupType,
                         id: changedValue ? String(changedValue) : null,
                         name: item?.name ?? '',
-                        id_field: item?.id_field,
-                        timestamp_field: item?.timestamp_field,
-                        distinct_id_field: item?.distinct_id_field,
                         table_name: item?.name,
                         index,
+                        ...extraValues,
                     })
                 } else {
                     updateFilter({
@@ -294,6 +299,7 @@ export function ActionFilterRow({
             placeholderClass=""
             disabled={disabled || readOnly}
             showNumericalPropsOnly={showNumericalPropsOnly}
+            dataWarehousePopoverFields={dataWarehousePopoverFields}
         />
     )
 
@@ -660,6 +666,20 @@ function isCountPerActorMath(math: string | undefined): math is CountPerActorMat
 
 const TRAILING_MATH_TYPES = new Set<string>([BaseMathType.WeeklyActiveUsers, BaseMathType.MonthlyActiveUsers])
 
+function getDefaultPropertyMathType(
+    math: string | undefined,
+    allowedMathTypes: readonly string[] | undefined
+): PropertyMathType {
+    if (isPropertyValueMath(math)) {
+        return math
+    }
+    if (allowedMathTypes?.length) {
+        const propertyMathTypes = allowedMathTypes.filter(isPropertyValueMath)
+        return (propertyMathTypes[0] as PropertyMathType) || PropertyMathType.Average
+    }
+    return PropertyMathType.Average
+}
+
 function useMathSelectorOptions({
     math,
     index,
@@ -681,16 +701,9 @@ function useMathSelectorOptions({
         staticActorsOnlyMathDefinitions,
     } = useValues(mathsLogic)
 
-    const [propertyMathTypeShown, setPropertyMathTypeShown] = useState<PropertyMathType>(() => {
-        if (isPropertyValueMath(math)) {
-            return math
-        }
-        if (allowedMathTypes?.length) {
-            // filter out non-property math types
-            return allowedMathTypes.filter(isPropertyValueMath)[0] as PropertyMathType
-        }
-        return PropertyMathType.Average
-    })
+    const [propertyMathTypeShown, setPropertyMathTypeShown] = useState<PropertyMathType>(
+        getDefaultPropertyMathType(math, allowedMathTypes)
+    )
 
     const [countPerActorMathTypeShown, setCountPerActorMathTypeShown] = useState<CountPerActorMathType>(
         isCountPerActorMath(math) ? math : CountPerActorMathType.Average

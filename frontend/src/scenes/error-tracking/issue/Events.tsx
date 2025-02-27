@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import PanelLayout, { SettingsButton } from 'lib/components/PanelLayout/PanelLayout'
 import { useState } from 'react'
 
+import { ErrorTrackingFilters } from '../ErrorTrackingFilters'
 import { errorTrackingIssueSceneLogic, EventsMode } from '../errorTrackingIssueSceneLogic'
 import { getExceptionAttributes, hasStacktrace } from '../utils'
 import { Overview } from './Overview'
@@ -73,7 +74,11 @@ export const Events = (): JSX.Element => {
                 />
             </PanelLayout.PanelSettings>
             {eventsMode === EventsMode.All ? (
-                <EventsTab />
+                <div className="m-4">
+                    <ErrorTrackingFilters />
+                    <LemonDivider thick className="mt-2 mb-0" />
+                    <EventsTab />
+                </div>
             ) : (
                 <>
                     <Overview />
