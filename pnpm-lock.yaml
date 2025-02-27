@@ -380,7 +380,7 @@ importers:
         specifier: '*'
         version: 3.6.0(webpack@5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15)))
       cypress:
-        specifier: ^13.11.0
+        specifier: 13.11.0
         version: 13.11.0
       cypress-axe:
         specifier: ^1.5.0
