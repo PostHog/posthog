@@ -18,6 +18,7 @@ import {
     sanitizeConfiguration,
 } from './hogfunctions/hogFunctionConfigurationLogic'
 import type { hogFunctionTestingLogicType } from './hogFunctionTestingLogicType'
+import { HogFunctionTestInvocationResultWithEventId } from './TestingMenu'
 
 export interface HogFunctionTestingLogicProps {
     id: string
@@ -161,7 +162,7 @@ export const hogFunctionTestingLogic = kea<hogFunctionTestingLogicType>([
             },
         ],
         retries: [
-            [] as DestinationRetryType[],
+            [] as HogFunctionTestInvocationResultWithEventId[],
             {
                 retryInvocation: async (row: any) => {
                     actions.addLoadingRetry(row[0].uuid)
@@ -202,7 +203,7 @@ export const hogFunctionTestingLogic = kea<hogFunctionTestingLogicType>([
                         })
 
                         actions.removeLoadingRetry(row[0].uuid)
-                        const retry: DestinationRetryType = {
+                        const retry: HogFunctionTestInvocationResultWithEventId = {
                             eventId: row[0].uuid,
                             ...res,
                         }
@@ -270,7 +271,7 @@ export const hogFunctionTestingLogic = kea<hogFunctionTestingLogicType>([
         ],
         eventsWithRetries: [
             (s) => [s.events, s.retries],
-            (events: { results: any[] }, retries: DestinationRetryType[]) =>
+            (events: { results: any[] }, retries: HogFunctionTestInvocationResultWithEventId[]) =>
                 events.results.map((row) => [
                     ...row.slice(0, 3),
                     retries.filter((r) => r.eventId === row[0].uuid),
