@@ -28,7 +28,7 @@ import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
 
-import { AvailableFeature, DestinationRetryType, LogEntry } from '~/types'
+import { AvailableFeature, HogFunctionTestInvocationResult, LogEntry } from '~/types'
 
 import { HogFunctionFilters } from './hogfunctions/filters/HogFunctionFilters'
 import { hogFunctionConfigurationLogic } from './hogfunctions/hogFunctionConfigurationLogic'
@@ -39,11 +39,15 @@ export interface HogFunctionTestingProps {
     id: string
 }
 
+export interface HogFunctionTestInvocationResultWithEventId extends HogFunctionTestInvocationResult {
+    eventId: string
+}
+
 export function TestingMenu({ id }: HogFunctionTestingProps): JSX.Element {
     const { selectingMany, eventsWithRetries, loadingRetries, selectedForRetry } = useValues(
         hogFunctionTestingLogic({ id })
     )
-    const { setSelectingMany, retryInvocation, selectForRetry, deselectForRetry, resetSelectedForRetry } = useActions(
+    const { setSelectingMany, retryInvocation, selectForRetry, deselectForRetry } = useActions(
         hogFunctionTestingLogic({ id })
     )
     const { loading, loaded, showPaygate } = useValues(hogFunctionConfigurationLogic({ id }))
@@ -105,8 +109,6 @@ export function TestingMenu({ id }: HogFunctionTestingProps): JSX.Element {
                                                     eventsWithRetries
                                                         .filter((row) => selectedForRetry.includes(row[0].uuid))
                                                         .forEach((row) => retryInvocation(row))
-                                                    resetSelectedForRetry()
-                                                    setSelectingMany(false)
                                                 },
                                             },
                                         })
@@ -143,7 +145,7 @@ export function RetryStatusIcon({
     retries = [],
     showLabel = false,
 }: {
-    retries: DestinationRetryType[]
+    retries: HogFunctionTestInvocationResultWithEventId[]
     showLabel?: boolean
 }): JSX.Element {
     const colorForStatus = (status: string): 'success' | 'primary' | 'warning' | 'danger' | 'default' => {
@@ -292,7 +294,8 @@ export function TestingEventsList({ id }: { id: string }): JSX.Element | null {
                     return (
                         <LemonTable
                             dataSource={retries.reduce(
-                                (acc: LogEntry[], group: DestinationRetryType) => acc.concat(group.logs),
+                                (acc: LogEntry[], group: HogFunctionTestInvocationResultWithEventId) =>
+                                    acc.concat(group.logs),
                                 []
                             )}
                             embedded={true}
