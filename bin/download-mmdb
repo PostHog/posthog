@@ -1,0 +1,9 @@
+#!/bin/bash
+
+set -e
+
+# Get dir of this script
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+mkdir -p "$DIR/../share"
+[ ! -f "$DIR/../share/GeoLite2-City.mmdb" ] && (curl -L "https://mmdbcdn.posthog.net/" --http1.1 | brotli --decompress --output="$DIR/../share/GeoLite2-City.mmdb")
