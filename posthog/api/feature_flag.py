@@ -58,7 +58,7 @@ from posthog.models.feature_flag import (
 )
 from posthog.models.feature_flag.flag_analytics import increment_request_count
 from posthog.models.feature_flag.flag_matching import check_flag_evaluation_query_is_ok
-from posthog.models.feedback.survey import Survey
+from posthog.models.surveys.survey import Survey
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property import Property
 from posthog.models.feature_flag.flag_status import FeatureFlagStatusChecker, FeatureFlagStatus
@@ -573,7 +573,7 @@ class FeatureFlagViewSet(
     viewsets.ModelViewSet,
 ):
     """
-    Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/user-guides/feature-flags) for more information on feature flags.
+    Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
 
     If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
     """
