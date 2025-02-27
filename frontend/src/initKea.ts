@@ -50,13 +50,11 @@ export const loggerPlugin: () => KeaPlugin = () => ({
         beforeReduxStore(options) {
             options.middleware.push((store) => (next) => (action) => {
                 const response = next(action)
-                if (action.type.toLowerCase().includes('playlist')) {
-                    /* eslint-disable no-console */
-                    console.groupCollapsed('KEA LOGGER', action)
-                    console.log(store.getState())
-                    console.groupEnd()
-                    /* eslint-enable no-console */
-                }
+                /* eslint-disable no-console */
+                console.groupCollapsed('KEA LOGGER', action)
+                console.log(store.getState())
+                console.groupEnd()
+                /* eslint-enable no-console */
                 return response
             })
         },
@@ -119,7 +117,6 @@ export function initKea({ routerHistory, routerLocation, beforePlugins }: InitKe
     if (window.JS_KEA_VERBOSE_LOGGING || ('localStorage' in window && window.localStorage.getItem('ph-kea-debug'))) {
         plugins.push(loggerPlugin)
     }
-    plugins.push(loggerPlugin)
 
     if ((window as any).__REDUX_DEVTOOLS_EXTENSION__) {
         // eslint-disable-next-line no-console
