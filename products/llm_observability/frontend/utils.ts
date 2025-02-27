@@ -47,6 +47,21 @@ export function isLLMTraceEvent(item: LLMTrace | LLMTraceEvent): item is LLMTrac
     return 'properties' in item
 }
 
+export function hasSessionID(event: LLMTrace | LLMTraceEvent): boolean {
+    if (isLLMTraceEvent(event)) {
+        return 'properties' in event && typeof event.properties.$session_id === 'string'
+    }
+    return '$session_id' in event
+}
+
+export function getSessionID(event: LLMTrace | LLMTraceEvent): string | null {
+    if (isLLMTraceEvent(event)) {
+        return event.properties.$session_id || null
+    }
+
+    return event.events.find((e) => e.properties.$session_id !== null)?.properties.$session_id || null
+}
+
 export function isOpenAICompatToolCall(input: unknown): input is OpenAIToolCall {
     return (
         input !== null &&
