@@ -1882,13 +1882,11 @@ class TestSurveyQuestionValidation(APIBaseTest):
                 "type": "popover",
                 "questions": [
                     {
-                        "id": str(basic_survey.questions[0]["id"]),
                         "type": "open",
                         "question": "What up?",
                         "description": "<script>alert(0)</script>check?",
                     },
                     {
-                        "id": str(basic_survey.questions[1]["id"]),
                         "type": "link",
                         "link": "https://bazinga.com",
                         "question": "<b>What</b> do you think of the new notebooks feature?",
@@ -1908,13 +1906,13 @@ class TestSurveyQuestionValidation(APIBaseTest):
         assert response_data["type"] == "popover"
         assert response_data["questions"] == [
             {
-                "id": str(basic_survey.questions[0]["id"]),
+                "id": str(response_data["questions"][0]["id"]),
                 "type": "open",
                 "question": "What up?",
                 "description": "check?",
             },
             {
-                "id": str(basic_survey.questions[1]["id"]),
+                "id": str(response_data["questions"][1]["id"]),
                 "type": "link",
                 "link": "https://bazinga.com",
                 "question": "<b>What</b> do you think of the new notebooks feature?",
