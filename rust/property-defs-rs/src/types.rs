@@ -324,8 +324,10 @@ fn detect_property_type(key: &str, value: &Value) -> Option<PropertyValueType> {
             let s = &s.trim();
             if *s == "true" || *s == "false" || *s == "TRUE" || *s == "FALSE" {
                 Some(PropertyValueType::Boolean)
+            // Try to parse this as an ISO 8601 date, and if we can, use that as the type instead
+            } else if DateTime::parse_from_rfc3339(s).is_ok() {
+                Some(PropertyValueType::DateTime)
             } else {
-                // TODO - we should try to auto-detect datetime strings here, but I'm skipping the chunk of regex necessary to do it for v0
                 Some(PropertyValueType::String)
             }
         }
