@@ -622,11 +622,14 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
                 // Add domain filter if set
                 if (domainFilter && domainFilter !== 'all') {
+                    // Remove the leading protocol if it exists
+                    const value = domainFilter.replace(/^https?:\/\//, '')
+
                     filters = [
                         ...filters,
                         {
                             key: '$host',
-                            value: domainFilter,
+                            value: value,
                             operator: PropertyOperator.Exact,
                             type: PropertyFilterType.Event,
                         },
