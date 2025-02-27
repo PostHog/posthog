@@ -1,3 +1,5 @@
+from typing import cast
+
 from rest_framework.exceptions import ValidationError
 
 from posthog.constants import FUNNEL_TO_STEP
@@ -75,8 +77,10 @@ class FunnelTimeToConvertUDF(FunnelBase):
             {"inner_select": inner_select},
         )
 
-        return parse_select(
-            f"""
+        return cast(
+            ast.SelectQuery,
+            parse_select(
+                f"""
             SELECT
                 bin_from_seconds,
                 person_count,
@@ -86,5 +90,6 @@ class FunnelTimeToConvertUDF(FunnelBase):
             counts as person_count,
             buckets as bin_from_seconds
             """,
-            {"timings": timings},
+                {"timings": timings},
+            ),
         )
