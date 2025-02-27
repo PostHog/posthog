@@ -100,30 +100,6 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                         },
                     },
                     {
-                        title: 'Sync Time of Day (UTC)',
-                        key: 'sync_time_of_day',
-                        render: function RenderSyncTimeOfDay(_, schema) {
-                            return (
-                                <LemonSelect
-                                    className="my-1"
-                                    disabled={!schema.should_sync}
-                                    value={(schema.sync_time_of_day || '00:00:00').substring(0, 5)}
-                                    onChange={(value) => updateSchema({ ...schema, sync_time_of_day: `${value}:00` })}
-                                    options={[
-                                        { value: '00:00', label: '12:00 AM (Midnight)' },
-                                        { value: '03:00', label: '3:00 AM' },
-                                        { value: '06:00', label: '6:00 AM' },
-                                        { value: '09:00', label: '9:00 AM' },
-                                        { value: '12:00', label: '12:00 PM (Noon)' },
-                                        { value: '15:00', label: '3:00 PM' },
-                                        { value: '18:00', label: '6:00 PM' },
-                                        { value: '21:00', label: '9:00 PM' },
-                                    ]}
-                                />
-                            )
-                        },
-                    },
-                    {
                         title: (
                             <div className="flex items-center gap-2">
                                 <span>Sync Time of Day</span>
