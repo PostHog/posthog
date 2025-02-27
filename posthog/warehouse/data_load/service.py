@@ -10,6 +10,8 @@ from temporalio.client import (
     SchedulePolicy,
     ScheduleSpec,
     ScheduleState,
+    ScheduleCalendarSpec,
+    ScheduleRange,
 )
 from temporalio.common import RetryPolicy
 from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
@@ -50,6 +52,11 @@ def get_sync_schedule(external_data_schema: "ExternalDataSchema"):
 
     sync_frequency, jitter = get_sync_frequency(external_data_schema)
 
+    # format 15:00:00 --> 3:00 PM UTC
+    sync_time_of_day = external_data_schema.sync_time_of_day
+    hour = int(sync_time_of_day.split(":")[0])
+    minute = int(sync_time_of_day.split(":")[1])
+
     return Schedule(
         action=ScheduleActionStartWorkflow(
             "external-data-job",
@@ -64,6 +71,12 @@ def get_sync_schedule(external_data_schema: "ExternalDataSchema"):
             ),
         ),
         spec=ScheduleSpec(
+            calendars=[
+                ScheduleCalendarSpec(
+                    hour=[ScheduleRange(start=hour, end=hour, step=1)],
+                    minute=[ScheduleRange(start=minute, end=minute, step=1)],
+                )
+            ],
             intervals=[ScheduleIntervalSpec(every=sync_frequency)],
             jitter=jitter,
         ),
