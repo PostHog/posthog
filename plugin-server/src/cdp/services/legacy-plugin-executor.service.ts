@@ -1,8 +1,10 @@
+import { City } from '@maxmind/geoip2-node'
 import { PluginEvent, ProcessedPluginEvent, RetryError, StorageExtension } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
-import { Histogram } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
 
 import { Hub } from '~/src/types'
+import { GeoIp } from '~/src/utils/geoip'
 
 import { PostgresUse } from '../../utils/db/postgres'
 import { Response, trackedFetch } from '../../utils/fetch'
@@ -25,6 +27,12 @@ const pluginExecutionDuration = new Histogram({
     help: 'Processing time and success status of plugins',
     // We have a timeout so we don't need to worry about much more than that
     buckets: [0, 10, 20, 50, 100, 200],
+})
+
+const geoipCompareCounter = new Counter({
+    name: 'cdp_geoip_compare_count',
+    help: 'Number of times we compare the MMDB file to the local file',
+    labelNames: ['result'],
 })
 
 export type PluginState = {
@@ -174,21 +182,52 @@ export class LegacyPluginExecutorService {
 
             // NOTE: If this is set then we can add in the legacy storage
             const legacyPluginConfigId = invocation.globals.inputs?.legacy_plugin_config_id
-            const geoip = await this.hub.geoipService.get()
 
             if (!state) {
-                // TODO: Modify fetch to be a silent log if it is a test function...
+                let geoip: GeoIp | undefined
+                try {
+                    geoip = await this.hub.geoipService.get()
+                } catch (e) {
+                    if (!this.hub.MMDB_COMPARE_MODE) {
+                        // IF we aren't comparing then we should fail hard
+                        throw e
+                    }
+                }
+
                 const meta: LegacyTransformationPluginMeta = {
                     config: invocation.globals.inputs,
                     global: {},
                     logger: logger,
                     geoip: {
                         locate: (ipAddress: string): Record<string, any> | null => {
+                            let newGeoipResult: City | null = null
+                            let oldGeoipResult: City | null = null
+
                             try {
-                                return geoip.city(ipAddress)
+                                if (this.hub.MMDB_COMPARE_MODE) {
+                                    oldGeoipResult = this.hub.mmdb?.city(ipAddress) ?? null
+                                }
+                                if (geoip) {
+                                    newGeoipResult = geoip.city(ipAddress)
+                                }
                             } catch {
-                                return null
+                                // Something went wrong move on
                             }
+
+                            if (this.hub.MMDB_COMPARE_MODE) {
+                                if (oldGeoipResult?.city?.geonameId !== newGeoipResult?.city?.geonameId) {
+                                    status.warn('🌎', 'New GeoIP result was different', {
+                                        ipAddress,
+                                        oldGeoipResult: JSON.stringify(oldGeoipResult?.city),
+                                        newGeoipResult: JSON.stringify(newGeoipResult?.city),
+                                    })
+                                    geoipCompareCounter.inc({ result: 'different' })
+                                } else {
+                                    geoipCompareCounter.inc({ result: 'same' })
+                                }
+                            }
+
+                            return oldGeoipResult ? oldGeoipResult : newGeoipResult
                         },
                     },
                 }
