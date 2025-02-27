@@ -43,13 +43,14 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
             kind: NodeKind.DataTableNode,
             source: {
                 kind: NodeKind.EventsQuery,
-                select: defaultDataTableColumns(NodeKind.EventsQuery),
+                select: definition.default_columns || defaultDataTableColumns(NodeKind.EventsQuery),
                 event: definition.name,
             },
             full: true,
             showEventFilter: false,
+            showPersistentColumnConfigurator: true,
         }),
-        [definition.name]
+        [definition.name, definition.default_columns]
     )
 
     if (definitionLoading) {
@@ -110,12 +111,12 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                                                             : TaxonomicFilterGroupType.EventProperties
                                                     )}
                                                 </strong>{' '}
-                                                will no longer appear in selectors. Associated data will remain
-                                                in the database.
+                                                will no longer appear in selectors. Associated data will remain in the
+                                                database.
                                             </p>
                                             <p>
-                                                This definition will be recreated if the {singular} is ever seen again
-                                                in the event stream.
+                                                This definition will be recreated if the ${singular} is ever seen again
+                                                in the event stream.
                                             </p>
                                         </>
                                     ),

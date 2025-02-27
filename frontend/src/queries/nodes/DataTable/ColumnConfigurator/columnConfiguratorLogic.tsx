@@ -1,4 +1,7 @@
 import { actions, kea, key, listeners, path, props, propsChanged, reducers } from 'kea'
+import { router } from 'kea-router'
+import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { HOGQL_COLUMNS_KEY } from '~/queries/nodes/DataTable/defaultEventsQuery'
@@ -63,10 +66,37 @@ export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>([
         }
     }),
     listeners(({ values, props }) => ({
-        save: () => {
+        save: async () => {
+            // Regular team-wide default columns behavior
             if (props.isPersistent && values.saveAsDefault) {
                 teamLogic.actions.updateCurrentTeam({ live_events_columns: [HOGQL_COLUMNS_KEY, ...values.columns] })
             }
+
+            // Check if we're in an event definition view and the user wants to save as default
+            if (props.isPersistent && values.saveAsDefault) {
+                const definitionMatches = router.values.currentLocation?.pathname.match(
+                    /\/data-management\/events\/(.+)/
+                )
+                if (definitionMatches) {
+                    const eventDefinitionId = definitionMatches[1]
+
+                    try {
+                        await api.eventDefinitions.update({
+                            eventDefinitionId,
+                            eventDefinitionData: {
+                                default_columns: values.columns,
+                            },
+                        })
+
+                        lemonToast.success('Default columns saved for this event')
+                    } catch (error) {
+                        console.error('Error saving default columns to event definition:', error)
+                        // Don't show toast error here since we'll still be saving the columns locally
+                    }
+                }
+            }
+
+            // Always update the columns in the query
             props.setColumns(values.columns)
         },
     })),

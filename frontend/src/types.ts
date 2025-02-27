@@ -3296,6 +3296,7 @@ export interface EventDefinition {
     verified_at?: string
     verified_by?: string
     is_action?: boolean
+    default_columns?: string[]
 }
 
 // TODO duplicated from plugin server. Follow-up to de-duplicate
