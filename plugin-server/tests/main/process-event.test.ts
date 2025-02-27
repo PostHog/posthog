@@ -24,7 +24,6 @@ import {
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { PostgresUse } from '../../src/utils/db/postgres'
 import { personInitialAndUTMProperties } from '../../src/utils/db/utils'
-import { posthog } from '../../src/utils/posthog'
 import { UUIDT } from '../../src/utils/utils'
 import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
 import { EventsProcessor } from '../../src/worker/ingestion/process-event'
@@ -880,8 +879,11 @@ test('capture first team event', async () => {
         'testTag'
     )
 
-    posthog.capture = jest.fn() as any
-    posthog.identify = jest.fn() as any
+    const captureTeamEventMock = jest.fn()
+    jest.mock('../../src/utils/posthog.ts', () => ({
+        ...jest.requireActual('../../src/utils/posthog.ts'),
+        captureTeamEvent: captureTeamEventMock,
+    }))
 
     await processEvent(
         '2',
@@ -900,7 +902,7 @@ test('capture first team event', async () => {
         new UUIDT().toString()
     )
 
-    expect(posthog.capture).toHaveBeenCalledWith({
+    expect(captureTeamEventMock).toHaveBeenCalledWith({
         distinctId: 'plugin_test_user_distinct_id_1001',
         event: 'first team event ingested',
         properties: {
