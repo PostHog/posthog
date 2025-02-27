@@ -57,7 +57,7 @@ import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const BUFFER_MS = 60000 // +- before and after start and end of a recording to query for.
 const DEFAULT_REALTIME_POLLING_MILLIS = 3000
-const MUTATION_CHUNK_SIZE = 10000 // Maximum number of mutations per chunk
+const MUTATION_CHUNK_SIZE = 5000 // Maximum number of mutations per chunk
 
 let postHogEEModule: PostHogEE
 
@@ -208,10 +208,7 @@ function coerceToEventWithTime(d: unknown, withMobileTransformer: boolean): even
         : (currentEvent as eventWithTime)
 }
 
-function chunkMutationSnapshot(
-    snapshot: RecordingSnapshot,
-    nextSnapshot: RecordingSnapshot | null
-): RecordingSnapshot[] {
+function chunkMutationSnapshot(snapshot: RecordingSnapshot): RecordingSnapshot[] {
     if (
         snapshot.type !== EventType.IncrementalSnapshot ||
         !('data' in snapshot) ||
@@ -231,15 +228,6 @@ function chunkMutationSnapshot(
     const totalAdds = adds.length
     const chunksCount = Math.ceil(totalAdds / MUTATION_CHUNK_SIZE)
 
-    // Calculate the time gap to the next snapshot
-    // If there's no next snapshot, use a small increment (1ms) per chunk
-    const timeGap = nextSnapshot ? nextSnapshot.timestamp - snapshot.timestamp : chunksCount
-    const timeIncrement = timeGap / chunksCount
-
-    // Calculate the delay gap if both snapshots have delays
-    const delayGap = (nextSnapshot?.delay ?? (snapshot.delay ?? 0) + chunksCount) - (snapshot.delay ?? 0)
-    const delayIncrement = delayGap / chunksCount
-
     for (let i = 0; i < chunksCount; i++) {
         const startIdx = i * MUTATION_CHUNK_SIZE
         const endIdx = Math.min((i + 1) * MUTATION_CHUNK_SIZE, totalAdds)
@@ -248,7 +236,7 @@ function chunkMutationSnapshot(
 
         const chunkSnapshot: RecordingSnapshot = {
             ...snapshot,
-            timestamp: Math.floor(snapshot.timestamp + i * timeIncrement),
+            timestamp: snapshot.timestamp + i, // Just increment by 1ms for each chunk
             data: {
                 ...snapshot.data,
                 adds: adds.slice(startIdx, endIdx),
@@ -260,9 +248,9 @@ function chunkMutationSnapshot(
             },
         }
 
-        // If delay was present in the original snapshot, increment it proportionally
+        // If delay was present in the original snapshot, increment it by 1 for each chunk
         if ('delay' in snapshot) {
-            chunkSnapshot.delay = Math.floor((snapshot.delay || 0) + i * delayIncrement)
+            chunkSnapshot.delay = (snapshot.delay || 0) + i
         }
 
         chunks.push(chunkSnapshot)
@@ -284,7 +272,7 @@ export const parseEncodedSnapshots = async (
     const unparseableLines: string[] = []
     let isMobileSnapshots = false
 
-    const parsedLines: RecordingSnapshot[] = items.flatMap((l, index) => {
+    const parsedLines: RecordingSnapshot[] = items.flatMap((l) => {
         if (!l) {
             // blob files have an empty line at the end
             return []
@@ -311,7 +299,7 @@ export const parseEncodedSnapshots = async (
                 isMobileSnapshots = hasAnyWireframes(snapshotData)
             }
 
-            return snapshotData.flatMap((d: unknown, snapshotIndex) => {
+            return snapshotData.flatMap((d: unknown) => {
                 const snap = coerceToEventWithTime(d, withMobileTransformer)
 
                 const baseSnapshot: RecordingSnapshot = {
@@ -319,30 +307,8 @@ export const parseEncodedSnapshots = async (
                     ...snap,
                 }
 
-                // Find the next snapshot if possible
-                let nextSnapshot: RecordingSnapshot | null = null
-                if (index < items.length - 1 && snapshotIndex === snapshotData.length - 1) {
-                    try {
-                        const nextItem = items[index + 1]
-                        if (typeof nextItem === 'string') {
-                            const parsed = JSON.parse(nextItem)
-                            const nextData = parsed['data']?.[0]
-                            if (nextData) {
-                                nextSnapshot = coerceToEventWithTime(
-                                    nextData,
-                                    withMobileTransformer
-                                ) as RecordingSnapshot
-                            }
-                        } else if (isRecordingSnapshot(nextItem)) {
-                            nextSnapshot = nextItem
-                        }
-                    } catch {
-                        // If we can't parse the next snapshot, just continue without it
-                    }
-                }
-
                 // Apply chunking to the snapshot if needed
-                return chunkMutationSnapshot(baseSnapshot, nextSnapshot)
+                return chunkMutationSnapshot(baseSnapshot)
             })
         } catch (e) {
             if (typeof l === 'string') {
