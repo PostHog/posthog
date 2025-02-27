@@ -31,6 +31,7 @@
         "format": "pnpm format:backend && pnpm format:frontend"
     },
     "dependencies": {
+        "concurrently": "^5.3.0",
         "husky": "^7.0.4",
         "lint-staged": "~15.4.3",
         "turbo": "^2.4.2"
@@ -38,11 +39,6 @@
     "devDependencies": {
         "@parcel/packager-ts": "2.13.3",
         "@parcel/transformer-typescript-types": "2.13.3",
-        "syncpack": "^13.0.1",
-        "stylelint": "^15.11.0",
-        "stylelint-config-recess-order": "^4.3.0",
-        "stylelint-config-standard-scss": "^11.1.0",
-        "stylelint-order": "^6.0.3",
         "eslint": "^8.57.0",
         "eslint-config-prettier": "^9.1.0",
         "eslint-plugin-compat": "^4.2.0",
@@ -57,7 +53,12 @@
         "eslint-plugin-simple-import-sort": "^10.0.0",
         "eslint-plugin-storybook": "^0.6.15",
         "eslint-plugin-unused-imports": "^3.1.0",
-        "prettier": "^2.8.8"
+        "prettier": "^2.8.8",
+        "stylelint": "^15.11.0",
+        "stylelint-config-recess-order": "^4.3.0",
+        "stylelint-config-standard-scss": "^11.1.0",
+        "stylelint-order": "^6.0.3",
+        "syncpack": "^13.0.1"
     },
     "optionalDependencies": {
         "fsevents": "^2.3.2"

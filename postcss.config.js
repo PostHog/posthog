@@ -3,7 +3,6 @@ const config = {
     // This file is only for Webpack, which is still in use by Storybook
     // Sync the plugins list with utils.mjs
     plugins: [
-        require('tailwindcss'),
         require('autoprefixer'),
         require('postcss-preset-env')({ stage: 0 }),
         require('cssnano')({ preset: 'default' }),
