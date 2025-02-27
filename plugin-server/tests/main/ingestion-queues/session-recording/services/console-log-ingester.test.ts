@@ -11,6 +11,7 @@ const makeIncomingMessage = (
     data: Record<string, unknown>[],
     consoleLogIngestionEnabled: boolean
 ): IncomingRecordingMessage => {
+    // @ts-expect-error TODO: Fix incorrect underlying types
     return {
         distinct_id: '',
         eventsRange: { start: 0, end: 0 },

@@ -122,11 +122,11 @@ class TestQueryDateRange(APIBaseTest):
 class TestQueryDateRangeWithIntervals(APIBaseTest):
     def setUp(self):
         self.now = parser.isoparse("2021-08-25T00:00:00.000Z")
-        self.total_intervals = 5
+        self.lookahead = 5
 
     def test_constructor_initialization(self):
-        query = QueryDateRangeWithIntervals(None, self.total_intervals, self.team, IntervalType.DAY, self.now)
-        self.assertEqual(query.total_intervals, self.total_intervals)
+        query = QueryDateRangeWithIntervals(None, self.lookahead, self.team, IntervalType.DAY, self.now)
+        self.assertEqual(query.lookahead, self.lookahead)
 
     def test_determine_time_delta_valid(self):
         delta = QueryDateRangeWithIntervals.determine_time_delta(5, "day")

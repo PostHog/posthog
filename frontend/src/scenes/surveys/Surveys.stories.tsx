@@ -15,6 +15,7 @@ import {
     PropertyOperator,
     Survey,
     SurveyQuestionType,
+    SurveySchedule,
     SurveyType,
 } from '~/types'
 
@@ -46,6 +47,7 @@ const MOCK_BASIC_SURVEY: Survey = {
     responses_limit: null,
     iteration_count: null,
     iteration_frequency_days: null,
+    schedule: SurveySchedule.Once,
 }
 
 const MOCK_SURVEY_WITH_MULTIPLE_OPTIONS: Survey = {
@@ -86,6 +88,7 @@ const MOCK_SURVEY_WITH_MULTIPLE_OPTIONS: Survey = {
     responses_limit: null,
     iteration_count: null,
     iteration_frequency_days: null,
+    schedule: SurveySchedule.Once,
 }
 
 const MOCK_SURVEY_WITH_RELEASE_CONS: Survey = {
@@ -164,6 +167,7 @@ const MOCK_SURVEY_WITH_RELEASE_CONS: Survey = {
     responses_limit: null,
     iteration_count: null,
     iteration_frequency_days: null,
+    schedule: SurveySchedule.Once,
 }
 
 const MOCK_SURVEY_SHOWN = {

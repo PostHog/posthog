@@ -151,80 +151,6 @@ async fn test_update_on_project_id_conflict(db: PgPool) {
         .unwrap();
 }
 
-#[sqlx::test(migrations = "./tests/test_migrations")]
-async fn test_host_updates(db: PgPool) {
-    let properties = r#"
-        {
-            "$host": "app.posthog.com",
-            "other_prop": "value"
-        }
-    "#;
-    let event_src = json!({
-        "team_id": 1,
-        "project_id": 1,
-        "event": "update",
-        "properties": properties
-    });
-
-    let before = Utc::now();
-    let event = serde_json::from_value::<Event>(event_src).unwrap();
-    let updates = event.into_updates(1000);
-
-    // issue them, and then query the database to see that everything we expect exists
-    for update in updates {
-        update.issue(&db).await.unwrap();
-    }
-
-    assert_hostdefinition_exists(&db, "app.posthog.com", 1, before, Duration::seconds(1))
-        .await
-        .unwrap();
-}
-
-#[sqlx::test(migrations = "./tests/test_migrations")]
-async fn test_host_update_on_project_id_conflict(db: PgPool) {
-    let definition_created_at: DateTime<Utc> = Utc::now() - Duration::days(1);
-    let mut args = PgArguments::default();
-    args.add(Uuid::now_v7()).unwrap();
-    args.add("app.posthog.com").unwrap();
-    args.add(1).unwrap();
-    args.add(definition_created_at).unwrap();
-    sqlx::query_with(
-        r#"
-        INSERT INTO posthog_hostdefinition (id, host, team_id, project_id, last_seen_at, created_at)
-        VALUES ($1, $2, $3, NULL, $4, $4) -- project_id is NULL! This definition is from before environments
-    "#, args
-    ).execute(&db).await.unwrap();
-
-    assert_hostdefinition_exists(
-        &db,
-        "app.posthog.com",
-        1,
-        definition_created_at,
-        Duration::milliseconds(0),
-    )
-    .await
-    .unwrap();
-
-    let before = Utc::now();
-    let event_src = json!({
-        "team_id": 3,
-        "project_id": 1,
-        "event": "pageview",
-        "properties": r#"{"$host": "app.posthog.com"}"#
-    });
-
-    let event = serde_json::from_value::<Event>(event_src.clone()).unwrap();
-    for update in event.into_updates(10000) {
-        update.issue(&db).await.unwrap();
-    }
-
-    // The host def we created earlier got updated, even though it has a different `team_id`,
-    // because `coalesce(project_id, team_id)` matches
-    assert_hostdefinition_exists(&db, "app.posthog.com", 1, before, Duration::seconds(1))
-        .await
-        .unwrap();
-}
-
 async fn assert_eventdefinition_exists(
     db: &PgPool,
     name: &str,
@@ -279,39 +205,6 @@ async fn assert_propertydefinition_exists(
     .bind(is_numerical)
     .bind(team_id)
     .bind(property_type.to_string())
-    .fetch_one(db)
-    .await
-    .unwrap();
-
-    if count == Some(1) {
-        Ok(())
-    } else {
-        Err(())
-    }
-}
-
-async fn assert_hostdefinition_exists(
-    db: &PgPool,
-    host: &str,
-    team_id: i32,
-    before: DateTime<Utc>,
-    last_seen_range: Duration,
-) -> Result<(), ()> {
-    // Host definitions are inserted with a last_seen that's exactly when the insert is done. We check if an entry exists in the
-    // database with a last_seen that's in the right range to ensure that the host definition was inserted correctly.
-    let after = before + last_seen_range;
-
-    let count: Option<i64> = sqlx::query_scalar(
-        r#"
-        SELECT COUNT(*)
-        FROM posthog_hostdefinition
-        WHERE host = $1 AND team_id = $2 AND last_seen_at >= $3 AND last_seen_at <= $4
-        "#,
-    )
-    .bind(host)
-    .bind(team_id)
-    .bind(before)
-    .bind(after)
     .fetch_one(db)
     .await
     .unwrap();

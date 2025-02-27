@@ -8,6 +8,8 @@ import { runOnEvent } from '../../../../src/worker/plugins/run'
 jest.mock('../../../../src/worker/plugins/run')
 
 const testElements: any = ['element1', 'element2']
+
+// @ts-expect-error TODO: Add project_id
 const ingestionEvent: PostIngestionEvent = {
     eventUuid: 'uuid1',
     distinctId: 'my_id',

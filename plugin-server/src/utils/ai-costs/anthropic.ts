@@ -2,6 +2,27 @@ import type { ModelRow } from './types'
 
 export const costs: ModelRow[] = [
     {
+        model: 'claude-3.7-sonnet:beta',
+        cost: {
+            prompt_token: 0.000003,
+            completion_token: 0.000015,
+        },
+    },
+    {
+        model: 'claude-3.7-sonnet',
+        cost: {
+            prompt_token: 0.000003,
+            completion_token: 0.000015,
+        },
+    },
+    {
+        model: 'claude-3.7-sonnet:thinking',
+        cost: {
+            prompt_token: 0.000003,
+            completion_token: 0.000015,
+        },
+    },
+    {
         model: 'claude-3.5-haiku-20241022:beta',
         cost: {
             prompt_token: 0.0000008,
@@ -30,14 +51,14 @@ export const costs: ModelRow[] = [
         },
     },
     {
-        model: 'claude-3.5-sonnet',
+        model: 'claude-3.5-sonnet:beta',
         cost: {
             prompt_token: 0.000003,
             completion_token: 0.000015,
         },
     },
     {
-        model: 'claude-3.5-sonnet:beta',
+        model: 'claude-3.5-sonnet',
         cost: {
             prompt_token: 0.000003,
             completion_token: 0.000015,

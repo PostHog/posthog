@@ -1,31 +1,25 @@
-import asyncio
-import dataclasses
 import decimal
+from ipaddress import IPv4Address, IPv6Address
 import json
-from collections.abc import Sequence
 import math
-from typing import Any, Optional
-from collections.abc import Hashable
-from collections.abc import Iterator
-from dateutil import parser
 import uuid
-import orjson
+from collections.abc import Hashable, Iterator, Sequence
+from typing import Any, Optional
+
+import deltalake as deltalake
 import numpy as np
+import orjson
 import pandas as pd
 import pyarrow as pa
 import pyarrow.compute as pc
-from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
-from dlt.sources import DltResource
-import deltalake as deltalake
+from dateutil import parser
 from django.db.models import F
-from posthog.constants import DATA_WAREHOUSE_COMPACTION_TASK_QUEUE
-from temporalio.common import RetryPolicy
-from temporalio.exceptions import WorkflowAlreadyStartedError
-from posthog.temporal.common.client import sync_connect
-from posthog.temporal.common.logger import FilteringBoundLogger
 from dlt.common.data_types.typing import TDataType
+from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
 from dlt.common.normalizers.naming.snake_case import NamingConvention
-from posthog.temporal.data_imports.deltalake_compaction_job import DeltalakeCompactionJobWorkflowInputs
+from dlt.sources import DltResource
+
+from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema
 
@@ -180,7 +174,7 @@ def _evolve_pyarrow_schema(table: pa.Table, delta_schema: deltalake.Schema | Non
                     new_column_data = pa.array([None] * table.num_rows, type=field.type)
                 else:
                     new_column_data = pa.array(
-                        [_get_default_value_from_pyarrow_type(field.type)] * table.num_rows, type=field.type
+                        [get_default_value_for_pyarrow_type(field.type)] * table.num_rows, type=field.type
                     )
                 table = table.append_column(field, new_column_data)
 
@@ -188,13 +182,14 @@ def _evolve_pyarrow_schema(table: pa.Table, delta_schema: deltalake.Schema | Non
             # pyarrow schema to use the larger values so that we're not trying to downscale
             if isinstance(field.type, pa.Decimal128Type) or isinstance(field.type, pa.Decimal256Type):
                 py_arrow_table_column = table.column(field.name)
-                assert isinstance(py_arrow_table_column.type, pa.Decimal128Type) or isinstance(
-                    py_arrow_table_column.type, pa.Decimal256Type
-                )
 
                 if (
-                    field.type.precision > py_arrow_table_column.type.precision
-                    or field.type.scale > py_arrow_table_column.type.scale
+                    isinstance(py_arrow_table_column.type, pa.Decimal128Type)
+                    or isinstance(py_arrow_table_column.type, pa.Decimal256Type)
+                    and (
+                        field.type.precision > py_arrow_table_column.type.precision
+                        or field.type.scale > py_arrow_table_column.type.scale
+                    )
                 ):
                     field_index = table.schema.get_field_index(field.name)
 
@@ -245,12 +240,12 @@ def _evolve_pyarrow_schema(table: pa.Table, delta_schema: deltalake.Schema | Non
 
             py_arrow_table_field = table.field(field.name)
             # If the deltalake schema expects no nulls, but the pyarrow schema is nullable, then fill the nulls
-            if not field.nullable and py_arrow_table_field.nullable and py_arrow_table_column.null_count > 0:
+            if not field.nullable and py_arrow_table_field.nullable:
                 filled_nulls_arr = py_arrow_table_column.fill_null(
                     fill_value=get_default_value_for_pyarrow_type(py_arrow_table_field.type)
                 )
                 table = table.set_column(
-                    table.schema.get_field_index(field.name), field.name, filled_nulls_arr.combine_chunks()
+                    table.schema.get_field_index(field.name), field, filled_nulls_arr.combine_chunks()
                 )
 
     # Change types based on what deltalake tables support
@@ -262,30 +257,6 @@ def _append_debug_column_to_pyarrows_table(table: pa.Table, load_id: int) -> pa.
 
     column = pa.array([debug_info] * table.num_rows, type=pa.string())
     return table.append_column("_ph_debug", column)
-
-
-def _get_default_value_from_pyarrow_type(pyarrow_type: pa.DataType):
-    """
-    Returns a default value for the given PyArrow type.
-    """
-    if pa.types.is_integer(pyarrow_type):
-        return 0
-    elif pa.types.is_floating(pyarrow_type):
-        return 0.0
-    elif pa.types.is_string(pyarrow_type):
-        return ""
-    elif pa.types.is_boolean(pyarrow_type):
-        return False
-    elif pa.types.is_binary(pyarrow_type):
-        return b""
-    elif pa.types.is_timestamp(pyarrow_type):
-        return pa.scalar(0, type=pyarrow_type).as_py()
-    elif pa.types.is_date(pyarrow_type):
-        return pa.scalar(0, type=pyarrow_type).as_py()
-    elif pa.types.is_time(pyarrow_type):
-        return pa.scalar(0, type=pyarrow_type).as_py()
-    else:
-        raise ValueError(f"No default value defined for type: {pyarrow_type}")
 
 
 def _update_incremental_state(schema: ExternalDataSchema | None, table: pa.Table, logger: FilteringBoundLogger) -> None:
@@ -358,20 +329,52 @@ def build_pyarrow_decimal_type(precision: int, scale: int) -> pa.Decimal128Type 
 
 
 def _get_max_decimal_type(values: list[decimal.Decimal]) -> pa.Decimal128Type | pa.Decimal256Type:
+    """Determine maximum precision and scale from all `decimal.Decimal` values.
+
+    Returns:
+        A `pa.Decimal128Type` or `pa.Decimal256Type` with enough precision and
+        scale to hold all `values`.
+    """
     max_precision = 1
     max_scale = 0
 
     for value in values:
-        sign, digits, exponent = value.as_tuple()
+        _, digits, exponent = value.as_tuple()
         if not isinstance(exponent, int):
             continue
-        precision = len(digits)
-        scale = -exponent if exponent < 0 else 0
+
+        # This implementation accounts for leading zeroes being excluded from digits
+        # It is based on Arrow, see:
+        # https://github.com/apache/arrow/blob/main/python/pyarrow/src/arrow/python/decimal.cc#L75
+        if exponent < 0:
+            precision = max(len(digits), -exponent)
+            scale = -exponent
+        else:
+            precision = len(digits) + exponent
+            scale = 0
 
         max_precision = max(precision, max_precision)
         max_scale = max(scale, max_scale)
 
+    # Deltalake doesn't like writing decimals with scale of 0 - it auto appends `.0`
+    if max_scale == 0:
+        max_scale = 1
+        max_precision += 1
+
     return build_pyarrow_decimal_type(max_precision, max_scale)
+
+
+def _build_decimal_type_from_defaults(values: list[decimal.Decimal | None]) -> pa.Array:
+    for decimal_type in [
+        pa.decimal128(38, DEFAULT_NUMERIC_SCALE),
+        pa.decimal256(DEFAULT_NUMERIC_PRECISION, DEFAULT_NUMERIC_SCALE),
+    ]:
+        try:
+            return pa.array(values, type=decimal_type)
+        except:
+            pass
+
+    raise ValueError("Cant build a decimal type from defaults")
 
 
 def _python_type_to_pyarrow_type(type_: type, value: Any):
@@ -472,6 +475,51 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
             if arrow_schema:
                 arrow_schema = arrow_schema.set(field_index, arrow_schema.field(field_index).with_type(pa.string()))
 
+        # Remove any NaN or infinite values from decimal columns
+        if issubclass(py_type, decimal.Decimal) or issubclass(py_type, float):
+
+            def _convert_to_decimal_or_none(x: decimal.Decimal | float | None) -> decimal.Decimal | None:
+                if x is None:
+                    return None
+
+                if (
+                    math.isnan(x)
+                    or (isinstance(x, decimal.Decimal) and x.is_infinite())
+                    or (isinstance(x, float) and np.isinf(x))
+                ):
+                    return None
+
+                if isinstance(x, decimal.Decimal):
+                    return x
+
+                return decimal.Decimal(str(x))
+
+            all_values = columnar_table_data[field_name].tolist()
+            all_values_as_decimals_or_none = [_convert_to_decimal_or_none(x) for x in all_values]
+
+            if arrow_schema and pa.types.is_decimal(arrow_schema.field(field_index).type):
+                new_field_type = arrow_schema.field(field_index).type
+            else:
+                new_field_type = _get_max_decimal_type([x for x in all_values_as_decimals_or_none if x is not None])
+
+            try:
+                number_arr = pa.array(
+                    all_values_as_decimals_or_none,
+                    type=new_field_type,
+                )
+            except pa.ArrowInvalid as e:
+                if len(e.args) > 0 and "does not fit into precision" in e.args[0]:
+                    number_arr = _build_decimal_type_from_defaults(all_values_as_decimals_or_none)
+                    new_field_type = number_arr.type
+                else:
+                    raise
+
+            columnar_table_data[field_name] = number_arr
+            py_type = decimal.Decimal
+            unique_types_in_column = {decimal.Decimal}
+            if arrow_schema:
+                arrow_schema = arrow_schema.set(field_index, arrow_schema.field(field_index).with_type(new_field_type))
+
         # If one type is a list, then make everything into a list
         if len(unique_types_in_column) > 1 and list in unique_types_in_column:
             list_array = pa.array([s if isinstance(s, list) else [s] for s in columnar_table_data[field_name].tolist()])
@@ -516,32 +564,13 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
             if arrow_schema:
                 arrow_schema = arrow_schema.set(field_index, arrow_schema.field(field_index).with_type(pa.string()))
 
-        # Remove any NaN or infinite values from decimal columns
-        if issubclass(py_type, decimal.Decimal) or issubclass(py_type, float):
-            all_values = columnar_table_data[field_name].tolist()
-            has_decimals = any(isinstance(value, decimal.Decimal) for value in all_values)
-            if has_decimals:
-                new_field_type = _get_max_decimal_type(
-                    [value for value in all_values if isinstance(value, decimal.Decimal)]
-                )
-            else:
-                new_field_type = _python_type_to_pyarrow_type(py_type, val)
-
-            number_arr = pa.array(
-                [
-                    None
-                    if x is not None
-                    and (
-                        math.isnan(x)
-                        or (isinstance(x, decimal.Decimal) and x.is_infinite())
-                        or (isinstance(x, float) and np.isinf(x))
-                    )
-                    else x
-                    for x in columnar_table_data[field_name].tolist()
-                ],
-                type=new_field_type,
-            )
-            columnar_table_data[field_name] = number_arr
+        # Convert IP types to string
+        if issubclass(py_type, IPv4Address | IPv6Address):
+            str_array = pa.array([None if s is None else str(s) for s in columnar_table_data[field_name].tolist()])
+            columnar_table_data[field_name] = str_array
+            py_type = str
+            if arrow_schema:
+                arrow_schema = arrow_schema.set(field_index, arrow_schema.field(field_index).with_type(pa.string()))
 
         # Remove any binary columns
         if issubclass(py_type, bytes):
@@ -554,28 +583,3 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
                 arrow_schema = arrow_schema.remove(arrow_schema.get_field_index(str(column)))
 
     return pa.Table.from_pydict(columnar_table_data, schema=arrow_schema)
-
-
-def trigger_compaction_job(job: ExternalDataJob, schema: ExternalDataSchema) -> str:
-    temporal = sync_connect()
-    workflow_id = f"{schema.id}-compaction"
-
-    try:
-        asyncio.run(
-            temporal.start_workflow(
-                workflow="deltalake-compaction-job",
-                arg=dataclasses.asdict(
-                    DeltalakeCompactionJobWorkflowInputs(team_id=job.team_id, external_data_job_id=job.id)
-                ),
-                id=workflow_id,
-                task_queue=str(DATA_WAREHOUSE_COMPACTION_TASK_QUEUE),
-                retry_policy=RetryPolicy(
-                    maximum_attempts=1,
-                    non_retryable_error_types=["NondeterminismError"],
-                ),
-            )
-        )
-    except WorkflowAlreadyStartedError:
-        pass
-
-    return workflow_id

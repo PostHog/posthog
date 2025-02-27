@@ -15,8 +15,8 @@ export const LoadingMessages: StoryFn = () => {
     return (
         <div>
             <ul>
-                {LOADING_MESSAGES.map((message) => (
-                    <li key={message}>{message}</li>
+                {LOADING_MESSAGES.map((message, idx) => (
+                    <li key={idx}>{message}</li>
                 ))}
             </ul>
         </div>

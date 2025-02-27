@@ -16,8 +16,8 @@ from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
 class EventsSessionSubTable(VirtualTable):
     fields: dict[str, FieldOrTable] = {
-        "id": StringDatabaseField(name="$session_id"),
-        "duration": IntegerDatabaseField(name="session_duration"),
+        "id": StringDatabaseField(name="$session_id", nullable=False),
+        "duration": IntegerDatabaseField(name="session_duration", nullable=False),
     }
 
     def to_printed_clickhouse(self, context):

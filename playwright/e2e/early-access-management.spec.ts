@@ -1,5 +1,5 @@
-import { test, expect } from '../utils/playwright-test-base'
 import { randomString } from '../utils'
+import { expect, test } from '../utils/playwright-test-base'
 
 test.describe('Early Access Management', () => {
     test.beforeEach(async ({ page }) => {
