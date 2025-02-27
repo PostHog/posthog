@@ -6,6 +6,7 @@ import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-
 import { CSS } from '@dnd-kit/utilities'
 import { IconPencil, IconX } from '@posthog/icons'
 import { BindLogic, useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
@@ -188,7 +189,11 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                 </div>
                 {isEventsQuery(query.source) && query.showPersistentColumnConfigurator ? (
                     <LemonCheckbox
-                        label="Also save as default for all project members"
+                        label={
+                            router.values.currentLocation?.pathname.includes('/data-management/events/')
+                                ? 'Save as default columns for this event type'
+                                : 'Save as default for all project members'
+                        }
                         className="mt-2"
                         data-attr="events-table-save-columns-as-default-toggle"
                         bordered

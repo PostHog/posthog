@@ -67,34 +67,33 @@ export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>([
     }),
     listeners(({ values, props }) => ({
         save: async () => {
-            // Regular team-wide default columns behavior
-            if (props.isPersistent && values.saveAsDefault) {
+            // Check if we're in an event definition view
+            const isEventDefinition = router.values.currentLocation?.pathname.includes('/data-management/events/')
+
+            // Regular team-wide default columns behavior - only if we're not in event definition view
+            if (props.isPersistent && values.saveAsDefault && !isEventDefinition) {
                 teamLogic.actions.updateCurrentTeam({ live_events_columns: [HOGQL_COLUMNS_KEY, ...values.columns] })
             }
 
-            // Check if we're in an event definition view
-            const definitionMatches = router.values.currentLocation?.pathname.match(/\/data-management\/events\/(.+)/)
+            // Handle event definition saving
+            if (props.isPersistent && isEventDefinition && values.saveAsDefault) {
+                const pathname = router.values.currentLocation?.pathname || ''
+                const eventDefinitionId = pathname.split('/').pop() || ''
 
-            // Always save to the event definition if we're on the event definition page
-            if (props.isPersistent && definitionMatches) {
-                const eventDefinitionId = definitionMatches[1]
+                if (eventDefinitionId) {
+                    try {
+                        await api.eventDefinitions.update({
+                            eventDefinitionId,
+                            eventDefinitionData: {
+                                default_columns: values.columns,
+                            },
+                        })
 
-                try {
-                    await api.eventDefinitions.update({
-                        eventDefinitionId,
-                        eventDefinitionData: {
-                            default_columns: values.columns,
-                        },
-                    })
-
-                    if (values.saveAsDefault) {
-                        lemonToast.success('Default columns saved for this event and all project members')
-                    } else {
-                        lemonToast.success('Columns saved for this event')
+                        lemonToast.success('Default columns saved for this event')
+                    } catch (error) {
+                        console.error('Error saving default columns to event definition:', error)
+                        lemonToast.error('Failed to save columns to event definition')
                     }
-                } catch (error) {
-                    console.error('Error saving default columns to event definition:', error)
-                    lemonToast.error('Failed to save columns to event definition')
                 }
             }
 

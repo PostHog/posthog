@@ -48,6 +48,9 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
         useValues(logic)
     const { deleteDefinition } = useActions(logic)
 
+    // Extract complex expression for dependency array
+    const definitionColumns = isEvent && hasDefaultColumns(definition) ? definition.default_columns : null
+
     const memoizedQuery = useMemo(() => {
         // Always ensure we have default columns
         const columnsToUse = hasDefaultColumns(definition)
@@ -65,7 +68,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
             showEventFilter: false,
             showPersistentColumnConfigurator: true,
         }
-    }, [definition, isEvent && 'default_columns' in definition ? definition.default_columns : null])
+    }, [definition.name, definitionColumns])
 
     if (definitionLoading) {
         return <SpinnerOverlay sceneLevel />
@@ -247,7 +250,12 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                     <LemonDivider className="my-6" />
                     <h3>Matching events</h3>
                     <p>This is the list of recent events that match this definition.</p>
-                    <Query query={memoizedQuery} />
+                    <Query
+                        query={memoizedQuery}
+                        key={`event-definition-query-${definition.id}-${definition.updated_at}-${JSON.stringify(
+                            definitionColumns
+                        )}`}
+                    />
                 </>
             )}
         </>
