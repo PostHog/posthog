@@ -23,6 +23,7 @@ import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { FilterLogicalOperator, PropertyDefinition, ReplayTabs } from '~/types'
+import { Definition, EventDefinition } from '~/types'
 
 export const scene: SceneExport = {
     component: DefinitionView,
@@ -32,25 +33,39 @@ export const scene: SceneExport = {
     }),
 }
 
+// Type guard to check if a Definition has default_columns with values
+function hasDefaultColumns(definition: Definition): definition is EventDefinition & { default_columns: string[] } {
+    return (
+        'default_columns' in definition &&
+        Array.isArray((definition as any).default_columns) &&
+        (definition as any).default_columns.length > 0
+    )
+}
+
 export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
     const logic = definitionLogic(props)
     const { definition, definitionLoading, definitionMissing, hasTaxonomyFeatures, singular, isEvent, isProperty } =
         useValues(logic)
     const { deleteDefinition } = useActions(logic)
 
-    const memoizedQuery = useMemo(
-        () => ({
+    const memoizedQuery = useMemo(() => {
+        // Always ensure we have default columns
+        const columnsToUse = hasDefaultColumns(definition)
+            ? definition.default_columns
+            : defaultDataTableColumns(NodeKind.EventsQuery)
+
+        return {
             kind: NodeKind.DataTableNode,
             source: {
                 kind: NodeKind.EventsQuery,
-                select: defaultDataTableColumns(NodeKind.EventsQuery),
+                select: columnsToUse,
                 event: definition.name,
             },
             full: true,
             showEventFilter: false,
-        }),
-        [definition.name]
-    )
+            showPersistentColumnConfigurator: true,
+        }
+    }, [definition])
 
     if (definitionLoading) {
         return <SpinnerOverlay sceneLevel />
@@ -110,12 +125,12 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                                                             : TaxonomicFilterGroupType.EventProperties
                                                     )}
                                                 </strong>{' '}
-                                                will no longer appear in selectors. Associated data will remain
-                                                in the database.
+                                                will no longer appear in selectors. Associated data will remain in the
+                                                database.
                                             </p>
                                             <p>
-                                                This definition will be recreated if the {singular} is ever seen again
-                                                in the event stream.
+                                                This definition will be recreated if the ${singular} is ever seen again
+                                                in the event stream.
                                             </p>
                                         </>
                                     ),
