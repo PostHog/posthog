@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING
 from temporalio.client import (
     Schedule,
     ScheduleActionStartWorkflow,
-    ScheduleIntervalSpec,
     ScheduleOverlapPolicy,
     SchedulePolicy,
     ScheduleSpec,
@@ -52,10 +51,35 @@ def get_sync_schedule(external_data_schema: "ExternalDataSchema"):
 
     sync_frequency, jitter = get_sync_frequency(external_data_schema)
 
-    # format 15:00:00 --> 3:00 PM UTC
-    sync_time_of_day = external_data_schema.sync_time_of_day
-    hour = int(sync_time_of_day.split(":")[0])
-    minute = int(sync_time_of_day.split(":")[1])
+    # format 15:00:00 --> 3:00 PM UTC | default to midnight UTC
+    hour = 0
+    minute = 0
+    if external_data_schema.sync_time_of_day:
+        sync_time_of_day = external_data_schema.sync_time_of_day
+        hour = int(sync_time_of_day.split(":")[0])
+        minute = int(sync_time_of_day.split(":")[1])
+
+    return to_temporal_schedule(
+        external_data_schema,
+        inputs,
+        hour_of_day=hour,
+        minute_of_hour=minute,
+        sync_frequency=sync_frequency,
+        jitter=jitter,
+    )
+
+
+def to_temporal_schedule(
+    external_data_schema, inputs, hour_of_day=0, minute_of_hour=0, sync_frequency=timedelta(hours=6), jitter=None
+):
+    # Calculate end hour based on start hour and frequency
+    # This ensures we don't exceed 24 hours
+    hours_per_day = 24
+    step = int(sync_frequency.total_seconds() // 3600)  # Convert to hours and ensure it's an integer
+    max_hour = hours_per_day - step
+    end_hour = max((hour_of_day // step) * step, 0)
+    while end_hour + step <= max_hour:
+        end_hour += step
 
     return Schedule(
         action=ScheduleActionStartWorkflow(
@@ -73,12 +97,12 @@ def get_sync_schedule(external_data_schema: "ExternalDataSchema"):
         spec=ScheduleSpec(
             calendars=[
                 ScheduleCalendarSpec(
-                    hour=[ScheduleRange(start=hour, end=hour, step=1)],
-                    minute=[ScheduleRange(start=minute, end=minute, step=1)],
+                    hour=[ScheduleRange(start=hour_of_day, end=end_hour, step=step)],
+                    minute=[ScheduleRange(start=minute_of_hour, end=minute_of_hour, step=1)],
                 )
             ],
-            intervals=[ScheduleIntervalSpec(every=sync_frequency)],
-            jitter=jitter,
+            # No jitter when it's not midnight
+            jitter=jitter if minute_of_hour == 0 and hour_of_day == 0 else None,
         ),
         state=ScheduleState(note=f"Schedule for external data source: {external_data_schema.pk}"),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
