@@ -6,4 +6,7 @@ set -e
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 mkdir -p "$DIR/../share"
-[ ! -f "$DIR/../share/GeoLite2-City.mmdb" ] && (curl -L "https://mmdbcdn.posthog.net/" --http1.1 | brotli --decompress --output="$DIR/../share/GeoLite2-City.mmdb")
+
+if [ ! -f "$DIR/../share/GeoLite2-City.mmdb" ]; then
+    curl -L "https://mmdbcdn.posthog.net/" --http1.1 | brotli --decompress --output="$DIR/../share/GeoLite2-City.mmdb"
+fi
