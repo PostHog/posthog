@@ -148,6 +148,7 @@ const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOpts): In
             resultCustomizations: undefined,
             resultCustomizationBy: undefined,
             goalLines: undefined,
+            dashboardDisplay: undefined,
         }
 
         cleanedQuery.dataColorTheme = undefined

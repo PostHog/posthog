@@ -889,6 +889,8 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         result = self.run_query(
             query={
+                # _date(0) is ignored
+                # day 0 is _date(1)
                 "dateRange": {"date_to": _date(5, hour=6)},
                 "retentionFilter": {
                     "cumulative": True,
@@ -901,6 +903,63 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             pluck(result, "values", "count"),
             pad([[2, 1, 1, 0, 0], [1, 1, 0, 0], [3, 2, 0], [3, 0], [0]]),
+        )
+
+    def test_rolling_retention_doesnt_double_count_same_user(self):
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person3"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person4"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person5"])
+
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(0)),
+                ("person1", _date(3)),
+                ("person1", _date(4)),
+                ("person2", _date(0)),
+                ("person2", _date(1)),
+                ("person3", _date(1)),
+                ("person3", _date(2)),
+                ("person3", _date(3)),
+                ("person4", _date(3)),
+                ("person4", _date(4)),
+                ("person5", _date(4)),
+            ],
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(5, hour=6)},
+                "retentionFilter": {
+                    "cumulative": True,
+                    "totalIntervals": 6,
+                    "targetEntity": {"id": None, "name": "All events"},
+                    "returningEntity": {"id": None, "name": "All events"},
+                },
+            }
+        )
+
+        self.assertEqual(
+            pluck(result, "values", "count"),
+            pad(
+                [
+                    # first row, [2, 2, 1, 1, 0, 0], is explained below
+                    # day 0 is person 1, 2 -> 2
+                    # day 1 is person 2, 3 -> 1 (but we see person 1 later) so becomes 2
+                    # day 2 is person 3 -> 0 (but we see person 1 later) so becomes 1
+                    # day 3 is person 1, 3, 4 -> 1 (won't double count person 1 even though we see them again later)
+                    # day 4 is person 1, 4, 5 -> 1
+                    # day 5 is no one -> 0
+                    [2, 2, 1, 1, 1, 0],
+                    [2, 1, 1, 0, 0],
+                    [1, 1, 0, 0],
+                    [3, 2, 0],
+                    [3, 0],
+                    [0],
+                ]
+            ),
         )
 
     def test_all_events(self):

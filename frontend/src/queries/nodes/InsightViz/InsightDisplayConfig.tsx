@@ -187,12 +187,10 @@ export function InsightDisplayConfig(): JSX.Element {
                 )}
 
                 {!!isRetention && (
-                    <>
-                        <ConfigFilter>
-                            <RetentionDatePicker />
-                            <RetentionMeanCheckbox />
-                        </ConfigFilter>
-                    </>
+                    <ConfigFilter>
+                        <RetentionDatePicker />
+                        <RetentionMeanCheckbox />
+                    </ConfigFilter>
                 )}
 
                 {!!isPaths && (
