@@ -44,6 +44,12 @@ beforeEach(() => {
             statusText: 'OK',
             ok: true,
             headers: {
+                get: (name) => {
+                    if (responseHeaders instanceof Map) {
+                        return responseHeaders.get(name) || null
+                    }
+                    return null
+                },
                 forEach: (callback) => {
                     if (responseHeaders instanceof Map) {
                         responseHeaders.forEach((value, key) => callback(value, key))
