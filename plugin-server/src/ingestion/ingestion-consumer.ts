@@ -17,7 +17,7 @@ import {
 import { runInstrumentedFunction } from '../main/utils'
 import { Hub, PipelineEvent, PluginServerService } from '../types'
 import { normalizeEvent } from '../utils/event'
-import { captureException } from '../utils/exceptions'
+import { captureException } from '../utils/posthog'
 import { retryIfRetriable } from '../utils/retries'
 import { status } from '../utils/status'
 import { EventPipelineResult, EventPipelineRunner } from '../worker/ingestion/event-pipeline/runner'

@@ -5,7 +5,7 @@ import { Counter } from 'prom-client'
 
 import { KafkaProducerWrapper } from '../../../kafka/producer'
 import { PipelineEvent, RawEventMessage, RRWebEvent } from '../../../types'
-import { captureException } from '../../../utils/exceptions'
+import { captureException } from '../../../utils/posthog'
 import { status } from '../../../utils/status'
 import { captureIngestionWarning } from '../../../worker/ingestion/utils'
 import { eventDroppedCounter } from '../metrics'

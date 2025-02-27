@@ -6,7 +6,7 @@ import { Pipeline, Redis } from 'ioredis'
 import { PluginsServerConfig } from '../types'
 import { createRedisClient } from '../utils/db/redis'
 import { timeoutGuard } from '../utils/db/utils'
-import posthog from '../utils/posthog'
+import { captureException } from '../utils/posthog'
 import { status } from '../utils/status'
 
 type WithCheckRateLimit<T> = {
@@ -126,7 +126,7 @@ export const createCdpRedisPool = (config: PluginsServerConfig): CdpRedis => {
         } catch (e) {
             if (options.failOpen) {
                 // We log the error and return null
-                posthog.captureException(e)
+                captureException(e)
                 status.error(`Redis call${options.name} failed`, e)
                 return null
             }

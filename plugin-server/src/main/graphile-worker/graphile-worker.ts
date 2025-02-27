@@ -11,8 +11,8 @@ import {
 import { Pool } from 'pg'
 
 import { EnqueuedJob, Hub } from '../../types'
-import { captureException } from '../../utils/exceptions'
 import { instrument } from '../../utils/metrics'
+import { captureException } from '../../utils/posthog'
 import { status } from '../../utils/status'
 import { createPostgresPool } from '../../utils/utils'
 import { graphileEnqueueJobCounter } from './metrics'

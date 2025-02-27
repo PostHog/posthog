@@ -16,7 +16,7 @@ import {
 } from '../../types'
 import { status } from '../../utils/status'
 import { areMapsEqual, castTimestampOrNow } from '../../utils/utils'
-import { captureException } from '../exceptions'
+import { captureException } from '../posthog'
 
 export function unparsePersonPartial(person: Partial<InternalPerson>): Partial<RawPerson> {
     return {

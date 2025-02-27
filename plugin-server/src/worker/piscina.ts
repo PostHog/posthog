@@ -1,6 +1,6 @@
 import { Hub, PluginsServerConfig } from '~/src/types'
 
-import { captureException } from '../utils/exceptions'
+import { captureException } from '../utils/posthog'
 import { createWorker } from './worker'
 
 export const makePiscina = async (serverConfig: PluginsServerConfig, hub: Hub) => {

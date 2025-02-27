@@ -1,7 +1,7 @@
 import { exponentialBuckets, Histogram } from 'prom-client'
 
 import { timeoutGuard } from '../utils/db/utils'
-import { captureException } from '../utils/exceptions'
+import { captureException } from '../utils/posthog'
 import { status } from '../utils/status'
 
 interface FunctionInstrumentation<T> {

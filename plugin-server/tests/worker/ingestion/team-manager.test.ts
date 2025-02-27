@@ -6,12 +6,6 @@ import { TeamManager } from '../../../src/worker/ingestion/team-manager'
 import { resetTestDatabase } from '../../helpers/sql'
 
 jest.mock('../../../src/utils/status')
-jest.mock('../../../src/utils/posthog', () => ({
-    posthog: {
-        identify: jest.fn(),
-        capture: jest.fn(),
-    },
-}))
 
 describe('TeamManager()', () => {
     let teamManager: TeamManager

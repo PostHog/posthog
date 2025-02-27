@@ -10,6 +10,8 @@ import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 import * as IORedis from 'ioredis'
 import { DateTime } from 'luxon'
 
+import { captureTeamEvent } from '~/src/utils/posthog'
+
 import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../src/config/kafka-topics'
 import {
     ClickHouseEvent,
@@ -24,7 +26,6 @@ import {
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { PostgresUse } from '../../src/utils/db/postgres'
 import { personInitialAndUTMProperties } from '../../src/utils/db/utils'
-import posthog from '../../src/utils/posthog'
 import { UUIDT } from '../../src/utils/utils'
 import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
 import { EventsProcessor } from '../../src/worker/ingestion/process-event'
@@ -34,6 +35,9 @@ import { createUserTeamAndOrganization, getFirstTeam, getTeams, resetTestDatabas
 
 jest.mock('../../src/utils/status')
 jest.setTimeout(600000) // 600 sec timeout.
+jest.mock('../../../src/utils/posthog', () => ({
+    captureTeamEvent: jest.fn(),
+}))
 
 export async function createPerson(
     server: Hub,
@@ -871,8 +875,6 @@ test('long htext', async () => {
 })
 
 test('capture first team event', async () => {
-    const captureTeamEventMock = jest.spyOn(posthog, 'captureTeamEvent')
-
     await hub.db.postgres.query(
         PostgresUse.COMMON_WRITE,
         `UPDATE posthog_team
@@ -899,7 +901,7 @@ test('capture first team event', async () => {
         new UUIDT().toString()
     )
 
-    expect(captureTeamEventMock).toHaveBeenCalledWith({
+    expect(captureTeamEvent).toHaveBeenCalledWith({
         distinctId: 'plugin_test_user_distinct_id_1001',
         event: 'first team event ingested',
         properties: {
