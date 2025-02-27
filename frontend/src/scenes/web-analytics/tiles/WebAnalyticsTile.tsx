@@ -273,6 +273,26 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
                 )
             }
             break
+        case WebStatsBreakdown.Browser:
+            if (typeof value === 'string') {
+                return (
+                    <div className="flex items-center gap-2">
+                        <PropertyIcon property="$browser" value={value} />
+                        <span>{value}</span>
+                    </div>
+                )
+            }
+            break
+        case WebStatsBreakdown.OS:
+            if (typeof value === 'string') {
+                return (
+                    <div className="flex items-center gap-2">
+                        <PropertyIcon property="$os" value={value} />
+                        <span>{value}</span>
+                    </div>
+                )
+            }
+            break
     }
 
     if (typeof value === 'string') {

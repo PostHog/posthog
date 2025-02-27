@@ -5,11 +5,15 @@ import dagster
 from clickhouse_driver import Client
 
 from dags.person_overrides import (
+    GetExistingDictionaryConfig,
     PersonOverridesSnapshotDictionary,
     PersonOverridesSnapshotTable,
     PopulateSnapshotTableConfig,
+    cleanup_orphaned_person_overrides_snapshot,
+    get_existing_dictionary_for_run_id,
     populate_snapshot_table,
     squash_person_overrides,
+    wait_for_overrides_delete_mutations,
 )
 from posthog.clickhouse.cluster import ClickhouseCluster
 
@@ -108,3 +112,36 @@ def test_full_job(cluster: ClickhouseCluster):
         UUID(int=100): {"z"},
     }
     assert cluster.any_host(get_distinct_ids_with_overrides).result() == {"z"}
+
+
+def test_cleanup_job(cluster: ClickhouseCluster) -> None:
+    timestamp = datetime(2025, 1, 1)
+
+    partial_squash_run_result = squash_person_overrides.execute_in_process(
+        run_config=dagster.RunConfig(
+            {populate_snapshot_table.name: PopulateSnapshotTableConfig(timestamp=timestamp.isoformat())},
+        ),
+        resources={"cluster": cluster},
+        op_selection=[f"*{wait_for_overrides_delete_mutations.name}"],
+    )
+
+    # ensure we left some resources dangling around due to the op selection
+    table = PersonOverridesSnapshotTable(UUID(partial_squash_run_result.dagster_run.run_id))
+    dictionary = PersonOverridesSnapshotDictionary(table)
+    assert all(cluster.map_all_hosts(table.exists).result().values())
+    assert all(cluster.map_all_hosts(dictionary.exists).result().values())
+
+    cleanup_orphaned_person_overrides_snapshot.execute_in_process(
+        run_config=dagster.RunConfig(
+            {
+                get_existing_dictionary_for_run_id.name: GetExistingDictionaryConfig(
+                    id=partial_squash_run_result.dagster_run.run_id
+                )
+            }
+        ),
+        resources={"cluster": cluster},
+    )
+
+    # cleanup should have removed any dangling resources from the partial job
+    assert not any(cluster.map_all_hosts(table.exists).result().values())
+    assert not any(cluster.map_all_hosts(dictionary.exists).result().values())

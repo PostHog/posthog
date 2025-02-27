@@ -61,21 +61,11 @@ def populate_plugin_capabilities_on_workers(plugin_id: str):
     publish_message("populate-plugin-capabilities", {"plugin_id": plugin_id})
 
 
-def create_hog_invocation_test(
-    team_id: int,
-    hog_function_id: str,
-    globals: dict,
-    configuration: dict,
-    mock_async_functions: bool,
-) -> requests.Response:
+def create_hog_invocation_test(team_id: int, hog_function_id: str, payload: dict) -> requests.Response:
     logger.info(f"Creating hog invocation test for hog function {hog_function_id} on workers")
     return requests.post(
         CDP_FUNCTION_EXECUTOR_API_URL + f"/api/projects/{team_id}/hog_functions/{hog_function_id}/invocations",
-        json={
-            "globals": globals,
-            "configuration": configuration,
-            "mock_async_functions": mock_async_functions,
-        },
+        json=payload,
     )
 
 

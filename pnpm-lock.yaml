@@ -778,8 +778,8 @@ importers:
         specifier: ^2.11.0
         version: 2.11.0
       posthog-js:
-        specifier: 1.223.3
-        version: 1.223.3(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.224.0
+        version: 1.224.0(@rrweb/types@2.0.0-alpha.17)
       posthog-js-lite:
         specifier: 3.0.0
         version: 3.0.0
@@ -1383,6 +1383,9 @@ importers:
       '@types/jest':
         specifier: ^29.5.14
         version: 29.5.14
+      '@types/kafkajs-snappy':
+        specifier: ^1.0.0
+        version: 1.0.0
       '@types/long':
         specifier: 4.x.x
         version: 4.0.2
@@ -2864,6 +2867,7 @@ packages:
 
   '@effect/schema@0.75.5':
     resolution: {integrity: sha512-TQInulTVCuF+9EIbJpyLP6dvxbQJMphrnRqgexm/Ze39rSjfhJuufF7XvU3SxTgg3HnL7B/kpORTJbHhlE6thw==}
+    deprecated: this package has been merged into the main effect package
     peerDependencies:
       effect: ^3.9.2
 
@@ -5881,6 +5885,9 @@ packages:
 
   '@types/json5@0.0.29':
     resolution: {integrity: sha512-dRLjCWHYg4oaA77cxO64oO+7JwCwnIzkZPdrrC71jQmQtlhM556pwKo5bUzqvZndkVbeFLIIi+9TC40JNF5hNQ==}
+
+  '@types/kafkajs-snappy@1.0.0':
+    resolution: {integrity: sha512-P0DdLdmn5z4foYpCVTMpEGVpfrHG7C6cpzeysxw79rfyESp5/k0wiCOfI4euDKsc6N/2+BHaNoTGwmNLmxCUWw==}
 
   '@types/leaflet@0.7.40':
     resolution: {integrity: sha512-R2UwXOKwnKZi9zNm37WbPTAVuqHmysE6NVihkc5DUrovTirUxFSbZzvXrlwv0n5sibe0w8VF1bWu0ta4kZlAaA==}
@@ -12662,8 +12669,8 @@ packages:
   posthog-js@1.217.2:
     resolution: {integrity: sha512-3KC+UjI0UT5zh8kAOVqe/AfvRjBMKynRIBQNlv0TXnfpZG0+h3r/1ONecDgCCGLs/a/55SJCExrugDlx+HPH3w==}
 
-  posthog-js@1.223.3:
-    resolution: {integrity: sha512-ZQTc17M21IzkQmECJa2Xjont4tZrvIn252uGT3sTfmahTqZoW4j+kBj4eOJt9SNR6hOheFNkg7MSiI/rA6FaDA==}
+  posthog-js@1.224.0:
+    resolution: {integrity: sha512-JT1XQQeYs0CKb4lU2vujmeLTDLWc61I5lT7d6oG/H/cnCpXAqBi5rMuCFFeotHeMy3hqJ/Tpu3eAPFE2p5ErHA==}
     peerDependencies:
       '@rrweb/types': 2.0.0-alpha.17
 
@@ -14881,8 +14888,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.226.0:
-    resolution: {integrity: sha512-7idQSgPCFx8/IhujudcrQImPPrv4mDoYRSghN7n6aSpD57KN6ddD8M72bHMhL+CJxNN8aQekrWG6FML+125NbQ==}
+  unlayer-types@1.227.0:
+    resolution: {integrity: sha512-s12aNI6/Zy7GvWVaa7dNzjrrFSj3REwA74fi4dIqyt1hijzXXSn7+5Hby9gYAlokpZf0U4y1BIPxFgNEHM+nWA==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -21534,6 +21541,10 @@ snapshots:
   '@types/json-schema@7.0.15': {}
 
   '@types/json5@0.0.29': {}
+
+  '@types/kafkajs-snappy@1.0.0':
+    dependencies:
+      '@types/node': 18.18.4
 
   '@types/leaflet@0.7.40':
     dependencies:
@@ -29975,7 +29986,7 @@ snapshots:
       preact: 10.25.4
       web-vitals: 4.2.4
 
-  posthog-js@1.223.3(@rrweb/types@2.0.0-alpha.17):
+  posthog-js@1.224.0(@rrweb/types@2.0.0-alpha.17):
     dependencies:
       '@rrweb/types': 2.0.0-alpha.17
       core-js: 3.40.0
@@ -30497,7 +30508,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.2.0):
     dependencies:
       react: 18.2.0
-      unlayer-types: 1.226.0
+      unlayer-types: 1.227.0
 
   react-error-boundary@3.1.4(react@18.2.0):
     dependencies:
@@ -32570,7 +32581,7 @@ snapshots:
 
   universalify@2.0.0: {}
 
-  unlayer-types@1.226.0: {}
+  unlayer-types@1.227.0: {}
 
   unpipe@1.0.0: {}
 

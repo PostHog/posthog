@@ -940,7 +940,12 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             (sessionEventsData): RecordingEventType[] =>
                 (sessionEventsData || []).filter((e) => e.event === '$web_vitals'),
         ],
-
+        AIEvents: [
+            (s) => [s.sessionEventsData],
+            (sessionEventsData): RecordingEventType[] =>
+                // see if event start with $ai_
+                (sessionEventsData || []).filter((e) => e.event.startsWith('$ai_')),
+        ],
         windowIdForTimestamp: [
             (s) => [s.segments],
             (segments) =>
@@ -1215,6 +1220,12 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         webVitalsEvents: (value: RecordingEventType[]) => {
             // we preload all web vitals data, so it can be used before user interaction
             if (!values.sessionEventsDataLoading) {
+                actions.loadFullEventData(value)
+            }
+        },
+        AIEvents: (value: RecordingEventType[]) => {
+            // we preload all AI  data, so it can be used before user interaction
+            if (value.length > 0) {
                 actions.loadFullEventData(value)
             }
         },

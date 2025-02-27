@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, UTC
+import json
 from unittest import mock
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
@@ -10,6 +11,7 @@ from django.test import override_settings
 from freezegun import freeze_time
 from rest_framework import status
 
+from posthog import redis
 from posthog.models import SessionRecording, SessionRecordingPlaylistItem, Team
 from posthog.models.user import User
 from posthog.session_recordings.models.session_recording_playlist import (
@@ -19,6 +21,7 @@ from posthog.session_recordings.models.session_recording_playlist import (
 from posthog.session_recordings.queries.test.session_replay_sql import (
     produce_replay_summary,
 )
+from posthog.session_recordings.session_recording_playlist_api import PLAYLIST_COUNT_REDIS_PREFIX
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
     OBJECT_STORAGE_BUCKET,
@@ -55,7 +58,7 @@ class TestSessionRecordingPlaylist(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED
         return response
 
-    def test_list_playlists(self):
+    def test_list_playlists_when_there_are_no_playlists(self):
         response = self.client.get(f"/api/projects/{self.team.id}/session_recording_playlists")
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {
@@ -63,6 +66,101 @@ class TestSessionRecordingPlaylist(APIBaseTest):
             "next": None,
             "previous": None,
             "results": [],
+        }
+
+    def test_list_playlists_when_there_are_some_playlists(self):
+        playlist_one = self._create_playlist({"name": "test"})
+        playlist_two = self._create_playlist({"name": "test2"})
+        redis.get_client().set(
+            f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist_two.json()['short_id']}",
+            json.dumps({"session_ids": ["a", "b"], "has_more": False}),
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recording_playlists")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {
+            "count": 2,
+            "next": None,
+            "previous": None,
+            "results": [
+                {
+                    "created_at": mock.ANY,
+                    "created_by": {
+                        "distinct_id": self.user.distinct_id,
+                        "email": self.user.email,
+                        "first_name": "",
+                        "hedgehog_config": None,
+                        "id": self.user.id,
+                        "is_email_verified": None,
+                        "last_name": "",
+                        "role_at_organization": None,
+                        "uuid": mock.ANY,
+                    },
+                    "deleted": False,
+                    "derived_name": None,
+                    "description": "",
+                    "filters": {},
+                    "id": playlist_two.json()["id"],
+                    "last_modified_at": mock.ANY,
+                    "last_modified_by": {
+                        "distinct_id": self.user.distinct_id,
+                        "email": self.user.email,
+                        "first_name": "",
+                        "hedgehog_config": None,
+                        "id": self.user.id,
+                        "is_email_verified": None,
+                        "last_name": "",
+                        "role_at_organization": None,
+                        "uuid": mock.ANY,
+                    },
+                    "name": "test2",
+                    "pinned": False,
+                    "recordings_counts": {
+                        "has_more": False,
+                        "pinned_count": 0,
+                        "query_count": 2,
+                    },
+                    "short_id": playlist_two.json()["short_id"],
+                },
+                {
+                    "created_at": mock.ANY,
+                    "created_by": {
+                        "distinct_id": self.user.distinct_id,
+                        "email": self.user.email,
+                        "first_name": "",
+                        "hedgehog_config": None,
+                        "id": self.user.id,
+                        "is_email_verified": None,
+                        "last_name": "",
+                        "role_at_organization": None,
+                        "uuid": mock.ANY,
+                    },
+                    "deleted": False,
+                    "derived_name": None,
+                    "description": "",
+                    "filters": {},
+                    "id": playlist_one.json()["id"],
+                    "last_modified_at": mock.ANY,
+                    "last_modified_by": {
+                        "distinct_id": self.user.distinct_id,
+                        "email": self.user.email,
+                        "first_name": "",
+                        "hedgehog_config": None,
+                        "id": self.user.id,
+                        "is_email_verified": None,
+                        "last_name": "",
+                        "role_at_organization": None,
+                        "uuid": mock.ANY,
+                    },
+                    "name": "test",
+                    "pinned": False,
+                    "recordings_counts": {
+                        "has_more": None,
+                        "pinned_count": 0,
+                        "query_count": None,
+                    },
+                    "short_id": playlist_one.json()["short_id"],
+                },
+            ],
         }
 
     def test_creates_playlist(self):
@@ -81,6 +179,11 @@ class TestSessionRecordingPlaylist(APIBaseTest):
             "filters": {},
             "last_modified_at": mock.ANY,
             "last_modified_by": response.json()["last_modified_by"],
+            "recordings_counts": {
+                "query_count": None,
+                "pinned_count": 0,
+                "has_more": None,
+            },
         }
 
     def test_can_create_many_playlists(self):

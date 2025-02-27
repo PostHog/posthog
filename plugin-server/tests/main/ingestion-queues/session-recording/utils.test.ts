@@ -714,7 +714,7 @@ describe('session-recording utils', () => {
         it('should resolve promises in parallel with a max consumption', async () => {
             let counter = 0
             const ids = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-            const waiters = {}
+            const waiters: Record<number, any> = {}
 
             const promise = allSettledWithConcurrency(4, ids, (id) => {
                 return new Promise<any>((resolve, reject) => {
@@ -767,7 +767,7 @@ describe('session-recording utils', () => {
 
         it('should allow breaking mid chain', async () => {
             const ids = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-            const waiters = {}
+            const waiters: Record<number, any> = {}
 
             const promise = allSettledWithConcurrency(4, ids, (id, ctx) => {
                 return new Promise<any>((resolve, reject) => {
