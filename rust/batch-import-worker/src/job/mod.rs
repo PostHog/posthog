@@ -240,10 +240,12 @@ impl Job {
         self.begin_part_commit(&key, parsed.consumed).await?;
         info!("Beginning emitter part commit");
 
-        txn.commit_write().await?;
+        let to_sleep = txn.commit_write().await?;
         info!("Finishing PG part commit");
         self.complete_commit().await?;
         info!("Committed part {} consumed {} bytes", key, parsed.consumed);
+        info!("Sleeping for {:?}", to_sleep);
+        tokio::time::sleep(to_sleep).await;
         liveness_loop_flag.store(false, Ordering::Relaxed);
 
         Ok(())
