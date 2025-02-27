@@ -33,7 +33,7 @@ import {
     RetentionFilter,
     StickinessFilter,
     TrendsFilter,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import {
     isFunnelsQuery,
     isInsightQueryWithBreakdown,
@@ -405,6 +405,7 @@ export const trendsFilterToQuery = (filters: Partial<TrendsFilterType>): TrendsF
         showPercentStackView: filters.show_percent_stack_view,
         showLabelsOnSeries: filters.show_labels_on_series,
         yAxisScaleType: filters.y_axis_scale_type,
+        showMultipleYAxes: filters.show_multiple_y_axes,
     })
 }
 
@@ -479,6 +480,7 @@ export const stickinessFilterToQuery = (filters: Record<string, any>): Stickines
         showLegend: filters.show_legend,
         hiddenLegendIndexes: hiddenLegendKeysToIndexes(filters.hidden_legend_keys),
         showValuesOnSeries: filters.show_values_on_series,
+        computedAs: filters.computed_as,
     })
 }
 

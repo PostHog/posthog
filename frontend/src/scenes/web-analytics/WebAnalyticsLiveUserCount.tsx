@@ -1,4 +1,6 @@
-import { IconLive } from '@posthog/icons'
+import './WebAnalyticsLiveUserCount.scss'
+
+import clsx from 'clsx'
 import { useValues } from 'kea'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyLargeNumber, humanFriendlyNumber } from 'lib/utils'
@@ -9,8 +11,8 @@ export const WebAnalyticsLiveUserCount = (): JSX.Element | null => {
     const { liveUserCount, liveUserUpdatedSecondsAgo } = useValues(liveEventsTableLogic)
     const { currentTeam } = useValues(teamLogic)
 
+    // No data yet, or feature flag disabled
     if (liveUserCount == null) {
-        // No data yet, or feature flag disabled
         return null
     }
 
@@ -27,13 +29,13 @@ export const WebAnalyticsLiveUserCount = (): JSX.Element | null => {
     const tooltip = `${usersOnlineString}${inTeamString}${updatedAgoString}`
 
     return (
-        <div className="flex-row">
-            <Tooltip title={tooltip}>
-                <span>
-                    <IconLive /> <strong>{humanFriendlyLargeNumber(liveUserCount)}</strong> currently online
+        <Tooltip title={tooltip}>
+            <div className="flex flex-row items-center justify-center">
+                <div className={clsx('live-user-indicator', liveUserCount > 0 ? 'online' : 'offline')} />
+                <span className="whitespace-nowrap" data-attr="web-analytics-live-user-count">
+                    <strong>{humanFriendlyLargeNumber(liveUserCount)}</strong> online
                 </span>
-            </Tooltip>
-            <div className="bg-border h-px w-full mt-2" />
-        </div>
+            </div>
+        </Tooltip>
     )
 }

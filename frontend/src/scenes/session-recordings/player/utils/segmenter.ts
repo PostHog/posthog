@@ -1,4 +1,4 @@
-import { EventType, eventWithTime, IncrementalSource } from '@rrweb/types'
+import { EventType, eventWithTime, IncrementalSource } from '@posthog/rrweb-types'
 import { Dayjs } from 'lib/dayjs'
 
 import { RecordingSegment, RecordingSnapshot } from '~/types'
@@ -132,27 +132,12 @@ export const createSegments = (
         }
     }
 
-    if (trackedWindow) {
-        segments = segments.map((segment) => {
-            if (segment.windowId === trackedWindow) {
-                return segment
-            }
-            // every window segment that isn't the tracked window is a gap
-            return {
-                ...segment,
-                windowId: trackedWindow,
-                isActive: false,
-                kind: 'gap',
-            }
-        })
-    }
-
     segments = segments.reduce((acc, segment, index) => {
         const previousSegment = segments[index - 1]
         const list = [...acc]
 
         if (previousSegment && segment.startTimestamp !== previousSegment.endTimestamp) {
-            // If the segments do not immediately follow each other then we add a "gap" segment
+            // If the segments do not immediately follow each other, then we add a "gap" segment
             const startTimestamp = previousSegment.endTimestamp
             const endTimestamp = segment.startTimestamp
             // Offset the window ID check so we look for a subsequent segment
@@ -183,6 +168,17 @@ export const createSegments = (
                 kind: 'buffer',
                 startTimestamp: latestTimestamp ? latestTimestamp + 1 : start.valueOf(),
                 endTimestamp: endTimestamp,
+                isActive: false,
+            } as RecordingSegment)
+        }
+
+        // if the first segment starts after the start of the session, add a gap segment at the beginning
+        const firstTimestamp = segments[0]?.startTimestamp
+        if (firstTimestamp && firstTimestamp > start.valueOf()) {
+            segments.unshift({
+                kind: 'gap',
+                startTimestamp: start.valueOf(),
+                endTimestamp: firstTimestamp,
                 isActive: false,
             } as RecordingSegment)
         }

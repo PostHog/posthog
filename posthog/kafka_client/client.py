@@ -106,7 +106,7 @@ def _sasl_params():
 class _KafkaProducer:
     def __init__(
         self,
-        test=settings.TEST,
+        test=False,
         # the default producer uses these defaulted environment variables,
         # but the session recording producer needs to override them
         kafka_base64_keys=None,
@@ -115,6 +115,8 @@ class _KafkaProducer:
         max_request_size=None,
         compression_type=None,
     ):
+        if settings.TEST:
+            test = True  # Set at runtime so that overriden settings.TEST is supported
         if kafka_security_protocol is None:
             kafka_security_protocol = settings.KAFKA_SECURITY_PROTOCOL
         if kafka_hosts is None:
@@ -219,10 +221,12 @@ def build_kafka_consumer(
     topic: Optional[str],
     value_deserializer=lambda v: json.loads(v.decode("utf-8")),
     auto_offset_reset="latest",
-    test=settings.TEST,
+    test=False,
     group_id=None,
     consumer_timeout_ms=float("inf"),
 ):
+    if settings.TEST:
+        test = True  # Set at runtime so that overriden settings.TEST is supported
     if test:
         consumer = KafkaConsumerForTests(
             topic=topic,

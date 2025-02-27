@@ -1,22 +1,29 @@
-import { LemonButton } from '@posthog/lemon-ui'
+import { IconBell } from '@posthog/icons'
+import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { IconWithCount } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
-import { QueryBasedInsightModel } from '~/types'
+import { InsightLogicProps, QueryBasedInsightModel } from '~/types'
 
-import { areAlertsSupportedForInsight } from './insightAlertsLogic'
+import { areAlertsSupportedForInsight, insightAlertsLogic } from './insightAlertsLogic'
 
-export interface AlertsButtonProps {
+export type AlertsButtonProps = LemonButtonProps & {
     insight: Partial<QueryBasedInsightModel>
+    insightLogicProps: InsightLogicProps
+    text: string
 }
 
-export function AlertsButton({ insight }: AlertsButtonProps): JSX.Element {
+export function AlertsButton({ insight, insightLogicProps, text, ...props }: AlertsButtonProps): JSX.Element {
     const { push } = useActions(router)
     const { featureFlags } = useValues(featureFlagLogic)
     const showAlerts = featureFlags[FEATURE_FLAGS.ALERTS]
+
+    const logic = insightAlertsLogic({ insightId: insight.id!, insightLogicProps })
+    const { alerts } = useValues(logic)
 
     if (!showAlerts) {
         return <></>
@@ -26,14 +33,19 @@ export function AlertsButton({ insight }: AlertsButtonProps): JSX.Element {
         <LemonButton
             data-attr="manage-alerts-button"
             onClick={() => push(urls.insightAlerts(insight.short_id!))}
-            fullWidth
             disabledReason={
                 !areAlertsSupportedForInsight(insight.query)
-                    ? 'Insights are only available for trends without breakdowns. Change the insight representation to add alerts.'
+                    ? 'Alerts are only available for trends. Change the insight representation to add alerts.'
                     : undefined
             }
+            {...props}
+            icon={
+                <IconWithCount count={alerts?.length} showZero={false}>
+                    <IconBell />
+                </IconWithCount>
+            }
         >
-            Manage alerts
+            {text}
         </LemonButton>
     )
 }

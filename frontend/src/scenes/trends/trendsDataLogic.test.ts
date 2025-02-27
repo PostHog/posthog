@@ -3,7 +3,7 @@ import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { DataNode, LifecycleQuery, NodeKind, TrendsQuery } from '~/queries/schema'
+import { DataNode, LifecycleQuery, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType, InsightLogicProps, InsightModel } from '~/types'
 

@@ -1,8 +1,24 @@
+import { IconServer } from '@posthog/icons'
+import {
+    IconAndroidOS,
+    IconAppleIOS,
+    IconCSharp,
+    IconFlutter,
+    IconGolang,
+    IconJavascript,
+    IconNodeJS,
+    IconPHP,
+    IconPython,
+    IconReact,
+    IconRuby,
+} from 'lib/lemon-ui/icons'
+
 import { SDKKey } from '~/types'
 
 import {
     AndroidSnippet,
     APISnippet,
+    CSharpSnippet,
     FeatureFlagSnippet,
     FlutterSnippet,
     GolangSnippet,
@@ -30,6 +46,7 @@ export interface InstructionOption {
     Snippet: ({ flagKey, multivariant, groupType }: FeatureFlagSnippet) => JSX.Element
     type: LibraryType
     key: SDKKey
+    Icon: React.ElementType
 }
 
 export enum LibraryType {
@@ -44,6 +61,7 @@ export const OPTIONS: InstructionOption[] = [
         Snippet: JSSnippet,
         type: LibraryType.Client,
         key: SDKKey.JS_WEB,
+        Icon: IconJavascript,
     },
     {
         value: 'Android',
@@ -51,48 +69,7 @@ export const OPTIONS: InstructionOption[] = [
         Snippet: AndroidSnippet,
         type: LibraryType.Client,
         key: SDKKey.ANDROID,
-    },
-    {
-        value: 'iOS',
-        documentationLink: `${DOC_BASE_URL}libraries/ios${UTM_TAGS}`,
-        Snippet: iOSSnippet,
-        type: LibraryType.Client,
-        key: SDKKey.IOS,
-    },
-    {
-        value: 'React Native',
-        documentationLink: `${DOC_BASE_URL}libraries/react-native${UTM_TAGS}`,
-        Snippet: ReactNativeSnippet,
-        type: LibraryType.Client,
-        key: SDKKey.REACT_NATIVE,
-    },
-    {
-        value: 'React',
-        documentationLink: `${DOC_BASE_URL}libraries/react${UTM_TAGS}`,
-        Snippet: ReactSnippet,
-        type: LibraryType.Client,
-        key: SDKKey.REACT,
-    },
-    {
-        value: 'Node.js',
-        documentationLink: `${DOC_BASE_URL}libraries/node${UTM_TAGS}`,
-        Snippet: NodeJSSnippet,
-        type: LibraryType.Server,
-        key: SDKKey.NODE_JS,
-    },
-    {
-        value: 'Python',
-        documentationLink: `${DOC_BASE_URL}libraries/python${UTM_TAGS}`,
-        Snippet: PythonSnippet,
-        type: LibraryType.Server,
-        key: SDKKey.PYTHON,
-    },
-    {
-        value: 'Ruby',
-        documentationLink: `${DOC_BASE_URL}libraries/ruby${UTM_TAGS}`,
-        Snippet: RubySnippet,
-        type: LibraryType.Server,
-        key: SDKKey.RUBY,
+        Icon: IconAndroidOS,
     },
     {
         value: 'API',
@@ -100,13 +77,7 @@ export const OPTIONS: InstructionOption[] = [
         Snippet: APISnippet,
         type: LibraryType.Server,
         key: SDKKey.API,
-    },
-    {
-        value: 'PHP',
-        documentationLink: `${DOC_BASE_URL}libraries/php${UTM_TAGS}`,
-        Snippet: PHPSnippet,
-        type: LibraryType.Server,
-        key: SDKKey.PHP,
+        Icon: IconServer,
     },
     {
         value: 'Go',
@@ -114,6 +85,7 @@ export const OPTIONS: InstructionOption[] = [
         Snippet: GolangSnippet,
         type: LibraryType.Server,
         key: SDKKey.GO,
+        Icon: IconGolang,
     },
     {
         value: 'Flutter',
@@ -121,12 +93,85 @@ export const OPTIONS: InstructionOption[] = [
         Snippet: FlutterSnippet,
         type: LibraryType.Client,
         key: SDKKey.FLUTTER,
+        Icon: IconFlutter,
+    },
+    {
+        value: 'iOS',
+        documentationLink: `${DOC_BASE_URL}libraries/ios${UTM_TAGS}`,
+        Snippet: iOSSnippet,
+        type: LibraryType.Client,
+        key: SDKKey.IOS,
+        Icon: IconAppleIOS,
+    },
+    {
+        value: 'Node.js',
+        documentationLink: `${DOC_BASE_URL}libraries/node${UTM_TAGS}`,
+        Snippet: NodeJSSnippet,
+        type: LibraryType.Server,
+        key: SDKKey.NODE_JS,
+        Icon: IconNodeJS,
+    },
+    {
+        value: 'React',
+        documentationLink: `${DOC_BASE_URL}libraries/react${UTM_TAGS}`,
+        Snippet: ReactSnippet,
+        type: LibraryType.Client,
+        key: SDKKey.REACT,
+        Icon: IconReact,
+    },
+    {
+        value: 'React Native',
+        documentationLink: `${DOC_BASE_URL}libraries/react-native${UTM_TAGS}`,
+        Snippet: ReactNativeSnippet,
+        type: LibraryType.Client,
+        key: SDKKey.REACT_NATIVE,
+        Icon: IconReact,
+    },
+    {
+        value: 'PHP',
+        documentationLink: `${DOC_BASE_URL}libraries/php${UTM_TAGS}`,
+        Snippet: PHPSnippet,
+        type: LibraryType.Server,
+        key: SDKKey.PHP,
+        Icon: IconPHP,
+    },
+    {
+        value: 'Python',
+        documentationLink: `${DOC_BASE_URL}libraries/python${UTM_TAGS}`,
+        Snippet: PythonSnippet,
+        type: LibraryType.Server,
+        key: SDKKey.PYTHON,
+        Icon: IconPython,
+    },
+    {
+        value: 'Ruby',
+        documentationLink: `${DOC_BASE_URL}libraries/ruby${UTM_TAGS}`,
+        Snippet: RubySnippet,
+        type: LibraryType.Server,
+        key: SDKKey.RUBY,
+        Icon: IconRuby,
+    },
+    {
+        value: 'C#/.NET',
+        documentationLink: `${DOC_BASE_URL}libraries/dotnet${UTM_TAGS}`,
+        Snippet: CSharpSnippet,
+        type: LibraryType.Server,
+        key: SDKKey.DOTNET,
+        Icon: IconCSharp,
     },
 ]
 
-export const LOCAL_EVALUATION_LIBRARIES: string[] = [SDKKey.NODE_JS, SDKKey.PYTHON, SDKKey.RUBY, SDKKey.PHP, SDKKey.GO]
+export const LOCAL_EVALUATION_LIBRARIES: string[] = [
+    SDKKey.NODE_JS,
+    SDKKey.PYTHON,
+    SDKKey.RUBY,
+    SDKKey.PHP,
+    SDKKey.GO,
+    SDKKey.DOTNET,
+]
 
 export const PAYLOAD_LIBRARIES: string[] = [
+    SDKKey.API,
     SDKKey.JS_WEB,
     SDKKey.NODE_JS,
     SDKKey.PYTHON,
@@ -136,6 +181,17 @@ export const PAYLOAD_LIBRARIES: string[] = [
     SDKKey.REACT_NATIVE,
     SDKKey.IOS,
     SDKKey.FLUTTER,
+    SDKKey.DOTNET,
+    SDKKey.GO,
+]
+
+export const REMOTE_CONFIGURATION_LIBRARIES: string[] = [
+    SDKKey.API,
+    SDKKey.NODE_JS,
+    SDKKey.PYTHON,
+    SDKKey.GO,
+    SDKKey.RUBY,
+    SDKKey.DOTNET,
 ]
 
 export const BOOTSTRAPPING_OPTIONS: InstructionOption[] = [
@@ -145,6 +201,7 @@ export const BOOTSTRAPPING_OPTIONS: InstructionOption[] = [
         Snippet: JSBootstrappingSnippet,
         type: LibraryType.Client,
         key: SDKKey.JS_WEB,
+        Icon: IconJavascript,
     },
     {
         value: 'React Native',
@@ -152,5 +209,6 @@ export const BOOTSTRAPPING_OPTIONS: InstructionOption[] = [
         Snippet: JSBootstrappingSnippet,
         type: LibraryType.Client,
         key: SDKKey.REACT_NATIVE,
+        Icon: IconReact,
     },
 ]

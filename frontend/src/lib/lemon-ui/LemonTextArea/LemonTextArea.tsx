@@ -58,25 +58,15 @@ export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextArea
                 }
                 if (e.key === 'Enter') {
                     const target = e.currentTarget
-                    if (e.metaKey || e.ctrlKey) {
-                        if (onPressEnter) {
-                            // When onPressEnter is defined, Cmd/Ctrl + Enter adds a new line, like Enter normally does.
-                            // This does not happen by default for Enter presses with Cmd/Ctrl, so we need to simulate it.
-                            const selectionStartBeforeChange = target.selectionStart
-                            const selectionEndBeforeChange = target.selectionEnd
-                            target.value =
-                                target.value.substring(0, selectionStartBeforeChange) +
-                                '\n' +
-                                target.value.substring(selectionEndBeforeChange)
-                            target.selectionStart = target.selectionEnd = selectionStartBeforeChange + 1
-                            onChange?.(target.value)
-                        } else if (onPressCmdEnter) {
+                    // When shift is pressed, we always just want to add a new line
+                    if (!e.shiftKey) {
+                        if ((e.metaKey || e.ctrlKey) && onPressCmdEnter) {
                             onPressCmdEnter(target.value)
                             e.preventDefault()
+                        } else if (onPressEnter) {
+                            onPressEnter(target.value)
+                            e.preventDefault()
                         }
-                    } else if (onPressEnter) {
-                        onPressEnter?.(target.value)
-                        e.preventDefault()
                     }
                 }
                 onKeyDown?.(e)

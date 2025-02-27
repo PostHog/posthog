@@ -35,6 +35,8 @@ KAFKA_COLUMNS_WITH_PARTITION = """
 , _partition UInt64
 """
 
+KAFKA_TIMESTAMP_MS_COLUMN = "_timestamp_ms DateTime64"
+
 
 def kafka_engine(topic: str, kafka_host: str | None = None, group="group1", serialization="JSONEachRow") -> str:
     if kafka_host is None:

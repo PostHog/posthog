@@ -1,18 +1,14 @@
 import { urls } from 'scenes/urls'
 
-import { decideResponse } from '../fixtures/api/decide'
+import { setupFeatureFlags } from '../support/decide'
 
 // NOTE: As the API data is randomly generated, we are only really testing here that the overall output is correct
 // The actual graph is not under test
 describe('Exporting Insights', () => {
     beforeEach(() => {
-        cy.intercept('https://us.i.posthog.com/decide/*', (req) =>
-            req.reply(
-                decideResponse({
-                    'export-dashboard-insights': true,
-                })
-            )
-        )
+        setupFeatureFlags({
+            'export-dashboard-insights': true,
+        })
         cy.visit(urls.insightNew())
         // apply filter
         cy.get('[data-attr$=add-filter-group]').click()

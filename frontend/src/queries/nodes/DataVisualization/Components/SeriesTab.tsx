@@ -12,22 +12,34 @@ import {
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { getSeriesColor } from 'lib/colors'
-import { SeriesGlyph } from 'lib/components/SeriesGlyph'
+import { getSeriesColor, getSeriesColorPalette } from 'lib/colors'
+import { ColorGlyph } from 'lib/components/SeriesGlyph'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { hexToRGBA, lightenDarkenColor, RGBToRGBA } from 'lib/utils'
-
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { AxisSeries, dataVisualizationLogic } from '../dataVisualizationLogic'
+import { ColorPickerButton } from './ColorPickerButton'
+import { AxisBreakdownSeries, seriesBreakdownLogic } from './seriesBreakdownLogic'
 import { ySeriesLogic, YSeriesLogicProps, YSeriesSettingsTab } from './ySeriesLogic'
 
 export const SeriesTab = (): JSX.Element => {
-    const { columns, numericalColumns, xData, yData, responseLoading, showTableSettings, tabularColumns } =
-        useValues(dataVisualizationLogic)
+    const {
+        columns,
+        numericalColumns,
+        xData,
+        yData,
+        responseLoading,
+        showTableSettings,
+        tabularColumns,
+        selectedXAxis,
+        dataVisualizationProps,
+    } = useValues(dataVisualizationLogic)
     const { updateXSeries, addYSeries } = useActions(dataVisualizationLogic)
+    const breakdownLogic = seriesBreakdownLogic({ key: dataVisualizationProps.key })
+    const { showSeriesBreakdown } = useValues(breakdownLogic)
+    const { addSeriesBreakdown } = useActions(breakdownLogic)
 
     const hideAddYSeries = yData.length >= numericalColumns.length
+    const hideAddSeriesBreakdown = !(!showSeriesBreakdown && selectedXAxis && columns.length > yData.length)
 
     if (showTableSettings) {
         return (
@@ -54,7 +66,7 @@ export const SeriesTab = (): JSX.Element => {
 
     return (
         <div className="flex flex-col w-full">
-            <LemonLabel>X-axis</LemonLabel>
+            <LemonLabel className="mb-1">X-axis</LemonLabel>
             <LemonSelect
                 className="w-full"
                 value={xData !== null ? xData.column.name : 'None'}
@@ -67,7 +79,20 @@ export const SeriesTab = (): JSX.Element => {
                     }
                 }}
             />
-            <LemonLabel className="mt-4">Y-axis</LemonLabel>
+            {!hideAddSeriesBreakdown && (
+                <LemonButton
+                    className="mt-1"
+                    type="tertiary"
+                    onClick={() => addSeriesBreakdown(null)}
+                    icon={<IconPlusSmall />}
+                    fullWidth
+                >
+                    Add series breakdown
+                </LemonButton>
+            )}
+            {showSeriesBreakdown && <SeriesBreakdownSelector />}
+
+            <LemonLabel className="mt-4 mb-1">Y-axis</LemonLabel>
             {yData.map((series, index) => (
                 <YSeries series={series} index={index} key={`${series?.column.name}-${index}`} />
             ))}
@@ -90,6 +115,7 @@ const YSeries = ({ series, index }: { series: AxisSeries<number>; index: number 
     const { columns, numericalColumns, responseLoading, dataVisualizationProps, showTableSettings } =
         useValues(dataVisualizationLogic)
     const { updateSeriesIndex, deleteYSeries } = useActions(dataVisualizationLogic)
+    const { selectedSeriesBreakdownColumn } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
 
     const seriesLogicProps: YSeriesLogicProps = { series, seriesIndex: index, dataVisualizationProps }
     const seriesLogic = ySeriesLogic(seriesLogicProps)
@@ -97,28 +123,15 @@ const YSeries = ({ series, index }: { series: AxisSeries<number>; index: number 
     const { isSettingsOpen, canOpenSettings, activeSettingsTab } = useValues(seriesLogic)
     const { setSettingsOpen, submitFormatting, submitDisplay, setSettingsTab } = useActions(seriesLogic)
 
-    const { isDarkModeOn } = useValues(themeLogic)
-    const seriesColor = getSeriesColor(index)
+    const seriesColor = series.settings?.display?.color ?? getSeriesColor(index)
+    const showSeriesColor = !showTableSettings && !selectedSeriesBreakdownColumn
 
     const columnsInOptions = showTableSettings ? columns : numericalColumns
     const options = columnsInOptions.map(({ name, type }) => ({
         value: name,
         label: (
             <div className="items-center flex flex-1">
-                {!showTableSettings && (
-                    <SeriesGlyph
-                        style={{
-                            borderColor: seriesColor,
-                            color: seriesColor,
-                            backgroundColor: isDarkModeOn
-                                ? RGBToRGBA(lightenDarkenColor(seriesColor, -20), 0.3)
-                                : hexToRGBA(seriesColor, 0.2),
-                        }}
-                        className="mr-2"
-                    >
-                        <></>
-                    </SeriesGlyph>
-                )}
+                {showSeriesColor && <ColorGlyph className="mr-2" color={seriesColor} />}
                 {series.settings?.display?.label && series.column.name === name ? series.settings.display.label : name}
                 <LemonTag className="ml-2" type="default">
                     {type.name}
@@ -215,20 +228,43 @@ const YSeriesFormattingTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSerie
 }
 
 const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSeriesLogicProps }): JSX.Element => {
-    const { showTableSettings } = useValues(dataVisualizationLogic)
+    const { showTableSettings, dataVisualizationProps } = useValues(dataVisualizationLogic)
+    const { selectedSeriesBreakdownColumn } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
+
+    const showColorPicker = !showTableSettings && !selectedSeriesBreakdownColumn
+    const showLabelInput = showTableSettings || !selectedSeriesBreakdownColumn
 
     return (
         <Form logic={ySeriesLogic} props={ySeriesLogicProps} formKey="display" className="space-y-4">
-            <LemonField name="label" label="Label">
-                <LemonInput />
-            </LemonField>
+            {(showColorPicker || showLabelInput) && (
+                <div className="flex gap-3">
+                    {showColorPicker && (
+                        <LemonField name="color" label="Color">
+                            {({ value, onChange }) => (
+                                <ColorPickerButton
+                                    color={value}
+                                    onColorSelect={onChange}
+                                    colorChoices={getSeriesColorPalette()}
+                                />
+                            )}
+                        </LemonField>
+                    )}
+                    {showLabelInput && (
+                        <LemonField name="label" label="Label">
+                            <LemonInput />
+                        </LemonField>
+                    )}
+                </div>
+            )}
             {!showTableSettings && (
                 <>
-                    <LemonField name="trendLine" label="Trend line">
-                        {({ value, onChange }) => (
-                            <LemonSwitch checked={value} onChange={(newValue) => onChange(newValue)} />
-                        )}
-                    </LemonField>
+                    {!selectedSeriesBreakdownColumn && (
+                        <LemonField name="trendLine" label="Trend line">
+                            {({ value, onChange }) => (
+                                <LemonSwitch checked={value} onChange={(newValue) => onChange(newValue)} />
+                            )}
+                        </LemonField>
+                    )}
                     <LemonField name="yAxisPosition" label="Y-axis position">
                         {({ value, onChange }) => (
                             <LemonSegmentedButton
@@ -286,4 +322,76 @@ const Y_SERIES_SETTINGS_TABS = {
         label: 'Display',
         Component: YSeriesDisplayTab,
     },
+}
+
+export const SeriesBreakdownSelector = (): JSX.Element => {
+    const { columns, responseLoading, selectedXAxis, dataVisualizationProps } = useValues(dataVisualizationLogic)
+    const breakdownLogic = seriesBreakdownLogic({ key: dataVisualizationProps.key })
+    const { selectedSeriesBreakdownColumn, seriesBreakdownData } = useValues(breakdownLogic)
+    const { addSeriesBreakdown, deleteSeriesBreakdown } = useActions(breakdownLogic)
+
+    const seriesBreakdownOptions = columns
+        .map(({ name, type }) => ({
+            value: name,
+            label: (
+                <div className="items-center flex-1">
+                    {name}
+                    <LemonTag className="ml-2" type="default">
+                        {type.name}
+                    </LemonTag>
+                </div>
+            ),
+        }))
+        .filter((column) => column.value !== selectedXAxis)
+
+    return (
+        <>
+            <div className="flex gap-1 my-1">
+                <LemonSelect
+                    className="grow"
+                    value={selectedSeriesBreakdownColumn !== null ? selectedSeriesBreakdownColumn : 'None'}
+                    options={seriesBreakdownOptions}
+                    disabledReason={responseLoading ? 'Query loading...' : undefined}
+                    onChange={(value) => {
+                        const column = columns.find((n) => n.name === value)
+                        if (column) {
+                            addSeriesBreakdown(column.name)
+                        }
+                    }}
+                />
+                <LemonButton
+                    key="delete"
+                    icon={<IconTrash />}
+                    status="danger"
+                    title="Delete series breakdown"
+                    noPadding
+                    onClick={() => deleteSeriesBreakdown()}
+                />
+            </div>
+            <div className="ml-4 mt-2">
+                {seriesBreakdownData.error ? (
+                    <div className="text-danger font-bold mt-1">{seriesBreakdownData.error}</div>
+                ) : (
+                    seriesBreakdownData.seriesData.map((series, index) => (
+                        <BreakdownSeries series={series} index={index} key={`${series.name}-${index}`} />
+                    ))
+                )}
+            </div>
+        </>
+    )
+}
+
+const BreakdownSeries = ({ series, index }: { series: AxisBreakdownSeries<number>; index: number }): JSX.Element => {
+    const seriesColor = series.settings?.display?.color ?? getSeriesColor(index)
+
+    return (
+        <div className="flex gap-1 mb-2">
+            <div className="flex gap-2">
+                <ColorGlyph color={seriesColor} className="mr-2" />
+                <span>{series.name ? series.name : '[No value]'}</span>
+            </div>
+            {/* For now let's keep things simple and not allow too much configuration */}
+            {/* We may just want to add a show/hide button here */}
+        </div>
+    )
 }

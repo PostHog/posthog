@@ -46,7 +46,7 @@ export const SettingsProject: StoryFn = () => {
     return <App />
 }
 SettingsProject.parameters = {
-    testOptions: { waitForSelector: '.Settings__sections button' },
+    testOptions: { waitForSelector: '.Settings__sections a' },
 }
 
 export const SettingsProjectWithReplayFeatures: StoryFn = () => {
@@ -61,7 +61,7 @@ export const SettingsProjectWithReplayFeatures: StoryFn = () => {
     return <App />
 }
 SettingsProjectWithReplayFeatures.parameters = {
-    testOptions: { waitForSelector: '.Settings__sections button' },
+    testOptions: { waitForSelector: '.Settings__sections a' },
 }
 
 export const SettingsUser: StoryFn = () => {
@@ -71,7 +71,7 @@ export const SettingsUser: StoryFn = () => {
     return <App />
 }
 SettingsUser.parameters = {
-    testOptions: { waitForSelector: '.Settings__sections button' },
+    testOptions: { waitForSelector: '.Settings__sections a' },
 }
 
 export const SettingsOrganization: StoryFn = () => {
@@ -81,7 +81,7 @@ export const SettingsOrganization: StoryFn = () => {
     return <App />
 }
 SettingsOrganization.parameters = {
-    testOptions: { waitForSelector: '.Settings__sections button' },
+    testOptions: { waitForSelector: '.Settings__sections a' },
 }
 
 export const SettingsWebVitals: StoryFn = () => {
@@ -91,7 +91,7 @@ export const SettingsWebVitals: StoryFn = () => {
     return <App />
 }
 SettingsOrganization.parameters = {
-    testOptions: { waitForSelector: '.Settings__sections button' },
+    testOptions: { waitForSelector: '.Settings__sections a' },
 }
 
 function TimeSensitiveSettings(props: {
@@ -133,40 +133,40 @@ export const SettingsSessionTimeoutAllOptions: StoryFn = () => {
     return <TimeSensitiveSettings has_password saml_available />
 }
 SettingsSessionTimeoutAllOptions.parameters = {
-    testOptions: { waitForSelector: '.Settings__sections button' },
+    testOptions: { waitForSelector: '.Settings__sections a' },
 }
 
 export const SettingsSessionTimeoutPasswordOnly: StoryFn = () => {
     return <TimeSensitiveSettings has_password />
 }
 SettingsSessionTimeoutPasswordOnly.parameters = {
-    testOptions: { waitForSelector: '.Settings__sections button' },
+    testOptions: { waitForSelector: '.Settings__sections a' },
 }
 
 export const SettingsSessionTimeoutSsoOnly: StoryFn = () => {
     return <TimeSensitiveSettings />
 }
 SettingsSessionTimeoutSsoOnly.parameters = {
-    testOptions: { waitForSelector: '.Settings__sections button' },
+    testOptions: { waitForSelector: '.Settings__sections a' },
 }
 
 export const SettingsSessionTimeoutSsoEnforcedGithub: StoryFn = () => {
     return <TimeSensitiveSettings sso_enforcement="github" />
 }
 SettingsSessionTimeoutSsoEnforcedGithub.parameters = {
-    testOptions: { waitForSelector: '.Settings__sections button' },
+    testOptions: { waitForSelector: '.Settings__sections a' },
 }
 
 export const SettingsSessionTimeoutSsoEnforcedGoogle: StoryFn = () => {
     return <TimeSensitiveSettings sso_enforcement="google-oauth2" />
 }
 SettingsSessionTimeoutSsoEnforcedGoogle.parameters = {
-    testOptions: { waitForSelector: '.Settings__sections button' },
+    testOptions: { waitForSelector: '.Settings__sections a' },
 }
 
 export const SettingsSessionTimeoutSsoEnforcedSaml: StoryFn = () => {
     return <TimeSensitiveSettings sso_enforcement="saml" />
 }
 SettingsSessionTimeoutSsoEnforcedSaml.parameters = {
-    testOptions: { waitForSelector: '.Settings__sections button' },
+    testOptions: { waitForSelector: '.Settings__sections a' },
 }

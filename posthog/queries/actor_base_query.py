@@ -109,6 +109,7 @@ class ActorBaseQuery:
             query_type=self.QUERY_TYPE,
             filter=self._filter,
             team_id=self._team.pk,
+            settings={"allow_experimental_analyzer": 0},
         )
         actors, serialized_actors = self.get_actors_from_result(raw_result)
 

@@ -32,7 +32,7 @@ export function GroupsIntroduction(): JSX.Element {
 
 export function GroupIntroductionFooter({ needsUpgrade }: { needsUpgrade: boolean }): JSX.Element {
     return (
-        <div className="text-sm bg-bg-3000 rounded p-2 max-w-60">
+        <div className="text-sm bg-primary rounded p-2 max-w-60">
             {needsUpgrade ? (
                 <>
                     Track usage of groups of users with Group&nbsp;Analytics.{' '}
@@ -60,7 +60,7 @@ export function GroupIntroductionFooter({ needsUpgrade }: { needsUpgrade: boolea
                     You can now use Group Analytics. See{' '}
                     <Link
                         className="font-medium"
-                        to="https://posthog.com/manual/group-analytics?utm_medium=in-product&utm_campaign=group-analytics-get-started"
+                        to="https://posthog.com/docs/product-analytics/group-analytics?utm_medium=in-product&utm_campaign=group-analytics-get-started"
                         target="_blank"
                         data-attr="group-analytics-get-started"
                     >

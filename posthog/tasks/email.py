@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime
-from typing import Optional
+from enum import Enum
+from typing import Literal, Optional
 
 import posthoganalytics
 import structlog
@@ -25,6 +26,14 @@ from posthog.models.utils import UUIDT
 from posthog.user_permissions import UserPermissions
 
 logger = structlog.get_logger(__name__)
+
+
+class NotificationSetting(Enum):
+    WEEKLY_PROJECT_DIGEST = "weekly_project_digest"
+    PLUGIN_DISABLED = "plugin_disabled"
+
+
+NotificationSettingType = Literal["weekly_project_digest", "plugin_disabled"]
 
 
 def send_message_to_all_staff_users(message: EmailMessage) -> None:
@@ -52,6 +61,46 @@ def get_members_to_notify(team: Team, notification_setting: str) -> list[Organiz
             memberships_to_email.append(membership)
 
     return memberships_to_email
+
+
+def should_send_notification(
+    user: User,
+    notification_type: NotificationSettingType,
+    team_id: Optional[int] = None,
+) -> bool:
+    """
+    Determines if a notification should be sent to a user based on their notification settings.
+
+    Args:
+        user: The user to check settings for
+        notification_type: The type of notification being sent. It must be the enum member's value!
+        team_id: Optional team ID for team-specific notifications
+
+    Returns:
+        bool: True if the notification should be sent, False otherwise
+    """
+    settings = user.notification_settings
+
+    if notification_type == NotificationSetting.WEEKLY_PROJECT_DIGEST.value:
+        # First check global digest setting
+        if settings.get("all_weekly_digest_disabled", False):
+            return False
+
+        # Then check project-specific setting if team_id provided
+        if team_id is not None:
+            project_settings = settings.get("project_weekly_digest_disabled", {})
+            team_disabled = project_settings.get(str(team_id), False)
+            return not team_disabled
+
+        return True
+
+    elif notification_type == NotificationSetting.PLUGIN_DISABLED.value:
+        return not settings.get("plugin_disabled", True)  # Default to True (disabled) if not set
+
+    # The below typeerror is ignored because we're currently handling the notification
+    # types above, so technically it's unreachable. However if another is added but
+    # not handled in this function, we want this as a fallback.
+    return True  # type: ignore
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
@@ -302,6 +351,57 @@ def send_async_migration_errored_email(migration_key: str, time: str, error: str
     )
 
     send_message_to_all_staff_users(message)
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+def send_two_factor_auth_enabled_email(user_id: int) -> None:
+    user: User = User.objects.get(pk=user_id)
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=f"2fa_enabled_{user.uuid}-{timezone.now().timestamp()}",
+        template_name="2fa_enabled",
+        subject="You've enabled 2FA protection",
+        template_context={
+            "user_name": user.first_name,
+            "user_email": user.email,
+        },
+    )
+    message.add_recipient(user.email)
+    message.send(send_async=False)
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+def send_two_factor_auth_disabled_email(user_id: int) -> None:
+    user: User = User.objects.get(pk=user_id)
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=f"2fa_disabled_{user.uuid}-{timezone.now().timestamp()}",
+        template_name="2fa_disabled",
+        subject="You've disabled 2FA protection",
+        template_context={
+            "user_name": user.first_name,
+            "user_email": user.email,
+        },
+    )
+    message.add_recipient(user.email)
+    message.send(send_async=False)
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+def send_two_factor_auth_backup_code_used_email(user_id: int) -> None:
+    user: User = User.objects.get(pk=user_id)
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=f"2fa_backup_code_used_{user.uuid}-{timezone.now().timestamp()}",
+        template_name="2fa_backup_code_used",
+        subject="A backup code was used for your account",
+        template_context={
+            "user_name": user.first_name,
+            "user_email": user.email,
+        },
+    )
+    message.add_recipient(user.email)
+    message.send(send_async=False)
 
 
 def get_users_for_orgs_with_no_ingested_events(org_created_from: datetime, org_created_to: datetime) -> list[User]:

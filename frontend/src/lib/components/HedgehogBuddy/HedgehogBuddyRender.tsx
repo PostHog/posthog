@@ -27,7 +27,7 @@ export function HedgehogBuddyStatic({
             }}
         >
             <div
-                className="object-cover absolute inset-0 image-pixelated size-[400%] bg-cover"
+                className="object-cover absolute inset-0 rendering-pixelated size-[400%] bg-cover"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{
                     filter: filter as any,
@@ -39,7 +39,7 @@ export function HedgehogBuddyStatic({
                 <img
                     key={index}
                     src={`${spriteAccessoryUrl(accessory.img)}`}
-                    className="object-cover absolute inset-0 image-pixelated pointer-events-none"
+                    className="object-cover absolute inset-0 rendering-pixelated pointer-events-none"
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
                         width: imgSize,

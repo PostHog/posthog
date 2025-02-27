@@ -2,12 +2,16 @@ import { actions, afterMount, connect, events, kea, listeners, path, reducers, s
 import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect/LemonSelect'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
+import { userLogic } from 'scenes/userLogic'
 
-import { HogQLQuery, NodeKind } from '~/queries/schema'
+import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
-import { ProductKey, SDK, SDKInstructionsMap } from '~/types'
+import { ProductKey, SDK, SDKInstructionsMap, SDKKey } from '~/types'
 
 import { onboardingLogic } from '../onboardingLogic'
 import { allSDKs } from './allSDKs'
@@ -39,10 +43,28 @@ Products that will often be installed in multiple places, eg. web and mobile
 */
 export const multiInstallProducts = [ProductKey.PRODUCT_ANALYTICS, ProductKey.FEATURE_FLAGS]
 
+const getProductAnalyticsOrderedSDKs = (sdks: SDK[]): SDK[] => {
+    return [
+        ...sdks.filter((sdk) => sdk.key === SDKKey.HTML_SNIPPET),
+        ...sdks.filter((sdk) => sdk.key === SDKKey.JS_WEB),
+        ...sdks.filter((sdk) => ![SDKKey.HTML_SNIPPET, SDKKey.JS_WEB].includes(sdk.key as SDKKey)),
+    ]
+}
+
 export const sdksLogic = kea<sdksLogicType>([
     path(['scenes', 'onboarding', 'sdks', 'sdksLogic']),
     connect({
-        values: [onboardingLogic, ['productKey'], liveEventsTableLogic, ['eventHosts']],
+        values: [
+            onboardingLogic,
+            ['productKey'],
+            liveEventsTableLogic,
+            ['eventHosts'],
+            featureFlagLogic,
+            ['featureFlags'],
+            userLogic,
+            ['user', 'isUserNonTechnical'],
+        ],
+        actions: [eventUsageLogic, ['reportSDKSelected']],
     }),
     actions({
         setSourceFilter: (sourceFilter: string | null) => ({ sourceFilter }),
@@ -56,6 +78,7 @@ export const sdksLogic = kea<sdksLogicType>([
         setPanel: (panel: 'instructions' | 'options') => ({ panel }),
         setHasSnippetEvents: (hasSnippetEvents: boolean) => ({ hasSnippetEvents }),
         setSnippetHosts: (snippetHosts: string[]) => ({ snippetHosts }),
+        selectSDK: (sdk: SDK) => ({ sdk }),
     }),
     reducers({
         sourceFilter: [
@@ -133,6 +156,16 @@ export const sdksLogic = kea<sdksLogicType>([
                 return combinedSnippetAndLiveEventsHosts
             },
         ],
+        isUserInNonTechnicalTest: [
+            (s) => [s.productKey, s.featureFlags, s.isUserNonTechnical],
+            (productKey, featureFlags, isUserNonTechnical): boolean => {
+                return (
+                    productKey === ProductKey.PRODUCT_ANALYTICS &&
+                    featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_MODIFIED_SDK_LIST] === 'test' &&
+                    isUserNonTechnical
+                )
+            },
+        ],
     }),
     loaders(({ actions }) => ({
         hasSnippetEvents: [
@@ -173,7 +206,7 @@ export const sdksLogic = kea<sdksLogicType>([
     })),
     listeners(({ actions, values }) => ({
         filterSDKs: () => {
-            const filteredSDks: SDK[] = allSDKs
+            let filteredSDks: SDK[] = allSDKs
                 .filter((sdk) => {
                     if (!values.sourceFilter || !sdk) {
                         return true
@@ -181,6 +214,9 @@ export const sdksLogic = kea<sdksLogicType>([
                     return sdk.tags.includes(values.sourceFilter)
                 })
                 .filter((sdk) => Object.keys(values.availableSDKInstructionsMap).includes(sdk.key))
+            if (values.isUserInNonTechnicalTest) {
+                filteredSDks = getProductAnalyticsOrderedSDKs(filteredSDks)
+            }
             actions.setSDKs(filteredSDks)
             actions.setSourceOptions(getSourceOptions(values.availableSDKInstructionsMap))
         },
@@ -215,6 +251,10 @@ export const sdksLogic = kea<sdksLogicType>([
             if (values.showSideBySide && !values.selectedSDK) {
                 actions.setSelectedSDK(values.sdks?.[0] || null)
             }
+        },
+        selectSDK: ({ sdk }) => {
+            actions.setSelectedSDK(sdk)
+            actions.reportSDKSelected(sdk)
         },
     })),
     events(({ actions }) => ({

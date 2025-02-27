@@ -21,11 +21,14 @@ export interface PropertyValueProps {
     endpoint?: string // Endpoint to fetch options from
     placeholder?: string
     onSet: CallableFunction
-    value?: string | number | Array<string | number> | null
+    value?: string | number | bigint | Array<string | number | bigint> | null
     operator: PropertyOperator
     autoFocus?: boolean
     eventNames?: string[]
     addRelativeDateTimeOptions?: boolean
+    forceSingleSelect?: boolean
+    inputClassName?: string
+    additionalPropertiesFilter?: { key: string; values: string | string[] }[]
 }
 
 export function PropertyValue({
@@ -39,11 +42,14 @@ export function PropertyValue({
     autoFocus = false,
     eventNames = [],
     addRelativeDateTimeOptions = false,
+    forceSingleSelect = false,
+    inputClassName = undefined,
+    additionalPropertiesFilter = [],
 }: PropertyValueProps): JSX.Element {
     const { formatPropertyValueForDisplay, describeProperty, options } = useValues(propertyDefinitionsModel)
     const { loadPropertyValues } = useActions(propertyDefinitionsModel)
 
-    const isMultiSelect = operator && isOperatorMulti(operator)
+    const isMultiSelect = operator && isOperatorMulti(operator) && !forceSingleSelect
     const isDateTimeProperty = operator && isOperatorDate(operator)
     const propertyDefinitionType = propertyFilterTypeToPropertyDefinitionType(type)
 
@@ -57,6 +63,7 @@ export function PropertyValue({
             newInput,
             propertyKey,
             eventNames,
+            properties: additionalPropertiesFilter,
         })
     }
 
@@ -128,6 +135,7 @@ export function PropertyValue({
 
     return (
         <LemonInputSelect
+            className={inputClassName}
             data-attr="prop-val"
             loading={options[propertyKey]?.status === 'loading'}
             value={formattedValues}

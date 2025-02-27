@@ -3,8 +3,8 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
-import { AlertConditionType, GoalLine, InsightThresholdType } from '~/queries/schema'
-import { getBreakdown, isInsightVizNode, isTrendsQuery } from '~/queries/utils'
+import { AlertConditionType, GoalLine, InsightThresholdType } from '~/queries/schema/schema-general'
+import { isInsightVizNode, isTrendsQuery } from '~/queries/utils'
 import { InsightLogicProps } from '~/types'
 
 import type { insightAlertsLogicType } from './insightAlertsLogicType'
@@ -16,13 +16,7 @@ export interface InsightAlertsLogicProps {
 }
 
 export const areAlertsSupportedForInsight = (query?: Record<string, any> | null): boolean => {
-    return (
-        !!query &&
-        isInsightVizNode(query) &&
-        isTrendsQuery(query.source) &&
-        query.source.trendsFilter !== null &&
-        !getBreakdown(query.source)
-    )
+    return !!query && isInsightVizNode(query) && isTrendsQuery(query.source) && query.source.trendsFilter !== null
 }
 
 export const insightAlertsLogic = kea<insightAlertsLogicType>([
@@ -77,22 +71,22 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
 
                     const bounds = alert.threshold.configuration.bounds
 
-                    const thresholds = []
+                    const annotations = []
                     if (bounds?.upper != null) {
-                        thresholds.push({
+                        annotations.push({
                             label: `${alert.name} Upper Threshold`,
                             value: bounds?.upper,
                         })
                     }
 
                     if (bounds?.lower != null) {
-                        thresholds.push({
+                        annotations.push({
                             label: `${alert.name} Lower Threshold`,
                             value: bounds?.lower,
                         })
                     }
 
-                    return thresholds
+                    return annotations
                 }),
         ],
     }),

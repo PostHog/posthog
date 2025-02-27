@@ -1,9 +1,6 @@
 from infi.clickhouse_orm import migrations
 
-from posthog.clickhouse.materialized_columns import (
-    get_materialized_columns,
-    materialize,
-)
+from posthog.clickhouse.materialized_columns import get_materialized_column_for_property
 from posthog.client import sync_execute
 from posthog.settings import CLICKHOUSE_CLUSTER
 
@@ -41,11 +38,16 @@ def ensure_only_new_column_exists(database, table_name, old_column_name, new_col
 
 
 def materialize_session_and_window_id(database):
+    try:
+        from ee.clickhouse.materialized_columns.columns import materialize
+    except ImportError:
+        return
+
     properties = ["$session_id", "$window_id"]
     for property_name in properties:
-        materialized_columns = get_materialized_columns("events", use_cache=False)
+        current_materialized_column = get_materialized_column_for_property("events", "properties", property_name)
         # If the column is not materialized, materialize it
-        if (property_name, "properties") not in materialized_columns:
+        if current_materialized_column is None:
             materialize("events", property_name, property_name)
 
         # Now, we need to clean up any potentail inconsistencies with existing column names
@@ -69,9 +71,8 @@ def materialize_session_and_window_id(database):
         # materialized the column or renamed the column, and then ran the 0004_...  async migration
         # before this migration runs.
         possible_old_column_names = {"mat_" + property_name}
-        current_materialized_column_name = materialized_columns.get(property_name, None)
-        if current_materialized_column_name != property_name:
-            possible_old_column_names.add(current_materialized_column_name)
+        if current_materialized_column is not None and current_materialized_column.name != property_name:
+            possible_old_column_names.add(current_materialized_column.name)
 
         for possible_old_column_name in possible_old_column_names:
             ensure_only_new_column_exists(database, "sharded_events", possible_old_column_name, property_name)

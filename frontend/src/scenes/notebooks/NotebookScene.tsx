@@ -3,6 +3,7 @@ import './NotebookScene.scss'
 import { IconInfo, IconOpenSidebar } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { useEffect } from 'react'
@@ -14,6 +15,7 @@ import { Notebook } from './Notebook/Notebook'
 import { NotebookLoadingState } from './Notebook/NotebookLoadingState'
 import { notebookLogic } from './Notebook/notebookLogic'
 import { NotebookExpandButton, NotebookSyncInfo } from './Notebook/NotebookMeta'
+import { NotebookShareModal } from './Notebook/NotebookShareModal'
 import { NotebookMenu } from './NotebookMenu'
 import { notebookPanelLogic } from './NotebookPanel/notebookPanelLogic'
 import { notebookSceneLogic, NotebookSceneLogicProps } from './notebookSceneLogic'
@@ -34,7 +36,7 @@ export const scene: SceneExport = {
 export function NotebookScene(): JSX.Element {
     const { notebookId, loading } = useValues(notebookSceneLogic)
     const { createNotebook } = useActions(notebookSceneLogic)
-    const { notebook, conflictWarningVisible } = useValues(
+    const { notebook, conflictWarningVisible, accessDeniedToNotebook } = useValues(
         notebookLogic({ shortId: notebookId, target: NotebookTarget.Scene })
     )
     const { selectNotebook, closeSidePanel } = useActions(notebookPanelLogic)
@@ -47,14 +49,18 @@ export function NotebookScene(): JSX.Element {
         }
     }, [notebookId])
 
+    if (accessDeniedToNotebook) {
+        return <AccessDenied object="notebook" />
+    }
+
     if (!notebook && !loading && !conflictWarningVisible) {
         return <NotFound object="notebook" />
     }
 
     if (visibility === 'visible' && selectedNotebook === notebookId) {
         return (
-            <div className="flex flex-col justify-center items-center h-full text-muted-alt mx-10 flex-1">
-                <h2 className="text-muted-alt">
+            <div className="flex flex-col justify-center items-center h-full text-secondary mx-10 flex-1">
+                <h2 className="text-secondary">
                     This Notebook is open in the side panel <IconOpenSidebar />
                 </h2>
 
@@ -78,7 +84,7 @@ export function NotebookScene(): JSX.Element {
 
     return (
         <div className="NotebookScene">
-            <div className="flex items-center justify-between border-b py-2 mb-2 sticky top-0 bg-bg-3000 z-10">
+            <div className="flex items-center justify-between border-b py-2 mb-2 sticky top-0 bg-primary z-10">
                 <div className="flex gap-2 items-center">
                     {isTemplate && <LemonTag type="highlight">TEMPLATE</LemonTag>}
                     <UserActivityIndicator at={notebook?.last_modified_at} by={notebook?.last_modified_by} />
@@ -128,6 +134,7 @@ export function NotebookScene(): JSX.Element {
             </div>
 
             <Notebook key={notebookId} shortId={notebookId} editable={!isTemplate} />
+            <NotebookShareModal shortId={notebookId} />
         </div>
     )
 }

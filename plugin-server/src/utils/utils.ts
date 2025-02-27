@@ -1,6 +1,6 @@
 import { Properties } from '@posthog/plugin-scaffold'
-import * as Sentry from '@sentry/node'
 import { randomBytes } from 'crypto'
+import crypto from 'crypto'
 import { DateTime } from 'luxon'
 import { Pool } from 'pg'
 import { Readable } from 'stream'
@@ -14,6 +14,7 @@ import {
     PluginsServerConfig,
     TimestampFormat,
 } from '../types'
+import { captureException } from './posthog'
 import { status } from './status'
 
 /** Time until autoexit (due to error) gives up on graceful exit and kills the process right away. */
@@ -43,6 +44,38 @@ export function bufferToStream(binary: Buffer): Readable {
     })
 
     return readableInstanceStream
+}
+
+export function base64StringToUint32ArrayLE(base64: string): Uint32Array {
+    const buffer = Buffer.from(base64, 'base64')
+    const dataView = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength)
+    const length = buffer.byteLength / 4
+    const result = new Uint32Array(length)
+
+    for (let i = 0; i < length; i++) {
+        // explicitly set little-endian
+        result[i] = dataView.getUint32(i * 4, true)
+    }
+
+    return result
+}
+
+export function uint32ArrayLEToBase64String(uint32Array: Uint32Array): string {
+    const buffer = new ArrayBuffer(uint32Array.length * 4)
+    const dataView = new DataView(buffer)
+
+    for (let i = 0; i < uint32Array.length; i++) {
+        // explicitly set little-endian
+        dataView.setUint32(i * 4, uint32Array[i], true)
+    }
+
+    return Buffer.from(buffer).toString('base64')
+}
+
+export function createRandomUint32x4(): Uint32Array {
+    const randomArray = new Uint32Array(4)
+    crypto.webcrypto.getRandomValues(randomArray)
+    return randomArray
 }
 
 export function cloneObject<T>(obj: T): T {
@@ -211,6 +244,53 @@ export class UUIDT extends UUID {
     }
 }
 
+export class UUID7 extends UUID {
+    constructor(bufferOrUnixTimeMs?: number | Buffer, rand?: Buffer) {
+        if (bufferOrUnixTimeMs instanceof Buffer) {
+            if (bufferOrUnixTimeMs.length !== 16) {
+                throw new Error(`UUID7 from buffer requires 16 bytes, got ${bufferOrUnixTimeMs.length}`)
+            }
+            super(bufferOrUnixTimeMs)
+            return
+        }
+        const unixTimeMs = bufferOrUnixTimeMs ?? DateTime.utc().toMillis()
+        let unixTimeMsBig = BigInt(unixTimeMs)
+
+        if (!rand) {
+            rand = randomBytes(10)
+        } else if (rand.length !== 10) {
+            throw new Error(`UUID7 requires 10 bytes of random data, got ${rand.length}`)
+        }
+
+        // see https://www.rfc-editor.org/rfc/rfc9562#name-uuid-version-7
+        // a UUIDv7 is 128 bits (16 bytes) total
+        // 48 bits for unix_ts_ms,
+        // 4 bits for ver = 0b111 (7)
+        // 12 bits for rand_a
+        // 2 bits for var = 0b10
+        // 62 bits for rand_b
+        // we set fully random values for rand_a and rand_b
+
+        const array = new Uint8Array(16)
+        // 48 bits for time, WILL FAIL in 10 895 CE
+        // XXXXXXXX-XXXX-****-****-************
+        for (let i = 5; i >= 0; i--) {
+            array[i] = Number(unixTimeMsBig & 0xffn) // use last 8 binary digits to set UUID 2 hexadecimal digits
+            unixTimeMsBig >>= 8n // remove these last 8 binary digits
+        }
+        // rand_a and rand_b
+        // ********-****-*XXX-XXXX-XXXXXXXXXXXX
+        array.set(rand, 6)
+
+        // ver and var
+        // ********-****-7***-X***-************
+        array[6] = 0b0111_0000 | (array[6] & 0b0000_1111)
+        array[8] = 0b1000_0000 | (array[8] & 0b0011_1111)
+
+        super(array)
+    }
+}
+
 /* Format timestamps.
 Allowed timestamp formats support ISO and ClickHouse formats according to
 `timestampFormat`. This distinction is relevant because ClickHouse does NOT
@@ -320,7 +400,7 @@ export async function tryTwice<T>(callback: () => Promise<T>, errorMessage: stri
         const response = await Promise.race([timeout, callback()])
         return response as T
     } catch (error) {
-        Sentry.captureMessage(`Had to run twice: ${errorMessage}`)
+        captureException(`Had to run twice: ${errorMessage}`)
         // try one more time
         return await callback()
     }
@@ -362,7 +442,7 @@ export function createPostgresPool(
     const handleError =
         onError ||
         ((error) => {
-            Sentry.captureException(error)
+            captureException(error)
             status.error('🔴', 'PostgreSQL error encountered!\n', error)
         })
 
@@ -394,7 +474,7 @@ export function pluginConfigIdFromStack(
 }
 
 export function logOrThrowJobQueueError(server: PluginsServerConfig, error: Error, message: string): void {
-    Sentry.captureException(error)
+    captureException(error)
     if (server.CRASH_IF_NO_PERSISTENT_JOB_QUEUE) {
         status.error('🔴', message)
         throw error

@@ -13,6 +13,7 @@ import { RelatedFeatureFlag, relatedFeatureFlagsLogic } from './relatedFeatureFl
 
 interface Props {
     distinctId: string
+    groupTypeIndex?: number
     groups?: { [key: string]: string }
 }
 
@@ -34,11 +35,11 @@ const featureFlagMatchMapping = {
     [FeatureFlagMatchReason.Disabled]: 'Disabled',
 }
 
-export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element {
+export function RelatedFeatureFlags({ distinctId, groupTypeIndex, groups }: Props): JSX.Element {
     const { filteredMappedFlags, relatedFeatureFlagsLoading, searchTerm, filters } = useValues(
-        relatedFeatureFlagsLogic({ distinctId, groups })
+        relatedFeatureFlagsLogic({ distinctId, groupTypeIndex, groups })
     )
-    const { setSearchTerm, setFilters } = useActions(relatedFeatureFlagsLogic({ distinctId, groups }))
+    const { setSearchTerm, setFilters } = useActions(relatedFeatureFlagsLogic({ distinctId, groupTypeIndex, groups }))
 
     const columns: LemonTableColumns<RelatedFeatureFlag> = [
         {
@@ -113,7 +114,7 @@ export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element 
                         }
                         closeDelayMs={200}
                     >
-                        <IconInfo className="text-muted-alt text-base ml-1" />
+                        <IconInfo className="text-secondary text-base ml-1" />
                     </Tooltip>
                 </div>
             ),

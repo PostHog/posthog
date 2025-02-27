@@ -5,10 +5,10 @@ export function decideResponse(featureFlags) {
         },
         toolbarParams: {
             toolbarVersion: 'toolbar',
-            jsURL: 'http://localhost:8234/',
         },
         isAuthenticated: true,
         supportedCompression: ['gzip', 'gzip-js', 'lz64'],
+        hasFeatureFlags: Object.keys(featureFlags).length > 0,
         featureFlags,
         sessionRecording: {
             endpoint: '/s/',

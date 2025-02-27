@@ -9,6 +9,7 @@ import { definitionPopoverLogic, DefinitionPopoverState } from 'lib/components/D
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import {
+    DataWarehousePopoverField,
     SimpleOption,
     TaxonomicDefinitionTypes,
     TaxonomicFilterGroup,
@@ -19,11 +20,12 @@ import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP, isCoreFilter } from 'lib/taxonomy'
-import { useEffect, useMemo } from 'react'
+import { Fragment, useEffect, useMemo } from 'react'
 import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 
 import { ActionType, CohortType, EventDefinition, PropertyDefinition } from '~/types'
 
+import { HogQLDropdown } from '../HogQLDropdown/HogQLDropdown'
 import { taxonomicFilterLogic } from '../TaxonomicFilter/taxonomicFilterLogic'
 import { TZLabel } from '../TZLabel'
 
@@ -57,7 +59,7 @@ export function VerifiedDefinitionCheckbox({
                         Mark as verified {isProperty ? 'property' : 'event'}
                         {compact && (
                             <Tooltip title={copy}>
-                                <IconInfo className="ml-2 text-muted text-xl shrink-0" />
+                                <IconInfo className="ml-2 text-secondary text-xl shrink-0" />
                             </Tooltip>
                         )}
                     </>
@@ -83,7 +85,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
     } = useValues(definitionPopoverLogic)
 
     const { setLocalDefinition } = useActions(definitionPopoverLogic)
-    const { selectedItemMeta } = useValues(taxonomicFilterLogic)
+    const { selectedItemMeta, dataWarehousePopoverFields } = useValues(taxonomicFilterLogic)
     const { selectItem } = useActions(taxonomicFilterLogic)
 
     // Use effect here to make definition view stateful. TaxonomicFilterLogic won't mount within definitionPopoverLogic
@@ -291,42 +293,49 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
             label: column.name + ' (' + column.type + ')',
             value: column.name,
         }))
+        const hogqlOption = { label: 'SQL Expression', value: '' }
         const itemValue = localDefinition ? group?.getValue?.(localDefinition) : null
+
+        const isUsingHogQLExpression = (value: string | undefined): boolean => {
+            if (value === undefined) {
+                return false
+            }
+            const column = Object.values(_definition.fields ?? {}).find((n) => n.name == value)
+            return !column
+        }
 
         return (
             <form className="definition-popover-data-warehouse-schema-form">
                 <div className="flex flex-col justify-between gap-4">
                     <DefinitionPopover.Section>
-                        <label className="definition-popover-edit-form-label" htmlFor="ID Field">
-                            <span className="label-text">ID field</span>
-                        </label>
-                        <LemonSelect
-                            value={'id_field' in localDefinition ? localDefinition.id_field : undefined}
-                            options={columnOptions}
-                            onChange={(value) => setLocalDefinition({ id_field: value })}
-                        />
+                        {dataWarehousePopoverFields.map(
+                            ({ key, label, allowHogQL, hogQLOnly, tableName }: DataWarehousePopoverField) => {
+                                const fieldValue = key in localDefinition ? localDefinition[key] : undefined
+                                const isHogQL = isUsingHogQLExpression(fieldValue)
 
-                        <label className="definition-popover-edit-form-label" htmlFor="Distinct Id Field">
-                            <span className="label-text">Distinct ID field</span>
-                        </label>
-                        <LemonSelect
-                            value={
-                                'distinct_id_field' in localDefinition ? localDefinition.distinct_id_field : undefined
+                                return (
+                                    <Fragment key={key}>
+                                        <label className="definition-popover-edit-form-label" htmlFor={key}>
+                                            <span className="label-text">{label}</span>
+                                        </label>
+                                        {!hogQLOnly && (
+                                            <LemonSelect
+                                                value={isHogQL ? '' : fieldValue}
+                                                options={allowHogQL ? [...columnOptions, hogqlOption] : columnOptions}
+                                                onChange={(value) => setLocalDefinition({ [key]: value })}
+                                            />
+                                        )}
+                                        {((allowHogQL && isHogQL) || hogQLOnly) && (
+                                            <HogQLDropdown
+                                                hogQLValue={fieldValue || ''}
+                                                tableName={tableName || _definition.name}
+                                                onHogQLValueChange={(value) => setLocalDefinition({ [key]: value })}
+                                            />
+                                        )}
+                                    </Fragment>
+                                )
                             }
-                            options={columnOptions}
-                            onChange={(value) => setLocalDefinition({ distinct_id_field: value })}
-                        />
-
-                        <label className="definition-popover-edit-form-label" htmlFor="Timestamp Field">
-                            <span className="label-text">Timestamp field</span>
-                        </label>
-                        <LemonSelect
-                            value={
-                                ('timestamp_field' in localDefinition && localDefinition.timestamp_field) || undefined
-                            }
-                            options={columnOptions}
-                            onChange={(value) => setLocalDefinition({ timestamp_field: value })}
-                        />
+                        )}
                     </DefinitionPopover.Section>
                     <div className="flex justify-end">
                         <LemonButton
@@ -334,12 +343,10 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                                 selectItem(group, itemValue ?? null, localDefinition)
                             }}
                             disabledReason={
-                                'id_field' in localDefinition &&
-                                localDefinition.id_field &&
-                                'timestamp_field' in localDefinition &&
-                                localDefinition.timestamp_field &&
-                                'distinct_id_field' in localDefinition &&
-                                localDefinition.distinct_id_field
+                                dataWarehousePopoverFields.every(
+                                    ({ key }: DataWarehousePopoverField) =>
+                                        key in localDefinition && localDefinition[key]
+                                )
                                     ? null
                                     : 'Field mappings must be specified'
                             }
@@ -383,7 +390,7 @@ function DefinitionEdit(): JSX.Element {
                     <>
                         <label className="definition-popover-edit-form-label" htmlFor="description">
                             <span className="label-text">Description</span>
-                            <span className="text-muted-alt">(optional)</span>
+                            <span className="text-secondary">(optional)</span>
                         </label>
                         <LemonTextArea
                             id="description"
@@ -402,7 +409,7 @@ function DefinitionEdit(): JSX.Element {
                     <>
                         <label className="definition-popover-edit-form-label" htmlFor="description">
                             <span className="label-text">Tags</span>
-                            <span className="text-muted-alt">(optional)</span>
+                            <span className="text-secondary">(optional)</span>
                         </label>
                         <div className="definition-popover-tags">
                             <ObjectTags

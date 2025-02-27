@@ -82,6 +82,12 @@ export function TeamDangerZone(): JSX.Element {
         return <ProjectDangerZone />
     }
 
+    // We don't yet allow deleting individual environments, as we still use `team` fields with `on_delete=CASCADE`
+    // on many models that conceptually are project-level (such as insights or feature flags). That `on_delete=CASCADE`
+    // means currently deleting an environment would also delete resources a user wouldn't expect to disappear.
+    // TODO: Remove once point 15 ("Denormalize models") of https://github.com/PostHog/posthog/issues/13418#issuecomment-2180883524 is resolved
+    return <i>Deletion of individual environments is coming soon.</i>
+
     return (
         <>
             <div className="text-danger">

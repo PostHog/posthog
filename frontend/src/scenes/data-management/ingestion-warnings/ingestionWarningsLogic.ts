@@ -1,8 +1,9 @@
-import { afterMount, connect, kea, path, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { dayjs, dayjsUtcToTimezone } from 'lib/dayjs'
 import { range } from 'lib/utils'
+import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -31,7 +32,20 @@ export const ingestionWarningsLogic = kea<ingestionWarningsLogicType>([
     path(['scenes', 'data-management', 'ingestion-warnings', 'ingestionWarningsLogic']),
 
     connect({
-        values: [teamLogic, ['currentTeamId', 'timezone']],
+        values: [teamLogic, ['timezone'], projectLogic, ['currentProjectId']],
+    }),
+
+    actions({
+        setSearchQuery: (search: string) => ({ search }),
+    }),
+
+    reducers({
+        searchQuery: [
+            '',
+            {
+                setSearchQuery: (_, { search }) => search,
+            },
+        ],
     }),
 
     loaders(({ values }) => ({
@@ -39,7 +53,8 @@ export const ingestionWarningsLogic = kea<ingestionWarningsLogicType>([
             [] as IngestionWarningSummary[],
             {
                 loadData: async () => {
-                    const { results } = await api.get(`api/projects/${values.currentTeamId}/ingestion_warnings`)
+                    const q = values.searchQuery ? `?q=${values.searchQuery}` : ''
+                    const { results } = await api.get(`api/projects/${values.currentProjectId}/ingestion_warnings${q}`)
                     return results
                 },
             },
@@ -88,7 +103,20 @@ export const ingestionWarningsLogic = kea<ingestionWarningsLogicType>([
                 return summaryDatasets
             },
         ],
+        showProductIntro: [
+            (s) => [s.data, s.dataLoading, s.searchQuery],
+            (data: IngestionWarningSummary[], dataLoading: boolean, searchQuery) =>
+                data.length === 0 && !dataLoading && !searchQuery.trim().length,
+        ],
     }),
+
+    listeners(({ actions }) => ({
+        setSearchQuery: async (_, breakpoint) => {
+            await breakpoint(100)
+            actions.loadData()
+        },
+    })),
+
     afterMount(({ actions }) => {
         actions.loadData()
     }),

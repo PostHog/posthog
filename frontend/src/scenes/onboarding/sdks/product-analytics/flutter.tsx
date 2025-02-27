@@ -1,6 +1,10 @@
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 
+import { SDKKey } from '~/types'
+
 import { SDKInstallFlutterInstructions } from '../sdk-install-instructions'
+import { AdvertiseMobileReplay } from '../session-replay/SessionReplaySDKInstructions'
+import { PersonModeEventPropertyInstructions } from '../shared-snippets'
 
 function FlutterCaptureSnippet(): JSX.Element {
     return (
@@ -18,6 +22,8 @@ export function ProductAnalyticsFlutterInstructions(): JSX.Element {
             <SDKInstallFlutterInstructions />
             <h3>Send an Event</h3>
             <FlutterCaptureSnippet />
+            <PersonModeEventPropertyInstructions />
+            <AdvertiseMobileReplay context="product-analytics-onboarding" sdkKey={SDKKey.FLUTTER} />
         </>
     )
 }

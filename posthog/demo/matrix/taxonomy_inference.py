@@ -31,11 +31,13 @@ def infer_taxonomy_for_team(team_id: int) -> tuple[int, int, int]:
         [
             PropertyDefinition(
                 team_id=team_id,
-                name=property_key,
+                name=name,
                 property_type=property_type,
                 is_numerical=property_type == PropertyType.Numeric,
+                type=type,
+                group_type_index=group_type_index,
             )
-            for property_key, property_type in property_types.items()
+            for (type, name, group_type_index), property_type in property_types.items()
         ],
         batch_size=1000,
         ignore_conflicts=True,
@@ -61,23 +63,35 @@ def _get_events_last_seen_at(team_id: int) -> dict[str, timezone.datetime]:
     return dict(sync_execute(_GET_EVENTS_LAST_SEEN_AT, {"team_id": team_id}))
 
 
-def _get_property_types(team_id: int) -> dict[str, Optional[PropertyType]]:
+InferredPropertyKey = tuple[PropertyDefinition.Type, str, Optional[int]]
+InferredProperties = dict[InferredPropertyKey, Optional[PropertyType]]
+
+
+def _get_property_types(team_id: int) -> InferredProperties:
     """Determine property types based on ClickHouse data."""
     from posthog.client import sync_execute
 
-    property_types = {
-        property_key: _infer_property_type(sample_json_value)
+    property_types: InferredProperties = {
+        (PropertyDefinition.Type.EVENT, property_key, None): _infer_property_type(sample_json_value)
         for property_key, sample_json_value in sync_execute(
             _GET_EVENT_PROPERTY_SAMPLE_JSON_VALUES, {"team_id": team_id}
         )
     }
 
-    for property_key, sample_json_value in sync_execute(_GET_PERSON_PROPERTY_SAMPLE_JSON_VALUES, {"team_id": team_id}):
+    for property_key, sample_json_value, _ in sync_execute(
+        _GET_PERSON_PROPERTY_SAMPLE_JSON_VALUES, {"team_id": team_id}
+    ):
         if property_key not in property_types:
-            property_types[property_key] = _infer_property_type(sample_json_value)
-    for property_key, sample_json_value in sync_execute(_GET_GROUP_PROPERTY_SAMPLE_JSON_VALUES, {"team_id": team_id}):
+            property_types[(PropertyDefinition.Type.PERSON, property_key, None)] = _infer_property_type(
+                sample_json_value
+            )
+    for property_key, sample_json_value, group_type_index in sync_execute(
+        _GET_GROUP_PROPERTY_SAMPLE_JSON_VALUES, {"team_id": team_id}
+    ):
         if property_key not in property_types:
-            property_types[property_key] = _infer_property_type(sample_json_value)
+            property_types[(PropertyDefinition.Type.GROUP, property_key, group_type_index)] = _infer_property_type(
+                sample_json_value
+            )
 
     return property_types
 
@@ -118,20 +132,21 @@ SELECT property_tuple.1 AS property_key, property_tuple.2 AS sample_json_value F
 """
 _GET_ACTOR_PROPERTY_SAMPLE_JSON_VALUES = """
 WITH property_tuples AS (
-    SELECT arrayJoin(JSONExtractKeysAndValuesRaw({properties_column})) AS property_key_value_pair FROM {table_name}
+    SELECT arrayJoin(JSONExtractKeysAndValuesRaw({properties_column})) AS property_key_value_pair, {group_type_index_column} as index FROM {table_name}
     WHERE team_id = %(team_id)s
 )
 SELECT
     property_key_value_pair.1 AS property_key,
-    anyLast(property_key_value_pair.2) AS sample_json_value
+    anyLast(property_key_value_pair.2) AS sample_json_value,
+    index AS group_type_index
 FROM property_tuples
-GROUP BY property_key
+GROUP BY property_key, group_type_index
 """
 _GET_PERSON_PROPERTY_SAMPLE_JSON_VALUES = _GET_ACTOR_PROPERTY_SAMPLE_JSON_VALUES.format(
-    table_name=PERSONS_TABLE, properties_column="properties"
+    table_name=PERSONS_TABLE, properties_column="properties", group_type_index_column="null"
 )
 _GET_GROUP_PROPERTY_SAMPLE_JSON_VALUES = _GET_ACTOR_PROPERTY_SAMPLE_JSON_VALUES.format(
-    table_name=GROUPS_TABLE, properties_column="group_properties"
+    table_name=GROUPS_TABLE, properties_column="group_properties", group_type_index_column="group_type_index"
 )
 
 _GET_EVENT_PROPERTIES = """

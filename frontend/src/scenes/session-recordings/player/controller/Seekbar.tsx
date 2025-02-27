@@ -3,6 +3,7 @@ import './Seekbar.scss'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
+import React from 'react'
 
 import { RecordingSegment } from '~/types'
 
@@ -13,6 +14,45 @@ import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { PlayerSeekbarPreview } from './PlayerSeekbarPreview'
 import { PlayerSeekbarTicks } from './PlayerSeekbarTicks'
 import { seekbarLogic } from './seekbarLogic'
+
+// the seekbar and its children can be accidentally re-rendered as the player ticks
+const SeekbarSegment = React.memo(function SeekbarSegmentRaw({
+    segment,
+    durationMs,
+}: {
+    segment: RecordingSegment
+    durationMs: number
+}): JSX.Element {
+    return (
+        <div
+            className={clsx(
+                'PlayerSeekbar__segments__item',
+                segment.isActive && 'PlayerSeekbar__segments__item--active'
+            )}
+            title={!segment.isActive ? 'Inactive period' : 'Active period'}
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{
+                width: `${(100 * segment.durationMs) / durationMs}%`,
+            }}
+        />
+    )
+})
+
+function SeekbarSegments(): JSX.Element {
+    const { logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { segments, durationMs } = useValues(sessionRecordingDataLogic(logicProps))
+    return (
+        <div className="PlayerSeekbar__segments">
+            {segments?.map((segment: RecordingSegment) => (
+                <SeekbarSegment
+                    segment={segment}
+                    durationMs={durationMs}
+                    key={`${segment.startTimestamp}-${segment.endTimestamp}-${segment.windowId}-${segment.kind}`}
+                />
+            ))}
+        </div>
+    )
+}
 
 export function Seekbar(): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
@@ -48,22 +88,7 @@ export function Seekbar(): JSX.Element {
                     onMouseDown={handleDown}
                     onTouchStart={handleDown}
                 >
-                    <div className="PlayerSeekbar__segments">
-                        {sessionPlayerData.segments?.map((segment: RecordingSegment) => (
-                            <div
-                                key={`${segment.startTimestamp}-${segment.endTimestamp}`}
-                                className={clsx(
-                                    'PlayerSeekbar__segments__item',
-                                    segment.isActive && 'PlayerSeekbar__segments__item--active'
-                                )}
-                                title={!segment.isActive ? 'Inactive period' : 'Active period'}
-                                // eslint-disable-next-line react/forbid-dom-props
-                                style={{
-                                    width: `${(100 * segment.durationMs) / sessionPlayerData.durationMs}%`,
-                                }}
-                            />
-                        ))}
-                    </div>
+                    <SeekbarSegments />
 
                     <div
                         className="PlayerSeekbar__currentbar"

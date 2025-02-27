@@ -1,4 +1,4 @@
-export const letterToRegionalIndicator = {
+const letterToRegionalIndicator: Record<string, string> = {
     A: '🇦',
     B: '🇧',
     C: '🇨',
@@ -34,10 +34,35 @@ export const letterToRegionalIndicator = {
  * See: https://en.wikipedia.org/wiki/Regional_indicator_symbol
  */
 export function countryCodeToFlag(countryCode: string): string {
+    if (!countryCode) {
+        return ''
+    }
+
+    if (!countryCode.length) {
+        return ''
+    }
+
+    if (countryCode.length !== 2) {
+        return ''
+    }
+
     return `${letterToRegionalIndicator[countryCode[0]]}${letterToRegionalIndicator[countryCode[1]]}`
 }
 
-export const countryCodeToName = {
+/**
+ * Returns country flag emoji for a given ISO 639 language code.
+ * This isn't needed often because the locales usually come in the nl-NL format (for dutch, for example)
+ * but there are cases where we only see the first part in case the language isn't shared by more than
+ * one country - such as the Netherlands.
+ *
+ * For most cases we can simply uppercase the language and that's the country code,
+ * but there are some exceptions listed inside `languageCodeToEmojiFlag`
+ */
+export function languageCodeToFlag(languageCode: string): string {
+    return languageCodeToEmojiFlag[languageCode] ?? countryCodeToFlag(languageCode.toLocaleUpperCase())
+}
+
+export const countryCodeToName: Record<string, string> = {
     AE: 'United Arab Emirates',
     AF: 'Afghanistan',
     AG: 'Antigua and Barbuda',
@@ -288,4 +313,216 @@ export const countryCodeToName = {
     SJ: 'Svalbard and Jan Mayen',
     UM: 'United States Minor Outlying Islands',
     YT: 'Mayotte',
+}
+
+export const languageCodeToName: Record<string, string> = {
+    // Base ones came from https://en.wikipedia.org/wiki/List_of_ISO_639_language_codes
+    // Code used to generate the list: Object.fromEntries([...window.Table[1].children[1].children].map(row => [row.children[1].textContent, row.children[0].textContent]))
+    ab: 'Abkhazian',
+    aa: 'Afar',
+    af: 'Afrikaans',
+    ak: 'Akan',
+    sq: 'Albanian',
+    am: 'Amharic',
+    ar: 'Arabic',
+    an: 'Aragonese',
+    hy: 'Armenian',
+    as: 'Assamese',
+    av: 'Avaric',
+    ae: 'Avestan',
+    ay: 'Aymara',
+    az: 'Azerbaijani',
+    bm: 'Bambara',
+    ba: 'Bashkir',
+    eu: 'Basque',
+    be: 'Belarusian',
+    bn: 'Bengali',
+    bi: 'Bislama',
+    bs: 'Bosnian',
+    br: 'Breton',
+    bg: 'Bulgarian',
+    my: 'Burmese',
+    ca: 'Catalan',
+    ch: 'Chamorro',
+    ce: 'Chechen',
+    ny: 'Chichewa',
+    zh: 'Chinese',
+    cu: 'Church Slavonic',
+    cv: 'Chuvash',
+    kw: 'Cornish',
+    co: 'Corsican',
+    cr: 'Cree',
+    hr: 'Croatian',
+    cs: 'Czech',
+    da: 'Danish',
+    dv: 'Divehi',
+    nl: 'Dutch',
+    dz: 'Dzongkha',
+    en: 'English',
+    eo: 'Esperanto',
+    et: 'Estonian',
+    ee: 'Ewe',
+    fo: 'Faroese',
+    fj: 'Fijian',
+    fi: 'Finnish',
+    fr: 'French',
+    fy: 'Western Frisian',
+    ff: 'Fulah',
+    gd: 'Gaelic',
+    gl: 'Galician',
+    lg: 'Ganda',
+    ka: 'Georgian',
+    de: 'German',
+    el: 'Greek',
+    kl: 'Kalaallisut',
+    gn: 'Guarani',
+    gu: 'Gujarati',
+    ht: 'Haitian',
+    ha: 'Hausa',
+    he: 'Hebrew',
+    hz: 'Herero',
+    hi: 'Hindi',
+    ho: 'Hiri Motu',
+    hu: 'Hungarian',
+    is: 'Icelandic',
+    io: 'Ido',
+    ig: 'Igbo',
+    id: 'Indonesian',
+    ia: 'Interlingua',
+    ie: 'Interlingue',
+    iu: 'Inuktitut',
+    ik: 'Inupiaq',
+    ga: 'Irish',
+    it: 'Italian',
+    ja: 'Japanese',
+    jv: 'Javanese',
+    kn: 'Kannada',
+    kr: 'Kanuri',
+    ks: 'Kashmiri',
+    kk: 'Kazakh',
+    km: 'Central Khmer',
+    ki: 'Kikuyu',
+    rw: 'Kinyarwanda',
+    ky: 'Kirghiz',
+    kv: 'Komi',
+    kg: 'Kongo',
+    ko: 'Korean',
+    kj: 'Kuanyama',
+    ku: 'Kurdish',
+    lo: 'Lao',
+    la: 'Latin',
+    lv: 'Latvian',
+    li: 'Limburgan',
+    ln: 'Lingala',
+    lt: 'Lithuanian',
+    lu: 'Luba-Katanga',
+    lb: 'Luxembourgish',
+    mk: 'Macedonian',
+    mg: 'Malagasy',
+    ms: 'Malay',
+    ml: 'Malayalam',
+    mt: 'Maltese',
+    gv: 'Manx',
+    mi: 'Maori',
+    mr: 'Marathi',
+    mh: 'Marshallese',
+    mn: 'Mongolian',
+    na: 'Nauru',
+    nv: 'Navajo',
+    nd: 'North Ndebele',
+    nr: 'South Ndebele',
+    ng: 'Ndonga',
+    ne: 'Nepali',
+    no: 'Norwegian',
+    nb: 'Norwegian Bokmål',
+    nn: 'Norwegian Nynorsk',
+    oc: 'Occitan',
+    oj: 'Ojibwa',
+    or: 'Oriya',
+    om: 'Oromo',
+    os: 'Ossetian',
+    pi: 'Pali',
+    ps: 'Pashto',
+    fa: 'Persian',
+    pl: 'Polish',
+    pt: 'Portuguese',
+    pa: 'Punjabi',
+    qu: 'Quechua',
+    ro: 'Romanian',
+    rm: 'Romansh',
+    rn: 'Rundi',
+    ru: 'Russian',
+    se: 'Northern Sami',
+    sm: 'Samoan',
+    sg: 'Sango',
+    sa: 'Sanskrit',
+    sc: 'Sardinian',
+    sr: 'Serbian',
+    sn: 'Shona',
+    sd: 'Sindhi',
+    si: 'Sinhala',
+    sk: 'Slovak',
+    sl: 'Slovenian',
+    so: 'Somali',
+    st: 'Southern Sotho',
+    es: 'Spanish',
+    su: 'Sundanese',
+    sw: 'Swahili',
+    ss: 'Swati',
+    sv: 'Swedish',
+    tl: 'Tagalog',
+    ty: 'Tahitian',
+    tg: 'Tajik',
+    ta: 'Tamil',
+    tt: 'Tatar',
+    te: 'Telugu',
+    th: 'Thai',
+    bo: 'Tibetan',
+    ti: 'Tigrinya',
+    to: 'Tonga',
+    ts: 'Tsonga',
+    tn: 'Tswana',
+    tr: 'Turkish',
+    tk: 'Turkmen',
+    tw: 'Twi',
+    ug: 'Uighur',
+    uk: 'Ukrainian',
+    ur: 'Urdu',
+    uz: 'Uzbek',
+    ve: 'Venda',
+    vi: 'Vietnamese',
+    vo: 'Volapük',
+    wa: 'Walloon',
+    cy: 'Welsh',
+    wo: 'Wolof',
+    xh: 'Xhosa',
+    ii: 'Sichuan Yi',
+    yi: 'Yiddish',
+    yo: 'Yoruba',
+    za: 'Zhuang',
+    zu: 'Zulu',
+
+    // Some browsers might use `zz` to imply an unknown locale
+    zz: 'Unknown',
+
+    // Some browsers use one-long or three-long codes so we're adding here as fallback
+    h: 'Croatian',
+    chr: 'Cherokee',
+    cmn: 'Chinese Mandarin',
+    fil: 'Filipino',
+    não: 'Norwegian',
+    yue: 'Chinese Cantonese',
+}
+
+// This is only used as a fallback for some languages that don't usually
+// come in the locale-country format (such as nl-NL usually being presented simply as nl)
+// but that can't simply be translated to a flag by capitalizing the locale
+const languageCodeToEmojiFlag: Record<string, string> = {
+    ar: '🇪🇬', // Arabic -> Egypt, tricky, there's no good representation for the "default Arab country", the Egyptian variant is the most commonly understood
+    af: '🇿🇦', // Afrikaans -> South Africa
+    ta: '🇮🇳', // Tamil -> India
+    eu: '🇪🇸', // Basque -> Spain, tricky, but there's no better flag than the Spanish one, we could move to custom SVGs if we wanted to solve this
+    cy: '🏴󠁧󠁢󠁷󠁬󠁳󠁿', // Welsh -> Wales
+    ne: '🇳🇵', // Nepali -> Nepal
+    zz: '🇺🇳', // Unknown Language -> UN flag?
 }

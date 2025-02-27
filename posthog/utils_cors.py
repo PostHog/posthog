@@ -11,6 +11,11 @@ CORS_ALLOWED_TRACING_HEADERS = (
     "x-highlight-request",
     "x-datadome-clientid",
     "x-posthog-token",
+    "x-b3-sampled",
+    "x-b3-spanid",
+    "x-b3-traceid",
+    "x-b3-parentspanid",
+    "b3",
 )
 
 
@@ -34,4 +39,5 @@ def cors_response(request, response):
     response["Access-Control-Allow-Headers"] = "X-Requested-With,Content-Type" + (
         "," + ",".join(allow_headers) if len(allow_headers) > 0 else ""
     )
+    response["Vary"] = "Origin"
     return response

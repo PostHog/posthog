@@ -1,15 +1,13 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::io::prelude::*;
 
 use bytes::{Buf, Bytes};
-use common_types::CapturedEvent;
+use common_types::{CapturedEvent, RawEvent};
 use flate2::read::GzDecoder;
-use serde::{Deserialize, Deserializer, Serialize};
-use serde_json::Value;
+use serde::Deserialize;
 use time::format_description::well_known::Iso8601;
 use time::OffsetDateTime;
 use tracing::instrument;
-use uuid::Uuid;
 
 use crate::api::CaptureError;
 use crate::prometheus::report_dropped_events;
@@ -56,45 +54,6 @@ impl EventQuery {
 #[derive(Debug, Deserialize)]
 pub struct EventFormData {
     pub data: String,
-}
-
-pub fn empty_string_is_none<'de, D>(deserializer: D) -> Result<Option<Uuid>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let opt = Option::<String>::deserialize(deserializer)?;
-    match opt {
-        None => Ok(None),
-        Some(s) if s.is_empty() => Ok(None),
-        Some(s) => Uuid::parse_str(&s)
-            .map(Some)
-            .map_err(serde::de::Error::custom),
-    }
-}
-
-#[derive(Default, Debug, Deserialize, Serialize)]
-pub struct RawEvent {
-    #[serde(
-        alias = "$token",
-        alias = "api_key",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub token: Option<String>,
-    #[serde(alias = "$distinct_id", skip_serializing_if = "Option::is_none")]
-    pub distinct_id: Option<Value>, // posthog-js accepts arbitrary values as distinct_id
-    #[serde(default, deserialize_with = "empty_string_is_none")]
-    pub uuid: Option<Uuid>,
-    pub event: String,
-    #[serde(default)]
-    pub properties: HashMap<String, Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub timestamp: Option<String>, // Passed through if provided, parsed by ingestion
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub offset: Option<i64>, // Passed through if provided, parsed by ingestion
-    #[serde(rename = "$set", skip_serializing_if = "Option::is_none")]
-    pub set: Option<HashMap<String, Value>>,
-    #[serde(rename = "$set_once", skip_serializing_if = "Option::is_none")]
-    pub set_once: Option<HashMap<String, Value>>,
 }
 
 pub static GZIP_MAGIC_NUMBERS: [u8; 3] = [0x1f, 0x8b, 8];
@@ -236,47 +195,10 @@ pub fn extract_token(events: &[RawEvent]) -> Result<String, CaptureError> {
     };
 }
 
-impl RawEvent {
-    pub fn extract_token(&self) -> Option<String> {
-        match &self.token {
-            Some(value) => Some(value.clone()),
-            None => self
-                .properties
-                .get("token")
-                .and_then(Value::as_str)
-                .map(String::from),
-        }
-    }
-
-    /// Extracts, stringifies and trims the distinct_id to a 200 chars String.
-    /// SDKs send the distinct_id either in the root field or as a property,
-    /// and can send string, number, array, or map values. We try to best-effort
-    /// stringify complex values, and make sure it's not longer than 200 chars.
-    pub fn extract_distinct_id(&self) -> Result<String, CaptureError> {
-        // Breaking change compared to capture-py: None / Null is not allowed.
-        let value = match &self.distinct_id {
-            None | Some(Value::Null) => match self.properties.get("distinct_id") {
-                None | Some(Value::Null) => return Err(CaptureError::MissingDistinctId),
-                Some(id) => id,
-            },
-            Some(id) => id,
-        };
-
-        let distinct_id = value
-            .as_str()
-            .map(|s| s.to_owned())
-            .unwrap_or_else(|| value.to_string());
-        match distinct_id.len() {
-            0 => Err(CaptureError::EmptyDistinctId),
-            1..=200 => Ok(distinct_id),
-            _ => Ok(distinct_id.chars().take(200).collect()),
-        }
-    }
-}
-
 #[derive(Debug)]
 pub struct ProcessingContext {
     pub lib_version: Option<String>,
+    pub user_agent: Option<String>,
     pub sent_at: Option<OffsetDateTime>,
     pub token: String,
     pub now: String,
@@ -309,9 +231,9 @@ pub struct ProcessedEventMetadata {
 #[cfg(test)]
 mod tests {
     use crate::token::InvalidTokenReason;
-    use crate::v0_request::empty_string_is_none;
     use base64::Engine as _;
     use bytes::Bytes;
+    use common_types::util::empty_string_is_none;
     use rand::distributions::Alphanumeric;
     use rand::Rng;
     use serde::Deserialize;
@@ -384,7 +306,9 @@ mod tests {
             let parsed = RawRequest::from_bytes(input.into(), 2048)
                 .expect("failed to parse")
                 .events();
-            parsed[0].extract_distinct_id()
+            parsed[0]
+                .extract_distinct_id()
+                .ok_or(CaptureError::MissingDistinctId)
         };
         // Return MissingDistinctId if not found
         assert!(matches!(
@@ -399,7 +323,7 @@ mod tests {
         // Return EmptyDistinctId if empty string
         assert!(matches!(
             parse_and_extract(r#"{"event": "e", "distinct_id": ""}"#),
-            Err(CaptureError::EmptyDistinctId)
+            Err(CaptureError::MissingDistinctId)
         ));
 
         let assert_extracted_id = |input: &'static str, expected: &str| {

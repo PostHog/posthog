@@ -150,9 +150,9 @@ export function PerformanceDuration({
     ) : (
         <span
             className={clsx({
-                'text-danger-dark': !loading && value >= benchmarks[1],
-                'text-warning-dark': !loading && value >= benchmarks[0] && value < benchmarks[1],
-                'text-success-dark': !loading && value < benchmarks[0],
+                'text-error': !loading && value >= benchmarks[1],
+                'text-warning': !loading && value >= benchmarks[0] && value < benchmarks[1],
+                'text-success': !loading && value < benchmarks[0],
             })}
         >
             {loading ? <Spinner textColored={true} /> : humanFriendlyMilliseconds(value)}
@@ -193,18 +193,21 @@ function itemToPerformanceValues(item: PerformanceEvent): {
 
 export function PerformanceCardRow({ item }: { item: PerformanceEvent }): JSX.Element {
     const performanceValues = itemToPerformanceValues(item)
-
     return (
         <OverviewGrid>
-            {Object.entries(summaryMapping).map(([key, summary]) => (
-                <OverviewGridItem key={key} description={summary.description} label={summary.label}>
-                    <PerformanceDuration
-                        benchmarks={summary.scoreBenchmarks}
-                        value={performanceValues[key]}
-                        loading={summary.allowLoadingIndicator && !performanceValues.loaded}
-                    />
-                </OverviewGridItem>
-            ))}
+            {Object.entries(summaryMapping)
+                .filter(([key]) => performanceValues[key] !== undefined)
+                .map(([key, summary]) => {
+                    return (
+                        <OverviewGridItem key={key} description={summary.description} label={summary.label}>
+                            <PerformanceDuration
+                                benchmarks={summary.scoreBenchmarks}
+                                value={performanceValues[key]}
+                                loading={summary.allowLoadingIndicator && !performanceValues.loaded}
+                            />
+                        </OverviewGridItem>
+                    )
+                })}
         </OverviewGrid>
     )
 }
@@ -219,15 +222,17 @@ export function PerformanceCardDescriptions({
     const performanceValues = itemToPerformanceValues(item)
     return (
         <div className={clsx('p-2 text-xs border-t', !expanded && 'hidden')}>
-            {Object.entries(summaryMapping).map(([key, summary]) => (
-                <PerformanceCardDescription
-                    key={key}
-                    benchmarks={summary.scoreBenchmarks}
-                    description={summary.description}
-                    label={summary.label}
-                    value={performanceValues[key]}
-                />
-            ))}
+            {Object.entries(summaryMapping)
+                .filter(([key]) => performanceValues[key] !== undefined)
+                .map(([key, summary]) => (
+                    <PerformanceCardDescription
+                        key={key}
+                        benchmarks={summary.scoreBenchmarks}
+                        description={summary.description}
+                        label={summary.label}
+                        value={performanceValues[key]}
+                    />
+                ))}
         </div>
     )
 }

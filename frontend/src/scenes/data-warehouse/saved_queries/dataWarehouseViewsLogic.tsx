@@ -1,13 +1,12 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { actions, connect, events, kea, listeners, path, selectors } from 'kea'
+import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
 import api from 'lib/api'
+import posthog from 'posthog-js'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
-import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { DatabaseSchemaViewTable } from '~/queries/schema'
+import { DatabaseSchemaViewTable } from '~/queries/schema/schema-general'
 import { DataWarehouseSavedQuery } from '~/types'
 
 import type { dataWarehouseViewsLogicType } from './dataWarehouseViewsLogicType'
@@ -18,24 +17,37 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
         values: [userLogic, ['user'], databaseTableListLogic, ['views', 'databaseLoading']],
         actions: [databaseTableListLogic, ['loadDatabase']],
     })),
+    reducers({
+        initialDataWarehouseSavedQueryLoading: [
+            true,
+            {
+                loadDataWarehouseSavedQueriesSuccess: () => false,
+                loadDataWarehouseSavedQueriesFailure: () => false,
+            },
+        ],
+        updatingDataWarehouseSavedQuery: [
+            false,
+            {
+                updateDataWarehouseSavedQuery: () => true,
+                updateDataWarehouseSavedQuerySuccess: () => false,
+                updateDataWarehouseSavedQueryFailure: () => false,
+            },
+        ],
+    }),
     actions({
         runDataWarehouseSavedQuery: (viewId: string) => ({ viewId }),
     }),
-    loaders(({ values, cache, actions }) => ({
+    loaders(({ values }) => ({
         dataWarehouseSavedQueries: [
             [] as DataWarehouseSavedQuery[],
             {
                 loadDataWarehouseSavedQueries: async () => {
                     const savedQueries = await api.dataWarehouseSavedQueries.list()
-
-                    if (router.values.location.pathname.includes(urls.dataModel()) && !cache.pollingInterval) {
-                        cache.pollingInterval = setInterval(actions.loadDataWarehouseSavedQueries, 5000)
-                    } else {
-                        clearInterval(cache.pollingInterval)
-                    }
                     return savedQueries.results
                 },
-                createDataWarehouseSavedQuery: async (view: Partial<DatabaseSchemaViewTable>) => {
+                createDataWarehouseSavedQuery: async (
+                    view: Partial<DatabaseSchemaViewTable> & { types: string[][] }
+                ) => {
                     const newView = await api.dataWarehouseSavedQueries.create(view)
 
                     lemonToast.success(`${newView.name ?? 'View'} successfully created`)
@@ -46,7 +58,14 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                     await api.dataWarehouseSavedQueries.delete(viewId)
                     return values.dataWarehouseSavedQueries.filter((view) => view.id !== viewId)
                 },
-                updateDataWarehouseSavedQuery: async (view: DatabaseSchemaViewTable) => {
+                updateDataWarehouseSavedQuery: async (
+                    view: Partial<DatabaseSchemaViewTable> & {
+                        id: string
+                        types: string[][]
+                        sync_frequency?: string
+                        lifecycle?: string
+                    }
+                ) => {
                     const newView = await api.dataWarehouseSavedQueries.update(view.id, view)
                     return values.dataWarehouseSavedQueries.map((savedQuery) => {
                         if (savedQuery.id === view.id) {
@@ -62,12 +81,28 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
         createDataWarehouseSavedQuerySuccess: () => {
             actions.loadDatabase()
         },
-        updateDataWarehouseSavedQuerySuccess: () => {
+        updateDataWarehouseSavedQuerySuccess: ({ payload }) => {
+            // in the case where we are scheduling a materialized view, send an event
+            if (payload && payload.lifecycle && payload.sync_frequency) {
+                // this function exists as an upsert, so we need to check if the view was created or updated
+                posthog.capture(`materialized view ${payload.lifecycle === 'update' ? 'updated' : 'created'}`, {
+                    sync_frequency: payload.sync_frequency,
+                })
+            }
             actions.loadDatabase()
+            lemonToast.success('View updated')
+        },
+        updateDataWarehouseSavedQueryError: () => {
+            lemonToast.error('Failed to update view')
         },
         runDataWarehouseSavedQuery: async ({ viewId }) => {
-            await api.dataWarehouseSavedQueries.run(viewId)
-            actions.loadDataWarehouseSavedQueries()
+            try {
+                await api.dataWarehouseSavedQueries.run(viewId)
+                lemonToast.success('Materialization started')
+                actions.loadDataWarehouseSavedQueries()
+            } catch (error) {
+                lemonToast.error(`Failed to run materialization`)
+            }
         },
     })),
     selectors({
@@ -88,13 +123,21 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 )
             },
         ],
+        dataWarehouseSavedQueryMap: [
+            (s) => [s.dataWarehouseSavedQueries],
+            (dataWarehouseSavedQueries) => {
+                return (
+                    dataWarehouseSavedQueries?.reduce((acc, cur) => {
+                        acc[cur.name] = cur
+                        return acc
+                    }, {} as Record<string, DataWarehouseSavedQuery>) ?? {}
+                )
+            },
+        ],
     }),
-    events(({ actions, cache }) => ({
+    events(({ actions }) => ({
         afterMount: () => {
             actions.loadDataWarehouseSavedQueries()
-        },
-        beforeUnmount: () => {
-            clearInterval(cache.pollingInterval)
         },
     })),
 ])

@@ -4,6 +4,7 @@ import './LineGraph.scss'
 import '../../../../../scenes/insights/InsightTooltip/InsightTooltip.scss'
 
 import { LemonTable } from '@posthog/lemon-ui'
+import { lemonToast } from '@posthog/lemon-ui'
 import {
     ChartData,
     ChartType,
@@ -27,19 +28,24 @@ import { hexToRGBA } from 'lib/utils'
 import { useEffect, useRef } from 'react'
 import { ensureTooltip } from 'scenes/insights/views/LineGraph/LineGraph'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { ChartSettings, YAxisSettings } from '~/queries/schema'
+import { ChartSettings, YAxisSettings } from '~/queries/schema/schema-general'
 import { ChartDisplayType, GraphType } from '~/types'
 
-import { AxisSeriesSettings, dataVisualizationLogic, formatDataWithSettings } from '../../dataVisualizationLogic'
+import {
+    AxisSeries,
+    AxisSeriesSettings,
+    dataVisualizationLogic,
+    formatDataWithSettings,
+} from '../../dataVisualizationLogic'
 import { displayLogic } from '../../displayLogic'
+import { AxisBreakdownSeries, seriesBreakdownLogic } from '../seriesBreakdownLogic'
 
 Chart.register(annotationPlugin)
 Chart.register(ChartjsPluginStacked100)
 Chart.register(chartTrendline)
 
 const getGraphType = (chartType: ChartDisplayType, settings: AxisSeriesSettings | undefined): GraphType => {
-    if (!settings || !settings.display || settings.display?.displayType === 'auto') {
+    if (!settings || !settings.display || !settings.display.displayType || settings.display?.displayType === 'auto') {
         return chartType === ChartDisplayType.ActionsBar || chartType === ChartDisplayType.ActionsStackedBar
             ? GraphType.Bar
             : GraphType.Line
@@ -87,40 +93,93 @@ const getYAxisSettings = (
     }
 }
 
+// LineGraph displays a graph using either x and y data or series breakdown data
 export const LineGraph = (): JSX.Element => {
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
-    const { isDarkModeOn } = useValues(themeLogic)
-    const colors = getGraphColors(isDarkModeOn)
+    const colors = getGraphColors()
 
     // TODO: Extract this logic out of this component and inject values in
     // via props. Make this a purely presentational component
-    const { xData, yData, presetChartHeight, visualizationType, showEditingUI, chartSettings } =
-        useValues(dataVisualizationLogic)
+    const {
+        xData,
+        yData,
+        presetChartHeight,
+        visualizationType,
+        showEditingUI,
+        chartSettings,
+        dataVisualizationProps,
+        dashboardId,
+    } = useValues(dataVisualizationLogic)
     const isBarChart =
         visualizationType === ChartDisplayType.ActionsBar || visualizationType === ChartDisplayType.ActionsStackedBar
     const isStackedBarChart = visualizationType === ChartDisplayType.ActionsStackedBar
     const isAreaChart = visualizationType === ChartDisplayType.ActionsAreaGraph
 
+    const { seriesBreakdownData } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
     const { goalLines } = useValues(displayLogic)
 
     useEffect(() => {
-        if (!xData || !yData) {
+        // we expect either x and y data or series breakdown data
+        let ySeriesData: AxisSeries<number>[] | AxisBreakdownSeries<number>[]
+        let xSeriesData: AxisSeries<string>
+        let hasRightYAxis = false
+        let hasLeftYAxis = false
+        if (seriesBreakdownData.xData.data.length && seriesBreakdownData.seriesData.length) {
+            ySeriesData = seriesBreakdownData.seriesData
+            xSeriesData = seriesBreakdownData.xData
+            hasRightYAxis = !!ySeriesData.find((n) => n.settings?.display?.yAxisPosition === 'right')
+            hasLeftYAxis =
+                !chartSettings.stackBars100 &&
+                (!hasRightYAxis || !!ySeriesData.find((n) => n.settings?.display?.yAxisPosition === 'left'))
+        } else if (xData && yData) {
+            ySeriesData = yData
+            xSeriesData = xData
+            hasRightYAxis = !!ySeriesData.find((n) => n.settings?.display?.yAxisPosition === 'right')
+            hasLeftYAxis =
+                !chartSettings.stackBars100 &&
+                (!hasRightYAxis || !!ySeriesData.find((n) => n.settings?.display?.yAxisPosition === 'left'))
+        } else {
             return
         }
 
-        const hasRightYAxis = !!yData.find((n) => n.settings?.display?.yAxisPosition === 'right')
-        const hasLeftYAxis = !hasRightYAxis || !!yData.find((n) => n.settings?.display?.yAxisPosition === 'left')
+        // Show warning and limit series if there are too many
+        const MAX_SERIES = 200
+        if (ySeriesData.length > MAX_SERIES) {
+            if (!dashboardId) {
+                lemonToast.warning(
+                    `This breakdown has too many series (${ySeriesData.length}). Only showing top ${MAX_SERIES} series in the chart. All series are still available in the table below.`
+                )
+            }
+            ySeriesData = ySeriesData.slice(0, MAX_SERIES)
+        }
 
         const data: ChartData = {
-            labels: xData.data,
-            datasets: yData.map(({ data, settings }, index) => {
-                const color = getSeriesColor(index)
+            labels: xSeriesData.data,
+            datasets: ySeriesData.map(({ data, settings, ...rest }, index) => {
+                const color = settings?.display?.color ?? getSeriesColor(index)
                 const backgroundColor = isAreaChart ? hexToRGBA(color, 0.5) : color
 
                 const graphType = getGraphType(visualizationType, settings)
 
+                let yAxisID = 'yLeft'
+                // use default that's set by stackBars100
+                if (chartSettings.stackBars100) {
+                    yAxisID = 'y'
+                } else if (settings?.display?.yAxisPosition === 'right') {
+                    yAxisID = 'yRight'
+                }
+
+                const getLabel = (): string => {
+                    if ('name' in rest) {
+                        return rest.name
+                    }
+
+                    return rest.column.name
+                }
+
                 return {
                     data,
+                    label: getLabel(),
                     borderColor: color,
                     backgroundColor: backgroundColor,
                     borderWidth: graphType === GraphType.Bar ? 0 : 2,
@@ -131,7 +190,7 @@ export const LineGraph = (): JSX.Element => {
                     hoverBorderRadius: graphType === GraphType.Bar ? 0 : 2,
                     type: graphType,
                     fill: isAreaChart ? 'origin' : false,
-                    yAxisID: settings?.display?.yAxisPosition === 'right' ? 'yRight' : 'yLeft',
+                    yAxisID,
                     ...(settings?.display?.trendLine
                         ? {
                               trendlineLinear: {
@@ -150,16 +209,50 @@ export const LineGraph = (): JSX.Element => {
             (acc, cur, curIndex) => {
                 const line: LineAnnotationOptions = {
                     label: {
-                        display: true,
+                        display: cur.displayLabel ?? true,
                         content: cur.label,
                         position: 'end',
                     },
                     scaleID: hasLeftYAxis ? 'yLeft' : 'yRight',
                     value: cur.value,
+                    enter: (ctx) => {
+                        if (ctx.chart.options.plugins?.annotation?.annotations) {
+                            const annotations = ctx.chart.options.plugins.annotation.annotations as Record<string, any>
+                            if (annotations[`line${curIndex}`]) {
+                                annotations[`line${curIndex}`].label.content = `${
+                                    cur.label
+                                }: ${cur.value.toLocaleString()}`
+                                // Hide the external tooltip element
+                                const tooltipEl = document.getElementById('InsightTooltipWrapper')
+
+                                if (tooltipEl) {
+                                    tooltipEl.style.display = 'none'
+                                }
+
+                                ctx.chart.update()
+                            }
+                        }
+                    },
+                    leave: (ctx) => {
+                        if (ctx.chart.options.plugins?.annotation?.annotations) {
+                            const annotations = ctx.chart.options.plugins.annotation.annotations as Record<string, any>
+                            if (annotations[`line${curIndex}`]) {
+                                annotations[`line${curIndex}`].label.content = cur.label
+
+                                // Show the external tooltip element
+                                const tooltipEl = document.getElementById('InsightTooltipWrapper')
+                                if (tooltipEl) {
+                                    tooltipEl.style.display = 'block'
+                                }
+
+                                ctx.chart.update()
+                            }
+                        }
+                    },
                 }
 
                 acc.annotations[`line${curIndex}`] = {
-                    type: 'line',
+                    type: 'line' as const,
                     ...line,
                 }
 
@@ -222,7 +315,7 @@ export const LineGraph = (): JSX.Element => {
                     borderColor: 'white',
                 },
                 legend: {
-                    display: false,
+                    display: chartSettings.showLegend ?? false,
                 },
                 annotation: annotations,
                 ...(isBarChart
@@ -271,15 +364,23 @@ export const LineGraph = (): JSX.Element => {
                             tooltipRoot.render(
                                 <div className="InsightTooltip">
                                     <LemonTable
-                                        dataSource={yData.map(({ data, column, settings }) => ({
-                                            series: settings?.display?.label || column.name,
-                                            data: formatDataWithSettings(data[referenceDataPoint.dataIndex], settings),
-                                            rawData: data[referenceDataPoint.dataIndex],
-                                            dataIndex: referenceDataPoint.dataIndex,
-                                        }))}
+                                        dataSource={ySeriesData.map((series) => {
+                                            const seriesName =
+                                                series?.settings?.display?.label ||
+                                                ('column' in series ? series.column.name : series.name)
+                                            return {
+                                                series: seriesName,
+                                                data: formatDataWithSettings(
+                                                    series.data[referenceDataPoint.dataIndex],
+                                                    series.settings
+                                                ),
+                                                rawData: series.data[referenceDataPoint.dataIndex],
+                                                dataIndex: referenceDataPoint.dataIndex,
+                                            }
+                                        })}
                                         columns={[
                                             {
-                                                title: xData.data[referenceDataPoint.dataIndex],
+                                                title: xSeriesData.data[referenceDataPoint.dataIndex],
                                                 dataIndex: 'series',
                                                 render: (value) => {
                                                     return (
@@ -301,7 +402,7 @@ export const LineGraph = (): JSX.Element => {
                                                 dataIndex: 'data',
                                                 render: (value, record) => {
                                                     if (isStackedBarChart && chartSettings.stackBars100) {
-                                                        const total = yData
+                                                        const total = ySeriesData
                                                             .map((n) => n.data[record.dataIndex])
                                                             .reduce((acc, cur) => acc + cur, 0)
                                                         const percentageLabel: number = parseFloat(
@@ -320,7 +421,9 @@ export const LineGraph = (): JSX.Element => {
                                             },
                                         ]}
                                         uppercaseHeader={false}
-                                        rowRibbonColor={(_datum, index) => getSeriesColor(index)}
+                                        rowRibbonColor={(_datum, index) =>
+                                            ySeriesData[index]?.settings?.display?.color ?? getSeriesColor(index)
+                                        }
                                         showHeader
                                     />
                                 </div>
@@ -395,11 +498,11 @@ export const LineGraph = (): JSX.Element => {
             plugins: [dataLabelsPlugin],
         })
         return () => newChart.destroy()
-    }, [xData, yData, visualizationType, goalLines, chartSettings])
+    }, [xData, yData, seriesBreakdownData, visualizationType, goalLines, chartSettings])
 
     return (
         <div
-            className={clsx('rounded bg-bg-light relative flex flex-1 flex-col p-2', {
+            className={clsx('rounded bg-surface-primary relative flex flex-1 flex-col p-2', {
                 DataVisualization__LineGraph: presetChartHeight,
                 'h-full': !presetChartHeight,
                 border: showEditingUI,

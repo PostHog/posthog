@@ -226,7 +226,13 @@ class LifecycleQueryRunner(QueryRunner):
 
     @cached_property
     def event_filter(self) -> ast.Expr:
-        event_filters: list[ast.Expr] = []
+        event_filters: list[ast.Expr] = [
+            ast.CompareOperation(
+                left=ast.Field(chain=["properties", "$process_person_profile"]),
+                right=ast.Constant(value="false"),
+                op=ast.CompareOperationOp.NotEq,
+            )
+        ]
         with self.timings.measure("date_range"):
             event_filters.append(
                 parse_expr(

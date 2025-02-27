@@ -73,7 +73,7 @@ function StepOrderInfo(): JSX.Element {
 
 type ExclusionStepsInfoProps = {
     aggregationTargetLabel: Noun
-    aggregation_group_type_index?: number
+    aggregation_group_type_index?: number | null
 }
 
 function ExclusionStepsInfo({

@@ -1,5 +1,5 @@
-import { TZLabel } from '@posthog/apps-common'
 import { IconLock } from '@posthog/icons'
+import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 
 import { InstanceSetting, SystemStatusRow } from '~/types'
@@ -21,7 +21,7 @@ export function RenderMetricValue(
     if (value && isSecret) {
         return (
             <LemonTag
-                className="uppercase text-muted bg-mark"
+                className="uppercase text-secondary bg-mark"
                 icon={isSecret ? <IconLock className="text-warning" /> : undefined}
             >
                 Secret
@@ -45,7 +45,7 @@ export function RenderMetricValue(
     }
 
     if (value === null || value === undefined || value === '') {
-        return <LemonTag className="uppercase text-muted">{emptyNullLabel ?? 'Unknown'}</LemonTag>
+        return <LemonTag className="uppercase text-secondary">{emptyNullLabel ?? 'Unknown'}</LemonTag>
     }
 
     if (value_type === 'int' || typeof value === 'number') {

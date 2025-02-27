@@ -129,7 +129,7 @@ class TestSchemaHelpers(TestCase):
 
     @parameterized.expand(
         [
-            ({}, {"date_from": "-7d", "explicitDate": False}, 0),
+            ({}, {"explicitDate": False}, 0),
             ({"date_to": "2024-02-02"}, {"date_to": "2024-02-02"}, 1),
         ]
     )

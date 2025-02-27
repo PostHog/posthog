@@ -18,29 +18,26 @@ import { MemberSelect } from 'lib/components/MemberSelect'
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import stringWithWBR from 'lib/utils/stringWithWBR'
-import { useState } from 'react'
 import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
 import { SceneExport } from 'scenes/sceneTypes'
-import { SurveyAppearancePreview } from 'scenes/surveys/SurveyAppearancePreview'
-import { Customization } from 'scenes/surveys/SurveyCustomization'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { ActivityScope, ProductKey, ProgressStatus, Survey } from '~/types'
 
-import { defaultSurveyAppearance, NEW_SURVEY, SurveyQuestionLabel } from './constants'
-import { openSurveysSettingsDialog } from './SurveySettings'
+import { SurveyQuestionLabel } from './constants'
+import { openSurveysSettingsDialog, SurveySettings } from './SurveySettings'
 import { getSurveyStatus, surveysLogic, SurveysTabs } from './surveysLogic'
 
 export const scene: SceneExport = {
@@ -65,19 +62,10 @@ export function Surveys(): JSX.Element {
     const { deleteSurvey, updateSurvey, setSearchTerm, setSurveysFilters, setTab } = useActions(surveysLogic)
 
     const { user } = useValues(userLogic)
-    const { updateCurrentTeam } = useActions(teamLogic)
-    const { currentTeam } = useValues(teamLogic)
-    const [editableSurveyConfig, setEditableSurveyConfig] = useState(
-        currentTeam?.survey_config?.appearance || defaultSurveyAppearance
-    )
-
-    const [templatedSurvey, setTemplatedSurvey] = useState(NEW_SURVEY)
-
-    if (templatedSurvey.appearance === defaultSurveyAppearance) {
-        templatedSurvey.appearance = editableSurveyConfig
-    }
+    const { featureFlags } = useValues(featureFlagLogic)
     const shouldShowEmptyState = !surveysLoading && surveys.length === 0
     const showLinkedHogFunctions = useFeatureFlag('HOG_FUNCTIONS_LINKED')
+    const settingLevel = featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? 'environment' : 'project'
 
     return (
         <div>
@@ -132,67 +120,14 @@ export function Surveys(): JSX.Element {
                     globalSurveyAppearanceConfigAvailable ? { key: SurveysTabs.Settings, label: 'Settings' } : null,
                 ]}
             />
-            {tab === SurveysTabs.Settings && (
-                <>
-                    <div className="flex items-center mb-2 gap-2">
-                        <LemonField.Pure className="mt-2" label="Appearance">
-                            <span>These settings apply to new surveys in this organization.</span>
-                        </LemonField.Pure>
-
-                        <div className="flex-1" />
-                        {globalSurveyAppearanceConfigAvailable && (
-                            <LemonButton
-                                type="primary"
-                                onClick={() => {
-                                    updateCurrentTeam({
-                                        survey_config: {
-                                            ...currentTeam?.survey_config,
-                                            appearance: {
-                                                ...currentTeam?.survey_config?.appearance,
-                                                ...editableSurveyConfig,
-                                            },
-                                        },
-                                    })
-                                }}
-                            >
-                                Save settings
-                            </LemonButton>
-                        )}
-                    </div>
-                    <LemonDivider />
-                    <div className="flex align-top mb-2 gap-2">
-                        <Customization
-                            key="survey-settings-customization"
-                            appearance={editableSurveyConfig}
-                            hasBranchingLogic={false}
-                            customizeRatingButtons={true}
-                            customizePlaceholderText={true}
-                            onAppearanceChange={(appearance) => {
-                                setEditableSurveyConfig({
-                                    ...editableSurveyConfig,
-                                    ...appearance,
-                                })
-                                setTemplatedSurvey({
-                                    ...templatedSurvey,
-                                    ...{ appearance: appearance },
-                                })
-                            }}
-                        />
-                        <div className="flex-1" />
-                        <div className="mt-10 mr-5">
-                            {globalSurveyAppearanceConfigAvailable && (
-                                <SurveyAppearancePreview survey={templatedSurvey} previewPageIndex={0} />
-                            )}
-                        </div>
-                    </div>
-                </>
-            )}
+            {tab === SurveysTabs.Settings && <SurveySettings />}
             {tab === SurveysTabs.Notifications && (
                 <>
                     <p>Get notified whenever a survey result is submitted</p>
                     <LinkedHogFunctions
+                        logicKey="surveys"
                         type="destination"
-                        subTemplateId="survey_response"
+                        subTemplateId="survey-response"
                         filters={{
                             events: [
                                 {
@@ -224,8 +159,8 @@ export function Surveys(): JSX.Element {
                                 }}
                                 className="mb-2"
                             >
-                                Survey popovers are currently disabled for this project but there are active surveys
-                                running. Re-enable them in the settings.
+                                Survey popovers are currently disabled for this {settingLevel} but there are active
+                                surveys running. Re-enable them in the settings.
                             </LemonBanner>
                         ) : null}
                     </div>
@@ -243,7 +178,7 @@ export function Surveys(): JSX.Element {
                     {!shouldShowEmptyState && (
                         <>
                             <div>
-                                <div className="flex justify-between mb-4 gap-2 flex-wrap">
+                                <div className="flex flex-wrap justify-between gap-2 mb-4">
                                     <LemonInput
                                         type="search"
                                         placeholder="Search for surveys"
@@ -368,7 +303,7 @@ export function Surveys(): JSX.Element {
                                                                         LemonDialog.open({
                                                                             title: 'Launch this survey?',
                                                                             content: (
-                                                                                <div className="text-sm text-muted">
+                                                                                <div className="text-sm text-secondary">
                                                                                     The survey will immediately start
                                                                                     displaying to users matching the
                                                                                     display conditions.
@@ -406,7 +341,7 @@ export function Surveys(): JSX.Element {
                                                                         LemonDialog.open({
                                                                             title: 'Stop this survey?',
                                                                             content: (
-                                                                                <div className="text-sm text-muted">
+                                                                                <div className="text-sm text-secondary">
                                                                                     The survey will no longer be visible
                                                                                     to your users.
                                                                                 </div>
@@ -443,7 +378,7 @@ export function Surveys(): JSX.Element {
                                                                         LemonDialog.open({
                                                                             title: 'Resume this survey?',
                                                                             content: (
-                                                                                <div className="text-sm text-muted">
+                                                                                <div className="text-sm text-secondary">
                                                                                     Once resumed, the survey will be
                                                                                     visible to your users again.
                                                                                 </div>
@@ -493,7 +428,7 @@ export function Surveys(): JSX.Element {
                                                                         LemonDialog.open({
                                                                             title: 'Archive this survey?',
                                                                             content: (
-                                                                                <div className="text-sm text-muted">
+                                                                                <div className="text-sm text-secondary">
                                                                                     This action will remove the survey
                                                                                     from your active surveys list. It
                                                                                     can be restored at any time.
@@ -529,7 +464,7 @@ export function Surveys(): JSX.Element {
                                                                     LemonDialog.open({
                                                                         title: 'Delete this survey?',
                                                                         content: (
-                                                                            <div className="text-sm text-muted">
+                                                                            <div className="text-sm text-secondary">
                                                                                 This action cannot be undone. All survey
                                                                                 data will be permanently removed.
                                                                             </div>

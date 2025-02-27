@@ -1,4 +1,5 @@
 import { HogFunctionType } from '../../src/cdp/types'
+import { PropertyOperator } from '../../src/types'
 
 /**
  * Hog functions are largely generated and built in the django service, making it tricky to test on this side.
@@ -393,6 +394,55 @@ export const HOG_INPUTS_EXAMPLES: Record<string, Pick<HogFunctionType, 'inputs' 
             },
         },
     },
+    simple_google_fetch: {
+        inputs_schema: [
+            { key: 'url', type: 'string', label: 'Webhook URL', secret: false, required: true },
+            { key: 'body', type: 'json', label: 'JSON body', secret: false, required: true },
+            {
+                key: 'method',
+                type: 'choice',
+                label: 'HTTP Method',
+                secret: false,
+                choices: [
+                    { label: 'POST', value: 'POST' },
+                    { label: 'PUT', value: 'PUT' },
+                    { label: 'PATCH', value: 'PATCH' },
+                    { label: 'GET', value: 'GET' },
+                ],
+                required: true,
+            },
+            { key: 'headers', type: 'dictionary', label: 'Headers', secret: false, required: false },
+        ],
+        inputs: {
+            url: {
+                value: 'https://googleads.googleapis.com/',
+                bytecode: ['_h', 32, 'https://googleads.googleapis.com/'],
+            },
+            method: { value: 'POST' },
+            headers: {
+                value: { version: 'v={event.properties.$lib_version}' },
+                bytecode: {
+                    version: ['_h', 32, '$lib_version', 32, 'properties', 32, 'event', 1, 3, 32, 'v=', 2, 'concat', 2],
+                },
+            },
+            body: {
+                value: {
+                    event: '{event}',
+                    groups: '{groups}',
+                    nested: { foo: '{event.url}' },
+                    person: '{person}',
+                    event_url: "{f'{event.url}-test'}",
+                },
+                bytecode: {
+                    event: ['_h', 32, 'event', 1, 1],
+                    groups: ['_h', 32, 'groups', 1, 1],
+                    nested: { foo: ['_h', 32, 'url', 32, 'event', 1, 2] },
+                    person: ['_h', 32, 'person', 1, 1],
+                    event_url: ['_h', 32, '-test', 32, 'url', 32, 'event', 1, 2, 2, 'concat', 2],
+                },
+            },
+        },
+    },
     secret_inputs: {
         inputs_schema: [
             {
@@ -494,7 +544,9 @@ export const HOG_FILTERS_EXAMPLES: Record<string, Pick<HogFunctionType, 'filters
                     name: '$pageview',
                     type: 'events',
                     order: 0,
-                    properties: [{ key: '$current_url', type: 'event', value: 'posthog', operator: 'icontains' }],
+                    properties: [
+                        { key: '$current_url', type: 'event', value: 'posthog', operator: PropertyOperator.IContains },
+                    ],
                 },
                 { id: '$autocapture', name: '$autocapture', type: 'events', order: 1 },
             ],
@@ -576,7 +628,9 @@ export const HOG_FILTERS_EXAMPLES: Record<string, Pick<HogFunctionType, 'filters
                     id: '$autocapture',
                     name: '$autocapture',
                     order: 0,
-                    properties: [{ key: 'text', operator: 'icontains', type: 'element', value: 'reload' }],
+                    properties: [
+                        { key: 'text', operator: PropertyOperator.IContains, type: 'element', value: 'reload' },
+                    ],
                     type: 'events',
                 },
             ],
@@ -612,7 +666,12 @@ export const HOG_FILTERS_EXAMPLES: Record<string, Pick<HogFunctionType, 'filters
                     name: '$autocapture',
                     order: 0,
                     properties: [
-                        { key: 'href', operator: 'icontains', type: 'element', value: '/project/1/activity/explore' },
+                        {
+                            key: 'href',
+                            operator: PropertyOperator.IContains,
+                            type: 'element',
+                            value: '/project/1/activity/explore',
+                        },
                     ],
                     type: 'events',
                 },
@@ -687,7 +746,9 @@ export const HOG_FILTERS_EXAMPLES: Record<string, Pick<HogFunctionType, 'filters
                     id: '$autocapture',
                     name: '$autocapture',
                     order: 0,
-                    properties: [{ key: 'selector', operator: 'icontains', type: 'element', value: 'div#root' }],
+                    properties: [
+                        { key: 'selector', operator: PropertyOperator.IContains, type: 'element', value: 'div#root' },
+                    ],
                     type: 'events',
                 },
             ],

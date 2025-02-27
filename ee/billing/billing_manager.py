@@ -1,5 +1,3 @@
-from django.conf import settings
-from django.db.models import F
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Optional, cast
@@ -7,17 +5,19 @@ from typing import Any, Optional, cast
 import jwt
 import requests
 import structlog
+from django.conf import settings
+from django.db.models import F
 from django.utils import timezone
-from sentry_sdk import capture_message
-from requests import JSONDecodeError  # type: ignore[attr-defined]
+from requests import JSONDecodeError
 from rest_framework.exceptions import NotAuthenticated
-from sentry_sdk import capture_exception
+from sentry_sdk import capture_message
 
 from ee.billing.billing_types import BillingStatus
-from ee.billing.quota_limiting import set_org_usage_summary, sync_org_quota_limits
+from ee.billing.quota_limiting import set_org_usage_summary, update_org_billing_quotas
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
 from posthog.cloud_utils import get_cached_instance_license
+from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization
 from posthog.models.organization import OrganizationMembership, OrganizationUsageInfo
 from posthog.models.user import User
@@ -74,9 +74,14 @@ class BillingManager:
         self.license = license or get_cached_instance_license()
         self.user = user
 
-    def get_billing(self, organization: Optional[Organization], plan_keys: Optional[str]) -> dict[str, Any]:
+    def get_billing(
+        self,
+        organization: Optional[Organization],
+        plan_keys: Optional[str],
+        query_params: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
         if organization and self.license and self.license.is_v2_license:
-            billing_service_response = self._get_billing(organization)
+            billing_service_response = self._get_billing(organization, query_params)
 
             # Ensure the license and org are updated with the latest info
             if billing_service_response.get("license"):
@@ -138,7 +143,7 @@ class BillingManager:
 
     def update_billing_organization_users(self, organization: Organization) -> None:
         try:
-            distinct_ids = list(organization.members.values_list("distinct_id", flat=True))
+            distinct_ids = list(organization.members.values_list("distinct_id", flat=True))  # type: ignore
 
             first_owner_membership = (
                 OrganizationMembership.objects.filter(organization=organization, level=15)
@@ -157,7 +162,7 @@ class BillingManager:
             )
 
             org_users = list(
-                organization.members.values(
+                organization.members.values(  # type: ignore
                     "email",
                     "distinct_id",
                     "organization_membership__level",
@@ -225,7 +230,7 @@ class BillingManager:
 
         return self.license
 
-    def _get_billing(self, organization: Organization) -> BillingStatus:
+    def _get_billing(self, organization: Organization, query_params: Optional[dict[str, Any]] = None) -> BillingStatus:
         """
         Retrieves billing info and updates local models if necessary
         """
@@ -235,6 +240,7 @@ class BillingManager:
         res = requests.get(
             f"{BILLING_SERVICE_URL}/api/billing",
             headers=self.get_auth_headers(organization),
+            params=query_params,
         )
         handle_billing_service_error(res)
 
@@ -295,6 +301,7 @@ class BillingManager:
                 events=usage_summary["events"],
                 recordings=usage_summary["recordings"],
                 rows_synced=usage_summary.get("rows_synced", {}),
+                feature_flag_requests=usage_summary.get("feature_flag_requests", {}),
                 period=[
                     data["billing_period"]["current_period_start"],
                     data["billing_period"]["current_period_end"],
@@ -303,7 +310,7 @@ class BillingManager:
 
             if set_org_usage_summary(organization, new_usage=usage_info):
                 org_modified = True
-                sync_org_quota_limits(organization)
+                update_org_billing_quotas(organization)
 
         available_product_features = data.get("available_product_features", None)
         if available_product_features and available_product_features != organization.available_product_features:
@@ -377,6 +384,26 @@ class BillingManager:
         handle_billing_service_error(res)
 
         return res.json()
+
+    def activate_trial(self, organization: Organization, data: dict[str, Any]):
+        res = requests.post(
+            f"{BILLING_SERVICE_URL}/api/trials/activate",
+            headers=self.get_auth_headers(organization),
+            json=data,
+        )
+
+        handle_billing_service_error(res)
+
+        return res.json()
+
+    def cancel_trial(self, organization: Organization, data: dict[str, Any]):
+        res = requests.post(
+            f"{BILLING_SERVICE_URL}/api/trials/cancel",
+            headers=self.get_auth_headers(organization),
+            json=data,
+        )
+
+        handle_billing_service_error(res)
 
     def authorize(self, organization: Organization):
         res = requests.post(

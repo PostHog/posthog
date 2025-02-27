@@ -11,7 +11,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { groupLogic } from 'scenes/groups/groupLogic'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { GroupCaption } from 'scenes/groups/Group'
-import { NodeKind } from '~/queries/schema'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeGroupAttributes>): JSX.Element => {

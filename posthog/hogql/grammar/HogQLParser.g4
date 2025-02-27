@@ -55,7 +55,7 @@ select: (selectSetStmt | selectStmt | hogqlxTagElement) EOF;
 
 selectStmtWithParens: selectStmt | LPAREN selectSetStmt RPAREN | placeholder;
 
-subsequentSelectSetClause: (EXCEPT | UNION ALL | INTERSECT) selectStmtWithParens;
+subsequentSelectSetClause: (EXCEPT | UNION ALL | UNION DISTINCT | INTERSECT | INTERSECT DISTINCT) selectStmtWithParens;
 selectSetStmt: selectStmtWithParens (subsequentSelectSetClause)*;
 
 selectStmt:
@@ -150,6 +150,7 @@ columnExpr
     | CAST LPAREN columnExpr AS columnTypeExpr RPAREN                                     # ColumnExprCast
     | DATE STRING_LITERAL                                                                 # ColumnExprDate
 //    | EXTRACT LPAREN interval FROM columnExpr RPAREN                                      # ColumnExprExtract   // Interferes with a function call
+    | INTERVAL STRING_LITERAL                                                             # ColumnExprIntervalString
     | INTERVAL columnExpr interval                                                        # ColumnExprInterval
     | SUBSTRING LPAREN columnExpr FROM columnExpr (FOR columnExpr)? RPAREN                # ColumnExprSubstring
     | TIMESTAMP STRING_LITERAL                                                            # ColumnExprTimestamp
@@ -157,6 +158,7 @@ columnExpr
     | identifier (LPAREN columnExprs=columnExprList? RPAREN) (LPAREN DISTINCT? columnArgList=columnExprList? RPAREN)? OVER LPAREN windowExpr RPAREN # ColumnExprWinFunction
     | identifier (LPAREN columnExprs=columnExprList? RPAREN) (LPAREN DISTINCT? columnArgList=columnExprList? RPAREN)? OVER identifier               # ColumnExprWinFunctionTarget
     | identifier (LPAREN columnExprs=columnExprList? RPAREN)? LPAREN DISTINCT? columnArgList=columnExprList? RPAREN                                 # ColumnExprFunction
+    | columnExpr LPAREN selectSetStmt RPAREN                                              # ColumnExprCallSelect
     | columnExpr LPAREN columnExprList? RPAREN                                            # ColumnExprCall
     | hogqlxTagElement                                                                    # ColumnExprTagElement
     | templateString                                                                      # ColumnExprTemplateString
@@ -222,9 +224,10 @@ columnLambdaExpr:
     ;
 
 
+hogqlxChildElement: hogqlxTagElement | (LBRACE columnExpr RBRACE);
 hogqlxTagElement
-    : LT identifier hogqlxTagAttribute* SLASH GT                                        # HogqlxTagElementClosed
-    | LT identifier hogqlxTagAttribute* GT (hogqlxTagElement | (LBRACE columnExpr RBRACE))? LT SLASH identifier GT     # HogqlxTagElementNested
+    : LT identifier hogqlxTagAttribute* SLASH GT                                          # HogqlxTagElementClosed
+    | LT identifier hogqlxTagAttribute* GT hogqlxChildElement* LT SLASH identifier GT     # HogqlxTagElementNested
     ;
 hogqlxTagAttribute
     :   identifier '=' string

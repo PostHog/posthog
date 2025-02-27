@@ -6,7 +6,7 @@
                     error_type,
                     error_details
   FROM app_metrics
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND plugin_config_id = 3
     AND error_type = 'SomeError'
     AND category = 'processEvent'
@@ -21,7 +21,7 @@
                     error_type,
                     error_details
   FROM app_metrics
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND plugin_config_id = 3
     AND error_type = 'SomeError'
     AND category = 'processEvent'
@@ -37,7 +37,7 @@
                     error_type,
                     error_details
   FROM app_metrics
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND plugin_config_id = 3
     AND error_type = 'SomeError'
     AND category = 'processEvent'
@@ -52,7 +52,7 @@
          count() AS count,
          max(timestamp) AS last_seen
   FROM app_metrics
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND plugin_config_id = 3
     AND category = 'processEvent'
     AND timestamp >= '2021-11-28 00:00:00'
@@ -69,7 +69,7 @@
          count() AS count,
          max(timestamp) AS last_seen
   FROM app_metrics
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND plugin_config_id = 3
     AND category = 'processEvent'
     AND job_id = '1234'
@@ -87,7 +87,7 @@
          count() AS count,
          max(timestamp) AS last_seen
   FROM app_metrics
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND plugin_config_id = 3
     AND category = 'processEvent'
     AND timestamp >= '2021-11-28 00:00:00'
@@ -118,7 +118,7 @@
                sum(successes_on_retry) AS successes_on_retry,
                sum(failures) AS failures
         FROM app_metrics
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND plugin_config_id = 3
           AND category = 'processEvent'
           AND timestamp >= '2021-11-28 00:00:00'
@@ -151,7 +151,7 @@
                sum(successes_on_retry) AS successes_on_retry,
                sum(failures) AS failures
         FROM app_metrics
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND plugin_config_id = 3
           AND timestamp >= '2021-11-28 00:00:00'
           AND timestamp < '2021-12-05 13:23:00'
@@ -183,7 +183,7 @@
                sum(successes_on_retry) AS successes_on_retry,
                sum(failures) AS failures
         FROM app_metrics
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND plugin_config_id = 3
           AND category = 'processEvent'
           AND timestamp >= '2021-12-05 00:00:00'
@@ -216,7 +216,7 @@
                sum(successes_on_retry) AS successes_on_retry,
                sum(failures) AS failures
         FROM app_metrics
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND plugin_config_id = 3
           AND category = 'exportEvents'
           AND job_id = '12345'
@@ -250,7 +250,7 @@
                sum(successes_on_retry) AS successes_on_retry,
                sum(failures) AS failures
         FROM app_metrics
-        WHERE team_id = 2
+        WHERE team_id = 99999
           AND plugin_config_id = 3
           AND category = 'processEvent'
           AND timestamp >= '2021-11-28 00:00:00'
@@ -272,7 +272,7 @@
             sum(successes) + sum(successes_on_retry) AS success,
             sum(successes) + sum(successes_on_retry) + sum(failures) AS total
      FROM app_metrics
-     WHERE team_id = 2
+     WHERE team_id = 99999
        AND timestamp > '2021-12-04 13:23:00.000000'
      GROUP BY plugin_config_id)
   '''

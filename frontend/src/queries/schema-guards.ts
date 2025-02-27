@@ -1,13 +1,24 @@
 import Ajv from 'ajv'
 
-import { WebAnalyticsPropertyFilters } from '~/queries/schema'
-import { SessionPropertyFilter } from '~/types'
+import { WebAnalyticsPropertyFilters } from '~/queries/schema/schema-general'
+import { AnyPropertyFilter, SessionPropertyFilter } from '~/types'
 
 import schema from './schema.json'
 const ajv = new Ajv({
     allowUnionTypes: true,
 })
 ajv.addSchema(schema)
+
+export const isAnyPropertyFilters = (data: unknown): data is AnyPropertyFilter[] => {
+    const validator = ajv.getSchema('#/definitions/AnyPropertyFilter')
+    if (!validator) {
+        throw new Error('Could not find validator for AnyPropertyFilter')
+    }
+    if (!Array.isArray(data)) {
+        return false
+    }
+    return data.every((item) => validator(item))
+}
 
 export const isWebAnalyticsPropertyFilters = (data: unknown): data is WebAnalyticsPropertyFilters => {
     const validator = ajv.getSchema('#/definitions/WebAnalyticsPropertyFilters')

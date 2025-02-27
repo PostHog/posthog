@@ -1,7 +1,7 @@
 import { dateFilterToText } from 'lib/utils'
 import { InsightTypeMetadata, QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 
-import { Node, NodeKind } from '~/queries/schema'
+import { Node, NodeKind } from '~/queries/schema/schema-general'
 import {
     containsHogQLQuery,
     dateRangeFor,

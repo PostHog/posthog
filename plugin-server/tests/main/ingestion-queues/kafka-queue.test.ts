@@ -20,7 +20,6 @@ jest.mock('../../../src/utils/status')
 jest.setTimeout(70000) // 60 sec timeout
 
 const extraServerConfig: Partial<PluginsServerConfig> = {
-    WORKER_CONCURRENCY: 1,
     KAFKA_CONSUMPTION_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
     LOG_LEVEL: LogLevel.Log,
 }
@@ -41,7 +40,7 @@ describe.skip('IngestionConsumer', () => {
         await resetTestDatabase()
         await resetTestDatabaseClickhouse(extraServerConfig)
         pluginServer = await startPluginsServer(extraServerConfig, makePiscina)
-        hub = pluginServer.hub
+        hub = pluginServer.hub!
         stopServer = pluginServer.stop
         posthog = createPosthog(hub, pluginConfig39)
     })

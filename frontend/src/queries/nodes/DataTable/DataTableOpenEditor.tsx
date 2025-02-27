@@ -4,7 +4,7 @@ import { IconTableChart } from 'lib/lemon-ui/icons'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { urls } from 'scenes/urls'
 
-import { DataTableNode, NodeKind } from '~/queries/schema'
+import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 
 import { dataTableLogic } from './dataTableLogic'
 
@@ -28,7 +28,7 @@ export function DataTableOpenEditor({ query }: DataTableOpenEditorProps): JSX.El
         <LemonButton
             type="secondary"
             icon={<IconTableChart />}
-            to={urls.insightNew(undefined, undefined, query)}
+            to={urls.insightNew({ query })}
             sideAction={
                 response?.hogql
                     ? {
@@ -38,7 +38,7 @@ export function DataTableOpenEditor({ query }: DataTableOpenEditorProps): JSX.El
                                       items={[
                                           {
                                               label: 'Open as direct SQL insight',
-                                              to: urls.insightNew(undefined, undefined, tableInsightQuery!),
+                                              to: urls.insightNew({ query: tableInsightQuery! }),
                                               'data-attr': 'open-sql-editor-button',
                                           },
                                       ]}

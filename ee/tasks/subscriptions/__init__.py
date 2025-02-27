@@ -4,12 +4,13 @@ from typing import Optional
 import structlog
 from celery import shared_task
 from prometheus_client import Counter
-from sentry_sdk import capture_exception, capture_message
+from sentry_sdk import capture_message
 
 from ee.tasks.subscriptions.email_subscriptions import send_email_subscription_report
 from ee.tasks.subscriptions.slack_subscriptions import send_slack_subscription_report
 from ee.tasks.subscriptions.subscription_utils import generate_assets
 from posthog import settings
+from posthog.exceptions_capture import capture_exception
 from posthog.models.subscription import Subscription
 from posthog.tasks.utils import CeleryQueue
 

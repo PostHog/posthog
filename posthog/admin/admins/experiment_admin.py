@@ -18,6 +18,7 @@ class ExperimentAdmin(admin.ModelAdmin):
     autocomplete_fields = ("team", "created_by")
     ordering = ("-created_at",)
 
+    @admin.display(description="Team")
     def team_link(self, experiment: Experiment):
         return format_html(
             '<a href="/admin/posthog/team/{}/change/">{}</a>',

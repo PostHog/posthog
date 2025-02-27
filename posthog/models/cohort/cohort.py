@@ -2,13 +2,17 @@ import time
 from datetime import datetime
 from typing import Any, Literal, Optional, Union, cast
 
+import posthoganalytics
 import structlog
 from django.conf import settings
 from django.db import connection, models
 from django.db.models import Case, Q, When
 from django.db.models.expressions import F
+from django.db.models.functions.math import Mod
+from django.db.models.lookups import Exact
+
 from django.utils import timezone
-from sentry_sdk import capture_exception
+from posthog.exceptions_capture import capture_exception
 
 from posthog.constants import PropertyOperatorType
 from posthog.models.filters.filter import Filter
@@ -184,18 +188,9 @@ class Cohort(models.Model):
         return False
 
     def get_analytics_metadata(self):
-        action_groups_count: int = 0
-        properties_groups_count: int = 0
-        for group in self.groups:
-            action_groups_count += 1 if group.get("action_id") else 0
-            properties_groups_count += 1 if group.get("properties") else 0
-
         return {
             "filters": self.properties.to_dict(),
             "name_length": len(self.name) if self.name else 0,
-            "groups_count": len(self.groups),
-            "action_groups_count": action_groups_count,
-            "properties_groups_count": properties_groups_count,
             "deleted": self.deleted,
         }
 
@@ -250,11 +245,50 @@ class Cohort(models.Model):
 
         clear_stale_cohort.delay(self.pk, before_version=pending_version)
 
-    def insert_users_by_list(self, items: list[str]) -> None:
-        """
-        Items is a list of distinct_ids
-        """
+        # Try the hogql version. Don't run this on initial cohort create
+        if pending_version > 0:
 
+            def fn():
+                start_time = time.monotonic()
+                recalculate_cohortpeople(self, pending_version, initiating_user_id=initiating_user_id, hogql=True)
+                logger.warn(
+                    "hogql_cohort_calculation_completed",
+                    id=self.pk,
+                    version=pending_version,
+                    duration=(time.monotonic() - start_time),
+                )
+
+            if settings.DEBUG or settings.TEST:
+                fn()
+                return
+
+            if posthoganalytics.feature_enabled(
+                "enable_hogql_cohort_calculation",
+                str(self.team.organization_id),
+                groups={"organization": str(self.team.organization_id)},
+                group_properties={"organization": {"id": str(self.team.organization_id)}},
+            ):
+                try:
+                    fn()
+                except Exception:
+                    logger.exception(
+                        "cohort_hogql_calculation_failed",
+                        id=self.pk,
+                        current_version=self.version,
+                        new_version=pending_version,
+                        exc_info=True,
+                    )
+
+    def insert_users_by_list(self, items: list[str], *, team_id: Optional[int] = None) -> None:
+        """
+        Insert a list of users identified by their distinct ID into the cohort, for the given team.
+
+        Args:
+            items: List of distinct IDs of users to be inserted into the cohort.
+            team_id: ID of the team for which to insert the users. Defaults to `self.team`, because of a lot of existing usage in tests.
+        """
+        if team_id is None:
+            team_id = self.team_id
         batchsize = 1000
         from posthog.models.cohort.util import (
             insert_static_cohort,
@@ -272,10 +306,10 @@ class Cohort(models.Model):
             for i in range(0, len(items), batchsize):
                 batch = items[i : i + batchsize]
                 persons_query = (
-                    Person.objects.filter(team_id=self.team_id)
+                    Person.objects.filter(team_id=team_id)
                     .filter(
                         Q(
-                            persondistinctid__team_id=self.team_id,
+                            persondistinctid__team_id=team_id,
                             persondistinctid__distinct_id__in=batch,
                         )
                     )
@@ -284,7 +318,7 @@ class Cohort(models.Model):
                 insert_static_cohort(
                     list(persons_query.values_list("uuid", flat=True)),
                     self.pk,
-                    self.team,
+                    team_id=team_id,
                 )
                 sql, params = persons_query.distinct("pk").only("pk").query.sql_with_params()
                 query = UPDATE_QUERY.format(
@@ -297,7 +331,7 @@ class Cohort(models.Model):
                 )
                 cursor.execute(query, params)
 
-            count = get_static_cohort_size(self)
+            count = get_static_cohort_size(cohort_id=self.id, team_id=self.team_id)
             self.count = count
 
             self.is_calculating = False
@@ -313,7 +347,18 @@ class Cohort(models.Model):
             self.save()
             capture_exception(err)
 
-    def insert_users_list_by_uuid(self, items: list[str], insert_in_clickhouse: bool = False, batchsize=1000) -> None:
+    def insert_users_list_by_uuid(
+        self, items: list[str], insert_in_clickhouse: bool = False, batchsize=1000, *, team_id: int
+    ) -> None:
+        """
+        Insert a list of users identified by their UUID into the cohort, for the given team.
+
+        Args:
+            items: List of user UUIDs to be inserted into the cohort.
+            insert_in_clickhouse: Whether the data should also be inserted into ClickHouse.
+            batchsize: Number of UUIDs to process in each batch.
+            team_id: The ID of the team to which the cohort belongs.
+        """
         from posthog.models.cohort.util import get_static_cohort_size, insert_static_cohort
 
         try:
@@ -321,13 +366,13 @@ class Cohort(models.Model):
             for i in range(0, len(items), batchsize):
                 batch = items[i : i + batchsize]
                 persons_query = (
-                    Person.objects.filter(team_id=self.team_id).filter(uuid__in=batch).exclude(cohort__id=self.id)
+                    Person.objects.filter(team_id=team_id).filter(uuid__in=batch).exclude(cohort__id=self.id)
                 )
                 if insert_in_clickhouse:
                     insert_static_cohort(
                         list(persons_query.values_list("uuid", flat=True)),
                         self.pk,
-                        self.team,
+                        team_id=team_id,
                     )
                 sql, params = persons_query.distinct("pk").only("pk").query.sql_with_params()
                 query = UPDATE_QUERY.format(
@@ -340,7 +385,7 @@ class Cohort(models.Model):
                 )
                 cursor.execute(query, params)
 
-            count = get_static_cohort_size(self)
+            count = get_static_cohort_size(cohort_id=self.id, team_id=self.team_id)
             self.count = count
 
             self.is_calculating = False
@@ -357,17 +402,16 @@ class Cohort(models.Model):
             self.save()
             capture_exception(err)
 
-    def _clickhouse_persons_query(self, batch_size=10000, offset=0):
-        from posthog.models.cohort.util import get_person_ids_by_cohort_id
-
-        uuids = get_person_ids_by_cohort_id(team=self.team, cohort_id=self.pk, limit=batch_size, offset=offset)
-        return Person.objects.filter(uuid__in=uuids, team=self.team)
-
     __repr__ = sane_repr("id", "name", "last_calculation")
 
 
 def get_and_update_pending_version(cohort: Cohort):
-    cohort.pending_version = Case(When(pending_version__isnull=True, then=1), default=F("pending_version") + 1)
+    incremented_value = Case(
+        When(pending_version__isnull=True, then=1),
+        When(Exact(Mod(F("pending_version"), 2), 0), then=F("pending_version") + 2),  # Even: Add 2
+        default=F("pending_version") + 3,  # Odd: Add 3
+    )
+    cohort.pending_version = incremented_value
     cohort.save(update_fields=["pending_version"])
     cohort.refresh_from_db()
     return cohort.pending_version

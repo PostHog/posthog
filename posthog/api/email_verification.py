@@ -2,7 +2,7 @@ import posthoganalytics
 from django.contrib.auth.models import AbstractBaseUser
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
 from rest_framework import exceptions
-from sentry_sdk import capture_exception
+from posthog.exceptions_capture import capture_exception
 
 from posthog.models.user import User
 from posthog.tasks.email import send_email_verification
@@ -25,7 +25,9 @@ class EmailVerificationTokenGenerator(PasswordResetTokenGenerator):
         # Due to type differences between the user model and the token generator, we need to
         # re-fetch the user from the database to get the correct type.
         usable_user: User = User.objects.get(pk=user.pk)
-        return f"{usable_user.pk}{usable_user.email}{usable_user.pending_email}{timestamp}"
+        login_timestamp = "" if user.last_login is None else user.last_login.replace(microsecond=0, tzinfo=None)
+
+        return f"{usable_user.pk}{usable_user.email}{usable_user.pending_email}{login_timestamp}{timestamp}"
 
 
 email_verification_token_generator = EmailVerificationTokenGenerator()

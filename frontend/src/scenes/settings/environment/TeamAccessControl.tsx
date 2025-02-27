@@ -1,9 +1,18 @@
 import { IconCrown, IconLeave, IconLock, IconUnlock } from '@posthog/icons'
-import { LemonButton, LemonSelect, LemonSelectOption, LemonSnack, LemonSwitch, LemonTable } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonSelect,
+    LemonSelectOption,
+    LemonSnack,
+    LemonSwitch,
+    LemonTable,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { OrganizationMembershipLevel, TeamMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -19,6 +28,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { AccessControlObject } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlObject'
 import { AvailableFeature, FusedTeamMemberType } from '~/types'
 
 import { AddMembersModalWithButton } from './AddMembersModal'
@@ -154,7 +164,7 @@ export function TeamMembers(): JSX.Element | null {
             title: 'Name',
             key: 'user_first_name',
             render: (_, member) =>
-                member.user.uuid == user.uuid ? `${member.user.first_name} (me)` : member.user.first_name,
+                member.user.uuid == user.uuid ? `${member.user.first_name} (you)` : member.user.first_name,
             sorter: (a, b) => a.user.first_name.localeCompare(b.user.first_name),
         },
         {
@@ -207,6 +217,8 @@ export function TeamMembers(): JSX.Element | null {
 export function TeamAccessControl(): JSX.Element {
     const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
+    const { migrateAccessControlVersion } = useActions(organizationLogic)
+    const { migrateAccessControlVersionLoading } = useValues(organizationLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
 
@@ -214,9 +226,30 @@ export function TeamAccessControl(): JSX.Element {
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
     })
 
+    const newAccessControl = useFeatureFlag('ROLE_BASED_ACCESS_CONTROL')
+
+    // Only render the new access control if they have been migrated and have the feature flag enabled
+    if (newAccessControl && currentTeam?.access_control_version === 'v2') {
+        return <AccessControlObject resource="project" resource_id={`${currentTeam?.id}`} />
+    }
+
     return (
         <>
             <p>
+                {newAccessControl && (
+                    <LemonBanner
+                        className="mb-4"
+                        type="warning"
+                        action={{
+                            children: 'Upgrade now',
+                            onClick: () => migrateAccessControlVersion(),
+                            loading: migrateAccessControlVersionLoading,
+                        }}
+                    >
+                        You're eligible to upgrade to our new access control system. This will allow you to better
+                        manage access to your project and resources.
+                    </LemonBanner>
+                )}
                 {currentTeam?.access_control ? (
                     <>
                         This project is{' '}
@@ -242,7 +275,7 @@ export function TeamAccessControl(): JSX.Element {
                 onChange={(checked) => {
                     // Let them uncheck it if it's already checked, but don't let them check it if they don't have the feature
                     checked
-                        ? guardAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING, () =>
+                        ? guardAvailableFeature(AvailableFeature.ADVANCED_PERMISSIONS, () =>
                               updateCurrentTeam({ access_control: checked })
                           )
                         : updateCurrentTeam({ access_control: checked })

@@ -6,6 +6,7 @@ import {
     BodyDisplay,
     HeadersDisplay,
     ItemPerformanceEvent,
+    ItemPerformanceEventDetail,
     ItemPerformanceEventProps,
 } from 'scenes/session-recordings/apm/playerInspector/ItemPerformanceEvent'
 
@@ -25,17 +26,16 @@ export default meta
 
 const BasicTemplate: StoryFn<typeof ItemPerformanceEvent> = (props: Partial<ItemPerformanceEventProps>) => {
     props.item = props.item || undefined
-    props.setExpanded = props.setExpanded || (() => {})
 
     const propsToUse = props as ItemPerformanceEventProps
 
     return (
         <div className="flex flex-col gap-2 min-w-96">
             <h3>Collapsed</h3>
-            <ItemPerformanceEvent {...propsToUse} expanded={false} />
+            <ItemPerformanceEvent {...propsToUse} />
             <LemonDivider />
             <h3>Expanded</h3>
-            <ItemPerformanceEvent {...propsToUse} expanded={true} />
+            <ItemPerformanceEventDetail {...propsToUse} />
         </div>
     )
 }

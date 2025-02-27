@@ -115,7 +115,7 @@ def query_events_list(
 
     if action_id:
         try:
-            action = Action.objects.get(pk=action_id, team_id=team.pk)
+            action = Action.objects.get(pk=action_id, team__project_id=team.project_id)
             if not action.steps:
                 return []
         except Action.DoesNotExist:

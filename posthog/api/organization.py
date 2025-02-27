@@ -3,9 +3,10 @@ from typing import Any, Optional, Union, cast
 
 from django.db.models import Model, QuerySet
 from django.shortcuts import get_object_or_404
-from django.views import View
 from rest_framework import exceptions, permissions, serializers, viewsets
 from rest_framework.request import Request
+from rest_framework.response import Response
+import posthoganalytics
 
 from posthog import settings
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -13,21 +14,28 @@ from posthog.api.shared import ProjectBasicSerializer, TeamBasicSerializer
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.cloud_utils import is_cloud
 from posthog.constants import INTERNAL_BOT_EMAIL_SUFFIX, AvailableFeature
-from posthog.event_usage import report_organization_deleted
+from posthog.event_usage import report_organization_deleted, groups
 from posthog.models import Organization, User
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.models.organization import OrganizationMembership
 from posthog.models.signals import mute_selected_signals
 from posthog.models.team.util import delete_bulky_postgres_data
 from posthog.models.uploaded_media import UploadedMedia
 from posthog.permissions import (
-    CREATE_METHODS,
+    CREATE_ACTIONS,
     APIScopePermission,
     OrganizationAdminWritePermissions,
     TimeSensitiveActionPermission,
     extract_organization,
 )
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
+from rest_framework.decorators import action
+from posthog.rbac.migrations.rbac_team_migration import rbac_team_access_control_migration
+from posthog.rbac.migrations.rbac_feature_flag_migration import rbac_feature_flag_role_access_migration
+from sentry_sdk import capture_exception
+from drf_spectacular.utils import extend_schema
+from posthog.event_usage import report_organization_action
 
 
 class PremiumMultiorganizationPermissions(permissions.BasePermission):
@@ -40,7 +48,7 @@ class PremiumMultiorganizationPermissions(permissions.BasePermission):
         if (
             # Make multiple orgs only premium on self-hosted, since enforcement of this wouldn't make sense on Cloud
             not is_cloud()
-            and request.method in CREATE_METHODS
+            and view.action in CREATE_ACTIONS
             and (
                 user.organization is None
                 or not user.organization.is_feature_available(AvailableFeature.ORGANIZATIONS_PROJECTS)
@@ -52,7 +60,7 @@ class PremiumMultiorganizationPermissions(permissions.BasePermission):
 
 
 class OrganizationPermissionsWithDelete(OrganizationAdminWritePermissions):
-    def has_object_permission(self, request: Request, view: View, object: Model) -> bool:
+    def has_object_permission(self, request: Request, view, object: Model) -> bool:
         if request.method in permissions.SAFE_METHODS:
             return True
         # TODO: Optimize so that this computation is only done once, on `OrganizationMemberPermissions`
@@ -66,7 +74,9 @@ class OrganizationPermissionsWithDelete(OrganizationAdminWritePermissions):
         )
 
 
-class OrganizationSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin):
+class OrganizationSerializer(
+    serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin
+):
     membership_level = serializers.SerializerMethodField()
     teams = serializers.SerializerMethodField()
     projects = serializers.SerializerMethodField()
@@ -95,6 +105,7 @@ class OrganizationSerializer(serializers.ModelSerializer, UserPermissionsSeriali
             "customer_id",
             "enforce_2fa",
             "member_count",
+            "is_ai_data_processing_approved",
         ]
         read_only_fields = [
             "id",
@@ -127,7 +138,14 @@ class OrganizationSerializer(serializers.ModelSerializer, UserPermissionsSeriali
         return membership.level if membership is not None else None
 
     def get_teams(self, instance: Organization) -> list[dict[str, Any]]:
-        visible_teams = instance.teams.filter(id__in=self.user_permissions.team_ids_visible_for_user)
+        # Support new access control system
+        visible_teams = (
+            self.user_access_control.filter_queryset_by_access_level(instance.teams.all(), include_all_if_admin=True)
+            if self.user_access_control
+            else instance.teams.none()
+        )
+        # Support old access control system
+        visible_teams = visible_teams.filter(id__in=self.user_permissions.team_ids_visible_for_user)
         return TeamBasicSerializer(visible_teams, context=self.context, many=True).data  # type: ignore
 
     def get_projects(self, instance: Organization) -> list[dict[str, Any]]:
@@ -231,3 +249,48 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             **super().get_serializer_context(),
             "user_permissions": UserPermissions(cast(User, self.request.user)),
         }
+
+    def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        if "enforce_2fa" in request.data:
+            enforce_2fa_value = request.data["enforce_2fa"]
+            organization = self.get_object()
+            user = cast(User, request.user)
+
+            # Add capture event for 2FA enforcement change
+            posthoganalytics.capture(
+                str(user.distinct_id),
+                "organization 2fa enforcement toggled",
+                properties={
+                    "enabled": enforce_2fa_value,
+                    "organization_id": str(organization.id),
+                    "organization_name": organization.name,
+                    "user_role": user.organization_memberships.get(organization=organization).level,
+                },
+                groups=groups(organization),
+            )
+
+        return super().update(request, *args, **kwargs)
+
+    @extend_schema(exclude=True)
+    @action(detail=True, methods=["post"])
+    def migrate_access_control(self, request: Request, **kwargs) -> Response:
+        organization = Organization.objects.get(id=kwargs["id"])
+        self.check_object_permissions(request, organization)
+
+        try:
+            user = cast(User, request.user)
+            report_organization_action(organization, "rbac_team_migration_started", {"user": user.distinct_id})
+
+            rbac_team_access_control_migration(organization.id)
+            rbac_feature_flag_role_access_migration(organization.id)
+
+            report_organization_action(organization, "rbac_team_migration_completed", {"user": user.distinct_id})
+
+        except Exception as e:
+            report_organization_action(
+                organization, "rbac_team_migration_failed", {"user": user.distinct_id, "error": str(e)}
+            )
+            capture_exception(e)
+            return Response({"status": False, "error": "An internal error has occurred."}, status=500)
+
+        return Response({"status": True})

@@ -8,11 +8,15 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--team-id", default=None, type=int, help="Team ID to migrate from (on this instance)")
-        parser.add_argument("--dry_run", action="store_false", help="Dry run mode (no changes will be made)")
+        parser.add_argument("--dry-run", action="store_false", help="Dry run mode (no changes will be made)")
+        parser.add_argument(
+            "--max-delete", default=1000, type=int, help="Max number of rows to delete in one go (default 1000)"
+        )
 
     def handle(self, **options):
         team_id = options["team_id"]
         dry_run = options["dry_run"]
+        max_delete = options["max_delete"]
 
         if not team_id:
             raise CommandError("source Team ID is required")
@@ -21,14 +25,14 @@ class Command(BaseCommand):
 
         if dry_run:
             print("Dry run mode enabled. No changes will be made.")  # noqa: T201
-            delete_persons_without_distinct_ids_raw_sql_dry_run(team_id)
+            delete_persons_without_distinct_ids_raw_sql_dry_run(team_id, max_delete)
         else:
             print("This is for real. Changes will be made. Sleeping for 10 seconds")  # noqa: T201
             time.sleep(10)
-            delete_persons_without_distinct_ids_raw_sql(team_id)
+            delete_persons_without_distinct_ids_raw_sql(team_id, max_delete)
 
 
-def delete_persons_without_distinct_ids_raw_sql(team_id):
+def delete_persons_without_distinct_ids_raw_sql(team_id, max_delete):
     with connection.cursor() as cursor:
         cursor.execute(
             """
@@ -36,13 +40,14 @@ def delete_persons_without_distinct_ids_raw_sql(team_id):
                 SELECT p.id
                 FROM posthog_person p
                 LEFT JOIN posthog_persondistinctid pd ON p.id = pd.person_id AND p.team_id = pd.team_id
-                WHERE p.team_id = %s AND pd.id IS NULL
+                WHERE p.team_id = %(team_id)s AND pd.id IS NULL
+                LIMIT %(max_delete)s
             )
             DELETE FROM posthog_person
             WHERE id IN (SELECT id FROM persons_to_delete)
             RETURNING id;
         """,
-            [team_id],
+            {"team_id": team_id, "max_delete": max_delete},
         )
 
         deleted_ids = cursor.fetchall()
@@ -52,7 +57,7 @@ def delete_persons_without_distinct_ids_raw_sql(team_id):
     return deleted_count
 
 
-def delete_persons_without_distinct_ids_raw_sql_dry_run(team_id):
+def delete_persons_without_distinct_ids_raw_sql_dry_run(team_id, max_delete):
     with connection.cursor() as cursor:
         cursor.execute(
             """
@@ -60,11 +65,12 @@ def delete_persons_without_distinct_ids_raw_sql_dry_run(team_id):
                 SELECT p.id
                 FROM posthog_person p
                 LEFT JOIN posthog_persondistinctid pd ON p.id = pd.person_id AND p.team_id = pd.team_id
-                WHERE p.team_id = %s AND pd.id IS NULL
+                WHERE p.team_id = %(team_id)s AND pd.id IS NULL
+                LIMIT %(max_delete)s
             )
             SELECT COUNT(*) FROM persons_to_delete;
         """,
-            [team_id],
+            {"team_id": team_id, "max_delete": max_delete},
         )
 
         deleted_count = cursor.fetchone()

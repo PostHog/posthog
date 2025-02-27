@@ -6,9 +6,10 @@ import {
     NodeKind,
     PathsQuery,
     RetentionQuery,
+    StickinessComputationModes,
     StickinessQuery,
     TrendsQuery,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import { BaseMathType, FunnelVizType, PathType, RetentionPeriod } from '~/types'
 
 export const trendsQueryDefault: TrendsQuery = {
@@ -42,7 +43,7 @@ const retentionQueryDefault: RetentionQuery = {
     kind: NodeKind.RetentionQuery,
     retentionFilter: {
         period: RetentionPeriod.Day,
-        totalIntervals: 11,
+        totalIntervals: 8,
         targetEntity: {
             id: '$pageview',
             name: '$pageview',
@@ -74,7 +75,9 @@ const stickinessQueryDefault: StickinessQuery = {
             math: BaseMathType.UniqueUsers,
         },
     ],
-    stickinessFilter: {},
+    stickinessFilter: {
+        computedAs: StickinessComputationModes.NonCumulative,
+    },
 }
 
 const lifecycleQueryDefault: LifecycleQuery = {

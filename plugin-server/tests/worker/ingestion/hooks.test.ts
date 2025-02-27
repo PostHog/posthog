@@ -31,12 +31,12 @@ describe('hooks', () => {
                 target: 'https://example.com/',
                 created: new Date().toISOString(),
                 updated: new Date().toISOString(),
-                format_text: null,
             }
             hookCommander = new HookCommander(
                 {} as any,
                 {} as any,
                 {} as any,
+                // @ts-expect-error - we don't need the whole Hook object
                 { enqueueIfEnabledForTeam: async () => Promise.resolve(false) },
                 { queueError: () => Promise.resolve(), queueMetric: () => Promise.resolve() } as unknown as AppMetrics,
                 20000
@@ -47,24 +47,26 @@ describe('hooks', () => {
             await hookCommander.postWebhook({ event: 'foo', properties: {} } as PostIngestionEvent, action, team, hook)
 
             expect(fetch).toHaveBeenCalledTimes(1)
+
+            // @ts-expect-error mock exists because we mock it ourselves
             expect(fetch.mock.calls[0]).toMatchInlineSnapshot(`
-                Array [
+                [
                   "https://example.com/",
-                  Object {
+                  {
                     "body": "{
-                    \\"hook\\": {
-                        \\"id\\": \\"id\\",
-                        \\"event\\": \\"foo\\",
-                        \\"target\\": \\"https://example.com/\\"
+                    "hook": {
+                        "id": "id",
+                        "event": "foo",
+                        "target": "https://example.com/"
                     },
-                    \\"data\\": {
-                        \\"event\\": \\"foo\\",
-                        \\"properties\\": {},
-                        \\"elementsList\\": [],
-                        \\"person\\": {}
+                    "data": {
+                        "event": "foo",
+                        "properties": {},
+                        "elementsList": [],
+                        "person": {}
                     }
                 }",
-                    "headers": Object {
+                    "headers": {
                       "Content-Type": "application/json",
                     },
                     "method": "POST",
@@ -78,6 +80,7 @@ describe('hooks', () => {
             const now = DateTime.utc(2024, 1, 1).toISO()
             const uuid = '018f39d3-d94c-0000-eeef-df4a793f8844'
             await hookCommander.postWebhook(
+                // @ts-expect-error TODO: Fix underlying type
                 {
                     eventUuid: uuid,
                     distinctId: 'WALL-E',
@@ -94,34 +97,36 @@ describe('hooks', () => {
                 hook
             )
             expect(fetch).toHaveBeenCalledTimes(1)
+
+            // @ts-expect-error mock exists because we mock it ourselves
             expect(fetch.mock.calls[0]).toMatchInlineSnapshot(`
-                Array [
+                [
                   "https://example.com/",
-                  Object {
+                  {
                     "body": "{
-                    \\"hook\\": {
-                        \\"id\\": \\"id\\",
-                        \\"event\\": \\"foo\\",
-                        \\"target\\": \\"https://example.com/\\"
+                    "hook": {
+                        "id": "id",
+                        "event": "foo",
+                        "target": "https://example.com/"
                     },
-                    \\"data\\": {
-                        \\"eventUuid\\": \\"018f39d3-d94c-0000-eeef-df4a793f8844\\",
-                        \\"event\\": \\"foo\\",
-                        \\"teamId\\": 1,
-                        \\"distinctId\\": \\"WALL-E\\",
-                        \\"properties\\": {},
-                        \\"timestamp\\": \\"2024-01-01T00:00:00.000Z\\",
-                        \\"elementsList\\": [],
-                        \\"person\\": {
-                            \\"uuid\\": \\"018f39d3-d94c-0000-eeef-df4a793f8844\\",
-                            \\"properties\\": {
-                                \\"foo\\": \\"bar\\"
+                    "data": {
+                        "eventUuid": "018f39d3-d94c-0000-eeef-df4a793f8844",
+                        "event": "foo",
+                        "teamId": 1,
+                        "distinctId": "WALL-E",
+                        "properties": {},
+                        "timestamp": "2024-01-01T00:00:00.000Z",
+                        "elementsList": [],
+                        "person": {
+                            "uuid": "018f39d3-d94c-0000-eeef-df4a793f8844",
+                            "properties": {
+                                "foo": "bar"
                             },
-                            \\"created_at\\": \\"2024-01-01T00:00:00.000Z\\"
+                            "created_at": "2024-01-01T00:00:00.000Z"
                         }
                     }
                 }",
-                    "headers": Object {
+                    "headers": {
                       "Content-Type": "application/json",
                     },
                     "method": "POST",

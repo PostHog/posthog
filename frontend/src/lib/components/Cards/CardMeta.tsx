@@ -27,7 +27,7 @@ export interface CardMetaProps extends Pick<React.HTMLAttributes<HTMLDivElement>
     showDetailsControls?: boolean
     refresh?: () => void
     refreshDisabledReason?: string
-    meta?: JSX.Element | null
+    content?: JSX.Element | null
     metaDetails?: JSX.Element | null
     moreButtons?: JSX.Element | null
     topHeading?: JSX.Element | null
@@ -40,7 +40,7 @@ export function CardMeta({
     showDetailsControls,
     refresh,
     refreshDisabledReason,
-    meta,
+    content: meta,
     metaDetails,
     moreButtons,
     topHeading,
@@ -55,14 +55,7 @@ export function CardMeta({
     const showDetailsButtonLabel = !!primaryWidth && primaryWidth > 480
 
     return (
-        <div
-            className={clsx(
-                'CardMeta',
-                className,
-                showDetailsControls && 'CardMeta--with-details',
-                areDetailsShown && 'CardMeta--details-shown'
-            )}
-        >
+        <div className={clsx('CardMeta', className, areDetailsShown && 'CardMeta--details-shown')}>
             <div className="CardMeta__primary" ref={primaryRef}>
                 {ribbonColor &&
                     ribbonColor !==

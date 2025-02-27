@@ -4,13 +4,16 @@ from django.conf import settings
 from django.contrib import admin
 from django.urls import include
 from django.urls.conf import path
+from django.views.decorators.csrf import csrf_exempt
 
 from ee.api import integration
-from .api.rbac import organization_resource_access, role
+from ee.support_sidebar_max.views import MaxChatViewSet
 
 from .api import (
     authentication,
     billing,
+    conversation,
+    core_memory,
     dashboard_collaborator,
     explicit_team_member,
     feature_flag_role_access,
@@ -19,18 +22,18 @@ from .api import (
     sentry_stats,
     subscription,
 )
-from .session_recordings import session_recording_playlist
+from .api.rbac import organization_resource_access, role
 
 
 def extend_api_router() -> None:
     from posthog.api import (
-        router as root_router,
-        register_grandfathered_environment_nested_viewset,
-        projects_router,
+        environment_dashboards_router,
+        environments_router,
+        legacy_project_dashboards_router,
         organizations_router,
         project_feature_flags_router,
-        environment_dashboards_router,
-        legacy_project_dashboards_router,
+        register_grandfathered_environment_nested_viewset,
+        router as root_router,
     )
 
     root_router.register(r"billing", billing.BillingViewset, "billing")
@@ -86,11 +89,13 @@ def extend_api_router() -> None:
     register_grandfathered_environment_nested_viewset(
         r"subscriptions", subscription.SubscriptionViewSet, "environment_subscriptions", ["team_id"]
     )
-    projects_router.register(
-        r"session_recording_playlists",
-        session_recording_playlist.SessionRecordingPlaylistViewSet,
-        "project_session_recording_playlists",
-        ["project_id"],
+
+    environments_router.register(
+        r"conversations", conversation.ConversationViewSet, "environment_conversations", ["team_id"]
+    )
+
+    environments_router.register(
+        r"core_memory", core_memory.MaxCoreMemoryViewSet, "environment_core_memory", ["team_id"]
     )
 
 
@@ -103,5 +108,6 @@ admin_urlpatterns = (
 urlpatterns: list[Any] = [
     path("api/saml/metadata/", authentication.saml_metadata_view),
     path("api/sentry_stats/", sentry_stats.sentry_stats),
+    path("max/chat/", csrf_exempt(MaxChatViewSet.as_view({"post": "create"})), name="max_chat"),
     *admin_urlpatterns,
 ]

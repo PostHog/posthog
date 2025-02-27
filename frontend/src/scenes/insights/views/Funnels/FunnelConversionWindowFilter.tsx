@@ -7,10 +7,10 @@ import { useState } from 'react'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { useDebouncedCallback } from 'use-debounce'
 
-import { FunnelsFilter } from '~/queries/schema'
+import { FunnelsFilter } from '~/queries/schema/schema-general'
 import { EditorFilterProps, FunnelConversionWindow, FunnelConversionWindowTimeUnit } from '~/types'
 
-const TIME_INTERVAL_BOUNDS: Record<FunnelConversionWindowTimeUnit, number[]> = {
+export const TIME_INTERVAL_BOUNDS: Record<FunnelConversionWindowTimeUnit, number[]> = {
     [FunnelConversionWindowTimeUnit.Second]: [1, 3600],
     [FunnelConversionWindowTimeUnit.Minute]: [1, 1440],
     [FunnelConversionWindowTimeUnit.Hour]: [1, 24],

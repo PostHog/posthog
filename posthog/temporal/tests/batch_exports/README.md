@@ -10,6 +10,7 @@ BigQuery batch exports can be tested against a real BigQuery instance, but doing
 > Since BigQuery batch export tests require additional setup, we skip them by default and will not be ran by automated CI pipelines. Please ensure these tests pass when making changes that affect BigQuery batch exports.
 
 To enable testing for BigQuery batch exports, we require:
+
 1. A BigQuery project and dataset
 2. A BigQuery ServiceAccount with access to said project and dataset. See the [BigQuery batch export documentation](https://posthog.com/docs/cdp/batch-exports/bigquery#setting-up-bigquery-access) on detailed steps to setup a ServiceAccount.
 
@@ -29,11 +30,12 @@ Redshift batch exports can be tested against a real Redshift (or Redshift Server
 > Since Redshift batch export tests require additional setup, we skip them by default and will not be ran by automated CI pipelines. Please ensure these tests pass when making changes that affect Redshift batch exports.
 
 To enable testing for Redshift batch exports, we require:
+
 1. A Redshift (or Redshift Serverless) instance.
 2. Network access to this instance (via a VPN connection or jumphost, making a Redshift instance publicly available has serious security implications).
 3. User credentials (user requires `CREATEDB` permissions for testing but **not** superuser access).
 
-For PostHog employees, check the password manager as a set of development credentials should already be available. With these credentials, and after connecting to the appropriate VPN, we can run the tests from the root of the `posthog` repo with:
+For PostHog employees, check the password manager as a set of development credentials should already be available. You will also need to use the `dev` exit node in Tailscale and be added to the `group:engineering` group in the tailnet policy. With these credentials, and Tailscale setup, we can run the tests from the root of the `posthog` repo with:
 
 ```bash
 DEBUG=1 REDSHIFT_HOST=workgroup.111222333.region.redshift-serverless.amazonaws.com REDSHIFT_USER=test_user REDSHIFT_PASSWORD=test_password pytest posthog/temporal/tests/batch_exports/test_redshift_batch_export_workflow.py
@@ -60,3 +62,42 @@ DEBUG=1 S3_TEST_KMS_KEY_ID='1111111-2222-3333-4444-55555555555' S3_TEST_BUCKET='
 ```
 
 Replace the `S3_*` environment variables with the values obtained from the setup steps.
+
+## Testing Snowflake batch exports
+
+Snowflake batch exports are tested against a real Snowflake instance, with additional setup steps required. Due to this requirement, these tests are skipped unless Snowflake credentials are specified in the environment.
+
+> [!WARNING]
+> Since Snowflake batch export tests require additional setup, we skip them by default and will not be ran by automated CI pipelines. Please ensure these tests pass when making changes that affect Snowflake batch exports.
+
+To enable testing for Snowflake batch exports, we require:
+
+1. A Snowflake account.
+2. A Snowflake user and role with the necessary permissions to create and manage tables in the database.
+3. A Snowflake warehouse (compute resource) that the user has access to.
+
+For PostHog employees, check the password manager as a set of development credentials should already be available. You can either use these or ask someone to create a new user for you.
+
+We currently support 2 types of authentication for Snowflake batch exports:
+
+### Password authentication
+
+For password authentication, you can run the tests from the root of the `posthog` repo with:
+
+```bash
+DEBUG=1 SNOWFLAKE_WAREHOUSE='your-warehouse' SNOWFLAKE_USERNAME='your-username' SNOWFLAKE_PASSWORD='your-password' SNOWFLAKE_ACCOUNT='your-account' SNOWFLAKE_ROLE='your-role' pytest posthog/temporal/tests/batch_exports/test_snowflake_batch_export_workflow.py
+```
+
+Replace the `SNOWFLAKE_*` environment variables with the values obtained from the setup steps.
+
+### Key pair authentication
+
+For key pair authentication, you will first need to generate a key pair. You can find instructions on how to do this in the [Snowflake documentation](https://docs.snowflake.com/en/user-guide/key-pair-auth#configuring-key-pair-authentication)
+
+Once you have generated the key pair, you can run the tests from the root of the `posthog` repo with:
+
+```bash
+DEBUG=1 SNOWFLAKE_WAREHOUSE='your-warehouse' SNOWFLAKE_USERNAME='your-username' SNOWFLAKE_PRIVATE_KEY='your-private-key' SNOWFLAKE_PRIVATE_KEY_PASSPHRASE='your-passphrase' SNOWFLAKE_ACCOUNT='your-account' SNOWFLAKE_ROLE='your-role' pytest posthog/temporal/tests/batch_exports/test_snowflake_batch_export_workflow.py
+```
+
+Replace the `SNOWFLAKE_*` environment variables with the values obtained from the setup steps.

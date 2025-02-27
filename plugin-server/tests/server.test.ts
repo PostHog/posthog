@@ -22,7 +22,6 @@ describe('server', () => {
     function createPluginServer(config: Partial<PluginsServerConfig>, capabilities: PluginServerCapabilities) {
         return startPluginsServer(
             {
-                WORKER_CONCURRENCY: 2,
                 LOG_LEVEL: LogLevel.Debug,
                 ...config,
             },
@@ -90,14 +89,8 @@ describe('server', () => {
             {},
             {
                 http: true,
-                pluginScheduledTasks: true,
-                processPluginJobs: true,
-                processAsyncOnEventHandlers: true,
-                processAsyncWebhooksHandlers: true,
                 cdpProcessedEvents: true,
-                cdpFunctionCallbacks: true,
                 cdpCyclotronWorker: true,
-                syncInlinePlugins: true,
             }
         )
     })

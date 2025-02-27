@@ -38,6 +38,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
     "teams": [
       {
         "access_control": true,
+        "access_control_version": "v1",
         "anonymize_ips": false,
         "api_token": "default-team-api-token",
         "app_urls": [
@@ -49,6 +50,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
         "autocapture_opt_out": true,
         "autocapture_web_vitals_opt_in": false,
         "capture_console_log_opt_in": true,
+        "capture_dead_clicks": false,
         "capture_performance_opt_in": true,
         "completed_snippet_onboarding": true,
         "correlation_config": {
@@ -71,14 +73,23 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
           "data-attr",
         ],
         "effective_membership_level": 8,
+        "flags_persistence_default": false,
+        "has_completed_onboarding_for": {
+          "product_analytics": true,
+        },
         "has_group_types": true,
         "heatmaps_opt_in": true,
+        "human_friendly_comparison_periods": false,
         "id": 997,
         "ingested_event": true,
         "is_demo": false,
         "live_events_columns": null,
         "live_events_token": "123",
         "name": "MockHog App + Marketing",
+        "onboarding_tasks": {
+          "ingest_first_event": "completed",
+          "setup_session_recordings": "completed",
+        },
         "organization": "ABCD",
         "path_cleaning_filters": [],
         "person_display_name_properties": [
@@ -92,7 +103,13 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
         "recording_domains": [
           "https://recordings.posthog.com/",
         ],
+        "revenue_tracking_config": {
+          "events": [],
+        },
         "session_recording_linked_flag": null,
+        "session_recording_masking_config": {
+          "maskAllInputs": true,
+        },
         "session_recording_minimum_duration_milliseconds": null,
         "session_recording_network_payload_capture_config": {
           "recordBody": true,
@@ -113,6 +130,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
         "test_account_filters_default_checked": false,
         "timezone": "UTC",
         "updated_at": "2022-03-17T16:09:21.566253Z",
+        "user_access_level": "admin",
         "uuid": "TEAM_UUID",
       },
     ],

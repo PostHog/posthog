@@ -1,5 +1,4 @@
 import { connect, kea, path, selectors } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -37,8 +36,8 @@ export const FUNNEL_MATH_DEFINITIONS: Record<FunnelMathType, MathDefinition> = {
         shortName: 'first event',
         description: (
             <>
-                Only the first time the user performed this event will count towards the funnel, and only if it matches
-                the event filters.
+                Matches only the first time the user performed this event type. If this event does not match the event
+                filters, or is outside the selected date range, the user will be excluded from the funnel.
                 <br />
                 <br />
                 <i>
@@ -54,8 +53,9 @@ export const FUNNEL_MATH_DEFINITIONS: Record<FunnelMathType, MathDefinition> = {
         shortName: 'first matching event',
         description: (
             <>
-                The first time the user performed this event that matches the event filters will count towards the
-                funnel.
+                Matches only the first time the user performed this event type with the selected filters. If this event
+                is outside the selected date range, or the user never performed the event with the selected filters, the
+                user will be excluded from the funnel.
                 <br />
                 <br />
                 <i>
@@ -145,12 +145,32 @@ export const BASE_MATH_DEFINITIONS: Record<BaseMathType, MathDefinition> = {
         shortName: 'first time',
         description: (
             <>
-                Only count events if users do it for the first time.
+                Matches only the first time the user performed this event type. If this event does not match the event
+                filters, or is outside the selected date range, the user will be excluded from the insight.
                 <br />
                 <br />
                 <i>
-                    Example: If a single user performs an event for the first time ever within a given period, it counts
-                    as 1. Subsequent events by the same user will not be counted.
+                    Example: If the we are looking for pageview events to posthog.com/about, but the user's first
+                    pageview was on posthog.com, it will not match, even if they went to posthog.com/about afterwards.
+                </i>
+            </>
+        ),
+        category: MathCategory.EventCount,
+    },
+    [BaseMathType.FirstMatchingEventForUser]: {
+        name: 'First matching event for user',
+        shortName: 'first matching event',
+        description: (
+            <>
+                Matches only the first time the user performed this event type with the selected filters. If this event
+                is outside the selected date range, or the user never performed the event with the selected filters, the
+                user will be excluded from the insight.
+                <br />
+                <br />
+                <i>
+                    Example: If the we are looking for pageview events to posthog.com/about, and the user's first
+                    pageview was on posthog.com but then they navigated to posthog.com/about, it will match the pageview
+                    event from posthog.com/about
                 </i>
             </>
         ),
@@ -224,6 +244,19 @@ export const PROPERTY_MATH_DEFINITIONS: Record<PropertyMathType, MathDefinition>
         ),
         category: MathCategory.PropertyValue,
     },
+    [PropertyMathType.P75]: {
+        name: '75th percentile',
+        shortName: '75th percentile',
+        description: (
+            <>
+                Event property 75th percentile.
+                <br />
+                <br />
+                For example 100 events captured with property <code>amount</code> equal to 101..200, result in 175.
+            </>
+        ),
+        category: MathCategory.PropertyValue,
+    },
     [PropertyMathType.P90]: {
         name: '90th percentile',
         shortName: '90th percentile',
@@ -266,9 +299,9 @@ export const PROPERTY_MATH_DEFINITIONS: Record<PropertyMathType, MathDefinition>
 }
 export const HOGQL_MATH_DEFINITIONS: Record<HogQLMathType, MathDefinition> = {
     [HogQLMathType.HogQL]: {
-        name: 'HogQL expression',
-        shortName: 'HogQL expression',
-        description: <>Aggregate with a custom HogQL expression.</>,
+        name: 'SQL expression',
+        shortName: 'SQL expression',
+        description: <>Aggregate with a custom SQL expression.</>,
         category: MathCategory.HogQLExpression,
     },
 }
@@ -296,6 +329,12 @@ export const COUNT_PER_ACTOR_MATH_DEFINITIONS: Record<CountPerActorMathType, Mat
         name: 'Median',
         shortName: 'median',
         description: <>Event count per actor 50th percentile.</>,
+        category: MathCategory.EventCountPerActor,
+    },
+    [CountPerActorMathType.P75]: {
+        name: '75th percentile',
+        shortName: '75th percentile',
+        description: <>Event count per actor 75th percentile.</>,
         category: MathCategory.EventCountPerActor,
     },
     [CountPerActorMathType.P90]: {
@@ -352,8 +391,8 @@ export const mathsLogic = kea<mathsLogicType>([
     }),
     selectors({
         mathDefinitions: [
-            (s) => [s.groupsMathDefinitions, s.featureFlags],
-            (groupsMathDefinitions, featureFlags): Record<string, MathDefinition> => {
+            (s) => [s.groupsMathDefinitions],
+            (groupsMathDefinitions): Record<string, MathDefinition> => {
                 const allMathDefinitions: Record<string, MathDefinition> = {
                     ...BASE_MATH_DEFINITIONS,
                     ...groupsMathDefinitions,
@@ -361,27 +400,27 @@ export const mathsLogic = kea<mathsLogicType>([
                     ...COUNT_PER_ACTOR_MATH_DEFINITIONS,
                     ...HOGQL_MATH_DEFINITIONS,
                 }
-                return filterMathTypesUnderFeatureFlags(allMathDefinitions, featureFlags)
+                return allMathDefinitions
             },
         ],
         funnelMathDefinitions: [
-            (s) => [s.featureFlags],
-            (featureFlags): Record<string, MathDefinition> => {
+            () => [],
+            (): Record<string, MathDefinition> => {
                 const funnelMathDefinitions: Record<string, MathDefinition> = {
                     ...FUNNEL_MATH_DEFINITIONS,
                 }
-                return filterMathTypesUnderFeatureFlags(funnelMathDefinitions, featureFlags)
+                return funnelMathDefinitions
             },
         ],
         // Static means the options do not have nested selectors (like math function)
         staticMathDefinitions: [
-            (s) => [s.groupsMathDefinitions, s.needsUpgradeForGroups, s.featureFlags],
-            (groupsMathDefinitions, needsUpgradeForGroups, featureFlags): Record<string, MathDefinition> => {
+            (s) => [s.groupsMathDefinitions, s.needsUpgradeForGroups],
+            (groupsMathDefinitions, needsUpgradeForGroups): Record<string, MathDefinition> => {
                 const staticMathDefinitions: Record<string, MathDefinition> = {
                     ...BASE_MATH_DEFINITIONS,
                     ...(!needsUpgradeForGroups ? groupsMathDefinitions : {}),
                 }
-                return filterMathTypesUnderFeatureFlags(staticMathDefinitions, featureFlags)
+                return staticMathDefinitions
             },
         ],
         staticActorsOnlyMathDefinitions: [
@@ -426,14 +465,3 @@ export const mathsLogic = kea<mathsLogicType>([
         ],
     }),
 ])
-
-export function filterMathTypesUnderFeatureFlags(
-    mathDefinitions: Record<string, MathDefinition>,
-    featureFlags: Record<string, boolean | string>
-): Record<string, MathDefinition> {
-    const copy = { ...mathDefinitions }
-    if (!featureFlags[FEATURE_FLAGS.FIRST_TIME_FOR_USER_MATH]) {
-        delete copy[BaseMathType.FirstTimeForUser]
-    }
-    return copy
-}

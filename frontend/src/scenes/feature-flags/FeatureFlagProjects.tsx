@@ -138,7 +138,7 @@ function FeatureFlagCopySection(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { cohorts } = useValues(cohortsModel)
 
-    const hasStaticCohort = checkHasStaticCohort(featureFlag, cohorts)
+    const hasStaticCohort = checkHasStaticCohort(featureFlag, cohorts.results)
     const hasMultipleProjects = (currentOrganization?.teams?.length ?? 0) > 1
 
     return hasMultipleProjects && featureFlag.can_edit ? (

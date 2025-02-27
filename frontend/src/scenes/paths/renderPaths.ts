@@ -4,11 +4,11 @@ import { D3Selector } from 'lib/hooks/useD3'
 import { stripHTTP } from 'lib/utils'
 import { Dispatch, RefObject, SetStateAction } from 'react'
 
-import { FunnelPathsFilter, PathsFilter } from '~/queries/schema'
+import { FunnelPathsFilter, PathsFilter } from '~/queries/schema/schema-general'
 
 import { FALLBACK_CANVAS_WIDTH, HIDE_PATH_CARD_HEIGHT } from './Paths'
-import { PathNode } from './pathsDataLogic'
 import { isSelectedPathStartOrEnd, PathNodeData, PathTargetLink, roundedRect } from './pathUtils'
+import { Paths } from './types'
 
 const createCanvas = (canvasRef: RefObject<HTMLDivElement>, width: number, height: number): D3Selector => {
     return d3
@@ -20,7 +20,7 @@ const createCanvas = (canvasRef: RefObject<HTMLDivElement>, width: number, heigh
         .style('height', `${height}px`)
 }
 
-const createSankey = (width: number, height: number): Sankey.SankeyLayout<any, any, any> => {
+const createSankeyGenerator = (width: number, height: number): Sankey.SankeyLayout<any, any, any> => {
     // @ts-expect-error - d3 sankey typing things
     return new Sankey.sankey()
         .nodeId((d: PathNodeData) => d.name)
@@ -64,9 +64,9 @@ const appendPathNodes = (
                 }
             }
             if (isSelectedPathStartOrEnd(pathsFilter, funnelPathsFilter, d)) {
-                return d3.color('purple')
+                return 'var(--paths-node-start-or-end)'
             }
-            const startNodeColor = c && d3.color(c) ? d3.color(c) : d3.color('#5375ff')
+            const startNodeColor = c && d3.color(c) ? d3.color(c) : 'var(--paths-node)'
             return startNodeColor
         })
         .on('mouseover', (_event: MouseEvent, data: PathNodeData) => {
@@ -92,9 +92,9 @@ const appendDropoffs = (svg: D3Selector): void => {
         .attr('id', 'dropoff-gradient')
         .attr('gradientTransform', 'rotate(90)')
 
-    dropOffGradient.append('stop').attr('offset', '0%').attr('stop-color', 'rgba(220,53,69,0.7)')
+    dropOffGradient.append('stop').attr('offset', '0%').attr('stop-color', 'var(--paths-dropoff)')
 
-    dropOffGradient.append('stop').attr('offset', '100%').attr('stop-color', 'var(--bg-light)')
+    dropOffGradient.append('stop').attr('offset', '100%').attr('stop-color', 'var(--bg-surface-primary)')
 }
 
 const appendPathLinks = (
@@ -109,7 +109,7 @@ const appendPathLinks = (
         .selectAll('g')
         .data(links)
         .join('g')
-        .attr('stroke', 'var(--primary)')
+        .attr('stroke', 'var(--paths-link)')
         .attr('opacity', 0.35)
 
     link.append('path')
@@ -119,7 +119,7 @@ const appendPathLinks = (
             return Math.max(1, d.width)
         })
         .on('mouseover', (_event: MouseEvent, data: PathNodeData) => {
-            svg.select(`#path-${data.index}`).attr('stroke', 'blue')
+            svg.select(`#path-${data.index}`).attr('stroke', 'var(--paths-link-hover)')
             if (data?.source?.targetLinks.length === 0) {
                 return
             }
@@ -128,7 +128,7 @@ const appendPathLinks = (
             while (nodesToColor.length > 0) {
                 const _node = nodesToColor.pop()
                 _node?.targetLinks.forEach((_link: PathTargetLink) => {
-                    svg.select(`#path-${_link.index}`).attr('stroke', 'blue')
+                    svg.select(`#path-${_link.index}`).attr('stroke', 'var(--paths-link-hover)')
                     nodesToColor.push(_link.source)
                     pathCardsToShow.push(_link.source.index)
                 })
@@ -154,7 +154,7 @@ const appendPathLinks = (
             )
         })
         .on('mouseleave', () => {
-            svg.selectAll('path').attr('stroke', 'var(--primary)')
+            svg.selectAll('path').attr('stroke', 'var(--paths-link)')
         })
 
     link.append('g')
@@ -186,7 +186,7 @@ const addChartAxisLines = (svg: D3Selector, height: number, nodes: PathNodeData[
         const minWidthApart = nodes[1].x0 - nodes[0].x0
         arr.forEach((_, i) => {
             svg.append('line')
-                .style('stroke', 'var(--border)')
+                .style('stroke', 'var(--border-primary)')
                 .attr('stroke-width', 2)
                 .attr('x1', minWidthApart * (i + 1) - 20)
                 .attr('y1', 0)
@@ -200,7 +200,7 @@ export function renderPaths(
     canvasRef: RefObject<HTMLDivElement>,
     canvasWidth: number,
     canvasHeight: number,
-    paths: { links: PathNode[]; nodes: any[] },
+    paths: Paths,
     pathsFilter: PathsFilter,
     funnelPathsFilter: FunnelPathsFilter,
     setNodeCards: Dispatch<SetStateAction<PathNodeData[]>>
@@ -210,9 +210,7 @@ export function renderPaths(
     }
 
     const maxLayer = paths.links.reduce((prev, curr) => {
-        // @ts-expect-error - sometimes target is an object instead of string
-        const currNum = curr.target.name || curr.target
-        return Math.max(prev, Number(currNum.match(/[^_]*/)))
+        return Math.max(prev, Number(curr.target.match(/[^_]*/)))
     }, 0)
 
     const minWidth = canvasWidth > FALLBACK_CANVAS_WIDTH || maxLayer < 3 ? canvasWidth : FALLBACK_CANVAS_WIDTH
@@ -221,11 +219,11 @@ export function renderPaths(
     const height = canvasHeight
 
     const svg = createCanvas(canvasRef, width, height)
-    const sankey = createSankey(width, height)
-    const { nodes, links } = sankey({
-        nodes: paths.nodes.map((d) => ({ ...d })),
-        links: paths.links.map((d) => ({ ...d })),
-    })
+    const sankey = createSankeyGenerator(width, height)
+
+    // clone the paths, as sankey mutates the data
+    const clonedPaths = structuredClone(paths)
+    const { nodes, links } = sankey(clonedPaths)
 
     setNodeCards(nodes.map((node: PathNodeData) => ({ ...node, visible: node.y1 - node.y0 > HIDE_PATH_CARD_HEIGHT })))
 

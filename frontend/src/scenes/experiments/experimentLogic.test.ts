@@ -1,8 +1,12 @@
 import { expectLogic } from 'kea-test-utils'
 import { userLogic } from 'scenes/userLogic'
 
+import experimentJson from '~/mocks/fixtures/api/experiments/_experiment_launched_with_funnel_and_trends.json'
+import experimentMetricResultsErrorJson from '~/mocks/fixtures/api/experiments/_experiment_metric_results_error.json'
+import experimentMetricResultsSuccessJson from '~/mocks/fixtures/api/experiments/_experiment_metric_results_success.json'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { Experiment } from '~/types'
 
 import { experimentLogic } from './experimentLogic'
 
@@ -11,6 +15,12 @@ const RUNNING_FUNNEL_EXP_ID = 46
 
 describe('experimentLogic', () => {
     let logic: ReturnType<typeof experimentLogic.build>
+    // Transform null to undefined where needed
+    const experiment = {
+        ...experimentJson,
+        created_by: { ...experimentJson.created_by, hedgehog_config: undefined },
+        holdout: undefined,
+    } as Experiment
 
     beforeEach(async () => {
         useMocks({
@@ -21,30 +31,19 @@ describe('experimentLogic', () => {
                     previous: null,
                     results: [{ id: 1, name: 'Test Exp', description: 'bla' }],
                 },
-                '/api/projects/:team/experiments/:id': {
-                    created_at: '2022-01-13T12:44:45.944423Z',
-                    created_by: { id: 1, uuid: '017dc2ea-ace1-0000-c9ed-a6e43fd8956b' },
-                    description: 'badum tssss',
-                    feature_flag_key: 'test-experiment',
-                    filters: {
-                        events: [{ id: 'user signup', name: 'user signup', type: 'events', order: 0 }],
-                        insight: 'FUNNELS',
-                    },
-                    id: RUNNING_EXP_ID,
-                    name: 'test experiment',
-                    parameters: {
-                        feature_flag_variants: [
-                            { key: 'control', rollout_percentage: 25 },
-                            { key: 'test_1', rollout_percentage: 25 },
-                            { key: 'test_2', rollout_percentage: 25 },
-                            { key: 'test_3', rollout_percentage: 25 },
-                        ],
-                        recommended_running_time: 20.2,
-                        recommended_sample_size: 2930,
-                    },
-                    start_date: '2022-01-13T13:25:29.896000Z',
-                    updated_at: '2022-01-13T13:25:38.462106Z',
+                '/api/projects/:team/experiment_holdouts': {
+                    count: 0,
+                    next: null,
+                    previous: null,
+                    results: [],
                 },
+                '/api/projects/:team/experiment_saved_metrics': {
+                    count: 0,
+                    next: null,
+                    previous: null,
+                    results: [],
+                },
+                '/api/projects/:team/experiments/:id': experiment,
                 [`/api/projects/:team/experiments/${RUNNING_EXP_ID}/results`]: {
                     filters: { breakdown: '$feature/test-experiment', breakdown_type: 'event', insight: 'TRENDS' },
                     insight: [
@@ -83,6 +82,154 @@ describe('experimentLogic', () => {
         logic = experimentLogic()
         logic.mount()
         await expectLogic(userLogic).toFinishAllListeners()
+    })
+
+    describe('loadMetricResults', () => {
+        it('given a refresh, loads the metric results', async () => {
+            logic.actions.setExperiment(experiment)
+
+            useMocks({
+                post: {
+                    '/api/environments/:team/query': (() => {
+                        let callCount = 0
+                        return () => {
+                            callCount++
+                            return [
+                                200,
+                                {
+                                    cache_key: 'cache_key',
+                                    query_status:
+                                        callCount === 1
+                                            ? experimentMetricResultsSuccessJson.query_status
+                                            : experimentMetricResultsErrorJson.query_status,
+                                },
+                            ]
+                        }
+                    })(),
+                },
+                get: {
+                    '/api/environments/:team/query/:id': (() => {
+                        let callCount = 0
+                        return () => {
+                            callCount++
+                            return callCount === 1
+                                ? [200, experimentMetricResultsSuccessJson]
+                                : [400, experimentMetricResultsErrorJson]
+                        }
+                    })(),
+                },
+            })
+
+            const promise = logic.asyncActions.loadMetricResults(true)
+
+            await expectLogic(logic).toDispatchActions(['setMetricResultsLoading', 'setMetricResults']).toMatchValues({
+                metricResults: [],
+                metricResultsLoading: true,
+                primaryMetricsResultErrors: [],
+            })
+
+            await promise
+
+            await expectLogic(logic)
+                .toDispatchActions(['setMetricResultsLoading'])
+                .toMatchValues({
+                    metricResults: [
+                        {
+                            ...experimentMetricResultsSuccessJson.query_status.results,
+                            fakeInsightId: expect.any(String),
+                        },
+                        null,
+                    ],
+                    metricResultsLoading: false,
+                    primaryMetricsResultErrors: [
+                        null,
+                        {
+                            detail: {
+                                'no-control-variant': true,
+                                'no-test-variant': true,
+                                'no-exposures': false,
+                            },
+                            hasDiagnostics: true,
+                            statusCode: 400,
+                        },
+                    ],
+                })
+        })
+    })
+
+    describe('loadSecondaryMetricResults', () => {
+        it('given a refresh, loads the secondary metric results', async () => {
+            logic.actions.setExperiment(experiment)
+
+            useMocks({
+                post: {
+                    '/api/environments/:team/query': (() => {
+                        let callCount = 0
+                        return () => {
+                            callCount++
+                            return [
+                                200,
+                                {
+                                    cache_key: 'cache_key',
+                                    query_status:
+                                        callCount === 2
+                                            ? experimentMetricResultsSuccessJson.query_status
+                                            : experimentMetricResultsErrorJson.query_status,
+                                },
+                            ]
+                        }
+                    })(),
+                },
+                get: {
+                    '/api/environments/:team/query/:id': (() => {
+                        let callCount = 0
+                        return () => {
+                            callCount++
+                            return callCount === 2
+                                ? [200, experimentMetricResultsSuccessJson]
+                                : [400, experimentMetricResultsErrorJson]
+                        }
+                    })(),
+                },
+            })
+
+            const promise = logic.asyncActions.loadSecondaryMetricResults(true)
+
+            await expectLogic(logic)
+                .toDispatchActions(['setSecondaryMetricResultsLoading', 'setSecondaryMetricResults'])
+                .toMatchValues({
+                    secondaryMetricResults: [],
+                    secondaryMetricResultsLoading: true,
+                    secondaryMetricsResultErrors: [],
+                })
+
+            await promise
+
+            await expectLogic(logic)
+                .toDispatchActions(['setSecondaryMetricResultsLoading'])
+                .toMatchValues({
+                    secondaryMetricResults: [
+                        null,
+                        {
+                            ...experimentMetricResultsSuccessJson.query_status.results,
+                            fakeInsightId: expect.any(String),
+                        },
+                    ],
+                    secondaryMetricResultsLoading: false,
+                    secondaryMetricsResultErrors: [
+                        {
+                            detail: {
+                                'no-control-variant': true,
+                                'no-test-variant': true,
+                                'no-exposures': false,
+                            },
+                            hasDiagnostics: true,
+                            statusCode: 400,
+                        },
+                        null,
+                    ],
+                })
+        })
     })
 
     describe('selector values', () => {

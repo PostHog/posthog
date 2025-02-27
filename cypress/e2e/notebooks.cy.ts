@@ -52,18 +52,6 @@ describe('Notebooks', () => {
         cy.get('.NotebookRecordingTimestamp.opacity-50').should('not.exist')
     })
 
-    // FIXME: fix commenting on recordings
-    it.skip('Can comment on a recording', () => {
-        cy.visit(urls.replay())
-
-        cy.get('[data-attr="notebooks-add-button"]').click()
-        cy.get('[data-attr="notebooks-select-button-create"]').click()
-
-        cy.get('.Notebook.Notebook--editable').should('be.visible')
-        cy.get('.ph-recording.NotebookNode').should('be.visible')
-        cy.get('.NotebookRecordingTimestamp').should('contain.text', '0:00')
-    })
-
     describe('text types', () => {
         beforeEach(() => {
             cy.get('li').contains('Notebooks').should('exist').click()

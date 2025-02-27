@@ -1,7 +1,8 @@
-import { actions, events, kea, listeners, path, reducers } from 'kea'
+import { actions, connect, events, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { UserBasicType } from '~/types'
 
@@ -42,6 +43,9 @@ export const holdoutsLogic = kea<holdoutsLogicType>([
         deleteHoldout: (id: number | null) => ({ id }),
         loadHoldout: (id: number | null) => ({ id }),
     }),
+    connect({
+        actions: [eventUsageLogic, ['reportExperimentHoldoutCreated']],
+    }),
     reducers({
         holdout: [
             NEW_HOLDOUT,
@@ -50,7 +54,7 @@ export const holdoutsLogic = kea<holdoutsLogicType>([
             },
         ],
     }),
-    loaders(({ values }) => ({
+    loaders(({ actions, values }) => ({
         holdouts: [
             [] as Holdout[],
             {
@@ -60,6 +64,7 @@ export const holdoutsLogic = kea<holdoutsLogicType>([
                 },
                 createHoldout: async () => {
                     const response = await api.create(`api/projects/@current/experiment_holdouts/`, values.holdout)
+                    actions.reportExperimentHoldoutCreated(response)
                     return [...values.holdouts, response] as Holdout[]
                 },
                 updateHoldout: async ({ id, holdout }) => {

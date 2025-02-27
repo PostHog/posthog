@@ -149,8 +149,10 @@ export const elementsLogic = kea<elementsLogicType>([
                 const inspectForExperiment =
                     experimentsTabLogic.values.buttonExperimentsVisible &&
                     experimentsTabLogic.values.inspectingElement !== null
-
-                return getAllClickTargets(undefined, inspectForExperiment ? EXPERIMENT_TARGET_SELECTOR : undefined)
+                const selector = inspectForExperiment
+                    ? experimentsTabLogic.values.elementSelector || EXPERIMENT_TARGET_SELECTOR
+                    : undefined
+                return getAllClickTargets(undefined, selector)
             },
         ],
 

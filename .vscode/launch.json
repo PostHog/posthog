@@ -6,7 +6,7 @@
     "configurations": [
         {
             "name": "Frontend",
-            "command": "pnpm start",
+            "command": "bin/turbo --filter=@posthog/frontend start",
             "request": "launch",
             "type": "node-terminal",
             "cwd": "${workspaceFolder}",
@@ -16,11 +16,22 @@
             "skipFiles": ["${workspaceFolder}/node_modules/kea-typegen/**/*.js"]
         },
         {
-            "name": "Frontend (https)",
-            "command": "pnpm start",
+            "name": "Frontend (no typegen)",
+            "command": "pnpm start-http",
             "request": "launch",
             "type": "node-terminal",
-            "cwd": "${workspaceFolder}",
+            "cwd": "${workspaceFolder}/frontend",
+            "presentation": {
+                "group": "main"
+            },
+            "skipFiles": ["${workspaceFolder}/node_modules/kea-typegen/**/*.js"]
+        },
+        {
+            "name": "Frontend (https)",
+            "command": "bin/turbo --filter=@posthog/frontend start",
+            "request": "launch",
+            "type": "node-terminal",
+            "cwd": "${workspaceFolder}/frontend",
             "presentation": {
                 "group": "main"
             },
@@ -97,7 +108,31 @@
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "env": {
-                "SKIP_ASYNC_MIGRATIONS_SETUP": "0",
+                "SKIP_ASYNC_MIGRATIONS_SETUP": "1",
+                "DEBUG": "1",
+                "BILLING_SERVICE_URL": "https://billing.dev.posthog.dev",
+                "SKIP_SERVICE_VERSION_REQUIREMENTS": "1"
+            },
+            "presentation": {
+                "group": "main"
+            }
+        },
+        {
+            "name": "Celery Beat",
+            "consoleName": "Celery Beat",
+            "type": "debugpy",
+            "justMyCode": true,
+            "autoReload": {
+                "enable": true,
+                "include": ["posthog/**/*.py"]
+            },
+            "request": "launch",
+            "program": "${workspaceFolder}/manage.py",
+            "args": ["run_autoreload_celery", "--type=beat"],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "SKIP_ASYNC_MIGRATIONS_SETUP": "1",
                 "DEBUG": "1",
                 "BILLING_SERVICE_URL": "https://billing.dev.posthog.dev",
                 "SKIP_SERVICE_VERSION_REQUIREMENTS": "1"
@@ -108,19 +143,17 @@
         },
         {
             "name": "Plugin Server",
-            "command": "npm run start:dev",
+            "command": "bin/turbo --env-mode=loose --filter=@posthog/plugin-server start",
             "request": "launch",
             "type": "node-terminal",
-            "cwd": "${workspaceFolder}/plugin-server",
+            "cwd": "${workspaceFolder}",
             "env": {
                 "CLICKHOUSE_SECURE": "False",
                 "DATABASE_URL": "postgres://posthog:posthog@localhost:5432/posthog",
                 "KAFKA_HOSTS": "localhost:9092",
                 "WORKER_CONCURRENCY": "2",
                 "OBJECT_STORAGE_ENABLED": "True",
-                "HOG_HOOK_URL": "http://localhost:3300/hoghook",
-                "CDP_ASYNC_FUNCTIONS_RUSTY_HOOK_TEAMS": "",
-                "CDP_CYCLOTRON_ENABLED_TEAMS": "*"
+                "HOG_HOOK_URL": "http://localhost:3300/hoghook"
             },
             "presentation": {
                 "group": "main"
@@ -160,6 +193,13 @@
             "justMyCode": true
         },
         {
+            "name": "Frontend: Debug Jest Tests",
+            "type": "node-terminal",
+            "command": "pnpm test:unit --runInBand",
+            "request": "launch",
+            "cwd": "${workspaceFolder}"
+        },
+        {
             "name": "(lldb) Attach",
             "type": "cppdbg",
             "request": "attach",
@@ -183,12 +223,73 @@
             "purpose": ["debug-test"],
             "console": "integratedTerminal",
             "justMyCode": false
+        },
+        {
+            "type": "node",
+            "request": "launch",
+            "name": "Jest Current File",
+            "program": "${workspaceFolder}/node_modules/jest/bin/jest.js",
+            "args": ["--detectOpenHandles", "${relativeFile}"],
+            "console": "integratedTerminal",
+            "internalConsoleOptions": "neverOpen",
+            "runtimeExecutable": "${env:HOME}/.nvm/versions/node/${input:pickVersion}/bin/node"
+        },
+        {
+            "name": "Python Debugger: Django Migrations",
+            "type": "debugpy",
+            "request": "launch",
+            "args": ["migrate", "posthog"],
+            "django": true,
+            "env": {
+                "PYTHONUNBUFFERED": "1",
+                "DJANGO_SETTINGS_MODULE": "posthog.settings",
+                "DEBUG": "1",
+                "CLICKHOUSE_SECURE": "False",
+                "KAFKA_HOSTS": "localhost",
+                "DATABASE_URL": "postgres://posthog:posthog@localhost:5432/posthog",
+                "SKIP_SERVICE_VERSION_REQUIREMENTS": "1",
+                "PRINT_SQL": "1",
+                "BILLING_SERVICE_URL": "http://localhost:8100/",
+                "CLOUD_DEPLOYMENT": "dev"
+            },
+            "autoStartBrowser": false,
+            "program": "${workspaceFolder}/manage.py"
+        }
+    ],
+    "inputs": [
+        {
+            "id": "pickVersion",
+            "type": "command",
+            "command": "extension.node-version"
         }
     ],
     "compounds": [
         {
             "name": "PostHog",
-            "configurations": ["Backend", "Celery Threaded Pool", "Frontend", "Plugin Server", "Temporal Worker"],
+            "configurations": [
+                "Backend",
+                "Celery Threaded Pool",
+                "Celery Beat",
+                "Frontend",
+                "Plugin Server",
+                "Temporal Worker"
+            ],
+            "stopAll": true,
+            "presentation": {
+                "order": 1,
+                "group": "compound"
+            }
+        },
+        {
+            "name": "PostHog (no typegen)",
+            "configurations": [
+                "Backend",
+                "Celery Threaded Pool",
+                "Celery Beat",
+                "Frontend (no typegen)",
+                "Plugin Server",
+                "Temporal Worker"
+            ],
             "stopAll": true,
             "presentation": {
                 "order": 1,

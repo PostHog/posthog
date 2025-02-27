@@ -1,5 +1,4 @@
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
@@ -78,20 +77,18 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
             }
         },
     })),
-    events(({ actions, cache, values }) => ({
+    events(({ actions, cache }) => ({
         afterMount: () => {
-            if (values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_USER_COUNT]) {
-                actions.setNow({ now: new Date() })
+            actions.setNow({ now: new Date() })
+            actions.pollStats()
+
+            cache.statsInterval = setInterval(() => {
                 actions.pollStats()
+            }, 30000)
 
-                cache.statsInterval = setInterval(() => {
-                    actions.pollStats()
-                }, 30000)
-
-                cache.nowInterval = setInterval(() => {
-                    actions.setNow({ now: new Date() })
-                }, 500)
-            }
+            cache.nowInterval = setInterval(() => {
+                actions.setNow({ now: new Date() })
+            }, 500)
         },
         beforeUnmount: () => {
             if (cache.statsInterval) {

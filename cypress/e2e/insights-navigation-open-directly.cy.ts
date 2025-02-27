@@ -27,13 +27,7 @@ describe('Insights', () => {
 
             it('can open a new funnels insight', () => {
                 insight.newInsight('FUNNELS')
-                cy.get('.funnels-empty-state__title').should('exist')
-            })
-
-            it.skip('can open a new retention insight', () => {
-                insight.newInsight('RETENTION')
-                cy.get('.RetentionContainer canvas').should('exist')
-                cy.get('.RetentionTable__Tab').should('have.length', 66)
+                cy.get('[data-attr="insight-empty-state"]').find('h2').should('exist')
             })
 
             it('can open a new paths insight', () => {

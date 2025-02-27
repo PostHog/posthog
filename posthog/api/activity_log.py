@@ -131,18 +131,30 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
         with timer("gather_query_parts"):
             # first things this user created
             my_insights = list(
-                Insight.objects.filter(created_by=user, team_id=self.team.pk).values_list("id", flat=True)
+                Insight.objects.filter(created_by=user, team__project_id=self.team.project_id).values_list(
+                    "id", flat=True
+                )
             )
             my_feature_flags = list(
-                FeatureFlag.objects.filter(created_by=user, team_id=self.team.pk).values_list("id", flat=True)
+                FeatureFlag.objects.filter(created_by=user, team__project_id=self.team.project_id).values_list(
+                    "id", flat=True
+                )
             )
             my_notebooks = list(
-                Notebook.objects.filter(created_by=user, team_id=self.team.pk).values_list("short_id", flat=True)
+                Notebook.objects.filter(created_by=user, team__project_id=self.team.project_id).values_list(
+                    "short_id", flat=True
+                )
             )
             my_comments = list(
-                Comment.objects.filter(created_by=user, team_id=self.team.pk).values_list("id", flat=True)
+                Comment.objects.filter(created_by=user, team__project_id=self.team.project_id).values_list(
+                    "id", flat=True
+                )
             )
-            my_cohorts = list(Cohort.objects.filter(created_by=user, team_id=self.team.pk).values_list("id", flat=True))
+            my_cohorts = list(
+                Cohort.objects.filter(created_by=user, team__project_id=self.team.project_id).values_list(
+                    "id", flat=True
+                )
+            )
             my_hog_functions = list(
                 HogFunction.objects.filter(created_by=user, team_id=self.team.pk).values_list("id", flat=True)
             )

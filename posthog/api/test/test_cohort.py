@@ -73,7 +73,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         # Make sure the endpoint works with and without the trailing slash
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
-            data={"name": "whatever", "groups": [{"properties": {"team_id": 5}}]},
+            data={"name": "whatever", "groups": [{"properties": {"team_id": "5"}}]},
         )
         self.assertEqual(response.status_code, 201, response.content)
         self.assertEqual(response.json()["created_by"]["id"], self.user.pk)
@@ -90,14 +90,11 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
                     "values": [
                         {
                             "type": "AND",
-                            "values": [{"key": "team_id", "value": 5, "type": "person"}],
+                            "values": [{"key": "team_id", "value": "5", "type": "person"}],
                         }
                     ],
                 },
                 "name_length": 8,
-                "groups_count": 1,
-                "action_groups_count": 0,
-                "properties_groups_count": 1,
                 "deleted": False,
             },
         )
@@ -108,7 +105,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
                 data={
                     "name": "whatever2",
                     "description": "A great cohort!",
-                    "groups": [{"properties": {"team_id": 6}}],
+                    "groups": [{"properties": {"team_id": "6"}}],
                     "created_by": "something something",
                     "last_calculation": "some random date",
                     "errors_calculating": 100,
@@ -131,14 +128,11 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
                     "values": [
                         {
                             "type": "AND",
-                            "values": [{"key": "team_id", "value": 6, "type": "person"}],
+                            "values": [{"key": "team_id", "value": "6", "type": "person"}],
                         }
                     ],
                 },
                 "name_length": 9,
-                "groups_count": 1,
-                "action_groups_count": 0,
-                "properties_groups_count": 1,
                 "deleted": False,
                 "updated_by_creator": True,
             },
@@ -172,7 +166,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
             steps_json=[
                 {
                     "event": "$pageview",
-                    "properties": [{"key": "team_id", "type": "person", "value": 5}],
+                    "properties": [{"key": "team_id", "type": "person", "value": "5"}],
                 }
             ],
         )
@@ -241,7 +235,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         )
         self.assertEqual(response.status_code, 201, response.content)
 
-        with self.assertNumQueries(9):
+        with self.assertNumQueries(12):
             response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
             assert len(response.json()["results"]) == 1
 
@@ -256,7 +250,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         )
         self.assertEqual(response.status_code, 201, response.content)
 
-        with self.assertNumQueries(9):
+        with self.assertNumQueries(12):
             response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
             assert len(response.json()["results"]) == 3
 
@@ -304,8 +298,8 @@ User ID,
             content_type="application/csv",
         )
 
-        #  A weird issue with pytest client, need to user Rest framework's one
-        #  see https://stackoverflow.com/questions/39906956/patch-and-put-dont-work-as-expected-when-pytest-is-interacting-with-rest-framew
+        #  A weird issue with pytest client, need to user Rest framework's one
+        #  see https://stackoverflow.com/questions/39906956/patch-and-put-dont-work-as-expected-when-pytest-is-interacting-with-rest-framew
         client = APIClient()
         client.force_login(self.user)
         response = client.patch(
@@ -375,21 +369,142 @@ email@example.org,
         self.assertEqual(response.status_code, 200)
         self.assertEqual(patch_calculate_cohort.call_count, 1)
 
-    def test_cohort_list(self):
+    def test_cohort_list_with_search(self):
         self.team.app_urls = ["http://somewebsite.com"]
         self.team.save()
+
         Person.objects.create(team=self.team, properties={"prop": 5})
         Person.objects.create(team=self.team, properties={"prop": 6})
 
         self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
-            data={"name": "whatever", "groups": [{"properties": {"prop": 5}}]},
+            data={"name": "cohort1", "groups": [{"properties": {"prop": 5}}]},
+        )
+
+        self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "cohort2", "groups": [{"properties": {"prop": 6}}]},
         )
 
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts").json()
+        self.assertEqual(len(response["results"]), 2)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts?search=cohort1").json()
         self.assertEqual(len(response["results"]), 1)
-        self.assertEqual(response["results"][0]["name"], "whatever")
-        self.assertEqual(response["results"][0]["created_by"]["id"], self.user.id)
+        self.assertEqual(response["results"][0]["name"], "cohort1")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts?search=nomatch").json()
+        self.assertEqual(len(response["results"]), 0)
+
+    @patch("posthog.api.cohort.report_user_action")
+    def test_list_cohorts_excludes_behavioral_cohorts(self, patch_capture):
+        # Create a regular cohort
+        regular_cohort = Cohort.objects.create(
+            team=self.team,
+            name="regular cohort",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"type": "person", "key": "email", "value": "test@posthog.com"}],
+                }
+            },
+        )
+
+        # Create a behavioral cohort
+        Cohort.objects.create(
+            team=self.team,
+            name="behavioral cohort",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {
+                                    "type": "behavioral",
+                                    "key": "$pageview",
+                                    "value": "performed_event",
+                                    "event_type": "events",
+                                    "time_value": 30,
+                                    "time_interval": "day",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+
+        # Test without filter
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["results"]), 2)
+
+        # Test with behavioral filter
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts?hide_behavioral_cohorts=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["id"], regular_cohort.id)
+
+    @patch("posthog.api.cohort.report_user_action")
+    def test_list_cohorts_excludes_nested_behavioral_cohorts(self, patch_capture):
+        # Create a behavioral cohort
+        behavioral_cohort = Cohort.objects.create(
+            team=self.team,
+            name="behavioral cohort",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "behavioral",
+                            "key": "$pageview",
+                            "value": "performed_event",
+                            "event_type": "events",
+                            "time_value": 30,
+                            "time_interval": "day",
+                        }
+                    ],
+                }
+            },
+        )
+
+        # Create a cohort that references the behavioral cohort
+        Cohort.objects.create(
+            team=self.team,
+            name="cohort with nested behavioral",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "cohort",
+                            "value": str(behavioral_cohort.pk),
+                        }
+                    ],
+                }
+            },
+        )
+
+        # Create a regular cohort
+        regular_cohort = Cohort.objects.create(
+            team=self.team,
+            name="regular cohort not behavioral",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"type": "person", "key": "email", "value": "test@posthog.com"}],
+                }
+            },
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts?hide_behavioral_cohorts=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["id"], regular_cohort.id)
 
     def test_cohort_activity_log(self):
         self.team.app_urls = ["http://somewebsite.com"]
@@ -399,7 +514,7 @@ email@example.org,
 
         self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
-            data={"name": "whatever", "groups": [{"properties": {"prop": 5}}]},
+            data={"name": "whatever", "groups": [{"properties": {"prop": "5"}}]},
         )
 
         cohort = Cohort.objects.filter(team=self.team).last()
@@ -421,7 +536,7 @@ email@example.org,
 
         self.client.patch(
             f"/api/projects/{self.team.id}/cohorts/{cohort.pk}",
-            data={"name": "woohoo", "groups": [{"properties": {"prop": 6}}]},
+            data={"name": "woohoo", "groups": [{"properties": {"prop": "6"}}]},
         )
         cohort.refresh_from_db()
         assert cohort.name == "woohoo"
@@ -455,12 +570,12 @@ email@example.org,
                                         "end_date": None,
                                         "event_id": None,
                                         "action_id": None,
-                                        "properties": [{"key": "prop", "type": "person", "value": 5}],
+                                        "properties": [{"key": "prop", "type": "person", "value": "5"}],
                                         "start_date": None,
                                         "count_operator": None,
                                     }
                                 ],
-                                "after": [{"properties": [{"key": "prop", "type": "person", "value": 6}]}],
+                                "after": [{"properties": [{"key": "prop", "type": "person", "value": "6"}]}],
                             },
                         ],
                         "trigger": None,
@@ -1111,7 +1226,7 @@ email@example.org,
         self.assertEqual(1, _calc("select 1 from events"))
 
         # raises on all other cases
-        response = self.client.post(
+        query_post_response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
             data={
                 "name": "cohort A",
@@ -1122,7 +1237,15 @@ email@example.org,
                 },
             },
         )
-        self.assertEqual(response.status_code, 500, response.content)
+        query_get_response = self.client.get(
+            f"/api/projects/{self.team.id}/cohorts/{query_post_response.json()['id']}/"
+        )
+
+        self.assertEqual(query_post_response.status_code, 201)
+        self.assertEqual(query_get_response.status_code, 200)
+        self.assertEqual(
+            query_get_response.json()["errors_calculating"], 1
+        )  # Should be because selecting from groups is not allowed
 
     @patch("posthog.api.cohort.report_user_action")
     def test_cohort_with_is_set_filter_missing_value(self, patch_capture):
@@ -1542,7 +1665,7 @@ email@example.org,
 
         self.assertEqual(len(AsyncDeletion.objects.all()), 1)
         async_deletion = AsyncDeletion.objects.all()[0]
-        self.assertEqual(async_deletion.key, f"{cohort_id}_2")
+        self.assertEqual(async_deletion.key, f"{cohort_id}_4")
         self.assertEqual(async_deletion.deletion_type, DeletionType.Cohort_stale)
         self.assertEqual(async_deletion.delete_verified_at, None)
 
@@ -1550,7 +1673,7 @@ email@example.org,
         clickhouse_clear_removed_data.delay()
 
         async_deletion = AsyncDeletion.objects.all()[0]
-        self.assertEqual(async_deletion.key, f"{cohort_id}_2")
+        self.assertEqual(async_deletion.key, f"{cohort_id}_4")
         self.assertEqual(async_deletion.deletion_type, DeletionType.Cohort_stale)
         self.assertEqual(async_deletion.delete_verified_at, None)
 
@@ -1568,7 +1691,7 @@ email@example.org,
         clickhouse_clear_removed_data.delay()
 
         async_deletion = AsyncDeletion.objects.all()[0]
-        self.assertEqual(async_deletion.key, f"{cohort_id}_2")
+        self.assertEqual(async_deletion.key, f"{cohort_id}_4")
         self.assertEqual(async_deletion.deletion_type, DeletionType.Cohort_stale)
         self.assertEqual(async_deletion.delete_verified_at is not None, True)
 
@@ -1729,14 +1852,14 @@ email@example.org,
         self.assertEqual(len(AsyncDeletion.objects.all()), 3)
         async_deletion_keys = {async_del.key for async_del in AsyncDeletion.objects.all()}
         async_deletion_type = {async_del.deletion_type for async_del in AsyncDeletion.objects.all()}
-        self.assertEqual(async_deletion_keys, {f"{cohort_id}_2", f"{cohort_id}_3", f"{cohort_id}_4"})
+        self.assertEqual(async_deletion_keys, {f"{cohort_id}_4", f"{cohort_id}_6", f"{cohort_id}_8"})
         self.assertEqual(async_deletion_type - {DeletionType.Cohort_stale}, set())
 
         # now let's run async deletions
         clickhouse_clear_removed_data.delay()
 
         async_deletion = AsyncDeletion.objects.all()[0]
-        self.assertEqual(async_deletion.key, f"{cohort_id}_2")
+        self.assertEqual(async_deletion.key, f"{cohort_id}_4")
         self.assertEqual(async_deletion.deletion_type, DeletionType.Cohort_stale)
         self.assertEqual(async_deletion.delete_verified_at, None)
 
@@ -1756,7 +1879,7 @@ email@example.org,
         clickhouse_clear_removed_data.delay()
 
         async_deletion = AsyncDeletion.objects.all()[0]
-        self.assertEqual(async_deletion.key, f"{cohort_id}_2")
+        self.assertEqual(async_deletion.key, f"{cohort_id}_4")
         self.assertEqual(async_deletion.deletion_type, DeletionType.Cohort_stale)
         self.assertEqual(async_deletion.delete_verified_at is not None, True)
 

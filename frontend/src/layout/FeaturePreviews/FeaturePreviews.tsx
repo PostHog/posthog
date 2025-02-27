@@ -1,16 +1,26 @@
 import { LemonButton, LemonDivider, LemonSwitch, LemonTextArea, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useAsyncActions, useValues } from 'kea'
+import { IconLink } from 'lib/lemon-ui/icons'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
 import { useLayoutEffect, useState } from 'react'
 
 import { EnrichedEarlyAccessFeature, featurePreviewsLogic } from './featurePreviewsLogic'
 
-export function FeaturePreviews(): JSX.Element {
+export function FeaturePreviews({ focusedFeatureFlagKey }: { focusedFeatureFlagKey?: string }): JSX.Element {
     const { earlyAccessFeatures, rawEarlyAccessFeaturesLoading } = useValues(featurePreviewsLogic)
     const { loadEarlyAccessFeatures } = useActions(featurePreviewsLogic)
 
     useLayoutEffect(() => loadEarlyAccessFeatures(), [])
+
+    useLayoutEffect(() => {
+        if (earlyAccessFeatures.length > 0 && focusedFeatureFlagKey) {
+            const element = document.getElementById(`feature-preview-${focusedFeatureFlagKey}`)
+            if (element) {
+                element.scrollIntoView({ behavior: 'smooth' })
+            }
+        }
+    }, [focusedFeatureFlagKey, earlyAccessFeatures])
 
     return (
         <div
@@ -24,7 +34,7 @@ export function FeaturePreviews(): JSX.Element {
                     return false
                 }
                 return (
-                    <div key={feature.flagKey}>
+                    <div key={feature.flagKey} id={`feature-preview-${feature.flagKey}`}>
                         {i > 0 && <LemonDivider className="my-4" />}
                         <FeaturePreview key={feature.flagKey} feature={feature} />
                     </div>
@@ -45,8 +55,12 @@ export function FeaturePreviews(): JSX.Element {
 
 function FeaturePreview({ feature }: { feature: EnrichedEarlyAccessFeature }): JSX.Element {
     const { activeFeedbackFlagKey, activeFeedbackFlagKeyLoading } = useValues(featurePreviewsLogic)
-    const { beginEarlyAccessFeatureFeedback, cancelEarlyAccessFeatureFeedback, updateEarlyAccessFeatureEnrollment } =
-        useActions(featurePreviewsLogic)
+    const {
+        beginEarlyAccessFeatureFeedback,
+        cancelEarlyAccessFeatureFeedback,
+        updateEarlyAccessFeatureEnrollment,
+        copyExternalFeaturePreviewLink,
+    } = useActions(featurePreviewsLogic)
     const { submitEarlyAccessFeatureFeedback } = useAsyncActions(featurePreviewsLogic)
 
     const { flagKey, enabled, name, description, documentationUrl } = feature
@@ -57,7 +71,14 @@ function FeaturePreview({ feature }: { feature: EnrichedEarlyAccessFeature }): J
     return (
         <div>
             <div className="flex items-center justify-between">
-                <h4 className="font-semibold mb-0">{name}</h4>
+                <div className="flex items-center gap-1">
+                    <h4 className="font-semibold mb-0">{name}</h4>
+                    <LemonButton
+                        icon={<IconLink />}
+                        size="small"
+                        onClick={() => copyExternalFeaturePreviewLink(flagKey)}
+                    />
+                </div>
                 <LemonSwitch
                     checked={enabled}
                     onChange={(newChecked) => updateEarlyAccessFeatureEnrollment(flagKey, newChecked)}

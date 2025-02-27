@@ -20,9 +20,10 @@ export function InsightDateFilter({ disabled }: InsightDateFilterProps): JSX.Ele
         <DateFilter
             dateTo={dateRange?.date_to ?? undefined}
             dateFrom={dateRange?.date_from ?? '-7d'}
+            allowTimePrecision
             disabled={disabled}
-            onChange={(date_from, date_to) => {
-                updateDateRange({ date_from, date_to })
+            onChange={(date_from, date_to, explicit_date) => {
+                updateDateRange({ date_from, date_to, explicitDate: explicit_date })
             }}
             dateOptions={dateMapping}
             allowedRollingDateOptions={isTrends ? ['hours', 'days', 'weeks', 'months', 'years'] : undefined}

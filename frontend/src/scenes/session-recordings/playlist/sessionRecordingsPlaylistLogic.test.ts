@@ -525,7 +525,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     filters: {
                         date_from: '-3d',
                         date_to: null,
-                        duration: [{ key: 'duration', operator: 'gt', type: 'recording', value: 1 }],
+                        duration: [{ key: 'active_seconds', operator: 'gt', type: 'recording', value: 5 }],
                         filter_group: {
                             type: FilterLogicalOperator.And,
                             values: [
@@ -723,30 +723,6 @@ describe('sessionRecordingsPlaylistLogic', () => {
         })
     })
 
-    describe('pinned playlists', () => {
-        it('should not show others if there are pinned recordings', () => {
-            logic = sessionRecordingsPlaylistLogic({
-                key: 'tests',
-                updateSearchParams: true,
-                pinnedRecordings: ['1234'],
-            })
-            logic.mount()
-
-            expectLogic(logic).toMatchValues({ showOtherRecordings: false })
-        })
-
-        it('should show others if there are no pinned recordings', () => {
-            logic = sessionRecordingsPlaylistLogic({
-                key: 'tests',
-                updateSearchParams: true,
-                pinnedRecordings: [],
-            })
-            logic.mount()
-
-            expectLogic(logic).toMatchValues({ showOtherRecordings: true })
-        })
-    })
-
     describe('convertUniversalFiltersToRecordingsQuery', () => {
         it('expands the visited_page filter to a pageview with $current_url property', () => {
             const result = convertUniversalFiltersToRecordingsQuery({
@@ -793,10 +769,10 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 filter_test_accounts: false,
                 having_predicates: [
                     {
-                        key: 'duration',
+                        key: 'active_seconds',
                         operator: 'gt',
                         type: 'recording',
-                        value: 1,
+                        value: 5,
                     },
                 ],
                 kind: 'RecordingsQuery',
@@ -815,10 +791,10 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 date_to: null,
                 duration: [
                     {
-                        key: 'duration',
+                        key: 'active_seconds',
                         operator: 'gt',
                         type: 'recording',
-                        value: 1,
+                        value: 5,
                     },
                 ],
                 filter_group: {

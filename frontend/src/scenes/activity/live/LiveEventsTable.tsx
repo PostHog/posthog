@@ -1,4 +1,3 @@
-import { PersonDisplay } from '@posthog/apps-common'
 import { IconPauseFilled, IconPlayFilled } from '@posthog/icons'
 import { LemonButton, Spinner, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
@@ -8,6 +7,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
+import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 
 import type { LiveEvent } from '~/types'
 
@@ -57,7 +57,7 @@ export function LiveEventsTable(): JSX.Element {
             <div className="mb-4 flex w-full justify-between items-center">
                 <div className="flex justify-center">
                     <Tooltip title="Estimate of users active in the last 30 seconds." placement="right">
-                        <div className="flex flex-justify-center items-center bg-bg-light px-3 py-2 rounded border border-3000 text-xs font-medium text-gray-600 space-x-2.5">
+                        <div className="flex justify-center items-center bg-surface-primary px-3 py-2 rounded border border-primary text-xs font-medium text-secondary space-x-2.5">
                             <span className="relative flex h-2.5 w-2.5">
                                 <span
                                     className={clsx(
@@ -78,6 +78,7 @@ export function LiveEventsTable(): JSX.Element {
                         </div>
                     </Tooltip>
                 </div>
+
                 <div>
                     <LemonButton
                         icon={

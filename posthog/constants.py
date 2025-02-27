@@ -12,7 +12,6 @@ INTERNAL_BOT_EMAIL_SUFFIX = "@posthogbot.user"
 class AvailableFeature(StrEnum):
     ZAPIER = "zapier"
     ORGANIZATIONS_PROJECTS = "organizations_projects"
-    PROJECT_BASED_PERMISSIONING = "project_based_permissioning"
     SOCIAL_SSO = "social_sso"
     SAML = "saml"
     SSO_ENFORCEMENT = "sso_enforcement"
@@ -37,13 +36,13 @@ class AvailableFeature(StrEnum):
     AUTOMATIC_PROVISIONING = "automatic_provisioning"
     MANAGED_REVERSE_PROXY = "managed_reverse_proxy"
     DATA_PIPELINES = "data_pipelines"
+    ALERTS = "alerts"
+    DATA_COLOR_THEMES = "data_color_themes"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"
 TREND_FILTER_TYPE_EVENTS = "events"
 TREND_FILTER_TYPE_DATA_WAREHOUSE = "data_warehouse"
-
-SESSION_RECORDINGS_FILTER_IDS = "session_ids"
 
 TRENDS_CUMULATIVE = "ActionsLineGraphCumulative"
 TRENDS_LINEAR = "ActionsLineGraph"
@@ -264,6 +263,7 @@ class ExperimentNoResultsErrorKeys(StrEnum):
     NO_CONTROL_VARIANT = "no-control-variant"
     NO_TEST_VARIANT = "no-test-variant"
     NO_RESULTS = "no-results"
+    NO_EXPOSURES = "no-exposures"
 
 
 class PropertyOperatorType(StrEnum):
@@ -299,12 +299,16 @@ class EventDefinitionType(StrEnum):
 class FlagRequestType(StrEnum):
     DECIDE = "decide"
     LOCAL_EVALUATION = "local-evaluation"
+    REMOTE_CONFIG = "remote-config"
 
 
 ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER = "Feature Viewed"
 DATA_WAREHOUSE_TASK_QUEUE = "data-warehouse-task-queue"
-BATCH_EXPORTS_TASK_QUEUE = "no-sandbox-python-django"
+DATA_WAREHOUSE_COMPACTION_TASK_QUEUE = "data-warehouse-compaction-task-queue"
+BATCH_EXPORTS_TASK_QUEUE = "batch-exports-task-queue"
+SYNC_BATCH_EXPORTS_TASK_QUEUE = "no-sandbox-python-django"
 GENERAL_PURPOSE_TASK_QUEUE = "general-purpose-task-queue"
+
 
 PERMITTED_FORUM_DOMAINS = ["localhost", "posthog.com"]
 

@@ -35,23 +35,25 @@ def capture_workspace_rows_synced_by_team(team_id: int) -> None:
     team.external_data_workspace_last_synced_at = now
 
     for job in ExternalDataJob.objects.filter(team_id=team_id, created_at__gte=begin).order_by("created_at").all():
-        ph_client.capture(
-            team_id,
-            "$data_sync_job_completed",
-            {
-                "team_id": team_id,
-                "workspace_id": team.external_data_workspace_id,
-                "count": job.rows_synced,
-                "start_time": job.created_at,
-                "job_id": str(job.pk),
-            },
-        )
+        if ph_client:
+            ph_client.capture(
+                team_id,
+                "$data_sync_job_completed",
+                {
+                    "team_id": team_id,
+                    "workspace_id": team.external_data_workspace_id,
+                    "count": job.rows_synced,
+                    "start_time": job.created_at,
+                    "job_id": str(job.pk),
+                },
+            )
 
         team.external_data_workspace_last_synced_at = job.created_at
 
     team.save()
 
-    ph_client.shutdown()
+    if ph_client:
+        ph_client.shutdown()
 
 
 @shared_task(ignore_result=True)
@@ -66,7 +68,8 @@ def validate_data_warehouse_table_columns(team_id: int, table_id: str) -> None:
             table.columns[column]["valid"] = table.validate_column_type(column)
         table.save()
 
-        ph_client.capture(team_id, "validate_data_warehouse_table_columns succeeded")
+        if ph_client:
+            ph_client.capture(team_id, "validate_data_warehouse_table_columns succeeded")
     except Exception as e:
         logger.exception(
             f"validate_data_warehouse_table_columns raised an exception for table: {table_id}",
@@ -74,6 +77,8 @@ def validate_data_warehouse_table_columns(team_id: int, table_id: str) -> None:
             team_id=team_id,
         )
 
-        ph_client.capture(team_id, "validate_data_warehouse_table_columns errored")
+        if ph_client:
+            ph_client.capture(team_id, "validate_data_warehouse_table_columns errored")
     finally:
-        ph_client.shutdown()
+        if ph_client:
+            ph_client.shutdown()

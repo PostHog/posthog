@@ -69,10 +69,25 @@ export interface ActionElementWithMetadata extends ElementWithMetadata {
 
 export type ActionDraftType = Omit<ActionType, 'id' | 'created_at' | 'created_by'>
 
-export type ExperimentDraftType = Omit<Experiment, 'id' | 'created_at' | 'created_by'>
+export type WebExperimentDraftType = Omit<
+    Experiment,
+    | 'id'
+    | 'created_at'
+    | 'created_by'
+    | 'feature_flag_key'
+    | 'filters'
+    | 'metrics'
+    | 'metrics_secondary'
+    | 'saved_metrics_ids'
+    | 'saved_metrics'
+    | 'parameters'
+    | 'secondary_metrics'
+    | 'updated_at'
+>
 
-export interface ExperimentForm extends ExperimentDraftType {
-    variants?: Record<string, WebExperimentVariant>
+export interface WebExperimentForm extends WebExperimentDraftType {
+    variants: Record<string, WebExperimentVariant>
+    original_html_state?: Record<string, any>
 }
 
 export interface ActionStepForm extends ActionStepType {
@@ -89,12 +104,12 @@ export interface ActionForm extends ActionDraftType {
 export type WebExperimentUrlMatchType = 'regex' | 'not_regex' | 'exact' | 'is_not' | 'icontains' | 'not_icontains'
 
 export interface WebExperiment extends Experiment {
-    variants?: Record<string, WebExperimentVariant>
+    variants: Record<string, WebExperimentVariant>
 }
 
 export interface WebExperimentVariant {
     is_new?: boolean
-    conditions: {
+    conditions?: {
         url?: string
         urlMatchType?: WebExperimentUrlMatchType
         utm: {
@@ -117,5 +132,5 @@ export interface WebExperimentTransform {
     text?: string
     html?: string
     imgUrl?: string
-    css?: string
+    css?: string | null
 }

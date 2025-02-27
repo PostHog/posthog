@@ -21,10 +21,10 @@ import { CohortType, ProductKey } from '~/types'
 import { cohortsModel } from '../../models/cohortsModel'
 
 export function Cohorts(): JSX.Element {
-    const { cohorts, cohortsSearch, cohortsLoading } = useValues(cohortsModel)
-    const { deleteCohort, exportCohortPersons } = useActions(cohortsModel)
+    const { cohorts, cohortsLoading, pagination, cohortFilters } = useValues(cohortsModel)
+    const { deleteCohort, exportCohortPersons, setCohortFilters } = useActions(cohortsModel)
     const { searchParams } = useValues(router)
-    const [searchTerm, setSearchTerm] = useState<string>('')
+    const [searchTerm, setSearchTerm] = useState(cohortFilters.search || '')
 
     const columns: LemonTableColumns<CohortType> = [
         {
@@ -142,7 +142,7 @@ export function Cohorts(): JSX.Element {
                 productKey={ProductKey.COHORTS}
                 thingName="cohort"
                 description="Use cohorts to group people together, such as users who used your app in the last week, or people who viewed the signup page but didn’t convert."
-                isEmpty={cohorts?.length == 0 && !cohortsLoading}
+                isEmpty={cohorts.count == 0 && !cohortsLoading && !searchTerm}
                 docsURL="https://posthog.com/docs/data/cohorts"
                 action={() => router.actions.push(urls.cohort('new'))}
                 customHog={ListHog}
@@ -152,7 +152,10 @@ export function Cohorts(): JSX.Element {
                 <LemonInput
                     type="search"
                     placeholder="Search for cohorts"
-                    onChange={setSearchTerm}
+                    onChange={(search) => {
+                        setSearchTerm(search)
+                        setCohortFilters({ search: search || undefined, page: 1 })
+                    }}
                     value={searchTerm}
                 />
             </div>
@@ -160,8 +163,8 @@ export function Cohorts(): JSX.Element {
                 columns={columns}
                 loading={cohortsLoading}
                 rowKey="id"
-                pagination={{ pageSize: 100 }}
-                dataSource={searchTerm ? cohortsSearch(searchTerm) : cohorts ?? []}
+                pagination={pagination}
+                dataSource={cohorts.results}
                 nouns={['cohort', 'cohorts']}
                 data-attr="cohorts-table"
             />

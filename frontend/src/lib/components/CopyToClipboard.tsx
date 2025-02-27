@@ -3,15 +3,19 @@ import clsx from 'clsx'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import React from 'react'
 
 interface InlinePropsBase {
     description?: string
     /** Makes text selectable instead of copying on click anywhere */
     selectable?: boolean
     isValueSensitive?: boolean
-    tooltipMessage?: string | null
+    tooltipMessage?: React.ReactNode | null
     iconStyle?: Record<string, string | number>
+    /** @default end */
     iconPosition?: 'end' | 'start'
+    /** @default small */
+    iconSize?: 'small' | 'xsmall'
     className?: string
     /** @deprecated */
     style?: React.CSSProperties
@@ -26,29 +30,33 @@ interface InlinePropsWithJSXInside extends InlinePropsBase {
 }
 type InlineProps = InlinePropsWithStringInside | InlinePropsWithJSXInside
 
-export function CopyToClipboardInline({
-    children,
-    explicitValue,
-    description,
-    selectable = false,
-    isValueSensitive = false,
-    tooltipMessage = null,
-    iconStyle,
-    iconPosition = 'end',
-    className,
-    style,
-    ...props
-}: InlineProps): JSX.Element {
+export const CopyToClipboardInline = React.forwardRef<HTMLSpanElement, InlineProps>(function CopyToClipboardInline(
+    {
+        children,
+        explicitValue,
+        description,
+        selectable = false,
+        isValueSensitive = false,
+        tooltipMessage = null,
+        iconStyle,
+        iconPosition = 'end',
+        iconSize = 'small',
+        className,
+        style,
+        ...props
+    },
+    ref
+) {
     const copy = (): void => void copyToClipboard((explicitValue ?? children) as string, description)
 
     let content = (
         <LemonButton
-            size="small"
+            size={iconSize}
             icon={<IconCopy style={{ ...iconStyle }} />}
             noPadding
             className="ml-1"
             data-attr="copy-icon"
-            onClick={!selectable ? undefined : copy}
+            onClick={selectable || !children ? copy : undefined}
         />
     )
 
@@ -66,16 +74,10 @@ export function CopyToClipboardInline({
                 style={style}
                 onClick={!selectable ? copy : undefined}
                 {...props}
+                ref={ref}
             >
                 <span className={iconPosition === 'start' ? 'grow-1' : undefined}>{children}</span>
-                <LemonButton
-                    size="small"
-                    icon={<IconCopy style={{ ...iconStyle }} />}
-                    noPadding
-                    className="ml-1"
-                    data-attr="copy-icon"
-                    onClick={!selectable ? undefined : copy}
-                />
+                {content}
             </span>
         )
     }
@@ -84,4 +86,4 @@ export function CopyToClipboardInline({
     ) : (
         <>{content}</>
     )
-}
+})

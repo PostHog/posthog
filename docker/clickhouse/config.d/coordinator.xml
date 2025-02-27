@@ -1,0 +1,42 @@
+<clickhouse>
+    <tcp_port>9001</tcp_port>
+    <remote_servers>
+        <posthog>
+            <shard>
+                <replica>
+                    <host>clickhouse</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+        </posthog>
+        <posthog_single_shard>
+            <shard>
+                <replica>
+                    <host>clickhouse</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+        </posthog_single_shard>
+        <posthog_migrations>
+            <shard>
+                <replica>
+                    <host>clickhouse</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+            <shard>
+                <replica>
+                    <host>clickhouse-coordinator</host>
+                    <port>9001</port>
+                </replica>
+            </shard>
+        </posthog_migrations>
+    </remote_servers>
+
+    <macros>
+        <shard>02</shard>
+        <replica>coord</replica>
+        <hostClusterType>online</hostClusterType>
+        <hostClusterRole>coordinator</hostClusterRole>
+    </macros>
+</clickhouse>

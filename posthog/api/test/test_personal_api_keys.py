@@ -10,6 +10,7 @@ from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal
 from posthog.schema import EventsQuery
 from posthog.test.base import APIBaseTest
+from posthog.api.personal_api_key import PersonalAPIKeySerializer
 
 
 class TestPersonalAPIKeysAPI(APIBaseTest):
@@ -362,7 +363,7 @@ class TestPersonalAPIKeysAPIAuthentication(PersonalAPIKeysBaseTest):
             HTTP_AUTHORIZATION=f"Bearer {self.value}",
         )
 
-        assert response.status_code == status.HTTP_401_UNAUTHORIZED, response.json()
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
 
     def test_cannot_edit_self(self):
         response = self.client.post(
@@ -371,7 +372,7 @@ class TestPersonalAPIKeysAPIAuthentication(PersonalAPIKeysBaseTest):
             HTTP_AUTHORIZATION=f"Bearer {self.value}",
         )
 
-        assert response.status_code == status.HTTP_401_UNAUTHORIZED, response.json()
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
 
 
 # NOTE: These tests use feature flags as an example of a scope, but the actual feature flag functionality is not relevant
@@ -541,3 +542,67 @@ class TestPersonalAPIKeysWithTeamScopeAPIAuthentication(PersonalAPIKeysBaseTest)
         # (e.g. in our Zapier integration), hence it's exempt from org/team scoping
         response = self._do_request(f"/api/users/@me/")
         assert response.status_code == status.HTTP_200_OK, response.json()
+
+
+class TestPersonalAPIKeyAPIAccess(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+
+        # Create a mock request context
+        class MockRequest:
+            def __init__(self, user):
+                self.user = user
+
+        # Create the key using the serializer
+        serializer = PersonalAPIKeySerializer(
+            data={"label": "Test key", "scopes": ["*"], "scoped_organizations": [], "scoped_teams": []},
+            context={"request": MockRequest(self.user)},
+        )
+        serializer.is_valid(raise_exception=True)
+        self.personal_api_key = serializer.save()
+        self.api_key_value = self.personal_api_key._value  # This will contain the raw key value
+
+    def _get_auth_headers(self, key: str):
+        return {"HTTP_AUTHORIZATION": f"Bearer {key}"}
+
+    def test_list_personal_api_keys_with_bearer_auth(self):
+        # Should not be allowed to list with API key
+        response = self.client.get(f"/api/personal_api_keys/", **self._get_auth_headers(self.api_key_value))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["detail"], "This action does not support Personal API Key access")
+
+    def test_retrieve_personal_api_key_with_bearer_auth(self):
+        # Should be allowed to get current key
+        response = self.client.get(f"/api/personal_api_keys/@current/", **self._get_auth_headers(self.api_key_value))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["label"], "Test key")
+
+        # Should not be allowed to get by ID
+        response = self.client.get(
+            f"/api/personal_api_keys/{self.personal_api_key.id}/", **self._get_auth_headers(self.api_key_value)
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["label"], "Test key")
+
+    def test_create_personal_api_key_with_bearer_auth(self):
+        response = self.client.post(
+            f"/api/personal_api_keys/", {"label": "New key"}, **self._get_auth_headers(self.api_key_value)
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["detail"], "This action does not support Personal API Key access")
+
+    def test_update_personal_api_key_with_bearer_auth(self):
+        response = self.client.patch(
+            f"/api/personal_api_keys/@current/", {"label": "Updated key"}, **self._get_auth_headers(self.api_key_value)
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["detail"], "This action does not support Personal API Key access")
+
+    def test_delete_personal_api_key_with_bearer_auth(self):
+        response = self.client.delete(f"/api/personal_api_keys/@current/", **self._get_auth_headers(self.api_key_value))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["detail"], "This action does not support Personal API Key access")
+
+    def test_invalid_bearer_token(self):
+        response = self.client.get(f"/api/personal_api_keys/@current/", **self._get_auth_headers("invalid_key"))
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)

@@ -13,9 +13,10 @@ export const SearchBar = (): JSX.Element => {
     const inputRef = useRef<HTMLInputElement>(null)
 
     return (
-        <div className="flex w-full h-full">
+        <div className="grid grid-cols-[8.5rem_1fr] lg:grid-cols-[12.5rem_1fr] h-full">
             <SearchTabs inputRef={inputRef} />
-            <div className="grow flex flex-col overscroll-contain overflow-hidden">
+            {/* 49px = height of search input, 40rem = height of search results */}
+            <div className="grid grid-rows-[49px_calc(40rem-49px)] overflow-hidden overscroll-contain">
                 <SearchInput ref={inputRef} />
                 <SearchResults />
             </div>

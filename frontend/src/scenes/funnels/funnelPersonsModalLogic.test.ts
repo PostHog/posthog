@@ -6,7 +6,7 @@ import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
-import { InsightVizNode, NodeKind } from '~/queries/schema'
+import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { InsightLogicProps, InsightShortId } from '~/types'
 

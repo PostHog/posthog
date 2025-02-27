@@ -1,13 +1,17 @@
 from datetime import datetime, timedelta, UTC
 from django.core.cache import cache
 from flaky import flaky
+from freezegun import freeze_time
 from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
 from dateutil import parser
+
+from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
+from posthog.models import WebExperiment
 from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
-from posthog.models.experiment import Experiment
+from posthog.models.experiment import Experiment, ExperimentSavedMetric
 from posthog.models.feature_flag import FeatureFlag, get_feature_flags_for_team_in_cache
 from posthog.schema import ExperimentSignificanceCode
 from posthog.test.base import (
@@ -15,7 +19,6 @@ from posthog.test.base import (
     _create_event,
     _create_person,
     flush_persons_and_events,
-    snapshot_clickhouse_insert_cohortpeople_queries,
     snapshot_clickhouse_queries,
     FuzzyInt,
 )
@@ -55,7 +58,7 @@ class TestExperimentCRUD(APILicensedTest):
             format="json",
         ).json()
 
-        with self.assertNumQueries(FuzzyInt(8, 9)):
+        with self.assertNumQueries(FuzzyInt(13, 14)):
             response = self.client.get(f"/api/projects/{self.team.id}/experiments")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -72,7 +75,7 @@ class TestExperimentCRUD(APILicensedTest):
                 format="json",
             ).json()
 
-        with self.assertNumQueries(FuzzyInt(8, 9)):
+        with self.assertNumQueries(FuzzyInt(13, 14)):
             response = self.client.get(f"/api/projects/{self.team.id}/experiments")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -100,6 +103,64 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["name"], "Test Experiment")
         self.assertEqual(response.json()["feature_flag_key"], ff_key)
+        self.assertEqual(response.json()["stats_config"], {"version": 2})
+
+        id = response.json()["id"]
+        experiment = Experiment.objects.get(pk=id)
+        self.assertEqual(experiment.get_stats_config("version"), 2)
+
+        created_ff = FeatureFlag.objects.get(key=ff_key)
+
+        self.assertEqual(created_ff.key, ff_key)
+        self.assertEqual(created_ff.filters["multivariate"]["variants"][0]["key"], "control")
+        self.assertEqual(created_ff.filters["multivariate"]["variants"][1]["key"], "test")
+        self.assertEqual(created_ff.filters["groups"][0]["properties"], [])
+
+        end_date = "2021-12-10T00:00"
+
+        # Now update
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{id}",
+            {"description": "Bazinga", "end_date": end_date, "stats_config": {"version": 1}},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        experiment = Experiment.objects.get(pk=id)
+        self.assertEqual(experiment.description, "Bazinga")
+        self.assertEqual(experiment.end_date.strftime("%Y-%m-%dT%H:%M"), end_date)
+        self.assertEqual(experiment.get_stats_config("version"), 1)
+
+    def test_creating_updating_web_experiment(self):
+        ff_key = "a-b-tests"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "type": "web",
+                "description": "",
+                "start_date": "2021-12-01T10:23",
+                "end_date": None,
+                "feature_flag_key": ff_key,
+                "parameters": None,
+                "filters": {
+                    "events": [
+                        {"order": 0, "id": "$pageview"},
+                        {"order": 1, "id": "$pageleave"},
+                    ],
+                    "properties": [],
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["name"], "Test Experiment")
+        self.assertEqual(response.json()["feature_flag_key"], ff_key)
+        web_experiment_id = response.json()["id"]
+        self.assertEqual(
+            WebExperiment.objects.get(pk=web_experiment_id).variants,
+            {"test": {"rollout_percentage": 50}, "control": {"rollout_percentage": 50}},
+        )
 
         created_ff = FeatureFlag.objects.get(key=ff_key)
 
@@ -309,6 +370,390 @@ class TestExperimentCRUD(APILicensedTest):
             [{"properties": [], "rollout_percentage": 5, "variant": f"holdout-{holdout_2_id}"}],
         )
 
+    def test_saved_metrics(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
+            {
+                "name": "Test Experiment saved metric",
+                "description": "Test description",
+                "query": {
+                    "kind": "ExperimentTrendsQuery",
+                    "count_query": {
+                        "kind": "TrendsQuery",
+                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                    },
+                },
+            },
+        )
+
+        saved_metric_id = response.json()["id"]
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["name"], "Test Experiment saved metric")
+        self.assertEqual(response.json()["description"], "Test description")
+        self.assertEqual(
+            response.json()["query"],
+            {
+                "kind": "ExperimentTrendsQuery",
+                "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+            },
+        )
+        self.assertEqual(response.json()["created_by"]["id"], self.user.pk)
+
+        # Generate experiment to have saved metric
+        ff_key = "a-b-tests"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "description": "",
+                "start_date": "2021-12-01T10:23",
+                "end_date": None,
+                "feature_flag_key": ff_key,
+                "parameters": None,
+                "filters": {
+                    "events": [
+                        {"order": 0, "id": "$pageview"},
+                        {"order": 1, "id": "$pageleave"},
+                    ],
+                    "properties": [],
+                },
+                "saved_metrics_ids": [{"id": saved_metric_id, "metadata": {"type": "secondary"}}],
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        exp_id = response.json()["id"]
+
+        self.assertEqual(response.json()["name"], "Test Experiment")
+        self.assertEqual(response.json()["feature_flag_key"], ff_key)
+
+        self.assertEqual(Experiment.objects.get(pk=exp_id).saved_metrics.count(), 1)
+        experiment_to_saved_metric = Experiment.objects.get(pk=exp_id).experimenttosavedmetric_set.first()
+        self.assertEqual(experiment_to_saved_metric.metadata, {"type": "secondary"})
+        saved_metric = Experiment.objects.get(pk=exp_id).saved_metrics.first()
+        self.assertEqual(saved_metric.id, saved_metric_id)
+        self.assertEqual(
+            saved_metric.query,
+            {
+                "kind": "ExperimentTrendsQuery",
+                "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+            },
+        )
+
+        # Now try updating experiment with new saved metric
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
+            {
+                "name": "Test Experiment saved metric 2",
+                "description": "Test description 2",
+                "query": {
+                    "kind": "ExperimentTrendsQuery",
+                    "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageleave"}]},
+                },
+            },
+        )
+
+        saved_metric_2_id = response.json()["id"]
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["name"], "Test Experiment saved metric 2")
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{exp_id}",
+            {
+                "saved_metrics_ids": [
+                    {"id": saved_metric_id, "metadata": {"type": "secondary"}},
+                    {"id": saved_metric_2_id, "metadata": {"type": "tertiary"}},
+                ]
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.assertEqual(Experiment.objects.get(pk=exp_id).saved_metrics.count(), 2)
+        experiment_to_saved_metric = Experiment.objects.get(pk=exp_id).experimenttosavedmetric_set.all()
+        self.assertEqual(experiment_to_saved_metric[0].metadata, {"type": "secondary"})
+        self.assertEqual(experiment_to_saved_metric[1].metadata, {"type": "tertiary"})
+        saved_metric = Experiment.objects.get(pk=exp_id).saved_metrics.all()
+        self.assertEqual(sorted([saved_metric[0].id, saved_metric[1].id]), [saved_metric_id, saved_metric_2_id])
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{exp_id}",
+            {"saved_metrics_ids": []},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(Experiment.objects.get(pk=exp_id).saved_metrics.count(), 0)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{exp_id}",
+            {
+                "saved_metrics_ids": [
+                    {"id": saved_metric_id, "metadata": {"type": "secondary"}},
+                ]
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{exp_id}",
+            {"saved_metrics_ids": None},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(Experiment.objects.get(pk=exp_id).saved_metrics.count(), 0)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{exp_id}",
+            {
+                "saved_metrics_ids": [
+                    {"id": saved_metric_id, "metadata": {"type": "secondary"}},
+                ]
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(Experiment.objects.get(pk=exp_id).saved_metrics.count(), 1)
+
+        # not updating saved metrics shouldn't change anything
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{exp_id}",
+            {
+                "name": "Test Experiment 2",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(Experiment.objects.get(pk=exp_id).saved_metrics.count(), 1)
+
+        # now delete saved metric
+        response = self.client.delete(f"/api/projects/{self.team.id}/experiment_saved_metrics/{saved_metric_id}")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+        # make sure experiment in question was updated as well
+        self.assertEqual(Experiment.objects.get(pk=exp_id).saved_metrics.count(), 0)
+
+    def test_validate_saved_metrics_payload(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
+            {
+                "name": "Test Experiment saved metric",
+                "description": "Test description",
+                "query": {
+                    "kind": "ExperimentTrendsQuery",
+                    "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+                },
+            },
+        )
+
+        saved_metric_id = response.json()["id"]
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Generate experiment to have saved metric
+        ff_key = "a-b-tests"
+        exp_data = {
+            "name": "Test Experiment",
+            "description": "",
+            "start_date": "2021-12-01T10:23",
+            "end_date": None,
+            "feature_flag_key": ff_key,
+            "parameters": None,
+            "filters": {
+                "events": [
+                    {"order": 0, "id": "$pageview"},
+                    {"order": 1, "id": "$pageleave"},
+                ],
+                "properties": [],
+            },
+        }
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                **exp_data,
+                "saved_metrics_ids": [{"id": saved_metric_id, "metadata": {"xxx": "secondary"}}],
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["type"], "validation_error")
+        self.assertEqual(
+            response.json()["detail"],
+            "Metadata must have a type key",
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                **exp_data,
+                "saved_metrics_ids": [{"saved_metric": saved_metric_id}],
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["type"], "validation_error")
+        self.assertEqual(response.json()["detail"], "Saved metric must have an id")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                **exp_data,
+                "saved_metrics_ids": [{"id": 12345678}],
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["type"], "validation_error")
+        self.assertEqual(response.json()["detail"], "Saved metric does not exist")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                **exp_data,
+                "saved_metrics_ids": {"id": saved_metric_id},
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["type"], "validation_error")
+        self.assertEqual(response.json()["detail"], 'Expected a list of items but got type "dict".')
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                **exp_data,
+                "saved_metrics_ids": [[saved_metric_id]],
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["type"], "validation_error")
+        self.assertEqual(response.json()["detail"], "Saved metric must be an object")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                **exp_data,
+                "saved_metrics_ids": [{"id": saved_metric_id, "metadata": "secondary"}],
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["type"], "validation_error")
+        self.assertEqual(response.json()["detail"], "Metadata must be an object")
+
+    @freeze_time("2025-02-10T13:00:00Z")
+    def test_fetching_experiment_with_stale_metric_dates_applies_experiment_date_range(self):
+        test_feature_flag = FeatureFlag.objects.create(
+            name=f"Test experiment flag",
+            key="test-flag",
+            team=self.team,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": None}],
+                "multivariate": {
+                    "variants": [
+                        {
+                            "key": "control",
+                            "name": "Control",
+                            "rollout_percentage": 50,
+                        },
+                        {
+                            "key": "test",
+                            "name": "Test",
+                            "rollout_percentage": 50,
+                        },
+                    ]
+                },
+            },
+            created_by=self.user,
+        )
+        funnel_query = {
+            "kind": "ExperimentFunnelsQuery",
+            "funnels_query": {
+                "kind": "FunnelsQuery",
+                "series": [
+                    {"kind": "EventsNode", "name": "[jan-16-running] seen", "event": "[jan-16-running] seen"},
+                    {"kind": "EventsNode", "name": "[jan-16-running] payment", "event": "[jan-16-running] payment"},
+                ],
+                "dateRange": {"date_to": "2025-02-13T23:59", "date_from": "2025-01-30T12:16", "explicitDate": True},
+                "funnelsFilter": {
+                    "layout": "horizontal",
+                    "funnelVizType": "steps",
+                    "funnelWindowInterval": 14,
+                    "funnelWindowIntervalUnit": "day",
+                },
+                "filterTestAccounts": True,
+            },
+        }
+        trends_query = {
+            "kind": "ExperimentTrendsQuery",
+            "count_query": {
+                "kind": "TrendsQuery",
+                "series": [
+                    {
+                        "kind": "EventsNode",
+                        "math": "total",
+                        "name": "[jan-16-running] event one",
+                        "event": "[jan-16-running] event one",
+                    }
+                ],
+                "interval": "day",
+                "dateRange": {"date_to": "2025-01-16T23:59", "date_from": "2025-01-02T13:54", "explicitDate": True},
+                "trendsFilter": {"display": "ActionsLineGraph"},
+                "filterTestAccounts": True,
+            },
+        }
+        saved_trends_metric = ExperimentSavedMetric.objects.create(
+            name="Test saved metric",
+            description="Test description",
+            query=trends_query,
+            team=self.team,
+            created_by=self.user,
+        )
+        saved_funnel_metric = ExperimentSavedMetric.objects.create(
+            name="Test saved metric",
+            description="Test description",
+            query=funnel_query,
+            team=self.team,
+            created_by=self.user,
+        )
+        experiment = Experiment.objects.create(
+            name="Test Experiment with stale dates",
+            team=self.team,
+            feature_flag=test_feature_flag,
+            start_date=datetime(2025, 2, 1),
+            end_date=None,
+            metrics=[funnel_query],
+            metrics_secondary=[trends_query],
+        )
+
+        for saved_metric_data in [saved_funnel_metric, saved_trends_metric]:
+            saved_metric_serializer = ExperimentToSavedMetricSerializer(
+                data={
+                    "experiment": experiment.id,
+                    "saved_metric": saved_metric_data.id,
+                    "metadata": {"type": "secondary"},
+                },
+            )
+            saved_metric_serializer.is_valid(raise_exception=True)
+            saved_metric_serializer.save()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json()["metrics"][0]["funnels_query"]["dateRange"]["date_from"], "2025-02-01T00:00:00Z"
+        )
+        self.assertEqual(response.json()["metrics"][0]["funnels_query"]["dateRange"]["date_to"], "")
+        self.assertEqual(
+            response.json()["metrics_secondary"][0]["count_query"]["dateRange"]["date_from"], "2025-02-01T00:00:00Z"
+        )
+        self.assertEqual(response.json()["metrics_secondary"][0]["count_query"]["dateRange"]["date_to"], "")
+        self.assertEqual(
+            response.json()["saved_metrics"][0]["query"]["funnels_query"]["dateRange"]["date_from"],
+            "2025-02-01T00:00:00Z",
+        )
+        self.assertEqual(response.json()["saved_metrics"][0]["query"]["funnels_query"]["dateRange"]["date_to"], "")
+        self.assertEqual(
+            response.json()["saved_metrics"][1]["query"]["count_query"]["dateRange"]["date_from"],
+            "2025-02-01T00:00:00Z",
+        )
+        self.assertEqual(response.json()["saved_metrics"][1]["query"]["count_query"]["dateRange"]["date_to"], "")
+
     def test_adding_behavioral_cohort_filter_to_experiment_fails(self):
         cohort = Cohort.objects.create(
             team=self.team,
@@ -378,29 +823,12 @@ class TestExperimentCRUD(APILicensedTest):
                 "end_date": None,
                 "feature_flag_key": ff_key,
                 "parameters": {},
-                "filters": {},  # also invalid
+                "filters": {},
             },
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["detail"], "This field may not be null.")
-
-        ff_key = "a-b-tests"
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "None",
-                "description": "",
-                "start_date": None,
-                "end_date": None,
-                "feature_flag_key": ff_key,
-                "parameters": {},
-                "filters": {},  # still invalid
-            },
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["detail"], "Filters are required to create an Experiment")
 
     def test_invalid_update(self):
         # Draft experiment
@@ -434,31 +862,6 @@ class TestExperimentCRUD(APILicensedTest):
             response.json()["detail"],
             "Can't update keys: get_feature_flag_key on Experiment",
         )
-
-    def test_cant_reuse_existing_feature_flag(self):
-        ff_key = "a-b-test"
-        FeatureFlag.objects.create(
-            team=self.team,
-            rollout_percentage=50,
-            name="Beta feature",
-            key=ff_key,
-            created_by=self.user,
-        )
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "Test Experiment",
-                "description": "",
-                "start_date": "2021-12-01T10:23",
-                "end_date": None,
-                "feature_flag_key": ff_key,
-                "parameters": None,
-                "filters": {"events": []},
-            },
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["detail"], "There is already a feature flag with this key.")
 
     def test_draft_experiment_doesnt_have_FF_active(self):
         # Draft experiment
@@ -505,7 +908,12 @@ class TestExperimentCRUD(APILicensedTest):
         # Now update
         response = self.client.patch(
             f"/api/projects/{self.team.id}/experiments/{id}",
-            {"description": "Bazinga", "filters": {}},
+            {
+                "description": "Bazinga",
+                "filters": {
+                    "events": [{"id": "$pageview"}],
+                },
+            },
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -536,7 +944,7 @@ class TestExperimentCRUD(APILicensedTest):
                 "end_date": None,
                 "feature_flag_key": ff_key,
                 "parameters": {},
-                "filters": {"events": []},
+                "filters": {"events": [{"id": "$pageview"}]},
             },
         )
 
@@ -552,6 +960,59 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         updated_ff = FeatureFlag.objects.get(key=ff_key)
         self.assertTrue(updated_ff.active)
+
+    def test_draft_experiment_update_doesnt_delete_ff_payloads(self):
+        # Draft experiment
+        ff_key = "a-b-tests-with-flag-payloads"
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "description": "",
+                "start_date": None,
+                "end_date": None,
+                "feature_flag_key": ff_key,
+                "parameters": {},
+                "filters": {"events": []},
+            },
+        )
+        id = create_response.json()["id"]
+
+        created_ff = FeatureFlag.objects.get(key=ff_key)
+        # Update feature flag payloads
+        created_ff.filters["payloads"] = {"test": '"test-payload"', "control": '"control-payload"'}
+        created_ff.save()
+
+        # Update parameters on experiment
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{id}",
+            {
+                "description": "Update parameters",
+                "parameters": {
+                    "feature_flag_variants": [
+                        {
+                            "key": "control",
+                            "name": "Control Group",
+                            "rollout_percentage": 33,
+                        },
+                        {
+                            "key": "test",
+                            "name": "Test Variant",
+                            "rollout_percentage": 33,
+                        },
+                        {
+                            "key": "special",
+                            "name": "Special Variant",
+                            "rollout_percentage": 34,
+                        },
+                    ]
+                },
+            },
+        )
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+
+        updated_ff = FeatureFlag.objects.get(key=ff_key)
+        self.assertEqual(updated_ff.filters["payloads"], {"test": '"test-payload"', "control": '"control-payload"'})
 
     def test_create_multivariate_experiment_can_update_variants_in_draft(self):
         ff_key = "a-b-test"
@@ -860,48 +1321,6 @@ class TestExperimentCRUD(APILicensedTest):
             "Feature flag variants must contain a control variant",
         )
 
-    def test_deleting_experiment_soft_deletes_feature_flag(self):
-        ff_key = "a-b-tests"
-        data = {
-            "name": "Test Experiment",
-            "description": "",
-            "start_date": "2021-12-01T10:23",
-            "end_date": None,
-            "feature_flag_key": ff_key,
-            "parameters": None,
-            "filters": {
-                "events": [
-                    {"order": 0, "id": "$pageview"},
-                    {"order": 1, "id": "$pageleave"},
-                ],
-                "properties": [],
-            },
-        }
-        response = self.client.post(f"/api/projects/{self.team.id}/experiments/", data)
-
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.json()["name"], "Test Experiment")
-        self.assertEqual(response.json()["feature_flag_key"], ff_key)
-
-        created_ff = FeatureFlag.objects.get(key=ff_key)
-
-        id = response.json()["id"]
-
-        # Now delete the experiment
-        response = self.client.delete(f"/api/projects/{self.team.id}/experiments/{id}")
-
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-
-        with self.assertRaises(Experiment.DoesNotExist):
-            Experiment.objects.get(pk=id)
-
-        # soft deleted
-        self.assertEqual(FeatureFlag.objects.get(pk=created_ff.id).deleted, True)
-
-        # can recreate new experiment with same FF key
-        response = self.client.post(f"/api/projects/{self.team.id}/experiments/", data)
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
     def test_soft_deleting_feature_flag_does_not_delete_experiment(self):
         ff_key = "a-b-tests"
         response = self.client.post(
@@ -943,42 +1362,6 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(feature_flag_response.json().get("deleted"), True)
 
         self.assertIsNotNone(Experiment.objects.get(pk=id))
-
-    def test_cant_add_global_properties_to_new_experiment(self):
-        ff_key = "a-b-tests"
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "Test Experiment",
-                "description": "",
-                "start_date": None,
-                "end_date": None,
-                "feature_flag_key": ff_key,
-                "parameters": None,
-                "filters": {
-                    "events": [
-                        {"order": 0, "id": "$pageview"},
-                        {"order": 1, "id": "$pageleave"},
-                    ],
-                    "properties": [
-                        {
-                            "key": "industry",
-                            "type": "group",
-                            "value": ["technology"],
-                            "operator": "exact",
-                            "group_type_index": 1,
-                        }
-                    ],
-                    "aggregation_group_type_index": 1,
-                },
-            },
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json()["detail"],
-            "Experiments do not support global filter properties",
-        )
 
     def test_creating_updating_experiment_with_group_aggregation(self):
         ff_key = "a-b-tests"
@@ -1197,7 +1580,7 @@ class TestExperimentCRUD(APILicensedTest):
         ).json()
 
         # TODO: Make sure permission bool doesn't cause n + 1
-        with self.assertNumQueries(12):
+        with self.assertNumQueries(19):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             result = response.json()
@@ -1428,6 +1811,309 @@ class TestExperimentCRUD(APILicensedTest):
                 "holdout_groups": None,
             },
         )
+
+    def test_create_draft_experiment_with_filters(self) -> None:
+        ff_key = "a-b-tests"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "description": "",
+                "start_date": None,
+                "end_date": None,
+                "feature_flag_key": ff_key,
+                "parameters": None,
+                "filters": {
+                    "events": [
+                        {"order": 0, "id": "$pageview"},
+                        {"order": 1, "id": "$pageleave"},
+                    ],
+                    "properties": [],
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["name"], "Test Experiment")
+        self.assertEqual(response.json()["feature_flag_key"], ff_key)
+
+    def test_create_launched_experiment_with_filters(self) -> None:
+        ff_key = "a-b-tests"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "description": "",
+                "start_date": "2021-12-01T10:23",
+                "end_date": None,
+                "feature_flag_key": ff_key,
+                "parameters": None,
+                "filters": {
+                    "events": [
+                        {"order": 0, "id": "$pageview"},
+                        {"order": 1, "id": "$pageleave"},
+                    ],
+                    "properties": [],
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["name"], "Test Experiment")
+        self.assertEqual(response.json()["feature_flag_key"], ff_key)
+
+    def test_create_draft_experiment_without_filters(self) -> None:
+        ff_key = "a-b-tests"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "description": "",
+                "start_date": None,
+                "end_date": None,
+                "feature_flag_key": ff_key,
+                "parameters": None,
+                "filters": {},
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["name"], "Test Experiment")
+        self.assertEqual(response.json()["feature_flag_key"], ff_key)
+
+    def test_create_experiment_with_feature_flag_missing_control(self):
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team,
+            name="Beta feature",
+            key="beta-feature",
+            filters={
+                "multivariate": {
+                    "variants": [
+                        {"key": "test-1", "rollout_percentage": 50},
+                        {"key": "test-2", "rollout_percentage": 50},
+                    ]
+                }
+            },
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Beta experiment",
+                "feature_flag_key": feature_flag.key,
+                "parameters": {},
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], "Feature flag must have control as the first variant.")
+
+    def test_create_experiment_with_valid_existing_feature_flag(self):
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team,
+            name="Beta feature",
+            key="beta-feature",
+            filters={
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "test", "rollout_percentage": 50},
+                    ]
+                }
+            },
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Beta experiment",
+                "feature_flag_key": feature_flag.key,
+                "parameters": {},
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["feature_flag"]["id"], feature_flag.id)
+
+    def test_feature_flag_and_experiment_sync(self):
+        # Create an experiment with control and test variants
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "description": "My test experiment",
+                "feature_flag_key": "experiment-test-flag",
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "name": "Control Group", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
+                    ]
+                },
+                "filters": {"insight": "TRENDS", "events": [{"order": 0, "id": "$pageview"}]},
+            },
+        )
+
+        self.assertEqual(response.status_code, 201)
+        experiment_id = response.json()["id"]
+        feature_flag_id = response.json()["feature_flag"]["id"]
+
+        # Fetch the FeatureFlag object
+        feature_flag = FeatureFlag.objects.get(id=feature_flag_id)
+
+        variants = feature_flag.filters["multivariate"]["variants"]
+
+        # Verify that the variants are correctly populated
+        self.assertEqual(len(variants), 2)
+
+        self.assertEqual(variants[0]["key"], "control")
+        self.assertEqual(variants[0]["name"], "Control Group")
+        self.assertEqual(variants[0]["rollout_percentage"], 50)
+
+        self.assertEqual(variants[1]["key"], "test")
+        self.assertEqual(variants[1]["name"], "Test Variant")
+        self.assertEqual(variants[1]["rollout_percentage"], 50)
+
+        # Change the rollout percentages and groups of the feature flag
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{feature_flag_id}",
+            {
+                "filters": {
+                    "groups": [
+                        {"properties": [], "rollout_percentage": 99},
+                        {"properties": [], "rollout_percentage": 1},
+                    ],
+                    "payloads": {},
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 10},
+                            {"key": "test", "rollout_percentage": 90},
+                        ]
+                    },
+                    "aggregation_group_type_index": 1,
+                }
+            },
+        )
+
+        # Verify that Experiment.parameters.feature_flag_variants reflects the updated FeatureFlag.filters.multivariate.variants
+        experiment = Experiment.objects.get(id=experiment_id)
+        self.assertEqual(
+            experiment.parameters["feature_flag_variants"],
+            [{"key": "control", "rollout_percentage": 10}, {"key": "test", "rollout_percentage": 90}],
+        )
+        self.assertEqual(experiment.parameters["aggregation_group_type_index"], 1)
+
+        # Update the experiment with an unrelated change
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}",
+            {"name": "Updated Test Experiment"},
+        )
+
+        # Verify that the feature flag variants and groups remain unchanged
+        feature_flag = FeatureFlag.objects.get(id=feature_flag_id)
+        self.assertEqual(
+            feature_flag.filters["multivariate"]["variants"],
+            [{"key": "control", "rollout_percentage": 10}, {"key": "test", "rollout_percentage": 90}],
+        )
+        self.assertEqual(
+            feature_flag.filters["groups"],
+            [{"properties": [], "rollout_percentage": 99}, {"properties": [], "rollout_percentage": 1}],
+        )
+
+        # Test removing aggregation_group_type_index
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{feature_flag_id}",
+            {
+                "filters": {
+                    "groups": [
+                        {"properties": [], "rollout_percentage": 99},
+                        {"properties": [], "rollout_percentage": 1},
+                    ],
+                    "payloads": {},
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 10},
+                            {"key": "test", "rollout_percentage": 90},
+                        ]
+                    },
+                }
+            },
+        )
+
+        # Verify that aggregation_group_type_index is removed from experiment parameters
+        experiment = Experiment.objects.get(id=experiment_id)
+        self.assertNotIn("aggregation_group_type_index", experiment.parameters)
+
+    def test_update_experiment_exposure_config_valid(self):
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team,
+            name="Test Feature Flag",
+            key="test-feature-flag",
+            filters={},
+        )
+
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name="Test Experiment",
+            description="My test experiment",
+            feature_flag=feature_flag,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment.id}",
+            {
+                "exposure_criteria": {
+                    "filterTestAccounts": True,
+                    "exposure_config": {
+                        "event": "$pageview",
+                        "properties": [
+                            {"key": "plan", "operator": "is_not", "value": "free", "type": "event"},
+                        ],
+                    },
+                }
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        experiment = Experiment.objects.get(id=experiment.id)
+        self.assertEqual(experiment.exposure_criteria["filterTestAccounts"], True)
+        self.assertEqual(experiment.exposure_criteria["exposure_config"]["event"], "$pageview")
+        self.assertEqual(
+            experiment.exposure_criteria["exposure_config"]["properties"],
+            [{"key": "plan", "operator": "is_not", "value": "free", "type": "event"}],
+        )
+
+    def test_update_experiment_exposure_config_invalid(self):
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team,
+            name="Test Feature Flag",
+            key="test-feature-flag",
+            filters={},
+        )
+
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name="Test Experiment",
+            description="My test experiment",
+            feature_flag=feature_flag,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment.id}",
+            {
+                "exposure_criteria": {
+                    "filterTestAccounts": True,
+                    "exposure_config": {
+                        # Invalid event and properties
+                        "event": "",
+                        "properties": [
+                            1,
+                        ],
+                    },
+                }
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
 class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
@@ -1700,7 +2386,6 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(["person1", "person2"], sorted([res["name"] for res in response.json()["results"]]))
 
-    @snapshot_clickhouse_insert_cohortpeople_queries
     def test_create_exposure_cohort_for_experiment_with_custom_action_filters_exposure(self):
         cohort_extra = Cohort.objects.create(
             team=self.team,
@@ -1821,6 +2506,7 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
             },
             self.team,
         )
+
         _create_person(
             distinct_ids=["1"],
             team_id=self.team.pk,

@@ -6,7 +6,14 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { funnelsQueryDefault, trendsQueryDefault } from '~/queries/nodes/InsightQuery/defaults'
-import { ActionsNode, EventsNode, FunnelsQuery, InsightQueryNode, NodeKind, TrendsQuery } from '~/queries/schema'
+import {
+    ActionsNode,
+    EventsNode,
+    FunnelsQuery,
+    InsightQueryNode,
+    NodeKind,
+    TrendsQuery,
+} from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { BaseMathType, ChartDisplayType, InsightModel, InsightShortId, InsightType } from '~/types'
 

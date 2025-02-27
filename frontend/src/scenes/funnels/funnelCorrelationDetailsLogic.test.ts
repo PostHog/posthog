@@ -2,7 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
-import { DataNode, InsightVizNode, NodeKind } from '~/queries/schema'
+import { DataNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { FunnelCorrelationResultsType, FunnelCorrelationType, InsightLogicProps, InsightType } from '~/types'
 

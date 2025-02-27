@@ -64,11 +64,16 @@ export function HogFunctionStatusIndicator({ hogFunction }: HogFunctionStatusInd
         return null
     }
 
-    const { tagType, display, description } = hogFunction.status?.state
-        ? displayMap[hogFunction.status.state]
-        : hogFunction.enabled
-        ? DEFAULT_DISPLAY
-        : DISABLED_MANUALLY_DISPLAY
+    const { tagType, display, description } =
+        hogFunction.type === 'site_app' || hogFunction.type === 'site_destination'
+            ? hogFunction.enabled
+                ? displayMap[HogWatcherState.healthy]
+                : DISABLED_MANUALLY_DISPLAY
+            : hogFunction.status?.state
+            ? displayMap[hogFunction.status.state]
+            : hogFunction.enabled
+            ? DEFAULT_DISPLAY
+            : DISABLED_MANUALLY_DISPLAY
 
     return (
         <LemonDropdown

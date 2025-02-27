@@ -1,0 +1,3 @@
+FishError: You forgot to feed your fish
+Error of type FunkyError: You forgot to feed your fish
+Error of type FishError: You forgot to feed your fish

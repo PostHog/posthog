@@ -10,11 +10,12 @@ on:
 
 jobs:
     build:
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-latest
 
         permissions:
             contents: read
             packages: write
+            id-token: write
 
         outputs:
             sha: ${{ steps.push.outputs.digest }}
@@ -40,26 +41,24 @@ jobs:
               with:
                   images: ghcr.io/posthog/posthog/livestream
 
-            - name: Set up Docker Buildx
-              uses: docker/setup-buildx-action@v2
-
-            - name: Set up QEMU
-              uses: docker/setup-qemu-action@v2
+            - name: Set up Depot CLI
+              uses: depot/setup-action@v1
 
             - name: Build and push Docker image
               id: push
               if: github.ref == 'refs/heads/master'
-              uses: docker/build-push-action@v5
+              uses: depot/build-push-action@v1
               with:
-                  context: livestream/
+                  context: ./livestream/
                   file: livestream/Dockerfile
                   push: true
                   platforms: linux/amd64,linux/arm64
                   tags: ${{ steps.meta.outputs.tags }}
                   labels: ${{ steps.meta.outputs.labels }}
+                  project: '87b1ch2t7h'
 
     deploy:
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         needs: build
         steps:
             - name: get deployer token

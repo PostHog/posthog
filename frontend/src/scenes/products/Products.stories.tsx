@@ -1,4 +1,4 @@
-import { Meta } from '@storybook/react'
+import { Meta, type StoryFn } from '@storybook/react'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 import { App } from 'scenes/App'
@@ -8,8 +8,9 @@ import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import { billingJson } from '~/mocks/fixtures/_billing'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 
-const meta: Meta = {
+export default {
     title: 'Scenes-Other/Products',
+    component: App,
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
@@ -26,9 +27,9 @@ const meta: Meta = {
             },
         }),
     ],
-}
-export default meta
-export const _Products = (): JSX.Element => {
+} as Meta<typeof App>
+
+const Template: StoryFn<typeof App> = () => {
     useStorybookMocks({
         get: {
             '/api/billing/': {
@@ -40,5 +41,26 @@ export const _Products = (): JSX.Element => {
     useEffect(() => {
         router.actions.push(urls.products())
     }, [])
+
     return <App />
+}
+
+export const DesktopView = Template.bind({})
+DesktopView.parameters = {
+    testOptions: {
+        viewport: {
+            width: 2048,
+            height: 1024,
+        },
+    },
+}
+
+export const MobileView = Template.bind({})
+MobileView.parameters = {
+    testOptions: {
+        viewport: {
+            width: 568,
+            height: 1024,
+        },
+    },
 }

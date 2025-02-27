@@ -11,7 +11,9 @@ import pyarrow as pa
 import structlog
 
 from posthog.batch_exports.models import BatchExportRun
-from posthog.batch_exports.service import aupdate_batch_export_run
+from posthog.batch_exports.service import (
+    aupdate_batch_export_run,
+)
 
 T = typing.TypeVar("T")
 logger = structlog.get_logger()
@@ -191,7 +193,7 @@ class JsonType(pa.ExtensionType):
 
 def cast_record_batch_json_columns(
     record_batch: pa.RecordBatch,
-    json_columns: collections.abc.Sequence = ("properties", "person_properties", "set", "set_once"),
+    json_columns: collections.abc.Sequence[str] = ("properties", "person_properties", "set", "set_once"),
 ) -> pa.RecordBatch:
     """Cast json_columns in record_batch to JsonType.
 
@@ -213,6 +215,27 @@ def cast_record_batch_json_columns(
         record_batch.select(remaining_column_names).columns + casted_arrays,
         names=remaining_column_names + list(intersection),
     )
+
+
+def cast_record_batch_schema_json_columns(
+    schema: pa.Schema,
+    json_columns: collections.abc.Sequence[str] = ("properties", "person_properties", "set", "set_once"),
+):
+    column_names = set(schema.names)
+    intersection = column_names & set(json_columns)
+    new_fields = []
+
+    for field in schema:
+        if field.name not in intersection or not pa.types.is_string(field.type):
+            new_fields.append(field)
+            continue
+
+        casted_field = field.with_type(JsonType())
+        new_fields.append(casted_field)
+
+    new_schema = pa.schema(new_fields)
+
+    return new_schema
 
 
 _Result = typing.TypeVar("_Result")

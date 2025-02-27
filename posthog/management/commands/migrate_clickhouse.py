@@ -7,13 +7,14 @@ from infi.clickhouse_orm import Database
 from infi.clickhouse_orm.migrations import MigrationHistory
 from infi.clickhouse_orm.utils import import_submodules
 
+from posthog.clickhouse.client.connection import default_client
 from posthog.settings import (
     CLICKHOUSE_DATABASE,
     CLICKHOUSE_HTTP_URL,
     CLICKHOUSE_PASSWORD,
     CLICKHOUSE_USER,
 )
-from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
+from posthog.settings.data_stores import CLICKHOUSE_MIGRATIONS_CLUSTER
 
 MIGRATIONS_PACKAGE_NAME = "posthog.clickhouse.migrations"
 
@@ -53,12 +54,14 @@ class Command(BaseCommand):
         self.migrate(CLICKHOUSE_HTTP_URL, options)
 
     def migrate(self, host, options):
+        # Infi only creates the DB in one node, but not the rest. Create it before running migrations.
+        self._create_database_if_not_exists(CLICKHOUSE_DATABASE, CLICKHOUSE_MIGRATIONS_CLUSTER)
         database = Database(
             CLICKHOUSE_DATABASE,
             db_url=host,
             username=CLICKHOUSE_USER,
             password=CLICKHOUSE_PASSWORD,
-            cluster=CLICKHOUSE_CLUSTER,
+            cluster=CLICKHOUSE_MIGRATIONS_CLUSTER,
             verify_ssl_cert=False,
             randomize_replica_paths=settings.TEST or settings.E2E_TESTING,
         )
@@ -105,3 +108,10 @@ class Command(BaseCommand):
 
     def get_applied_migrations(self, database):
         return database._get_applied_migrations(MIGRATIONS_PACKAGE_NAME, replicated=True)
+
+    def _create_database_if_not_exists(self, database: str, cluster: str):
+        if settings.TEST or settings.E2E_TESTING:
+            with default_client() as client:
+                client.execute(
+                    f"CREATE DATABASE IF NOT EXISTS {database} ON CLUSTER {cluster}",
+                )

@@ -1,4 +1,4 @@
-import { IconEllipsis, IconInfo, IconPlus } from '@posthog/icons'
+import { IconEllipsis, IconInfo } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -117,7 +117,7 @@ export function ManagedReverseProxy(): JSX.Element {
                                 },
                             ]}
                         >
-                            <LemonButton size="small" icon={<IconEllipsis className="text-muted" />} />
+                            <LemonButton size="small" icon={<IconEllipsis className="text-secondary" />} />
                         </LemonMenu>
                     )
                 )
@@ -148,13 +148,8 @@ export function ManagedReverseProxy(): JSX.Element {
                         </LemonBanner>
                     ) : (
                         <div className="flex">
-                            <LemonButton
-                                onClick={showForm}
-                                type="secondary"
-                                icon={<IconPlus />}
-                                disabledReason={restrictionReason}
-                            >
-                                New managed proxy
+                            <LemonButton onClick={showForm} type="primary" disabledReason={restrictionReason}>
+                                Add managed proxy
                             </LemonButton>
                         </div>
                     )
@@ -195,7 +190,7 @@ function CreateRecordForm(): JSX.Element {
     const waitingRecords = proxyRecords.filter((r) => r.status === 'waiting')
 
     return (
-        <div className="bg-bg-light rounded border px-5 py-4 space-y-2">
+        <div className="bg-surface-primary rounded border px-5 py-4 space-y-2">
             {formState == 'active' ? (
                 <Form logic={proxyLogic} formKey="createRecord" enableFormOnSubmit className="w-full space-y-2">
                     <LemonField name="domain">

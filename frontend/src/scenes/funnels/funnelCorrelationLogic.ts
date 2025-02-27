@@ -5,7 +5,12 @@ import api from 'lib/api'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { FunnelCorrelationQuery, FunnelCorrelationResultsType, FunnelsActorsQuery, NodeKind } from '~/queries/schema'
+import {
+    FunnelCorrelationQuery,
+    FunnelCorrelationResultsType,
+    FunnelsActorsQuery,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 import { FunnelCorrelation, FunnelCorrelationType, InsightLogicProps } from '~/types'
 
 import type { funnelCorrelationLogicType } from './funnelCorrelationLogicType'

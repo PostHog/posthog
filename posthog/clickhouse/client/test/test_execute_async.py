@@ -358,12 +358,12 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
             # request routing information for debugging purposes
             self.assertIn(f"/* user_id:{self.user_id} request:1 */", first_query)
 
-    @patch("posthog.clickhouse.client.execute.get_pool")
-    def test_offline_workload_if_personal_api_key(self, mock_get_pool):
+    @patch("posthog.clickhouse.client.execute.get_client_from_pool")
+    def test_offline_workload_if_personal_api_key(self, mock_get_client):
         from posthog.clickhouse.query_tagging import tag_queries
 
         with self.capture_select_queries():
             tag_queries(kind="request", id="1", access_method="personal_api_key")
             sync_execute("select 1")
 
-            self.assertEqual(mock_get_pool.call_args[0][0], Workload.OFFLINE)
+            self.assertEqual(mock_get_client.call_args[0][0], Workload.OFFLINE)

@@ -7,10 +7,13 @@ import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
+import { HogFunctionInputSchemaType } from '~/types'
+
 export type IntegrationConfigureProps = {
     value?: number
     onChange?: (value: number | null) => void
     redirectUrl?: string
+    schema?: HogFunctionInputSchemaType
     integration?: string
     beforeRedirect?: () => void
 }
@@ -18,6 +21,7 @@ export type IntegrationConfigureProps = {
 export function IntegrationChoice({
     onChange,
     value,
+    schema,
     integration,
     redirectUrl,
     beforeRedirect,
@@ -124,5 +128,13 @@ export function IntegrationChoice({
         </LemonMenu>
     )
 
-    return <>{integrationKind ? <IntegrationView integration={integrationKind} suffix={button} /> : button}</>
+    return (
+        <>
+            {integrationKind ? (
+                <IntegrationView schema={schema} integration={integrationKind} suffix={button} />
+            ) : (
+                button
+            )}
+        </>
+    )
 }

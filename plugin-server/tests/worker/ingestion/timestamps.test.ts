@@ -1,7 +1,12 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { UUIDT } from '../../../src/utils/utils'
-import { parseDate, parseEventTimestamp } from '../../../src/worker/ingestion/timestamps'
+import {
+    parseDate,
+    parseEventTimestamp,
+    toStartOfDayInTimezone,
+    toYearMonthDayInTimezone,
+} from '../../../src/worker/ingestion/timestamps'
 
 describe('parseDate()', () => {
     const timestamps = [
@@ -281,5 +286,89 @@ describe('parseEventTimestamp()', () => {
         ])
 
         expect(timestamp.toISO()).toEqual('2021-10-29T01:00:00.000Z')
+    })
+})
+
+describe('toYearMonthDateInTimezone', () => {
+    it('returns the correct date in the correct timezone', () => {
+        expect(toYearMonthDayInTimezone(new Date('2024-12-13T10:00:00.000Z').getTime(), 'Europe/London')).toEqual({
+            year: 2024,
+            month: 12,
+            day: 13,
+        })
+
+        // should be a day ahead due to time zones
+        expect(toYearMonthDayInTimezone(new Date('2024-12-13T23:00:00.000Z').getTime(), 'Asia/Tokyo')).toEqual({
+            year: 2024,
+            month: 12,
+            day: 14,
+        })
+
+        // should be a day behind due to time zones
+        expect(toYearMonthDayInTimezone(new Date('2024-12-13T01:00:00.000Z').getTime(), 'America/Los_Angeles')).toEqual(
+            {
+                year: 2024,
+                month: 12,
+                day: 12,
+            }
+        )
+
+        // should be the same day due to no DST
+        expect(toYearMonthDayInTimezone(new Date('2024-12-13T00:00:00.000Z').getTime(), 'Europe/London')).toEqual({
+            year: 2024,
+            month: 12,
+            day: 13,
+        })
+
+        // should be a different day due to DST (british summer time)
+        expect(toYearMonthDayInTimezone(new Date('2024-06-13T23:00:00.000Z').getTime(), 'Europe/London')).toEqual({
+            year: 2024,
+            month: 6,
+            day: 14,
+        })
+    })
+
+    it('should throw on invalid timezone', () => {
+        expect(() => toYearMonthDayInTimezone(new Date().getTime(), 'Invalid/Timezone')).toThrowError(
+            'Invalid time zone'
+        )
+    })
+})
+
+describe('toStartOfDayInTimezone', () => {
+    it('returns the start of the day in the correct timezone', () => {
+        expect(toStartOfDayInTimezone(new Date('2024-12-13T10:00:00.000Z').getTime(), 'Europe/London')).toEqual(
+            new Date('2024-12-13T00:00:00Z')
+        )
+
+        // would be the following day in Asia/Tokyo, but should be the same day (just earlier) in UTC
+        expect(toStartOfDayInTimezone(new Date('2024-12-13T23:00:00.000Z').getTime(), 'Asia/Tokyo')).toEqual(
+            new Date('2024-12-13T15:00:00Z')
+        )
+
+        // would be the same day in Asia/Tokyo, but back in UTC time it should be the previous day (but later in the day)
+        expect(toStartOfDayInTimezone(new Date('2024-12-13T01:00:00.000Z').getTime(), 'Asia/Tokyo')).toEqual(
+            new Date('2024-12-12T15:00:00Z')
+        )
+
+        // would be the same day in America/Los_Angeles, but earlier in the day when converted to UTC
+        expect(toStartOfDayInTimezone(new Date('2024-12-13T23:00:00.000Z').getTime(), 'America/Los_Angeles')).toEqual(
+            new Date('2024-12-13T08:00:00Z')
+        )
+
+        // would be the previous day in America/Los_Angeles, and when converted to UTC it should stay the previous day
+        expect(toStartOfDayInTimezone(new Date('2024-12-13T01:00:00.000Z').getTime(), 'America/Los_Angeles')).toEqual(
+            new Date('2024-12-12T08:00:00Z')
+        )
+
+        // should be the same day due to no DST
+        expect(toStartOfDayInTimezone(new Date('2024-12-13T00:00:00.000Z').getTime(), 'Europe/London')).toEqual(
+            new Date('2024-12-13T00:00:00Z')
+        )
+
+        // should be a different day due to DST (british summer time)
+        expect(toStartOfDayInTimezone(new Date('2024-06-13T00:00:00.000Z').getTime(), 'Europe/London')).toEqual(
+            new Date('2024-06-12T23:00:00Z')
+        )
     })
 })

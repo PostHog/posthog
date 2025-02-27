@@ -91,7 +91,13 @@ def external_data_resources(client, organization, team):
         # No status but should be completed because a data warehouse table already exists
     )
     job = ExternalDataJob.objects.create(
-        pipeline=source, schema=schema, workflow_id="fake_workflow_id", team=team, status="Running", rows_synced=100000
+        pipeline=source,
+        schema=schema,
+        workflow_id="fake_workflow_id",
+        team=team,
+        status="Running",
+        rows_synced=100000,
+        pipeline_version=ExternalDataJob.PipelineVersion.V1,
     )
 
     return {

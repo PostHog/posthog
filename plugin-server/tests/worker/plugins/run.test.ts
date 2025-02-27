@@ -117,6 +117,7 @@ describe('runPluginTask()', () => {
 describe('runOnEvent', () => {
     let mockHub: any, onEvent: jest.Mock
 
+    // @ts-expect-error TODO: Fix type error
     const createEvent = (data: Partial<PostIngestionEvent> = {}): PostIngestionEvent => ({
         eventUuid: 'uuid1',
         distinctId: 'my_id',
@@ -170,14 +171,14 @@ describe('runOnEvent', () => {
 
         expect(onEvent).toHaveBeenCalledTimes(2)
         expect(onEvent.mock.calls[0][0]).toMatchInlineSnapshot(`
-            Object {
+            {
               "$set": undefined,
               "$set_once": undefined,
               "distinct_id": "my_id",
-              "elements": Array [],
+              "elements": [],
               "event": "$autocapture",
               "ip": null,
-              "properties": Object {},
+              "properties": {},
               "team_id": 2,
               "timestamp": "2020-02-23T02:15:00.000Z",
               "uuid": "uuid1",
@@ -243,6 +244,7 @@ describe('runComposeWebhook', () => {
         mockActionManager: any,
         mockPostgres: any
 
+    // @ts-expect-error TODO: Fix type error
     const createEvent = (data: Partial<PostIngestionEvent> = {}): PostIngestionEvent => ({
         eventUuid: 'uuid1',
         distinctId: 'my_id',
@@ -286,10 +288,10 @@ describe('runComposeWebhook', () => {
 
         expect(composeWebhook).toHaveBeenCalledTimes(1)
         expect(composeWebhook.mock.calls[0][0]).toMatchInlineSnapshot(`
-            Object {
+            {
               "distinct_id": "my_id",
               "event": "$autocapture",
-              "properties": Object {},
+              "properties": {},
               "team_id": 2,
               "timestamp": 2020-02-23T02:15:00.000Z,
               "uuid": "uuid1",

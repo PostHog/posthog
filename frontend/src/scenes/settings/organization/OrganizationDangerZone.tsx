@@ -1,7 +1,7 @@
 import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { useRestrictedArea } from 'lib/components/RestrictedArea'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { Dispatch, SetStateAction, useState } from 'react'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -67,7 +67,11 @@ export function DeleteOrganizationModal({
 export function OrganizationDangerZone(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
     const [isModalVisible, setIsModalVisible] = useState(false)
-    const restrictionReason = useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })
+
+    const restrictionReason = useRestrictedArea({
+        minimumAccessLevel: OrganizationMembershipLevel.Owner,
+        scope: RestrictionScope.Organization,
+    })
 
     return (
         <>

@@ -73,7 +73,7 @@ export function HogFunctionList({
                             render: (_, hogFunction) => {
                                 return (
                                     <LemonTableLink
-                                        to={hogFunctionUrl(hogFunction.type, hogFunction.id)}
+                                        to={hogFunctionUrl(hogFunction.type, hogFunction.id, hogFunction.template?.id)}
                                         title={
                                             <>
                                                 <Tooltip title="Click to update configuration, view metrics, and more">
@@ -88,7 +88,7 @@ export function HogFunctionList({
                         },
 
                         {
-                            title: 'Weekly volume',
+                            title: 'Last 7 days',
                             render: (_, hogFunction) => {
                                 return (
                                     <Link

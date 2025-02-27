@@ -57,6 +57,7 @@ class HogFunctionAdmin(admin.ModelAdmin):
         "template_id",
     )
 
+    @admin.display(description="Team")
     def team_link(self, instance: HogFunction):
         return format_html(
             '<a href="/admin/posthog/team/{}/change/">{}</a>',

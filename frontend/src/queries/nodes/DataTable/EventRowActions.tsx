@@ -1,13 +1,13 @@
-import { useActions } from 'kea'
-import { dayjs } from 'lib/dayjs'
-import { IconLink, IconPlayCircle } from 'lib/lemon-ui/icons'
+import { IconWarning } from '@posthog/icons'
+import { router } from 'kea-router'
+import ViewRecordingButton, { mightHaveRecording } from 'lib/components/ViewRecordingButton'
+import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { createActionFromEvent } from 'scenes/activity/explore/createActionFromEvent'
 import { insightUrlForEvent } from 'scenes/insights/utils'
-import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -18,7 +18,6 @@ interface EventActionProps {
 }
 
 export function EventRowActions({ event }: EventActionProps): JSX.Element {
-    const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
     const insightUrl = insightUrlForEvent(event)
 
     return (
@@ -56,25 +55,35 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
                             Copy link to event
                         </LemonButton>
                     )}
-                    {!!event.properties?.$session_id && (
+                    <ViewRecordingButton
+                        fullWidth
+                        inModal
+                        sessionId={event.properties.$session_id}
+                        timestamp={event.timestamp}
+                        disabledReason={
+                            mightHaveRecording(event.properties)
+                                ? undefined
+                                : 'Replay was not active when capturing this event'
+                        }
+                        data-attr="events-table-usage"
+                    />
+                    {event.event === '$exception' && '$exception_issue_id' in event.properties ? (
                         <LemonButton
-                            to={urls.replaySingle(event.properties.$session_id)}
-                            onClick={(e) => {
-                                e.preventDefault()
-                                if (event.properties.$session_id) {
-                                    openSessionPlayer(
-                                        { id: event.properties.$session_id },
-                                        dayjs(event.timestamp).valueOf()
-                                    )
-                                }
-                            }}
                             fullWidth
-                            sideIcon={<IconPlayCircle />}
-                            data-attr="events-table-usage"
+                            sideIcon={<IconWarning />}
+                            data-attr="events-table-exception-link"
+                            onClick={() =>
+                                router.actions.push(
+                                    urls.errorTrackingIssue(
+                                        event.properties.$exception_issue_id,
+                                        event.properties.$exception_fingerprint
+                                    )
+                                )
+                            }
                         >
-                            View recording
+                            Visit issue
                         </LemonButton>
-                    )}
+                    ) : null}
                     {insightUrl && (
                         <LemonButton to={insightUrl} fullWidth data-attr="events-table-usage">
                             Try out in Insights

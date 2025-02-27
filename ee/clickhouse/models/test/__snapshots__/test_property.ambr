@@ -3,7 +3,7 @@
   '''
   SELECT uuid
   FROM events
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND ((has(['val_1'], replaceRegexpAll(JSONExtractRaw(properties, 'attr_1'), '^"|"$', ''))
           AND has(['val_2'], replaceRegexpAll(JSONExtractRaw(properties, 'attr_2'), '^"|"$', '')))
          OR (has(['val_2'], replaceRegexpAll(JSONExtractRaw(properties, 'attr_1'), '^"|"$', ''))))
@@ -13,14 +13,14 @@
   '''
   SELECT uuid
   FROM events
-  WHERE team_id = 2
+  WHERE team_id = 99999
     AND ((distinct_id IN
             (SELECT distinct_id
              FROM
                (SELECT distinct_id,
                        argMax(person_id, version) as person_id
                 FROM person_distinct_id2
-                WHERE team_id = 2
+                WHERE team_id = 99999
                 GROUP BY distinct_id
                 HAVING argMax(is_deleted, version) = 0)
              WHERE person_id IN
@@ -30,7 +30,7 @@
                             argMax(properties, person._timestamp) as properties,
                             max(is_deleted) as is_deleted
                      FROM person
-                     WHERE team_id = 2
+                     WHERE team_id = 99999
                      GROUP BY id
                      HAVING is_deleted = 0)
                   WHERE has(['1@posthog.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '')) ) ))
@@ -40,7 +40,7 @@
                   (SELECT distinct_id,
                           argMax(person_id, version) as person_id
                    FROM person_distinct_id2
-                   WHERE team_id = 2
+                   WHERE team_id = 99999
                    GROUP BY distinct_id
                    HAVING argMax(is_deleted, version) = 0)
                 WHERE person_id IN
@@ -50,7 +50,7 @@
                                argMax(properties, person._timestamp) as properties,
                                max(is_deleted) as is_deleted
                         FROM person
-                        WHERE team_id = 2
+                        WHERE team_id = 99999
                         GROUP BY id
                         HAVING is_deleted = 0)
                      WHERE has(['2@posthog.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '')) ) )))

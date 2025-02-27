@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, path, props, selectors } from 'kea'
+import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -29,8 +29,17 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
         ],
         actions: [],
     })),
+    reducers({
+        bypassPaywall: [
+            false,
+            {
+                setBypassPaywall: (_, { bypassPaywall }) => bypassPaywall,
+            },
+        ],
+    }),
     actions({
         setGateVariant: (gateVariant: GateVariantType) => ({ gateVariant }),
+        setBypassPaywall: (bypassPaywall: boolean) => ({ bypassPaywall }),
     }),
     selectors(({ values, props }) => ({
         productWithFeature: [

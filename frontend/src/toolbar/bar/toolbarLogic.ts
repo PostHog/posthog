@@ -9,13 +9,23 @@ import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
-import { inBounds, TOOLBAR_ID } from '~/toolbar/utils'
+import { inBounds, TOOLBAR_CONTAINER_CLASS, TOOLBAR_ID } from '~/toolbar/utils'
 
 import type { toolbarLogicType } from './toolbarLogicType'
 
 const MARGIN = 2
 
-export type MenuState = 'none' | 'heatmap' | 'actions' | 'flags' | 'inspect' | 'hedgehog' | 'debugger' | 'experiments'
+export type MenuState =
+    | 'none'
+    | 'heatmap'
+    | 'actions'
+    | 'flags'
+    | 'inspect'
+    | 'hedgehog'
+    | 'debugger'
+    | 'experiments'
+    | 'web-vitals'
+
 export type ToolbarPositionType =
     | 'top-left'
     | 'top-center'
@@ -431,8 +441,9 @@ export const toolbarLogic = kea<toolbarLogicType>([
     })),
     afterMount(({ actions, values, cache }) => {
         cache.clickListener = (e: MouseEvent): void => {
-            const shouldBeBlurred = (e.target as HTMLElement)?.id !== TOOLBAR_ID
-            if (shouldBeBlurred && !values.isBlurred) {
+            const target = e.target as HTMLElement
+            const clickIsInToolbar = target?.id === TOOLBAR_ID || !!target.closest?.('.' + TOOLBAR_CONTAINER_CLASS)
+            if (!clickIsInToolbar && !values.isBlurred) {
                 actions.setIsBlurred(true)
             }
         }

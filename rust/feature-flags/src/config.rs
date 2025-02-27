@@ -98,6 +98,12 @@ pub struct Config {
 
     #[envconfig(from = "TEAM_IDS_TO_TRACK", default = "all")]
     pub team_ids_to_track: TeamIdsToTrack,
+
+    #[envconfig(from = "CACHE_MAX_COHORT_ENTRIES", default = "100000")]
+    pub cache_max_cohort_entries: u64,
+
+    #[envconfig(from = "CACHE_TTL_SECONDS", default = "300")]
+    pub cache_ttl_seconds: u64,
 }
 
 impl Config {
@@ -110,10 +116,12 @@ impl Config {
             read_database_url: "postgres://posthog:posthog@localhost:5432/test_posthog".to_string(),
             max_concurrency: 1000,
             max_pg_connections: 10,
-            acquire_timeout_secs: 1,
+            acquire_timeout_secs: 5,
             maxmind_db_path: "".to_string(),
             enable_metrics: false,
             team_ids_to_track: TeamIdsToTrack::All,
+            cache_max_cohort_entries: 100_000,
+            cache_ttl_seconds: 300,
         }
     }
 

@@ -9,7 +9,7 @@ export function FeatureFlagsIOSInstructions(): JSX.Element {
         <>
             <SDKInstallIOSInstructions />
             <FlagImplementationSnippet sdkKey={SDKKey.IOS} />
-            <AdvertiseMobileReplay context="product-analytics-onboarding" sdkKey={SDKKey.IOS} />
+            <AdvertiseMobileReplay context="flags-onboarding" sdkKey={SDKKey.IOS} />
         </>
     )
 }

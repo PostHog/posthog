@@ -5,6 +5,7 @@ import {
     AngularInstructions,
     AstroInstructions,
     BubbleInstructions,
+    FlutterInstructions,
     FramerInstructions,
     HTMLSnippetInstructions,
     iOSInstructions,
@@ -36,4 +37,5 @@ export const WebAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.WEBFLOW]: WebflowInstructions,
     [SDKKey.ANDROID]: AndroidInstructions,
     [SDKKey.REACT_NATIVE]: WebAnalyticsRNInstructions,
+    [SDKKey.FLUTTER]: FlutterInstructions,
 }

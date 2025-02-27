@@ -5,7 +5,7 @@ import { hogQLAutocompleteProvider } from 'lib/monaco/hogQLAutocompleteProvider'
 import { hogQLMetadataProvider } from 'lib/monaco/hogQLMetadataProvider'
 import { languages } from 'monaco-editor'
 
-import { HogLanguage } from '~/queries/schema'
+import { HogLanguage } from '~/queries/schema/schema-general'
 
 export const conf: () => languages.LanguageConfiguration = () => ({
     comments: {
@@ -564,6 +564,7 @@ export const language: () => languages.IMonarchLanguage = () => ({
         'JSONExtractArrayRaw',
         'JSONExtractKeysAndValues',
         'JSONExtractKeysAndValuesRaw',
+        'JSON_VALUE',
         'in',
         'notIn',
         'greatCircleDistance',

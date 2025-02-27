@@ -10,6 +10,13 @@ input_api_key = {
     "secret": True,
     "required": True,
 }
+input_secret_key = {
+    "key": "secret_key",
+    "type": "string",
+    "label": "Mailjet Secret Key",
+    "secret": True,
+    "required": True,
+}
 input_email = {
     "key": "email",
     "type": "string",
@@ -29,6 +36,7 @@ common_filters = {
 
 template_create_contact: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
+    free=False,
     type="destination",
     id="template-mailjet-create-contact",
     name="Mailjet",
@@ -43,7 +51,7 @@ if (empty(inputs.email)) {
 fetch(f'https://api.mailjet.com/v3/REST/contact/', {
     'method': 'POST',
     'headers': {
-        'Authorization': f'Bearer {inputs.api_key}',
+        'Authorization': f'Basic {base64Encode(f'{inputs.api_key}:{inputs.secret_key}')}',
         'Content-Type': 'application/json'
     },
     'body': {
@@ -55,6 +63,7 @@ fetch(f'https://api.mailjet.com/v3/REST/contact/', {
 """.strip(),
     inputs_schema=[
         input_api_key,
+        input_secret_key,
         input_email,
         {
             "key": "name",
@@ -81,6 +90,7 @@ fetch(f'https://api.mailjet.com/v3/REST/contact/', {
 
 template_update_contact_list: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
+    free=False,
     type="destination",
     id="template-mailjet-update-contact-list",
     name="Mailjet",
@@ -95,7 +105,7 @@ if (empty(inputs.email)) {
 fetch(f'https://api.mailjet.com/v3/REST/contact/{inputs.email}/managecontactlists', {
     'method': 'POST',
     'headers': {
-        'Authorization': f'Bearer {inputs.api_key}',
+        'Authorization': f'Basic {base64Encode(f'{inputs.api_key}:{inputs.secret_key}')}',
         'Content-Type': 'application/json'
     },
     'body': {
@@ -110,6 +120,7 @@ fetch(f'https://api.mailjet.com/v3/REST/contact/{inputs.email}/managecontactlist
 """.strip(),
     inputs_schema=[
         input_api_key,
+        input_secret_key,
         input_email,
         {
             "key": "contact_list_id",
@@ -152,6 +163,7 @@ fetch(f'https://api.mailjet.com/v3/REST/contact/{inputs.email}/managecontactlist
 
 template_send_email: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
+    free=False,
     type="email",
     id="template-mailjet-send-email",
     name="Mailjet",
@@ -163,7 +175,7 @@ fun sendEmail(email) {
     fetch(f'https://api.mailjet.com/v3.1/send', {
         'method': 'POST',
         'headers': {
-            'Authorization': f'Bearer {inputs.api_key}',
+            'Authorization': f'Basic {base64Encode(f'{inputs.api_key}:{inputs.secret_key}')}',
             'Content-Type': 'application/json'
         },
         'body': {
@@ -191,6 +203,7 @@ return {'sendEmail': sendEmail}
 """.strip(),
     inputs_schema=[
         input_api_key,
+        input_secret_key,
         {
             "key": "from_email",
             "type": "string",

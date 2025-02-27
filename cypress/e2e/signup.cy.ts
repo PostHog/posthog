@@ -1,4 +1,4 @@
-import { decideResponse } from '../fixtures/api/decide'
+import { setupFeatureFlags } from '../support/decide'
 
 const VALID_PASSWORD = 'hedgE-hog-123%'
 
@@ -77,6 +77,9 @@ describe('Signup', () => {
         cy.get('[data-attr=password]').type(VALID_PASSWORD).should('have.value', VALID_PASSWORD)
         cy.get('[data-attr=signup-start]').click()
         cy.get('[data-attr=signup-name]').type('Alice Bob').should('have.value', 'Alice Bob')
+        cy.get('[data-attr=signup-role-at-organization]').click()
+        cy.get('.Popover li:first-child').click()
+        cy.get('[data-attr=signup-role-at-organization]').contains('Engineering')
         cy.get('[data-attr=signup-submit]').click()
 
         cy.wait('@signupRequest').then((interception) => {
@@ -93,6 +96,9 @@ describe('Signup', () => {
         cy.get('[data-attr=password]').type(VALID_PASSWORD).should('have.value', VALID_PASSWORD)
         cy.get('[data-attr=signup-start]').click()
         cy.get('[data-attr=signup-name]').type('Alice Bob').should('have.value', 'Alice Bob')
+        cy.get('[data-attr=signup-role-at-organization]').click()
+        cy.get('.Popover li:first-child').click()
+        cy.get('[data-attr=signup-role-at-organization]').contains('Engineering')
         cy.get('[data-attr=signup-submit]').click()
 
         cy.wait('@signupRequest').then(() => {
@@ -105,6 +111,9 @@ describe('Signup', () => {
         const newEmail = `new_user+${Math.floor(Math.random() * 10000)}@posthog.com`
         cy.get('[data-attr=signup-email]').clear().type(newEmail).should('have.value', newEmail)
         cy.get('[data-attr=signup-start]').click()
+        cy.get('[data-attr=signup-role-at-organization]').click()
+        cy.get('.Popover li:first-child').click()
+        cy.get('[data-attr=signup-role-at-organization]').contains('Engineering')
         cy.get('[data-attr=signup-submit]').click()
 
         cy.wait('@signupRequest').then((interception) => {
@@ -162,13 +171,9 @@ describe('Signup', () => {
     })
 
     it('Shows redirect notice if redirecting for maintenance', () => {
-        cy.intercept('**/decide/*', (req) =>
-            req.reply(
-                decideResponse({
-                    'redirect-signups-to-instance': 'us',
-                })
-            )
-        )
+        setupFeatureFlags({
+            'redirect-signups-to-instance': 'us',
+        })
 
         cy.visit('/logout')
         cy.location('pathname').should('include', '/login')

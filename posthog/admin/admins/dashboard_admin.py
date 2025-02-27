@@ -33,6 +33,7 @@ class DashboardAdmin(admin.ModelAdmin):
     ordering = ("-created_at", "creation_mode")
     inlines = (DashboardTileInline,)
 
+    @admin.display(description="Team")
     def team_link(self, dashboard: Dashboard):
         return format_html(
             '<a href="/admin/posthog/team/{}/change/">{}</a>',
@@ -40,6 +41,7 @@ class DashboardAdmin(admin.ModelAdmin):
             dashboard.team.name,
         )
 
+    @admin.display(description="Organization")
     def organization_link(self, dashboard: Dashboard):
         return format_html(
             '<a href="/admin/posthog/organization/{}/change/">{}</a>',

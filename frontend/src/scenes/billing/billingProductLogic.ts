@@ -1,6 +1,7 @@
-import { LemonDialog } from '@posthog/lemon-ui'
+import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
+import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'posthog-js'
 import React from 'react'
@@ -13,6 +14,30 @@ import type { billingProductLogicType } from './billingProductLogicType'
 import { BillingGaugeItemKind, BillingGaugeItemType } from './types'
 
 const DEFAULT_BILLING_LIMIT: number = 500
+
+type UnsubscribeReason = {
+    reason: string
+    question: string
+}
+
+export const UNSUBSCRIBE_REASONS: UnsubscribeReason[] = [
+    { reason: 'Too expensive', question: 'What will you be using instead?' },
+    { reason: 'Not getting enough value', question: 'What prevented you from getting more value out of PostHog?' },
+    { reason: 'Not using the product', question: 'Why are you not using the product?' },
+    { reason: 'Found a better alternative', question: 'What service will you be moving to?' },
+    { reason: 'Poor customer support', question: 'Please provide details on your support experience.' },
+    { reason: 'Too difficult to use', question: 'What was difficult to use?' },
+    { reason: 'Not enough hedgehogs', question: 'How many hedgehogs do you need? (but really why are you leaving)' },
+    { reason: 'Shutting down', question: "We're sorry to hear that ❤️. What was your favorite feature?" },
+    { reason: 'Technical issues', question: 'What technical problems did you experience?' },
+    { reason: 'Other (let us know below!)', question: 'Why are you leaving?' },
+]
+
+export const randomizeReasons = (reasons: UnsubscribeReason[]): UnsubscribeReason[] => {
+    const shuffledReasons = reasons.slice(0, -1).sort(() => Math.random() - 0.5)
+    shuffledReasons.push(reasons[reasons.length - 1])
+    return shuffledReasons
+}
 
 export interface BillingProductLogicProps {
     product: BillingProductV2Type | BillingProductV2AddonType
@@ -37,6 +62,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
             [
                 'updateBillingLimits',
                 'updateBillingLimitsSuccess',
+                'loadBilling',
                 'loadBillingSuccess',
                 'deactivateProduct',
                 'setProductSpecificAlert',
@@ -75,6 +101,10 @@ export const billingProductLogic = kea<billingProductLogicType>([
             products,
             redirectPath,
         }),
+        activateTrial: true,
+        cancelTrial: true,
+        setTrialModalOpen: (isOpen: boolean) => ({ isOpen }),
+        setTrialLoading: (loading: boolean) => ({ loading }),
         setUnsubscribeModalStep: (step: number) => ({ step }),
         resetUnsubscribeModalStep: true,
         setHedgehogSatisfied: (satisfied: boolean) => ({ satisfied }),
@@ -156,6 +186,18 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 toggleIsPlanComparisonModalOpen: (_, { highlightedFeatureKey }) => highlightedFeatureKey || null,
             },
         ],
+        trialModalOpen: [
+            false,
+            {
+                setTrialModalOpen: (_, { isOpen }) => isOpen,
+            },
+        ],
+        trialLoading: [
+            false,
+            {
+                setTrialLoading: (_, { loading }) => loading,
+            },
+        ],
         unsubscribeModalStep: [
             1 as number,
             {
@@ -213,29 +255,9 @@ export const billingProductLogic = kea<billingProductLogicType>([
             },
         ],
         billingLimitAsUsage: [
-            (s, p) => [s.billing, p.product, s.isEditingBillingLimit, s.billingLimitInput, s.customLimitUsd],
-            (billing, product, isEditingBillingLimit, billingLimitInput, customLimitUsd) => {
-                // cast the product as a product, not an addon, to avoid TS errors. This is fine since we're just getting the tiers.
-                product = product as BillingProductV2Type
-                const addonTiers = product.addons
-                    ?.filter((addon: BillingProductV2AddonType) => addon.subscribed)
-                    ?.map((addon: BillingProductV2AddonType) => addon.tiers)
-                const productAndAddonTiers: BillingTierType[][] = [product.tiers, ...addonTiers].filter(
-                    Boolean
-                ) as BillingTierType[][]
-                return product.tiers
-                    ? isEditingBillingLimit
-                        ? convertAmountToUsage(
-                              `${billingLimitInput.input}`,
-                              productAndAddonTiers,
-                              billing?.discount_percent
-                          )
-                        : convertAmountToUsage(
-                              customLimitUsd ? `${customLimitUsd}` : '',
-                              productAndAddonTiers,
-                              billing?.discount_percent
-                          )
-                    : 0
+            (_, p) => [p.product],
+            (product) => {
+                return product.usage_limit || 0
             },
         ],
         billingGaugeItems: [
@@ -279,6 +301,22 @@ export const billingProductLogic = kea<billingProductLogicType>([
             (s, p) => [s.billing, p.product],
             (billing, product): boolean =>
                 !!billing?.products?.some((p) => p.addons?.some((addon) => addon.type === product?.type)),
+        ],
+        unsubscribeReasonQuestions: [
+            (s) => [s.surveyResponse],
+            (surveyResponse): string => {
+                return surveyResponse['$survey_response_2']
+                    .map((reason) => {
+                        const reasonObject = UNSUBSCRIBE_REASONS.find((r) => r.reason === reason)
+                        return reasonObject?.question
+                    })
+                    .join('\n')
+            },
+        ],
+        isSessionReplayWithAddons: [
+            (_s, p) => [p.product],
+            (product): boolean =>
+                product.type === 'session_replay' && 'addons' in product && product.addons?.length > 0,
         ],
     })),
     listeners(({ actions, values, props }) => ({
@@ -348,6 +386,37 @@ export const billingProductLogic = kea<billingProductLogicType>([
             window.location.href = `/api/billing/activate?products=${products}${
                 redirectPath && `&redirect_path=${redirectPath}`
             }`
+        },
+        activateTrial: async (_, breakpoint) => {
+            actions.setTrialLoading(true)
+            try {
+                await api.create(`api/billing/trials/activate`, {
+                    type: 'autosubscribe',
+                    target: props.product.type,
+                })
+                lemonToast.success('Your trial has been activated!')
+            } catch (e) {
+                lemonToast.error('There was an error activating your trial. Please try again or contact support.')
+            } finally {
+                await breakpoint(400)
+                window.location.reload()
+                actions.setTrialLoading(false)
+                actions.setTrialModalOpen(false)
+            }
+        },
+        cancelTrial: async () => {
+            actions.setTrialLoading(true)
+            try {
+                await api.create(`api/billing/trials/cancel`)
+                lemonToast.success('Your trial has been cancelled!')
+            } catch (e) {
+                console.error(e)
+                lemonToast.error('There was an error cancelling your trial. Please try again or contact support.')
+            } finally {
+                actions.loadBilling()
+                window.location.reload()
+                actions.setTrialLoading(false)
+            }
         },
         triggerMoreHedgehogs: async (_, breakpoint) => {
             for (let i = 0; i < 5; i++) {

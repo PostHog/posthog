@@ -19,7 +19,7 @@ import { personsLogic } from 'scenes/persons/personsLogic'
 import { urls } from 'scenes/urls'
 
 import { cohortsModel, processCohort } from '~/models/cohortsModel'
-import { DataTableNode, Node, NodeKind } from '~/queries/schema'
+import { DataTableNode, Node, NodeKind } from '~/queries/schema/schema-general'
 import { isDataTableNode } from '~/queries/utils'
 import {
     AnyCohortCriteriaType,

@@ -43,7 +43,7 @@ describe('dlq handling', () => {
     test.concurrent(`handles empty messages`, async () => {
         const key = uuidv4()
 
-        await produce({ topic: 'scheduled_tasks', message: null, key, waitForAck: true })
+        await produce({ topic: 'scheduled_tasks', message: null, key })
 
         await waitForExpect(() => {
             const messages = dlq.filter((message) => message.key?.toString() === key)
@@ -54,7 +54,7 @@ describe('dlq handling', () => {
     test.concurrent(`handles invalid JSON`, async () => {
         const key = uuidv4()
 
-        await produce({ topic: 'scheduled_tasks', message: Buffer.from('invalid json'), key, waitForAck: true })
+        await produce({ topic: 'scheduled_tasks', message: Buffer.from('invalid json'), key })
 
         await waitForExpect(() => {
             const messages = dlq.filter((message) => message.key?.toString() === key)
@@ -69,7 +69,6 @@ describe('dlq handling', () => {
             topic: 'scheduled_tasks',
             message: Buffer.from(JSON.stringify({ taskType: 'invalidTaskType', pluginConfigId: 1 })),
             key,
-            waitForAck: true,
         })
 
         await waitForExpect(() => {
@@ -85,7 +84,6 @@ describe('dlq handling', () => {
             topic: 'scheduled_tasks',
             message: Buffer.from(JSON.stringify({ taskType: 'runEveryMinute', pluginConfigId: 'asdf' })),
             key,
-            waitForAck: true,
         })
 
         await waitForExpect(() => {
@@ -106,7 +104,7 @@ describe('dlq handling', () => {
 
         // NOTE: we don't actually care too much about the contents of the
         // message, just that it triggeres the consumer to try to process it.
-        await produce({ topic: 'scheduled_tasks', message: Buffer.from(''), key: '', waitForAck: true })
+        await produce({ topic: 'scheduled_tasks', message: Buffer.from(''), key: '' })
 
         await waitForExpect(async () => {
             const metricAfter = await getMetric({

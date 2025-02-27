@@ -34,6 +34,8 @@ export const KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW = `${prefix}session_
 // write session recording and replay events to ClickHouse
 export const KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS = `${prefix}clickhouse_session_recording_events${suffix}`
 export const KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS = `${prefix}clickhouse_session_replay_events${suffix}`
+export const KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS_V2_TEST = `${prefix}clickhouse_session_replay_events_v2_test${suffix}`
+
 // write performance events to ClickHouse
 export const KAFKA_PERFORMANCE_EVENTS = `${prefix}clickhouse_performance_events${suffix}`
 // write heatmap events to ClickHouse
@@ -43,8 +45,8 @@ export const KAFKA_CLICKHOUSE_HEATMAP_EVENTS = `${prefix}clickhouse_heatmap_even
 export const KAFKA_LOG_ENTRIES = `${prefix}log_entries${suffix}`
 
 // CDP topics
-export const KAFKA_CDP_FUNCTION_CALLBACKS = `${prefix}cdp_function_callbacks${suffix}`
 export const KAFKA_CDP_FUNCTION_OVERFLOW = `${prefix}cdp_function_overflow${suffix}`
+export const KAFKA_CDP_INTERNAL_EVENTS = `${prefix}cdp_internal_events${suffix}`
 
 // Error tracking topics
 export const KAFKA_EXCEPTION_SYMBOLIFICATION_EVENTS = `${prefix}exception_symbolification_events${suffix}`

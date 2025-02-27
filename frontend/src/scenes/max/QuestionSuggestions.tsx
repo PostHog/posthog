@@ -1,24 +1,50 @@
-import { IconArrowUpRight, IconShuffle } from '@posthog/icons'
+import { IconArrowUpRight, IconGear, IconShuffle } from '@posthog/icons'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { maxSettingsLogic } from 'scenes/settings/environment/maxSettingsLogic'
+
+import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
 
 import { maxLogic } from './maxLogic'
 
 export function QuestionSuggestions(): JSX.Element {
-    const { visibleSuggestions, wasSuggestionLoadingInitiated, allSuggestionsLoading } = useValues(maxLogic)
-    const { askMax, loadSuggestions, shuffleVisibleSuggestions } = useActions(maxLogic)
+    const { visibleSuggestions, allSuggestionsLoading, dataProcessingAccepted } = useValues(maxLogic)
+    const { askMax, shuffleVisibleSuggestions } = useActions(maxLogic)
+    const { coreMemory, coreMemoryLoading } = useValues(maxSettingsLogic)
+    const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
 
-    useEffect(() => {
-        if (!wasSuggestionLoadingInitiated) {
-            loadSuggestions()
-        }
-    }, [wasSuggestionLoadingInitiated, loadSuggestions])
+    if (!coreMemoryLoading && !coreMemory) {
+        return (
+            <LemonButton
+                size="xsmall"
+                type="primary"
+                onClick={() => askMax('Ready, steady, go!')}
+                disabledReason={!dataProcessingAccepted ? 'Please accept OpenAI processing data' : undefined}
+                center
+            >
+                Let's get started with me learning about your project!
+            </LemonButton>
+        )
+    }
 
     return (
-        <div className="flex items-center justify-center gap-2 min-w-full">
+        <div className="flex items-center justify-center flex-wrap gap-x-2 gap-y-1.5 w-[min(48rem,100%)]">
             {
-                visibleSuggestions ? (
+                coreMemoryLoading || allSuggestionsLoading ? (
+                    Array.from({ length: 3 }).map((_, index) => (
+                        <LemonButton
+                            key={index}
+                            size="xsmall"
+                            type="secondary"
+                            disabled
+                            style={{
+                                width: ['35%', '42.5%', '50%'][index],
+                            }}
+                        >
+                            <LemonSkeleton className="h-3 w-full" />
+                        </LemonButton>
+                    ))
+                ) : visibleSuggestions ? (
                     <>
                         {visibleSuggestions.map((suggestion, index) => (
                             <LemonButton
@@ -27,32 +53,34 @@ export function QuestionSuggestions(): JSX.Element {
                                 size="xsmall"
                                 type="secondary"
                                 sideIcon={<IconArrowUpRight />}
+                                center
+                                className="shrink"
+                                disabledReason={
+                                    !dataProcessingAccepted ? 'Please accept OpenAI processing data' : undefined
+                                }
                             >
                                 {suggestion}
                             </LemonButton>
                         ))}
-                        <LemonButton
-                            onClick={shuffleVisibleSuggestions}
-                            size="xsmall"
-                            type="secondary"
-                            icon={<IconShuffle />}
-                            tooltip="Shuffle suggestions"
-                        />
+                        <div className="flex gap-2">
+                            <LemonButton
+                                onClick={shuffleVisibleSuggestions}
+                                size="xsmall"
+                                type="secondary"
+                                icon={<IconShuffle />}
+                                tooltip="Shuffle suggestions"
+                            />
+                            <LemonButton
+                                onClick={() =>
+                                    openSettingsPanel({ sectionId: 'environment-max', settingId: 'core-memory' })
+                                }
+                                size="xsmall"
+                                type="secondary"
+                                icon={<IconGear />}
+                                tooltip="Edit Max's memory"
+                            />
+                        </div>
                     </>
-                ) : allSuggestionsLoading ? (
-                    Array.from({ length: 4 }).map((_, index) => (
-                        <LemonButton
-                            key={index}
-                            size="xsmall"
-                            type="secondary"
-                            disabled
-                            style={{
-                                flexGrow: [2, 1.5, 3, 1][index],
-                            }}
-                        >
-                            <LemonSkeleton className="h-3 w-full" />
-                        </LemonButton>
-                    ))
                 ) : null /* Some error */
             }
         </div>

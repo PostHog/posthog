@@ -7,7 +7,7 @@ use sqlx::{Executor, Postgres};
 use tracing::warn;
 use uuid::Uuid;
 
-use crate::metrics_consts::{EVENTS_SKIPPED, UPDATES_SKIPPED};
+use crate::metrics_consts::{EVENTS_SKIPPED, UPDATES_ISSUED, UPDATES_SKIPPED};
 
 // We skip updates for events we generate
 pub const EVENTS_WITHOUT_PROPERTIES: [&str; 1] = ["$$plugin_metrics"];
@@ -84,6 +84,7 @@ impl GroupType {
 #[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 pub struct PropertyDefinition {
     pub team_id: i32,
+    pub project_id: i64,
     pub name: String,
     pub is_numerical: bool,
     pub property_type: Option<PropertyValueType>,
@@ -98,6 +99,7 @@ pub struct PropertyDefinition {
 pub struct EventDefinition {
     pub name: String,
     pub team_id: i32,
+    pub project_id: i64,
     pub last_seen_at: DateTime<Utc>, // Always floored to our update rate for last_seen, so this Eq derive is safe for deduping
 }
 
@@ -105,6 +107,7 @@ pub struct EventDefinition {
 #[derive(Clone, Debug, Hash, Eq, PartialEq, PartialOrd, Ord)]
 pub struct EventProperty {
     pub team_id: i32,
+    pub project_id: i64,
     pub event: String,
     pub property: String,
 }
@@ -133,6 +136,7 @@ impl Update {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Event {
     pub team_id: i32,
+    pub project_id: i64,
     pub event: String,
     pub properties: Option<String>,
 }
@@ -142,11 +146,8 @@ impl From<&Event> for EventDefinition {
         EventDefinition {
             name: sanitize_event_name(&event.event),
             team_id: event.team_id,
-            // We round last seen to the nearest hour. Unwrap is safe here because we
-            // the duration is positive, non-zero, and smaller than time since epoch. We use this
-            // in the hash value, so updates which would modify this in the DB are issued even
-            // if another otherwise-identical event definition is in the cache
-            last_seen_at: floor_datetime(Utc::now(), Duration::hours(1)).unwrap(),
+            project_id: event.project_id,
+            last_seen_at: get_floored_last_seen(),
         }
     }
 }
@@ -170,8 +171,8 @@ impl Event {
         let updates = self.into_updates_inner();
         if updates.len() > skip_threshold {
             warn!(
-                "Event {} for team {} has more than 10,000 properties, skipping",
-                event, team_id
+                "Event {} for team {} has more than {} properties, skipping",
+                event, team_id, skip_threshold
             );
             metrics::counter!(EVENTS_SKIPPED, &[("reason", "too_many_properties")]).increment(1);
             return vec![];
@@ -261,6 +262,7 @@ impl Event {
 
             updates.push(Update::EventProperty(EventProperty {
                 team_id: self.team_id,
+                project_id: self.project_id,
                 event: self.event.clone(),
                 property: key.clone(),
             }));
@@ -268,8 +270,9 @@ impl Event {
             let property_type = detect_property_type(key, value);
             let is_numerical = matches!(property_type, Some(PropertyValueType::Numeric));
 
-            let def = PropertyDefinition {
+            updates.push(Update::Property(PropertyDefinition {
                 team_id: self.team_id,
+                project_id: self.project_id,
                 name: key.clone(),
                 is_numerical,
                 property_type,
@@ -278,8 +281,7 @@ impl Event {
                 property_type_format: None,
                 volume_30_day: None,
                 query_usage_30_day: None,
-            };
-            updates.push(Update::Property(def));
+            }));
         }
     }
 }
@@ -322,8 +324,10 @@ fn detect_property_type(key: &str, value: &Value) -> Option<PropertyValueType> {
             let s = &s.trim();
             if *s == "true" || *s == "false" || *s == "TRUE" || *s == "FALSE" {
                 Some(PropertyValueType::Boolean)
+            // Try to parse this as an ISO 8601 date, and if we can, use that as the type instead
+            } else if DateTime::parse_from_rfc3339(s).is_ok() {
+                Some(PropertyValueType::DateTime)
             } else {
-                // TODO - we should try to auto-detect datetime strings here, but I'm skipping the chunk of regex necessary to do it for v0
                 Some(PropertyValueType::String)
             }
         }
@@ -352,7 +356,6 @@ fn sanitize_event_name(event_name: &str) -> String {
 }
 
 // These hash impls correspond to DB uniqueness constraints, pulled from the TS
-
 impl Hash for PropertyDefinition {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.team_id.hash(state);
@@ -383,10 +386,13 @@ impl Hash for GroupType {
     }
 }
 
-pub fn floor_datetime(
-    dt: DateTime<Utc>,
-    duration: Duration,
-) -> Result<DateTime<Utc>, RoundingError> {
+// We round last seen to the nearest hour. Unwrap is safe here because
+// the duration is positive, non-zero, and smaller than time since epoch
+pub fn get_floored_last_seen() -> DateTime<Utc> {
+    floor_datetime(Utc::now(), Duration::hours(1)).unwrap()
+}
+
+fn floor_datetime(dt: DateTime<Utc>, duration: Duration) -> Result<DateTime<Utc>, RoundingError> {
     let rounded = dt.duration_round(duration)?;
 
     // If we rounded up
@@ -406,7 +412,7 @@ fn will_fit_in_postgres_column(str: &str) -> bool {
 // Postgres doesn't like nulls in strings, so we replace them with uFFFD.
 // This allocates, so only do it right when hitting the DB. We handle nulls
 // in strings just fine.
-pub fn sanitize_string(s: &str) -> String {
+pub fn sanitize_string(s: String) -> String {
     s.replace('\u{0000}', "\u{FFFD}")
 }
 
@@ -417,18 +423,23 @@ impl EventDefinition {
     where
         E: Executor<'c, Database = Postgres>,
     {
-        sqlx::query!(
+        let res = sqlx::query!(
             r#"
-            INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id, last_seen_at, created_at)
-            VALUES ($1, $2, NULL, NULL, $3, $4, NOW()) ON CONFLICT
-            ON CONSTRAINT posthog_eventdefinition_team_id_name_80fa0b87_uniq
-            DO UPDATE SET last_seen_at = $4
+            INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id, project_id, last_seen_at, created_at)
+            VALUES ($1, $2, NULL, NULL, $3, $4, $5, NOW())
+            ON CONFLICT (coalesce(project_id, team_id::bigint), name)
+            DO UPDATE SET last_seen_at = $5
         "#,
             Uuid::now_v7(),
             self.name,
             self.team_id,
+            self.project_id,
             Utc::now() // We floor the update datetime to the nearest day for cache purposes, but can insert the exact time we see the event
-        ).execute(executor).await.map(|_| ())
+        ).execute(executor).await.map(|_| ());
+
+        metrics::counter!(UPDATES_ISSUED, &[("type", "event_definition")]).increment(1);
+
+        res
     }
 }
 
@@ -460,11 +471,11 @@ impl PropertyDefinition {
             return Ok(());
         }
 
-        sqlx::query!(
+        let res = sqlx::query!(
             r#"
-            INSERT INTO posthog_propertydefinition (id, name, type, group_type_index, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type)
-            VALUES ($1, $2, $3, $4, $5, NULL, NULL, $6, $7)
-            ON CONFLICT (team_id, name, type, coalesce(group_type_index, -1))
+            INSERT INTO posthog_propertydefinition (id, name, type, group_type_index, is_numerical, volume_30_day, query_usage_30_day, team_id, project_id, property_type)
+            VALUES ($1, $2, $3, $4, $5, NULL, NULL, $6, $7, $8)
+            ON CONFLICT (coalesce(project_id, team_id::bigint), name, type, coalesce(group_type_index, -1))
             DO UPDATE SET property_type=EXCLUDED.property_type WHERE posthog_propertydefinition.property_type IS NULL
         "#,
             Uuid::now_v7(),
@@ -473,8 +484,13 @@ impl PropertyDefinition {
             group_type_index,
             self.is_numerical,
             self.team_id,
+            self.project_id,
             self.property_type.as_ref().map(|t| t.to_string())
-        ).execute(executor).await.map(|_| ())
+        ).execute(executor).await.map(|_| ());
+
+        metrics::counter!(UPDATES_ISSUED, &[("type", "property_definition")]).increment(1);
+
+        res
     }
 }
 
@@ -483,32 +499,243 @@ impl EventProperty {
     where
         E: Executor<'c, Database = Postgres>,
     {
-        sqlx::query!(
-            r#"INSERT INTO posthog_eventproperty (event, property, team_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING"#,
+        let res = sqlx::query!(
+            r#"INSERT INTO posthog_eventproperty (event, property, team_id, project_id) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING"#,
             self.event,
             self.property,
-            self.team_id
+            self.team_id,
+            self.project_id
         )
         .execute(executor)
         .await
-        .map(|_| ())
+        .map(|_| ());
+
+        metrics::counter!(UPDATES_ISSUED, &[("type", "event_property")]).increment(1);
+
+        res
     }
 }
 
 #[cfg(test)]
 mod test {
     use chrono::{Timelike, Utc};
+    use serde_json::Value;
 
-    use crate::types::floor_datetime;
+    use crate::types::{detect_property_type, get_floored_last_seen, PropertyValueType};
 
     #[test]
     fn test_date_flooring() {
-        let timestamp = Utc::now();
-        let rounded = floor_datetime(timestamp, chrono::Duration::days(1)).unwrap();
-        assert_eq!(rounded.hour(), 0);
+        let now = Utc::now();
+        let rounded = get_floored_last_seen();
+
+        // Time should be rounded to the nearest hour
         assert_eq!(rounded.minute(), 0);
         assert_eq!(rounded.second(), 0);
         assert_eq!(rounded.nanosecond(), 0);
-        assert!(rounded <= timestamp);
+        assert!(rounded <= now);
+
+        // The difference between now and rounded should be less than 1 hour
+        assert!(now - rounded < chrono::Duration::hours(1));
+    }
+
+    #[test]
+    fn test_rfc3339_timestamp_detection() {
+        // Test RFC 3339 timestamp detection for string values
+        assert_eq!(
+            detect_property_type(
+                "random_property",
+                &Value::String("2023-12-13T15:45:30Z".to_string())
+            ),
+            Some(PropertyValueType::DateTime)
+        );
+
+        assert_eq!(
+            detect_property_type(
+                "random_property",
+                &Value::String("2023-12-13T15:45:30.123Z".to_string())
+            ),
+            Some(PropertyValueType::DateTime)
+        );
+
+        assert_eq!(
+            detect_property_type(
+                "random_property",
+                &Value::String("2023-12-13T15:45:30+00:00".to_string())
+            ),
+            Some(PropertyValueType::DateTime)
+        );
+
+        assert_eq!(
+            detect_property_type(
+                "random_property",
+                &Value::String("2023-12-13T15:45:30-07:00".to_string())
+            ),
+            Some(PropertyValueType::DateTime)
+        );
+
+        // Test invalid timestamp formats (should be detected as String)
+        assert_eq!(
+            detect_property_type("random_property", &Value::String("2023-12-13".to_string())),
+            Some(PropertyValueType::String)
+        );
+
+        assert_eq!(
+            detect_property_type("random_property", &Value::String("15:45:30".to_string())),
+            Some(PropertyValueType::String)
+        );
+
+        assert_eq!(
+            detect_property_type("random_property", &Value::String("not a date".to_string())),
+            Some(PropertyValueType::String)
+        );
+
+        // Test property name-based detection for numeric values (should be DateTime)
+        assert_eq!(
+            detect_property_type(
+                "timestamp",
+                &Value::Number(serde_json::Number::from(1639400730))
+            ),
+            Some(PropertyValueType::DateTime)
+        );
+
+        assert_eq!(
+            detect_property_type(
+                "created_time",
+                &Value::Number(serde_json::Number::from(1639400730))
+            ),
+            Some(PropertyValueType::DateTime)
+        );
+
+        assert_eq!(
+            detect_property_type(
+                "sent_at",
+                &Value::Number(serde_json::Number::from(1639400730))
+            ),
+            Some(PropertyValueType::Numeric)
+        );
+
+        // Test property name-based detection for string values (should NOT be DateTime)
+        assert_eq!(
+            detect_property_type("timestamp", &Value::String("any value".to_string())),
+            Some(PropertyValueType::String)
+        );
+
+        assert_eq!(
+            detect_property_type("created_time", &Value::String("any value".to_string())),
+            Some(PropertyValueType::String)
+        );
+
+        assert_eq!(
+            detect_property_type("sent_at", &Value::String("any value".to_string())),
+            Some(PropertyValueType::String)
+        );
+    }
+
+    #[test]
+    fn test_property_name_based_detection() {
+        // Test all timestamp-related keywords for numeric values
+
+        // Test "timestamp" in different positions and cases
+        assert_eq!(
+            detect_property_type(
+                "timestamp",
+                &Value::Number(serde_json::Number::from(1639400730))
+            ),
+            Some(PropertyValueType::DateTime)
+        );
+        assert_eq!(
+            detect_property_type(
+                "TIMESTAMP",
+                &Value::Number(serde_json::Number::from(1639400730))
+            ),
+            Some(PropertyValueType::DateTime)
+        );
+        assert_eq!(
+            detect_property_type(
+                "user_timestamp",
+                &Value::Number(serde_json::Number::from(1639400730))
+            ),
+            Some(PropertyValueType::DateTime)
+        );
+        assert_eq!(
+            detect_property_type(
+                "user_TIMESTAMP",
+                &Value::Number(serde_json::Number::from(1639400730))
+            ),
+            Some(PropertyValueType::DateTime)
+        );
+        assert_eq!(
+            detect_property_type(
+                "timestampValue",
+                &Value::Number(serde_json::Number::from(1639400730))
+            ),
+            Some(PropertyValueType::DateTime)
+        );
+
+        // Test "time" in different positions and cases
+        assert_eq!(
+            detect_property_type("time", &Value::Number(serde_json::Number::from(1639400730))),
+            Some(PropertyValueType::DateTime)
+        );
+        assert_eq!(
+            detect_property_type("TIME", &Value::Number(serde_json::Number::from(1639400730))),
+            Some(PropertyValueType::DateTime)
+        );
+        assert_eq!(
+            detect_property_type(
+                "created_time",
+                &Value::Number(serde_json::Number::from(1639400730))
+            ),
+            Some(PropertyValueType::DateTime)
+        );
+        assert_eq!(
+            detect_property_type(
+                "created_TIME",
+                &Value::Number(serde_json::Number::from(1639400730))
+            ),
+            Some(PropertyValueType::DateTime)
+        );
+        assert_eq!(
+            detect_property_type(
+                "timeValue",
+                &Value::Number(serde_json::Number::from(1639400730))
+            ),
+            Some(PropertyValueType::DateTime)
+        );
+
+        // Test non-matching property names (should be Numeric)
+        assert_eq!(
+            detect_property_type("count", &Value::Number(serde_json::Number::from(42))),
+            Some(PropertyValueType::Numeric)
+        );
+        assert_eq!(
+            detect_property_type("amount", &Value::Number(serde_json::Number::from(100))),
+            Some(PropertyValueType::Numeric)
+        );
+        assert_eq!(
+            detect_property_type(
+                "sent_at",
+                &Value::Number(serde_json::Number::from(1639400730))
+            ),
+            Some(PropertyValueType::Numeric)
+        );
+
+        // Verify that string values are never detected as DateTime based on property name
+        assert_eq!(
+            detect_property_type("timestamp", &Value::String("not a date".to_string())),
+            Some(PropertyValueType::String)
+        );
+        assert_eq!(
+            detect_property_type("TIMESTAMP", &Value::String("not a date".to_string())),
+            Some(PropertyValueType::String)
+        );
+        assert_eq!(
+            detect_property_type("time", &Value::String("not a date".to_string())),
+            Some(PropertyValueType::String)
+        );
+        assert_eq!(
+            detect_property_type("TIME", &Value::String("not a date".to_string())),
+            Some(PropertyValueType::String)
+        );
     }
 }

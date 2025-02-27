@@ -7,6 +7,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.execute_async import QueryStatusManager
 from posthog.utils import UUID_REGEX
+from posthog.settings import CLICKHOUSE_CLUSTER
 import re
 import math
 
@@ -33,7 +34,7 @@ def get_query_results() -> list[Any]:
             elapsed,
             ProfileEvents['OSCPUVirtualTimeMicroseconds'] as OSCPUVirtualTimeMicroseconds,
             query_id
-        FROM clusterAllReplicas(posthog, system.processes)
+        FROM clusterAllReplicas(%(cluster)s, system.processes)
         WHERE initial_query_id REGEXP '\d+_[0-9a-f]{8}-'
         UNION ALL SELECT
             initial_query_id,
@@ -43,12 +44,13 @@ def get_query_results() -> list[Any]:
             query_duration_ms / 1000 as elapsed,
             ProfileEvents['OSCPUVirtualTimeMicroseconds'] as OSCPUVirtualTimeMicroseconds,
             query_id
-        FROM clusterAllReplicas(posthog, system.query_log)
+        FROM clusterAllReplicas(%(cluster)s, system.query_log)
         WHERE initial_query_id REGEXP '\d+_[0-9a-f]{8}-'
         AND type = 'QueryFinish'
         AND event_time > subtractSeconds(now(), 10)
         """
-    raw_results = sync_execute(SYSTEM_PROCESSES_SQL, workload=Workload.ONLINE)
+
+    raw_results = sync_execute(SYSTEM_PROCESSES_SQL, {"cluster": CLICKHOUSE_CLUSTER}, workload=Workload.ONLINE)
 
     noNaNInt = lambda num: 0 if math.isnan(num) else int(num)
 

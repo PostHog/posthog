@@ -6,7 +6,7 @@ use crate::{
     types::{JobInit, JobState},
 };
 
-pub async fn create_job<'c, E>(executor: E, data: JobInit) -> Result<(), QueueError>
+pub async fn create_job<'c, E>(executor: E, data: JobInit) -> Result<Uuid, QueueError>
 where
     E: sqlx::Executor<'c, Database = sqlx::Postgres>,
 {
@@ -51,10 +51,10 @@ VALUES
     .execute(executor)
     .await?;
 
-    Ok(())
+    Ok(id)
 }
 
-pub async fn bulk_create_jobs<'c, E>(executor: E, jobs: &[JobInit]) -> Result<(), QueueError>
+pub async fn bulk_create_jobs<'c, E>(executor: E, jobs: &[JobInit]) -> Result<Vec<Uuid>, QueueError>
 where
     E: sqlx::Executor<'c, Database = sqlx::Postgres>,
 {
@@ -143,7 +143,7 @@ FROM UNNEST(
     )
 "#,
     )
-    .bind(ids)
+    .bind(&ids)
     .bind(team_ids)
     .bind(function_ids)
     .bind(created_at)
@@ -163,5 +163,5 @@ FROM UNNEST(
     .execute(executor)
     .await?;
 
-    Ok(())
+    Ok(ids)
 }

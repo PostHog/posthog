@@ -89,6 +89,9 @@ export const FIELD_VALUES: Record<FieldOptionsType, FieldValues> = {
             [PropertyMathType.Median]: {
                 label: 'Median',
             },
+            [PropertyMathType.P75]: {
+                label: '75th percentile',
+            },
             [PropertyMathType.P90]: {
                 label: '90th percentile',
             },

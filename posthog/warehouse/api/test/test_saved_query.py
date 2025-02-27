@@ -1,7 +1,8 @@
+from unittest.mock import patch
 import uuid
 
 from posthog.test.base import APIBaseTest
-from posthog.warehouse.models import DataWarehouseModelPath
+from posthog.warehouse.models import DataWarehouseModelPath, DataWarehouseSavedQuery
 
 
 class TestSavedQuery(APIBaseTest):
@@ -34,6 +35,36 @@ class TestSavedQuery(APIBaseTest):
             ],
         )
 
+    def test_create_with_types(self):
+        with patch.object(DataWarehouseSavedQuery, "get_columns") as mock_get_columns:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/warehouse_saved_queries/",
+                {
+                    "name": "event_view",
+                    "query": {
+                        "kind": "HogQLQuery",
+                        "query": "select event as event from events LIMIT 100",
+                    },
+                    "types": [["event", "Nullable(String)"]],
+                },
+            )
+            assert response.status_code == 201
+            saved_query = response.json()
+            assert saved_query["name"] == "event_view"
+            assert saved_query["columns"] == [
+                {
+                    "key": "event",
+                    "name": "event",
+                    "type": "string",
+                    "schema_valid": True,
+                    "fields": None,
+                    "table": None,
+                    "chain": None,
+                }
+            ]
+
+            mock_get_columns.assert_not_called()
+
     def test_create_name_overlap_error(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/warehouse_saved_queries/",
@@ -46,6 +77,145 @@ class TestSavedQuery(APIBaseTest):
             },
         )
         self.assertEqual(response.status_code, 400, response.content)
+
+    def test_delete(self):
+        query_name = "test_query"
+        saved_query = DataWarehouseSavedQuery.objects.create(team=self.team, name=query_name)
+
+        with patch("posthog.warehouse.api.saved_query.delete_saved_query_schedule") as mock_delete_saved_query_schedule:
+            response = self.client.delete(
+                f"/api/projects/{self.team.id}/warehouse_saved_queries/{saved_query.id}",
+            )
+
+            mock_delete_saved_query_schedule.assert_called()
+
+            assert response.status_code == 204
+
+        saved_query.refresh_from_db()
+
+        assert saved_query.deleted is True
+        assert saved_query.deleted_at is not None
+        assert saved_query.deleted_name == query_name
+        assert saved_query.name.startswith("POSTHOG_DELETED_")
+
+    def test_listing_deleted_queries(self):
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="deleted_saved_query",
+            query={
+                "kind": "HogQLQuery",
+                "query": "select event as event from events LIMIT 100",
+            },
+            deleted=True,
+        )
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="saved_query",
+            query={
+                "kind": "HogQLQuery",
+                "query": "select event as event from events LIMIT 100",
+            },
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/warehouse_saved_queries/",
+        )
+
+        assert response.status_code == 200
+        json = response.json()
+
+        assert json["count"] == 1
+
+    def test_get_deleted_query(self):
+        query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="deleted_saved_query",
+            query={
+                "kind": "HogQLQuery",
+                "query": "select event as event from events LIMIT 100",
+            },
+            deleted=True,
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/warehouse_saved_queries/{query.id}",
+        )
+
+        assert response.status_code == 404
+
+    def test_update_sync_frequency_with_existing_schedule(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201)
+        saved_query = response.json()
+
+        with (
+            patch("posthog.warehouse.api.saved_query.sync_saved_query_workflow") as mock_sync_saved_query_workflow,
+            patch("posthog.warehouse.api.saved_query.saved_query_workflow_exists") as mock_saved_query_workflow_exists,
+        ):
+            mock_saved_query_workflow_exists.return_value = True
+
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+                {"sync_frequency": "24hour"},
+            )
+
+            self.assertEqual(response.status_code, 200)
+            mock_saved_query_workflow_exists.assert_called_once()
+            mock_sync_saved_query_workflow.assert_called_once()
+
+    def test_update_sync_frequency_to_never(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201)
+        saved_query = response.json()
+
+        with patch("posthog.warehouse.api.saved_query.delete_saved_query_schedule") as mock_delete_saved_query_schedule:
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+                {"sync_frequency": "never"},
+            )
+
+            self.assertEqual(response.status_code, 200)
+            mock_delete_saved_query_schedule.assert_called_once_with(saved_query["id"])
+
+    def test_delete_with_existing_schedule(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201)
+        saved_query = response.json()
+
+        with patch("posthog.warehouse.api.saved_query.delete_saved_query_schedule") as mock_delete_saved_query_schedule:
+            response = self.client.delete(
+                f"/api/projects/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+            )
+
+            self.assertEqual(response.status_code, 204)
+            mock_delete_saved_query_schedule.assert_called_once_with(saved_query["id"])
 
     def test_saved_query_doesnt_exist(self):
         saved_query_1_response = self.client.post(
@@ -124,7 +294,7 @@ class TestSavedQuery(APIBaseTest):
                 },
             },
         )
-        self.assertEqual(saved_view_2_response.status_code, 400, saved_view_2_response.content)
+        self.assertEqual(saved_view_2_response.status_code, 201, saved_view_2_response.content)
 
     def test_create_with_saved_query(self):
         response = self.client.post(

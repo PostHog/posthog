@@ -254,8 +254,9 @@ export function NotebookSelectButton({ children, onNotebookOpened, ...props }: N
                     onNotebookOpened?.(nodeLogic.props.notebookLogic, nodeLogic)
                 }
             }}
+            tooltip="Add to notebook"
         >
-            {children ?? 'Add to notebook'}
+            {children ?? 'Notebooks'}
         </LemonButton>
     )
 

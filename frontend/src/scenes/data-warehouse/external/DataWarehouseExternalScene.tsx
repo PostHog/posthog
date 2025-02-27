@@ -52,7 +52,7 @@ export function DataWarehouseExternalScene(): JSX.Element {
                 caption={
                     <div>
                         Explore all your data in PostHog with{' '}
-                        <Link to="https://posthog.com/manual/hogql" target="_blank">
+                        <Link to="https://posthog.com/docs/hogql" target="_blank">
                             HogQL
                         </Link>
                         . Connect your own tables from S3 to query data from outside PostHog.{' '}

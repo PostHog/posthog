@@ -12,7 +12,7 @@ import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { IconPeople, IconPerson, IconTrends } from '@posthog/icons'
 import { Query } from '~/queries/Query/Query'
 import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
-import { DataTableNode, NodeKind } from '~/queries/schema'
+import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { INTEGER_REGEX_MATCH_GROUPS } from './utils'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeCohortAttributes>): JSX.Element => {
@@ -131,9 +131,9 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeCohortAttribute
                     <LemonSkeleton className="h-6" />
                 ) : (
                     <div className="flex items-center gap-2">
-                        <IconPeople className="text-muted-alt text-lg" />
+                        <IconPeople className="text-secondary text-lg" />
                         <span className="flex-1 font-semibold truncate">{cohort.name}</span>
-                        <span className="italic text-muted-alt">({cohort.count} persons)</span>
+                        <span className="italic text-secondary">({cohort.count} persons)</span>
                         <LemonTag>{cohort.is_static ? 'Static' : 'Dynamic'}</LemonTag>
                     </div>
                 )}

@@ -9,7 +9,7 @@ on:
 jobs:
     deploy_preview_cleanup:
         name: Deploy Preview Cleanup
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         if: ${{ contains(github.event.pull_request.labels.*.name, 'deploy') }}
 
         permissions:

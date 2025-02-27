@@ -56,9 +56,3 @@ class RecordingMetadata(TypedDict):
 
 class RecordingMatchingEvents(TypedDict):
     events: list[MatchingSessionRecordingEvent]
-
-
-class PersistedRecordingV1(TypedDict):
-    version: str  # "2022-12-22"
-    snapshot_data_by_window_id: dict[WindowId, list[Union[SnapshotData, SessionRecordingEventSummary]]]
-    distinct_id: str

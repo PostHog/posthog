@@ -25,7 +25,7 @@ export function SamplingFilter({ insightProps, infoTooltipContent }: SamplingFil
             <div className="flex items-center gap-1">
                 <LemonLabel
                     info={infoTooltipContent || DEFAULT_SAMPLING_INFO_TOOLTIP_CONTENT}
-                    infoLink="https://posthog.com/manual/sampling"
+                    infoLink="https://posthog.com/docs/product-analytics/sampling"
                 >
                     Sampling <LemonTag type="warning">BETA</LemonTag>
                 </LemonLabel>

@@ -1,13 +1,15 @@
 from abc import ABC, abstractmethod
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
-from typing import Any, Generic, Optional, TypeGuard, TypeVar, Union, cast
+from types import UnionType
+from typing import Any, Generic, Optional, TypeGuard, TypeVar, Union, cast, get_args
 
 import structlog
 from prometheus_client import Counter
 from pydantic import BaseModel, ConfigDict
-from sentry_sdk import capture_exception, get_traceparent, push_scope, set_tag
+from sentry_sdk import get_traceparent, push_scope, set_tag
 
+from posthog.exceptions_capture import capture_exception
 from posthog.caching.utils import ThresholdMode, cache_target_age, is_stale, last_refresh_from_cached_result
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, enqueue_process_query_task, get_query_status
 from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
@@ -29,6 +31,7 @@ from posthog.schema import (
     DateRange,
     EventsQuery,
     EventTaxonomyQuery,
+    ExperimentExposureQuery,
     FilterLogicalOperator,
     FunnelCorrelationActorsQuery,
     FunnelCorrelationQuery,
@@ -54,11 +57,11 @@ from posthog.schema import (
     StickinessQuery,
     SuggestedQuestionsQuery,
     TeamTaxonomyQuery,
+    TracesQuery,
     TrendsQuery,
     WebGoalsQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
-    WebTopClicksQuery,
 )
 from posthog.schema_helpers import to_dict, to_json
 from posthog.utils import generate_cache_key, get_from_dict_or_attr
@@ -144,7 +147,6 @@ RunnableQueryNode = Union[
     SessionsTimelineQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
-    WebTopClicksQuery,
     WebGoalsQuery,
     SessionAttributionExplorerQuery,
 ]
@@ -242,7 +244,7 @@ def get_query_runner(
             limit_context=limit_context,
             modifiers=modifiers,
         )
-    if kind == "InsightActorsQuery" or kind == "FunnelsActorsQuery" or kind == "FunnelCorrelationActorsQuery":
+    if kind in ("InsightActorsQuery", "FunnelsActorsQuery", "FunnelCorrelationActorsQuery", "StickinessActorsQuery"):
         from .insights.insight_actors_query_runner import InsightActorsQueryRunner
 
         return InsightActorsQueryRunner(
@@ -306,16 +308,7 @@ def get_query_runner(
             modifiers=modifiers,
             limit_context=limit_context,
         )
-    if kind == "WebTopClicksQuery":
-        from .web_analytics.top_clicks import WebTopClicksQueryRunner
 
-        return WebTopClicksQueryRunner(
-            query=query,
-            team=team,
-            timings=timings,
-            modifiers=modifiers,
-            limit_context=limit_context,
-        )
     if kind == "WebStatsTableQuery":
         from .web_analytics.stats_table import WebStatsTableQueryRunner
 
@@ -347,6 +340,14 @@ def get_query_runner(
             timings=timings,
             modifiers=modifiers,
             limit_context=limit_context,
+        )
+
+    if kind == "WebVitalsPathBreakdownQuery":
+        from .web_analytics.web_vitals_path_breakdown import WebVitalsPathBreakdownQueryRunner
+
+        return WebVitalsPathBreakdownQueryRunner(
+            query=query,
+            team=team,
         )
 
     if kind == "SessionAttributionExplorerQuery":
@@ -392,6 +393,29 @@ def get_query_runner(
             modifiers=modifiers,
             limit_context=limit_context,
         )
+
+    if kind == "ExperimentQuery":
+        from .experiments.experiment_query_runner import ExperimentQueryRunner
+
+        return ExperimentQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
+    if kind == "ExperimentExposureQuery":
+        from posthog.hogql_queries.experiments.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
+
+        return ExperimentExposuresQueryRunner(
+            query=cast(ExperimentExposureQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+        )
+
     if kind == "SuggestedQuestionsQuery":
         from posthog.hogql_queries.ai.suggested_questions_query_runner import SuggestedQuestionsQueryRunner
 
@@ -427,6 +451,16 @@ def get_query_runner(
 
         return ActorsPropertyTaxonomyQueryRunner(
             query=cast(ActorsPropertyTaxonomyQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+        )
+    if kind == "TracesQuery":
+        from .ai.traces_query_runner import TracesQueryRunner
+
+        return TracesQueryRunner(
+            query=cast(TracesQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -490,8 +524,18 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         self.query_id = query_id
 
         if not self.is_query_node(query):
-            query = self.query_type.model_validate(query)
-        assert isinstance(query, self.query_type)
+            if isinstance(self.query_type, UnionType):
+                for query_type in get_args(self.query_type):  # type: ignore
+                    try:
+                        query = query_type.model_validate(query)
+                        break
+                    except ValueError:
+                        continue
+                if not self.is_query_node(query):
+                    raise ValueError(f"Query is not of type {self.query_type}")
+            else:
+                query = self.query_type.model_validate(query)
+                assert isinstance(query, self.query_type)
         self.query = query
 
     @property
@@ -715,7 +759,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # TODO: add support for selecting and filtering by breakdowns
         raise NotImplementedError()
 
-    def to_hogql(self) -> str:
+    def to_hogql(self, **kwargs) -> str:
         with self.timings.measure("to_hogql"):
             return print_ast(
                 self.to_query(),
@@ -726,6 +770,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     modifiers=self.modifiers,
                 ),
                 "hogql",
+                **kwargs,
             )
 
     def get_cache_payload(self) -> dict:
@@ -761,7 +806,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         return timedelta(minutes=1)
 
     def apply_variable_overrides(self, variable_overrides: list[HogQLVariable]):
-        """Irreversably update self.query with provided variable overrides."""
+        """Irreversibly update self.query with provided variable overrides."""
         if not hasattr(self.query, "variables") or not self.query.kind == "HogQLQuery" or len(variable_overrides) == 0:
             return
 
@@ -775,7 +820,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 self.query.variables[variable.variableId] = variable
 
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
-        """Irreversably update self.query with provided dashboard filters."""
+        """Irreversibly update self.query with provided dashboard filters."""
         if not hasattr(self.query, "properties") or not hasattr(self.query, "dateRange"):
             capture_exception(
                 NotImplementedError(
@@ -813,6 +858,16 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 self.query.dateRange = DateRange()
             self.query.dateRange.date_from = dashboard_filter.date_from
             self.query.dateRange.date_to = dashboard_filter.date_to
+
+        if dashboard_filter.breakdown_filter:
+            if hasattr(self.query, "breakdownFilter"):
+                self.query.breakdownFilter = dashboard_filter.breakdown_filter
+            else:
+                capture_exception(
+                    NotImplementedError(
+                        f"{self.query.__class__.__name__} does not support breakdown filters out of the box"
+                    )
+                )
 
 
 ### START OF BACKWARDS COMPATIBILITY CODE

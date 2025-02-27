@@ -5,12 +5,57 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { SessionRecordingType } from '~/types'
 
+const EXPECTED_RECORDING_PROPERTIES = [
+    {
+        id: 's1',
+        properties: {
+            $browser: 'Chrome',
+            $device_type: 'Desktop',
+            $geoip_country_code: 'AU',
+            $os: 'Windows',
+            $os_name: 'Windows 10',
+            $entry_referring_domain: 'google.com',
+        },
+    },
+    {
+        id: 's2',
+        properties: {
+            $browser: 'Safari',
+            $device_type: 'Mobile',
+            $geoip_country_code: 'GB',
+            $os: 'iOS',
+            $os_name: 'iOS 14',
+            $entry_referring_domain: 'google.com',
+        },
+    },
+]
+
+const EXPECTED_RECORDING_PROPERTIES_BY_ID = {
+    s1: {
+        $browser: 'Chrome',
+        $device_type: 'Desktop',
+        $geoip_country_code: 'AU',
+        $os: 'Windows',
+        $os_name: 'Windows 10',
+        $entry_referring_domain: 'google.com',
+    },
+    s2: {
+        $browser: 'Safari',
+        $device_type: 'Mobile',
+        $geoip_country_code: 'GB',
+        $os: 'iOS',
+        $os_name: 'iOS 14',
+        $entry_referring_domain: 'google.com',
+    },
+}
+
 const mockSessons: SessionRecordingType[] = [
     {
         id: 's1',
         start_time: '2021-01-01T00:00:00Z',
         end_time: '2021-01-01T01:00:00Z',
         viewed: false,
+        viewers: [],
         recording_duration: 0,
         snapshot_source: 'web',
     },
@@ -19,6 +64,7 @@ const mockSessons: SessionRecordingType[] = [
         start_time: '2021-01-01T02:00:00Z',
         end_time: '2021-01-01T03:00:00Z',
         viewed: false,
+        viewers: [],
         recording_duration: 0,
         snapshot_source: 'mobile',
     },
@@ -28,6 +74,7 @@ const mockSessons: SessionRecordingType[] = [
         start_time: '2021-01-01T03:00:00Z',
         end_time: '2021-01-01T04:00:00Z',
         viewed: false,
+        viewers: [],
         recording_duration: 0,
         snapshot_source: 'unknown',
     },
@@ -41,8 +88,8 @@ describe('sessionRecordingsListPropertiesLogic', () => {
             post: {
                 '/api/environments/:team_id/query': {
                     results: [
-                        ['s1', JSON.stringify({ blah: 'blah1' })],
-                        ['s2', JSON.stringify({ blah: 'blah2' })],
+                        ['s1', 'AU', 'Chrome', 'Desktop', 'Windows', 'Windows 10', 'google.com'],
+                        ['s2', 'GB', 'Safari', 'Mobile', 'iOS', 'iOS 14', 'google.com'],
                     ],
                 },
             },
@@ -61,14 +108,8 @@ describe('sessionRecordingsListPropertiesLogic', () => {
         }).toDispatchActions(['loadPropertiesForSessionsSuccess'])
 
         expect(logic.values).toMatchObject({
-            recordingProperties: [
-                { id: 's1', properties: { blah: 'blah1' } },
-                { id: 's2', properties: { blah: 'blah2' } },
-            ],
-            recordingPropertiesById: {
-                s1: { blah: 'blah1' },
-                s2: { blah: 'blah2' },
-            },
+            recordingProperties: EXPECTED_RECORDING_PROPERTIES,
+            recordingPropertiesById: EXPECTED_RECORDING_PROPERTIES_BY_ID,
         })
     })
 
@@ -78,10 +119,7 @@ describe('sessionRecordingsListPropertiesLogic', () => {
         }).toDispatchActions(['loadPropertiesForSessionsSuccess'])
 
         expect(logic.values).toMatchObject({
-            recordingPropertiesById: {
-                s1: { blah: 'blah1' },
-                s2: { blah: 'blah2' },
-            },
+            recordingPropertiesById: EXPECTED_RECORDING_PROPERTIES_BY_ID,
         })
 
         await expectLogic(logic, () => {
@@ -89,10 +127,7 @@ describe('sessionRecordingsListPropertiesLogic', () => {
         }).toNotHaveDispatchedActions(['loadPropertiesForSessionsSuccess'])
 
         expect(logic.values).toMatchObject({
-            recordingPropertiesById: {
-                s1: { blah: 'blah1' },
-                s2: { blah: 'blah2' },
-            },
+            recordingPropertiesById: EXPECTED_RECORDING_PROPERTIES_BY_ID,
         })
     })
 })

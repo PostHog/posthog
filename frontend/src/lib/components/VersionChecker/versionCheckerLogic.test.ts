@@ -73,35 +73,41 @@ describe('versionCheckerLogic', () => {
         { versionCount: 1, expectation: null },
         {
             versionCount: 11,
-            expectation: {
-                latestUsedVersion: '1.0.0',
-                latestAvailableVersion: '1.0.10',
-                numVersionsBehind: 10,
-                level: 'info',
-            },
+            expectation: null,
         },
         {
-            versionCount: 15,
+            versionCount: 51,
             expectation: {
                 latestUsedVersion: '1.0.0',
-                latestAvailableVersion: '1.0.14',
-                numVersionsBehind: 14,
-                level: 'info',
-            },
-        },
-        {
-            versionCount: 25,
-            expectation: {
-                latestUsedVersion: '1.0.0',
-                latestAvailableVersion: '1.0.24',
-                numVersionsBehind: 24,
+                latestAvailableVersion: '1.0.50',
+                numVersionsBehind: 50,
                 level: 'error',
+            },
+        },
+        {
+            minorUsedVersion: 40,
+            versionCount: 1,
+            expectation: {
+                latestUsedVersion: '1.0.0',
+                latestAvailableVersion: '1.40.0',
+                numVersionsBehind: 40,
+                level: 'warning',
+            },
+        },
+        {
+            majorUsedVersion: 2,
+            versionCount: 1,
+            expectation: {
+                latestUsedVersion: '1.0.0',
+                latestAvailableVersion: '2.0.0',
+                numVersionsBehind: 1,
+                level: 'info',
             },
         },
     ])('return a version warning if diff is great enough', async (options) => {
         // TODO: How do we clear the persisted value?
         const versionsList = Array.from({ length: options.versionCount }, (_, i) => ({
-            version: `1.0.${i}`,
+            version: `${options.majorUsedVersion || 1}.${options.minorUsedVersion || 0}.${i}`,
         })).reverse()
 
         useMockedVersions(
@@ -143,13 +149,14 @@ describe('versionCheckerLogic', () => {
         },
         {
             usedVersions: [
-                { version: '1.80.0', timestamp: '2023-01-01T12:00:00Z' },
-                { version: '1.83.1-beta', timestamp: '2023-01-01T10:00:00Z' },
-                { version: '1.84.0-delta', timestamp: '2023-01-01T08:00:00Z' },
+                { version: '1.40.0', timestamp: '2023-01-01T12:00:00Z' },
+                { version: '1.41.1-beta', timestamp: '2023-01-01T10:00:00Z' },
+                { version: '1.42.0', timestamp: '2023-01-01T08:00:00Z' },
+                { version: '1.42.0-delta', timestamp: '2023-01-01T08:00:00Z' },
             ],
             expectation: {
-                latestUsedVersion: '1.84.0-delta',
-                numVersionsBehind: 1,
+                latestUsedVersion: '1.42.0',
+                numVersionsBehind: 42,
                 latestAvailableVersion: '1.84.0',
                 level: 'warning',
             },

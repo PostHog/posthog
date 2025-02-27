@@ -2,7 +2,7 @@ import { IconQueryEditor } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonWithoutSideActionProps } from 'lib/lemon-ui/LemonButton'
 import { urls } from 'scenes/urls'
 
-import { DataTableNode, NodeKind } from '~/queries/schema'
+import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 
 export interface EditHogQLButtonProps extends LemonButtonWithoutSideActionProps {
     hogql: string
@@ -18,7 +18,7 @@ export function EditHogQLButton({ hogql, ...props }: EditHogQLButtonProps): JSX.
         <LemonButton
             data-attr="open-json-editor-button"
             type="secondary"
-            to={urls.insightNew(undefined, undefined, query)}
+            to={urls.insightNew({ query })}
             icon={<IconQueryEditor />}
             tooltip="Edit SQL directly"
             {...props}

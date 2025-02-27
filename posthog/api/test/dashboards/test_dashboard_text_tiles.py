@@ -29,6 +29,7 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
             "uuid": str(user.uuid),
             "is_email_verified": None,
             "hedgehog_config": None,
+            "role_at_organization": None,
         }
 
     def _expected_text(

@@ -325,7 +325,13 @@ class StripePaginator(BasePaginator):
 
 @dlt.source(max_table_nesting=0)
 def stripe_source(
-    api_key: str, account_id: Optional[str], endpoint: str, team_id: int, job_id: str, is_incremental: bool = False
+    api_key: str,
+    account_id: Optional[str],
+    endpoint: str,
+    team_id: int,
+    job_id: str,
+    db_incremental_field_last_value: Optional[Any],
+    is_incremental: bool = False,
 ):
     config: RESTAPIConfig = {
         "client": {
@@ -355,7 +361,7 @@ def stripe_source(
         "resources": [get_resource(endpoint, is_incremental)],
     }
 
-    yield from rest_api_resources(config, team_id, job_id)
+    yield from rest_api_resources(config, team_id, job_id, db_incremental_field_last_value)
 
 
 def validate_credentials(api_key: str) -> bool:

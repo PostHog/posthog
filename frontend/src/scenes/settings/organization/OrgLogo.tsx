@@ -34,6 +34,7 @@ export function OrganizationLogo(): JSX.Element {
                 onChange={setFilesToUpload}
                 loading={uploading}
                 value={filesToUpload}
+                disabled={!!restrictionReason}
                 callToAction={
                     <>
                         <div className="relative">
@@ -76,11 +77,13 @@ export function OrganizationLogo(): JSX.Element {
                     updateOrganization({ logo_media_id: logoMediaId })
                 }}
                 disabledReason={
-                    !currentOrganization
+                    restrictionReason
+                        ? restrictionReason
+                        : !currentOrganization
                         ? 'Organization not loaded'
                         : logoMediaId === currentOrganization.logo_media_id
                         ? 'Logo unchanged'
-                        : restrictionReason
+                        : undefined
                 }
                 loading={currentOrganizationLoading || uploading}
             >

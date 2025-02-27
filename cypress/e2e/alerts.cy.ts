@@ -1,15 +1,11 @@
-import { decideResponse } from '../fixtures/api/decide'
-import { createInsight } from '../productAnalytics'
+import { createInsight, createInsightWithBreakdown } from '../productAnalytics'
+import { setupFeatureFlags } from '../support/decide'
 
 describe('Alerts', () => {
     beforeEach(() => {
-        cy.intercept('**/decide/*', (req) =>
-            req.reply(
-                decideResponse({
-                    alerts: true,
-                })
-            )
-        )
+        setupFeatureFlags({
+            alerts: true,
+        })
         createInsight('insight')
     })
 
@@ -19,8 +15,7 @@ describe('Alerts', () => {
         upperThreshold: string = '200',
         condition?: string
     ): void => {
-        cy.get('[data-attr=more-button]').click()
-        cy.contains('Manage alerts').click()
+        cy.contains('Alerts').click()
         cy.contains('New alert').click()
 
         cy.get('[data-attr=alertForm-name]').clear().type(name)
@@ -52,9 +47,8 @@ describe('Alerts', () => {
     }
 
     it('Should allow create and delete an alert', () => {
-        cy.get('[data-attr=more-button]').click()
         // Alerts should be disabled for trends represented with graphs
-        cy.get('[data-attr=manage-alerts-button]').should('have.attr', 'aria-disabled', 'true')
+        cy.contains('Alerts').should('have.attr', 'aria-disabled', 'true')
 
         setInsightDisplayTypeAndSave('Number')
 
@@ -62,8 +56,7 @@ describe('Alerts', () => {
         cy.reload()
 
         // Check the alert has the same values as when it was created
-        cy.get('[data-attr=more-button]').click()
-        cy.contains('Manage alerts').click()
+        cy.contains('Alerts').click()
         cy.get('[data-attr=alert-list-item]').contains('Alert name').click()
         cy.get('[data-attr=alertForm-name]').should('have.value', 'Alert name')
         cy.get('[data-attr=alertForm-lower-threshold').should('have.value', '100')
@@ -93,15 +86,13 @@ describe('Alerts', () => {
         cy.contains('span', 'Funnels').click()
         cy.get('[data-attr=insight-save-button]').contains('Save').click()
 
-        cy.get('[data-attr=more-button]').click()
-        cy.contains('Manage alerts').click()
+        cy.contains('Alerts').click()
         cy.contains('Alert to be deleted because of a changed insight').should('not.exist')
     })
 
     it('Should allow create and delete a relative alert', () => {
-        cy.get('[data-attr=more-button]').click()
         // Alerts should be disabled for trends represented with graphs
-        cy.get('[data-attr=manage-alerts-button]').should('have.attr', 'aria-disabled', 'true')
+        cy.contains('Alerts').should('have.attr', 'aria-disabled', 'true')
 
         setInsightDisplayTypeAndSave('Bar chart')
 
@@ -109,9 +100,29 @@ describe('Alerts', () => {
         cy.reload()
 
         // Check the alert has the same values as when it was created
-        cy.get('[data-attr=more-button]').click()
-        cy.contains('Manage alerts').click()
+        cy.contains('Alerts').click()
         cy.get('[data-attr=alert-list-item]').contains('Alert name').click()
+        cy.get('[data-attr=alertForm-name]').should('have.value', 'Alert name')
+        cy.get('[data-attr=alertForm-lower-threshold').should('have.value', '10')
+        cy.get('[data-attr=alertForm-upper-threshold').should('have.value', '20')
+        cy.contains('Delete alert').click()
+        cy.wait(2000)
+
+        cy.reload()
+        cy.contains('Alert name').should('not.exist')
+    })
+
+    it('Should allow creating alerts on trends with breakdowns', () => {
+        createInsightWithBreakdown('insight with breakdown')
+        setInsightDisplayTypeAndSave('Bar chart')
+
+        createAlert('Alert name', '10', '20', 'increases by')
+        cy.reload()
+
+        // Check the alert has the same values as when it was created
+        cy.contains('Alerts').click()
+        cy.get('[data-attr=alert-list-item]').contains('Alert name').click()
+        cy.contains('any breakdown value').should('exist')
         cy.get('[data-attr=alertForm-name]').should('have.value', 'Alert name')
         cy.get('[data-attr=alertForm-lower-threshold').should('have.value', '10')
         cy.get('[data-attr=alertForm-upper-threshold').should('have.value', '20')

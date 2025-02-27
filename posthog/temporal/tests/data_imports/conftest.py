@@ -1,4 +1,5 @@
 import json
+
 import pytest
 
 
@@ -891,6 +892,77 @@ def zendesk_ticket_metric_events():
                     "ticket_id": 155,
                     "time": "2020-10-26T12:53:12Z",
                     "type": "measure"
+                }
+            ]
+        }
+        """
+    )
+
+
+@pytest.fixture
+def chargebee_customer():
+    # note that chargebee actually return both a customer and a card if one is
+    # attached (we ignore this when ingesting the data)
+    return json.loads(
+        """
+        {
+            "list": [
+                {
+                    "card": {
+                        "card_type": "american_express",
+                        "created_at": 1729612767,
+                        "customer_id": "cbdemo_douglas",
+                        "expiry_month": 5,
+                        "expiry_year": 2028,
+                        "first_name": "Douglas",
+                        "funding_type": "not_known",
+                        "gateway": "chargebee",
+                        "gateway_account_id": "gw_199Ne4URwspru2qp",
+                        "iin": "371449",
+                        "last4": "8431",
+                        "last_name": "Quaid",
+                        "masked_number": "***********8431",
+                        "object": "card",
+                        "payment_source_id": "pm_19A7lVURwsu9pPnQ",
+                        "resource_version": 1729612767061,
+                        "status": "valid",
+                        "updated_at": 1729612767
+                    },
+                    "customer": {
+                        "allow_direct_debit": false,
+                        "auto_collection": "on",
+                        "card_status": "valid",
+                        "channel": "web",
+                        "company": "Greenplus Enterprises",
+                        "created_at": 1729612766,
+                        "deleted": false,
+                        "email": "douglas_AT_test.com@example.com",
+                        "excess_payments": 0,
+                        "first_name": "Douglas",
+                        "id": "cbdemo_douglas",
+                        "last_name": "Quaid",
+                        "mrr": 0,
+                        "net_term_days": 0,
+                        "object": "customer",
+                        "payment_method": {
+                            "gateway": "chargebee",
+                            "gateway_account_id": "gw_199Ne4URwspru2qp",
+                            "object": "payment_method",
+                            "reference_id": "tok_19A7lVURwsu9hPnP",
+                            "status": "valid",
+                            "type": "card"
+                        },
+                        "phone": "2344903756",
+                        "pii_cleared": "active",
+                        "preferred_currency_code": "GBP",
+                        "primary_payment_source_id": "pm_19A7lVURwsu9pPnQ",
+                        "promotional_credits": 0,
+                        "refundable_credits": 0,
+                        "resource_version": 1729612767062,
+                        "taxability": "taxable",
+                        "unbilled_charges": 0,
+                        "updated_at": 1729612767
+                    }
                 }
             ]
         }

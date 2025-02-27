@@ -1,10 +1,8 @@
 import uuid
 from unittest.mock import patch, MagicMock, call
 
-from rest_framework import status
 
 from posthog.models import Team
-from posthog.models.signals import mute_selected_signals
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.test import setup_stream_from
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
@@ -81,50 +79,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
     )
-    @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
-    def test_original_version_stored_snapshots_can_be_gathered(
-        self, mock_list_objects: MagicMock, _mock_exists: MagicMock
-    ) -> None:
-        session_id = str(uuid.uuid4())
-        lts_storage_path = "1234-5678"
-
-        def list_objects_func(_path: str) -> list[str]:
-            return []
-
-        mock_list_objects.side_effect = list_objects_func
-
-        with mute_selected_signals():
-            SessionRecording.objects.create(
-                team=self.team,
-                session_id=session_id,
-                storage_version=None,
-                object_storage_path=lts_storage_path,
-                start_time="1970-01-01T00:00:00.001000Z",
-                end_time="1970-01-01T00:00:00.002000Z",
-            )
-
-        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?version=2")
-        assert response.status_code == status.HTTP_200_OK
-        response_data = response.json()
-
-        assert mock_list_objects.call_args_list == []
-
-        assert response_data == {
-            "sources": [
-                {
-                    # original version had a single path that was its blob key
-                    "blob_key": lts_storage_path,
-                    "source": "blob",
-                    "start_timestamp": "1970-01-01T00:00:00.001000Z",
-                    "end_timestamp": "1970-01-01T00:00:00.002000Z",
-                }
-            ],
-        }
-
-    @patch(
-        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
-        return_value=True,
-    )
     @patch("posthog.session_recordings.session_recording_api.stream_from", return_value=setup_stream_from())
     @patch("posthog.session_recordings.session_recording_api.object_storage.get_presigned_url")
     @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
@@ -175,75 +129,4 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             call(f"{lts_storage_path}/1-2", expiration=60),
         ]
 
-        assert response_data == "Example content"
-
-    @patch(
-        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
-        return_value=True,
-    )
-    @patch("posthog.session_recordings.session_recording_api.stream_from", return_value=setup_stream_from())
-    @patch("posthog.session_recordings.session_recording_api.object_storage.tag")
-    @patch("posthog.session_recordings.session_recording_api.object_storage.write")
-    @patch("posthog.session_recordings.session_recording_api.object_storage.read")
-    @patch("posthog.session_recordings.session_recording_api.object_storage.get_presigned_url")
-    @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
-    def test_original_version_stored_snapshots_can_be_loaded_without_upversion(
-        self,
-        mock_list_objects: MagicMock,
-        mock_get_presigned_url: MagicMock,
-        mock_read: MagicMock,
-        mock_write: MagicMock,
-        mock_tag: MagicMock,
-        mock_requests: MagicMock,
-        _mock_exists: MagicMock,
-    ) -> None:
-        session_id = str(uuid.uuid4())
-        lts_storage_path = "1234-5678"
-
-        def list_objects_func(path: str) -> list[str]:
-            return []
-
-        mock_list_objects.side_effect = list_objects_func
-        mock_get_presigned_url.return_value = "https://example.com"
-        mock_read.return_value = legacy_compressed_original
-
-        with mute_selected_signals():
-            SessionRecording.objects.create(
-                team=self.team,
-                session_id=session_id,
-                # to avoid auto-persistence kicking in when this is None
-                storage_version="not a know version",
-                object_storage_path=lts_storage_path,
-                start_time="1970-01-01T00:00:00.001000Z",
-                end_time="1970-01-01T00:00:00.002000Z",
-            )
-
-        query_parameters = [
-            "source=blob",
-            "version=2",
-            f"blob_key={lts_storage_path}",
-        ]
-
-        mock_write.reset_mock()  # reset the mock to remove setup calls
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?{'&'.join(query_parameters)}"
-        )
-        assert response.status_code == status.HTTP_200_OK
-
-        assert mock_list_objects.call_args_list == []
-
-        expected_path = f"session_recordings_lts/team_id/{self.team.pk}/session_id/{session_id}/data/1-2"
-
-        # the content was saved to the new location
-        assert mock_write.call_args_list[0][0][0] == expected_path
-        # the original location was tagged
-        assert mock_tag.call_args_list == [call(lts_storage_path, {"converted": "true"})]
-
-        # the original saved path isn't loaded for reading the content
-        assert mock_get_presigned_url.call_args_list == [
-            call(expected_path, expiration=60),
-        ]
-
-        # and the mock content is returned
-        response_data = response.content.decode("utf-8")
         assert response_data == "Example content"

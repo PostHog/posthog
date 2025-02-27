@@ -1,27 +1,63 @@
-import { actions, kea, key, listeners, path, props } from 'kea'
+import { actions, connect, kea, key, listeners, path, props } from 'kea'
 import { forms } from 'kea-forms'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
-import { AlertCalculationInterval, AlertConditionType, InsightThresholdType } from '~/queries/schema'
-import { QueryBasedInsightModel } from '~/types'
+import {
+    AlertCalculationInterval,
+    AlertConditionType,
+    GoalLine,
+    InsightsThresholdBounds,
+    InsightThresholdType,
+} from '~/queries/schema/schema-general'
+import { InsightLogicProps, QueryBasedInsightModel } from '~/types'
 
 import type { alertFormLogicType } from './alertFormLogicType'
 import { AlertType, AlertTypeWrite } from './types'
 
 export type AlertFormType = Pick<
     AlertType,
-    'name' | 'enabled' | 'created_at' | 'threshold' | 'condition' | 'subscribed_users' | 'checks' | 'config'
+    | 'name'
+    | 'enabled'
+    | 'created_at'
+    | 'calculation_interval'
+    | 'threshold'
+    | 'condition'
+    | 'subscribed_users'
+    | 'checks'
+    | 'config'
+    | 'skip_weekend'
 > & {
     id?: AlertType['id']
     created_by?: AlertType['created_by'] | null
     insight?: QueryBasedInsightModel['id']
 }
 
+export function canCheckOngoingInterval(alert?: AlertType | AlertFormType): boolean {
+    return (
+        (alert?.condition.type === AlertConditionType.ABSOLUTE_VALUE ||
+            alert?.condition.type === AlertConditionType.RELATIVE_INCREASE) &&
+        alert?.threshold.configuration.bounds?.upper != null &&
+        !isNaN(alert?.threshold.configuration.bounds.upper)
+    )
+}
+
 export interface AlertFormLogicProps {
     alert: AlertType | null
     insightId: QueryBasedInsightModel['id']
     onEditSuccess: () => void
+    insightVizDataLogicProps?: InsightLogicProps
+}
+
+const getThresholdBounds = (goalLines?: GoalLine[] | null): InsightsThresholdBounds => {
+    if (goalLines == null || goalLines.length == 0) {
+        return {}
+    }
+
+    // Simple assumption that the alert should be triggered when the first/smallest goal line is crossed
+    const smallerValue = Math.min(...goalLines.map((line) => line.value))
+    return { upper: smallerValue }
 }
 
 export const alertFormLogic = kea<alertFormLogicType>([
@@ -29,33 +65,44 @@ export const alertFormLogic = kea<alertFormLogicType>([
     props({} as AlertFormLogicProps),
     key(({ alert }) => alert?.id ?? 'new'),
 
+    connect((props: AlertFormLogicProps) => ({
+        values: [trendsDataLogic({ dashboardId: undefined, ...props.insightVizDataLogicProps }), ['goalLines']],
+    })),
+
     actions({
         deleteAlert: true,
         snoozeAlert: (snoozeUntil: string) => ({ snoozeUntil }),
         clearSnooze: true,
     }),
 
-    forms(({ props }) => ({
+    forms(({ props, values }) => ({
         alertForm: {
             defaults:
                 props.alert ??
                 ({
                     id: undefined,
-                    name: '',
+                    name: values.goalLines && values.goalLines.length > 0 ? `Crossed ${values.goalLines[0].label}` : '',
                     created_by: null,
                     created_at: '',
                     enabled: true,
                     config: {
                         type: 'TrendsAlertConfig',
                         series_index: 0,
+                        check_ongoing_interval: false,
                     },
-                    threshold: { configuration: { type: InsightThresholdType.ABSOLUTE, bounds: {} } },
+                    threshold: {
+                        configuration: {
+                            type: InsightThresholdType.ABSOLUTE,
+                            bounds: getThresholdBounds(values.goalLines),
+                        },
+                    },
                     condition: {
                         type: AlertConditionType.ABSOLUTE_VALUE,
                     },
                     subscribed_users: [],
                     checks: [],
                     calculation_interval: AlertCalculationInterval.DAILY,
+                    skip_weekend: false,
                     insight: props.insightId,
                 } as AlertFormType),
             errors: ({ name }) => ({
@@ -66,6 +113,16 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     ...alert,
                     subscribed_users: alert.subscribed_users?.map(({ id }) => id),
                     insight: props.insightId,
+                    // can only skip weekends for hourly/daily alerts
+                    skip_weekend:
+                        (alert.calculation_interval === AlertCalculationInterval.DAILY ||
+                            alert.calculation_interval === AlertCalculationInterval.HOURLY) &&
+                        alert.skip_weekend,
+                    // can only check ongoing interval for absolute value/increase alerts with upper threshold
+                    config: {
+                        ...alert.config,
+                        check_ongoing_interval: canCheckOngoingInterval(alert) && alert.config.check_ongoing_interval,
+                    },
                 }
 
                 // absolute value alert can only have absolute threshold

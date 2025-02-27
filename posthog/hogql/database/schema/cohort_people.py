@@ -10,9 +10,9 @@ from posthog.hogql.database.models import (
 from posthog.hogql.database.schema.persons import join_with_persons_table
 
 COHORT_PEOPLE_FIELDS = {
-    "person_id": StringDatabaseField(name="person_id"),
-    "cohort_id": IntegerDatabaseField(name="cohort_id"),
-    "team_id": IntegerDatabaseField(name="team_id"),
+    "person_id": StringDatabaseField(name="person_id", nullable=False),
+    "cohort_id": IntegerDatabaseField(name="cohort_id", nullable=False),
+    "team_id": IntegerDatabaseField(name="team_id", nullable=False),
     "person": LazyJoin(
         from_field=["person_id"],
         join_table="persons",
@@ -21,12 +21,12 @@ COHORT_PEOPLE_FIELDS = {
 }
 
 
-def select_from_cohort_people_table(requested_fields: dict[str, list[str | int]], team_id: int):
+def select_from_cohort_people_table(requested_fields: dict[str, list[str | int]], project_id: int):
     from posthog.hogql import ast
     from posthog.models import Cohort
 
     cohort_tuples = list(
-        Cohort.objects.filter(is_static=False, team_id=team_id)
+        Cohort.objects.filter(is_static=False, team__project_id=project_id)
         .exclude(version__isnull=True)
         .values_list("id", "version")
     )
@@ -61,8 +61,8 @@ def select_from_cohort_people_table(requested_fields: dict[str, list[str | int]]
 class RawCohortPeople(Table):
     fields: dict[str, FieldOrTable] = {
         **COHORT_PEOPLE_FIELDS,
-        "sign": IntegerDatabaseField(name="sign"),
-        "version": IntegerDatabaseField(name="version"),
+        "sign": IntegerDatabaseField(name="sign", nullable=False),
+        "version": IntegerDatabaseField(name="version", nullable=False),
     }
 
     def to_printed_clickhouse(self, context):
@@ -76,7 +76,7 @@ class CohortPeople(LazyTable):
     fields: dict[str, FieldOrTable] = COHORT_PEOPLE_FIELDS
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context, node):
-        return select_from_cohort_people_table(table_to_add.fields_accessed, context.team_id)
+        return select_from_cohort_people_table(table_to_add.fields_accessed, context.project_id)
 
     def to_printed_clickhouse(self, context):
         return "cohortpeople"

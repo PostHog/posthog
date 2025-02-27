@@ -30,6 +30,7 @@ use capture::limiters::redis::{
     QuotaResource, OVERFLOW_LIMITER_CACHE_KEY, QUOTA_LIMITER_CACHE_KEY,
 };
 use capture::server::serve;
+use health::HealthStrategy;
 
 pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     print_sink: false,
@@ -39,6 +40,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     overflow_burst_limit: NonZeroU32::new(5).unwrap(),
     overflow_per_second_limit: NonZeroU32::new(10).unwrap(),
     overflow_forced_keys: None,
+    dropped_keys: None,
     kafka: KafkaConfig {
         kafka_producer_linger_ms: 0, // Send messages as soon as possible
         kafka_producer_queue_mib: 10,
@@ -56,6 +58,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
         kafka_client_id: "".to_string(),
         kafka_metadata_max_age_ms: 60000,
         kafka_producer_max_retries: 2,
+        kafka_producer_acks: "all".to_string(),
     },
     otel_url: None,
     otel_sampling_rate: 0.0,
@@ -64,6 +67,11 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     redis_key_prefix: None,
     capture_mode: CaptureMode::Events,
     concurrency_limit: None,
+    s3_fallback_enabled: false,
+    s3_fallback_bucket: None,
+    s3_fallback_endpoint: None,
+    s3_fallback_prefix: String::new(),
+    healthcheck_strategy: HealthStrategy::All,
 });
 
 static TRACING_INIT: Once = Once::new();
@@ -105,7 +113,10 @@ impl ServerHandle {
     }
 
     pub async fn capture_events<T: Into<reqwest::Body>>(&self, body: T) -> reqwest::Response {
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_millis(3000))
+            .build()
+            .unwrap();
         client
             .post(format!("http://{:?}/i/v0/e", self.addr))
             .body(body)
@@ -115,7 +126,10 @@ impl ServerHandle {
     }
 
     pub async fn capture_to_batch<T: Into<reqwest::Body>>(&self, body: T) -> reqwest::Response {
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_millis(3000))
+            .build()
+            .unwrap();
         client
             .post(format!("http://{:?}/batch", self.addr))
             .body(body)
@@ -124,11 +138,19 @@ impl ServerHandle {
             .expect("failed to send request")
     }
 
-    pub async fn capture_recording<T: Into<reqwest::Body>>(&self, body: T) -> reqwest::Response {
-        let client = reqwest::Client::new();
+    pub async fn capture_recording<T: Into<reqwest::Body>>(
+        &self,
+        body: T,
+        user_agent: Option<&str>,
+    ) -> reqwest::Response {
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_millis(3000))
+            .build()
+            .unwrap();
         client
             .post(format!("http://{:?}/s/", self.addr))
             .body(body)
+            .header("User-Agent", user_agent.unwrap_or("test-client"))
             .send()
             .await
             .expect("failed to send request")
@@ -156,6 +178,7 @@ impl EphemeralTopic {
             DEFAULT_CONFIG.kafka.kafka_hosts.clone(),
         );
         config.set("debug", "all");
+        config.set("socket.timeout.ms", "5000");
 
         // TODO: check for name collision?
         let topic_name = random_string("events_", 16);

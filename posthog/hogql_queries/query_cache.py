@@ -10,6 +10,16 @@ from posthog.utils import get_safe_cache
 
 
 class QueryCacheManager:
+    """
+    Storing query results in Redis keyed by the hash of the query (cache_key param).
+    '{cache_key}' -> query_results
+
+    Also using Redis sorted sets to store the time query results were calculated.
+
+    Sorted sets are keyed by team_id.
+    'cache_timestamps:{team_id}' -> '{self.insight_id}:{self.dashboard_id or ''}' -> timestamp (epoch time when calculated)
+    """
+
     def __init__(
         self,
         *,
@@ -46,6 +56,7 @@ class QueryCacheManager:
         first calculation to refresh it will refresh all of them.
         """
         current_time = datetime.now(UTC)
+        # get least stale insights first
         insights = redis.get_client().zrevrangebyscore(
             f"cache_timestamps:{team_id}",
             min="-inf",

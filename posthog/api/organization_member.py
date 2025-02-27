@@ -1,8 +1,7 @@
 from typing import cast
 
-from django.db.models import Model, Prefetch, QuerySet, F
+from django.db.models import F, Model, Prefetch, QuerySet
 from django.shortcuts import get_object_or_404
-from django.views import View
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from rest_framework import exceptions, mixins, serializers, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission
@@ -16,6 +15,8 @@ from posthog.constants import INTERNAL_BOT_EMAIL_SUFFIX
 from posthog.models import OrganizationMembership
 from posthog.models.user import User
 from posthog.permissions import TimeSensitiveActionPermission, extract_organization
+from posthog.utils import posthoganalytics
+from posthog.event_usage import groups
 
 
 class OrganizationMemberObjectPermissions(BasePermission):
@@ -23,7 +24,7 @@ class OrganizationMemberObjectPermissions(BasePermission):
 
     message = "Your cannot edit other organization members."
 
-    def has_object_permission(self, request: Request, view: View, membership: OrganizationMembership) -> bool:
+    def has_object_permission(self, request: Request, view, membership: OrganizationMembership) -> bool:
         if request.method in SAFE_METHODS:
             return True
         organization = extract_organization(membership, view)
@@ -124,17 +125,38 @@ class OrganizationMemberViewSet(
         if self.action == "list":
             params = self.request.GET.dict()
 
+            if "email" in params:
+                queryset = queryset.filter(user__email=params["email"])
+
             if "updated_after" in params:
                 queryset = queryset.filter(updated_at__gt=params["updated_after"])
 
-        order = self.request.GET.get("order", None)
-        if order:
-            queryset = queryset.order_by(order)
-        else:
-            queryset = queryset.order_by("-joined_at")
+            order = self.request.GET.get("order", None)
+            if order:
+                queryset = queryset.order_by(order)
+            else:
+                queryset = queryset.order_by("-joined_at")
 
         return queryset
 
     def perform_destroy(self, instance: Model):
         instance = cast(OrganizationMembership, instance)
+        requesting_user = cast(User, self.request.user)
+        removed_user = cast(User, instance.user)
+
+        is_self_removal = requesting_user.id == removed_user.id
+
+        posthoganalytics.capture(
+            str(requesting_user.distinct_id),
+            "organization member removed",
+            properties={
+                "removed_member_id": removed_user.distinct_id,
+                "removed_by_id": requesting_user.distinct_id,
+                "organization_id": instance.organization_id,
+                "organization_name": instance.organization.name,
+                "removal_type": "self_removal" if is_self_removal else "removed_by_other",
+            },
+            groups=groups(instance.organization),
+        )
+
         instance.user.leave(organization=instance.organization)

@@ -7,6 +7,7 @@ export const userPreferencesLogic = kea<userPreferencesLogicType>([
     path(['lib', 'logic', 'userPreferencesLogic']),
     actions({
         setHidePostHogPropertiesInTable: (enabled: boolean) => ({ enabled }),
+        setHideNullValues: (enabled: boolean) => ({ enabled }),
     }),
     reducers(() => ({
         hidePostHogPropertiesInTable: [
@@ -16,5 +17,6 @@ export const userPreferencesLogic = kea<userPreferencesLogicType>([
                 setHidePostHogPropertiesInTable: (_, { enabled }) => enabled,
             },
         ],
+        hideNullValues: [true, { persist: true }, { setHideNullValues: (_, { enabled }) => enabled }],
     })),
 ])

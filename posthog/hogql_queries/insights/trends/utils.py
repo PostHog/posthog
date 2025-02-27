@@ -26,7 +26,7 @@ def get_properties_chain(
         raise Exception("group_type_index missing from params")
 
     if breakdown_type == "data_warehouse":
-        return [breakdown_field]
+        return [*breakdown_field.split(".")]
 
     if breakdown_type == "data_warehouse_person_property":
         return ["person", *breakdown_field.split(".")]

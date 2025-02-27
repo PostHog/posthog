@@ -18,12 +18,12 @@ class TestSuggestedQuestionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     @patch(
         "posthog.hogql_queries.ai.suggested_questions_query_runner.hit_openai",
-        return_value=("Lorem ipsum. QUESTIONS:\nHow?\n\nWhy?", 21, 37),
+        return_value=("Lorem ipsum. QUESTIONS:\nHow? 78\n\nWhy? 91", 21, 37),
     )
     def test_suggested_questions_hit_openai(self, hit_openai_mock):
         results = SuggestedQuestionsQueryRunner(team=self.team, query=SuggestedQuestionsQuery()).calculate()
         hit_openai_mock.assert_called_once()
-        self.assertEqual(results.questions, ["How?", "Why?"])
+        self.assertEqual(results.questions, ["Why?", "How?"])
 
     def test_is_stale(self):
         date = timezone.now()

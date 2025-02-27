@@ -14,6 +14,8 @@ from drf_spectacular.utils import (
     extend_schema_view,
     OpenApiExample,
 )
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from rest_framework import serializers, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -76,7 +78,7 @@ def log_notebook_activity(
     )
 
 
-class NotebookMinimalSerializer(serializers.ModelSerializer):
+class NotebookMinimalSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     created_by = UserBasicSerializer(read_only=True)
     last_modified_by = UserBasicSerializer(read_only=True)
 
@@ -110,6 +112,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
             "created_by",
             "last_modified_at",
             "last_modified_by",
+            "user_access_level",
         ]
         read_only_fields = [
             "id",
@@ -118,6 +121,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
             "created_by",
             "last_modified_at",
             "last_modified_by",
+            "user_access_level",
         ]
 
     def create(self, validated_data: dict, *args, **kwargs) -> Notebook:
@@ -235,7 +239,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
         ],
     )
 )
-class NotebookViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "notebook"
     queryset = Notebook.objects.all()
     filter_backends = [DjangoFilterBackend]

@@ -61,6 +61,7 @@ export const searchBarLogic = kea<searchBarLogicType>([
         onArrowUp: (activeIndex: number, maxIndex: number) => ({ activeIndex, maxIndex }),
         onArrowDown: (activeIndex: number, maxIndex: number) => ({ activeIndex, maxIndex }),
         openResult: (index: number) => ({ index }),
+        setActiveResultIndex: (index: number) => ({ index }),
     }),
     loaders(({ values, actions }) => ({
         rawSearchResponse: [
@@ -72,7 +73,9 @@ export const searchBarLogic = kea<searchBarLogicType>([
                     actions.reportCommandBarSearch(values.searchQuery.length)
 
                     let response
-                    if (clickhouseTabs.includes(values.activeTab)) {
+                    if (values.activeTab !== Tab.All && clickhouseTabs.includes(values.activeTab)) {
+                        return null
+                    } else if (clickhouseTabs.includes(values.activeTab)) {
                         // prevent race conditions when switching tabs quickly
                         response = values.rawSearchResponse
                     } else if (values.activeTab === Tab.All) {
@@ -94,6 +97,11 @@ export const searchBarLogic = kea<searchBarLogicType>([
             {
                 loadPersonsResponse: async (_, breakpoint) => {
                     await breakpoint(DEBOUNCE_MS)
+
+                    if (values.activeTab !== Tab.All && values.activeTab !== Tab.Person) {
+                        return null
+                    }
+
                     const response = await api.persons.list({ search: values.searchQuery })
                     breakpoint()
                     return response
@@ -105,6 +113,11 @@ export const searchBarLogic = kea<searchBarLogicType>([
             {
                 loadGroup0Response: async (_, breakpoint) => {
                     await breakpoint(DEBOUNCE_MS)
+
+                    if (values.activeTab !== Tab.All && values.activeTab !== Tab.Group0) {
+                        return null
+                    }
+
                     const response = await api.groups.list({ group_type_index: 0, search: values.searchQuery })
                     breakpoint()
                     return response
@@ -116,6 +129,11 @@ export const searchBarLogic = kea<searchBarLogicType>([
             {
                 loadGroup1Response: async (_, breakpoint) => {
                     await breakpoint(DEBOUNCE_MS)
+
+                    if (values.activeTab !== Tab.All && values.activeTab !== Tab.Group1) {
+                        return null
+                    }
+
                     const response = await api.groups.list({ group_type_index: 1, search: values.searchQuery })
                     breakpoint()
                     return response
@@ -127,6 +145,11 @@ export const searchBarLogic = kea<searchBarLogicType>([
             {
                 loadGroup2Response: async (_, breakpoint) => {
                     await breakpoint(DEBOUNCE_MS)
+
+                    if (values.activeTab !== Tab.All && values.activeTab !== Tab.Group2) {
+                        return null
+                    }
+
                     const response = await api.groups.list({ group_type_index: 2, search: values.searchQuery })
                     breakpoint()
                     return response
@@ -138,6 +161,11 @@ export const searchBarLogic = kea<searchBarLogicType>([
             {
                 loadGroup3Response: async (_, breakpoint) => {
                     await breakpoint(DEBOUNCE_MS)
+
+                    if (values.activeTab !== Tab.All && values.activeTab !== Tab.Group3) {
+                        return null
+                    }
+
                     const response = await api.groups.list({ group_type_index: 3, search: values.searchQuery })
                     breakpoint()
                     return response
@@ -149,6 +177,11 @@ export const searchBarLogic = kea<searchBarLogicType>([
             {
                 loadGroup4Response: async (_, breakpoint) => {
                     await breakpoint(DEBOUNCE_MS)
+
+                    if (values.activeTab !== Tab.All && values.activeTab !== Tab.Group4) {
+                        return null
+                    }
+
                     const response = await api.groups.list({ group_type_index: 4, search: values.searchQuery })
                     breakpoint()
                     return response
@@ -208,6 +241,7 @@ export const searchBarLogic = kea<searchBarLogicType>([
                 openResult: () => 0,
                 onArrowUp: (_, { activeIndex, maxIndex }) => (activeIndex > 0 ? activeIndex - 1 : maxIndex),
                 onArrowDown: (_, { activeIndex, maxIndex }) => (activeIndex < maxIndex ? activeIndex + 1 : 0),
+                setActiveResultIndex: (_, { index }) => index,
             },
         ],
         activeTab: [
@@ -281,12 +315,12 @@ export const searchBarLogic = kea<searchBarLogicType>([
                 group3Loading,
                 group4Loading
             ) =>
-                searchLoading &&
-                personsLoading &&
-                group0Loading &&
-                group1Loading &&
-                group2Loading &&
-                group3Loading &&
+                searchLoading ||
+                personsLoading ||
+                group0Loading ||
+                group1Loading ||
+                group2Loading ||
+                group3Loading ||
                 group4Loading,
         ],
         tabsForGroups: [
@@ -407,23 +441,17 @@ export const searchBarLogic = kea<searchBarLogicType>([
         setActiveTab: actions.search,
         search: (_) => {
             // postgres search
-            if (values.activeTab === Tab.All || !clickhouseTabs.includes(values.activeTab)) {
-                actions.loadSearchResponse(_)
-            }
+            actions.loadSearchResponse(_)
 
             // clickhouse persons
-            if (values.activeTab === Tab.All || values.activeTab === Tab.Person) {
-                actions.loadPersonsResponse(_)
-            }
+            actions.loadPersonsResponse(_)
 
             // clickhouse groups
-            if (values.activeTab === Tab.All) {
-                for (const type of Array.from(values.groupTypes.values())) {
-                    actions[`loadGroup${type.group_type_index}Response`](_)
-                }
-            } else if (values.activeTab.startsWith('group_')) {
-                actions[`loadGroup${values.activeTab.split('_')[1]}Response`](_)
-            }
+            actions.loadGroup0Response(_)
+            actions.loadGroup1Response(_)
+            actions.loadGroup2Response(_)
+            actions.loadGroup3Response(_)
+            actions.loadGroup4Response(_)
         },
         openResult: ({ index }) => {
             const result = values.combinedSearchResults![index]

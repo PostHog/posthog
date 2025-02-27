@@ -29,6 +29,7 @@ export function FunnelHistogram(): JSX.Element | null {
         <div
             className={clsx('FunnelHistogram', {
                 scrollable: !isInDashboardContext,
+                'overflow-hidden': isInDashboardContext,
                 'dashboard-wrapper': isInDashboardContext,
             })}
             ref={ref}

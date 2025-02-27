@@ -231,6 +231,10 @@ class Command(BaseCommand):
             # discord
             "discord.com",
             "discordapp.gg",
+            # twitter
+            "twitter.com",
+            "t.co",
+            "x.com",
         ):
             entries[(social_domain, EntryKind.source)] = SourceEntry("Social", "Paid Social", "Organic Social")
 

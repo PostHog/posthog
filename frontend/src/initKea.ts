@@ -64,7 +64,7 @@ export const loggerPlugin: () => KeaPlugin = () => ({
 export function initKea({ routerHistory, routerLocation, beforePlugins }: InitKeaProps = {}): void {
     const plugins = [
         ...(beforePlugins || []),
-        localStoragePlugin,
+        localStoragePlugin(),
         windowValuesPlugin({ window: window }),
         routerPlugin({
             history: routerHistory,

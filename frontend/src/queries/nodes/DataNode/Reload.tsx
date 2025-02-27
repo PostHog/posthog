@@ -28,7 +28,7 @@ export function Reload(): JSX.Element {
     )
 }
 
-export function ReloadAll(): JSX.Element {
+export function ReloadAll({ iconOnly }: { iconOnly?: boolean }): JSX.Element {
     const { areAnyLoading } = useValues(dataNodeCollectionLogic)
     const { reloadAll } = useActions(dataNodeCollectionLogic)
 
@@ -36,14 +36,12 @@ export function ReloadAll(): JSX.Element {
         <LemonButton
             type="secondary"
             size="small"
-            onClick={() => {
-                reloadAll()
-            }}
+            onClick={reloadAll}
             // Setting the loading icon manually to capture clicks while spinning.
             icon={areAnyLoading ? <Spinner textColored /> : <IconRefresh />}
             disabledReason={areAnyLoading ? 'Loading' : undefined}
         >
-            Reload
+            {!iconOnly && 'Reload'}
         </LemonButton>
     )
 }

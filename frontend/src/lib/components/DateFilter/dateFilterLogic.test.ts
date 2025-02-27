@@ -83,7 +83,7 @@ describe('dateFilterLogic', () => {
         await expectLogic(withDateFrom, () => {
             withDateFrom.actions.setDate(null, null)
         })
-        expect(onChange).toHaveBeenCalledWith(null, null)
+        expect(onChange).toHaveBeenCalledWith(null, null, false)
     })
 
     it('can receive Custom as date props', async () => {

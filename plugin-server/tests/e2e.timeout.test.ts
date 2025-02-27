@@ -13,7 +13,6 @@ jest.setTimeout(60000) // 60 sec timeout
 
 const extraServerConfig: Partial<PluginsServerConfig> = {
     TASK_TIMEOUT: 2,
-    WORKER_CONCURRENCY: 2,
     KAFKA_CONSUMPTION_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
     LOG_LEVEL: LogLevel.Log,
 }
@@ -41,7 +40,7 @@ describe('e2e ingestion timeout', () => {
         `)
         await resetTestDatabaseClickhouse(extraServerConfig)
         const startResponse = await startPluginsServer(extraServerConfig, makePiscina, { ingestion: true })
-        hub = startResponse.hub
+        hub = startResponse.hub!
         stopServer = startResponse.stop
         posthog = createPosthog(hub, pluginConfig39)
     })

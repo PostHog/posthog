@@ -10,39 +10,42 @@ interface WebExperimentVariantHeaderProps {
 }
 
 export function WebExperimentVariantHeader({ variant }: WebExperimentVariantHeaderProps): JSX.Element {
-    const { experimentForm, removeVariantAvailable } = useValues(experimentsTabLogic)
+    const { experimentForm, removeVariantAvailable, selectedVariant } = useValues(experimentsTabLogic)
     const { removeVariant } = useActions(experimentsTabLogic)
     return (
-        <div className="flex w-full gap-4 items-center">
-            <div className="flex-1">
+        <div className="flex w-full items-center justify-between">
+            <div className="flex items-center gap-2">
                 <h2>{variant}</h2>
+                {selectedVariant === variant && (
+                    <LemonTag className="px-1 py-0.5 font-semibold" size="small" type="success">
+                        Currently applied
+                    </LemonTag>
+                )}
             </div>
-            <div className="shrink">
-                <LemonTag className="p-2" type="success">
+            <div className="flex items-center gap-2">
+                <LemonTag className="px-1 py-0.5 font-semibold" size="small" type="muted">
                     <span>
-                        {'rollout :' +
-                            (experimentForm.variants && experimentForm.variants[variant]
-                                ? experimentForm.variants[variant].rollout_percentage!
+                        {`Rollout: ${
+                            experimentForm.variants && experimentForm.variants[variant]
+                                ? experimentForm.variants[variant].rollout_percentage ?? 0
                                 : 0
-                            ).toString()}
+                        } %`}
                     </span>
                 </LemonTag>
+                {removeVariantAvailable && variant !== 'control' && (
+                    <LemonButton
+                        icon={<IconTrash />}
+                        size="small"
+                        className="shrink"
+                        noPadding
+                        status="danger"
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            removeVariant(variant)
+                        }}
+                    />
+                )}
             </div>
-            {removeVariantAvailable ? (
-                <LemonButton
-                    icon={<IconTrash />}
-                    size="small"
-                    className="shrink"
-                    noPadding
-                    status="danger"
-                    onClick={(e) => {
-                        e.stopPropagation()
-                        removeVariant(variant)
-                    }}
-                />
-            ) : (
-                <span className="size-5 inline-block" />
-            )}
         </div>
     )
 }

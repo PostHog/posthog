@@ -1,3 +1,4 @@
+from typing import cast
 import pytest
 
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import (
@@ -31,7 +32,7 @@ from posthog.schema import (
     FunnelVizType,
     GroupPropertyFilter,
     HogQLPropertyFilter,
-    InsightDateRange,
+    DateRange,
     Key,
     LifecycleFilter,
     LifecycleQuery,
@@ -927,7 +928,7 @@ class TestFilterToQuery(BaseTest):
 
         self.assertEqual(
             query.model_dump(exclude_defaults=True),
-            {"breakdownFilter": {}, "dateRange": {}, "series": [], "trendsFilter": {}},
+            {"breakdownFilter": {}, "dateRange": {}, "compareFilter": {}, "series": [], "trendsFilter": {}},
         )
 
     def test_base_funnel(self):
@@ -970,7 +971,7 @@ class TestFilterToQuery(BaseTest):
 
         query = filter_to_query(filter)
 
-        assert isinstance(query.dateRange, InsightDateRange)
+        assert isinstance(query.dateRange, DateRange)
         self.assertEqual(query.dateRange.date_from, "-14d")
         self.assertEqual(query.dateRange.date_to, "-7d")
 
@@ -979,7 +980,7 @@ class TestFilterToQuery(BaseTest):
 
         query = filter_to_query(filter)
 
-        assert isinstance(query.dateRange, InsightDateRange)
+        assert isinstance(query.dateRange, DateRange)
         self.assertEqual(query.dateRange.date_from, "-14d")
         self.assertEqual(query.dateRange.date_to, "-7d")
         self.assertEqual(query.dateRange.explicitDate, True)
@@ -1604,7 +1605,7 @@ class TestFilterToQuery(BaseTest):
                     filterTestAccounts=True,
                     funnelsFilter=FunnelsFilter(funnelVizType=FunnelVizType.STEPS, exclusions=[]),
                     breakdownFilter=BreakdownFilter(),
-                    dateRange=InsightDateRange(),
+                    dateRange=DateRange(),
                 ),
                 funnelStep=2,
             ),
@@ -1820,3 +1821,37 @@ class TestHiddenLegendKeysToBreakdowns(BaseTest):
         indexes = hidden_legend_keys_to_breakdowns(hidden_legend_keys)
 
         self.assertEqual(indexes, ["Opera"])
+
+
+class TestDashboardTemplateConversion(BaseTest):
+    def test_trend_series_with_variables(self):
+        filter = {
+            "insight": "TRENDS",
+            "events": ["{VARIABLE}"],
+        }
+
+        query = cast(TrendsQuery, filter_to_query(filter, allow_variables=True))
+
+        self.assertEqual(query.series, ["{VARIABLE}"])
+
+    def test_funnel_series_with_variables(self):
+        filter = {
+            "insight": "FUNNELS",
+            "events": ["{VARIABLE1}", "{VARIABLE2}"],
+        }
+
+        query = cast(FunnelsQuery, filter_to_query(filter, allow_variables=True))
+
+        self.assertEqual(query.series, ["{VARIABLE1}", "{VARIABLE2}"])
+
+    def test_retention_entities_with_variables(self):
+        filter = {
+            "insight": "RETENTION",
+            "target_entity": "{VARIABLE1}",
+            "returning_entity": "{VARIABLE2}",
+        }
+
+        query = cast(RetentionQuery, filter_to_query(filter, allow_variables=True))
+
+        self.assertEqual(query.retentionFilter.targetEntity, "{VARIABLE1}")
+        self.assertEqual(query.retentionFilter.returningEntity, "{VARIABLE2}")

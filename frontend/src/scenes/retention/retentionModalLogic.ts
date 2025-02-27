@@ -6,7 +6,7 @@ import { retentionToActorsQuery } from 'scenes/retention/queries'
 import { urls } from 'scenes/urls'
 
 import { groupsModel, Noun } from '~/models/groupsModel'
-import { ActorsQuery, DataTableNode, NodeKind, RetentionQuery } from '~/queries/schema'
+import { ActorsQuery, DataTableNode, NodeKind, RetentionQuery } from '~/queries/schema/schema-general'
 import { isInsightActorsQuery, isLifecycleQuery, isRetentionQuery, isStickinessQuery } from '~/queries/utils'
 import { InsightLogicProps } from '~/types'
 
@@ -22,7 +22,7 @@ export const retentionModalLogic = kea<retentionModalLogicType>([
     connect((props: InsightLogicProps) => ({
         values: [
             insightVizDataLogic(props),
-            ['querySource', 'retentionFilter'],
+            ['querySource', 'retentionFilter', 'theme'],
             groupsModel,
             ['aggregationLabel'],
             featureFlagLogic,
@@ -81,7 +81,8 @@ export const retentionModalLogic = kea<retentionModalLogicType>([
                 ) {
                     query.showPropertyFilter = false
                 }
-                return urls.insightNew(undefined, undefined, query)
+
+                return urls.insightNew({ query })
             },
         ],
     }),

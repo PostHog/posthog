@@ -12,7 +12,7 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
         setLoading: (loading) => ({ loading }),
         setError: (error) => ({ error }),
         initiateAuthorization: (redirectPath: string | null) => ({ redirectPath }),
-        pollAuthorizationStatus: true,
+        pollAuthorizationStatus: (paymentIntentId?: string) => ({ paymentIntentId }),
         setAuthorizationStatus: (status: string | null) => ({ status }),
         showPaymentEntryModal: true,
         hidePaymentEntryModal: true,
@@ -73,7 +73,7 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
             }
         },
 
-        pollAuthorizationStatus: async () => {
+        pollAuthorizationStatus: async ({ paymentIntentId }) => {
             const pollInterval = 2000 // Poll every 2 seconds
             const maxAttempts = 30 // Max 1 minute of polling (30 * 2 seconds)
             let attempts = 0
@@ -81,9 +81,9 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
             const poll = async (): Promise<void> => {
                 try {
                     const urlParams = new URLSearchParams(window.location.search)
-                    const paymentIntentId = urlParams.get('payment_intent')
+                    const searchPaymentIntentId = urlParams.get('payment_intent')
                     const response = await api.create('api/billing/activate/authorize/status', {
-                        payment_intent_id: paymentIntentId,
+                        payment_intent_id: paymentIntentId || searchPaymentIntentId,
                     })
                     const status = response.status
 

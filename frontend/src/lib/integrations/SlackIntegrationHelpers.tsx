@@ -1,7 +1,7 @@
 import { LemonBanner, LemonButton, LemonInputSelect, LemonInputSelectOption, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { IconSlackExternal } from 'lib/lemon-ui/icons'
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 
 import { IntegrationType, SlackChannelType } from '~/types'
 
@@ -52,6 +52,12 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
 
         return value
     }, [value, slackChannels])
+
+    useEffect(() => {
+        if (!disabled) {
+            loadSlackChannels()
+        }
+    }, [loadSlackChannels, disabled])
 
     return (
         <>

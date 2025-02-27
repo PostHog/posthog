@@ -23,6 +23,7 @@ import {
     IconLive,
     IconNight,
     IconNotebook,
+    IconPalette,
     IconPeople,
     IconPeopleFilled,
     IconPieChart,
@@ -54,7 +55,7 @@ import { isMobile, isURL, uniqueBy } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import posthog from 'posthog-js'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
-import { insightTypeURL } from 'scenes/insights/utils'
+import { INSIGHT_TYPE_URLS } from 'scenes/insights/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { WATCH_RECORDINGS_OF_KEY, watchRecordingsOfCommand } from 'scenes/session-recordings/replayPaletteCommands'
 import { teamLogic } from 'scenes/teamLogic'
@@ -432,7 +433,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         display: 'Create a new Trend insight',
                         executor: () => {
                             // TODO: Don't reset insight on change
-                            push(urls.insightNew(InsightType.TRENDS))
+                            push(INSIGHT_TYPE_URLS[InsightType.TRENDS])
                         },
                     },
                     {
@@ -440,7 +441,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         display: 'Create a new Funnel insight',
                         executor: () => {
                             // TODO: Don't reset insight on change
-                            push(urls.insightNew(InsightType.FUNNELS))
+                            push(INSIGHT_TYPE_URLS[InsightType.FUNNELS])
                         },
                     },
                     {
@@ -448,7 +449,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         display: 'Create a new Retention insight',
                         executor: () => {
                             // TODO: Don't reset insight on change
-                            push(urls.insightNew(InsightType.RETENTION))
+                            push(INSIGHT_TYPE_URLS[InsightType.RETENTION])
                         },
                     },
                     {
@@ -456,7 +457,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         display: 'Create a new Paths insight',
                         executor: () => {
                             // TODO: Don't reset insight on change
-                            push(urls.insightNew(InsightType.PATHS))
+                            push(INSIGHT_TYPE_URLS[InsightType.PATHS])
                         },
                     },
                     {
@@ -464,7 +465,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         display: 'Create a new Stickiness insight',
                         executor: () => {
                             // TODO: Don't reset insight on change
-                            push(urls.insightNew(InsightType.STICKINESS))
+                            push(INSIGHT_TYPE_URLS[InsightType.STICKINESS])
                         },
                     },
                     {
@@ -472,7 +473,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         display: 'Create a new Lifecycle insight',
                         executor: () => {
                             // TODO: Don't reset insight on change
-                            push(urls.insightNew(InsightType.LIFECYCLE))
+                            push(INSIGHT_TYPE_URLS[InsightType.LIFECYCLE])
                         },
                     },
                     {
@@ -481,7 +482,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         synonyms: ['hogql', 'sql'],
                         executor: () => {
                             // TODO: Don't reset insight on change
-                            push(insightTypeURL[InsightType.SQL])
+                            push(INSIGHT_TYPE_URLS[InsightType.SQL])
                         },
                     },
                     {
@@ -857,6 +858,11 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                                 executor: () => {
                                     actions.updateUser({ theme_mode: 'system' })
                                 },
+                            },
+                            {
+                                icon: IconPalette,
+                                display: 'Add custom CSS',
+                                executor: () => push(urls.customCss()),
                             },
                         ],
                     }),

@@ -27,7 +27,7 @@ class ClickhouseFunnelStrict(ClickhouseFunnelBase):
                         {steps_per_person_query}
                 )
             ) GROUP BY aggregation_target, steps {breakdown_clause}
-            HAVING steps = max_steps
+            HAVING steps = max(max_steps)
         """
 
     def get_step_counts_without_aggregation_query(self):

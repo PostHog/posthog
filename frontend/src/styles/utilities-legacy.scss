@@ -34,4 +34,5 @@
 .highlighted {
     border-radius: var(--radius);
     animation: highlight 2000ms ease-out;
+    scroll-margin-top: var(--breadcrumbs-height-full);
 }

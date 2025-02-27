@@ -4,7 +4,7 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
-import { FunnelCorrelationQuery, FunnelsActorsQuery, NodeKind } from '~/queries/schema'
+import { FunnelCorrelationQuery, FunnelsActorsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { FunnelCorrelation, FunnelCorrelationResultsType, FunnelCorrelationType, InsightLogicProps } from '~/types'
 
 import { teamLogic } from '../teamLogic'

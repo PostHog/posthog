@@ -1,6 +1,7 @@
 import time
 from typing import Optional
 from uuid import UUID
+from sentry_sdk import capture_exception
 
 import requests
 from celery import shared_task
@@ -51,9 +52,11 @@ def redis_heartbeat() -> None:
     expires=60 * 10,  # Do not run queries that got stuck for more than this
     reject_on_worker_lost=True,
 )
-@limit_concurrency(90)  # Do not go above what CH can handle (max_concurrent_queries)
+@limit_concurrency(150, limit_name="global")  # Do not go above what CH can handle (max_concurrent_queries)
 @limit_concurrency(
-    10, key=lambda *args, **kwargs: kwargs.get("team_id") or args[0]
+    50,
+    key=lambda *args, **kwargs: kwargs.get("team_id") or args[0],
+    limit_name="per_team",
 )  # Do not run too many queries at once for the same team
 def process_query_task(
     team_id: int,
@@ -409,7 +412,7 @@ def clickhouse_errors_count() -> None:
             name,
             value as errors,
             dateDiff('minute', last_error_time, now()) minutes_ago
-        from clusterAllReplicas(%(cluster)s, system, errors)
+        from clusterAllReplicas(%(cluster)s, system.errors)
         where code in (999, 225, 242)
         order by minutes_ago
     """
@@ -496,22 +499,7 @@ def clickhouse_mutation_count() -> None:
 @shared_task(ignore_result=True)
 def clickhouse_clear_removed_data() -> None:
     from posthog.models.async_deletion.delete_cohorts import AsyncCohortDeletion
-    from posthog.models.async_deletion.delete_events import AsyncEventDeletion
     from posthog.pagerduty.pd import create_incident
-
-    runner = AsyncEventDeletion()
-
-    try:
-        runner.mark_deletions_done()
-    except Exception as e:
-        logger.error("Failed to mark deletions done", error=e, exc_info=True)
-        create_incident("Failed to mark deletions done", "clickhouse_clear_removed_data", severity="error")
-
-    try:
-        runner.run()
-    except Exception as e:
-        logger.error("Failed to run deletions", error=e, exc_info=True)
-        create_incident("Failed to run deletions", "clickhouse_clear_removed_data", severity="error")
 
     cohort_runner = AsyncCohortDeletion()
 
@@ -580,11 +568,11 @@ def monitoring_check_clickhouse_schema_drift() -> None:
     check_clickhouse_schema_drift()
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value)
+@shared_task(ignore_result=True)
 def calculate_cohort(parallel_count: int) -> None:
-    from posthog.tasks.calculate_cohort import calculate_cohorts
+    from posthog.tasks.calculate_cohort import enqueue_cohorts_to_calculate
 
-    calculate_cohorts(parallel_count)
+    enqueue_cohorts_to_calculate(parallel_count)
 
 
 class Polling:
@@ -730,9 +718,9 @@ def calculate_decide_usage() -> None:
 
     ph_client = get_ph_client()
 
-    capture_decide_usage_for_all_teams(ph_client)
-
-    ph_client.shutdown()
+    if ph_client:
+        capture_decide_usage_for_all_teams(ph_client)
+        ph_client.shutdown()
 
 
 @shared_task(ignore_result=True)
@@ -785,18 +773,25 @@ def verify_persons_data_in_sync() -> None:
     verify()
 
 
-@shared_task(ignrore_result=True)
+@shared_task(ignore_result=True)
 def stop_surveys_reached_target() -> None:
     from posthog.tasks.stop_surveys_reached_target import stop_surveys_reached_target
 
     stop_surveys_reached_target()
 
 
-@shared_task(ignrore_result=True)
+@shared_task(ignore_result=True)
 def update_survey_iteration() -> None:
     from posthog.tasks.update_survey_iteration import update_survey_iteration
 
     update_survey_iteration()
+
+
+@shared_task(ignore_result=True)
+def update_survey_adaptive_sampling() -> None:
+    from posthog.tasks.update_survey_adaptive_sampling import update_survey_adaptive_sampling
+
+    update_survey_adaptive_sampling()
 
 
 def recompute_materialized_columns_enabled() -> bool:
@@ -843,11 +838,19 @@ def send_org_usage_reports() -> None:
 @shared_task(ignore_result=True)
 def update_quota_limiting() -> None:
     try:
-        from ee.billing.quota_limiting import update_all_org_billing_quotas
+        from ee.billing.quota_limiting import report_quota_limiting_event
+        from ee.billing.quota_limiting import update_all_orgs_billing_quotas
 
-        update_all_org_billing_quotas()
+        report_quota_limiting_event("update_quota_limiting task started", {})
+
+        update_all_orgs_billing_quotas()
+
+        report_quota_limiting_event("update_quota_limiting task finished", {})
     except ImportError:
-        pass
+        report_quota_limiting_event("update_quota_limiting task failed", {"error": "ImportError"})
+    except Exception as e:
+        capture_exception(e)
+        report_quota_limiting_event("update_quota_limiting task failed", {"error": str(e)})
 
 
 @shared_task(ignore_result=True)
@@ -903,32 +906,16 @@ def ee_persist_finished_recordings() -> None:
         persist_finished_recordings()
 
 
-# this task runs a CH query and triggers other tasks
-# it can run on the default queue
 @shared_task(ignore_result=True)
-def calculate_replay_embeddings() -> None:
+def ee_count_items_in_playlists() -> None:
     try:
-        from ee.tasks.replay import generate_recordings_embeddings_batch
-
-        generate_recordings_embeddings_batch()
+        from ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters import (
+            enqueue_recordings_that_match_playlist_filters,
+        )
     except ImportError:
         pass
-    except Exception as e:
-        logger.error("Failed to calculate replay embeddings", error=e, exc_info=True)
-
-
-# this task triggers other tasks
-# it can run on the default queue
-@shared_task(ignore_result=True)
-def calculate_replay_error_clusters() -> None:
-    try:
-        from ee.tasks.replay import generate_replay_embedding_error_clusters
-
-        generate_replay_embedding_error_clusters()
-    except ImportError:
-        pass
-    except Exception as e:
-        logger.error("Failed to calculate replay error clusters", error=e, exc_info=True)
+    else:
+        enqueue_recordings_that_match_playlist_filters()
 
 
 @shared_task(ignore_result=True)

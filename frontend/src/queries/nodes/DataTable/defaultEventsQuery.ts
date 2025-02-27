@@ -1,6 +1,6 @@
 import { getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
 
-import { EventsQuery, NodeKind } from '~/queries/schema'
+import { EventsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { escapePropertyAsHogQlIdentifier } from '~/queries/utils'
 import { TeamType } from '~/types'
 

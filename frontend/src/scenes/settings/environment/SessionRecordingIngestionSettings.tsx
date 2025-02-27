@@ -1,29 +1,23 @@
-import { IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 import {
     LemonButton,
-    LemonDialog,
-    LemonInput,
     LemonSegmentedButton,
     LemonSegmentedButtonOption,
     LemonSelect,
     Link,
     Spinner,
 } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { Form } from 'kea-forms'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-import { FEATURE_FLAGS, SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
+import { SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
 import { IconCancel } from 'lib/lemon-ui/icons'
-import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
+import { SupportedPlatforms } from 'scenes/settings/environment/SessionRecordingSettings'
 import { sessionReplayIngestionControlLogic } from 'scenes/settings/environment/sessionReplayIngestionControlLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature, MultivariateFlagOptions, SessionReplayUrlTriggerConfig } from '~/types'
+import { AvailableFeature, MultivariateFlagOptions } from '~/types'
 
 function variantOptions(multivariate: MultivariateFlagOptions | undefined): LemonSegmentedButtonOption<string>[] {
     if (!multivariate) {
@@ -64,6 +58,7 @@ function LinkedFlagSelector(): JSX.Element | null {
                 <LemonLabel className="text-base">
                     Enable recordings using feature flag {featureFlagLoading && <Spinner />}
                 </LemonLabel>
+                <SupportedPlatforms web={true} ios={true} android={true} reactNative={true} flutter={true} />
                 <p>Linking a flag means that recordings will only be collected for users who have the flag enabled.</p>
                 <div className="flex flex-row justify-start">
                     <FlagSelector
@@ -118,205 +113,6 @@ function LinkedFlagSelector(): JSX.Element | null {
                 )}
             </div>
         </>
-    )
-}
-
-function UrlConfigForm({
-    type,
-    onCancel,
-    isSubmitting,
-}: {
-    type: 'trigger' | 'blocklist'
-    onCancel: () => void
-    isSubmitting: boolean
-}): JSX.Element {
-    return (
-        <Form
-            logic={sessionReplayIngestionControlLogic}
-            formKey={type === 'trigger' ? 'proposedUrlTrigger' : 'proposedUrlBlocklist'}
-            enableFormOnSubmit
-            className="w-full flex flex-col border rounded items-center p-2 pl-4 bg-bg-light gap-2"
-        >
-            <div className="flex flex-row gap-2 w-full">
-                <LemonField name="matching">
-                    <LemonSelect options={[{ label: 'Regex', value: 'regex' }]} />
-                </LemonField>
-                <LemonField name="url" className="flex-1">
-                    <LemonInput autoFocus placeholder="Enter URL" data-attr="url-input" />
-                </LemonField>
-            </div>
-            <div className="flex justify-end gap-2 w-full">
-                <LemonButton type="secondary" onClick={onCancel}>
-                    Cancel
-                </LemonButton>
-                <LemonButton
-                    htmlType="submit"
-                    type="primary"
-                    disabledReason={isSubmitting ? `Saving url in progress` : undefined}
-                    data-attr="url-save"
-                >
-                    Save
-                </LemonButton>
-            </div>
-        </Form>
-    )
-}
-
-// New shared row component
-function UrlConfigRow({
-    trigger,
-    index,
-    type,
-    editIndex,
-    onEdit,
-    onRemove,
-}: {
-    trigger: SessionReplayUrlTriggerConfig
-    index: number
-    type: 'trigger' | 'blocklist'
-    editIndex: number | null
-    onEdit: (index: number) => void
-    onRemove: (index: number) => void
-}): JSX.Element {
-    if (editIndex === index) {
-        return (
-            <div className="border rounded p-2 bg-bg-light">
-                <UrlConfigForm type={type} onCancel={() => onEdit(-1)} isSubmitting={false} />
-            </div>
-        )
-    }
-
-    return (
-        <div className={clsx('border rounded flex items-center p-2 pl-4 bg-bg-light')}>
-            <span title={trigger.url} className="flex-1 truncate">
-                {trigger.matching === 'regex' ? 'Matches regex: ' : ''} {trigger.url}
-            </span>
-            <div className="Actions flex space-x-1 shrink-0">
-                <LemonButton icon={<IconPencil />} onClick={() => onEdit(index)} tooltip="Edit" center />
-                <LemonButton
-                    icon={<IconTrash />}
-                    tooltip={`Remove URL ${type}`}
-                    center
-                    onClick={() => {
-                        LemonDialog.open({
-                            title: <>Remove URL {type}</>,
-                            description: `Are you sure you want to remove this URL ${type}?`,
-                            primaryButton: {
-                                status: 'danger',
-                                children: 'Remove',
-                                onClick: () => onRemove(index),
-                            },
-                            secondaryButton: {
-                                children: 'Cancel',
-                            },
-                        })
-                    }}
-                />
-            </div>
-        </div>
-    )
-}
-
-function UrlConfigSection({
-    type,
-    title,
-    description,
-    ...props
-}: {
-    type: 'trigger' | 'blocklist'
-    title: string
-    description: string
-    isAddFormVisible: boolean
-    config: SessionReplayUrlTriggerConfig[] | null
-    editIndex: number | null
-    isSubmitting: boolean
-    onAdd: () => void
-    onCancel: () => void
-    onEdit: (index: number) => void
-    onRemove: (index: number) => void
-}): JSX.Element {
-    return (
-        <div className="flex flex-col space-y-2 mt-4">
-            <div className="flex items-center gap-2 justify-between">
-                <LemonLabel className="text-base">{title}</LemonLabel>
-                <LemonButton
-                    onClick={props.onAdd}
-                    type="secondary"
-                    icon={<IconPlus />}
-                    data-attr={`session-replay-add-url-${type}`}
-                >
-                    Add
-                </LemonButton>
-            </div>
-            <p>{description}</p>
-
-            {props.isAddFormVisible && (
-                <UrlConfigForm type={type} onCancel={props.onCancel} isSubmitting={props.isSubmitting} />
-            )}
-            {props.config?.map((trigger, index) => (
-                <UrlConfigRow
-                    key={`${trigger.url}-${trigger.matching}`}
-                    trigger={trigger}
-                    index={index}
-                    type={type}
-                    editIndex={props.editIndex}
-                    onEdit={props.onEdit}
-                    onRemove={props.onRemove}
-                />
-            ))}
-        </div>
-    )
-}
-
-function UrlTriggerOptions(): JSX.Element | null {
-    const { isAddUrlTriggerConfigFormVisible, urlTriggerConfig, editUrlTriggerIndex, isProposedUrlTriggerSubmitting } =
-        useValues(sessionReplayIngestionControlLogic)
-    const { newUrlTrigger, removeUrlTrigger, setEditUrlTriggerIndex, cancelProposingUrlTrigger } = useActions(
-        sessionReplayIngestionControlLogic
-    )
-
-    return (
-        <UrlConfigSection
-            type="trigger"
-            title="Enable recordings when URL matches"
-            description="Adding a URL trigger means recording will only be started when the user visits a page that matches the URL."
-            isAddFormVisible={isAddUrlTriggerConfigFormVisible}
-            config={urlTriggerConfig}
-            editIndex={editUrlTriggerIndex}
-            isSubmitting={isProposedUrlTriggerSubmitting}
-            onAdd={newUrlTrigger}
-            onCancel={cancelProposingUrlTrigger}
-            onEdit={setEditUrlTriggerIndex}
-            onRemove={removeUrlTrigger}
-        />
-    )
-}
-
-function UrlBlocklistOptions(): JSX.Element | null {
-    const {
-        isAddUrlBlocklistConfigFormVisible,
-        urlBlocklistConfig,
-        editUrlBlocklistIndex,
-        isProposedUrlBlocklistSubmitting,
-    } = useValues(sessionReplayIngestionControlLogic)
-    const { newUrlBlocklist, removeUrlBlocklist, setEditUrlBlocklistIndex, cancelProposingUrlBlocklist } = useActions(
-        sessionReplayIngestionControlLogic
-    )
-
-    return (
-        <UrlConfigSection
-            type="blocklist"
-            title="Block recordings when URL matches"
-            description="Adding a URL blocklist means recording will be paused when the user visits a page that matches the URL."
-            isAddFormVisible={isAddUrlBlocklistConfigFormVisible}
-            config={urlBlocklistConfig}
-            editIndex={editUrlBlocklistIndex}
-            isSubmitting={isProposedUrlBlocklistSubmitting}
-            onAdd={newUrlBlocklist}
-            onCancel={cancelProposingUrlBlocklist}
-            onEdit={setEditUrlBlocklistIndex}
-            onRemove={removeUrlBlocklist}
-        />
     )
 }
 
@@ -446,11 +242,13 @@ export function SessionRecordingIngestionSettings(): JSX.Element | null {
                                 }
                             />
                         </div>
+                        <SupportedPlatforms web={true} />
                         <p>
                             Use this setting to restrict the percentage of sessions that will be recorded. This is
                             useful if you want to reduce the amount of data you collect. 100% means all sessions will be
                             collected. 50% means roughly half of sessions will be collected.
                         </p>
+                        <p>Sampling is only available for JavaScript Web.</p>
                     </>
                 )}
                 {recordingDurationMinimumFeatureEnabled && (
@@ -466,20 +264,16 @@ export function SessionRecordingIngestionSettings(): JSX.Element | null {
                                 value={currentTeam?.session_recording_minimum_duration_milliseconds}
                             />
                         </div>
+                        <SupportedPlatforms web={true} />
                         <p>
                             Setting a minimum session duration will ensure that only sessions that last longer than that
                             value are collected. This helps you avoid collecting sessions that are too short to be
                             useful.
                         </p>
+                        <p>Minimum session duration is only available for JavaScript Web.</p>
                     </>
                 )}
                 <LinkedFlagSelector />
-                <FlaggedFeature flag={FEATURE_FLAGS.SESSION_REPLAY_URL_TRIGGER}>
-                    <UrlTriggerOptions />
-                </FlaggedFeature>
-                <FlaggedFeature flag={FEATURE_FLAGS.SESSION_REPLAY_URL_BLOCKLIST}>
-                    <UrlBlocklistOptions />
-                </FlaggedFeature>
             </>
         </PayGateMini>
     )

@@ -23,7 +23,7 @@ import { exporterViewLogic } from './exporterViewLogic'
 export function Exporter(props: ExportedData): JSX.Element {
     // NOTE: Mounting the logic is important as it is used by sub-logics
     const { exportedData } = useValues(exporterViewLogic(props))
-    const { type, dashboard, insight, recording, accessToken, ...exportOptions } = exportedData
+    const { type, dashboard, insight, recording, themes, accessToken, ...exportOptions } = exportedData
     const { whitelabel, showInspector = false } = exportOptions
 
     const { currentTeam } = useValues(teamLogic)
@@ -75,12 +75,13 @@ export function Exporter(props: ExportedData): JSX.Element {
                 ) : null
             ) : null}
             {insight ? (
-                <ExportedInsight insight={insight} exportOptions={exportOptions} />
+                <ExportedInsight insight={insight} themes={themes!} exportOptions={exportOptions} />
             ) : dashboard ? (
                 <Dashboard
                     id={String(dashboard.id)}
                     dashboard={getQueryBasedDashboard(dashboard)!}
                     placement={type === ExportType.Image ? DashboardPlacement.Export : DashboardPlacement.Public}
+                    themes={themes}
                 />
             ) : recording ? (
                 <SessionRecordingPlayer

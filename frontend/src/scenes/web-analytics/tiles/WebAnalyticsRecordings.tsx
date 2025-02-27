@@ -16,6 +16,7 @@ export function WebAnalyticsRecordingsTile({ tile }: { tile: ReplayTile }): JSX.
     const { layout } = tile
     const { replayFilters, webAnalyticsFilters } = useValues(webAnalyticsLogic)
     const { currentTeam } = useValues(teamLogic)
+
     const sessionRecordingsListLogicInstance = sessionRecordingsPlaylistLogic({
         logicKey: 'webAnalytics',
         filters: replayFilters,
@@ -29,7 +30,7 @@ export function WebAnalyticsRecordingsTile({ tile }: { tile: ReplayTile }): JSX.
               title: 'Recordings are not enabled for this project',
               description: 'Once recordings are enabled, new recordings will display here.',
               buttonText: 'Enable recordings',
-              buttonTo: urls.settings('project-replay'),
+              buttonTo: urls.settings('project-replay', 'replay'),
           }
         : webAnalyticsFilters.length > 0
         ? {
@@ -57,7 +58,7 @@ export function WebAnalyticsRecordingsTile({ tile }: { tile: ReplayTile }): JSX.
                 )}
             >
                 <h2 className="m-0 mb-3">Session replay</h2>
-                <div className="border rounded bg-bg-light flex-1 flex flex-col py-2 px-1">
+                <div className="border rounded bg-surface-primary flex-1 flex flex-col py-2 px-1">
                     {sessionRecordingsResponseLoading ? (
                         <div className="p-2 space-y-6">
                             {Array.from({ length: 6 }, (_, index) => (

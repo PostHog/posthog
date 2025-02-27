@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from functools import cached_property
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
 from posthog.hogql.timings import HogQLTimings
@@ -36,6 +37,8 @@ class HogQLContext:
     enable_select_queries: bool = False
     # Do we apply a limit of MAX_SELECT_RETURNED_ROWS=10000 to the topmost select query?
     limit_top_select: bool = True
+    # Apply a FORMAT clause to output data in given format.
+    output_format: str | None = None
     # Globals that will be resolved in the context of the query
     globals: Optional[dict] = None
 
@@ -94,3 +97,12 @@ class HogQLContext:
     ):
         if not any(n.start == start and n.end == end and n.message == message and n.fix == fix for n in self.errors):
             self.errors.append(HogQLNotice(start=start, end=end, message=message, fix=fix))
+
+    @cached_property
+    def project_id(self) -> int:
+        from posthog.models import Team
+
+        if not self.team and not self.team_id:
+            raise ValueError("Either team or team_id must be set to determine project_id")
+        team = self.team or Team.objects.only("project_id").get(id=self.team_id)
+        return team.project_id

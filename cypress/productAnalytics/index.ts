@@ -29,6 +29,11 @@ export const insight = {
             }
         })
     },
+    applyBreakdown: (): void => {
+        cy.contains('Add breakdown').click()
+        cy.contains('Browser').click()
+        cy.wait(1000)
+    },
     editName: (insightName: string): void => {
         if (insightName) {
             cy.get('[data-attr="top-bar-name"] button').click()
@@ -162,6 +167,7 @@ export const dashboard = {
 
         cy.get('[data-attr=dashboard-add-graph-header]').contains('Add insight').click()
         cy.get('[data-attr=toast-close-button]').click({ multiple: true })
+        cy.get('[data-attr=dashboard-add-new-insight]').contains('New insight').click()
 
         if (insightName) {
             cy.get('[data-attr="top-bar-name"] button').click()
@@ -199,6 +205,17 @@ export const dashboard = {
 export function createInsight(insightName: string): Cypress.Chainable<string> {
     savedInsights.createNewInsightOfType('TRENDS')
     insight.applyFilter()
+    insight.editName(insightName)
+    insight.save()
+    // return insight id from the url
+    return cy.url().then((url) => {
+        return url.split('/').at(-1)
+    })
+}
+
+export function createInsightWithBreakdown(insightName: string): Cypress.Chainable<string> {
+    savedInsights.createNewInsightOfType('TRENDS')
+    insight.applyBreakdown()
     insight.editName(insightName)
     insight.save()
     // return insight id from the url

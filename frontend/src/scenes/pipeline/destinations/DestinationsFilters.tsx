@@ -1,22 +1,33 @@
 import { LemonCheckbox, LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { NewButton } from 'scenes/pipeline/NewButton'
+
+import { HogFunctionTypeType, PipelineStage } from '~/types'
 
 import { PipelineBackend } from '../types'
 import { destinationsFiltersLogic } from './destinationsFiltersLogic'
 
 export type DestinationsFiltersProps = {
+    types: HogFunctionTypeType[]
     hideSearch?: boolean
     hideShowPaused?: boolean
     hideKind?: boolean
+    hideFeedback?: boolean
+    hideAddDestinationButton?: boolean
 }
 
 export function DestinationsFilters({
+    types,
     hideSearch,
     hideShowPaused,
     hideKind,
+    hideFeedback,
+    hideAddDestinationButton = true,
 }: DestinationsFiltersProps): JSX.Element | null {
-    const { filters } = useValues(destinationsFiltersLogic)
-    const { setFilters, openFeedbackDialog } = useActions(destinationsFiltersLogic)
+    const { filters } = useValues(destinationsFiltersLogic({ types }))
+    const { setFilters, openFeedbackDialog } = useActions(destinationsFiltersLogic({ types }))
+
+    const isTransformationsOnly = types.includes('transformation')
 
     return (
         <div className="space-y-2">
@@ -29,9 +40,11 @@ export function DestinationsFilters({
                         onChange={(e) => setFilters({ search: e })}
                     />
                 )}
-                <Link className="text-sm font-semibold" subtle onClick={() => openFeedbackDialog()}>
-                    Can't find what you're looking for?
-                </Link>
+                {!hideFeedback ? (
+                    <Link className="text-sm font-semibold" subtle onClick={() => openFeedbackDialog()}>
+                        Can't find what you're looking for?
+                    </Link>
+                ) : null}
                 <div className="flex-1" />
                 {typeof hideShowPaused !== 'boolean' && (
                     <LemonCheckbox
@@ -42,7 +55,7 @@ export function DestinationsFilters({
                         onChange={(e) => setFilters({ showPaused: e ?? undefined })}
                     />
                 )}
-                {!hideKind && (
+                {!hideKind && !isTransformationsOnly && (
                     <LemonSelect
                         type="secondary"
                         size="small"
@@ -55,6 +68,12 @@ export function DestinationsFilters({
                         }
                         value={filters.kind ?? null}
                         onChange={(e) => setFilters({ kind: e ?? null })}
+                    />
+                )}
+                {hideAddDestinationButton ? null : (
+                    <NewButton
+                        stage={isTransformationsOnly ? PipelineStage.Transformation : PipelineStage.Destination}
+                        size="small"
                     />
                 )}
             </div>

@@ -1,6 +1,7 @@
 use std::{net::SocketAddr, num::NonZeroU32};
 
 use envconfig::Envconfig;
+use health::HealthStrategy;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum CaptureMode {
@@ -41,6 +42,7 @@ pub struct Config {
     pub overflow_burst_limit: NonZeroU32,
 
     pub overflow_forced_keys: Option<String>, // Coma-delimited keys
+    pub dropped_keys: Option<String>, // "<token>:<distinct_id or *>,<distinct_id or *>;<token>..."
 
     #[envconfig(nested = true)]
     pub kafka: KafkaConfig,
@@ -60,6 +62,17 @@ pub struct Config {
     pub capture_mode: CaptureMode,
 
     pub concurrency_limit: Option<usize>,
+
+    #[envconfig(default = "false")]
+    pub s3_fallback_enabled: bool,
+    pub s3_fallback_bucket: Option<String>,
+    pub s3_fallback_endpoint: Option<String>,
+
+    #[envconfig(default = "")]
+    pub s3_fallback_prefix: String,
+
+    #[envconfig(default = "ALL")]
+    pub healthcheck_strategy: HealthStrategy,
 }
 
 #[derive(Envconfig, Clone)]
@@ -95,4 +108,6 @@ pub struct KafkaConfig {
     pub kafka_metadata_max_age_ms: u32,
     #[envconfig(default = "2")]
     pub kafka_producer_max_retries: u32,
+    #[envconfig(default = "all")]
+    pub kafka_producer_acks: String,
 }

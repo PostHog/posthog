@@ -26,6 +26,7 @@ class InsightAdmin(admin.ModelAdmin):
     def effective_name(self, insight: Insight):
         return insight.name or format_html("<i>{}</>", insight.derived_name)
 
+    @admin.display(description="Team")
     def team_link(self, insight: Insight):
         return format_html(
             '<a href="/admin/posthog/team/{}/change/">{}</a>',
@@ -33,6 +34,7 @@ class InsightAdmin(admin.ModelAdmin):
             insight.team.name,
         )
 
+    @admin.display(description="Organization")
     def organization_link(self, insight: Insight):
         return format_html(
             '<a href="/admin/posthog/organization/{}/change/">{}</a>',

@@ -3,6 +3,7 @@ from posthog.cdp.templates.hog_function_template import SUB_TEMPLATE_COMMON, Hog
 
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
+    free=False,
     type="destination",
     id="template-webhook",
     name="HTTP Webhook",
@@ -33,6 +34,7 @@ if (inputs.debug) {
             "label": "Webhook URL",
             "secret": False,
             "required": True,
+            "hidden": False,
         },
         {
             "key": "method",
@@ -63,6 +65,7 @@ if (inputs.debug) {
             ],
             "default": "POST",
             "required": False,
+            "hidden": False,
         },
         {
             "key": "body",
@@ -71,6 +74,7 @@ if (inputs.debug) {
             "default": {"event": "{event}", "person": "{person}"},
             "secret": False,
             "required": False,
+            "hidden": False,
         },
         {
             "key": "headers",
@@ -78,6 +82,8 @@ if (inputs.debug) {
             "label": "Headers",
             "secret": False,
             "required": False,
+            "default": {"Content-Type": "application/json"},
+            "hidden": False,
         },
         {
             "key": "debug",
@@ -87,18 +93,25 @@ if (inputs.debug) {
             "secret": False,
             "required": False,
             "default": False,
+            "hidden": False,
         },
     ],
     sub_templates=[
         HogFunctionSubTemplate(
-            id="early_access_feature_enrollment",
+            id="early-access-feature-enrollment",
             name="HTTP Webhook on feature enrollment",
-            filters=SUB_TEMPLATE_COMMON["early_access_feature_enrollment"].filters,
+            filters=SUB_TEMPLATE_COMMON["early-access-feature-enrollment"].filters,
         ),
         HogFunctionSubTemplate(
-            id="survey_response",
+            id="survey-response",
             name="HTTP Webhook on survey response",
-            filters=SUB_TEMPLATE_COMMON["survey_response"].filters,
+            filters=SUB_TEMPLATE_COMMON["survey-response"].filters,
+        ),
+        HogFunctionSubTemplate(
+            id="activity-log",
+            name="HTTP Webhook on team activity",
+            filters=SUB_TEMPLATE_COMMON["activity-log"].filters,
+            type="internal_destination",
         ),
     ],
 )

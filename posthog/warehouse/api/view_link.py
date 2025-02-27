@@ -1,10 +1,10 @@
 from typing import Optional
 
-from rest_framework import filters, serializers, viewsets
+from rest_framework import filters, serializers, viewsets, response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.hogql.ast import Field
+from posthog.hogql.ast import Field, Call
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.parser import parse_expr
 from posthog.warehouse.models import DataWarehouseJoin
@@ -25,6 +25,7 @@ class ViewLinkSerializer(serializers.ModelSerializer):
             "joining_table_name",
             "joining_table_key",
             "field_name",
+            "configuration",
         ]
         read_only_fields = ["id", "created_by", "created_at"]
 
@@ -70,8 +71,8 @@ class ViewLinkSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(f"Invalid table: {table}")
 
         node = parse_expr(join_key)
-        if not isinstance(node, Field):
-            raise serializers.ValidationError(f"Join key {join_key} must be a table field - no function calls allowed")
+        if not isinstance(node, Field) and not (isinstance(node, Call) and isinstance(node.args[0], Field)):
+            raise serializers.ValidationError(f"Join key {join_key} must be a table field")
 
         return
 
@@ -89,4 +90,14 @@ class ViewLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     ordering = "-created_at"
 
     def safely_get_queryset(self, queryset):
-        return queryset.exclude(deleted=True).prefetch_related("created_by").order_by(self.ordering)
+        return queryset.prefetch_related("created_by").order_by(self.ordering)
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset().exclude(deleted=True))
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(queryset, many=True)
+        return response.Response(serializer.data)

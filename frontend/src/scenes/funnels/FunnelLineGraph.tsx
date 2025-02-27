@@ -6,7 +6,7 @@ import { getFormattedDate } from 'scenes/insights/InsightTooltip/insightTooltipU
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 
-import { FunnelsActorsQuery, NodeKind, TrendsFilter } from '~/queries/schema'
+import { FunnelsActorsQuery, NodeKind, TrendsFilter } from '~/queries/schema/schema-general'
 import { isInsightQueryNode } from '~/queries/utils'
 import { ChartParams, GraphDataset, GraphType } from '~/types'
 

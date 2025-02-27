@@ -251,3 +251,226 @@ class TestEventTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         response = EventTaxonomyQueryRunner(team=self.team, query=EventTaxonomyQuery(event="event1")).calculate()
         self.assertEqual(len(response.results), 500)
+
+    def test_property_taxonomy_returns_unique_values_for_specified_property(self):
+        _create_person(
+            distinct_ids=["person1"],
+            properties={"email": "person1@example.com"},
+            team=self.team,
+        )
+        _create_person(
+            distinct_ids=["person2"],
+            properties={"email": "person1@example.com"},
+            team=self.team,
+        )
+
+        _create_event(
+            event="event1",
+            distinct_id="person1",
+            properties={"$host": "us.posthog.com"},
+            team=self.team,
+        )
+
+        for _ in range(10):
+            _create_event(
+                event="event1",
+                distinct_id="person1",
+                properties={"$host": "posthog.com"},
+                team=self.team,
+            )
+
+        for _ in range(3):
+            _create_event(
+                event="event1",
+                distinct_id="person2",
+                properties={"$host": "eu.posthog.com"},
+                team=self.team,
+            )
+
+        response = EventTaxonomyQueryRunner(
+            team=self.team, query=EventTaxonomyQuery(event="event1", properties=["$host"])
+        ).calculate()
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0].property, "$host")
+        self.assertEqual(response.results[0].sample_values, ["posthog.com", "eu.posthog.com", "us.posthog.com"])
+        self.assertEqual(response.results[0].sample_count, 3)
+
+    def test_property_taxonomy_filters_events_by_event_name(self):
+        _create_person(
+            distinct_ids=["person1"],
+            properties={"email": "person1@example.com"},
+            team=self.team,
+        )
+        _create_person(
+            distinct_ids=["person2"],
+            properties={"email": "person1@example.com"},
+            team=self.team,
+        )
+
+        _create_event(
+            event="event1",
+            distinct_id="person1",
+            properties={"$host": "us.posthog.com", "$browser": "Chrome"},
+            team=self.team,
+        )
+
+        for _ in range(10):
+            _create_event(
+                event="event2",
+                distinct_id="person1",
+                properties={"$host": "posthog.com", "prop": 10},
+                team=self.team,
+            )
+
+        for _ in range(3):
+            _create_event(
+                event="event1",
+                distinct_id="person2",
+                team=self.team,
+            )
+
+        response = EventTaxonomyQueryRunner(
+            team=self.team, query=EventTaxonomyQuery(event="event1", properties=["$host"])
+        ).calculate()
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0].property, "$host")
+        self.assertEqual(response.results[0].sample_values, ["us.posthog.com"])
+        self.assertEqual(response.results[0].sample_count, 1)
+
+    def test_property_taxonomy_handles_multiple_properties_in_query(self):
+        _create_person(
+            distinct_ids=["person1"],
+            properties={"email": "person1@example.com"},
+            team=self.team,
+        )
+        _create_person(
+            distinct_ids=["person2"],
+            properties={"email": "person1@example.com"},
+            team=self.team,
+        )
+
+        _create_event(
+            event="event1",
+            distinct_id="person1",
+            properties={"$host": "us.posthog.com", "$browser": "Chrome"},
+            team=self.team,
+        )
+
+        for _ in range(5):
+            _create_event(
+                event="event1",
+                distinct_id="person1",
+                properties={"$host": "posthog.com", "prop": 10},
+                team=self.team,
+            )
+
+        for _ in range(3):
+            _create_event(
+                event="event1",
+                distinct_id="person2",
+                team=self.team,
+            )
+
+        response = EventTaxonomyQueryRunner(
+            team=self.team, query=EventTaxonomyQuery(event="event1", properties=["$host", "prop"])
+        ).calculate()
+        self.assertEqual(len(response.results), 2)
+        self.assertEqual(response.results[0].property, "prop")
+        self.assertEqual(response.results[0].sample_values, ["10"])
+        self.assertEqual(response.results[0].sample_count, 1)
+        self.assertEqual(response.results[1].property, "$host")
+        self.assertEqual(response.results[1].sample_values, ["posthog.com", "us.posthog.com"])
+        self.assertEqual(response.results[1].sample_count, 2)
+
+    def test_property_taxonomy_includes_events_with_partial_property_matches(self):
+        _create_person(
+            distinct_ids=["person1"],
+            properties={"email": "person1@example.com"},
+            team=self.team,
+        )
+        _create_event(
+            event="event1",
+            distinct_id="person1",
+            properties={"$host": "us.posthog.com"},
+            team=self.team,
+        )
+        _create_event(
+            event="event1",
+            distinct_id="person2",
+            properties={"prop": 10},
+            team=self.team,
+        )
+
+        response = EventTaxonomyQueryRunner(
+            team=self.team, query=EventTaxonomyQuery(event="event1", properties=["$host", "prop"])
+        ).calculate()
+        self.assertEqual(len(response.results), 2)
+        self.assertEqual(response.results[0].property, "prop")
+        self.assertEqual(response.results[0].sample_values, ["10"])
+        self.assertEqual(response.results[0].sample_count, 1)
+        self.assertEqual(response.results[1].property, "$host")
+        self.assertEqual(response.results[1].sample_values, ["us.posthog.com"])
+        self.assertEqual(response.results[1].sample_count, 1)
+
+    def test_query_count(self):
+        _create_person(
+            distinct_ids=["person1"],
+            properties={"email": "person1@example.com"},
+            team=self.team,
+        )
+        _create_event(
+            event="event1",
+            distinct_id="person1",
+            properties={"prop": "1"},
+            team=self.team,
+        )
+        _create_event(
+            event="event1",
+            distinct_id="person2",
+            properties={"prop": "2"},
+            team=self.team,
+        )
+        _create_event(
+            event="event1",
+            distinct_id="person2",
+            properties={"prop": "3"},
+            team=self.team,
+        )
+
+        response = EventTaxonomyQueryRunner(
+            team=self.team, query=EventTaxonomyQuery(event="event1", properties=["prop"], maxPropertyValues=1)
+        ).calculate()
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0].property, "prop")
+        self.assertEqual(response.results[0].sample_count, 3)
+        self.assertEqual(len(response.results[0].sample_values), 1)
+
+    def test_feature_flags_properties_are_omitted(self):
+        _create_person(
+            distinct_ids=["person1"],
+            properties={"email": "person1@example.com"},
+            team=self.team,
+        )
+        _create_event(
+            event="event1",
+            distinct_id="person1",
+            properties={"$feature/ai": "1"},
+            team=self.team,
+        )
+        _create_event(
+            event="event1",
+            distinct_id="person2",
+            properties={"prop": "2"},
+            team=self.team,
+        )
+        _create_event(
+            event="event1",
+            distinct_id="person2",
+            properties={"prop": "3", "$feature/dashboard": "0"},
+            team=self.team,
+        )
+
+        response = EventTaxonomyQueryRunner(team=self.team, query=EventTaxonomyQuery(event="event1")).calculate()
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0].property, "prop")
+        self.assertEqual(response.results[0].sample_count, 2)

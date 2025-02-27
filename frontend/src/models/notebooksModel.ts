@@ -9,10 +9,10 @@ import type { notebookLogicType } from 'scenes/notebooks/Notebook/notebookLogicT
 import { defaultNotebookContent, EditorFocusPosition, JSONContent } from 'scenes/notebooks/Notebook/utils'
 import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanelLogic'
 import { LOCAL_NOTEBOOK_TEMPLATES } from 'scenes/notebooks/NotebookTemplates/notebookTemplates'
-import { teamLogic } from 'scenes/teamLogic'
+import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 
-import { InsightVizNode, Node } from '~/queries/schema'
+import { InsightVizNode, Node } from '~/queries/schema/schema-general'
 import { DashboardType, NotebookListItemType, NotebookNodeType, NotebookTarget, QueryBasedInsightModel } from '~/types'
 
 import type { notebooksModelType } from './notebooksModelType'
@@ -75,7 +75,7 @@ export const notebooksModel = kea<notebooksModelType>([
         createNotebookFromDashboard: (dashboard: DashboardType<QueryBasedInsightModel>) => ({ dashboard }),
     }),
     connect({
-        values: [teamLogic, ['currentTeamId']],
+        values: [projectLogic, ['currentProjectId']],
     }),
 
     reducers({
@@ -105,7 +105,7 @@ export const notebooksModel = kea<notebooksModelType>([
 
                 deleteNotebook: async ({ shortId, title }) => {
                     await deleteWithUndo({
-                        endpoint: `projects/${values.currentTeamId}/notebooks`,
+                        endpoint: `projects/${values.currentProjectId}/notebooks`,
                         object: { name: title || shortId, id: shortId },
                     })
 

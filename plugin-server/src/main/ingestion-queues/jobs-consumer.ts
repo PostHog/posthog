@@ -1,8 +1,8 @@
 import { EachBatchHandler, Kafka } from 'kafkajs'
 import { Counter } from 'prom-client'
-import { KafkaProducerWrapper } from 'utils/db/kafka-producer-wrapper'
 
 import { KAFKA_JOBS, KAFKA_JOBS_DLQ } from '../../config/kafka-topics'
+import { KafkaProducerWrapper } from '../../kafka/producer'
 import { EnqueuedPluginJob, JobName, PluginsServerConfig } from '../../types'
 import { status } from '../../utils/status'
 import { GraphileWorker } from '../graphile-worker/graphile-worker'
@@ -54,12 +54,9 @@ export const startJobsConsumer = async ({
                     value: message.value,
                 })
                 // TODO: handle resolving offsets asynchronously
-                await producer.queueMessage({
-                    kafkaMessage: {
-                        topic: KAFKA_JOBS_DLQ,
-                        messages: [{ value: message.value, key: message.key }],
-                    },
-                    waitForAck: true,
+                await producer.queueMessages({
+                    topic: KAFKA_JOBS_DLQ,
+                    messages: [{ value: message.value, key: message.key }],
                 })
                 resolveOffset(message.offset)
                 continue
@@ -74,12 +71,9 @@ export const startJobsConsumer = async ({
                     error,
                 })
                 // TODO: handle resolving offsets asynchronously
-                await producer.queueMessage({
-                    kafkaMessage: {
-                        topic: KAFKA_JOBS_DLQ,
-                        messages: [{ value: message.value, key: message.key }],
-                    },
-                    waitForAck: true,
+                await producer.queueMessages({
+                    topic: KAFKA_JOBS_DLQ,
+                    messages: [{ value: message.value, key: message.key }],
                 })
                 resolveOffset(message.offset)
                 continue

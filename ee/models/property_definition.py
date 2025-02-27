@@ -11,6 +11,7 @@ class EnterprisePropertyDefinition(PropertyDefinition):
 
     verified = models.BooleanField(default=False, blank=True)
     verified_at = models.DateTimeField(null=True, blank=True)
+
     verified_by = models.ForeignKey(
         "posthog.User",
         null=True,

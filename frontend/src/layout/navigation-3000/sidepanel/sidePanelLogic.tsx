@@ -1,14 +1,16 @@
 import { connect, kea, path, selectors } from 'kea'
-import { router } from 'kea-router'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { AvailableFeature, SidePanelTab } from '~/types'
 
 import { sidePanelActivityLogic } from './panels/activity/sidePanelActivityLogic'
+import { sidePanelContextLogic } from './panels/sidePanelContextLogic'
 import { sidePanelStatusLogic } from './panels/sidePanelStatusLogic'
 import type { sidePanelLogicType } from './sidePanelLogicType'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
@@ -30,7 +32,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             preflightLogic,
             ['isCloudOrDev'],
             activationLogic,
-            ['isReady', 'hasCompletedAllTasks'],
+            ['shouldShowActivationTab'],
             sidePanelStateLogic,
             ['selectedTab', 'sidePanelOpen'],
             // We need to mount this to ensure that marking as read works when the panel closes
@@ -40,30 +42,49 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             ['status'],
             userLogic,
             ['hasAvailableFeature'],
-            router,
-            ['currentLocation'],
+            sidePanelContextLogic,
+            ['sceneSidePanelContext'],
+            teamLogic,
+            ['currentTeam'],
         ],
         actions: [sidePanelStateLogic, ['closeSidePanel', 'openSidePanel']],
     }),
 
     selectors({
         enabledTabs: [
-            (s) => [s.isCloudOrDev, s.isReady, s.hasCompletedAllTasks, s.featureFlags],
-            (isCloudOrDev, isReady, hasCompletedAllTasks, featureflags) => {
+            (s) => [s.isCloudOrDev, s.featureFlags, s.sceneSidePanelContext, s.currentTeam],
+            (isCloudOrDev, featureflags, sceneSidePanelContext, currentTeam) => {
                 const tabs: SidePanelTab[] = []
 
-                tabs.push(SidePanelTab.ExperimentFeatureFlag)
+                if (featureflags[FEATURE_FLAGS.ARTIFICIAL_HOG]) {
+                    tabs.push(SidePanelTab.Max)
+                }
                 tabs.push(SidePanelTab.Notebooks)
                 tabs.push(SidePanelTab.Docs)
                 if (isCloudOrDev) {
                     tabs.push(SidePanelTab.Support)
                 }
                 tabs.push(SidePanelTab.Activity)
+
+                if (currentTeam?.created_at) {
+                    const teamCreatedAt = dayjs(currentTeam.created_at)
+
+                    // TODO: Remove cutoff date condition after 2025-03-15
+                    if (dayjs().diff(teamCreatedAt, 'day') < 30 && teamCreatedAt.isAfter(dayjs('2025-02-13'))) {
+                        tabs.push(SidePanelTab.Activation)
+                    }
+                }
+
                 if (featureflags[FEATURE_FLAGS.DISCUSSIONS]) {
                     tabs.push(SidePanelTab.Discussion)
                 }
-                if (isReady && !hasCompletedAllTasks) {
-                    tabs.push(SidePanelTab.Activation)
+
+                if (
+                    featureflags[FEATURE_FLAGS.ROLE_BASED_ACCESS_CONTROL] &&
+                    sceneSidePanelContext.access_control_resource &&
+                    sceneSidePanelContext.access_control_resource_id
+                ) {
+                    tabs.push(SidePanelTab.AccessControl)
                 }
                 tabs.push(SidePanelTab.Exports)
                 tabs.push(SidePanelTab.FeaturePreviews)
@@ -85,7 +106,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 s.unreadCount,
                 s.status,
                 s.hasAvailableFeature,
-                s.currentLocation,
+                s.shouldShowActivationTab,
             ],
             (
                 enabledTabs,
@@ -94,7 +115,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 unreadCount,
                 status,
                 hasAvailableFeature,
-                currentLocation
+                shouldShowActivationTab
             ): SidePanelTab[] => {
                 return enabledTabs.filter((tab) => {
                     if (tab === selectedTab && sidePanelOpen) {
@@ -113,13 +134,13 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                         return true
                     }
 
-                    // Hide certain tabs unless they are selected
-                    if (ALWAYS_EXTRA_TABS.includes(tab)) {
+                    if (tab === SidePanelTab.Activation && !shouldShowActivationTab) {
                         return false
                     }
 
-                    if (tab === SidePanelTab.ExperimentFeatureFlag) {
-                        return /^\/project\/[0-9]+\/experiments\/[0-9]+/.test(currentLocation.pathname)
+                    // Hide certain tabs unless they are selected
+                    if (ALWAYS_EXTRA_TABS.includes(tab)) {
+                        return false
                     }
 
                     return true

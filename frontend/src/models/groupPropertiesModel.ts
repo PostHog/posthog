@@ -2,7 +2,7 @@ import { connect, events, kea, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
-import { teamLogic } from 'scenes/teamLogic'
+import { projectLogic } from 'scenes/projectLogic'
 
 import { GroupTypeProperties, PersonProperty } from '~/types'
 
@@ -11,7 +11,7 @@ import type { groupPropertiesModelType } from './groupPropertiesModelType'
 export const groupPropertiesModel = kea<groupPropertiesModelType>([
     path(['models', 'groupPropertiesModel']),
     connect({
-        values: [teamLogic, ['currentTeamId'], groupsAccessLogic, ['groupsEnabled']],
+        values: [projectLogic, ['currentProjectId'], groupsAccessLogic, ['groupsEnabled']],
     }),
     loaders(({ values }) => ({
         allGroupProperties: [
@@ -19,7 +19,7 @@ export const groupPropertiesModel = kea<groupPropertiesModelType>([
             {
                 loadAllGroupProperties: async () => {
                     if (values.groupsEnabled) {
-                        return await api.get(`api/projects/${values.currentTeamId}/groups/property_definitions`)
+                        return await api.get(`api/projects/${values.currentProjectId}/groups/property_definitions`)
                     }
                     return {}
                 },

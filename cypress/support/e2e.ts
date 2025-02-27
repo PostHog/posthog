@@ -4,7 +4,7 @@ import 'cypress-axe'
 
 import { urls } from 'scenes/urls'
 
-import { decideResponse } from '../fixtures/api/decide'
+import { setupFeatureFlags } from './decide'
 
 try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -16,14 +16,13 @@ const E2E_TESTING = Cypress.env('E2E_TESTING')
 
 // Add console errors into cypress logs. This helps with failures in Github Actions which otherwise swallows them.
 // From: https://github.com/cypress-io/cypress/issues/300#issuecomment-688915086
-Cypress.on('window:before:load', (win) => {
+Cypress.on('window:before:load', (win: any) => {
     cy.spy(win.console, 'error')
     cy.spy(win.console, 'warn')
-
     win._cypress_posthog_captures = []
 })
 
-Cypress.on('window:load', (win) => {
+Cypress.on('window:load', (win: any) => {
     // This is an absolutely mad fix for the Cypress renderer process crashing in CI:
     // https://github.com/cypress-io/cypress/issues/27415#issuecomment-2169155274
     // Hopefully one day #27415 is solved and this becomes unnecessary
@@ -86,14 +85,7 @@ beforeEach(() => {
     Cypress.env('POSTHOG_PROPERTY_GITHUB_ACTION_RUN_URL', process.env.GITHUB_ACTION_RUN_URL)
     cy.useSubscriptionStatus('subscribed')
 
-    cy.intercept('**/decide/*', (req) =>
-        req.reply(
-            decideResponse({
-                // Feature flag to be treated as rolled out in E2E tests, e.g.:
-                // 'toolbar-launch-side-action': true,
-            })
-        )
-    )
+    setupFeatureFlags({})
 
     // un-intercepted sometimes this doesn't work and the page gets stuck on the SpinnerOverlay
     cy.intercept(/app.posthog.com\/api\/projects\/@current\/feature_flags\/my_flags.*/, (req) => req.reply([]))
@@ -125,8 +117,8 @@ afterEach(function () {
     const event = state === 'passed' ? 'e2e_testing_test_passed' : 'e2e_testing_test_failed'
 
     if (E2E_TESTING) {
-        cy.window().then((win) => {
-            ;(win as any).posthog?.capture(event, { state, duration })
+        cy.window().then((win: any) => {
+            win.posthog?.capture(event, { state, duration })
         })
     }
 })

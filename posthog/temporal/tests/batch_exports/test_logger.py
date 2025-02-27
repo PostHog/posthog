@@ -26,7 +26,7 @@ from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
 from posthog.temporal.common.logger import (
     BACKGROUND_LOGGER_TASKS,
     bind_temporal_worker_logger,
-    configure_logger,
+    configure_logger_async,
 )
 
 pytestmark = pytest.mark.asyncio
@@ -142,7 +142,9 @@ async def configure(log_capture, queue, producer):
     * Set the queue and producer to capture messages sent.
     * Do not cache logger to ensure each test starts clean.
     """
-    configure_logger(extra_processors=[log_capture], queue=queue, producer=producer, cache_logger_on_first_use=False)
+    configure_logger_async(
+        extra_processors=[log_capture], queue=queue, producer=producer, cache_logger_on_first_use=False
+    )
 
     yield
 

@@ -4,7 +4,7 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import posthog from 'posthog-js'
-import { SOURCE_DETAILS } from 'scenes/data-warehouse/new/sourceWizardLogic'
+import { getErrorsForFields, SOURCE_DETAILS } from 'scenes/data-warehouse/new/sourceWizardLogic'
 
 import { ExternalDataJob, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
@@ -116,6 +116,9 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
     forms(({ values, actions }) => ({
         sourceConfig: {
             defaults: {} as Record<string, any>,
+            errors: (sourceValues) => {
+                return getErrorsForFields(values.sourceFieldConfig?.fields ?? [], sourceValues as any)
+            },
             submit: async ({ payload = {} }) => {
                 const newJobInputs = {
                     ...values.source?.job_inputs,

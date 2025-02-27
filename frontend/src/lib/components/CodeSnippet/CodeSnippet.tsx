@@ -8,6 +8,7 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useEffect, useState } from 'react'
 import { PrismAsyncLight as SyntaxHighlighter } from 'react-syntax-highlighter'
 import bash from 'react-syntax-highlighter/dist/esm/languages/prism/bash'
+import csharp from 'react-syntax-highlighter/dist/esm/languages/prism/csharp'
 import dart from 'react-syntax-highlighter/dist/esm/languages/prism/dart'
 import elixir from 'react-syntax-highlighter/dist/esm/languages/prism/elixir'
 import go from 'react-syntax-highlighter/dist/esm/languages/prism/go'
@@ -24,6 +25,7 @@ import python from 'react-syntax-highlighter/dist/esm/languages/prism/python'
 import ruby from 'react-syntax-highlighter/dist/esm/languages/prism/ruby'
 import sql from 'react-syntax-highlighter/dist/esm/languages/prism/sql'
 import swift from 'react-syntax-highlighter/dist/esm/languages/prism/swift'
+import typescript from 'react-syntax-highlighter/dist/esm/languages/prism/typescript'
 import yaml from 'react-syntax-highlighter/dist/esm/languages/prism/yaml'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -52,6 +54,59 @@ export enum Language {
     Markup = 'markup',
     SQL = 'sql',
     Kotlin = 'kotlin',
+    CSharp = 'csharp',
+    TypeScript = 'typescript',
+}
+
+export const getLanguage = (lang: string): Language => {
+    switch (lang) {
+        case 'bash':
+            return Language.Bash
+        case 'csharp':
+            return Language.CSharp
+        case 'jsx':
+            return Language.JSX
+        case 'javascript':
+            return Language.JavaScript
+        case 'typescript':
+            return Language.TypeScript
+        case 'java':
+            return Language.Java
+        case 'ruby':
+            return Language.Ruby
+        case 'objectivec':
+            return Language.ObjectiveC
+        case 'swift':
+            return Language.Swift
+        case 'elixir':
+            return Language.Elixir
+        case 'php':
+            return Language.PHP
+        case 'python':
+            return Language.Python
+        case 'dart':
+            return Language.Dart
+        case 'go':
+            return Language.Go
+        case 'json':
+            return Language.JSON
+        case 'yaml':
+            return Language.YAML
+        case 'html':
+            return Language.HTML
+        case 'xml':
+            return Language.XML
+        case 'http':
+            return Language.HTTP
+        case 'markup':
+            return Language.Markup
+        case 'sql':
+            return Language.SQL
+        case 'kotlin':
+            return Language.Kotlin
+        default:
+            return Language.Text
+    }
 }
 
 SyntaxHighlighter.registerLanguage(Language.Bash, bash)
@@ -66,6 +121,7 @@ SyntaxHighlighter.registerLanguage(Language.PHP, php)
 SyntaxHighlighter.registerLanguage(Language.Python, python)
 SyntaxHighlighter.registerLanguage(Language.Dart, dart)
 SyntaxHighlighter.registerLanguage(Language.Go, go)
+SyntaxHighlighter.registerLanguage(Language.CSharp, csharp)
 SyntaxHighlighter.registerLanguage(Language.JSON, json)
 SyntaxHighlighter.registerLanguage(Language.YAML, yaml)
 SyntaxHighlighter.registerLanguage(Language.HTML, markup)
@@ -74,7 +130,7 @@ SyntaxHighlighter.registerLanguage(Language.Markup, markup)
 SyntaxHighlighter.registerLanguage(Language.HTTP, http)
 SyntaxHighlighter.registerLanguage(Language.SQL, sql)
 SyntaxHighlighter.registerLanguage(Language.Kotlin, kotlin)
-
+SyntaxHighlighter.registerLanguage(Language.TypeScript, typescript)
 export interface CodeSnippetProps {
     children: string | undefined | null
     language?: Language
@@ -98,8 +154,6 @@ export function CodeSnippet({
     thing = 'snippet',
     maxLinesWithoutExpansion,
 }: CodeSnippetProps): JSX.Element | null {
-    const { isDarkModeOn } = useValues(themeLogic)
-
     const [expanded, setExpanded] = useState(false)
     const [indexOfLimitNewline, setIndexOfLimitNewline] = useState(
         maxLinesWithoutExpansion ? indexOfNth(text || '', '\n', maxLinesWithoutExpansion) : -1
@@ -136,14 +190,7 @@ export function CodeSnippet({
                     noPadding
                 />
             </div>
-            <SyntaxHighlighter
-                style={isDarkModeOn ? darkTheme : lightTheme}
-                language={language}
-                wrapLines={wrap}
-                lineProps={{ style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' } }}
-            >
-                {displayedText}
-            </SyntaxHighlighter>
+            <CodeLine text={displayedText} language={language} wrapLines={wrap} />
             {indexOfLimitNewline !== -1 && (
                 <LemonButton
                     onClick={() => setExpanded(!expanded)}
@@ -160,6 +207,30 @@ export function CodeSnippet({
                 </LemonButton>
             )}
         </div>
+    )
+}
+
+export function CodeLine({
+    text,
+    wrapLines,
+    language,
+}: {
+    text: string
+    wrapLines: boolean
+    language: Language
+}): JSX.Element {
+    const { isDarkModeOn } = useValues(themeLogic)
+
+    return (
+        <SyntaxHighlighter
+            style={isDarkModeOn ? darkTheme : lightTheme}
+            language={language}
+            wrapLines={wrapLines}
+            lineProps={{ style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' } }}
+            PreTag={({ children }) => <pre className="bg-transparent m-0">{children}</pre>}
+        >
+            {text}
+        </SyntaxHighlighter>
     )
 }
 

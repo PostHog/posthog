@@ -21,7 +21,7 @@ import { useState } from 'react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 
 import { dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
-import { DataTableNode, NodeKind } from '~/queries/schema'
+import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { isEventsQuery, taxonomicEventFilterToHogQL, trimQuotes } from '~/queries/utils'
 import { PropertyFilterType } from '~/types'
 
@@ -128,7 +128,7 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
             <div className="ColumnConfiguratorModal">
                 <div className="Columns">
                     <div className="HalfColumn">
-                        <h4 className="secondary uppercase text-muted">
+                        <h4 className="secondary uppercase text-secondary">
                             Visible columns ({columns.length}) - Drag to reorder
                         </h4>
                         <DndContext
@@ -156,7 +156,7 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                         </DndContext>
                     </div>
                     <div className="HalfColumn">
-                        <h4 className="secondary uppercase text-muted">Available columns</h4>
+                        <h4 className="secondary uppercase text-secondary">Available columns</h4>
                         <div className="h-[360px]">
                             <AutoSizer>
                                 {({ height, width }: { height: number; width: number }) => (

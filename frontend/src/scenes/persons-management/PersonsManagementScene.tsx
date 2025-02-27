@@ -21,9 +21,11 @@ export function PersonsManagementScene(): JSX.Element {
     return (
         <>
             <PageHeader
-                caption={`A catalog of your product's end users, lists of users who have something in common to use in analytics or feature flags${
-                    showGroupsOptions ? ' and groups' : ''
-                }.`}
+                caption={
+                    showGroupsOptions
+                        ? 'A catalog of identified persons, groups, and your created cohorts.'
+                        : 'A catalog of identified persons and your created cohorts.'
+                }
                 buttons={activeTab?.buttons}
             />
 

@@ -6,7 +6,7 @@ import { insightUsageLogic } from 'scenes/insights/insightUsageLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
-import { InsightVizNode, NodeKind } from '~/queries/schema'
+import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isInsightVizNode, isTrendsQuery } from '~/queries/utils'
 import { InsightLogicProps } from '~/types'
 

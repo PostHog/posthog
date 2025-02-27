@@ -6,7 +6,7 @@ import threading
 import time
 import uuid
 import unittest
-from collections.abc import Callable, Generator
+from collections.abc import Callable, Generator, Iterator
 from contextlib import contextmanager
 from functools import wraps
 from typing import Any, Optional, Union
@@ -29,7 +29,8 @@ from rest_framework.test import APITestCase as DRFTestCase
 
 from posthog import rate_limit, redis
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.connection import ch_pool
+from posthog.clickhouse.client.connection import get_client_from_pool
+from posthog.clickhouse.materialized_columns import MaterializedColumn
 from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.models import Dashboard, DashboardTile, Insight, Organization, Team, User
@@ -77,7 +78,7 @@ from posthog.models.raw_sessions.sql import (
     DROP_RAW_SESSION_TABLE_SQL,
     DROP_RAW_SESSION_VIEW_SQL,
     RAW_SESSIONS_TABLE_MV_SQL,
-    RAW_SESSIONS_VIEW_SQL,
+    RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL,
     RAW_SESSIONS_TABLE_SQL,
 )
 from posthog.session_recordings.sql.session_recording_event_sql import (
@@ -89,6 +90,11 @@ from posthog.session_recordings.sql.session_replay_event_sql import (
     DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL,
     DROP_SESSION_REPLAY_EVENTS_TABLE_SQL,
     SESSION_REPLAY_EVENTS_TABLE_SQL,
+)
+from posthog.session_recordings.sql.session_replay_event_v2_test_sql import (
+    SESSION_REPLAY_EVENTS_V2_TEST_DISTRIBUTED_TABLE_SQL,
+    DROP_SESSION_REPLAY_EVENTS_V2_TEST_TABLE_SQL,
+    SESSION_REPLAY_EVENTS_V2_TEST_DATA_TABLE_SQL,
 )
 from posthog.test.assert_faster_than import assert_faster_than
 
@@ -103,6 +109,192 @@ persons_ordering_int: int = 0
 
 # Expand string diffs
 unittest.util._MAX_LENGTH = 2000  # type: ignore
+
+
+def clean_varying_query_parts(query, replace_all_numbers):
+    # :TRICKY: team_id changes every test, avoid it messing with snapshots.
+    if replace_all_numbers:
+        query = re.sub(r"(\"?) = \d+", r"\1 = 99999", query)
+        query = re.sub(r"(\"?) IN \(\d+(, ?\d+)*\)", r"\1 IN (1, 2, 3, 4, 5 /* ... */)", query)
+        query = re.sub(r"(\"?) IN \[\d+(, ?\d+)*\]", r"\1 IN [1, 2, 3, 4, 5 /* ... */]", query)
+        # replace "uuid" IN ('00000000-0000-4000-8000-000000000001'::uuid) effectively:
+        query = re.sub(
+            r"\"uuid\" IN \('[0-9a-f-]{36}'(::uuid)?(, '[0-9a-f-]{36}'(::uuid)?)*\)",
+            r""""uuid" IN ('00000000-0000-0000-0000-000000000000'::uuid, '00000000-0000-0000-0000-000000000001'::uuid /* ... */)\n""",
+            query,
+        )
+
+    else:
+        query = re.sub(r"(team|project|cohort)_id(\"?) = \d+", r"\1_id\2 = 99999", query)
+        query = re.sub(
+            r"(team|project|cohort)_id(\"?) IN \(\d+(, ?\d+)*\)", r"\1_id\2 IN (1, 2, 3, 4, 5 /* ... */)", query
+        )
+        query = re.sub(
+            r"(team|project|cohort)_id(\"?) IN \[\d+(, ?\d+)*\]", r"\1_id\2 IN [1, 2, 3, 4, 5 /* ... */]", query
+        )
+        query = re.sub(r"\d+ as (team|project|cohort)_id(\"?)", r"99999 as \1_id\2", query)
+    # feature flag conditions use primary keys as columns in queries, so replace those always
+    query = re.sub(r"flag_\d+_condition", r"flag_X_condition", query)
+    query = re.sub(r"flag_\d+_super_condition", r"flag_X_super_condition", query)
+    # replace django cursors
+    query = re.sub(r"_django_curs_[0-9sync_]*\"", r'_django_curs_X"', query)
+    # hog ql checks some ids differently
+    query = re.sub(
+        r"equals\(([^.]+\.)?((team|project|cohort)_id)?, \d+\)",
+        r"equals(\1\2, 99999)",
+        query,
+    )
+    # replace survey uuids
+    # replace arrays like "survey_id in ['017e12ef-9c00-0000-59bf-43ddb0bddea6', '017e12ef-9c00-0001-6df6-2cf1f217757f']"
+    query = re.sub(
+        r"survey_id in \['[0-9a-f-]{36}'(, '[0-9a-f-]{36}')*\]",
+        r"survey_id in ['00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000001' /* ... */]",
+        query,
+    )
+    # replace arrays like "survey_id in ['017e12ef-9c00-0000-59bf-43ddb0bddea6', '017e12ef-9c00-0001-6df6-2cf1f217757f']"
+    query = re.sub(
+        r"\"posthog_survey_actions\"\.\"survey_id\" IN \('[^']+'::uuid(, '[^']+'::uuid)*\)",
+        r"'posthog_survey_actions'.'survey_id' IN ('00000000-0000-0000-0000-000000000000'::uuid, '00000000-0000-0000-0000-000000000001'::uuid, /* ... */])",
+        query,
+    )
+    # replace session uuids
+    # replace arrays like "in(s.session_id, ['ea376ce0-d365-4c75-8015-0407e71a1a28'])"
+    query = re.sub(
+        r"in\((?:s\.)?session_id, \['[0-9a-f-]{36}'(, '[0-9a-f-]{36}')*\]\)",
+        r"in(s.session_id, ['00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000001' /* ... */]",
+        query,
+    )
+    #### Cohort replacements
+    # replace cohort id lists in queries too
+    query = re.sub(
+        r"in\(([^,]*cohort_id),\s*\[(\d+(?:,\s*\d+)*)]\)",
+        r"in(\1, [1, 2, 3, 4, 5 /* ... */])",
+        query,
+    )
+    # replace explicit timestamps in cohort queries
+    query = re.sub(
+        r"timestamp > '20\d\d-\d\d-\d\d \d\d:\d\d:\d\d'", r"timestamp > 'explicit_redacted_timestamp'", query
+    )
+    # and where the HogQL doesn't match the above
+    # KLUDGE we tend not to replace dates in tests so trying to avoid replacing every date here
+    if "equals(argMax(person_distinct_id_overrides.is_deleted" in query or "INSERT INTO cohortpeople" in query:
+        # those tests have multiple varying dates like toDateTime64('2025-01-08 00:00:00.000000', 6, 'UTC')
+        query = re.sub(
+            r"toDateTime64\('20\d\d-\d\d-\d\d \d\d:\d\d:\d\d(.\d+)', 6, 'UTC'\)",
+            r"toDateTime64('explicit_redacted_timestamp\1', 6, 'UTC')",
+            query,
+        )
+    # replace cohort generated conditions
+    query = re.sub(
+        r"_condition_\d+_level",
+        r"_condition_X_level",
+        query,
+    )
+    # replace cohort tuples
+    # like (tuple(cohortpeople.cohort_id, cohortpeople.version), [(35, 0)])
+    query = re.sub(
+        r"\(tuple\((.*)\.cohort_id, (.*)\.version\), \[\(\d+, \d+\)\]\)",
+        r"(tuple(\1.cohort_id, \2.version), [(99999, 0)])",
+        query,
+    )
+    #### Cohort replacements end
+    # Replace organization_id and notebook_id lookups, for postgres
+    query = re.sub(
+        rf"""("organization_id"|"posthog_organization"\."id"|"posthog_notebook"."id") = '[^']+'::uuid""",
+        r"""\1 = '00000000-0000-0000-0000-000000000000'::uuid""",
+        query,
+    )
+    query = re.sub(
+        rf"""("organization_id"|"posthog_organization"\."id"|"posthog_notebook"."id") IN \('[^']+'::uuid\)""",
+        r"""\1 IN ('00000000-0000-0000-0000-000000000000'::uuid)""",
+        query,
+    )
+    # Replace notebook short_id lookups, for postgres
+    query = re.sub(
+        r"\"posthog_notebook\".\"short_id\" = '[a-zA-Z0-9]{8}'",
+        '"posthog_notebook"."short_id" = \'00000000\'',
+        query,
+    )
+    # Replace person id (when querying session recording replay events)
+    query = re.sub(
+        "and person_id = '[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}'",
+        r"AND person_id = '00000000-0000-0000-0000-000000000000'",
+        query,
+        flags=re.IGNORECASE,
+    )
+    # HogQL person id in session recording queries
+    # ifNull(equals(s__pdi.person_id, '0176be33-0398-0091-ec89-570d7768f2f4'), 0))
+    # ifNull(equals(person_distinct_ids__person.id, '0176be33-0398-000c-0772-f78c97593bdd'), 0))))
+    # equals(events.person_id, '0176be33-0398-0060-abed-8da43384e020')
+    query = re.sub(
+        r"equals\(([^.]+[._])?person.id, '[0-9a-f-]{36}'\)",
+        r"equals(\1person_id, '00000000-0000-0000-0000-000000000000')",
+        query,
+    )
+    # equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), '0176be33-0398-0090-a0e7-7cd9139f8089')
+    query = re.sub(
+        r"events__override.person_id, events.person_id\), '[0-9a-f-]{36}'\)",
+        r"events__override.person_id, events.person_id), '00000000-0000-0000-0000-000000000000')",
+        query,
+    )
+    query = re.sub(
+        "and current_person_id = '[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}'",
+        r"AND current_person_id = '00000000-0000-0000-0000-000000000000'",
+        query,
+        flags=re.IGNORECASE,
+    )
+    # Replace tag id lookups for postgres
+    query = re.sub(
+        rf"""("posthog_tag"\."id") IN \(('[^']+'::uuid)+(, ('[^']+'::uuid)+)*\)""",
+        r"""\1 IN ('00000000-0000-0000-0000-000000000000'::uuid, '00000000-0000-0000-0000-000000000000'::uuid, '00000000-0000-0000-0000-000000000000'::uuid /* ... */)""",
+        query,
+    )
+    query = re.sub(
+        rf"""user_id:([0-9]+) request:[a-zA-Z0-9-_]+""",
+        r"""user_id:0 request:_snapshot_""",
+        query,
+    )
+    query = re.sub(
+        rf"""user_id:([0-9]+)""",
+        r"""user_id:0""",
+        query,
+    )
+    # ee license check has varying datetime
+    # e.g. WHERE "ee_license"."valid_until" >= '2023-03-02T21:13:59.298031+00:00'::timestamptz
+    query = re.sub(
+        r"ee_license\"\.\"valid_until\" >= '\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d.\d{6}\+\d\d:\d\d'::timestamptz",
+        '"ee_license"."valid_until">=\'LICENSE-TIMESTAMP\'::timestamptz"',
+        query,
+    )
+    # insight cache key varies with team id
+    query = re.sub(
+        r"WHERE \(\"posthog_insightcachingstate\".\"cache_key\" = 'cache_\w{32}'",
+        """WHERE ("posthog_insightcachingstate"."cache_key" = 'cache_THE_CACHE_KEY'""",
+        query,
+    )
+    # replace Savepoint numbers
+    query = re.sub(r"SAVEPOINT \".+\"", "SAVEPOINT _snapshot_", query)
+    # test_formula has some values that change on every run
+    query = re.sub(
+        r"\SELECT \[\d+, \d+] as breakdown_value",
+        "SELECT [1, 2] as breakdown_value",
+        query,
+    )
+    query = re.sub(
+        r"SELECT distinct_id,[\n\r\s]+\d+ as value",
+        "SELECT distinct_id, 1 as value",
+        query,
+    )
+
+    # rbac has some varying IDs we can replace
+    # e.g. AND "ee_accesscontrol"."resource_id" = '450'
+    query = re.sub(
+        r"\"resource_id\" = '\d+'",
+        "\"resource_id\" = '99999'",
+        query,
+    )
+
+    return query
 
 
 def _setup_test_data(klass):
@@ -148,7 +340,7 @@ class FuzzyInt(int):
         return self.lowest <= other <= self.highest
 
     def __repr__(self):
-        return "[%d..%d]" % (self.lowest, self.highest)
+        return f"[{self.lowest:d}..{self.highest:d}]"
 
 
 class ErrorResponsesMixin:
@@ -405,28 +597,10 @@ def stripResponse(response, remove=("action", "label", "persons_urls", "filter")
     return response
 
 
-def default_materialised_columns():
-    try:
-        from ee.clickhouse.materialized_columns.analyze import get_materialized_columns
-        from ee.clickhouse.materialized_columns.test.test_columns import (
-            EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS,
-        )
-
-    except:
-        # EE not available? Skip
-        return []
-
-    default_columns = []
-    for prop in EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS:
-        column_name = get_materialized_columns("events")[(prop, "properties")]
-        default_columns.append(column_name)
-
-    return default_columns
-
-
 def cleanup_materialized_columns():
     try:
-        from ee.clickhouse.materialized_columns.analyze import get_materialized_columns
+        from ee.clickhouse.materialized_columns.columns import get_materialized_columns
+        from ee.clickhouse.materialized_columns.test.test_columns import EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS
     except:
         # EE not available? Skip
         return
@@ -434,18 +608,38 @@ def cleanup_materialized_columns():
     def optionally_drop(table, filter=None):
         drops = ",".join(
             [
-                f"DROP COLUMN {column_name}"
-                for column_name in get_materialized_columns(table).values()
-                if filter is None or filter(column_name)
+                f"DROP COLUMN {column.name}"
+                for column in get_materialized_columns(table).values()
+                if filter is None or filter(column.name)
             ]
         )
         if drops:
             sync_execute(f"ALTER TABLE {table} {drops} SETTINGS mutations_sync = 2")
+            if table == "events":
+                sync_execute(f"ALTER TABLE sharded_events {drops} SETTINGS mutations_sync = 2")
 
-    default_columns = default_materialised_columns()
-    optionally_drop("events", lambda name: name not in default_columns)
+    default_column_names = {
+        get_materialized_columns("events")[(prop, "properties")].name
+        for prop in EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS
+    }
+
+    optionally_drop("events", lambda name: name not in default_column_names)
     optionally_drop("person")
     optionally_drop("groups")
+
+
+@contextmanager
+def materialized(table, property) -> Iterator[MaterializedColumn]:
+    """Materialize a property within the managed block, removing it on exit."""
+    try:
+        from ee.clickhouse.materialized_columns.analyze import materialize
+    except ModuleNotFoundError as e:
+        pytest.xfail(str(e))
+
+    try:
+        yield materialize(table, property)
+    finally:
+        cleanup_materialized_columns()
 
 
 def also_test_with_materialized_columns(
@@ -507,184 +701,7 @@ class QueryMatchingTest:
 
     # :NOTE: Update snapshots by passing --snapshot-update to bin/tests
     def assertQueryMatchesSnapshot(self, query, params=None, replace_all_numbers=False):
-        # :TRICKY: team_id changes every test, avoid it messing with snapshots.
-        if replace_all_numbers:
-            query = re.sub(r"(\"?) = \d+", r"\1 = 2", query)
-            query = re.sub(r"(\"?) IN \(\d+(, ?\d+)*\)", r"\1 IN (1, 2, 3, 4, 5 /* ... */)", query)
-            query = re.sub(r"(\"?) IN \[\d+(, ?\d+)*\]", r"\1 IN [1, 2, 3, 4, 5 /* ... */]", query)
-            # replace "uuid" IN ('00000000-0000-4000-8000-000000000001'::uuid) effectively:
-            query = re.sub(
-                r"\"uuid\" IN \('[0-9a-f-]{36}'(::uuid)?(, '[0-9a-f-]{36}'(::uuid)?)*\)",
-                r""""uuid" IN ('00000000-0000-0000-0000-000000000000'::uuid, '00000000-0000-0000-0000-000000000001'::uuid /* ... */)\n""",
-                query,
-            )
-
-        else:
-            query = re.sub(r"(team|cohort)_id(\"?) = \d+", r"\1_id\2 = 2", query)
-            query = re.sub(r"\d+ as (team|cohort)_id(\"?)", r"2 as \1_id\2", query)
-
-        # feature flag conditions use primary keys as columns in queries, so replace those always
-        query = re.sub(r"flag_\d+_condition", r"flag_X_condition", query)
-        query = re.sub(r"flag_\d+_super_condition", r"flag_X_super_condition", query)
-
-        # replace django cursors
-        query = re.sub(r"_django_curs_[0-9sync_]*\"", r'_django_curs_X"', query)
-
-        # hog ql checks some ids differently
-        query = re.sub(
-            r"equals\(([^.]+\.)?(team_id|cohort_id)?, \d+\)",
-            r"equals(\1\2, 2)",
-            query,
-        )
-
-        # replace survey uuids
-        # replace arrays like "survey_id in ['017e12ef-9c00-0000-59bf-43ddb0bddea6', '017e12ef-9c00-0001-6df6-2cf1f217757f']"
-        query = re.sub(
-            r"survey_id in \['[0-9a-f-]{36}'(, '[0-9a-f-]{36}')*\]",
-            r"survey_id in ['00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000001' /* ... */]",
-            query,
-        )
-
-        # replace arrays like "survey_id in ['017e12ef-9c00-0000-59bf-43ddb0bddea6', '017e12ef-9c00-0001-6df6-2cf1f217757f']"
-        query = re.sub(
-            r"\"posthog_survey_actions\".\"survey_id\" IN \('[^']+'::uuid, '[^']+'::uuid\)",
-            r"'posthog_survey_actions'.'survey_id' IN ('00000000-0000-0000-0000-000000000000'::uuid, '00000000-0000-0000-0000-000000000001'::uuid)",
-            query,
-        )
-
-        # replace session uuids
-        # replace arrays like "in(s.session_id, ['ea376ce0-d365-4c75-8015-0407e71a1a28'])"
-        query = re.sub(
-            r"in\((?:s\.)?session_id, \['[0-9a-f-]{36}'(, '[0-9a-f-]{36}')*\]\)",
-            r"in(s.session_id, ['00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000001' /* ... */]",
-            query,
-        )
-
-        #### Cohort replacements
-        # replace cohort id lists in queries too
-        query = re.sub(
-            r"in((.*?)cohort_id, \[\d+(, ?\d+)*\])",
-            r"in(\1cohort_id, [1, 2, 3, 4, 5 /* ... */])",
-            query,
-        )
-        # replace explicit timestamps in cohort queries
-        query = re.sub(r"timestamp > '20\d\d-\d\d-\d\d \d\d:\d\d:\d\d'", r"timestamp > 'explicit_timestamp'", query)
-
-        # replace cohort generated conditions
-        query = re.sub(
-            r"_condition_\d+_level",
-            r"_condition_X_level",
-            query,
-        )
-
-        # replace cohort tuples
-        # like (tuple(cohortpeople.cohort_id, cohortpeople.version), [(35, 0)])
-        query = re.sub(
-            r"\(tuple\((.*)\.cohort_id, (.*)\.version\), \[\(\d+, \d+\)\]\)",
-            r"(tuple(\1.cohort_id, \2.version), [(2, 0)])",
-            query,
-        )
-
-        #### Cohort replacements end
-
-        # Replace organization_id and notebook_id lookups, for postgres
-        query = re.sub(
-            rf"""("organization_id"|"posthog_organization"\."id"|"posthog_notebook"."id") = '[^']+'::uuid""",
-            r"""\1 = '00000000-0000-0000-0000-000000000000'::uuid""",
-            query,
-        )
-        query = re.sub(
-            rf"""("organization_id"|"posthog_organization"\."id"|"posthog_notebook"."id") IN \('[^']+'::uuid\)""",
-            r"""\1 IN ('00000000-0000-0000-0000-000000000000'::uuid)""",
-            query,
-        )
-
-        # Replace notebook short_id lookups, for postgres
-        query = re.sub(
-            r"\"posthog_notebook\".\"short_id\" = '[a-zA-Z0-9]{8}'",
-            '"posthog_notebook"."short_id" = \'00000000\'',
-            query,
-        )
-
-        # Replace person id (when querying session recording replay events)
-        query = re.sub(
-            "and person_id = '[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}'",
-            r"AND person_id = '00000000-0000-0000-0000-000000000000'",
-            query,
-            flags=re.IGNORECASE,
-        )
-
-        # HogQL person id in session recording queries
-        # ifNull(equals(s__pdi.person_id, '0176be33-0398-0091-ec89-570d7768f2f4'), 0))
-        # ifNull(equals(person_distinct_ids__person.id, '0176be33-0398-000c-0772-f78c97593bdd'), 0))))
-        # equals(events.person_id, '0176be33-0398-0060-abed-8da43384e020')
-        query = re.sub(
-            r"equals\(([^.]+[._])?person.id, '[0-9a-f-]{36}'\)",
-            r"equals(\1person_id, '00000000-0000-0000-0000-000000000000')",
-            query,
-        )
-
-        # equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), '0176be33-0398-0090-a0e7-7cd9139f8089')
-        query = re.sub(
-            r"events__override.person_id, events.person_id\), '[0-9a-f-]{36}'\)",
-            r"events__override.person_id, events.person_id), '00000000-0000-0000-0000-000000000000')",
-            query,
-        )
-
-        query = re.sub(
-            "and current_person_id = '[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}'",
-            r"AND current_person_id = '00000000-0000-0000-0000-000000000000'",
-            query,
-            flags=re.IGNORECASE,
-        )
-
-        # Replace tag id lookups for postgres
-        query = re.sub(
-            rf"""("posthog_tag"\."id") IN \(('[^']+'::uuid)+(, ('[^']+'::uuid)+)*\)""",
-            r"""\1 IN ('00000000-0000-0000-0000-000000000000'::uuid, '00000000-0000-0000-0000-000000000000'::uuid, '00000000-0000-0000-0000-000000000000'::uuid /* ... */)""",
-            query,
-        )
-
-        query = re.sub(
-            rf"""user_id:([0-9]+) request:[a-zA-Z0-9-_]+""",
-            r"""user_id:0 request:_snapshot_""",
-            query,
-        )
-        query = re.sub(
-            rf"""user_id:([0-9]+)""",
-            r"""user_id:0""",
-            query,
-        )
-
-        # ee license check has varying datetime
-        # e.g. WHERE "ee_license"."valid_until" >= '2023-03-02T21:13:59.298031+00:00'::timestamptz
-        query = re.sub(
-            r"ee_license\"\.\"valid_until\" >= '\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d.\d{6}\+\d\d:\d\d'::timestamptz",
-            '"ee_license"."valid_until">=\'LICENSE-TIMESTAMP\'::timestamptz"',
-            query,
-        )
-
-        # insight cache key varies with team id
-        query = re.sub(
-            r"WHERE \(\"posthog_insightcachingstate\".\"cache_key\" = 'cache_\w{32}'",
-            """WHERE ("posthog_insightcachingstate"."cache_key" = 'cache_THE_CACHE_KEY'""",
-            query,
-        )
-
-        # replace Savepoint numbers
-        query = re.sub(r"SAVEPOINT \".+\"", "SAVEPOINT _snapshot_", query)
-
-        # test_formula has some values that change on every run
-        query = re.sub(
-            r"\SELECT \[\d+, \d+] as breakdown_value",
-            "SELECT [1, 2] as breakdown_value",
-            query,
-        )
-        query = re.sub(
-            r"SELECT distinct_id,[\n\r\s]+\d+ as value",
-            "SELECT distinct_id, 1 as value",
-            query,
-        )
+        query = clean_varying_query_parts(query, replace_all_numbers)
 
         assert sqlparse.format(query, reindent=True) == self.snapshot, "\n".join(self.snapshot.get_assert_diff())
         if params is not None:
@@ -811,6 +828,14 @@ class BaseTestMigrations(QueryMatchingTest):
 
     def setUpBeforeMigration(self, apps):
         pass
+
+    @classmethod
+    def tearDownClass(cls):
+        super().tearDownClass()  # type: ignore
+        executor = MigrationExecutor(connection)  # Reset Django's migration state
+        targets = executor.loader.graph.leaf_nodes()
+        executor.migrate(targets)  # Migrate to the latest migration
+        executor.loader.build_graph()  # Reload.
 
 
 class TestMigrations(BaseTestMigrations, BaseTest):
@@ -942,14 +967,13 @@ class ClickhouseTestMixin(QueryMatchingTest):
     @contextmanager
     def capture_queries(self, query_filter: Callable[[str], bool]):
         queries = []
-        original_get_client = ch_pool.get_client
 
         # Spy on the `clichhouse_driver.Client.execute` method. This is a bit of
         # a roundabout way to handle this, but it seems tricky to spy on the
         # unbound class method `Client.execute` directly easily
         @contextmanager
-        def get_client():
-            with original_get_client() as client:
+        def get_client(orig_fn, *args, **kwargs):
+            with orig_fn(*args, **kwargs) as client:
                 original_client_execute = client.execute
 
                 def execute_wrapper(query, *args, **kwargs):
@@ -960,7 +984,7 @@ class ClickhouseTestMixin(QueryMatchingTest):
                 with patch.object(client, "execute", wraps=execute_wrapper) as _:
                     yield client
 
-        with patch("posthog.clickhouse.client.connection.ch_pool.get_client", wraps=get_client) as _:
+        with get_client_from_pool._temp_patch(get_client) as _:
             yield queries
 
 
@@ -999,6 +1023,70 @@ def run_clickhouse_statement_in_parallel(statements: list[str]):
             j.join()
 
 
+def reset_clickhouse_database() -> None:
+    run_clickhouse_statement_in_parallel(
+        [
+            DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL(),
+            DROP_RAW_SESSION_VIEW_SQL(),
+            DROP_SESSION_MATERIALIZED_VIEW_SQL(),
+            DROP_SESSION_VIEW_SQL(),
+        ]
+    )
+    run_clickhouse_statement_in_parallel(
+        [
+            DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
+            DROP_CHANNEL_DEFINITION_TABLE_SQL,
+            DROP_DISTRIBUTED_EVENTS_TABLE_SQL,
+            DROP_EVENTS_TABLE_SQL(),
+            DROP_PERSON_TABLE_SQL,
+            DROP_RAW_SESSION_TABLE_SQL(),
+            DROP_SESSION_RECORDING_EVENTS_TABLE_SQL(),
+            DROP_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+            DROP_SESSION_REPLAY_EVENTS_V2_TEST_TABLE_SQL(),
+            DROP_SESSION_TABLE_SQL(),
+            TRUNCATE_COHORTPEOPLE_TABLE_SQL,
+            TRUNCATE_GROUPS_TABLE_SQL,
+            TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL,
+            TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL,
+            TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
+            TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
+            TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
+        ]
+    )
+    run_clickhouse_statement_in_parallel(
+        [
+            CHANNEL_DEFINITION_DICTIONARY_SQL(),
+            CHANNEL_DEFINITION_TABLE_SQL(),
+            EVENTS_TABLE_SQL(),
+            PERSONS_TABLE_SQL(),
+            RAW_SESSIONS_TABLE_SQL(),
+            SESSIONS_TABLE_SQL(),
+            SESSION_RECORDING_EVENTS_TABLE_SQL(),
+            SESSION_REPLAY_EVENTS_TABLE_SQL(),
+            SESSION_REPLAY_EVENTS_V2_TEST_DATA_TABLE_SQL(),
+        ]
+    )
+    run_clickhouse_statement_in_parallel(
+        [
+            DISTRIBUTED_EVENTS_TABLE_SQL(),
+            DISTRIBUTED_RAW_SESSIONS_TABLE_SQL(),
+            DISTRIBUTED_SESSIONS_TABLE_SQL(),
+            DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL(),
+            DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+            SESSION_REPLAY_EVENTS_V2_TEST_DISTRIBUTED_TABLE_SQL(),
+        ]
+    )
+    run_clickhouse_statement_in_parallel(
+        [
+            CHANNEL_DEFINITION_DATA_SQL(),
+            RAW_SESSIONS_TABLE_MV_SQL(),
+            RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL(),
+            SESSIONS_TABLE_MV_SQL(),
+            SESSIONS_VIEW_SQL(),
+        ]
+    )
+
+
 class ClickhouseDestroyTablesMixin(BaseTest):
     """
     To speed up tests we normally don't destroy the tables between tests, so clickhouse tables will have data from previous tests.
@@ -1007,124 +1095,14 @@ class ClickhouseDestroyTablesMixin(BaseTest):
 
     def setUp(self):
         super().setUp()
-        run_clickhouse_statement_in_parallel(
-            [
-                DROP_SESSION_MATERIALIZED_VIEW_SQL(),
-                DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL(),
-                DROP_SESSION_VIEW_SQL(),
-                DROP_RAW_SESSION_VIEW_SQL(),
-            ]
-        )
-        run_clickhouse_statement_in_parallel(
-            [
-                DROP_DISTRIBUTED_EVENTS_TABLE_SQL,
-                DROP_EVENTS_TABLE_SQL(),
-                DROP_PERSON_TABLE_SQL,
-                TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
-                TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL,
-                TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL,
-                DROP_SESSION_RECORDING_EVENTS_TABLE_SQL(),
-                DROP_SESSION_REPLAY_EVENTS_TABLE_SQL(),
-                TRUNCATE_GROUPS_TABLE_SQL,
-                TRUNCATE_COHORTPEOPLE_TABLE_SQL,
-                TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
-                TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
-                DROP_CHANNEL_DEFINITION_TABLE_SQL,
-                DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
-                DROP_SESSION_TABLE_SQL(),
-                DROP_RAW_SESSION_TABLE_SQL(),
-            ]
-        )
-        run_clickhouse_statement_in_parallel(
-            [
-                EVENTS_TABLE_SQL(),
-                PERSONS_TABLE_SQL(),
-                SESSION_RECORDING_EVENTS_TABLE_SQL(),
-                SESSION_REPLAY_EVENTS_TABLE_SQL(),
-                CHANNEL_DEFINITION_TABLE_SQL(),
-                CHANNEL_DEFINITION_DICTIONARY_SQL,
-                SESSIONS_TABLE_SQL(),
-                RAW_SESSIONS_TABLE_SQL(),
-            ]
-        )
-        run_clickhouse_statement_in_parallel(
-            [
-                DISTRIBUTED_EVENTS_TABLE_SQL(),
-                DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL(),
-                DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
-                DISTRIBUTED_SESSIONS_TABLE_SQL(),
-                DISTRIBUTED_RAW_SESSIONS_TABLE_SQL(),
-            ]
-        )
-        run_clickhouse_statement_in_parallel(
-            [
-                CHANNEL_DEFINITION_DATA_SQL(),
-                SESSIONS_TABLE_MV_SQL(),
-                RAW_SESSIONS_TABLE_MV_SQL(),
-                SESSIONS_VIEW_SQL(),
-                RAW_SESSIONS_VIEW_SQL(),
-            ]
-        )
+        reset_clickhouse_database()
 
     def tearDown(self):
         super().tearDown()
-
-        run_clickhouse_statement_in_parallel(
-            [
-                DROP_SESSION_MATERIALIZED_VIEW_SQL(),
-                DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL(),
-                DROP_SESSION_VIEW_SQL(),
-                DROP_RAW_SESSION_VIEW_SQL(),
-            ]
-        )
-        run_clickhouse_statement_in_parallel(
-            [
-                DROP_DISTRIBUTED_EVENTS_TABLE_SQL,
-                DROP_EVENTS_TABLE_SQL(),
-                DROP_PERSON_TABLE_SQL,
-                TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
-                TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL,
-                DROP_SESSION_RECORDING_EVENTS_TABLE_SQL(),
-                DROP_SESSION_REPLAY_EVENTS_TABLE_SQL(),
-                DROP_CHANNEL_DEFINITION_TABLE_SQL,
-                DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
-                DROP_SESSION_TABLE_SQL(),
-                DROP_RAW_SESSION_TABLE_SQL(),
-            ]
-        )
-        run_clickhouse_statement_in_parallel(
-            [
-                EVENTS_TABLE_SQL(),
-                PERSONS_TABLE_SQL(),
-                SESSION_RECORDING_EVENTS_TABLE_SQL(),
-                SESSION_REPLAY_EVENTS_TABLE_SQL(),
-                CHANNEL_DEFINITION_TABLE_SQL(),
-                CHANNEL_DEFINITION_DICTIONARY_SQL,
-                SESSIONS_TABLE_SQL(),
-                RAW_SESSIONS_TABLE_SQL(),
-            ]
-        )
-        run_clickhouse_statement_in_parallel(
-            [
-                DISTRIBUTED_EVENTS_TABLE_SQL(),
-                DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL(),
-                DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
-                DISTRIBUTED_SESSIONS_TABLE_SQL(),
-                DISTRIBUTED_RAW_SESSIONS_TABLE_SQL(),
-            ]
-        )
-        run_clickhouse_statement_in_parallel(
-            [
-                SESSIONS_TABLE_MV_SQL(),
-                RAW_SESSIONS_TABLE_MV_SQL(),
-                SESSIONS_VIEW_SQL(),
-                RAW_SESSIONS_VIEW_SQL(),
-                CHANNEL_DEFINITION_DATA_SQL(),
-            ]
-        )
+        reset_clickhouse_database()
 
 
-def snapshot_clickhouse_queries(fn):
+def snapshot_clickhouse_queries(fn_or_class):
     """
     Captures and snapshots SELECT queries from test using `syrupy` library.
 
@@ -1134,10 +1112,18 @@ def snapshot_clickhouse_queries(fn):
     Update snapshots via --snapshot-update.
     """
 
-    @wraps(fn)
+    # check if fn_or_class is a class
+    if inspect.isclass(fn_or_class):
+        # wrap every class method that starts with test_ with this decorator
+        for attr in dir(fn_or_class):
+            if callable(getattr(fn_or_class, attr)) and attr.startswith("test_"):
+                setattr(fn_or_class, attr, snapshot_clickhouse_queries(getattr(fn_or_class, attr)))
+        return fn_or_class
+
+    @wraps(fn_or_class)
     def wrapped(self, *args, **kwargs):
         with self.capture_select_queries() as queries:
-            fn(self, *args, **kwargs)
+            fn_or_class(self, *args, **kwargs)
 
         for query in queries:
             if "FROM system.columns" not in query:

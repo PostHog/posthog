@@ -2,10 +2,10 @@ import { afterMount, connect, kea, listeners, path, reducers, selectors } from '
 import { subscriptions } from 'kea-subscriptions'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { insightsApi } from 'scenes/insights/utils/api'
+import { projectLogic } from 'scenes/projectLogic'
 import { INSIGHTS_PER_PAGE, savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
@@ -46,8 +46,8 @@ export const insightsSidebarLogic = kea<insightsSidebarLogicType>([
     })),
     selectors(({ actions, values, cache }) => ({
         contents: [
-            (s) => [s.insights, s.infiniteInsights, s.insightsLoading, teamLogic.selectors.currentTeamId],
-            (insights, infiniteInsights, insightsLoading, currentTeamId) => [
+            (s) => [s.insights, s.infiniteInsights, s.insightsLoading, projectLogic.selectors.currentProjectId],
+            (insights, infiniteInsights, insightsLoading, currentProjectId) => [
                 {
                     key: 'insights',
                     noun: 'insight',
@@ -92,7 +92,7 @@ export const insightsSidebarLogic = kea<insightsSidebarLogicType>([
                                             onClick: () => {
                                                 void deleteInsightWithUndo({
                                                     object: insight,
-                                                    endpoint: `projects/${currentTeamId}/insights`,
+                                                    endpoint: `projects/${currentProjectId}/insights`,
                                                     callback: actions.loadInsights,
                                                 })
                                             },

@@ -107,7 +107,6 @@ export const capture = async ({
             })
         ),
         key: teamId ? teamId.toString() : '',
-        waitForAck: true,
     })
 }
 
@@ -311,14 +310,14 @@ export const fetchGroups = async (teamId: number) => {
     return queryResult.data.map((group) => ({ ...group, group_properties: JSON.parse(group.group_properties) }))
 }
 
-export const createGroupType = async (teamId: number, index: number, groupType: string) => {
+export const createGroupType = async (teamId: number, projectId: number, index: number, groupType: string) => {
     await postgres.query(
         PostgresUse.COMMON_WRITE,
         `
-        INSERT INTO posthog_grouptypemapping (team_id, group_type, group_type_index)
-        VALUES ($1, $2, $3)
+        INSERT INTO posthog_grouptypemapping (team_id, project_id, group_type, group_type_index)
+        VALUES ($1, $2, $3, $4)
         `,
-        [teamId, groupType, index],
+        [teamId, projectId, groupType, index],
         'insertGroupType'
     )
 }
@@ -455,7 +454,7 @@ export const createOrganizationRaw = async (organizationProperties = {}) => {
 
     await postgres.query(
         PostgresUse.COMMON_WRITE,
-        `INSERT into posthog_organization 
+        `INSERT into posthog_organization
         (${keys})
         VALUES (${values})
         `,

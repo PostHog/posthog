@@ -12,3 +12,5 @@ export type BillingGaugeItemType = {
     value: number
     top: boolean
 }
+
+export type BillingSectionId = 'overview' | 'usage'

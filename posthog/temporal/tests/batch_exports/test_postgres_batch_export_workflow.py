@@ -1,7 +1,10 @@
 import asyncio
+import collections.abc
+import dataclasses
 import datetime as dt
 import json
 import operator
+import unittest.mock
 import uuid
 
 import psycopg
@@ -16,21 +19,39 @@ from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.batch_exports.service import BatchExportModel, BatchExportSchema
+from posthog import constants
+from posthog.batch_exports.service import (
+    BackfillDetails,
+    BatchExportModel,
+    BatchExportSchema,
+)
 from posthog.temporal.batch_exports.batch_exports import (
     finish_batch_export_run,
-    iter_model_records,
     start_batch_export_run,
 )
 from posthog.temporal.batch_exports.postgres_batch_export import (
+    MissingPrimaryKeyError,
     PostgresBatchExportInputs,
     PostgresBatchExportWorkflow,
     PostgresInsertInputs,
+    PostgreSQLHeartbeatDetails,
     insert_into_postgres_activity,
     postgres_default_fields,
 )
+from posthog.temporal.batch_exports.spmc import (
+    Producer,
+    RecordBatchQueue,
+    RecordBatchTaskError,
+    SessionsRecordBatchModel,
+)
 from posthog.temporal.common.clickhouse import ClickHouseClient
-from posthog.temporal.tests.batch_exports.utils import mocked_start_batch_export_run
+from posthog.temporal.tests.batch_exports.utils import (
+    FlakyClickHouseClient,
+    get_record_batch_from_queue,
+    mocked_start_batch_export_run,
+    remove_duplicates_from_records,
+)
+from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.models import (
     acreate_batch_export,
     adelete_batch_export,
@@ -46,6 +67,18 @@ pytestmark = [
     pytest.mark.django_db,
 ]
 
+EXPECTED_PERSONS_BATCH_EXPORT_FIELDS = [
+    "team_id",
+    "distinct_id",
+    "person_id",
+    "properties",
+    "person_version",
+    "person_distinct_id_version",
+    "created_at",
+    "_inserted_at",
+    "is_deleted",
+]
+
 
 async def assert_clickhouse_records_in_postgres(
     postgres_connection,
@@ -59,7 +92,10 @@ async def assert_clickhouse_records_in_postgres(
     exclude_events: list[str] | None = None,
     include_events: list[str] | None = None,
     sort_key: str = "event",
-    is_backfill: bool = False,
+    backfill_details: BackfillDetails | None = None,
+    expected_fields: list[str] | None = None,
+    expect_duplicates: bool = False,
+    primary_key: collections.abc.Sequence[str] | None = None,
 ):
     """Assert expected records are written to a given PostgreSQL table.
 
@@ -71,11 +107,6 @@ async def assert_clickhouse_records_in_postgres(
     5. Cast records returned by ClickHouse to a Python list of dicts.
     6. Compare each record returned by ClickHouse to each record read from PostgreSQL.
 
-    Caveats:
-    * Casting records to a Python list of dicts means losing some type precision.
-    * Reading records from ClickHouse could be hiding bugs in the `iter_records` function and related.
-        * `iter_records` has its own set of related unit tests to control for this.
-
     Arguments:
         postgres_connection: A PostgreSQL connection used to read inserted events.
         clickhouse_client: A ClickHouseClient used to read events that are expected to be inserted.
@@ -83,6 +114,7 @@ async def assert_clickhouse_records_in_postgres(
         table_name: PostgreSQL table name.
         team_id: The ID of the team that we are testing events for.
         batch_export_schema: Custom schema used in the batch export.
+        expected_fields: The expected fields to be exported.
     """
     inserted_records = []
 
@@ -94,46 +126,70 @@ async def assert_clickhouse_records_in_postgres(
             event = dict(zip(columns, row))
             inserted_records.append(event)
 
-    schema_column_names = [field["alias"] for field in postgres_default_fields()]
     if batch_export_model is not None:
         if isinstance(batch_export_model, BatchExportModel):
-            batch_export_schema = batch_export_model.schema
+            model_name = batch_export_model.name
+            fields = batch_export_model.schema["fields"] if batch_export_model.schema is not None else None
+            filters = batch_export_model.filters
+            extra_query_parameters = (
+                batch_export_model.schema["values"] if batch_export_model.schema is not None else None
+            )
         else:
-            batch_export_schema = batch_export_model
-
-        if batch_export_schema is not None:
-            schema_column_names = [field["alias"] for field in batch_export_schema["fields"]]
-        elif isinstance(batch_export_model, BatchExportModel) and batch_export_model.name == "persons":
-            schema_column_names = [
-                "team_id",
-                "distinct_id",
-                "person_id",
-                "properties",
-                "person_version",
-                "person_distinct_id_version",
-                "_inserted_at",
-            ]
+            model_name = "custom"
+            fields = batch_export_model["fields"]
+            filters = None
+            extra_query_parameters = batch_export_model["values"]
+    else:
+        model_name = "events"
+        extra_query_parameters = None
+        fields = None
+        filters = None
 
     expected_records = []
-    async for record_batch in iter_model_records(
-        client=clickhouse_client,
-        model=batch_export_model,
+    queue = RecordBatchQueue()
+    if model_name == "sessions":
+        producer = Producer(model=SessionsRecordBatchModel(team_id))
+    else:
+        producer = Producer()
+
+    producer_task = await producer.start(
+        queue=queue,
+        model_name=model_name,
         team_id=team_id,
-        interval_start=data_interval_start.isoformat(),
-        interval_end=data_interval_end.isoformat(),
+        full_range=(data_interval_start, data_interval_end),
+        done_ranges=[],
+        fields=fields,
+        filters=filters,
+        destination_default_fields=postgres_default_fields(),
         exclude_events=exclude_events,
         include_events=include_events,
-        destination_default_fields=postgres_default_fields(),
-        is_backfill=is_backfill,
-    ):
-        for record in record_batch.select(schema_column_names).to_pylist():
+        is_backfill=backfill_details is not None,
+        backfill_details=backfill_details,
+        extra_query_parameters=extra_query_parameters,
+    )
+    while True:
+        record_batch = await get_record_batch_from_queue(queue, producer_task)
+
+        if record_batch is None:
+            break
+
+        select = record_batch.column_names
+        if expected_fields:
+            select = expected_fields
+
+        for record in record_batch.select(select).to_pylist():
             expected_record = {}
 
             for k, v in record.items():
-                if k not in schema_column_names or k == "_inserted_at" or k == "bq_ingested_timestamp":
+                if k == "_inserted_at" or k == "bq_ingested_timestamp":
                     # _inserted_at is not exported, only used for tracking progress.
                     # bq_ingested_timestamp cannot be compared as it comes from an unstable function.
                     continue
+
+                if isinstance(v, str):
+                    v = v.replace("\\u0000", "")
+                elif isinstance(v, bytes):
+                    v = v.replace(b"\\u0000", b"")
 
                 if k in {"properties", "set", "set_once", "person_properties", "elements"} and v is not None:
                     expected_record[k] = json.loads(v)
@@ -143,6 +199,9 @@ async def assert_clickhouse_records_in_postgres(
                     expected_record[k] = v
 
             expected_records.append(expected_record)
+
+    if expect_duplicates:
+        inserted_records = remove_duplicates_from_records(inserted_records, primary_key)
 
     inserted_column_names = list(inserted_records[0].keys())
     expected_column_names = list(expected_records[0].keys())
@@ -156,6 +215,12 @@ async def assert_clickhouse_records_in_postgres(
     assert len(inserted_records) == len(expected_records)
     assert inserted_records[0] == expected_records[0]
     assert inserted_records == expected_records
+
+
+@pytest.fixture
+def test_properties(request, session_id):
+    """Include a \u0000 unicode escape sequence in properties."""
+    return {"$browser": "Chrome", "$os": "Mac OS X", "unicode": "\u0000", "$session_id": session_id}
 
 
 @pytest.fixture
@@ -178,6 +243,7 @@ async def postgres_connection(postgres_config, setup_postgres_test_db):
         dbname=postgres_config["database"],
         host=postgres_config["host"],
         port=postgres_config["port"],
+        autocommit=True,
     )
 
     yield connection
@@ -199,7 +265,16 @@ TEST_MODELS: list[BatchExportModel | BatchExportSchema | None] = [
         },
     ),
     BatchExportModel(name="events", schema=None),
+    BatchExportModel(
+        name="events",
+        schema=None,
+        filters=[
+            {"key": "$browser", "operator": "exact", "type": "event", "value": ["Chrome"]},
+            {"key": "$os", "operator": "exact", "type": "event", "value": ["Mac OS X"]},
+        ],
+    ),
     BatchExportModel(name="persons", schema=None),
+    BatchExportModel(name="sessions", schema=None),
     {
         "fields": [
             {"expression": "event", "alias": "event"},
@@ -242,8 +317,12 @@ async def test_insert_into_postgres_activity_inserts_data_into_postgres_table(
     development postgres instance for testing. But we setup and manage our own database
     to avoid conflicting with PostHog itself.
     """
-    if isinstance(model, BatchExportModel) and model.name == "persons" and exclude_events is not None:
-        pytest.skip("Unnecessary test case as person batch export is not affected by 'exclude_events'")
+    if (
+        isinstance(model, BatchExportModel)
+        and (model.name == "persons" or model.name == "sessions")
+        and exclude_events is not None
+    ):
+        pytest.skip(f"Unnecessary test case as {model.name} batch export is not affected by 'exclude_events'")
 
     batch_export_schema: BatchExportSchema | None = None
     batch_export_model: BatchExportModel | None = None
@@ -266,6 +345,13 @@ async def test_insert_into_postgres_activity_inserts_data_into_postgres_table(
     with override_settings(BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2):
         await activity_environment.run(insert_into_postgres_activity, insert_inputs)
 
+    sort_key = "event"
+    if batch_export_model is not None:
+        if batch_export_model.name == "persons":
+            sort_key = "person_id"
+        elif batch_export_model.name == "sessions":
+            sort_key = "session_id"
+
     await assert_clickhouse_records_in_postgres(
         postgres_connection=postgres_connection,
         clickhouse_client=clickhouse_client,
@@ -276,11 +362,11 @@ async def test_insert_into_postgres_activity_inserts_data_into_postgres_table(
         data_interval_end=data_interval_end,
         batch_export_model=model,
         exclude_events=exclude_events,
-        sort_key="person_id" if batch_export_model is not None and batch_export_model.name == "persons" else "event",
+        sort_key=sort_key,
     )
 
 
-async def test_insert_into_postgres_activity_merges_data_in_follow_up_runs(
+async def test_insert_into_postgres_activity_merges_persons_data_in_follow_up_runs(
     clickhouse_client,
     activity_environment,
     postgres_connection,
@@ -298,10 +384,11 @@ async def test_insert_into_postgres_activity_merges_data_in_follow_up_runs(
     the second run.
     """
     model = BatchExportModel(name="persons", schema=None)
+    table_name = f"test_insert_activity_mutability_table_persons_{ateam.pk}"
 
     insert_inputs = PostgresInsertInputs(
         team_id=ateam.pk,
-        table_name=f"test_insert_activity_mutability_table__{ateam.pk}",
+        table_name=table_name,
         data_interval_start=data_interval_start.isoformat(),
         data_interval_end=data_interval_end.isoformat(),
         batch_export_model=model,
@@ -314,7 +401,7 @@ async def test_insert_into_postgres_activity_merges_data_in_follow_up_runs(
         postgres_connection=postgres_connection,
         clickhouse_client=clickhouse_client,
         schema_name=postgres_config["schema"],
-        table_name=f"test_insert_activity_mutability_table__{ateam.pk}",
+        table_name=table_name,
         team_id=ateam.pk,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
@@ -351,7 +438,7 @@ async def test_insert_into_postgres_activity_merges_data_in_follow_up_runs(
         postgres_connection=postgres_connection,
         clickhouse_client=clickhouse_client,
         schema_name=postgres_config["schema"],
-        table_name=f"test_insert_activity_mutability_table__{ateam.pk}",
+        table_name=table_name,
         team_id=ateam.pk,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
@@ -360,9 +447,187 @@ async def test_insert_into_postgres_activity_merges_data_in_follow_up_runs(
     )
 
 
+async def test_insert_into_postgres_activity_merges_sessions_data_in_follow_up_runs(
+    clickhouse_client,
+    activity_environment,
+    postgres_connection,
+    postgres_config,
+    generate_test_data,
+    data_interval_start,
+    data_interval_end,
+    ateam,
+):
+    """Test that the `insert_into_postgres_activity` merges new versions of rows.
+
+    This unit tests looks at the mutability handling capabilities of the aforementioned activity.
+    We will generate a new entry in the sessions table after an initial run. We expect the new
+    entry to have replaced the old ones in PostgreSQL after the second run.
+    """
+    model = BatchExportModel(name="sessions", schema=None)
+    table_name = f"test_insert_activity_mutability_table_sessions_{ateam.pk}"
+
+    insert_inputs = PostgresInsertInputs(
+        team_id=ateam.pk,
+        table_name=table_name,
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        batch_export_model=model,
+        **postgres_config,
+    )
+
+    await activity_environment.run(insert_into_postgres_activity, insert_inputs)
+
+    await assert_clickhouse_records_in_postgres(
+        postgres_connection=postgres_connection,
+        clickhouse_client=clickhouse_client,
+        schema_name=postgres_config["schema"],
+        table_name=table_name,
+        team_id=ateam.pk,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        batch_export_model=model,
+        sort_key="session_id",
+    )
+
+    events_to_export_created, _ = generate_test_data
+    event = events_to_export_created[0]
+
+    new_data_interval_start, new_data_interval_end = (
+        data_interval_start + dt.timedelta(hours=1),
+        data_interval_end + dt.timedelta(hours=1),
+    )
+
+    new_events, _, _ = await generate_test_events_in_clickhouse(
+        client=clickhouse_client,
+        team_id=ateam.pk,
+        start_time=new_data_interval_start,
+        end_time=new_data_interval_end,
+        count=1,
+        count_outside_range=0,
+        count_other_team=0,
+        duplicate=False,
+        properties=event["properties"],
+        person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
+        event_name=event["event"],
+        table="sharded_events",
+        insert_sessions=True,
+    )
+
+    insert_inputs.data_interval_start = new_data_interval_start.isoformat()
+    insert_inputs.data_interval_end = new_data_interval_end.isoformat()
+
+    await activity_environment.run(insert_into_postgres_activity, insert_inputs)
+
+    await assert_clickhouse_records_in_postgres(
+        postgres_connection=postgres_connection,
+        clickhouse_client=clickhouse_client,
+        schema_name=postgres_config["schema"],
+        table_name=table_name,
+        team_id=ateam.pk,
+        data_interval_start=new_data_interval_start,
+        data_interval_end=new_data_interval_end,
+        batch_export_model=model,
+        sort_key="session_id",
+    )
+
+    rows = []
+    async with postgres_connection.cursor() as cursor:
+        await cursor.execute(sql.SQL("SELECT * FROM {}").format(sql.Identifier(postgres_config["schema"], table_name)))
+
+        columns = [column.name for column in cursor.description]
+
+        for row in await cursor.fetchall():
+            event = dict(zip(columns, row))
+            rows.append(event)
+
+    new_event = new_events[0]
+    new_event_properties = new_event["properties"] or {}
+    assert len(rows) == 1
+    assert rows[0]["session_id"] == new_event_properties["$session_id"]
+    assert rows[0]["end_timestamp"] == dt.datetime.fromisoformat(new_event["timestamp"]).replace(tzinfo=dt.UTC)
+
+
 @pytest.fixture
 def table_name(ateam, interval):
-    return f"test_workflow_table_{ateam.pk}_{interval}"
+    return f"test_table_{ateam.pk}_{interval}"
+
+
+@pytest_asyncio.fixture
+async def persons_table_without_primary_key(postgres_connection, postgres_config, table_name):
+    """Managed a table for a persons batch export without a primary key."""
+    self_managed_table_name = table_name + f"_self_managed_{uuid.uuid4().hex}"
+
+    async with postgres_connection.transaction():
+        async with postgres_connection.cursor() as cursor:
+            await cursor.execute(
+                sql.SQL(
+                    """
+                    CREATE TABLE {table} (
+                        team_id BIGINT,
+                        distinct_id TEXT,
+                        person_id TEXT,
+                        properties JSONB,
+                        person_distinct_id_version BIGINT,
+                        person_version BIGINT,
+                        created_at TIMESTAMP,
+                        updated_at TIMESTAMP,
+                        is_deleted BOOLEAN
+                    )
+                    """
+                ).format(table=sql.Identifier(postgres_config["schema"], self_managed_table_name))
+            )
+
+    yield self_managed_table_name
+
+    async with postgres_connection.transaction():
+        async with postgres_connection.cursor() as cursor:
+            await cursor.execute(
+                sql.SQL("DROP TABLE IF EXISTS {table}").format(
+                    table=sql.Identifier(postgres_config["schema"], self_managed_table_name)
+                )
+            )
+
+
+@pytest.mark.parametrize("model", [BatchExportModel(name="persons", schema=None)])
+async def test_insert_into_postgres_activity_inserts_fails_on_missing_primary_key(
+    activity_environment,
+    postgres_config,
+    exclude_events,
+    model: BatchExportModel | BatchExportSchema | None,
+    data_interval_start,
+    data_interval_end,
+    ateam,
+    generate_test_data,
+    persons_table_without_primary_key,
+):
+    """Test the insert_into_postgres_activity function fails when missing a primary key.
+
+    We use a self-managed, previously created postgresql table to export persons data to.
+    Since this table does not have a primary key, the merge query should fail.
+
+    This error should only occur if the table is created outside the batch export.
+    """
+    batch_export_schema: BatchExportSchema | None = None
+    batch_export_model: BatchExportModel | None = None
+    if isinstance(model, BatchExportModel):
+        batch_export_model = model
+    elif model is not None:
+        batch_export_schema = model
+
+    insert_inputs = PostgresInsertInputs(
+        team_id=ateam.pk,
+        table_name=persons_table_without_primary_key,
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        exclude_events=exclude_events,
+        batch_export_schema=batch_export_schema,
+        batch_export_model=batch_export_model,
+        **postgres_config,
+    )
+
+    with pytest.raises(MissingPrimaryKeyError):
+        with override_settings(BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2):
+            await activity_environment.run(insert_into_postgres_activity, insert_inputs)
 
 
 @pytest_asyncio.fixture
@@ -411,7 +676,11 @@ async def test_postgres_export_workflow(
     The workflow should update the batch export run status to completed and produce the expected
     records to the local development PostgreSQL database.
     """
-    if isinstance(model, BatchExportModel) and model.name == "persons" and exclude_events is not None:
+    if (
+        isinstance(model, BatchExportModel)
+        and (model.name == "persons" or model.name == "sessions")
+        and exclude_events is not None
+    ):
         pytest.skip("Unnecessary test case as person batch export is not affected by 'exclude_events'")
 
     batch_export_schema: BatchExportSchema | None = None
@@ -432,10 +701,17 @@ async def test_postgres_export_workflow(
         **postgres_batch_export.destination.config,
     )
 
+    sort_key = "event"
+    if batch_export_model is not None:
+        if batch_export_model.name == "persons":
+            sort_key = "person_id"
+        elif batch_export_model.name == "sessions":
+            sort_key = "session_id"
+
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
             workflows=[PostgresBatchExportWorkflow],
             activities=[
                 start_batch_export_run,
@@ -449,7 +725,7 @@ async def test_postgres_export_workflow(
                     PostgresBatchExportWorkflow.run,
                     inputs,
                     id=workflow_id,
-                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                    task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                     execution_timeout=dt.timedelta(seconds=10),
                 )
@@ -461,8 +737,12 @@ async def test_postgres_export_workflow(
 
     run = runs[0]
     assert run.status == "Completed"
-    assert run.records_completed == len(events_to_export_created) or run.records_completed == len(
-        persons_to_export_created
+    assert (
+        run.records_completed == len(events_to_export_created)
+        or run.records_completed == len(persons_to_export_created)
+        or run.records_completed
+        == len([event for event in events_to_export_created if event["properties"] is not None])
+        or (isinstance(model, BatchExportModel) and model.name == "sessions" and run.records_completed == 1)
     )
 
     await assert_clickhouse_records_in_postgres(
@@ -475,7 +755,7 @@ async def test_postgres_export_workflow(
         data_interval_end=data_interval_end,
         batch_export_model=model,
         exclude_events=exclude_events,
-        sort_key="person_id" if batch_export_model is not None and batch_export_model.name == "persons" else "event",
+        sort_key=sort_key,
     )
 
 
@@ -499,7 +779,11 @@ async def test_postgres_export_workflow_without_events(
 
     The workflow should update the batch export run status to completed and set 0 as `records_completed`.
     """
-    if isinstance(model, BatchExportModel) and model.name == "persons" and exclude_events is not None:
+    if (
+        isinstance(model, BatchExportModel)
+        and (model.name == "persons" or model.name == "sessions")
+        and exclude_events is not None
+    ):
         pytest.skip("Unnecessary test case as person batch export is not affected by 'exclude_events'")
 
     batch_export_schema: BatchExportSchema | None = None
@@ -523,7 +807,7 @@ async def test_postgres_export_workflow_without_events(
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
             workflows=[PostgresBatchExportWorkflow],
             activities=[
                 start_batch_export_run,
@@ -537,7 +821,7 @@ async def test_postgres_export_workflow_without_events(
                     PostgresBatchExportWorkflow.run,
                     inputs,
                     id=workflow_id,
-                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                    task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                     execution_timeout=dt.timedelta(seconds=10),
                 )
@@ -552,9 +836,9 @@ async def test_postgres_export_workflow_without_events(
 
 @pytest.mark.parametrize(
     "data_interval_start",
-    # This is hardcoded relative to the `data_interval_end` used in all or most tests, since that's also
-    # passed to `generate_test_data` to determine the timestamp for the generated data.
-    [dt.datetime(2023, 4, 24, 15, 0, 0, tzinfo=dt.UTC)],
+    # This is set to 24 hours before the `data_interval_end` to ensure that the data created is outside the batch
+    # interval.
+    [dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0) - dt.timedelta(hours=24)],
     indirect=True,
 )
 @pytest.mark.parametrize("interval", ["hour"], indirect=True)
@@ -578,6 +862,12 @@ async def test_postgres_export_workflow_backfill_earliest_persons(
     We expect persons outside the batch interval to also be backfilled (i.e. persons that were updated
     more than an hour ago) when setting `is_earliest_backfill=True`.
     """
+    backfill_details = BackfillDetails(
+        backfill_id=None,
+        is_earliest_backfill=True,
+        start_at=None,
+        end_at=data_interval_end.isoformat(),
+    )
     workflow_id = str(uuid.uuid4())
     inputs = PostgresBatchExportInputs(
         team_id=ateam.pk,
@@ -585,8 +875,7 @@ async def test_postgres_export_workflow_backfill_earliest_persons(
         data_interval_end=data_interval_end.isoformat(),
         interval=interval,
         batch_export_model=model,
-        is_backfill=True,
-        is_earliest_backfill=True,
+        backfill_details=backfill_details,
         **postgres_batch_export.destination.config,
     )
     _, persons = generate_test_data
@@ -599,7 +888,7 @@ async def test_postgres_export_workflow_backfill_earliest_persons(
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
             workflows=[PostgresBatchExportWorkflow],
             activities=[
                 start_batch_export_run,
@@ -612,7 +901,7 @@ async def test_postgres_export_workflow_backfill_earliest_persons(
                 PostgresBatchExportWorkflow.run,
                 inputs,
                 id=workflow_id,
-                task_queue=settings.TEMPORAL_TASK_QUEUE,
+                task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=1),
                 execution_timeout=dt.timedelta(minutes=10),
             )
@@ -635,6 +924,7 @@ async def test_postgres_export_workflow_backfill_earliest_persons(
         batch_export_model=model,
         exclude_events=exclude_events,
         sort_key="person_id",
+        backfill_details=backfill_details,
     )
 
 
@@ -658,7 +948,7 @@ async def test_postgres_export_workflow_handles_insert_activity_errors(ateam, po
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
             workflows=[PostgresBatchExportWorkflow],
             activities=[
                 mocked_start_batch_export_run,
@@ -672,7 +962,7 @@ async def test_postgres_export_workflow_handles_insert_activity_errors(ateam, po
                     PostgresBatchExportWorkflow.run,
                     inputs,
                     id=workflow_id,
-                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                    task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
 
@@ -710,7 +1000,7 @@ async def test_postgres_export_workflow_handles_insert_activity_non_retryable_er
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
             workflows=[PostgresBatchExportWorkflow],
             activities=[
                 mocked_start_batch_export_run,
@@ -724,7 +1014,7 @@ async def test_postgres_export_workflow_handles_insert_activity_non_retryable_er
                     PostgresBatchExportWorkflow.run,
                     inputs,
                     id=workflow_id,
-                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                    task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
 
@@ -759,7 +1049,7 @@ async def test_postgres_export_workflow_handles_cancellation(ateam, postgres_bat
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
             workflows=[PostgresBatchExportWorkflow],
             activities=[
                 mocked_start_batch_export_run,
@@ -772,7 +1062,7 @@ async def test_postgres_export_workflow_handles_cancellation(ateam, postgres_bat
                 PostgresBatchExportWorkflow.run,
                 inputs,
                 id=workflow_id,
-                task_queue=settings.TEMPORAL_TASK_QUEUE,
+                task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )
             await asyncio.sleep(5)
@@ -788,3 +1078,267 @@ async def test_postgres_export_workflow_handles_cancellation(ateam, postgres_bat
     assert run.status == "Cancelled"
     assert run.latest_error == "Cancelled"
     assert run.records_completed is None
+
+
+async def test_insert_into_postgres_activity_handles_person_schema_changes(
+    clickhouse_client,
+    activity_environment,
+    postgres_connection,
+    postgres_config,
+    generate_test_data,
+    data_interval_start,
+    data_interval_end,
+    ateam,
+):
+    """Test that the `insert_into_postgres_activity` handles changes to the
+    person schema.
+
+    If we update the schema of the persons model we export, we should still be
+    able to export the data without breaking existing exports. For example, any
+    new fields should not be added to the destination (in future we may want to
+    allow this but for now we don't).
+
+    To replicate this situation we first export the data with the original
+    schema, then delete a column in the destination and then rerun the export.
+    """
+    model = BatchExportModel(name="persons", schema=None)
+
+    insert_inputs = PostgresInsertInputs(
+        team_id=ateam.pk,
+        table_name=f"test_insert_activity_migration_table__{ateam.pk}",
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        batch_export_model=model,
+        **postgres_config,
+    )
+
+    await activity_environment.run(insert_into_postgres_activity, insert_inputs)
+
+    await assert_clickhouse_records_in_postgres(
+        postgres_connection=postgres_connection,
+        clickhouse_client=clickhouse_client,
+        schema_name=postgres_config["schema"],
+        table_name=f"test_insert_activity_migration_table__{ateam.pk}",
+        team_id=ateam.pk,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        batch_export_model=model,
+        sort_key="person_id",
+    )
+
+    # Drop the created_at column from the PostgreSQL table
+    async with postgres_connection.transaction():
+        async with postgres_connection.cursor() as cursor:
+            await cursor.execute(
+                sql.SQL("ALTER TABLE {table} DROP COLUMN created_at").format(
+                    table=sql.Identifier(postgres_config["schema"], f"test_insert_activity_migration_table__{ateam.pk}")
+                )
+            )
+
+    _, persons_to_export_created = generate_test_data
+
+    for old_person in persons_to_export_created[: len(persons_to_export_created) // 2]:
+        new_person_id = uuid.uuid4()
+        new_person, _ = await generate_test_persons_in_clickhouse(
+            client=clickhouse_client,
+            team_id=ateam.pk,
+            start_time=data_interval_start,
+            end_time=data_interval_end,
+            person_id=new_person_id,
+            count=1,
+            properties={"utm_medium": "referral", "$initial_os": "Linux", "new_property": "Something"},
+        )
+
+        await generate_test_person_distinct_id2_in_clickhouse(
+            clickhouse_client,
+            ateam.pk,
+            person_id=uuid.UUID(new_person[0]["id"]),
+            distinct_id=old_person["distinct_id"],
+            version=old_person["version"] + 1,
+            timestamp=old_person["_timestamp"],
+        )
+
+    await activity_environment.run(insert_into_postgres_activity, insert_inputs)
+
+    # This time we don't expect there to be a created_at column
+    expected_fields = [field for field in EXPECTED_PERSONS_BATCH_EXPORT_FIELDS if field != "created_at"]
+
+    await assert_clickhouse_records_in_postgres(
+        postgres_connection=postgres_connection,
+        clickhouse_client=clickhouse_client,
+        schema_name=postgres_config["schema"],
+        table_name=f"test_insert_activity_migration_table__{ateam.pk}",
+        team_id=ateam.pk,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        batch_export_model=model,
+        sort_key="person_id",
+        expected_fields=expected_fields,
+    )
+
+
+async def test_postgres_export_workflow_with_many_files(
+    clickhouse_client,
+    postgres_connection,
+    interval,
+    postgres_batch_export,
+    ateam,
+    exclude_events,
+    generate_test_data,
+    data_interval_start,
+    data_interval_end,
+    postgres_config,
+):
+    """Test Postgres Export Workflow end-to-end with multiple file uploads.
+
+    This test overrides the chunk size and sets it to 10 bytes to trigger multiple file uploads.
+    We want to assert that all files are properly copied into the table. Of course, 10 bytes limit
+    means we are uploading one file at a time, which is very inefficient. For this reason, this test
+    can take longer, so we keep the event count low and bump the Workflow timeout.
+    """
+
+    model = BatchExportModel(name="events", schema=None)
+
+    workflow_id = str(uuid.uuid4())
+    inputs = PostgresBatchExportInputs(
+        team_id=ateam.pk,
+        batch_export_id=str(postgres_batch_export.id),
+        data_interval_end=data_interval_end.isoformat(),
+        interval=interval,
+        batch_export_model=model,
+        **postgres_batch_export.destination.config,
+    )
+
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+            workflows=[PostgresBatchExportWorkflow],
+            activities=[
+                start_batch_export_run,
+                insert_into_postgres_activity,
+                finish_batch_export_run,
+            ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with override_settings(
+                BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES=10, CLICKHOUSE_MAX_BLOCK_SIZE_DEFAULT=10
+            ):
+                await activity_environment.client.execute_workflow(
+                    PostgresBatchExportWorkflow.run,
+                    inputs,
+                    id=workflow_id,
+                    task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                    execution_timeout=dt.timedelta(minutes=2),
+                )
+
+    runs = await afetch_batch_export_runs(batch_export_id=postgres_batch_export.id)
+    assert len(runs) == 1
+
+    run = runs[0]
+    assert run.status == "Completed"
+
+    await assert_clickhouse_records_in_postgres(
+        postgres_connection=postgres_connection,
+        clickhouse_client=clickhouse_client,
+        schema_name=postgres_config["schema"],
+        table_name=postgres_batch_export.destination.config["table_name"],
+        team_id=ateam.pk,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        exclude_events=exclude_events,
+        batch_export_model=model,
+        sort_key="event",
+    )
+
+
+@pytest.mark.parametrize("model", [BatchExportModel(name="persons", schema=None)])
+async def test_insert_into_postgres_activity_completes_range_when_there_is_a_failure(
+    clickhouse_client,
+    activity_environment,
+    postgres_connection,
+    interval,
+    postgres_batch_export,
+    ateam,
+    exclude_events,
+    generate_test_data,
+    data_interval_start,
+    data_interval_end,
+    postgres_config,
+    model,
+):
+    """Test that the insert_into_postgres_activity can resume from a failure using heartbeat details."""
+    table_name = f"test_insert_activity_table_{ateam.pk}"
+
+    events_to_create, persons_to_create = generate_test_data
+    total_records = len(persons_to_create) if model.name == "persons" else len(events_to_create)
+    # fail halfway through
+    fail_after_records = total_records // 2
+
+    heartbeat_details: list[PostgreSQLHeartbeatDetails] = []
+
+    def track_heartbeat_details(*details):
+        """Record heartbeat details received."""
+        nonlocal heartbeat_details
+        postgres_details = PostgreSQLHeartbeatDetails.from_activity_details(details)
+        heartbeat_details.append(postgres_details)
+
+    activity_environment.on_heartbeat = track_heartbeat_details
+
+    insert_inputs = PostgresInsertInputs(
+        team_id=ateam.pk,
+        table_name=table_name,
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        exclude_events=exclude_events,
+        batch_export_model=model,
+        **postgres_config,
+    )
+
+    with unittest.mock.patch(
+        "posthog.temporal.common.clickhouse.ClickHouseClient",
+        lambda *args, **kwargs: FlakyClickHouseClient(*args, **kwargs, fail_after_records=fail_after_records),
+    ):
+        # We expect this to raise an exception
+        with pytest.raises(RecordBatchTaskError):
+            await activity_environment.run(insert_into_postgres_activity, insert_inputs)
+
+    assert len(heartbeat_details) > 0
+    detail = heartbeat_details[-1]
+    assert len(detail.done_ranges) > 0
+    assert detail.records_completed == fail_after_records
+
+    # Now we resume from the heartbeat
+    previous_info = dataclasses.asdict(activity_environment.info)
+    previous_info["heartbeat_details"] = detail.serialize_details()
+    new_info = activity.Info(
+        **previous_info,
+    )
+
+    activity_environment.info = new_info
+
+    await activity_environment.run(insert_into_postgres_activity, insert_inputs)
+
+    assert len(heartbeat_details) > 0
+    detail = heartbeat_details[-1]
+    assert len(detail.done_ranges) == 1
+    assert detail.done_ranges[0] == (data_interval_start, data_interval_end)
+
+    sort_key = "event" if model.name == "events" else "person_id"
+
+    # Verify all the data for the whole range was exported correctly
+    await assert_clickhouse_records_in_postgres(
+        postgres_connection=postgres_connection,
+        clickhouse_client=clickhouse_client,
+        schema_name=postgres_config["schema"],
+        table_name=table_name,
+        team_id=ateam.pk,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        batch_export_model=model,
+        exclude_events=exclude_events,
+        sort_key=sort_key,
+        expect_duplicates=True,
+        primary_key=["uuid"] if model.name == "events" else ["distinct_id", "person_id"],
+    )

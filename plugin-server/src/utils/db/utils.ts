@@ -1,7 +1,7 @@
 import { Properties } from '@posthog/plugin-scaffold'
-import * as Sentry from '@sentry/node'
-import { ProducerRecord } from 'kafkajs'
 import { Counter } from 'prom-client'
+
+import { TopicMessage } from '~/src/kafka/producer'
 
 import { defaultConfig } from '../../config/config'
 import { KAFKA_PERSON } from '../../config/kafka-topics'
@@ -16,9 +16,13 @@ import {
 } from '../../types'
 import { status } from '../../utils/status'
 import { areMapsEqual, castTimestampOrNow } from '../../utils/utils'
+import { captureException } from '../posthog'
 
 export function unparsePersonPartial(person: Partial<InternalPerson>): Partial<RawPerson> {
-    return { ...(person as BasePerson), ...(person.created_at ? { created_at: person.created_at.toISO() } : {}) }
+    return {
+        ...(person as BasePerson),
+        ...(person.created_at ? { created_at: person.created_at.toISO() ?? undefined } : {}),
+    }
 }
 
 export function escapeQuotes(input: string): string {
@@ -46,7 +50,7 @@ export function timeoutGuard(
         const ctx = typeof context === 'function' ? context() : context
         status.warn('⌛', message, ctx)
         if (sendToSentry) {
-            Sentry.captureMessage(message, ctx ? { extra: ctx } : undefined)
+            captureException(message, ctx ? { extra: ctx } : undefined)
         }
     }, timeout)
 }
@@ -74,6 +78,8 @@ export const campaignParams = new Set([
     'igshid', // instagram
     'ttclid', // tiktok
     'rdt_cid', // reddit
+    'irclid', // impact
+    '_kx', // klaviyo
 ])
 
 export const initialCampaignParams = new Set(Array.from(campaignParams, (key) => `$initial_${key.replace('$', '')}`))
@@ -176,7 +182,7 @@ export function hasDifferenceWithProposedNewNormalisationMode(properties: Proper
     return !areMapsEqual(setOnce, filteredSetOnce)
 }
 
-export function generateKafkaPersonUpdateMessage(person: InternalPerson, isDeleted = false): ProducerRecord {
+export function generateKafkaPersonUpdateMessage(person: InternalPerson, isDeleted = false): TopicMessage {
     return {
         topic: KAFKA_PERSON,
         messages: [

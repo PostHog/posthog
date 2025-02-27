@@ -55,6 +55,9 @@ select = [
 [tool.ruff.lint.mccabe]
 max-complexity = 10
 
+[tool.ruff.lint.isort]
+combine-as-imports = true
+
 [tool.ruff.lint.per-file-ignores]
 "./posthog/queries/column_optimizer/column_optimizer.py" = ["F401"]
 "./posthog/migrations/0027_move_elements_to_group.py" = ["T201"]
@@ -97,3 +100,9 @@ max-complexity = 10
 "./posthog/management/commands/test_migrations_are_safe.py" = ["T201"]
 "./posthog/management/commands/api_keys.py" = ["T201"]
 "./posthog/demo/matrix/manager.py" = ["T201"]
+
+[tool.dagster]
+python_version = "3.11"
+module_name = "dags.definitions"
+code_location_name = "dags"
+home = "/tmp/posthog-dagster/"

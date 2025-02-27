@@ -7,7 +7,7 @@ import {
     InsightActorsQueryOptions,
     InsightActorsQueryOptionsResponse,
     NodeKind,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import { isInsightActorsQuery } from '~/queries/utils'
 
 import type { insightActorsQueryOptionsLogicType } from './insightActorsQueryOptionsLogicType'

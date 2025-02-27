@@ -48,8 +48,12 @@ services:
             - ./posthog/posthog/idl:/idl
             - ./posthog/docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
             - ./posthog/docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
+            - ./posthog/docker/clickhouse/config.d/default.xml:/etc/clickhouse-server/config.d/default.xml
             - ./posthog/docker/clickhouse/users.xml:/etc/clickhouse-server/users.xml
+            - ./posthog/docker/clickhouse/user_defined_function.xml:/etc/clickhouse-server/user_defined_function.xml
+            - ./posthog/posthog/user_scripts:/var/lib/clickhouse/user_scripts
             - clickhouse-data:/var/lib/clickhouse
+
     zookeeper:
         extends:
             file: docker-compose.base.yml
@@ -96,6 +100,7 @@ services:
         environment:
             SENTRY_DSN: $SENTRY_DSN
             SITE_URL: https://$DOMAIN
+            LIVESTREAM_HOST: 'https://${DOMAIN}:8666'
             SECRET_KEY: $POSTHOG_SECRET
             OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
             OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
@@ -218,6 +223,70 @@ services:
             - kafka
             - objectstorage
             - temporal
+
+    cyclotron-fetch:
+        extends:
+            file: docker-compose.base.yml
+            service: cyclotron-fetch
+        build:
+            context: ./posthog/rust
+        environment:
+            DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            KAFKA_HOSTS: 'kafka:9092'
+            SENTRY_DSN: $SENTRY_DSN
+        depends_on:
+            db:
+                condition: service_healthy
+            kafka:
+                condition: service_started
+
+    cyclotron-janitor:
+        extends:
+            file: docker-compose.base.yml
+            service: cyclotron-janitor
+        build:
+            context: ./posthog/rust
+        environment:
+            DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            KAFKA_HOSTS: 'kafka:9092'
+            SENTRY_DSN: $SENTRY_DSN
+        depends_on:
+            db:
+                condition: service_healthy
+            kafka:
+                condition: service_started
+
+    capture:
+        build:
+            context: ./posthog/rust
+        extends:
+            file: docker-compose.base.yml
+            service: capture
+
+    replay-capture:
+        build:
+            context: ./posthog/rust
+        extends:
+            file: docker-compose.base.yml
+            service: replay-capture
+
+    property-defs-rs:
+        build:
+            context: ./posthog/rust
+        extends:
+            file: docker-compose.base.yml
+            service: property-defs-rs
+
+    livestream:
+        extends:
+            file: docker-compose.base.yml
+            service: livestream
+        environment:
+            - JWT.TOKEN=${POSTHOG_SECRET}
+        ports:
+            - '8666:8080'
+        volumes:
+            - ./posthog/docker/livestream/configs-dev.yml:/configs/configs.yml
 
 volumes:
     zookeeper-data:

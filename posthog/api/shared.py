@@ -29,6 +29,7 @@ class UserBasicSerializer(serializers.ModelSerializer):
             "email",
             "is_email_verified",
             "hedgehog_config",
+            "role_at_organization",
         ]
 
     def get_hedgehog_config(self, user: User) -> Optional[dict]:
@@ -199,13 +200,7 @@ class TeamPublicSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Team
-        fields = (
-            "id",
-            "project_id",
-            "uuid",
-            "name",
-            "timezone",
-        )
+        fields = ("id", "project_id", "uuid", "name", "timezone", "default_data_theme")
         read_only_fields = fields
 
 

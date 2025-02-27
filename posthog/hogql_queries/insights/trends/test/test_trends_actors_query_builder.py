@@ -17,14 +17,14 @@ from posthog.schema import (
     Compare,
     CompareFilter,
     EventsNode,
-    InsightDateRange,
+    DateRange,
     IntervalType,
     TrendsFilter,
     TrendsQuery,
 )
 from posthog.test.base import BaseTest
 
-default_query = TrendsQuery(series=[EventsNode(event="$pageview")], dateRange=InsightDateRange(date_from="-7d"))
+default_query = TrendsQuery(series=[EventsNode(event="$pageview")], dateRange=DateRange(date_from="-7d"))
 
 
 class TestTrendsActorsQueryBuilder(BaseTest):
@@ -339,9 +339,7 @@ class TestTrendsActorsQueryBuilder(BaseTest):
         self.team.timezone = "Europe/Berlin"
 
         trends_query = default_query.model_copy(
-            update={
-                "dateRange": InsightDateRange(date_from="2024-05-08T14:29:13.634000Z", date_to=None, explicitDate=True)
-            },
+            update={"dateRange": DateRange(date_from="2024-05-08T14:29:13.634000Z", date_to=None, explicitDate=True)},
             deep=True,
         )
         with freeze_time("2024-05-08T15:32:00.000Z"):
@@ -353,7 +351,7 @@ class TestTrendsActorsQueryBuilder(BaseTest):
     def test_date_range_explicit_date_to(self):
         trends_query = default_query.model_copy(
             update={
-                "dateRange": InsightDateRange(
+                "dateRange": DateRange(
                     date_from="2024-05-08T14:29:13.634000Z", date_to="2024-05-08T14:32:57.692000Z", explicitDate=True
                 )
             },
@@ -370,7 +368,7 @@ class TestTrendsActorsQueryBuilder(BaseTest):
         trends_query = default_query.model_copy(
             update={
                 "series": [EventsNode(event="$pageview", math=BaseMathType.MONTHLY_ACTIVE)],
-                "dateRange": InsightDateRange(
+                "dateRange": DateRange(
                     date_from="2024-05-08T14:29:13.634000Z", date_to="2024-05-08T14:32:57.692000Z", explicitDate=True
                 ),
             },

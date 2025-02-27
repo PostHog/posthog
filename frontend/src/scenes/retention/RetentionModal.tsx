@@ -15,7 +15,7 @@ import { MissingPersonsAlert } from 'scenes/trends/persons-modal/PersonsModal'
 import { urls } from 'scenes/urls'
 
 import { MAX_SELECT_RETURNED_ROWS, startDownload } from '~/queries/nodes/DataTable/DataTableExport'
-import { DataTableNode, NodeKind } from '~/queries/schema'
+import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { ExporterFormat } from '~/types'
 
 import { retentionLogic } from './retentionLogic'
@@ -30,9 +30,11 @@ export function RetentionModal(): JSX.Element | null {
     const { aggregationTargetLabel, selectedInterval, exploreUrl, actorsQuery } = useValues(
         retentionModalLogic(insightProps)
     )
+    const { theme } = useValues(retentionModalLogic(insightProps))
     const { closeModal } = useActions(retentionModalLogic(insightProps))
     const { startExport } = useActions(exportsLogic)
 
+    const backgroundColor = theme?.['preset-1'] || '#000000' // Default to black if no color found
     const dataTableNodeQuery: DataTableNode | undefined = actorsQuery
         ? {
               kind: NodeKind.DataTableNode,
@@ -107,7 +109,15 @@ export function RetentionModal(): JSX.Element | null {
                     <span>No {aggregationTargetLabel.plural} during this period.</span>
                 ) : (
                     <>
-                        <table className="RetentionTable RetentionTable--non-interactive">
+                        <table
+                            className="RetentionTable RetentionTable--non-interactive"
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={
+                                {
+                                    '--retention-table-color': backgroundColor,
+                                } as React.CSSProperties
+                            }
+                        >
                             <tbody>
                                 <tr>
                                     <th>{capitalizeFirstLetter(aggregationTargetLabel.singular)}</th>
@@ -118,7 +128,7 @@ export function RetentionModal(): JSX.Element | null {
                                                 {data.count}
                                                 &nbsp;
                                                 {data.count > 0 && (
-                                                    <span className="text-muted">
+                                                    <span className="text-secondary">
                                                         ({percentage(data.count / row?.values[0]['count'])})
                                                     </span>
                                                 )}
@@ -148,7 +158,7 @@ export function RetentionModal(): JSX.Element | null {
                                                     <LemonButton
                                                         size="small"
                                                         to={urls.personByDistinctId(
-                                                            personAppearances.person.distinct_ids[0]
+                                                            personAppearances.person.distinct_ids?.[0]
                                                         )}
                                                         data-attr="retention-person-link"
                                                     >
