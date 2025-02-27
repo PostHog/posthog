@@ -283,6 +283,16 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
                 )
             }
             break
+        case WebStatsBreakdown.OS:
+            if (typeof value === 'string') {
+                return (
+                    <div className="flex items-center gap-2">
+                        <PropertyIcon property="$os" value={value} />
+                        <span>{value}</span>
+                    </div>
+                )
+            }
+            break
     }
 
     if (typeof value === 'string') {
@@ -488,7 +498,7 @@ export const WebStatsTrendTile = ({
                 geographyTab: hasCountryFilter ? undefined : GeographyTab.REGIONS,
             })
         },
-        [togglePropertyFilter, worldMapPropertyName]
+        [togglePropertyFilter, worldMapPropertyName, hasCountryFilter]
     )
 
     const context = useMemo((): QueryContext => {

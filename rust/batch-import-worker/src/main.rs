@@ -1,9 +1,6 @@
 use std::{
     future::ready,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
+    sync::{atomic::Ordering, Arc},
     time::Duration,
 };
 
@@ -13,10 +10,11 @@ use batch_import_worker::{
     config::Config,
     context::AppContext,
     job::{model::JobModel, Job},
+    spawn_liveness_loop,
 };
 use common_metrics::{serve, setup_metrics_routes};
 use envconfig::Envconfig;
-use health::HealthHandle;
+
 use tokio::task::JoinHandle;
 use tracing::{error, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
@@ -66,12 +64,7 @@ pub async fn main() -> Result<(), Error> {
 
     start_health_liveness_server(&config, context.clone());
 
-    let liveness = context
-        .health_registry
-        .register("main-loop".to_string(), Duration::from_secs(30))
-        .await;
-
-    let liveness = Arc::new(liveness);
+    let liveness = context.worker_liveness.clone();
 
     while context.is_running() {
         liveness.report_healthy().await;
@@ -87,7 +80,7 @@ pub async fn main() -> Result<(), Error> {
 
         info!("Claimed job: {:?}", model.id);
 
-        let init_liveness_run = start_init_liveness_loop(liveness.clone());
+        let init_liveness_run = spawn_liveness_loop(liveness.clone());
         let mut next_step = Some(Job::new(model, context.clone()).await?);
         init_liveness_run.store(false, Ordering::Relaxed);
 
@@ -117,22 +110,4 @@ pub async fn main() -> Result<(), Error> {
     info!("Shutting down");
 
     Ok(())
-}
-
-// During job init, we can hang for a long time initialising sinks or sources, so we kick off a task to
-// report that we're alive while we do it.
-fn start_init_liveness_loop(liveness: Arc<HealthHandle>) -> Arc<AtomicBool> {
-    let run = Arc::new(AtomicBool::new(true));
-    let liveness = liveness.clone();
-    let run_weak = Arc::downgrade(&run); // Use a weak so if the returned arc is dropped the task will exit
-    tokio::task::spawn(async move {
-        let Some(flag) = run_weak.upgrade() else {
-            return;
-        };
-        while flag.load(Ordering::Relaxed) {
-            liveness.report_healthy().await;
-            tokio::time::sleep(Duration::from_secs(5)).await;
-        }
-    });
-    run
 }

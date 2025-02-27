@@ -45,7 +45,7 @@ from .event_property import EventProperty
 from .experiment import Experiment
 from .exported_asset import ExportedAsset
 from .feature_flag import FeatureFlag
-from .feedback.survey import Survey
+from .surveys.survey import Survey
 from .file_system import FileSystem
 from .filters import Filter, RetentionFilter
 from .group import Group

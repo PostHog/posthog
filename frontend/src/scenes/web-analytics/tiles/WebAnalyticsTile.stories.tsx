@@ -23,7 +23,7 @@ const meta: Meta<typeof Query> = {
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
-        featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_TABLE_SORTING],
+        featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_TABLE_SORTING, FEATURE_FLAGS.WEB_ANALYTICS_DOMAIN_DROPDOWN],
     },
     decorators: [
         mswDecorator({

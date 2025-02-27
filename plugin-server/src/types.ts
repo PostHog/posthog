@@ -25,6 +25,7 @@ import { ObjectStorage } from './main/services/object_storage'
 import { Celery } from './utils/db/celery'
 import { DB } from './utils/db/db'
 import { PostgresRouter } from './utils/db/postgres'
+import { GeoIPService } from './utils/geoip'
 import { UUID } from './utils/utils'
 import { ActionManager } from './worker/ingestion/action-manager'
 import { ActionMatcher } from './worker/ingestion/action-matcher'
@@ -73,7 +74,6 @@ export enum KafkaSaslMechanism {
 }
 
 export enum PluginServerMode {
-    all_v2 = 'all-v2',
     ingestion = 'ingestion',
     ingestion_v2 = 'ingestion-v2',
     ingestion_overflow = 'ingestion-overflow',
@@ -224,6 +224,8 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     HTTP_SERVER_PORT: number
     SCHEDULE_LOCK_TTL: number // how many seconds to hold the lock for the schedule
     DISABLE_MMDB: boolean // whether to disable fetching MaxMind database for IP location
+    MMDB_FILE_LOCATION: string // if set we will load the MMDB file from this location instead of downloading it
+    MMDB_COMPARE_MODE: boolean // whether to compare the MMDB file to the local file
     DISTINCT_ID_LRU_SIZE: number
     EVENT_PROPERTY_LRU_SIZE: number // size of the event property tracker's LRU cache (keyed by [team.id, event])
     JOB_QUEUES: string // retry queue engine and fallback queues
@@ -373,6 +375,7 @@ export interface Hub extends PluginsServerConfig {
     celery: Celery
     // geoip database, setup in workers
     mmdb?: ReaderModel
+    geoipService: GeoIPService
     // functions
     enqueuePluginJob: (job: EnqueuedPluginJob) => Promise<void>
     // ValueMatchers used for various opt-in/out features

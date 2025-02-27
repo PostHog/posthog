@@ -22,6 +22,7 @@ import { DataWarehouseSavedQuery, ExportContext, QueryTabState } from '~/types'
 import { DATAWAREHOUSE_EDITOR_ITEM_ID } from '../external/dataWarehouseExternalSceneLogic'
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import type { multitabEditorLogicType } from './multitabEditorLogicType'
+import { ViewEmptyState } from './ViewLoadingState'
 
 export const dataNodeKey = insightVizDataNodeKey({
     dashboardItemId: DATAWAREHOUSE_EDITOR_ITEM_ID,
@@ -485,11 +486,20 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 title: 'Save as view',
                 initialValues: { viewName: values.activeModelUri?.name || '' },
                 description: `View names can only contain letters, numbers, '_', or '$'. Spaces are not allowed.`,
-                content: (
-                    <LemonField name="viewName">
-                        <LemonInput placeholder="Please enter the name of the view" autoFocus />
-                    </LemonField>
-                ),
+                content: (isLoading) =>
+                    isLoading ? (
+                        <div className="h-[37px] flex items-center">
+                            <ViewEmptyState />
+                        </div>
+                    ) : (
+                        <LemonField name="viewName">
+                            <LemonInput
+                                disabled={isLoading}
+                                placeholder="Please enter the name of the view"
+                                autoFocus
+                            />
+                        </LemonField>
+                    ),
                 errors: {
                     viewName: (name) =>
                         !name

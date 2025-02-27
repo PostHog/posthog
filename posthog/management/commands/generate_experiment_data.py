@@ -210,6 +210,7 @@ class Command(BaseCommand):
             )[0]
             variant_counts[variant] += 1
             distinct_id = str(uuid.uuid4())
+            feature_flag_property = f"$feature/{experiment_id}"
             random_timestamp = datetime.fromtimestamp(
                 random.uniform(
                     experiment_config.start_timestamp.timestamp(),
@@ -222,6 +223,7 @@ class Command(BaseCommand):
                 event="$feature_flag_called",
                 timestamp=random_timestamp,
                 properties={
+                    feature_flag_property: variant,
                     "$feature_flag_response": variant,
                     "$feature_flag": experiment_id,
                 },

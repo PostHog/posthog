@@ -106,7 +106,6 @@ export const onboardingLogic = kea<onboardingLogicType>([
         setAllOnboardingSteps: (allOnboardingSteps: AllOnboardingSteps) => ({ allOnboardingSteps }),
         setStepKey: (stepKey: OnboardingStepKey) => ({ stepKey }),
         setSubscribedDuringOnboarding: (subscribedDuringOnboarding: boolean) => ({ subscribedDuringOnboarding }),
-        setIncludeIntro: (includeIntro: boolean) => ({ includeIntro }),
         setTeamPropertiesForProduct: (productKey: ProductKey) => ({ productKey }),
         setWaitForBilling: (waitForBilling: boolean) => ({ waitForBilling }),
         goToNextStep: (numStepsToAdvance?: number) => ({ numStepsToAdvance }),
@@ -143,12 +142,6 @@ export const onboardingLogic = kea<onboardingLogicType>([
             false,
             {
                 setSubscribedDuringOnboarding: (_, { subscribedDuringOnboarding }) => subscribedDuringOnboarding,
-            },
-        ],
-        includeIntro: [
-            true,
-            {
-                setIncludeIntro: (_, { includeIntro }) => includeIntro,
             },
         ],
         waitForBilling: [

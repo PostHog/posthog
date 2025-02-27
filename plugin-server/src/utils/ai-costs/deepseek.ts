@@ -67,8 +67,8 @@ export const costs: ModelRow[] = [
     {
         model: 'deepseek-chat',
         cost: {
-            prompt_token: 0.0000009,
-            completion_token: 0.0000009,
+            prompt_token: 0.00000125,
+            completion_token: 0.00000125,
         },
     },
     {

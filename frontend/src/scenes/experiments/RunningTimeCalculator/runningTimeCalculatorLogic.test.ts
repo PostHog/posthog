@@ -17,6 +17,12 @@ describe('runningTimeCalculatorLogic', () => {
     describe('selectors', () => {
         it('calculates recommended sample size correctly', async () => {
             logic.actions.setMinimumDetectableEffect(5)
+            logic.actions.setMetricResult({
+                uniqueUsers: 28000,
+                averageEventsPerUser: 4,
+            })
+
+            await expectLogic(logic).toFinishAllListeners()
 
             await expectLogic(logic).toMatchValues({
                 minimumDetectableEffect: 5,
@@ -26,6 +32,14 @@ describe('runningTimeCalculatorLogic', () => {
         })
 
         it('calculates recommended running time correctly', async () => {
+            logic.actions.setMinimumDetectableEffect(5)
+            logic.actions.setMetricResult({
+                uniqueUsers: 28000,
+                averageEventsPerUser: 4,
+            })
+
+            await expectLogic(logic).toFinishAllListeners()
+
             await expectLogic(logic).toMatchValues({
                 recommendedRunningTime: expect.closeTo(6.4, 1),
             })

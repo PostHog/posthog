@@ -1,5 +1,7 @@
+from datetime import datetime
 import re
 from typing import Any, Optional, Union
+import uuid
 
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -71,6 +73,8 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
     sync_frequency_interval = models.DurationField(default=None, null=True, blank=True)
 
     table = models.ForeignKey("posthog.DataWarehouseTable", on_delete=models.SET_NULL, null=True, blank=True)
+    # The name of the view at the time of soft deletion
+    deleted_name = models.CharField(max_length=128, default=None, null=True, blank=True)
 
     class Meta:
         constraints = [
@@ -79,6 +83,14 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
                 name="posthog_datawarehouse_saved_query_unique_name",
             )
         ]
+
+    def soft_delete(self):
+        self.deleted = True
+        self.deleted_at = datetime.now()
+        self.deleted_name = self.name
+        self.name = f"POSTHOG_DELETED_{uuid.uuid4()}"
+
+        self.save()
 
     def get_columns(self) -> dict[str, dict[str, Any]]:
         from posthog.api.services.query import process_query_dict
@@ -214,4 +226,4 @@ def asave_saved_query(saved_query: DataWarehouseSavedQuery) -> None:
 
 @database_sync_to_async
 def aget_table_by_saved_query_id(saved_query_id: str, team_id: int):
-    return DataWarehouseSavedQuery.objects.get(id=saved_query_id, team_id=team_id).table
+    return DataWarehouseSavedQuery.objects.exclude(deleted=True).get(id=saved_query_id, team_id=team_id).table

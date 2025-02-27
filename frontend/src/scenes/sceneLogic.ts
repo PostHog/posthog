@@ -2,7 +2,7 @@ import { actions, BuiltLogic, connect, kea, listeners, path, props, reducers, se
 import { router, urlToAction } from 'kea-router'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { BarStatus } from 'lib/components/CommandBar/types'
-import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
+import { TeamMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
@@ -16,7 +16,7 @@ import { ProductKey } from '~/types'
 import { handleLoginRedirect } from './authentication/loginLogic'
 import { billingLogic } from './billing/billingLogic'
 import { SOURCE_DETAILS, sourceWizardLogic } from './data-warehouse/new/sourceWizardLogic'
-import { onboardingLogic, OnboardingStepKey } from './onboarding/onboardingLogic'
+import { OnboardingStepKey } from './onboarding/onboardingLogic'
 import { organizationLogic } from './organizationLogic'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
 import type { sceneLogicType } from './sceneLogicType'
@@ -276,25 +276,12 @@ export const sceneLogic = kea<sceneLogicType>([
                             productKeyFromUrl &&
                             teamLogic.values.currentTeam &&
                             !teamLogic.values.currentTeam?.has_completed_onboarding_for?.[productKeyFromUrl]
-                            // TODO: when removing ff PRODUCT_INTRO_PAGES - should this only happen when in
                             // cloud mode? What is the experience for self-hosted?
                         ) {
-                            // TODO: remove after PRODUCT_INTRO_PAGES experiment is complete
-                            posthog.capture('should view onboarding product intro', {
-                                did_view_intro: values.featureFlags[FEATURE_FLAGS.PRODUCT_INTRO_PAGES] === 'test',
-                                product_key: productKeyFromUrl,
-                                is_onboarding_first_product: !teamLogic.values.hasOnboardedAnyProduct,
-                            })
-                            if (
-                                values.featureFlags[FEATURE_FLAGS.PRODUCT_INTRO_PAGES] === 'test' ||
-                                !teamLogic.values.hasOnboardedAnyProduct
-                            ) {
+                            if (!teamLogic.values.hasOnboardedAnyProduct) {
                                 console.warn(
                                     `Onboarding not completed for ${productKeyFromUrl}, redirecting to onboarding intro`
                                 )
-                                onboardingLogic.mount()
-                                onboardingLogic.actions.setIncludeIntro(!!values.billing)
-                                onboardingLogic.unmount()
 
                                 if (
                                     scene === Scene.DataWarehouseTable &&

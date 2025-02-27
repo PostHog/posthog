@@ -16,6 +16,13 @@ export const costs: ModelRow[] = [
         },
     },
     {
+        model: 'claude-3.7-sonnet:thinking',
+        cost: {
+            prompt_token: 0.000003,
+            completion_token: 0.000015,
+        },
+    },
+    {
         model: 'claude-3.5-haiku-20241022:beta',
         cost: {
             prompt_token: 0.0000008,

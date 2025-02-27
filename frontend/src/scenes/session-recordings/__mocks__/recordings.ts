@@ -1,0 +1,58 @@
+import { SessionRecordingType } from '~/types'
+
+export const recordings: SessionRecordingType[] = [
+    {
+        id: '17c49bdf172ca-08eead1c4310948-455f6c-17eda0-17c49bdf1738b6',
+        viewed: true,
+        viewers: ['123456'],
+        recording_duration: 1172.675,
+        start_time: '2021-10-04T05:19:17.458000Z',
+        end_time: '2021-10-04T05:38:50.133000Z',
+        distinct_id: 'Nr5jM7FCbz1XaBmFBmsny4NrDmU9y9lOx1Cb3c2DAAw',
+        email: 'test@posthog.com',
+        click_count: 45,
+        keypress_count: 0,
+        snapshot_source: 'web',
+        person: {
+            id: '12345',
+            name: 'Ms Testy McTesterson',
+            distinct_ids: ['Nr5jM7FCbz1XaBmFBmsny4NrDmU9y9lOx1Cb3c2DAAw'],
+            properties: {
+                $os: 'Linux',
+                $browser: 'Microsoft Edge',
+                $referrer: '$direct',
+                $initial_os: 'Linux',
+                $geoip_country_name: 'Nigeria',
+                $geoip_country_code: 'NG',
+                email: 'test@posthog.com',
+            },
+        },
+    },
+    {
+        id: '017c49bd-a0ca-0000-5893-880c691608db',
+        viewed: false,
+        viewers: [],
+        recording_duration: 18.925,
+        start_time: '2021-10-04T05:18:56.711340Z',
+        end_time: '2021-10-04T05:19:15.636340Z',
+        distinct_id: '017c49bd-a046-0005-f9b9-74b06ed70f75',
+        email: 'smith.nunez@gmail.com',
+        click_count: 123,
+        keypress_count: 9,
+        snapshot_source: 'web',
+        person: {
+            id: '12345',
+            name: 'Ms Testy McTesterson',
+            distinct_ids: ['017c49bd-a046-0005-f9b9-74b06ed70f75'],
+            properties: {
+                $os: 'Linux',
+                $browser: 'Microsoft Edge',
+                $referrer: '$direct',
+                $initial_os: 'Linux',
+                $geoip_country_name: 'Nigeria',
+                $geoip_country_code: 'NG',
+                email: 'smith.nunez@gmail.com',
+            },
+        },
+    },
+]

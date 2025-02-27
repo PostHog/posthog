@@ -25,6 +25,9 @@ common-kafka = { path = "../common/kafka" }
 ahash = { workspace = true }
 uuid = { workspace = true }
 rand = { workspace = true }
+url =  { workspace = true }
+anyhow = { workspace = true }
+thiserror.workspace = true
 
 [lints]
 workspace = true

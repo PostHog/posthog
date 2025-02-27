@@ -73,7 +73,11 @@ export function convertToHogFunctionInvocationGlobals(
         }
     }
 
-    const eventTimestamp = clickHouseTimestampToISO(event.timestamp)
+    // TRICKY: the timsestamp can sometimes be an ISO for example if coming from the test api
+    // so we need to handle that case
+    const eventTimestamp = DateTime.fromISO(event.timestamp).isValid
+        ? event.timestamp
+        : clickHouseTimestampToISO(event.timestamp)
 
     const context: HogFunctionInvocationGlobals = {
         project: {

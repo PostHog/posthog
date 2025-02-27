@@ -1,8 +1,8 @@
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::{sync::atomic::AtomicBool, time::Duration};
 
 use anyhow::Error;
-use health::HealthRegistry;
+use health::{HealthHandle, HealthRegistry};
 use sqlx::postgres::PgPoolOptions;
 
 use crate::config::Config;
@@ -13,6 +13,7 @@ pub struct AppContext {
     pub encryption_keys: Vec<String>, // fernet, base64-urlsafe encoded 32-byte long key
     pub health_registry: HealthRegistry,
     pub running: AtomicBool, // Set to false on SIGTERM, etc.
+    pub worker_liveness: Arc<HealthHandle>,
 }
 
 impl AppContext {
@@ -21,6 +22,12 @@ impl AppContext {
 
         let options = PgPoolOptions::new().max_connections(config.max_pg_connections);
         let db = options.connect(&config.database_url).await?;
+
+        let liveness = health_registry
+            .register("main-loop".to_string(), Duration::from_secs(30))
+            .await;
+
+        let liveness = Arc::new(liveness);
 
         let ctx = Self {
             config: config.clone(),
@@ -32,6 +39,7 @@ impl AppContext {
                 .collect(),
             health_registry,
             running: AtomicBool::new(true),
+            worker_liveness: liveness,
         };
 
         Ok(ctx)

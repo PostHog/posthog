@@ -66,6 +66,7 @@ def make_session_recording_decide_response(overrides: Optional[dict] = None) -> 
         "linkedFlag": None,
         "minimumDurationMilliseconds": None,
         "networkPayloadCapture": None,
+        "masking": None,
         "urlTriggers": [],
         "urlBlocklist": [],
         "scriptConfig": None,
@@ -425,6 +426,26 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         response = self._post_decide().json()
         self.assertEqual(response["sessionRecording"]["networkPayloadCapture"], {"recordHeaders": True})
+
+    def test_session_recording_masking_config(self, *args):
+        self._update_team(
+            {
+                "session_recording_opt_in": True,
+            }
+        )
+
+        response = self._post_decide().json()
+        assert response["sessionRecording"]["masking"] is None
+
+        self._update_team({"session_recording_masking_config": {"maskAllInputs": True}})
+
+        response = self._post_decide().json()
+        assert response["sessionRecording"]["masking"] == {"maskAllInputs": True}
+
+        self._update_team({"session_recording_masking_config": {"maskAllInputs": False, "maskTextSelector": "*"}})
+
+        response = self._post_decide().json()
+        assert response["sessionRecording"]["masking"] == {"maskAllInputs": False, "maskTextSelector": "*"}
 
     def test_session_recording_empty_linked_flag(self, *args):
         # :TRICKY: Test for regression around caching

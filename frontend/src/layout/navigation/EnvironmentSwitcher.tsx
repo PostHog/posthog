@@ -5,7 +5,7 @@ import { router } from 'kea-router'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { LemonMenuItem, LemonMenuOverlay, LemonMenuSection } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo'
-import { removeFlagIdIfPresent, removeProjectIdIfPresent } from 'lib/utils/router-utils'
+import { getProjectSwitchTargetUrl } from 'lib/utils/router-utils'
 import { useMemo } from 'react'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -151,24 +151,19 @@ export function EnvironmentSwitcherOverlay({ onClickInside }: { onClickInside?: 
 }
 
 function determineProjectSwitchUrl(pathname: string, newTeamId: number): string {
-    // NOTE: There is a tradeoff here - because we choose keep the whole path it could be that the
-    // project switch lands on something like insight/abc that won't exist.
-    // On the other hand, if we remove the ID, it could be that someone opens a page, realizes they're in the wrong project
-    // and after switching is on a different page than before.
-    let route = removeProjectIdIfPresent(pathname)
-    route = removeFlagIdIfPresent(route)
+    const { currentTeam } = teamLogic.values
+    const { currentOrganization } = organizationLogic.values
 
-    // List of routes that should redirect to project home
-    // instead of keeping the current path.
-    const redirectToHomeRoutes = ['/products', '/onboarding']
-
-    const shouldRedirectToHome = redirectToHomeRoutes.some((redirectRoute) => route.includes(redirectRoute))
-
-    if (shouldRedirectToHome) {
-        return urls.project(newTeamId) // Go to project home
+    // Find the target team's project ID
+    let targetTeamProjectId: number | null = null
+    if (currentOrganization?.teams) {
+        const targetTeam = currentOrganization.teams.find((team) => team.id === newTeamId)
+        if (targetTeam) {
+            targetTeamProjectId = targetTeam.project_id
+        }
     }
 
-    return urls.project(newTeamId, route)
+    return getProjectSwitchTargetUrl(pathname, newTeamId, currentTeam?.project_id, targetTeamProjectId)
 }
 
 function EnvironmentSwitcherSearch(): JSX.Element {

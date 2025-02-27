@@ -176,18 +176,16 @@ export class LegacyPluginExecutorService {
             const legacyPluginConfigId = invocation.globals.inputs?.legacy_plugin_config_id
 
             if (!state) {
-                // TODO: Modify fetch to be a silent log if it is a test function...
+                const geoip = await this.hub.geoipService.get(this.hub)
+
                 const meta: LegacyTransformationPluginMeta = {
                     config: invocation.globals.inputs,
                     global: {},
                     logger: logger,
                     geoip: {
                         locate: (ipAddress: string): Record<string, any> | null => {
-                            if (!this.hub.mmdb) {
-                                return null
-                            }
                             try {
-                                return this.hub.mmdb.city(ipAddress)
+                                return geoip.city(ipAddress)
                             } catch {
                                 return null
                             }

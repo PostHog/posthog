@@ -16,7 +16,7 @@ from posthog.api.test.test_personal_api_keys import PersonalAPIKeysBaseTest
 from posthog.constants import AvailableFeature
 from posthog.models import Action, FeatureFlag, Team
 from posthog.models.cohort.cohort import Cohort
-from posthog.models.feedback.survey import Survey, MAX_ITERATION_COUNT
+from posthog.models.surveys.survey import Survey, MAX_ITERATION_COUNT
 from posthog.test.base import (
     APIBaseTest,
     BaseTest,
@@ -1410,7 +1410,10 @@ class TestSurvey(APIBaseTest):
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/surveys/{survey.id}/",
-            data={"name": "Updated Survey", "questions": [{"type": "open", "question": "Updated question?"}]},
+            data={
+                "name": "Updated Survey",
+                "questions": [{"type": "open", "question": "Updated question?", "id": str(survey.questions[0]["id"])}],
+            },
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -1434,8 +1437,20 @@ class TestSurvey(APIBaseTest):
                                 "type": "Survey",
                                 "action": "changed",
                                 "field": "questions",
-                                "before": [{"type": "open", "question": "Initial question?"}],
-                                "after": [{"type": "open", "question": "Updated question?"}],
+                                "before": [
+                                    {
+                                        "id": str(survey.questions[0]["id"]),
+                                        "type": "open",
+                                        "question": "Initial question?",
+                                    }
+                                ],
+                                "after": [
+                                    {
+                                        "id": str(survey.questions[0]["id"]),
+                                        "type": "open",
+                                        "question": "Updated question?",
+                                    }
+                                ],
                             },
                         ],
                         "trigger": None,
@@ -1891,13 +1906,13 @@ class TestSurveyQuestionValidation(APIBaseTest):
         assert response_data["type"] == "popover"
         assert response_data["questions"] == [
             {
-                "id": str(basic_survey.questions[0]["id"]),
+                "id": str(response_data["questions"][0]["id"]),
                 "type": "open",
                 "question": "What up?",
                 "description": "check?",
             },
             {
-                "id": str(basic_survey.questions[1]["id"]),
+                "id": str(response_data["questions"][1]["id"]),
                 "type": "link",
                 "link": "https://bazinga.com",
                 "question": "<b>What</b> do you think of the new notebooks feature?",
@@ -2995,7 +3010,13 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                         "id": str(survey_with_actions.id),
                         "name": "survey with actions",
                         "type": "popover",
-                        "questions": [{"type": "open", "question": "Why's a hedgehog?"}],
+                        "questions": [
+                            {
+                                "id": str(survey_with_actions.questions[0]["id"]),
+                                "type": "open",
+                                "question": "Why's a hedgehog?",
+                            }
+                        ],
                         "conditions": {
                             "actions": {
                                 "values": [

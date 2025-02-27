@@ -110,6 +110,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "session_recording_minimum_duration_milliseconds",  # Compat with TeamSerializer
             "session_recording_linked_flag",  # Compat with TeamSerializer
             "session_recording_network_payload_capture_config",  # Compat with TeamSerializer
+            "session_recording_masking_config",  # Compat with TeamSerializer
             "session_replay_config",  # Compat with TeamSerializer
             "survey_config",  # Compat with TeamSerializer
             "access_control",  # Compat with TeamSerializer
@@ -173,6 +174,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "session_recording_minimum_duration_milliseconds",
             "session_recording_linked_flag",
             "session_recording_network_payload_capture_config",
+            "session_recording_masking_config",
             "session_replay_config",
             "survey_config",
             "access_control",
@@ -221,6 +223,10 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
     @staticmethod
     def validate_session_recording_network_payload_capture_config(value) -> dict | None:
         return TeamSerializer.validate_session_recording_network_payload_capture_config(value)
+
+    @staticmethod
+    def validate_session_recording_masking_config(value) -> dict | None:
+        return TeamSerializer.validate_session_recording_masking_config(value)
 
     @staticmethod
     def validate_session_replay_config(value) -> dict | None:

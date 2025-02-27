@@ -116,6 +116,7 @@ async function executeQuery<N extends DataNode>(
                         Accept: 'text/event-stream',
                         'X-CSRFToken': getCookie('posthog_csrftoken') || '',
                     },
+                    openWhenHidden: true,
                     body: JSON.stringify({
                         query: queryNode,
                         client_query_id: queryId,
@@ -158,6 +159,7 @@ async function executeQuery<N extends DataNode>(
                     onerror(err) {
                         abortController.abort()
                         reject(err)
+                        throw err // make sure fetchEventSource doesn't attempt to retry
                     },
                 }).catch(reject)
             })
