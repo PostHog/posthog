@@ -32,8 +32,8 @@ export function RetentionCumulativeButton(): JSX.Element | null {
                     label: 'on or after',
                     tooltip: `
                     Retention value is the percentage of users who come back on a specific time period or any of the following time periods.
-                    Also know as rolling, or unbounded retention. 
-                    For example, if a user is comes back on day 7, they are counted in all previous retention periods.`,
+                    Also known as rolling, or unbounded retention.
+                    For example, if a user comes back on day 7, they are counted in all previous retention periods.`,
                 },
             ]}
         />
