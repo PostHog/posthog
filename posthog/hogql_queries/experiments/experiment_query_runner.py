@@ -191,7 +191,7 @@ class ExperimentQueryRunner(QueryRunner):
                 ]
             )
 
-        exposure_query_select = [
+        exposure_query_select: list[ast.Expr] = [
             ast.Alias(alias="entity_id", expr=ast.Field(chain=["person_id"])),
             ast.Alias(
                 alias="variant",
