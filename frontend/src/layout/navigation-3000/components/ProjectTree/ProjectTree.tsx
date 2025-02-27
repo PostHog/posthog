@@ -1,4 +1,4 @@
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Resizer } from 'lib/components/Resizer/Resizer'
@@ -10,6 +10,7 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 import { navigation3000Logic } from '../../navigationLogic'
+import { KeyboardShortcut } from '../KeyboardShortcut'
 import { NavbarBottom } from '../NavbarBottom'
 import { projectTreeLogic } from './projectTreeLogic'
 import { joinPath } from './utils'
@@ -19,7 +20,8 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
     const { theme } = useValues(themeLogic)
     const { isNavShown, mobileLayout } = useValues(navigation3000Logic)
     const { toggleNavCollapsed, hideNavOnMobile } = useActions(navigation3000Logic)
-    const { treeData, loadingPaths, expandedFolders, lastViewedPath, viableItems } = useValues(projectTreeLogic)
+    const { treeData, loadingPaths, expandedFolders, lastViewedPath, viableItems, helpNoticeVisible } =
+        useValues(projectTreeLogic)
 
     const {
         addFolder,
@@ -29,6 +31,7 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
         updateSelectedFolder,
         updateLastViewedPath,
         updateExpandedFolders,
+        updateHelpNoticeVisibility,
     } = useActions(projectTreeLogic)
     const containerRef = useRef<HTMLDivElement | null>(null)
 
@@ -200,6 +203,35 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                             }
                         }}
                     />
+                    {/* <div className="p-2">
+                        <div className="border border-primary rounded p-2 bg-surface-primary">
+                            <p className='font-semibold mb-1'>Behold, 🌲 navigation</p>
+                            <ul className="mb-0 text-xs list-disc pl-4 py-0">
+                                <li>All your files are still here, open 'unfiled' to see them, and organize them the way you'd like.</li>
+                                <li>Hold down <KeyboardShortcut command /> to enable drag and drop.</li>
+                            </ul>
+                        </div>
+                    </div> */}
+                    {helpNoticeVisible && (
+                        <div className="p-2">
+                            <LemonBanner
+                                type="info"
+                                dismissKey="project-tree-help-notice"
+                                onClose={() => updateHelpNoticeVisibility(false)}
+                            >
+                                <p className="font-semibold mb-1">Behold, 🌲 navigation</p>
+                                <ul className="mb-0 text-xs list-disc pl-4 py-0">
+                                    <li>
+                                        All your files are still here, open 'unfiled' to see them, and organize them the
+                                        way you'd like.
+                                    </li>
+                                    <li>
+                                        Hold down <KeyboardShortcut command /> to enable drag and drop.
+                                    </li>
+                                </ul>
+                            </LemonBanner>
+                        </div>
+                    )}
                     <div className="border-b border-primary h-px" />
                     <NavbarBottom />
                 </div>

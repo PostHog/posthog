@@ -45,6 +45,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         updateLastViewedPath: (path: string) => ({ path }),
         toggleFolder: (folder: string, isExpanded: boolean) => ({ folder, isExpanded }),
         updateSelectedFolder: (folder: string) => ({ folder }),
+        updateHelpNoticeVisibility: (visible: boolean) => ({ visible }),
     }),
     loaders(({ actions, values }) => ({
         savedItems: [
@@ -136,6 +137,13 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             { persist: true },
             {
                 updateLastViewedPath: (_, { path }) => path,
+            },
+        ],
+        helpNoticeVisible: [
+            true,
+            { persist: true },
+            {
+                dismissHelpNotice: () => false,
             },
         ],
     }),
