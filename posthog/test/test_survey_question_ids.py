@@ -1,4 +1,4 @@
-from posthog.models.feedback.survey import Survey
+from posthog.models.surveys.survey import Survey
 from posthog.test.base import BaseTest
 
 
