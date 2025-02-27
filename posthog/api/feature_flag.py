@@ -70,9 +70,6 @@ from posthog.queries.base import (
 from posthog.rate_limit import BurstRateThrottle
 from loginas.utils import is_impersonated_session
 from ee.models.rbac.organization_resource_access import OrganizationResourceAccess
-import structlog
-
-logger = structlog.get_logger(__name__)
 
 DATABASE_FOR_LOCAL_EVALUATION = (
     "default"
