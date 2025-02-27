@@ -12,7 +12,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
-import { IconErrorOutline, IconOpenInNew, IconSubArrowRight } from 'lib/lemon-ui/icons'
+import { IconArrowDown, IconArrowUp, IconErrorOutline, IconOpenInNew, IconSubArrowRight } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -121,6 +121,8 @@ export function FeatureFlagReleaseConditions({
         duplicateConditionSet,
         removeConditionSet,
         addConditionSet,
+        moveConditionSetUp,
+        moveConditionSetDown,
     } = useActions(releaseConditionsLogic)
 
     const { showGroupsOptions, groupTypes, aggregationLabel } = useValues(groupsModel)
@@ -182,9 +184,33 @@ export function FeatureFlagReleaseConditions({
                         </div>
                         {!readOnly && (
                             <div className="flex">
+                                {filterGroups.length > 1 && (
+                                    <div className="flex mr-2">
+                                        <LemonButton
+                                            icon={<IconArrowDown />}
+                                            noPadding
+                                            tooltip="Move condition set down in precendence"
+                                            disabledReason={
+                                                index === filterGroups.length - 1
+                                                    ? 'Cannot move last condition set down'
+                                                    : null
+                                            }
+                                            onClick={() => moveConditionSetDown(index)}
+                                        />
+
+                                        <LemonButton
+                                            icon={<IconArrowUp />}
+                                            noPadding
+                                            tooltip="Move condition set up in precendence"
+                                            disabledReason={index === 0 ? 'Cannot move first condition set up' : null}
+                                            onClick={() => moveConditionSetUp(index)}
+                                        />
+                                    </div>
+                                )}
                                 <LemonButton
                                     icon={<IconCopy />}
                                     noPadding
+                                    tooltip="Duplicate condition set"
                                     onClick={() => duplicateConditionSet(index)}
                                 />
                                 {!isEarlyAccessFeatureCondition(group) &&
@@ -192,6 +218,7 @@ export function FeatureFlagReleaseConditions({
                                         <LemonButton
                                             icon={<IconTrash />}
                                             noPadding
+                                            tooltip="Remove condition set"
                                             onClick={() => {
                                                 removeConditionSet(index)
                                                 if (filterGroups.length === 1) {

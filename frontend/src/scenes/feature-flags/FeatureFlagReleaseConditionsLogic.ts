@@ -41,6 +41,8 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
         addConditionSet: true,
         removeConditionSet: (index: number) => ({ index }),
         duplicateConditionSet: (index: number) => ({ index }),
+        moveConditionSetUp: (index: number) => ({ index }),
+        moveConditionSetDown: (index: number) => ({ index }),
         updateConditionSet: (
             index: number,
             newRolloutPercentage?: number,
@@ -118,6 +120,26 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                         return state
                     }
                     const groups = state.groups.concat([state.groups[index]])
+                    return { ...state, groups }
+                },
+                moveConditionSetDown: (state, { index }) => {
+                    if (!state || index === state.groups.length - 1) {
+                        return state
+                    }
+                    const groups = [...state.groups]
+                    const temp = groups[index]
+                    groups[index] = groups[index + 1]
+                    groups[index + 1] = temp
+                    return { ...state, groups }
+                },
+                moveConditionSetUp: (state, { index }) => {
+                    if (!state || index === 0) {
+                        return state
+                    }
+                    const groups = [...state.groups]
+                    const temp = groups[index]
+                    groups[index] = groups[index - 1]
+                    groups[index - 1] = temp
                     return { ...state, groups }
                 },
             },
