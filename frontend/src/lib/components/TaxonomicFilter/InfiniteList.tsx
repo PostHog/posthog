@@ -192,12 +192,9 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
         hasRemoteDataSource,
     } = useValues(infiniteListLogic)
     const { onRowsRendered, setIndex, expand, updateRemoteItem } = useActions(infiniteListLogic)
-
     const [highlightedItemElement, setHighlightedItemElement] = useState<HTMLDivElement | null>(null)
-
-    // Removed useRef and useEffect, as we're relying on Kea's logic to handle loading states
-
     const isActiveTab = listGroupType === activeTab
+
     // Only show empty state if:
     // 1. There are no results
     // 2. We're not currently loading
