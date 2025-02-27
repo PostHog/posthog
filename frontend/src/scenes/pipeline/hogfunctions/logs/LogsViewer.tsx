@@ -20,7 +20,7 @@ import { LogEntryLevel } from '~/types'
 import { ALL_LOG_LEVELS, GroupedLogEntry, LOG_VIEWER_LIMIT, logsViewerLogic } from './logsViewerLogic'
 import { LogsViewerLogicProps } from './logsViewerLogic'
 
-const tagTypeForLevel = (level: LogEntryLevel): LemonTagProps['type'] => {
+export const tagTypeForLevel = (level: LogEntryLevel): LemonTagProps['type'] => {
     switch (level.toLowerCase()) {
         case 'debug':
             return 'muted'
