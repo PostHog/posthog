@@ -188,7 +188,7 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                 </div>
                 {isEventsQuery(query.source) && query.showPersistentColumnConfigurator ? (
                     <LemonCheckbox
-                        label="Save as default for all project members"
+                        label="Also save as default for all project members"
                         className="mt-2"
                         data-attr="events-table-save-columns-as-default-toggle"
                         bordered

@@ -65,7 +65,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
             showEventFilter: false,
             showPersistentColumnConfigurator: true,
         }
-    }, [definition])
+    }, [definition, isEvent && 'default_columns' in definition ? definition.default_columns : null])
 
     if (definitionLoading) {
         return <SpinnerOverlay sceneLevel />
