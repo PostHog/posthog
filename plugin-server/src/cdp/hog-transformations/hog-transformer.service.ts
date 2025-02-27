@@ -5,7 +5,6 @@ import {
     HogFunctionInvocationGlobals,
     HogFunctionInvocationResult,
     HogFunctionType,
-    HogFunctionTypeType,
 } from '../../cdp/types'
 import { createInvocation, isLegacyPluginHogFunction } from '../../cdp/utils'
 import { runInstrumentedFunction } from '../../main/utils'
@@ -90,8 +89,7 @@ export class HogTransformerService {
     }
 
     public async start(): Promise<void> {
-        const hogTypes: HogFunctionTypeType[] = ['transformation']
-        await this.hogFunctionManager.start(hogTypes)
+        await this.hogFunctionManager.start(['transformation'])
     }
 
     public async stop(): Promise<void> {
