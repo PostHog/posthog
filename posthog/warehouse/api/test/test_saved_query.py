@@ -78,6 +78,71 @@ class TestSavedQuery(APIBaseTest):
         )
         self.assertEqual(response.status_code, 400, response.content)
 
+    def test_delete(self):
+        query_name = "test_query"
+        saved_query = DataWarehouseSavedQuery.objects.create(team=self.team, name=query_name)
+
+        with patch("posthog.warehouse.api.saved_query.delete_saved_query_schedule") as mock_delete_saved_query_schedule:
+            response = self.client.delete(
+                f"/api/projects/{self.team.id}/warehouse_saved_queries/{saved_query.id}",
+            )
+
+            mock_delete_saved_query_schedule.assert_called()
+
+            assert response.status_code == 204
+
+        saved_query.refresh_from_db()
+
+        assert saved_query.deleted is True
+        assert saved_query.deleted_at is not None
+        assert saved_query.deleted_name == query_name
+        assert saved_query.name.startswith("POSTHOG_DELETED_")
+
+    def test_listing_deleted_queries(self):
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="deleted_saved_query",
+            query={
+                "kind": "HogQLQuery",
+                "query": "select event as event from events LIMIT 100",
+            },
+            deleted=True,
+        )
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="saved_query",
+            query={
+                "kind": "HogQLQuery",
+                "query": "select event as event from events LIMIT 100",
+            },
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/warehouse_saved_queries/",
+        )
+
+        assert response.status_code == 200
+        json = response.json()
+
+        assert json["count"] == 1
+
+    def test_get_deleted_query(self):
+        query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="deleted_saved_query",
+            query={
+                "kind": "HogQLQuery",
+                "query": "select event as event from events LIMIT 100",
+            },
+            deleted=True,
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/warehouse_saved_queries/{query.id}",
+        )
+
+        assert response.status_code == 404
+
     def test_update_sync_frequency_with_existing_schedule(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/warehouse_saved_queries/",

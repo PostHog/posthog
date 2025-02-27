@@ -14,8 +14,8 @@ interface DateDisplayProps {
 const DISPLAY_DATE_FORMAT: Record<IntervalType, string> = {
     minute: 'HH:mm:00',
     hour: 'HH:00',
-    day: 'MMM D',
-    week: 'MMM D',
+    day: 'D MMM',
+    week: 'D MMM',
     month: 'MMM',
 }
 
@@ -57,8 +57,9 @@ export function DateDisplay({ date, secondaryDate, interval, hideWeekRange }: Da
             {interval === 'week' && !hideWeekRange && (
                 <>
                     {/* TODO: @EDsCODE will help validate; this should probably come from the backend  */}
-                    {' - '}
-                    <DateDisplay interval="day" date={parsedDate.add(7, 'day').toJSON()} />
+                    {/* A week ends on the 7th day of the week, so we add 6 days to the start date to get the end date */}
+                    {' – '}
+                    <DateDisplay interval="day" date={parsedDate.add(6, 'day').toJSON()} />
                 </>
             )}
         </>

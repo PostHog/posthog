@@ -388,10 +388,18 @@ export interface HogQLNotice {
     fix?: string
 }
 
+export enum QueryIndexUsage {
+    Undecisive = 'undecisive',
+    No = 'no',
+    Partial = 'partial',
+    Yes = 'yes',
+}
+
 export interface HogQLMetadataResponse {
     query?: string
     isValid?: boolean
     isValidView?: boolean
+    isUsingIndices?: QueryIndexUsage
     errors: HogQLNotice[]
     warnings: HogQLNotice[]
     notices: HogQLNotice[]

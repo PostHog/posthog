@@ -1,14 +1,13 @@
 import { IconPlusSmall, IconX } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonDropdown, LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { urls } from 'scenes/urls'
 
 import { ErrorTrackingIssue, ErrorTrackingIssueAssignee } from '~/queries/schema/schema-general'
 
-import { assigneeSelectLogic } from './assigneeSelectLogic'
-
-type AssigneeDisplayType = { id: string | number; icon: JSX.Element; displayName?: string }
+import { AssigneeDisplay } from './AssigneeDisplay'
+import { AssigneeDisplayType, assigneeSelectLogic } from './assigneeSelectLogic'
 
 export const AssigneeSelect = ({
     assignee,
@@ -24,9 +23,8 @@ export const AssigneeSelect = ({
     showIcon?: boolean
     unassignedLabel?: string
 } & Partial<Pick<LemonButtonProps, 'type' | 'size'>>): JSX.Element => {
-    const logic = assigneeSelectLogic({ assignee })
-    const { computeAssignee, search, groupOptions, memberOptions, userGroupsLoading, membersLoading } = useValues(logic)
-    const { setSearch, ensureAssigneeTypesLoaded } = useActions(logic)
+    const { search, groupOptions, memberOptions, userGroupsLoading, membersLoading } = useValues(assigneeSelectLogic)
+    const { setSearch, ensureAssigneeTypesLoaded } = useActions(assigneeSelectLogic)
     const [showPopover, setShowPopover] = useState(false)
 
     const _onChange = (value: ErrorTrackingIssue['assignee']): void => {
@@ -38,8 +36,6 @@ export const AssigneeSelect = ({
     useEffect(() => {
         ensureAssigneeTypesLoaded()
     }, [])
-
-    const displayAssignee = useMemo(() => computeAssignee(assignee), [assignee, computeAssignee])
 
     return (
         <LemonDropdown
@@ -105,13 +101,25 @@ export const AssigneeSelect = ({
                 </div>
             }
         >
-            <LemonButton
-                tooltip={displayAssignee.displayName}
-                icon={showIcon ? displayAssignee.icon : null}
-                {...buttonProps}
-            >
-                {showName ? <span className="pl-1">{displayAssignee.displayName ?? unassignedLabel}</span> : null}
-            </LemonButton>
+            <div>
+                <AssigneeDisplay assignee={assignee}>
+                    {({ displayAssignee }) => (
+                        <LemonButton
+                            tooltip={displayAssignee.displayName}
+                            icon={showIcon ? displayAssignee.icon : null}
+                            {...buttonProps}
+                        >
+                            {showName ? (
+                                <span className="pl-1">
+                                    {displayAssignee.id === 'unassigned'
+                                        ? unassignedLabel
+                                        : displayAssignee.displayName}
+                                </span>
+                            ) : null}
+                        </LemonButton>
+                    )}
+                </AssigneeDisplay>
+            </div>
         </LemonDropdown>
     )
 }
