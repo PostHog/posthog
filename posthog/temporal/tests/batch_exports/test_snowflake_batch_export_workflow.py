@@ -7,7 +7,6 @@ import operator
 import os
 import re
 import tempfile
-import typing as t
 import unittest.mock
 import uuid
 from collections import deque
@@ -57,6 +56,7 @@ from posthog.temporal.tests.batch_exports.utils import (
     FlakyClickHouseClient,
     get_record_batch_from_queue,
     mocked_start_batch_export_run,
+    remove_duplicates_from_records,
 )
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.models import (
@@ -993,21 +993,7 @@ async def assert_clickhouse_records_in_snowflake(
             expected_records.append(expected_record)
 
     if expect_duplicates:
-        primary_key = primary_key or ["uuid"]
-        seen = set()
-
-        def is_record_seen(record: dict[str, t.Any]) -> bool:
-            nonlocal seen
-
-            pk = tuple(record[key] for key in primary_key)
-
-            if pk in seen:
-                return True
-
-            seen.add(pk)
-            return False
-
-        inserted_records = [record for record in inserted_records if not is_record_seen(record)]
+        inserted_records = remove_duplicates_from_records(inserted_records, primary_key)
 
     inserted_column_names = list(inserted_records[0].keys())
     expected_column_names = list(expected_records[0].keys())

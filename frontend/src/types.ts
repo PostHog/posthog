@@ -1433,6 +1433,12 @@ export interface RecordingEventType
     fullyLoaded: boolean
 }
 
+export interface PlaylistRecordingsCounts {
+    query_count?: number
+    pinned_count?: number
+    has_more?: boolean
+}
+
 export interface SessionRecordingPlaylistType {
     /** The primary key in the database, used as well in API endpoints */
     id: number
@@ -1447,6 +1453,12 @@ export interface SessionRecordingPlaylistType {
     last_modified_at: string
     last_modified_by: UserBasicType | null
     filters?: LegacyRecordingFilters
+    /**
+     * the count of recordings matching filters, calculated periodically
+     * and pinned recordings which is calculated in real-time
+     * marked as has more if the filters count onoy matched one page and there are more available
+     */
+    recordings_counts?: PlaylistRecordingsCounts
 }
 
 export interface SessionRecordingSegmentType {
@@ -1751,6 +1763,8 @@ export interface BillingType {
     deactivated?: boolean
     current_total_amount_usd?: string
     current_total_amount_usd_after_discount?: string
+    projected_total_amount_usd?: string
+    projected_total_amount_usd_after_discount?: string
     products: BillingProductV2Type[]
 
     custom_limits_usd?: {
