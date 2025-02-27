@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { forSnapshot } from '../../_tests/helpers/snapshots'
-import { getFirstTeam, resetTestDatabase } from '../../_tests/helpers/sql'
+import { getFirstTeam, insertRow, resetTestDatabase } from '../../_tests/helpers/sql'
 import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/hub'
 import {
@@ -27,7 +27,7 @@ describe('LegacyPluginExecutorService', () => {
     let globals: HogFunctionInvocationGlobalsWithInputs
     let fn: HogFunctionType
     let mockFetch: jest.Mock
-    let pluginConfig: PluginConfig
+    let pluginConfig: Record<string, any>
 
     const customerIoPlugin = DESTINATION_PLUGINS_BY_ID['plugin-customerio-plugin']
 
@@ -46,22 +46,37 @@ describe('LegacyPluginExecutorService', () => {
         const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
         jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
 
-        const plugin = await createPlugin(hub.postgres, {
+        // Create a plugin
+        const res = await insertRow(hub.postgres, 'posthog_plugin', {
             organization_id: team.organization_id,
             name: 'first-time-event-tracker',
             plugin_type: 'source',
             is_global: false,
             source__index_ts: `
-            export async function runEveryMinute() {
-                console.info(JSON.stringify(['runEveryMinute']))
-            }
-        `,
+                    export async function runEveryMinute() {
+                        console.info(JSON.stringify(['runEveryMinute']))
+                    }
+                `,
+            config_schema: {},
+            from_json: false,
+            from_web: false,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            is_preinstalled: false,
+            capabilities: {},
         })
-        pluginConfig = await createPluginConfig(hub.postgres, {
+
+        // Create a plugin config
+        pluginConfig = await insertRow(hub.postgres, 'posthog_pluginconfig', {
+            config: {},
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            enabled: true,
+            order: 0,
             id: 10001,
             name: 'first-time-event-tracker',
             team_id: team.id,
-            plugin_id: plugin.id,
+            plugin_id: res.id,
         } as any)
 
         mockFetch = jest.fn(() =>

@@ -1423,7 +1423,17 @@ describe('process-event', () => {
             const originalCreatePerson = personsDB.createPerson.bind(personsDB)
             const createPersonMock = jest.fn(async (...args) => {
                 // We need to slice off the txn arg, or else we conflict with the `identify` below.
-                const result = await originalCreatePerson(...args.slice(0, -1))
+                const [personId, uuid, properties, isUserId, isIdentified, timestamp, version, distinctIds] = args
+                const result = await originalCreatePerson(
+                    personId,
+                    uuid,
+                    properties,
+                    isUserId,
+                    isIdentified,
+                    timestamp,
+                    version,
+                    distinctIds
+                )
 
                 if (createPersonMock.mock.calls.length === 1) {
                     // On second invocation, make another identify call

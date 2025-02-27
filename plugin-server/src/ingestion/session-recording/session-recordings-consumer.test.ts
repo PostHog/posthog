@@ -10,7 +10,7 @@ import { deleteKeysWithPrefix } from '../../_tests/helpers/redis'
 import { getFirstTeam, resetTestDatabase } from '../../_tests/helpers/sql'
 import { defaultConfig } from '../../config/config'
 import { Hub, Team } from '../../types'
-import { closeHub, createHub } from '../../utils/db/hub'
+import { closeHub, createHub } from '../../utils/hub'
 import { createIncomingRecordingMessage, createKafkaMessage, createTP } from './_tests/fixtures'
 import { SessionRecordingIngester } from './session-recordings-consumer'
 
@@ -476,10 +476,8 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
                 }
 
                 if (consumeOverflow) {
-                    // @ts-expect-error TODO: Fix underlying type, this field exists
                     expectedWaterMarks['session-recordings-blob-overflow'] = 1
                 } else {
-                    // @ts-expect-error TODO: Fix underlying type, this field exists
                     expectedWaterMarks['session-recordings-blob'] = 1
                 }
 

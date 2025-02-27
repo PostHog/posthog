@@ -280,8 +280,8 @@ describe('DB', () => {
 
     describe('updateCohortsAndFeatureFlagsForMerge()', () => {
         let team: Team
-        let sourcePersonID: Person['id']
-        let targetPersonID: Person['id']
+        let sourcePersonID: number
+        let targetPersonID: number
 
         async function getAllHashKeyOverrides(): Promise<any> {
             const result = await hub.postgres.query(
