@@ -1,21 +1,11 @@
-from dagster import (
-    DagsterRunStatus,
-    Definitions,
-    RunRequest,
-    ScheduleDefinition,
-    fs_io_manager,
-    load_assets_from_modules,
-    run_status_sensor,
-)
+import dagster
+
 from dagster_aws.s3.io_manager import s3_pickle_io_manager
 from dagster_aws.s3.resources import s3_resource
 from django.conf import settings
 
-from . import ch_examples, deletes, materialized_columns, orm_examples, person_overrides
+from . import ch_examples, deletes, exchange_rate, materialized_columns, orm_examples, person_overrides
 from .common import ClickhouseClusterResource
-
-all_assets = load_assets_from_modules([ch_examples, orm_examples])
-
 
 env = "local" if settings.DEBUG else "prod"
 
@@ -31,7 +21,7 @@ resources_by_env = {
     },
     "local": {
         "cluster": ClickhouseClusterResource.configure_at_launch(),
-        "io_manager": fs_io_manager,
+        "io_manager": dagster.fs_io_manager,
     },
 }
 
@@ -39,35 +29,22 @@ resources_by_env = {
 # Get resources for current environment, fallback to local if env not found
 resources = resources_by_env.get(env, resources_by_env["local"])
 
-
-# Schedule to run squash at 10 PM on Saturdays
-squash_schedule = ScheduleDefinition(
-    job=person_overrides.squash_person_overrides,
-    cron_schedule="0 22 * * 6",  # At 22:00 (10 PM) on Saturday
-    execution_timezone="UTC",
-    name="squash_person_overrides_schedule",
-)
-
-
-@run_status_sensor(
-    run_status=DagsterRunStatus.SUCCESS,
-    monitored_jobs=[person_overrides.squash_person_overrides],
-    request_job=deletes.deletes_job,
-)
-def run_deletes_after_squash(context):
-    return RunRequest(run_key=None)
-
-
-defs = Definitions(
-    assets=all_assets,
+defs = dagster.Definitions(
+    assets=dagster.load_assets_from_modules([ch_examples, orm_examples, exchange_rate, materialized_columns]),
     jobs=[
         deletes.deletes_job,
+        exchange_rate.daily_exchange_rates_job,
+        exchange_rate.hourly_exchange_rates_job,
         materialized_columns.materialize_column,
         person_overrides.cleanup_orphaned_person_overrides_snapshot,
         person_overrides.squash_person_overrides,
     ],
-    schedules=[squash_schedule],
-    sensors=[run_deletes_after_squash],
+    schedules=[
+        person_overrides.squash_schedule,
+        exchange_rate.daily_exchange_rates_schedule,
+        exchange_rate.hourly_exchange_rates_schedule,
+    ],
+    sensors=[person_overrides.run_deletes_after_squash],
     resources=resources,
 )
 

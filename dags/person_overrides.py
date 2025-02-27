@@ -17,6 +17,8 @@ from posthog.clickhouse.cluster import (
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
 
+import dags.deletes as deletes
+
 
 @dataclass
 class PersonOverridesSnapshotTable:
@@ -401,3 +403,21 @@ def cleanup_orphaned_person_overrides_snapshot():
     """
     dictionary = get_existing_dictionary_for_run_id()
     cleanup_snapshot_resources(dictionary)
+
+
+# Schedule to run squash at 10 PM on Saturdays
+squash_schedule = dagster.ScheduleDefinition(
+    job=squash_person_overrides,
+    cron_schedule="0 22 * * 6",  # At 22:00 (10 PM) on Saturday
+    execution_timezone="UTC",
+    name="squash_person_overrides_schedule",
+)
+
+
+@dagster.run_status_sensor(
+    run_status=dagster.DagsterRunStatus.SUCCESS,
+    monitored_jobs=[squash_person_overrides],
+    request_job=deletes.deletes_job,
+)
+def run_deletes_after_squash(context):
+    return dagster.RunRequest(run_key=None)
