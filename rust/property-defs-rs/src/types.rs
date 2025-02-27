@@ -542,22 +542,34 @@ mod test {
     fn test_rfc3339_timestamp_detection() {
         // Test RFC 3339 timestamp detection for string values
         assert_eq!(
-            detect_property_type("random_property", &Value::String("2023-12-13T15:45:30Z".to_string())),
+            detect_property_type(
+                "random_property",
+                &Value::String("2023-12-13T15:45:30Z".to_string())
+            ),
             Some(PropertyValueType::DateTime)
         );
 
         assert_eq!(
-            detect_property_type("random_property", &Value::String("2023-12-13T15:45:30.123Z".to_string())),
+            detect_property_type(
+                "random_property",
+                &Value::String("2023-12-13T15:45:30.123Z".to_string())
+            ),
             Some(PropertyValueType::DateTime)
         );
 
         assert_eq!(
-            detect_property_type("random_property", &Value::String("2023-12-13T15:45:30+00:00".to_string())),
+            detect_property_type(
+                "random_property",
+                &Value::String("2023-12-13T15:45:30+00:00".to_string())
+            ),
             Some(PropertyValueType::DateTime)
         );
 
         assert_eq!(
-            detect_property_type("random_property", &Value::String("2023-12-13T15:45:30-07:00".to_string())),
+            detect_property_type(
+                "random_property",
+                &Value::String("2023-12-13T15:45:30-07:00".to_string())
+            ),
             Some(PropertyValueType::DateTime)
         );
 
@@ -579,17 +591,26 @@ mod test {
 
         // Test property name-based detection for numeric values (should be DateTime)
         assert_eq!(
-            detect_property_type("timestamp", &Value::Number(serde_json::Number::from(1639400730))),
+            detect_property_type(
+                "timestamp",
+                &Value::Number(serde_json::Number::from(1639400730))
+            ),
             Some(PropertyValueType::DateTime)
         );
 
         assert_eq!(
-            detect_property_type("created_time", &Value::Number(serde_json::Number::from(1639400730))),
+            detect_property_type(
+                "created_time",
+                &Value::Number(serde_json::Number::from(1639400730))
+            ),
             Some(PropertyValueType::DateTime)
         );
 
         assert_eq!(
-            detect_property_type("sent_at", &Value::Number(serde_json::Number::from(1639400730))),
+            detect_property_type(
+                "sent_at",
+                &Value::Number(serde_json::Number::from(1639400730))
+            ),
             Some(PropertyValueType::Numeric)
         );
 
@@ -616,23 +637,38 @@ mod test {
 
         // Test "timestamp" in different positions and cases
         assert_eq!(
-            detect_property_type("timestamp", &Value::Number(serde_json::Number::from(1639400730))),
+            detect_property_type(
+                "timestamp",
+                &Value::Number(serde_json::Number::from(1639400730))
+            ),
             Some(PropertyValueType::DateTime)
         );
         assert_eq!(
-            detect_property_type("TIMESTAMP", &Value::Number(serde_json::Number::from(1639400730))),
+            detect_property_type(
+                "TIMESTAMP",
+                &Value::Number(serde_json::Number::from(1639400730))
+            ),
             Some(PropertyValueType::DateTime)
         );
         assert_eq!(
-            detect_property_type("user_timestamp", &Value::Number(serde_json::Number::from(1639400730))),
+            detect_property_type(
+                "user_timestamp",
+                &Value::Number(serde_json::Number::from(1639400730))
+            ),
             Some(PropertyValueType::DateTime)
         );
         assert_eq!(
-            detect_property_type("user_TIMESTAMP", &Value::Number(serde_json::Number::from(1639400730))),
+            detect_property_type(
+                "user_TIMESTAMP",
+                &Value::Number(serde_json::Number::from(1639400730))
+            ),
             Some(PropertyValueType::DateTime)
         );
         assert_eq!(
-            detect_property_type("timestampValue", &Value::Number(serde_json::Number::from(1639400730))),
+            detect_property_type(
+                "timestampValue",
+                &Value::Number(serde_json::Number::from(1639400730))
+            ),
             Some(PropertyValueType::DateTime)
         );
 
@@ -646,15 +682,24 @@ mod test {
             Some(PropertyValueType::DateTime)
         );
         assert_eq!(
-            detect_property_type("created_time", &Value::Number(serde_json::Number::from(1639400730))),
+            detect_property_type(
+                "created_time",
+                &Value::Number(serde_json::Number::from(1639400730))
+            ),
             Some(PropertyValueType::DateTime)
         );
         assert_eq!(
-            detect_property_type("created_TIME", &Value::Number(serde_json::Number::from(1639400730))),
+            detect_property_type(
+                "created_TIME",
+                &Value::Number(serde_json::Number::from(1639400730))
+            ),
             Some(PropertyValueType::DateTime)
         );
         assert_eq!(
-            detect_property_type("timeValue", &Value::Number(serde_json::Number::from(1639400730))),
+            detect_property_type(
+                "timeValue",
+                &Value::Number(serde_json::Number::from(1639400730))
+            ),
             Some(PropertyValueType::DateTime)
         );
 
@@ -668,7 +713,10 @@ mod test {
             Some(PropertyValueType::Numeric)
         );
         assert_eq!(
-            detect_property_type("sent_at", &Value::Number(serde_json::Number::from(1639400730))),
+            detect_property_type(
+                "sent_at",
+                &Value::Number(serde_json::Number::from(1639400730))
+            ),
             Some(PropertyValueType::Numeric)
         );
 
