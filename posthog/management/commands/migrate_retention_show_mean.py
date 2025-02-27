@@ -8,8 +8,7 @@ def migrate_show_mean_from_boolean_to_string(batch_size: int, live_run: bool = F
     """
     Migrate the showMean boolean field to meanRetentionCalculation string field in retention insights.
     """
-    retention_insights = Insight.objects.filter(
-        deleted=False,
+    retention_insights = Insight.objects_including_soft_deleted.filter(
         query__source__kind="RetentionQuery",
         query__source__retentionFilter__has_key="showMean",
     )

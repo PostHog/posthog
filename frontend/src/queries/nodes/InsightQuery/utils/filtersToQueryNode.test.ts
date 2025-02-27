@@ -684,7 +684,7 @@ describe('filtersToQueryNode', () => {
                 returning_entity: { id: '1' },
                 target_entity: { id: '1' },
                 period: RetentionPeriod.Day,
-                mean_retention_calculation: 'simple',
+                show_mean: true,
             }
 
             const result = filtersToQueryNode(filters)
