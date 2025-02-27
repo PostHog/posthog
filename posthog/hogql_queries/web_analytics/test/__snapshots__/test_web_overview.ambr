@@ -12,7 +12,7 @@
 # ---
 # name: TestWebOverviewQueryRunner.test_all_time.1
   '''
-  SELECT uniq(person_id),
+  SELECT uniq(session_person_id),
          NULL AS previous_unique_users,
          sum(filtered_pageview_count),
          NULL AS previous_filtered_pageview_count,
@@ -23,7 +23,7 @@
          avg(is_bounce),
          NULL AS prev_bounce_rate
   FROM
-    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS person_id,
+    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS session_person_id,
             events__session.session_id AS session_id,
             min(events__session.`$start_timestamp`) AS start_timestamp,
             any(events__session.`$session_duration`) AS session_duration,
@@ -61,8 +61,8 @@
 # ---
 # name: TestWebOverviewQueryRunner.test_comparison
   '''
-  SELECT uniqIf(person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-06 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-13 23:59:59', 'UTC'))), 0))) AS unique_users,
-         uniqIf(person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-05 23:59:59', 'UTC'))), 0))) AS previous_unique_users,
+  SELECT uniqIf(session_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-06 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-13 23:59:59', 'UTC'))), 0))) AS unique_users,
+         uniqIf(session_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-05 23:59:59', 'UTC'))), 0))) AS previous_unique_users,
          sumIf(filtered_pageview_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-06 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-13 23:59:59', 'UTC'))), 0))) AS total_filtered_pageview_count,
          sumIf(filtered_pageview_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-05 23:59:59', 'UTC'))), 0))) AS previous_filtered_pageview_count,
          uniqIf(session_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-06 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-13 23:59:59', 'UTC'))), 0))) AS unique_sessions,
@@ -72,7 +72,7 @@
          avgIf(is_bounce, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-06 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-13 23:59:59', 'UTC'))), 0))) AS bounce_rate,
          avgIf(is_bounce, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-05 23:59:59', 'UTC'))), 0))) AS prev_bounce_rate
   FROM
-    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS person_id,
+    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS session_person_id,
             events__session.session_id AS session_id,
             min(events__session.`$start_timestamp`) AS start_timestamp,
             any(events__session.`$session_duration`) AS session_duration,
@@ -110,8 +110,8 @@
 # ---
 # name: TestWebOverviewQueryRunner.test_conversion_goal_no_conversions
   '''
-  SELECT uniqIf(person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS unique_users,
-         uniqIf(person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_unique_users,
+  SELECT uniqIf(session_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS unique_users,
+         uniqIf(session_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_unique_users,
          sumIf(conversion_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS total_conversion_count,
          sumIf(conversion_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_total_conversion_count,
          uniqIf(conversion_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS unique_conversions,
@@ -119,7 +119,7 @@
          divide(unique_conversions, unique_users) AS conversion_rate,
          divide(previous_unique_conversions, previous_unique_users) AS previous_conversion_rate
   FROM
-    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS person_id,
+    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS session_person_id,
             events__session.session_id AS session_id,
             min(events__session.`$start_timestamp`) AS start_timestamp,
             countIf(and(equals(events.event, '$pageview'), ifNull(match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'https://www.example.com/bar'), isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''))
@@ -157,8 +157,8 @@
 # ---
 # name: TestWebOverviewQueryRunner.test_conversion_goal_one_autocapture_conversion
   '''
-  SELECT uniqIf(person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS unique_users,
-         uniqIf(person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_unique_users,
+  SELECT uniqIf(session_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS unique_users,
+         uniqIf(session_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_unique_users,
          sumIf(conversion_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS total_conversion_count,
          sumIf(conversion_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_total_conversion_count,
          uniqIf(conversion_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS unique_conversions,
@@ -166,7 +166,7 @@
          divide(unique_conversions, unique_users) AS conversion_rate,
          divide(previous_unique_conversions, previous_unique_users) AS previous_conversion_rate
   FROM
-    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS person_id,
+    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS session_person_id,
             events__session.session_id AS session_id,
             min(events__session.`$start_timestamp`) AS start_timestamp,
             countIf(and(equals(events.event, '$autocapture'), match(events.elements_chain, '(^|;)button(\\.|$|;|:)'), arrayExists(x -> ifNull(equals(x, 'Pay $10'), 0), events.elements_chain_texts))) AS conversion_count,
@@ -201,8 +201,8 @@
 # ---
 # name: TestWebOverviewQueryRunner.test_conversion_goal_one_custom_action_conversion
   '''
-  SELECT uniqIf(person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS unique_users,
-         uniqIf(person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_unique_users,
+  SELECT uniqIf(session_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS unique_users,
+         uniqIf(session_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_unique_users,
          sumIf(conversion_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS total_conversion_count,
          sumIf(conversion_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_total_conversion_count,
          uniqIf(conversion_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS unique_conversions,
@@ -210,7 +210,7 @@
          divide(unique_conversions, unique_users) AS conversion_rate,
          divide(previous_unique_conversions, previous_unique_users) AS previous_conversion_rate
   FROM
-    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS person_id,
+    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS session_person_id,
             events__session.session_id AS session_id,
             min(events__session.`$start_timestamp`) AS start_timestamp,
             countIf(equals(events.event, 'custom_event')) AS conversion_count,
@@ -245,8 +245,8 @@
 # ---
 # name: TestWebOverviewQueryRunner.test_conversion_goal_one_custom_event_conversion
   '''
-  SELECT uniqIf(person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS unique_users,
-         uniqIf(person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_unique_users,
+  SELECT uniqIf(session_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS unique_users,
+         uniqIf(session_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_unique_users,
          sumIf(conversion_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS total_conversion_count,
          sumIf(conversion_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_total_conversion_count,
          uniqIf(conversion_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS unique_conversions,
@@ -254,7 +254,7 @@
          divide(unique_conversions, unique_users) AS conversion_rate,
          divide(previous_unique_conversions, previous_unique_users) AS previous_conversion_rate
   FROM
-    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS person_id,
+    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS session_person_id,
             events__session.session_id AS session_id,
             min(events__session.`$start_timestamp`) AS start_timestamp,
             countIf(equals(events.event, 'custom_event')) AS conversion_count,
@@ -289,8 +289,8 @@
 # ---
 # name: TestWebOverviewQueryRunner.test_conversion_goal_one_pageview_conversion
   '''
-  SELECT uniqIf(person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS unique_users,
-         uniqIf(person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_unique_users,
+  SELECT uniqIf(session_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS unique_users,
+         uniqIf(session_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_unique_users,
          sumIf(conversion_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS total_conversion_count,
          sumIf(conversion_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_total_conversion_count,
          uniqIf(conversion_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS unique_conversions,
@@ -298,7 +298,7 @@
          divide(unique_conversions, unique_users) AS conversion_rate,
          divide(previous_unique_conversions, previous_unique_users) AS previous_conversion_rate
   FROM
-    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS person_id,
+    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS session_person_id,
             events__session.session_id AS session_id,
             min(events__session.`$start_timestamp`) AS start_timestamp,
             countIf(and(equals(events.event, '$pageview'), ifNull(match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'https://www.example.com/foo'), isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''))
@@ -336,8 +336,8 @@
 # ---
 # name: TestWebOverviewQueryRunner.test_conversion_rate
   '''
-  SELECT uniqIf(person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS unique_users,
-         uniqIf(person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_unique_users,
+  SELECT uniqIf(session_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS unique_users,
+         uniqIf(session_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_unique_users,
          sumIf(conversion_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS total_conversion_count,
          sumIf(conversion_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_total_conversion_count,
          uniqIf(conversion_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS unique_conversions,
@@ -345,7 +345,7 @@
          divide(unique_conversions, unique_users) AS conversion_rate,
          divide(previous_unique_conversions, previous_unique_users) AS previous_conversion_rate
   FROM
-    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS person_id,
+    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS session_person_id,
             events__session.session_id AS session_id,
             min(events__session.`$start_timestamp`) AS start_timestamp,
             countIf(and(equals(events.event, '$pageview'), ifNull(match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'https://www.example.com/foo'), isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''))
@@ -383,8 +383,8 @@
 # ---
 # name: TestWebOverviewQueryRunner.test_correctly_counts_pageviews_in_long_running_session
   '''
-  SELECT uniqIf(person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS unique_users,
-         uniqIf(person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_unique_users,
+  SELECT uniqIf(session_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS unique_users,
+         uniqIf(session_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_unique_users,
          sumIf(filtered_pageview_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS total_filtered_pageview_count,
          sumIf(filtered_pageview_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_filtered_pageview_count,
          uniqIf(session_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS unique_sessions,
@@ -394,7 +394,7 @@
          avgIf(is_bounce, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS bounce_rate,
          avgIf(is_bounce, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS prev_bounce_rate
   FROM
-    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS person_id,
+    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS session_person_id,
             events__session.session_id AS session_id,
             min(events__session.`$start_timestamp`) AS start_timestamp,
             any(events__session.`$session_duration`) AS session_duration,
@@ -432,8 +432,8 @@
 # ---
 # name: TestWebOverviewQueryRunner.test_dont_filter_test_accounts
   '''
-  SELECT uniqIf(person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS unique_users,
-         uniqIf(person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_unique_users,
+  SELECT uniqIf(session_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS unique_users,
+         uniqIf(session_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_unique_users,
          sumIf(filtered_pageview_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS total_filtered_pageview_count,
          sumIf(filtered_pageview_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_filtered_pageview_count,
          uniqIf(session_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS unique_sessions,
@@ -443,7 +443,7 @@
          avgIf(is_bounce, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS bounce_rate,
          avgIf(is_bounce, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS prev_bounce_rate
   FROM
-    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS person_id,
+    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS session_person_id,
             events__session.session_id AS session_id,
             min(events__session.`$start_timestamp`) AS start_timestamp,
             any(events__session.`$session_duration`) AS session_duration,
@@ -479,10 +479,10 @@
                      max_bytes_before_external_group_by=0
   '''
 # ---
-# name: TestWebOverviewQueryRunner.test_filter_test_accounts
+# name: TestWebOverviewQueryRunner.test_filter_cohort
   '''
-  SELECT uniqIf(person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS unique_users,
-         uniqIf(person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_unique_users,
+  SELECT uniqIf(session_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS unique_users,
+         uniqIf(session_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_unique_users,
          sumIf(filtered_pageview_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS total_filtered_pageview_count,
          sumIf(filtered_pageview_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_filtered_pageview_count,
          uniqIf(session_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS unique_sessions,
@@ -492,7 +492,61 @@
          avgIf(is_bounce, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS bounce_rate,
          avgIf(is_bounce, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS prev_bounce_rate
   FROM
-    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS person_id,
+    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS session_person_id,
+            events__session.session_id AS session_id,
+            min(events__session.`$start_timestamp`) AS start_timestamp,
+            any(events__session.`$session_duration`) AS session_duration,
+            countIf(or(equals(events.event, '$pageview'), equals(events.event, '$screen'))) AS filtered_pageview_count,
+            any(events__session.`$is_bounce`) AS is_bounce
+     FROM events
+     LEFT JOIN
+       (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
+               min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
+               dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
+               if(ifNull(equals(uniqMerge(raw_sessions.pageview_uniq), 0), 0), NULL, not(or(ifNull(greater(uniqMerge(raw_sessions.pageview_uniq), 1), 0), ifNull(greater(uniqMerge(raw_sessions.autocapture_uniq), 0), 0), ifNull(greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10), 0)))) AS `$is_bounce`,
+               raw_sessions.session_id_v7 AS session_id_v7
+        FROM raw_sessions
+        WHERE and(equals(raw_sessions.team_id, 99999), or(and(ifNull(greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(minus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0)), and(ifNull(greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(minus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))))
+        GROUP BY raw_sessions.session_id_v7,
+                 raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, 'UUID')), events__session.session_id_v7)
+     LEFT OUTER JOIN
+       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), less(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))), ifNull(in(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           (SELECT cohortpeople.person_id AS person_id
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            FROM cohortpeople
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999))
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0))), 0)))
+     GROUP BY session_id
+     HAVING or(and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0)), and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0
+  '''
+# ---
+# name: TestWebOverviewQueryRunner.test_filter_test_accounts
+  '''
+  SELECT uniqIf(session_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS unique_users,
+         uniqIf(session_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_unique_users,
+         sumIf(filtered_pageview_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS total_filtered_pageview_count,
+         sumIf(filtered_pageview_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_filtered_pageview_count,
+         uniqIf(session_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS unique_sessions,
+         uniqIf(session_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_unique_sessions,
+         avgIf(session_duration, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS avg_duration_s,
+         avgIf(session_duration, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS prev_avg_duration_s,
+         avgIf(is_bounce, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS bounce_rate,
+         avgIf(is_bounce, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS prev_bounce_rate
+  FROM
+    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS session_person_id,
             events__session.session_id AS session_id,
             min(events__session.`$start_timestamp`) AS start_timestamp,
             any(events__session.`$session_duration`) AS session_duration,
@@ -540,8 +594,8 @@
 # ---
 # name: TestWebOverviewQueryRunner.test_increase_in_users
   '''
-  SELECT uniqIf(person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS unique_users,
-         uniqIf(person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))), 0))) AS previous_unique_users,
+  SELECT uniqIf(session_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS unique_users,
+         uniqIf(session_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))), 0))) AS previous_unique_users,
          sumIf(filtered_pageview_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS total_filtered_pageview_count,
          sumIf(filtered_pageview_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))), 0))) AS previous_filtered_pageview_count,
          uniqIf(session_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS unique_sessions,
@@ -551,7 +605,7 @@
          avgIf(is_bounce, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS bounce_rate,
          avgIf(is_bounce, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))), 0))) AS prev_bounce_rate
   FROM
-    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS person_id,
+    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS session_person_id,
             events__session.session_id AS session_id,
             min(events__session.`$start_timestamp`) AS start_timestamp,
             any(events__session.`$session_duration`) AS session_duration,
@@ -589,8 +643,8 @@
 # ---
 # name: TestWebOverviewQueryRunner.test_increase_in_users_using_mobile
   '''
-  SELECT uniqIf(person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS unique_users,
-         uniqIf(person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))), 0))) AS previous_unique_users,
+  SELECT uniqIf(session_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS unique_users,
+         uniqIf(session_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))), 0))) AS previous_unique_users,
          sumIf(filtered_pageview_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS total_filtered_pageview_count,
          sumIf(filtered_pageview_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))), 0))) AS previous_filtered_pageview_count,
          uniqIf(session_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS unique_sessions,
@@ -600,7 +654,7 @@
          avgIf(is_bounce, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS bounce_rate,
          avgIf(is_bounce, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))), 0))) AS prev_bounce_rate
   FROM
-    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS person_id,
+    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS session_person_id,
             events__session.session_id AS session_id,
             min(events__session.`$start_timestamp`) AS start_timestamp,
             any(events__session.`$session_duration`) AS session_duration,
@@ -638,8 +692,8 @@
 # ---
 # name: TestWebOverviewQueryRunner.test_limit_is_context_aware
   '''
-  SELECT uniqIf(person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS unique_users,
-         uniqIf(person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_unique_users,
+  SELECT uniqIf(session_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS unique_users,
+         uniqIf(session_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_unique_users,
          sumIf(filtered_pageview_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS total_filtered_pageview_count,
          sumIf(filtered_pageview_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_filtered_pageview_count,
          uniqIf(session_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS unique_sessions,
@@ -649,7 +703,7 @@
          avgIf(is_bounce, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS bounce_rate,
          avgIf(is_bounce, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS prev_bounce_rate
   FROM
-    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS person_id,
+    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS session_person_id,
             events__session.session_id AS session_id,
             min(events__session.`$start_timestamp`) AS start_timestamp,
             any(events__session.`$session_duration`) AS session_duration,
@@ -687,8 +741,8 @@
 # ---
 # name: TestWebOverviewQueryRunner.test_no_crash_when_no_data
   '''
-  SELECT uniqIf(person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS unique_users,
-         uniqIf(person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))), 0))) AS previous_unique_users,
+  SELECT uniqIf(session_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS unique_users,
+         uniqIf(session_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))), 0))) AS previous_unique_users,
          sumIf(filtered_pageview_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS total_filtered_pageview_count,
          sumIf(filtered_pageview_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))), 0))) AS previous_filtered_pageview_count,
          uniqIf(session_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS unique_sessions,
@@ -698,7 +752,7 @@
          avgIf(is_bounce, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS bounce_rate,
          avgIf(is_bounce, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))), 0))) AS prev_bounce_rate
   FROM
-    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS person_id,
+    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS session_person_id,
             events__session.session_id AS session_id,
             min(events__session.`$start_timestamp`) AS start_timestamp,
             any(events__session.`$session_duration`) AS session_duration,
@@ -736,8 +790,8 @@
 # ---
 # name: TestWebOverviewQueryRunner.test_no_crash_when_no_data.1
   '''
-  SELECT uniqIf(person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS unique_users,
-         uniqIf(person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))), 0))) AS previous_unique_users,
+  SELECT uniqIf(session_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS unique_users,
+         uniqIf(session_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))), 0))) AS previous_unique_users,
          sumIf(filtered_pageview_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS total_filtered_pageview_count,
          sumIf(filtered_pageview_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))), 0))) AS previous_filtered_pageview_count,
          uniqIf(session_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS unique_sessions,
@@ -747,7 +801,7 @@
          avgIf(is_bounce, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS bounce_rate,
          avgIf(is_bounce, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))), 0))) AS prev_bounce_rate
   FROM
-    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS person_id,
+    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS session_person_id,
             events__session.session_id AS session_id,
             min(events__session.`$start_timestamp`) AS start_timestamp,
             any(events__session.`$session_duration`) AS session_duration,
@@ -785,8 +839,8 @@
 # ---
 # name: TestWebOverviewQueryRunner.test_no_crash_when_no_data.2
   '''
-  SELECT uniqIf(person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS unique_users,
-         uniqIf(person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))), 0))) AS previous_unique_users,
+  SELECT uniqIf(session_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS unique_users,
+         uniqIf(session_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))), 0))) AS previous_unique_users,
          sumIf(conversion_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS total_conversion_count,
          sumIf(conversion_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))), 0))) AS previous_total_conversion_count,
          uniqIf(conversion_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))), 0))) AS unique_conversions,
@@ -794,7 +848,7 @@
          divide(unique_conversions, unique_users) AS conversion_rate,
          divide(previous_unique_conversions, previous_unique_users) AS previous_conversion_rate
   FROM
-    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS person_id,
+    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS session_person_id,
             events__session.session_id AS session_id,
             min(events__session.`$start_timestamp`) AS start_timestamp,
             countIf(and(equals(events.event, '$pageview'), ifNull(match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''), 'https://www.example.com/foo'), isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$current_url'), ''), 'null'), '^"|"$', ''))
@@ -832,8 +886,8 @@
 # ---
 # name: TestWebOverviewQueryRunner.test_no_revenue_when_action_conversion_goal_set_but_include_revenue_disabled
   '''
-  SELECT uniqIf(person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS unique_users,
-         uniqIf(person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_unique_users,
+  SELECT uniqIf(session_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS unique_users,
+         uniqIf(session_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_unique_users,
          sumIf(conversion_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS total_conversion_count,
          sumIf(conversion_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_total_conversion_count,
          uniqIf(conversion_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS unique_conversions,
@@ -841,7 +895,7 @@
          divide(unique_conversions, unique_users) AS conversion_rate,
          divide(previous_unique_conversions, previous_unique_users) AS previous_conversion_rate
   FROM
-    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS person_id,
+    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS session_person_id,
             events__session.session_id AS session_id,
             min(events__session.`$start_timestamp`) AS start_timestamp,
             countIf(equals(events.event, 'custom_event')) AS conversion_count,
@@ -876,8 +930,8 @@
 # ---
 # name: TestWebOverviewQueryRunner.test_no_revenue_when_event_conversion_goal_set_but_include_revenue_disabled
   '''
-  SELECT uniqIf(person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS unique_users,
-         uniqIf(person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_unique_users,
+  SELECT uniqIf(session_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS unique_users,
+         uniqIf(session_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_unique_users,
          sumIf(conversion_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS total_conversion_count,
          sumIf(conversion_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_total_conversion_count,
          uniqIf(conversion_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS unique_conversions,
@@ -885,7 +939,7 @@
          divide(unique_conversions, unique_users) AS conversion_rate,
          divide(previous_unique_conversions, previous_unique_users) AS previous_conversion_rate
   FROM
-    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS person_id,
+    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS session_person_id,
             events__session.session_id AS session_id,
             min(events__session.`$start_timestamp`) AS start_timestamp,
             countIf(equals(events.event, 'purchase')) AS conversion_count,
@@ -920,8 +974,8 @@
 # ---
 # name: TestWebOverviewQueryRunner.test_revenue
   '''
-  SELECT uniqIf(person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS unique_users,
-         uniqIf(person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_unique_users,
+  SELECT uniqIf(session_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS unique_users,
+         uniqIf(session_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_unique_users,
          sumIf(filtered_pageview_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS total_filtered_pageview_count,
          sumIf(filtered_pageview_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_filtered_pageview_count,
          uniqIf(session_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS unique_sessions,
@@ -933,7 +987,7 @@
          sumIf(session_revenue, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS revenue,
          sumIf(session_revenue, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_revenue
   FROM
-    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS person_id,
+    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS session_person_id,
             events__session.session_id AS session_id,
             min(events__session.`$start_timestamp`) AS start_timestamp,
             any(events__session.`$session_duration`) AS session_duration,
@@ -972,8 +1026,8 @@
 # ---
 # name: TestWebOverviewQueryRunner.test_revenue_conversion_event
   '''
-  SELECT uniqIf(person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS unique_users,
-         uniqIf(person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_unique_users,
+  SELECT uniqIf(session_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS unique_users,
+         uniqIf(session_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_unique_users,
          sumIf(conversion_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS total_conversion_count,
          sumIf(conversion_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_total_conversion_count,
          uniqIf(conversion_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS unique_conversions,
@@ -983,7 +1037,7 @@
          sumIf(session_conversion_revenue, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS conversion_revenue,
          sumIf(session_conversion_revenue, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_conversion_revenue
   FROM
-    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS person_id,
+    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS session_person_id,
             events__session.session_id AS session_id,
             min(events__session.`$start_timestamp`) AS start_timestamp,
             countIf(equals(events.event, 'purchase')) AS conversion_count,
@@ -1019,8 +1073,8 @@
 # ---
 # name: TestWebOverviewQueryRunner.test_revenue_conversion_event_with_multiple_revenue_events
   '''
-  SELECT uniqIf(person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS unique_users,
-         uniqIf(person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_unique_users,
+  SELECT uniqIf(session_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS unique_users,
+         uniqIf(session_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_unique_users,
          sumIf(conversion_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS total_conversion_count,
          sumIf(conversion_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_total_conversion_count,
          uniqIf(conversion_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS unique_conversions,
@@ -1030,7 +1084,7 @@
          sumIf(session_conversion_revenue, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS conversion_revenue,
          sumIf(session_conversion_revenue, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_conversion_revenue
   FROM
-    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS person_id,
+    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS session_person_id,
             events__session.session_id AS session_id,
             min(events__session.`$start_timestamp`) AS start_timestamp,
             countIf(equals(events.event, 'purchase1')) AS conversion_count,
@@ -1066,8 +1120,8 @@
 # ---
 # name: TestWebOverviewQueryRunner.test_revenue_conversion_no_config
   '''
-  SELECT uniqIf(person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS unique_users,
-         uniqIf(person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_unique_users,
+  SELECT uniqIf(session_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS unique_users,
+         uniqIf(session_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_unique_users,
          sumIf(conversion_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS total_conversion_count,
          sumIf(conversion_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_total_conversion_count,
          uniqIf(conversion_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS unique_conversions,
@@ -1077,7 +1131,7 @@
          sumIf(session_conversion_revenue, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS conversion_revenue,
          sumIf(session_conversion_revenue, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_conversion_revenue
   FROM
-    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS person_id,
+    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS session_person_id,
             events__session.session_id AS session_id,
             min(events__session.`$start_timestamp`) AS start_timestamp,
             countIf(equals(events.event, 'purchase')) AS conversion_count,
@@ -1113,8 +1167,8 @@
 # ---
 # name: TestWebOverviewQueryRunner.test_revenue_multiple_events
   '''
-  SELECT uniqIf(person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS unique_users,
-         uniqIf(person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_unique_users,
+  SELECT uniqIf(session_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS unique_users,
+         uniqIf(session_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_unique_users,
          sumIf(filtered_pageview_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS total_filtered_pageview_count,
          sumIf(filtered_pageview_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_filtered_pageview_count,
          uniqIf(session_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS unique_sessions,
@@ -1126,7 +1180,7 @@
          sumIf(session_revenue, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS revenue,
          sumIf(session_revenue, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_revenue
   FROM
-    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS person_id,
+    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS session_person_id,
             events__session.session_id AS session_id,
             min(events__session.`$start_timestamp`) AS start_timestamp,
             any(events__session.`$session_duration`) AS session_duration,
@@ -1165,8 +1219,8 @@
 # ---
 # name: TestWebOverviewQueryRunner.test_revenue_no_config
   '''
-  SELECT uniqIf(person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS unique_users,
-         uniqIf(person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_unique_users,
+  SELECT uniqIf(session_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS unique_users,
+         uniqIf(session_person_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_unique_users,
          sumIf(filtered_pageview_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS total_filtered_pageview_count,
          sumIf(filtered_pageview_count, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_filtered_pageview_count,
          uniqIf(session_id, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS unique_sessions,
@@ -1178,7 +1232,7 @@
          sumIf(session_revenue, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))), 0))) AS revenue,
          sumIf(session_revenue, and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))), 0))) AS previous_revenue
   FROM
-    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS person_id,
+    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS session_person_id,
             events__session.session_id AS session_id,
             min(events__session.`$start_timestamp`) AS start_timestamp,
             any(events__session.`$session_duration`) AS session_duration,

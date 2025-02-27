@@ -6,7 +6,7 @@ from freezegun import freeze_time
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql.constants import LimitContext
 from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
-from posthog.models import Action, Element
+from posthog.models import Action, Element, Cohort
 from posthog.models.utils import uuid7
 from posthog.schema import (
     CompareFilter,
@@ -346,6 +346,38 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(None, bounce.changeFromPreviousPct)
 
     def test_filter_test_accounts(self):
+        s1 = str(uuid7("2023-12-02"))
+        # Create 1 test account
+        self._create_events([("test", [("2023-12-02", s1), ("2023-12-03", s1)])])
+
+        results = self._run_web_overview_query("2023-12-01", "2023-12-03", filter_test_accounts=True).results
+
+        visitors = results[0]
+        self.assertEqual(0, visitors.value)
+
+        views = results[1]
+        self.assertEqual(0, views.value)
+
+        sessions = results[2]
+        self.assertEqual(0, sessions.value)
+
+        duration_s = results[3]
+        self.assertEqual(None, duration_s.value)
+
+        bounce = results[4]
+        self.assertEqual("bounce rate", bounce.key)
+        self.assertEqual(None, bounce.value)
+
+    def test_filter_cohort(self):
+        cohort = Cohort.objects.create(team=self.team, name="test")
+        self.team.test_account_filters = [
+            {
+                "key": "id",
+                "value": cohort.id,
+                "type": "cohort",
+            },
+        ]
+        self.team.save()
         s1 = str(uuid7("2023-12-02"))
         # Create 1 test account
         self._create_events([("test", [("2023-12-02", s1), ("2023-12-03", s1)])])
