@@ -30,27 +30,6 @@ export const costs: ModelRow[] = [
         },
     },
     {
-        model: 'llama-3.2-1b-instruct:free',
-        cost: {
-            prompt_token: 0,
-            completion_token: 0,
-        },
-    },
-    {
-        model: 'llama-3.2-1b-instruct',
-        cost: {
-            prompt_token: 0.00000001,
-            completion_token: 0.00000001,
-        },
-    },
-    {
-        model: 'llama-3.2-90b-vision-instruct',
-        cost: {
-            prompt_token: 0.0000008,
-            completion_token: 0.0000016,
-        },
-    },
-    {
         model: 'llama-3.2-11b-vision-instruct:free',
         cost: {
             prompt_token: 0,
@@ -62,6 +41,27 @@ export const costs: ModelRow[] = [
         cost: {
             prompt_token: 0.000000055,
             completion_token: 0.000000055,
+        },
+    },
+    {
+        model: 'llama-3.2-90b-vision-instruct',
+        cost: {
+            prompt_token: 0.0000008,
+            completion_token: 0.0000016,
+        },
+    },
+    {
+        model: 'llama-3.2-1b-instruct:free',
+        cost: {
+            prompt_token: 0,
+            completion_token: 0,
+        },
+    },
+    {
+        model: 'llama-3.2-1b-instruct',
+        cost: {
+            prompt_token: 0.00000001,
+            completion_token: 0.00000001,
         },
     },
     {
