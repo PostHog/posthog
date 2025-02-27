@@ -19,6 +19,7 @@ class Migration(migrations.Migration):
                 on_delete=django.db.models.deletion.SET_NULL,
                 related_name="updated_feature_flags",
                 to=settings.AUTH_USER_MODEL,
+                db_index=False,  # Prevent auto-index creation
             ),
         ),
         migrations.AddField(
