@@ -11,6 +11,7 @@ from temporalio.client import (
     ScheduleState,
     ScheduleCalendarSpec,
     ScheduleRange,
+    ScheduleIntervalSpec,
 )
 from temporalio.common import RetryPolicy
 from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
@@ -72,10 +73,33 @@ def get_sync_schedule(external_data_schema: "ExternalDataSchema"):
 def to_temporal_schedule(
     external_data_schema, inputs, hour_of_day=0, minute_of_hour=0, sync_frequency=timedelta(hours=6), jitter=None
 ):
-    # Calculate end hour based on start hour and frequency
-    # This ensures we don't exceed 24 hours
+    if sync_frequency < timedelta(hours=1):
+        # For sub-hour frequencies, use interval-based scheduling instead of calendar-based
+        return Schedule(
+            action=ScheduleActionStartWorkflow(
+                "external-data-job",
+                asdict(inputs),
+                id=str(external_data_schema.id),
+                task_queue=str(DATA_WAREHOUSE_TASK_QUEUE),
+                retry_policy=RetryPolicy(
+                    initial_interval=timedelta(seconds=10),
+                    maximum_interval=timedelta(seconds=60),
+                    maximum_attempts=3,
+                    non_retryable_error_types=["NondeterminismError"],
+                ),
+            ),
+            spec=ScheduleSpec(
+                intervals=[ScheduleIntervalSpec(every=sync_frequency)],
+                jitter=jitter,
+            ),
+            state=ScheduleState(note=f"Schedule for external data source: {external_data_schema.pk}"),
+            policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
+        )
+
+    # For hour or longer frequencies, use a calendar-based approach
+
     hours_per_day = 24
-    step = int(sync_frequency.total_seconds() // 3600)  # Convert to hours and ensure it's an integer
+    step = int(sync_frequency.total_seconds() // 3600)
     max_hour = hours_per_day - step
     end_hour = max((hour_of_day // step) * step, 0)
     while end_hour + step <= max_hour:
