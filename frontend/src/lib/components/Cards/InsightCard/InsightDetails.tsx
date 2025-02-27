@@ -31,6 +31,7 @@ import {
     Node,
     NodeKind,
     PathsQuery,
+    PathsV2Query,
     RetentionQuery,
     StickinessQuery,
     TrendsQuery,
@@ -265,7 +266,7 @@ function PathsSummary({ query }: { query: PathsQuery }): JSX.Element {
 
 function PathsV2Summary({ query }: { query: PathsV2Query }): JSX.Element {
     // TODO: implement paths-v2 summary
-    return <div className="SeriesDisplay"></div>
+    return <div className="SeriesDisplay" />
 }
 
 function RetentionSummary({ query }: { query: RetentionQuery }): JSX.Element {
