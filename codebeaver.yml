@@ -1,0 +1,67 @@
+environment:
+- SECRET_KEY=6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da
+- DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog
+- REDIS_URL=redis://localhost
+- CLICKHOUSE_HOST=localhost
+- CLICKHOUSE_SECURE=False
+- CLICKHOUSE_VERIFY=False
+- TEST=1
+- OBJECT_STORAGE_ENABLED=True
+- OBJECT_STORAGE_ENDPOINT=http://localhost:19000
+- OBJECT_STORAGE_ACCESS_KEY_ID=object_storage_root_user
+- OBJECT_STORAGE_SECRET_ACCESS_KEY=object_storage_root_password
+- DISPLAY=:99.0
+from: pytest
+ignore:
+- '**/node_modules/**'
+- '**/dist/**'
+- '**/migrations/**'
+- '**/bin/**'
+- frontend/**
+- .github/**
+- ee/frontend/**
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8.7.41
+  object-storage:
+    command: server /data --console-address ":9001" --address ":19000"
+    environment:
+    - MINIO_ROOT_USER=object_storage_root_user
+    - MINIO_ROOT_PASSWORD=object_storage_root_password
+    image: minio/minio
+  postgres:
+    environment:
+    - POSTGRES_USER=posthog
+    - POSTGRES_PASSWORD=posthog
+    - POSTGRES_DB=posthog
+    image: postgres:14-alpine
+  python:
+    depends_on:
+    - postgres
+    - redis
+    - clickhouse
+    - object-storage
+    environment:
+    - '@merge'
+    image: python:3.11.9-slim
+  redis:
+    image: redis:alpine
+setup_commands:
+- apt-get update
+- apt-get install -y libxml2-dev libxmlsec1 libxmlsec1-dev libxmlsec1-openssl git
+  curl
+- python -m pip install --upgrade pip
+- pip install -r requirements.txt -r requirements-dev.txt
+- pip install pytest-json-report pytest-cov pytest-reportlog
+- mkdir -p frontend/dist
+- touch frontend/dist/index.html frontend/dist/layout.html frontend/dist/exporter.html
+single_file_test_commands:
+- python -m pytest --cov --cov-report=json --json-report "$TEST_FILE"
+- coverage json
+test_commands:
+- python -m pytest --cov --cov-report=json --json-report -m "core"
+- echo 'core tests done'
+- python -m pytest --cov --cov-report=json --json-report -m "temporal"
+- echo 'not core tests done'
+- coverage combine || true
+- coverage json -i || true
