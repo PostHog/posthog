@@ -64,7 +64,7 @@ export class HogTransformerService {
     }
 
     private async getTransformationFunctions() {
-        const geoipLookup = await this.hub.geoipService.get()
+        const geoipLookup = await this.hub.geoipService.get(this.hub)
         return {
             geoipLookup: (val: unknown): any => {
                 return typeof val === 'string' ? geoipLookup.city(val) : null

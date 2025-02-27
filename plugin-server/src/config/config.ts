@@ -93,7 +93,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         REDIS_POOL_MIN_SIZE: 1,
         REDIS_POOL_MAX_SIZE: 3,
         DISABLE_MMDB: isTestEnv(),
-        MMDB_FILE_LOCATION: isDevEnv() ? './share/GeoLite2-City.mmdb' : '/s3/ingestion-assets/mmdb/GeoLite2-City.mmdb',
+        MMDB_FILE_LOCATION:
+            isDevEnv() || isTestEnv() ? './share/GeoLite2-City.mmdb' : '/s3/ingestion-assets/mmdb/GeoLite2-City.mmdb',
         MMDB_COMPARE_MODE: isTestEnv() || isDevEnv() ? false : true, // For now prodcution is only testing it
         DISTINCT_ID_LRU_SIZE: 10000,
         EVENT_PROPERTY_LRU_SIZE: 10000,
