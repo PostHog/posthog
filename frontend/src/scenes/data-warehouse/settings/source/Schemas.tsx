@@ -1,5 +1,6 @@
 import {
     LemonButton,
+    LemonInput,
     LemonModal,
     LemonSelect,
     LemonSkeleton,
@@ -13,6 +14,7 @@ import {
 } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { useEffect } from 'react'
 import { defaultQuery } from 'scenes/data-warehouse/utils'
@@ -53,7 +55,8 @@ const StatusTagSetting: Record<string, LemonTagType> = {
 }
 
 export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Element => {
-    const { updateSchema, reloadSchema, resyncSchema } = useActions(dataWarehouseSourceSettingsLogic)
+    const { updateSchema, reloadSchema, resyncSchema, setIsLocalTime } = useActions(dataWarehouseSourceSettingsLogic)
+    const { isLocalTime } = useValues(dataWarehouseSourceSettingsLogic)
     const { schemaReloadingById } = useValues(dataWarehouseSettingsLogic)
 
     return (
@@ -116,6 +119,45 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                                         { value: '18:00', label: '6:00 PM' },
                                         { value: '21:00', label: '9:00 PM' },
                                     ]}
+                                />
+                            )
+                        },
+                    },
+                    {
+                        title: (
+                            <div className="flex items-center gap-2">
+                                <span>Sync Time of Day</span>
+                                <div className="flex items-center gap-1">
+                                    <span>UTC</span>
+                                    <LemonSwitch checked={isLocalTime} onChange={setIsLocalTime} />
+                                    <span>{dayjs().format('z')}</span>
+                                </div>
+                            </div>
+                        ),
+                        key: 'sync_time_of_day_local',
+                        render: function RenderSyncTimeOfDayLocal(_, schema) {
+                            const utcTime = schema.sync_time_of_day || '00:00:00'
+                            const localTime = isLocalTime
+                                ? dayjs
+                                      .utc(`${dayjs().format('YYYY-MM-DD')}T${utcTime}`)
+                                      .local()
+                                      .format('HH:mm:00')
+                                : utcTime
+
+                            return (
+                                <LemonInput
+                                    type="time"
+                                    disabled={!schema.should_sync}
+                                    value={localTime.substring(0, 5)}
+                                    onChange={(value) => {
+                                        const newValue = `${value}:00`
+                                        const utcValue = isLocalTime
+                                            ? dayjs(`${dayjs().format('YYYY-MM-DD')}T${newValue}`)
+                                                  .utc()
+                                                  .format('HH:mm:00')
+                                            : newValue
+                                        updateSchema({ ...schema, sync_time_of_day: utcValue })
+                                    }}
                                 />
                             )
                         },
@@ -357,6 +399,7 @@ const SyncMethodModal = ({ schema }: { schema: ExternalDataSourceSchema }): JSX.
                         table: currentSyncMethodModalSchema.name,
                         should_sync: currentSyncMethodModalSchema.should_sync,
                         sync_type: currentSyncMethodModalSchema.sync_type,
+                        sync_time_of_day: currentSyncMethodModalSchema.sync_time_of_day ?? null,
                         incremental_field: currentSyncMethodModalSchema.incremental_field ?? null,
                         incremental_field_type: currentSyncMethodModalSchema.incremental_field_type ?? null,
                         incremental_available: !!schemaIncrementalFields.length,
@@ -374,6 +417,7 @@ const SyncMethodModal = ({ schema }: { schema: ExternalDataSourceSchema }): JSX.
                                 sync_type: syncType,
                                 incremental_field: null,
                                 incremental_field_type: null,
+                                sync_time_of_day: null,
                             })
                         } else {
                             updateSchema({
@@ -382,6 +426,7 @@ const SyncMethodModal = ({ schema }: { schema: ExternalDataSourceSchema }): JSX.
                                 sync_type: syncType,
                                 incremental_field: incrementalField,
                                 incremental_field_type: incrementalFieldType,
+                                sync_time_of_day: currentSyncMethodModalSchema.sync_time_of_day ?? null,
                             })
                         }
                     }}

@@ -25,6 +25,7 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
         reloadSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
         resyncSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
         setCanLoadMoreJobs: (canLoadMoreJobs: boolean) => ({ canLoadMoreJobs }),
+        setIsLocalTime: (isLocalTime: boolean) => ({ isLocalTime }),
     }),
     loaders(({ actions, values }) => ({
         source: [
@@ -40,7 +41,9 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                     clonedSource.schemas[schemaIndex] = schema
                     actions.loadSourceSuccess(clonedSource)
 
-                    const updatedSchema = await api.externalDataSchemas.update(schema.id, schema)
+                    const updatedSchema = await api.externalDataSchemas.update(schema.id, {
+                        ...schema,
+                    })
 
                     const source = values.source
                     if (schemaIndex !== undefined) {
@@ -98,6 +101,12 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
             {
                 setCanLoadMoreJobs: (_, { canLoadMoreJobs }) => canLoadMoreJobs,
                 setSourceId: () => true,
+            },
+        ],
+        isLocalTime: [
+            false as boolean,
+            {
+                setIsLocalTime: (_, { isLocalTime }) => isLocalTime,
             },
         ],
     })),
