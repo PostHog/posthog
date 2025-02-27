@@ -1,5 +1,4 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
-
+import { PluginEvent } from '~/src/types'
 const { processEvent } = require('../index')
 
 const createEvent = (event: Partial<PluginEvent>): PluginEvent =>

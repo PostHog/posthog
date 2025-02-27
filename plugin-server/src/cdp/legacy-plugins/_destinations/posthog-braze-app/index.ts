@@ -1,8 +1,9 @@
-import { ProcessedPluginEvent, Properties, RetryError } from '@posthog/plugin-scaffold'
 import crypto from 'crypto'
 
+import { ProcessedPluginEvent, Properties } from '~/src/types'
 import { Response } from '~/src/utils/fetch'
 
+import { RetryError } from '../../../../utils/errors'
 import { LegacyDestinationPluginMeta } from '../../types'
 
 export type FetchBraze = (

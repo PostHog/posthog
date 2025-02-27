@@ -41,8 +41,3 @@ export const isDevEnv = (): boolean => determineNodeEnv() === NodeEnv.Developmen
 export const isProdEnv = (): boolean => determineNodeEnv() === NodeEnv.Production
 
 export const isCloud = (): boolean => !!process.env.CLOUD_DEPLOYMENT
-
-export function isOverflowBatchByDistinctId(): boolean {
-    const overflowBatchByDistinctId = process.env.INGESTION_OVERFLOW_BATCH_BY_DISTINCT_ID
-    return stringToBoolean(overflowBatchByDistinctId)
-}

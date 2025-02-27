@@ -1,5 +1,4 @@
-import { RetryError } from '@posthog/plugin-scaffold'
-
+import { RetryError } from '../../../../utils/errors'
 import { onEvent } from './index'
 
 const captureHost = 'localhost:8000'

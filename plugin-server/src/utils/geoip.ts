@@ -2,7 +2,7 @@ import { City, Reader, ReaderModel } from '@maxmind/geoip2-node'
 import { join } from 'path'
 import { Counter } from 'prom-client'
 
-import { Hub, PluginsServerConfig } from '../types'
+import { Config, Hub } from '../types'
 import { status } from './status'
 
 export type GeoIp = {
@@ -18,7 +18,7 @@ export const geoipCompareCounter = new Counter({
 export class GeoIPService {
     private _mmdbPromise: Promise<ReaderModel> | undefined
 
-    constructor(private config: PluginsServerConfig) {}
+    constructor(private config: Config) {}
 
     private getMmdb() {
         if (!this._mmdbPromise) {

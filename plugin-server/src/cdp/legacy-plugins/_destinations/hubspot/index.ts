@@ -1,5 +1,5 @@
-import { ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
-
+import { ProcessedPluginEvent } from '~/src/types'
+import { RetryError } from '~/src/utils/errors'
 import { Response } from '~/src/utils/fetch'
 
 import { LegacyDestinationPluginMeta } from '../../types'

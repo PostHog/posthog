@@ -1,11 +1,11 @@
-import { getMeta, resetMeta } from '@posthog/plugin-scaffold/test/utils'
-
 import { EngagePluginEvent, onEvent } from './index'
+
 describe('sendgrid', () => {
     const mockFetch = jest.fn()
+    let meta: Record<string, any> = {}
 
     beforeEach(() => {
-        resetMeta({
+        meta = {
             config: {
                 publicKey: 'ENGAGE_PUBLIC_KEY',
                 secret: 'ENGAGE_SEECRET',
@@ -13,13 +13,12 @@ describe('sendgrid', () => {
             },
             global: global,
             fetch: mockFetch,
-        })
+        }
 
         mockFetch.mockClear()
     })
 
     test('onEvent to send the correct data for $identify event (user)', async () => {
-        const meta = getMeta()
         const auth = 'Basic ' + Buffer.from(`${meta.config.publicKey}:${meta.config.secret}`).toString('base64')
 
         const event = {
@@ -38,7 +37,7 @@ describe('sendgrid', () => {
             },
         } as unknown as EngagePluginEvent
 
-        await onEvent(event, meta)
+        await onEvent(event, meta as any)
         expect(mockFetch.mock.calls.length).toEqual(1)
         expect(mockFetch.mock.calls[0][1]).toEqual(
             expect.objectContaining({
@@ -53,7 +52,6 @@ describe('sendgrid', () => {
     })
 
     test('onEvent to send the correct data for $identify event (group)', async () => {
-        const meta = getMeta()
         const auth = 'Basic ' + Buffer.from(`${meta.config.publicKey}:${meta.config.secret}`).toString('base64')
 
         const event = {
@@ -68,7 +66,7 @@ describe('sendgrid', () => {
             },
         } as unknown as EngagePluginEvent
 
-        await onEvent(event, meta)
+        await onEvent(event, meta as any)
         expect(mockFetch.mock.calls.length).toEqual(1)
         expect(mockFetch.mock.calls[0][1]).toEqual(
             expect.objectContaining({
@@ -83,7 +81,6 @@ describe('sendgrid', () => {
     })
 
     test('onEvent to send the correct data to track user event', async () => {
-        const meta = getMeta()
         const auth = 'Basic ' + Buffer.from(`${meta.config.publicKey}:${meta.config.secret}`).toString('base64')
 
         const event = {
@@ -99,7 +96,7 @@ describe('sendgrid', () => {
             },
         } as unknown as EngagePluginEvent
 
-        await onEvent(event, meta)
+        await onEvent(event, meta as any)
         expect(mockFetch.mock.calls.length).toEqual(1)
         expect(mockFetch.mock.calls[0][1]).toEqual(
             expect.objectContaining({
@@ -114,7 +111,6 @@ describe('sendgrid', () => {
     })
 
     test('onEvent to send the correct data to track group event', async () => {
-        const meta = getMeta()
         const auth = 'Basic ' + Buffer.from(`${meta.config.publicKey}:${meta.config.secret}`).toString('base64')
 
         const event = {
@@ -129,7 +125,7 @@ describe('sendgrid', () => {
             },
         } as unknown as EngagePluginEvent
 
-        await onEvent(event, meta)
+        await onEvent(event, meta as any)
         expect(mockFetch.mock.calls.length).toEqual(1)
         expect(mockFetch.mock.calls[0][1]).toEqual(
             expect.objectContaining({
@@ -171,7 +167,7 @@ describe('sendgrid', () => {
             },
         } as unknown as EngagePluginEvent
 
-        await onEvent(event, getMeta())
+        await onEvent(event, meta as any)
         expect(mockFetch.mock.calls.length).toEqual(0)
     })
 })
