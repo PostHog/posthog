@@ -1,6 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { processAiEvent } from '../../../src/worker/ingestion/event-pipeline/processAiEvent'
+import { processAiEvent } from './process-ai-event'
 
 describe('processAiEvent()', () => {
     let event: PluginEvent
