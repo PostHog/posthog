@@ -138,7 +138,7 @@ impl Manager {
                 * https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L293-L305
                 */
 
-        self.gen_prop_defs_select_clause(qb, params.use_enterprise_taxonomy, params.parent_type);
+        self.gen_prop_defs_select_clause(qb, params.use_enterprise_taxonomy);
 
         // append event_property_field clause to SELECT clause
         let is_seen_resolved = if self.is_parent_type_event(params.parent_type) {
@@ -222,7 +222,6 @@ impl Manager {
         &self,
         qb: &mut QueryBuilder<Postgres>,
         use_enterprise_taxonomy: bool,
-        parent_type: PropertyParentType,
     ) {
         let mut selections = vec![];
 
@@ -245,13 +244,6 @@ impl Manager {
             }
             for col_name in USER_TABLE_COLUMNS {
                 selections.push(format!("{}.\"{}\"", USER_TABLE_VERIFIED_ALIAS, col_name));
-            }
-        }
-
-        // same if we're performing the JOIN on posthog_eventproperty (i.e. parent type == "event")
-        if self.is_parent_type_event(parent_type) {
-            for col_name in ENTERPRISE_PROP_DEFS_TABLE_COLUMNS {
-                selections.push(format!("{}.\"{}\"", ENTERPRISE_PROP_DEFS_TABLE, col_name));
             }
         }
 
