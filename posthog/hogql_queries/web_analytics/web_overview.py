@@ -179,7 +179,7 @@ HAVING {inside_start_timestamp_period}
 
         if self.query.conversionGoal:
             select = [
-                current_period_aggregate("uniq", "sesion_person_id", "unique_users"),
+                current_period_aggregate("uniq", "session_person_id", "unique_users"),
                 previous_period_aggregate("uniq", "session_person_id", "previous_unique_users"),
                 current_period_aggregate("sum", "conversion_count", "total_conversion_count"),
                 previous_period_aggregate("sum", "conversion_count", "previous_total_conversion_count"),
