@@ -126,10 +126,11 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                     if (!state || index === state.groups.length - 1) {
                         return state
                     }
+
                     const groups = [...state.groups]
-                    const temp = groups[index]
-                    groups[index] = groups[index + 1]
-                    groups[index + 1] = temp
+                    const condition = groups[index]
+                    groups.splice(index, 1)
+                    groups.splice(index + 1, 0, condition)
                     return { ...state, groups }
                 },
                 moveConditionSetUp: (state, { index }) => {
@@ -137,9 +138,9 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                         return state
                     }
                     const groups = [...state.groups]
-                    const temp = groups[index]
-                    groups[index] = groups[index - 1]
-                    groups[index - 1] = temp
+                    const condition = groups[index]
+                    groups.splice(index, 1)
+                    groups.splice(index - 1, 0, condition)
                     return { ...state, groups }
                 },
             },
