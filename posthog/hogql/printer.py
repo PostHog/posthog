@@ -1055,7 +1055,9 @@ class _Printer(Visitor):
                 )
 
             # check that we're not running inside another aggregate
-            for stack_node in self.stack:
+            for stack_node in reversed(self.stack):
+                if isinstance(stack_node, ast.SelectQuery):
+                    break
                 if stack_node != node and isinstance(stack_node, ast.Call) and find_hogql_aggregation(stack_node.name):
                     raise QueryError(
                         f"Aggregation '{node.name}' cannot be nested inside another aggregation '{stack_node.name}'."

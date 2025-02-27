@@ -91,6 +91,7 @@ class ExperimentQueryRunner(QueryRunner):
         # Lots of shortcuts taken here, but it's a proof of concept to illustrate the idea
 
         feature_flag_key = self.feature_flag.key
+        feature_flag_property = f"$feature/{feature_flag_key}"
 
         is_data_warehouse_query = isinstance(self.metric.metric_config, ExperimentDataWarehouseMetricConfig)
         is_binomial_metric = self.metric.metric_type == ExperimentMetricType.BINOMIAL
@@ -118,7 +119,8 @@ class ExperimentQueryRunner(QueryRunner):
         # Filter Test Accounts
         test_accounts_filter: list[ast.Expr] = []
         if (
-            self.metric.filterTestAccounts
+            self.experiment.exposure_criteria
+            and self.experiment.exposure_criteria.get("filterTestAccounts")
             and isinstance(self.team.test_account_filters, list)
             and len(self.team.test_account_filters) > 0
         ):
@@ -138,9 +140,69 @@ class ExperimentQueryRunner(QueryRunner):
             now=datetime.now(),
         )
 
+        event_name = "$feature_flag_called"
+        exposure_config = (
+            self.experiment.exposure_criteria.get("exposure_config") if self.experiment.exposure_criteria else None
+        )
+        if exposure_config and exposure_config.get("kind") == "ExperimentEventExposureConfig":
+            event_name = exposure_config.get("event")
+            exposure_property_filters: list[ast.Expr] = []
+            if exposure_config.get("properties"):
+                for property in exposure_config.get("properties"):
+                    exposure_property_filters.append(property_to_expr(property, self.team))
+            exposure_where_clause = ast.And(
+                exprs=[
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=["event"]),
+                        right=ast.Constant(value=event_name),
+                    ),
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.In,
+                        left=parse_expr(
+                            "replaceAll(JSONExtractRaw(properties, {feature_flag_property}), '\"', '')",
+                            placeholders={"feature_flag_property": ast.Constant(value=feature_flag_property)},
+                        ),
+                        right=ast.Constant(value=self.variants),
+                    ),
+                    *exposure_property_filters,
+                ]
+            )
+        else:
+            exposure_where_clause = ast.And(
+                exprs=[
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=["event"]),
+                        right=ast.Constant(value="$feature_flag_called"),
+                    ),
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=parse_expr("replaceAll(JSONExtractRaw(properties, '$feature_flag'), '\"', '')"),
+                        right=ast.Constant(value=feature_flag_key),
+                    ),
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.In,
+                        left=parse_expr("replaceAll(JSONExtractRaw(properties, '$feature_flag_response'), '\"', '')"),
+                        right=ast.Constant(value=self.variants),
+                    ),
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.In,
+                        left=parse_expr(
+                            "replaceAll(JSONExtractRaw(properties, {feature_flag_property}), '\"', '')",
+                            placeholders={"feature_flag_property": ast.Constant(value=feature_flag_property)},
+                        ),
+                        right=ast.Constant(value=self.variants),
+                    ),
+                ]
+            )
+
         exposure_query_select = [
             ast.Alias(alias="entity_id", expr=ast.Field(chain=["person_id"])),
-            parse_expr("replaceAll(JSONExtractRaw(properties, '$feature_flag_response'), '\"', '') AS variant"),
+            parse_expr(
+                "replaceAll(JSONExtractRaw(properties, {feature_flag_property}), '\"', '') AS variant",
+                placeholders={"feature_flag_property": ast.Constant(value=feature_flag_property)},
+            ),
             parse_expr("min(timestamp) as first_exposure_time"),
         ]
         exposure_query_group_by = [ast.Field(chain=["variant"]), ast.Field(chain=["entity_id"])]
@@ -166,27 +228,7 @@ class ExperimentQueryRunner(QueryRunner):
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             where=ast.And(
                 exprs=[
-                    ast.And(
-                        exprs=[
-                            ast.CompareOperation(
-                                op=ast.CompareOperationOp.Eq,
-                                left=ast.Field(chain=["event"]),
-                                right=ast.Constant(value="$feature_flag_called"),
-                            ),
-                            ast.CompareOperation(
-                                op=ast.CompareOperationOp.Eq,
-                                left=parse_expr("replaceAll(JSONExtractRaw(properties, '$feature_flag'), '\"', '')"),
-                                right=ast.Constant(value=feature_flag_key),
-                            ),
-                            ast.CompareOperation(
-                                op=ast.CompareOperationOp.In,
-                                left=parse_expr(
-                                    "replaceAll(JSONExtractRaw(properties, '$feature_flag_response'), '\"', '')"
-                                ),
-                                right=ast.Constant(value=self.variants),
-                            ),
-                        ]
-                    ),
+                    exposure_where_clause,
                     # Filter by experiment date range
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.GtEq,
@@ -512,6 +554,11 @@ class ExperimentQueryRunner(QueryRunner):
         if last_refresh is None:
             return None
         return last_refresh + timedelta(hours=24)
+
+    def get_cache_payload(self) -> dict:
+        payload = super().get_cache_payload()
+        payload["experiment_response_version"] = 2
+        return payload
 
     def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
         if not last_refresh:

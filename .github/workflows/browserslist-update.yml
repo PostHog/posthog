@@ -30,6 +30,7 @@ jobs:
               uses: actions/setup-node@v4
               with:
                   node-version: 18.12.1
+                  cache: 'pnpm'
 
             - name: Update Browserslist database and create PR if applies
               uses: c2corg/browserslist-update-action@v2

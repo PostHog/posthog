@@ -15,6 +15,7 @@ const pipelineEvent: PipelineEvent = {
     uuid: new UUIDT().toString(),
 }
 
+// @ts-expect-error TODO: fix underlying type
 const teamTwo: Team = {
     id: 2,
     uuid: 'af95d312-1a0a-4208-b80f-562ddafc9bcd',

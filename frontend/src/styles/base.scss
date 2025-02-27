@@ -1338,7 +1338,7 @@ html {
 input::placeholder,
 textarea::placeholder {
     // Overrides Tailwind's default
-    color: var(--text-secondary);
+    color: var(--text-tertiary);
 }
 
 a {
@@ -1452,6 +1452,10 @@ img {
 
 .system-ui {
     font-family: system-ui;
+}
+
+.inherit {
+    font-family: inherit;
 }
 
 // Highlight background blink

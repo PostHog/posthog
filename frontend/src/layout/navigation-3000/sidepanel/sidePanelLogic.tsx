@@ -64,6 +64,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 if (isCloudOrDev) {
                     tabs.push(SidePanelTab.Support)
                 }
+                tabs.push(SidePanelTab.Activity)
 
                 if (currentTeam?.created_at) {
                     const teamCreatedAt = dayjs(currentTeam.created_at)
