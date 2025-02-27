@@ -8761,7 +8761,7 @@
                     "type": "boolean"
                 },
                 "personsArgMaxVersion": {
-                    "enum": ["auto", "v1", "v2"],
+                    "enum": ["auto", "v1", "v2", "v3"],
                     "type": "string"
                 },
                 "personsJoinMode": {

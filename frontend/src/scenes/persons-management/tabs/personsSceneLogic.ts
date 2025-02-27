@@ -16,6 +16,9 @@ export const personsSceneLogic = kea<personsSceneLogicType>([
                 source: { kind: NodeKind.ActorsQuery, select: defaultDataTableColumns(NodeKind.ActorsQuery) },
                 full: true,
                 propertiesViaUrl: true,
+                modifiers: {
+                    personsArgMaxVersion: 'v3',
+                },
             } as DataTableNode,
             { setQuery: (_, { query }) => query },
         ],
