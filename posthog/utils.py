@@ -82,11 +82,17 @@ __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file
 def format_label_date(date: datetime.datetime, interval: str = "default") -> str:
     date_formats = {
         "default": "%-d-%b-%Y",
-        "minute": "%-d-%b-%Y %H:%M",
-        "hour": "%-d-%b-%Y %H:%M",
+        "minute": "%-d-%b %H:%M",
+        "hour": "%-d-%b %H:%M",
+        "week": "%-d-%b – %-d-%b",
         "month": "%b %Y",
     }
     labels_format = date_formats.get(interval, date_formats["default"])
+
+    if interval == "week":
+        end_date = date + datetime.timedelta(days=6)
+        return f"{date.strftime('%-d-%b')} – {end_date.strftime('%-d-%b')}"
+
     return date.strftime(labels_format)
 
 
