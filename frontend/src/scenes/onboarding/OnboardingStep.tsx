@@ -17,9 +17,10 @@ export const OnboardingStep = ({
     showSkip = false,
     showHelpButton = false,
     onSkip,
-    continueAction,
+    onContinue,
     continueText,
     continueOverride,
+    continueDisabledReason,
     hideHeader,
     breadcrumbHighlightName,
     fullWidth = false,
@@ -31,9 +32,10 @@ export const OnboardingStep = ({
     showSkip?: boolean
     showHelpButton?: boolean
     onSkip?: () => void
-    continueAction?: () => void
+    onContinue?: () => void
     continueText?: string
     continueOverride?: JSX.Element
+    continueDisabledReason?: string
     hideHeader?: boolean
     breadcrumbHighlightName?: OnboardingStepKey
     fullWidth?: boolean
@@ -132,7 +134,7 @@ export const OnboardingStep = ({
                             status="alt"
                             data-attr="onboarding-continue"
                             onClick={() => {
-                                continueAction && continueAction()
+                                onContinue?.()
                                 !hasNextStep
                                     ? completeOnboarding(
                                           undefined,
@@ -143,6 +145,7 @@ export const OnboardingStep = ({
                                     : goToNextStep()
                             }}
                             sideIcon={hasNextStep ? <IconArrowRight /> : null}
+                            disabledReason={continueDisabledReason}
                         >
                             {continueText ? continueText : !hasNextStep ? 'Finish' : 'Next'}
                         </LemonButton>

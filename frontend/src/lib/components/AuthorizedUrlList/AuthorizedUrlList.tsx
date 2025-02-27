@@ -14,11 +14,12 @@ import { authorizedUrlListLogic, AuthorizedUrlListType } from './authorizedUrlLi
 import { EmptyState } from './EmptyState'
 
 export interface AuthorizedUrlListProps {
+    type: AuthorizedUrlListType
     actionId?: number
     experimentId?: ExperimentIdType
     query?: string | null
-    type: AuthorizedUrlListType
     allowWildCards?: boolean
+    displaySuggestions?: boolean
 }
 
 export function AuthorizedUrlList({
@@ -28,6 +29,7 @@ export function AuthorizedUrlList({
     type,
     addText = 'Add new authorized URL',
     allowWildCards,
+    displaySuggestions = true,
 }: AuthorizedUrlListProps & { addText?: string }): JSX.Element {
     const logic = authorizedUrlListLogic({
         experimentId: experimentId ?? null,
@@ -45,7 +47,12 @@ export function AuthorizedUrlList({
 
     return (
         <div className="flex flex-col gap-2">
-            <EmptyState experimentId={experimentId} actionId={actionId} type={type} />
+            <EmptyState
+                experimentId={experimentId}
+                actionId={actionId}
+                type={type}
+                displaySuggestions={displaySuggestions}
+            />
 
             {isAddUrlFormVisible ? (
                 <div className="border rounded p-2 bg-surface-primary">
@@ -72,6 +79,10 @@ export function AuthorizedUrlList({
                 // If there are no authorized urls, highlight the first suggestion
                 const isFirstSuggestion = keyedURL.originalIndex === 0 && keyedURL.type === 'suggestion'
                 const isHighlighted = noAuthorizedUrls && isFirstSuggestion
+
+                if (!displaySuggestions && keyedURL.type === 'suggestion') {
+                    return null
+                }
 
                 return editUrlIndex === index ? (
                     <div className="border rounded p-2 bg-surface-primary">

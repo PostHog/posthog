@@ -3,6 +3,7 @@ import {
     IconFeatures,
     IconGraph,
     IconMessage,
+    IconPieChart,
     IconRewindPlay,
     IconTestTube,
     IconToggle,
@@ -238,18 +239,31 @@ export const activationLogic = kea<activationLogicType>([
             }
 
             switch (id) {
+                // Quick Start
                 case ActivationTask.IngestFirstEvent:
                     router.actions.push(urls.onboarding(ProductKey.PRODUCT_ANALYTICS))
                     break
                 case ActivationTask.InviteTeamMember:
                     actions.showInviteModal()
                     break
+
+                // Product Analytics
                 case ActivationTask.CreateFirstInsight:
                     router.actions.push(urls.insightNew())
                     break
                 case ActivationTask.CreateFirstDashboard:
                     router.actions.push(urls.dashboards())
                     break
+
+                // Web Analytics
+                case ActivationTask.AddAuthorizedDomain:
+                    router.actions.push(urls.settings('environment-details', 'authorized-urls'))
+                    break
+                case ActivationTask.SetUpWebVitals:
+                    router.actions.push(urls.settings('environment-autocapture', 'web-vitals-autocapture'))
+                    break
+
+                // Session Replay
                 case ActivationTask.SetupSessionRecordings:
                     actions.openSettingsPanel({ sectionId: 'project-replay' })
                     router.actions.push(urls.replay(ReplayTabs.Home))
@@ -260,18 +274,26 @@ export const activationLogic = kea<activationLogicType>([
                 case ActivationTask.TrackCustomEvents:
                     router.actions.push(urls.eventDefinitions())
                     break
+
+                // Feature Flags
                 case ActivationTask.CreateFeatureFlag:
                     router.actions.push(urls.featureFlags())
                     break
                 case ActivationTask.UpdateFeatureFlagReleaseConditions:
                     router.actions.push(urls.featureFlags())
                     break
+
+                // Experiments
                 case ActivationTask.LaunchExperiment:
                     router.actions.push(urls.experiments())
                     break
+
+                // Data Warehouse
                 case ActivationTask.ConnectSource:
                     router.actions.push(urls.pipelineNodeNew(PipelineStage.Source))
                     break
+
+                // Surveys
                 case ActivationTask.LaunchSurvey:
                     router.actions.push(urls.surveyTemplates())
                     break
@@ -383,12 +405,19 @@ export const activationLogic = kea<activationLogicType>([
 ])
 
 export enum ActivationTask {
+    // Quick Start
     IngestFirstEvent = 'ingest_first_event',
     InviteTeamMember = 'invite_team_member',
+    SetUpReverseProxy = 'set_up_reverse_proxy',
+
+    // Product Analytics
     CreateFirstInsight = 'create_first_insight',
     CreateFirstDashboard = 'create_first_dashboard',
     TrackCustomEvents = 'track_custom_events',
-    SetUpReverseProxy = 'set_up_reverse_proxy',
+
+    // Web Analytics
+    AddAuthorizedDomain = 'add_authorized_domain',
+    SetUpWebVitals = 'set_up_web_vitals',
 
     // Session Replay
     SetupSessionRecordings = 'setup_session_recordings',
@@ -397,6 +426,7 @@ export enum ActivationTask {
     // Feature Flags
     CreateFeatureFlag = 'create_feature_flag',
     UpdateFeatureFlagReleaseConditions = 'update_feature_flag_release_conditions',
+
     // Experiments
     LaunchExperiment = 'launch_experiment',
 
@@ -411,6 +441,7 @@ export enum ActivationTask {
 export enum ActivationSection {
     QuickStart = 'quick_start',
     ProductAnalytics = 'product_analytics',
+    WebAnalytics = 'web_analytics',
     SessionReplay = 'session_replay',
     FeatureFlags = 'feature_flags',
     Experiments = 'experiments',
@@ -426,6 +457,10 @@ export const ACTIVATION_SECTIONS: Record<ActivationSection, { title: string; ico
     [ActivationSection.ProductAnalytics]: {
         title: 'Product analytics',
         icon: <IconGraph className="h-5 w-5" color={availableOnboardingProducts.product_analytics.iconColor} />,
+    },
+    [ActivationSection.WebAnalytics]: {
+        title: 'Web analytics',
+        icon: <IconPieChart className="h-5 w-5" color={availableOnboardingProducts.web_analytics.iconColor} />,
     },
     [ActivationSection.SessionReplay]: {
         title: 'Session replay',
@@ -461,6 +496,7 @@ export const ACTIVATION_SECTIONS: Record<ActivationSection, { title: string; ico
 }
 
 export const ACTIVATION_TASKS: ActivationTaskDefinition[] = [
+    // Quick Start
     {
         id: ActivationTask.IngestFirstEvent,
         title: 'Ingest your first event',
@@ -474,6 +510,15 @@ export const ACTIVATION_TASKS: ActivationTaskDefinition[] = [
         section: ActivationSection.QuickStart,
     },
     {
+        id: ActivationTask.SetUpReverseProxy,
+        title: 'Set up a reverse proxy',
+        canSkip: true,
+        section: ActivationSection.QuickStart,
+        url: 'https://posthog.com/docs/advanced/proxy',
+    },
+
+    // Product Analytics
+    {
         id: ActivationTask.CreateFirstInsight,
         title: 'Create your first insight',
         canSkip: false,
@@ -485,7 +530,6 @@ export const ACTIVATION_TASKS: ActivationTaskDefinition[] = [
         canSkip: false,
         section: ActivationSection.ProductAnalytics,
     },
-
     {
         id: ActivationTask.TrackCustomEvents,
         title: 'Track custom events',
@@ -493,13 +537,21 @@ export const ACTIVATION_TASKS: ActivationTaskDefinition[] = [
         section: ActivationSection.ProductAnalytics,
         url: 'https://posthog.com/tutorials/event-tracking-guide#setting-up-custom-events',
     },
+
+    // Web Analytics
     {
-        id: ActivationTask.SetUpReverseProxy,
-        title: 'Set up a reverse proxy',
-        canSkip: true,
-        section: ActivationSection.QuickStart,
-        url: 'https://posthog.com/docs/advanced/proxy',
+        id: ActivationTask.AddAuthorizedDomain,
+        title: 'Add an authorized domain',
+        canSkip: false,
+        section: ActivationSection.WebAnalytics,
     },
+    {
+        id: ActivationTask.SetUpWebVitals,
+        title: 'Set up web vitals',
+        canSkip: true,
+        section: ActivationSection.WebAnalytics,
+    },
+
     // Sesion Replay
     {
         id: ActivationTask.SetupSessionRecordings,
@@ -519,6 +571,7 @@ export const ACTIVATION_TASKS: ActivationTaskDefinition[] = [
             },
         ],
     },
+
     // Feature Flags
     {
         id: ActivationTask.CreateFeatureFlag,
@@ -538,6 +591,7 @@ export const ACTIVATION_TASKS: ActivationTaskDefinition[] = [
             },
         ],
     },
+
     // Experiments
     {
         id: ActivationTask.LaunchExperiment,
@@ -545,6 +599,7 @@ export const ACTIVATION_TASKS: ActivationTaskDefinition[] = [
         title: 'Launch an experiment',
         canSkip: false,
     },
+
     // Data Warehouse
     {
         id: ActivationTask.ConnectSource,
@@ -552,6 +607,7 @@ export const ACTIVATION_TASKS: ActivationTaskDefinition[] = [
         canSkip: false,
         section: ActivationSection.DataWarehouse,
     },
+
     // Surveys
     {
         id: ActivationTask.LaunchSurvey,

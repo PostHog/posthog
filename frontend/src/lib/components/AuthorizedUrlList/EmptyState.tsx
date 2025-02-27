@@ -9,12 +9,18 @@ import { ExperimentIdType } from '~/types'
 import { authorizedUrlListLogic, AuthorizedUrlListType, KeyedAppUrl } from './authorizedUrlListLogic'
 
 type EmptyStateProps = {
+    type: AuthorizedUrlListType
     experimentId?: ExperimentIdType | null
     actionId?: number | null
-    type: AuthorizedUrlListType
+    displaySuggestions?: boolean
 }
 
-export function EmptyState({ experimentId, actionId, type }: EmptyStateProps): JSX.Element | null {
+export function EmptyState({
+    experimentId,
+    actionId,
+    type,
+    displaySuggestions = true,
+}: EmptyStateProps): JSX.Element | null {
     const logic = authorizedUrlListLogic({ experimentId: experimentId ?? null, actionId: actionId ?? null, type })
     const { urlsKeyed, suggestionsLoading, isAddUrlFormVisible } = useValues(logic)
     const { loadSuggestions } = useActions(logic)
@@ -45,7 +51,7 @@ export function EmptyState({ experimentId, actionId, type }: EmptyStateProps): J
             return null
         }
 
-        if (suggestionURLs.length > 0) {
+        if (suggestionURLs.length > 0 && displaySuggestions) {
             return (
                 <p className="mb-0">
                     There are no authorized {domainOrUrl}s. <br />
@@ -84,18 +90,21 @@ export function EmptyState({ experimentId, actionId, type }: EmptyStateProps): J
                             'When no domains are specified, recordings will be authorized on all domains.'}
                     </span>
                 </p>
-                <div className="flex flex-col items-end gap-2">
-                    <LemonButton
-                        onClick={loadSuggestions}
-                        disabled={suggestionsLoading}
-                        type="secondary"
-                        icon={<IconRefresh />}
-                        data-attr="authorized-url-list-fetch-suggestions"
-                    >
-                        {suggestionsLoading ? 'Fetching...' : 'Fetch suggestions'}
-                    </LemonButton>
-                    <span className="text-small text-secondary">Sent an event? Refetch suggestions.</span>
-                </div>
+
+                {displaySuggestions && (
+                    <div className="flex flex-col items-end gap-2">
+                        <LemonButton
+                            onClick={loadSuggestions}
+                            disabled={suggestionsLoading}
+                            type="secondary"
+                            icon={<IconRefresh />}
+                            data-attr="authorized-url-list-fetch-suggestions"
+                        >
+                            {suggestionsLoading ? 'Fetching...' : 'Fetch suggestions'}
+                        </LemonButton>
+                        <span className="text-small text-secondary">Sent an event? Refetch suggestions.</span>
+                    </div>
+                )}
             </div>
         )
     }, [
@@ -106,6 +115,7 @@ export function EmptyState({ experimentId, actionId, type }: EmptyStateProps): J
         type,
         domainOrUrl,
         loadSuggestions,
+        displaySuggestions,
     ])
 
     return children ? <div className="border rounded p-4 text-secondary">{children}</div> : null

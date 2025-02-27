@@ -158,11 +158,7 @@ export function WebVitalsAutocaptureSettings(): JSX.Element {
                 }}
                 checked={!!currentTeam?.autocapture_web_vitals_opt_in}
                 disabled={userLoading}
-                label={
-                    <>
-                        Enable web vitals autocapture <LemonTag>NEW</LemonTag>
-                    </>
-                }
+                label="Enable web vitals autocapture"
                 bordered
             />
             <LemonDivider />
