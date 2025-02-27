@@ -40,8 +40,7 @@ import { surveysLogic } from './surveysLogic'
 import {
     calculateNpsBreakdown,
     calculateNpsScore,
-    getSurveyResponseKey,
-    getSurveyResponseKeyWithId,
+    getResponseFieldWithId,
     sanitizeHTML,
     sanitizeSurveyAppearance,
     validateColor,
@@ -148,41 +147,37 @@ export interface SurveyDateRange {
     date_to: string | null
 }
 
-// New function that supports both index-based and ID-based approaches
-export const getResponseFieldWithId = (questionIndex: number, questionId?: string): string[] => {
-    // Always include the index-based key for backward compatibility
-    const keys = [getSurveyResponseKey(questionIndex)]
-
-    // If we have a question ID, also include the ID-based key
-    if (questionId) {
-        keys.push(`$survey_response_${questionId}`)
-    }
-
-    return keys
-}
-
 // Helper function to generate the HogQL condition for checking survey responses in both formats
-export const getResponseFieldCondition = (questionIndex: number, questionId?: string): string => {
-    const fields = getResponseFieldWithId(questionIndex, questionId)
+const getResponseFieldCondition = (questionIndex: number, questionId?: string): string => {
+    const ids = getResponseFieldWithId(questionIndex, questionId)
+
+    if (!ids.idBasedKey) {
+        return `JSONExtractString(properties, '${ids.indexBasedKey}')`
+    }
 
     // For ClickHouse, we need to use coalesce to check both fields
     // This will return the first non-null value, prioritizing the ID-based format if available
     return `coalesce(
-        nullIf(JSONExtractString(properties, '${fields[1] || ''}'), ''),
-        nullIf(JSONExtractString(properties, '${fields[0]}'), '')
+        nullIf(JSONExtractString(properties, '${ids.idBasedKey}'), ''),
+        nullIf(JSONExtractString(properties, '${ids.indexBasedKey}'), '')
     )`
 }
 
 // Helper function to generate the HogQL condition for checking multiple choice survey responses in both formats
-export const getMultipleChoiceResponseFieldCondition = (questionIndex: number, questionId?: string): string => {
-    const fields = getResponseFieldWithId(questionIndex, questionId)
+const getMultipleChoiceResponseFieldCondition = (questionIndex: number, questionId?: string): string => {
+    const ids = getResponseFieldWithId(questionIndex, questionId)
+    return `JSONExtractArrayRaw(properties, '${ids.indexBasedKey}')`
 
-    // For multiple choice, we need to check if either field has a value and use that one
-    return `if(
-        JSONHas(properties, '${fields[1] || ''}') AND length(JSONExtractArrayRaw(properties, '${fields[1] || ''}')) > 0,
-        arrayJoin(JSONExtractArrayRaw(properties, '${fields[1] || ''}')),
-        arrayJoin(JSONExtractArrayRaw(properties, '${fields[0]}'))
-    )`
+    // if (!ids.idBasedKey) {
+    //     return `JSONExtractArrayRaw(properties, '${ids.indexBasedKey}')`
+    // }
+
+    // // For multiple choice, we need to check if either field has a value and use that one
+    // return `if(
+    //         JSONHas(properties, '${ids.idBasedKey}') AND length(JSONExtractArrayRaw(properties, '${ids.idBasedKey}')) > 0,
+    //         JSONExtractArrayRaw(properties, '${ids.idBasedKey}'),
+    //         JSONExtractArrayRaw(properties, '${ids.indexBasedKey}')
+    //     )`
 }
 
 function duplicateExistingSurvey(survey: Survey | NewSurvey): Partial<Survey> {
@@ -296,7 +291,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         // Initialize answer filters for all questions
                         actions.setAnswerFilters(
                             survey.questions.map((question, index) => ({
-                                key: getSurveyResponseKeyWithId(index, question.id),
+                                key: getResponseFieldWithId(index, question.id).indexBasedKey,
                                 operator: DEFAULT_OPERATORS[question.type].value,
                                 type: PropertyFilterType.Event as const,
                                 value: [],
@@ -614,7 +609,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     query: `
                         SELECT
                             count(),
-                            ${getMultipleChoiceResponseFieldCondition(questionIndex, question.id)} AS choice
+                            arrayJoin(${getMultipleChoiceResponseFieldCondition(questionIndex, question.id)}) AS choice
                         FROM events
                         WHERE event == 'survey sent'
                             AND properties.$survey_id == '${survey.id}'
@@ -668,13 +663,17 @@ export const surveyLogic = kea<surveyLogicType>([
 
                 // For open text responses, we need to check both formats in the WHERE clause
                 // using a ClickHouse-friendly approach
-                const fields = getResponseFieldWithId(questionIndex, question.id)
-                const responseFieldsCondition = fields
-                    .map(
-                        (field) =>
-                            `(JSONHas(properties, '${field}') AND length(trim(JSONExtractString(properties, '${field}'))) > 0)`
+                const ids = getResponseFieldWithId(questionIndex, question.id)
+
+                const responseFieldsCondition = [
+                    `(JSONHas(properties, '${ids.indexBasedKey}') AND length(trim(JSONExtractString(properties, '${ids.indexBasedKey}'))) > 0)`,
+                ]
+
+                if (ids.idBasedKey) {
+                    responseFieldsCondition.push(
+                        `(JSONHas(properties, '${ids.idBasedKey}') AND length(trim(JSONExtractString(properties, '${ids.idBasedKey}'))) > 0)`
                     )
-                    .join(' OR ')
+                }
 
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
@@ -683,7 +682,9 @@ export const surveyLogic = kea<surveyLogicType>([
                         FROM events
                         WHERE event == 'survey sent'
                             AND properties.$survey_id == '${survey.id}'
-                            AND (${responseFieldsCondition})
+                            AND trim(JSONExtractString(properties, '${
+                                getResponseFieldWithId(questionIndex).indexBasedKey
+                            }')) != ''
                             AND timestamp >= '${startDate}'
                             AND timestamp <= '${endDate}'
                             AND {filters}
@@ -1212,11 +1213,13 @@ export const surveyLogic = kea<surveyLogicType>([
                             '*',
                             ...survey.questions.map((q, i) => {
                                 if (q.type === SurveyQuestionType.MultipleChoice) {
-                                    // For multiple choice, use the condition that checks both formats
-                                    return `${getMultipleChoiceResponseFieldCondition(i, q.id)} -- ${q.question}`
+                                    // Join array items into a string
+                                    return `coalesce(arrayStringConcat(JSONExtractArrayRaw(properties, '${
+                                        getResponseFieldWithId(i).indexBasedKey
+                                    }'), ', ')) -- ${q.question}`
                                 }
                                 // Use the new condition that checks both formats
-                                return `${getResponseFieldCondition(i, q.id)} -- ${q.question}`
+                                return `coalesce(${getResponseFieldCondition(i, q.id)}) -- ${q.question}`
                             }),
                             'timestamp',
                             'person',

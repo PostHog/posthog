@@ -36,14 +36,15 @@ export function getSurveyResponseKey(questionIndex: number): string {
     return questionIndex === 0 ? SURVEY_RESPONSE_PROPERTY : `${SURVEY_RESPONSE_PROPERTY}_${questionIndex}`
 }
 
-export function getSurveyResponseKeyWithId(questionIndex: number, questionId?: string): string {
-    // If we have a question ID, use the ID-based format
-    if (questionId) {
-        return `${SURVEY_RESPONSE_PROPERTY}_${questionId}`
+// Helper function to generate the response field keys with proper typing
+export const getResponseFieldWithId = (
+    questionIndex: number,
+    questionId?: string
+): { indexBasedKey: string; idBasedKey: string | undefined } => {
+    return {
+        indexBasedKey: getSurveyResponseKey(questionIndex),
+        idBasedKey: questionId ? `${SURVEY_RESPONSE_PROPERTY}_${questionId}` : undefined,
     }
-
-    // Otherwise, fall back to the index-based format
-    return getSurveyResponseKey(questionIndex)
 }
 
 export function sanitizeSurveyAppearance(appearance: SurveyAppearance | null): SurveyAppearance | null {

@@ -3,7 +3,6 @@ import { dayjs } from 'lib/dayjs'
 import {
     getMultipleChoiceResponseFieldCondition,
     getResponseFieldCondition,
-    getResponseFieldWithId,
     surveyLogic,
 } from 'scenes/surveys/surveyLogic'
 

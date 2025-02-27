@@ -121,7 +121,7 @@ function _SurveyResponseFilters(): JSX.Element {
                                         <div className="col-span-3">
                                             <span className="font-medium">{question.question}</span>
                                             <div className="text-muted text-xs">
-                                                {SurveyQuestionLabel[question.type]}
+                                                {SurveyQuestionLabel[question.type]} - {question.id}
                                             </div>
                                         </div>
                                         <div>
