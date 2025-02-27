@@ -133,6 +133,8 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "is_remote_configuration": False,
             "has_encrypted_payloads": False,
             "status": "ACTIVE",
+            "version": 0,
+            "last_modified_by": ANY,
         }
 
         flag_response = response.json()["success"][0]
@@ -213,6 +215,8 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "is_remote_configuration": False,
             "has_encrypted_payloads": False,
             "status": "ACTIVE",
+            "version": 1,
+            "last_modified_by": ANY,
         }
 
         flag_response = response.json()["success"][0]
@@ -337,6 +341,8 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "is_remote_configuration": False,
             "has_encrypted_payloads": False,
             "status": "ACTIVE",
+            "version": 0,
+            "last_modified_by": ANY,
         }
         flag_response = response.json()["success"][0]
 
