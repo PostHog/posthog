@@ -29,6 +29,8 @@ export class GeoIPService {
     }
 
     async get(hub: Hub): Promise<GeoIp> {
+        // NOTE: There is a lot of code here just testing that the values are the same as before.
+        // Once released we don't need the Hub and can simplify this.
         let mmdb: ReaderModel | undefined
         try {
             mmdb = await this.getMmdb()
@@ -59,9 +61,6 @@ export class GeoIPService {
                         newGeoipResult = mmdb.city(ip)
                     }
                 } catch {}
-
-                console.log('oldGeoipResult', oldGeoipResult)
-                console.log('newGeoipResult', newGeoipResult)
 
                 if (this.config.MMDB_COMPARE_MODE) {
                     if (oldGeoipResult?.city?.geonameId !== newGeoipResult?.city?.geonameId) {
