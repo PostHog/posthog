@@ -20,7 +20,9 @@ export class GeoIPService {
     private _mmdbPromise: Promise<ReaderModel> | undefined
     private _lastRefreshDate: string | undefined
 
-    constructor(private config: PluginsServerConfig) {}
+    constructor(private config: PluginsServerConfig) {
+        status.info('🌎', 'GeoIPService created')
+    }
 
     private getMmdb() {
         if (!this._mmdbPromise) {
@@ -52,14 +54,14 @@ export class GeoIPService {
             // NOTE: For self hosted instances this may fail as it is just using the bundled file so we just ignore the refreshing
         }
 
-        status.info('🌎', 'Refreshing MMDB from disk (s3)')
+        status.info('🌎', 'Loading MMDB from disk...')
         return Reader.open(this.config.MMDB_FILE_LOCATION)
             .then((mmdb) => {
-                status.info('🌎', 'Refreshed MMDB from disk (s3)!')
+                status.info('🌎', 'Loading MMDB from disk succeeded!')
                 return mmdb
             })
             .catch((e) => {
-                status.warn('🌎', 'Error getting MMDB', {
+                status.warn('🌎', 'Loading MMDB from disk failed!', {
                     error: e.message,
                 })
                 throw e
