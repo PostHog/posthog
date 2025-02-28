@@ -472,6 +472,28 @@ describe('IngestionConsumer', () => {
                 () => [createEvent({ event: '$pageview', properties: { $process_person_profile: false } })],
             ],
             [
+                'forced person upgrade',
+                () => [
+                    createEvent({ event: '$pageview', properties: { $process_person_profile: false } }),
+                    createEvent({
+                        event: '$identify',
+                        properties: { $process_person_profile: true, $set: { email: 'test@example.com' } },
+                    }),
+                    // Add an event at least a minute in the future and it should get force upgraded
+                    createEvent({
+                        event: '$pageview',
+                        properties: { $process_person_profile: false, $set: { update1: '1' } },
+                        timestamp: DateTime.now().plus({ minutes: 2 }).toISO(),
+                    }),
+                    // Add a person-full event and ensure all properties are there that should be
+                    createEvent({
+                        event: '$pageview',
+                        properties: { $process_person_profile: true, $set: { update2: '2' } },
+                        timestamp: DateTime.now().plus({ minutes: 3 }).toISO(),
+                    }),
+                ],
+            ],
+            [
                 'client ingestion warning',
                 () => [
                     createEvent({
