@@ -917,7 +917,7 @@ def ee_count_items_in_playlists() -> None:
             enqueue_recordings_that_match_playlist_filters,
         )
     except ImportError as ie:
-        posthoganalytics.capture_exception(ie)
+        posthoganalytics.capture_exception(ie, properties={"posthog_feature": "session_replay_playlist_counters"})
         logger.exception("Failed to import task to count items in playlists", error=ie)
     else:
         enqueue_recordings_that_match_playlist_filters()
