@@ -1,5 +1,4 @@
 use crate::PropVal;
-use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::VecDeque;
@@ -22,16 +21,6 @@ struct Event {
     steps: Vec<i8>,
 }
 
-#[derive(Deserialize)]
-struct Args {
-    num_steps: usize,
-    conversion_window_limit: u64, // In seconds
-    breakdown_attribution_type: String,
-    funnel_order_type: String,
-    prop_vals: Vec<PropVal>,
-    value: Vec<Event>,
-}
-
 #[derive(Serialize)]
 struct Result(i8, PropVal, Vec<f64>, Vec<Vec<Uuid>>);
 
@@ -41,12 +30,10 @@ struct Vars {
     num_steps_completed: usize,
 }
 
-struct AggregateFunnelRow {
-    breakdown_step: Option<usize>,
-    results: Vec<Result>,
+pub struct AggregateFunnelRowUnordered {
+    pub breakdown_step: Option<usize>,
+    pub results: Vec<Result>,
 }
-
-const MAX_REPLAY_EVENTS: usize = 10;
 
 const DEFAULT_ENTERED_TIMESTAMP: EnteredTimestamp = EnteredTimestamp {
     timestamp: 0.0,
@@ -55,24 +42,14 @@ const DEFAULT_ENTERED_TIMESTAMP: EnteredTimestamp = EnteredTimestamp {
     uuids: vec![],
 };
 
-pub fn process_line(line: &str) -> Value {
-    let args = parse_args(line);
-    let mut aggregate_funnel_row = AggregateFunnelRow {
-        results: Vec::with_capacity(args.prop_vals.len()),
-        breakdown_step: Option::None,
-    };
-    let result = aggregate_funnel_row.calculate_funnel_from_user_events(&args);
-    json!({ "result": result })
-}
-
 #[inline(always)]
 fn parse_args(line: &str) -> Args {
     serde_json::from_str(line).expect("Invalid JSON input")
 }
 
-impl AggregateFunnelRow {
+impl AggregateFunnelRowUnordered {
     #[inline(always)]
-    fn calculate_funnel_from_user_events(&mut self, args: &Args) -> &Vec<Result> {
+    pub fn calculate_funnel_from_user_events(&mut self, args: &Args) -> &Vec<Result> {
         if args.breakdown_attribution_type.starts_with("step_") {
             self.breakdown_step = args.breakdown_attribution_type[5..].parse::<usize>().ok()
         }
@@ -149,14 +126,6 @@ impl AggregateFunnelRow {
 
     #[inline(always)]
     fn process_event(&mut self, args: &Args, vars: &mut Vars, event: &Event, prop_val: &PropVal) {
-        if event.steps[0] < 0 {
-            // TODO
-            // Want to exclude the user if their longest path includes this exclusion
-            // Everything that passes this timestamp is now tainted
-            // Exclude if their max steps crosses over an exclusion (process them completely differently)
-            return;
-        }
-
         // 1. Push the event to the back of the deque. If it matches multiple steps, push it to the one whose last element is the further from now
         // 2. Delete all events that are out of the match window
         // 3. Update some value to store the size of the match now (so we know if we can update max without iterating through them all again)
@@ -164,6 +133,8 @@ impl AggregateFunnelRow {
         // If it matches one step, update that step
         // The assumption here is that there is only one way to fulfill each step. For example, if the same event fulfills steps 2 and 7, there is no other event
         // that fulfills just step 2. If we add that functionality, this gets more complicated.
+
+        // Find the step with the minimum timestamp.
         let min_timestamp_step = *event
             .steps
             .iter()
@@ -175,6 +146,14 @@ impl AggregateFunnelRow {
                     .unwrap_or(0.0);
             })
             .unwrap() as usize;
+
+        if vars.num_steps_completed == 0
+            && self.breakdown_step.is_some()
+            && *prop_val != event.breakdown
+        {
+            // This means it is the first step with first step attribution, so we have to check
+            return;
+        }
 
         if vars.events_by_step[min_timestamp_step].is_empty() {
             vars.num_steps_completed += 1;
