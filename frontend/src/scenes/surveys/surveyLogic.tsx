@@ -1538,6 +1538,9 @@ export const surveyLogic = kea<surveyLogicType>([
                             sanitizedAppearance.submitButtonTextColor,
                             'button text color'
                         ),
+                        widgetSelector: !sanitizedAppearance.widgetSelector
+                            ? 'Please enter a CSS selector.'
+                            : undefined,
                     },
                 }
             },
