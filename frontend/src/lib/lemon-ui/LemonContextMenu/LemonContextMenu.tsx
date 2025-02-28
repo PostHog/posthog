@@ -2,7 +2,6 @@
 
 import { IconCheckCircle, IconChevronRight } from '@posthog/icons'
 import * as ContextMenuPrimitive from '@radix-ui/react-context-menu'
-import { Button } from 'lib/ui/Button/Button'
 import { cn } from 'lib/utils/css-classes'
 import * as React from 'react'
 
@@ -28,7 +27,7 @@ const ContextMenuSubTrigger = React.forwardRef<
         <ContextMenuPrimitive.SubTrigger
             ref={ref}
             className={cn(
-                'flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none focus:bg-accent focus:text-accent-foreground data-[state=open]:bg-accent data-[state=open]:text-accent-foreground',
+                'flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none focus:bg-accent-highlight focus:text-accent-foreground data-[state=open]:bg-accent-highlight data-[state=open]:text-accent-foreground',
                 inset && 'pl-8',
                 className
             )}
@@ -102,23 +101,28 @@ const ContextMenuItem = React.forwardRef<
         inset?: boolean
     }
 >(
-    ({ className, inset, children, ...props }, ref): JSX.Element => (
+    ({ className, inset, ...props }, ref): JSX.Element => (
         <ContextMenuPrimitive.Item
             ref={ref}
             className={cn(
-                `cursor-default
+                `relative
+      flex
+      cursor-pointer
       select-none
-      `,
+      items-center
+      rounded-sm
+      px-2
+      py-1.5
+      text-sm
+      outline-none
+      data-[disabled]:pointer-events-none
+      data-[disabled]:opacity-50
+      data-[highlighted]:bg-fill-highlight-inverse-100`,
                 inset && 'pl-8',
                 className
             )}
-            asChild
             {...props}
-        >
-            <Button variant="default-inverse" className={cn(className, 'w-full justify-start')}>
-                {children}
-            </Button>
-        </ContextMenuPrimitive.Item>
+        />
     )
 )
 ContextMenuItem.displayName = ContextMenuPrimitive.Item.displayName
@@ -131,7 +135,7 @@ const ContextMenuCheckboxItem = React.forwardRef<
         <ContextMenuPrimitive.CheckboxItem
             ref={ref}
             className={cn(
-                'relative flex cursor-default select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
+                'relative flex cursor-default select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none focus:bg-accent-highlight focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
                 className
             )}
             checked={checked}
@@ -156,7 +160,7 @@ const ContextMenuRadioItem = React.forwardRef<
         <ContextMenuPrimitive.RadioItem
             ref={ref}
             className={cn(
-                'relative flex cursor-default select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
+                'relative flex cursor-default select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none focus:bg-accent-highlight focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
                 className
             )}
             {...props}

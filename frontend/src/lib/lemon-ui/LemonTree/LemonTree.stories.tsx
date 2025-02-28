@@ -24,10 +24,10 @@ const meta: Meta<typeof LemonTree> = {
         },
         showFolderActiveState: false,
         expandAllFolders: false,
-        // defaultSelectedFolderOrNodeId: 'pis_n3o4p',
+        defaultSelectedFolderOrNodeId: 'pis_n3o4p',
         data: [
             {
-                id: 'gt_7d8f9',
+                id: 'xxxxxxxxxxxxxx',
                 name: 'Growth team',
                 record: {
                     type: 'folder',

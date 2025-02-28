@@ -40,11 +40,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         createSavedItem: (savedItem: FileSystemEntry) => ({ savedItem }),
         updateSavedItem: (savedItem: FileSystemEntry) => ({ savedItem }),
         deleteSavedItem: (savedItem: FileSystemEntry) => ({ savedItem }),
-        updateExpandedFolders: (folders: string[]) => ({ folders }),
-        updateActiveFolder: (folder: string | null) => ({ folder }),
-        updateLastViewedPath: (path: string) => ({ path }),
-        toggleFolder: (folder: string, isExpanded: boolean) => ({ folder, isExpanded }),
-        updateSelectedFolder: (folder: string) => ({ folder }),
+        updateExpandedFolders: (folderIds: string[]) => ({ folderIds }),
+        updateLastViewedId: (id: string) => ({ id }),
+        toggleFolderOpen: (folderId: string, isExpanded: boolean) => ({ folderId, isExpanded }),
         updateHelpNoticeVisibility: (visible: boolean) => ({ visible }),
     }),
     loaders(({ actions, values }) => ({
@@ -122,21 +120,14 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             [] as string[],
             { persist: true },
             {
-                updateExpandedFolders: (_, { folders }) => folders,
+                updateExpandedFolders: (_, { folderIds }) => folderIds,
             },
         ],
-        activeFolder: [
-            null as string | null,
-            { persist: true },
-            {
-                updateActiveFolder: (_, { folder }) => folder,
-            },
-        ],
-        lastViewedPath: [
+        lastViewedId: [
             '',
             { persist: true },
             {
-                updateLastViewedPath: (_, { path }) => path,
+                updateLastViewedId: (_, { id }) => id,
             },
         ],
         helpNoticeVisible: [
@@ -334,16 +325,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 newPath: folder,
             })
         },
-        toggleFolder: ({ folder, isExpanded }) => {
+        toggleFolderOpen: ({ folderId, isExpanded }) => {
             if (isExpanded) {
-                actions.updateExpandedFolders(values.expandedFolders.filter((f) => f !== folder))
+                actions.updateExpandedFolders(values.expandedFolders.filter((f) => f !== folderId))
             } else {
-                actions.updateExpandedFolders([...values.expandedFolders, folder])
+                actions.updateExpandedFolders([...values.expandedFolders, folderId])
             }
-        },
-        updateSelectedFolder: ({ folder }) => {
-            actions.updateActiveFolder(folder)
-            actions.updateLastViewedPath(folder)
         },
     })),
     afterMount(({ actions }) => {

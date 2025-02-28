@@ -20,16 +20,15 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
     const { theme } = useValues(themeLogic)
     const { isNavShown, mobileLayout } = useValues(navigation3000Logic)
     const { toggleNavCollapsed, hideNavOnMobile } = useActions(navigation3000Logic)
-    const { treeData, loadingPaths, expandedFolders, lastViewedPath, viableItems, helpNoticeVisible } =
+    const { treeData, loadingPaths, expandedFolders, lastViewedId, viableItems, helpNoticeVisible } =
         useValues(projectTreeLogic)
 
     const {
         addFolder,
         deleteItem,
         moveItem,
-        toggleFolder,
-        updateSelectedFolder,
-        updateLastViewedPath,
+        toggleFolderOpen,
+        updateLastViewedId,
         updateExpandedFolders,
         updateHelpNoticeVisibility,
     } = useActions(projectTreeLogic)
@@ -59,16 +58,15 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                         data={treeData}
                         expandedItemIds={expandedFolders}
                         isFinishedBuildingTreeData={Object.keys(loadingPaths).length === 0}
-                        defaultSelectedFolderOrNodeId={lastViewedPath || undefined}
+                        defaultSelectedFolderOrNodeId={lastViewedId || undefined}
                         onNodeClick={(node) => {
-                            if (node?.record?.type === 'project' || node?.record?.type === 'folder') {
-                                updateLastViewedPath(node.record?.path)
+                            if (node?.record?.path) {
+                                updateLastViewedId(node?.id || '')
                             }
                         }}
                         onFolderClick={(folder, isExpanded) => {
                             if (folder) {
-                                updateSelectedFolder(folder.record?.path || '')
-                                toggleFolder(folder.record?.path || '', isExpanded)
+                                toggleFolderOpen(folder?.id || '', isExpanded)
                             }
                         }}
                         onSetExpandedItemIds={updateExpandedFolders}

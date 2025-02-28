@@ -183,9 +183,8 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                 className={cn(
                                                     'group/lemon-tree-button',
                                                     'flex-1 flex items-center gap-2 cursor-pointer font-normal',
-                                                    focusedId === item.id ||
-                                                        (isContextMenuOpenForItem === item.id &&
-                                                            'ring-2 ring-inset ring-offset-[-1px] ring-accent-primary'),
+                                                    (focusedId === item.id || isContextMenuOpenForItem === item.id) &&
+                                                        'ring-2 ring-inset ring-offset-[-1px] ring-accent-primary',
                                                     selectedId === item.id &&
                                                         'border-l-[4px] border-l-accent-primary rounded-tl-sm rounded-bl-sm'
                                                 )}
@@ -321,14 +320,18 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
             itemSideAction,
             enableDragAndDrop = false,
             itemContextMenu,
+            isFinishedBuildingTreeData,
             ...props
         },
         ref
     ): JSX.Element => {
         const TYPE_AHEAD_TIMEOUT = 500
+        // Scrollable container
+        const containerRef = useRef<HTMLDivElement>(null)
 
         const [selectedId, setSelectedId] = useState<string | undefined>(defaultSelectedFolderOrNodeId)
         const [focusedId, setFocusedId] = useState<string | undefined>(defaultSelectedFolderOrNodeId)
+        const [hasFocusedContent, setHasFocusedContent] = useState(false)
         // Add new state for type-ahead
         const [typeAheadBuffer, setTypeAheadBuffer] = useState<string>('')
         const typeAheadTimeoutRef = useRef<NodeJS.Timeout>()
@@ -337,7 +340,7 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
         function collectAllFolderIds(items: TreeDataItem[] | TreeDataItem, allIds: string[]): void {
             if (items instanceof Array) {
                 items.forEach((item) => {
-                    if (!item.disabledReason && item.record?.type === 'folder') {
+                    if (!item.disabledReason && item.children) {
                         allIds.push(item.id)
                     }
                     if (item.children) {
@@ -345,7 +348,7 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                     }
                 })
             } else {
-                if (!items.disabledReason && items.record?.type === 'folder') {
+                if (!items.disabledReason && items.children) {
                     allIds.push(items.id)
                 }
                 if (items.children) {
@@ -417,6 +420,7 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
             if (contentRef?.current) {
                 contentRef.current.focus()
                 setFocusedId(undefined) // Remove focus from tree when moving to content
+                setHasFocusedContent(true)
             }
         }, [contentRef])
 
@@ -475,8 +479,9 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                     // If item is in a collapsed folder, expand the path to it
                     const path = findPathToItem(Array.isArray(data) ? data : [data], match.id)
                     if (path.length > 0) {
-                        setExpandedItemIdsState([...new Set([...expandedItemIdsState, ...path])])
-                        onSetExpandedItemIds && onSetExpandedItemIds([...new Set([...expandedItemIdsState, ...path])])
+                        const newExpandedIds = [...new Set([...expandedItemIdsState, ...path])]
+                        setExpandedItemIdsState(newExpandedIds)
+                        onSetExpandedItemIds && onSetExpandedItemIds(newExpandedIds)
                     }
                 }
             },
@@ -497,8 +502,10 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                 // Update focusedId when clicking
                 setFocusedId(item?.id)
 
+                const isFolder = item?.children && item?.children?.length >= 0
+
                 // Handle click on a node
-                if (item?.record?.type === 'file') {
+                if (!isFolder) {
                     if (onNodeClick) {
                         setSelectedId(item?.id)
                         onNodeClick(item)
@@ -508,7 +515,7 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                             focusContent()
                         }
                     }
-                } else if (item?.record?.type === 'folder') {
+                } else if (isFolder) {
                     // Handle click on a folder
                     if (onFolderClick) {
                         // Update expanded state
@@ -516,7 +523,7 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                             ? expandedItemIdsState.filter((id) => id !== item.id)
                             : [...expandedItemIdsState, item.id]
                         setExpandedItemIdsState(newExpandedIds)
-                        onFolderClick(item, !expandedItemIdsState.includes(item.id))
+                        onFolderClick(item, expandedItemIdsState.includes(item.id))
                     }
                 }
                 if (item?.onClick) {
@@ -556,11 +563,16 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                         e.preventDefault()
                         const currentItem = visibleItems[currentIndex]
                         // Expand folder if current item is an unexpanded, non-disabled folder
-                        if (currentItem?.children && !currentItem.disabledReason) {
+                        if (
+                            currentItem?.children &&
+                            currentItem?.children?.length >= 0 &&
+                            !currentItem.disabledReason
+                        ) {
                             // If folder is not expanded, expand it
                             if (!expandedItemIdsState.includes(currentItem.id)) {
-                                setExpandedItemIdsState([...expandedItemIdsState, currentItem.id])
-                                onSetExpandedItemIds && onSetExpandedItemIds([...expandedItemIdsState, currentItem.id])
+                                const newExpandedIds = [...new Set([...expandedItemIdsState, currentItem.id])]
+                                setExpandedItemIdsState(newExpandedIds)
+                                onSetExpandedItemIds && onSetExpandedItemIds(newExpandedIds)
                             } else {
                                 // If folder is already expanded, focus first child
                                 const nextItem = visibleItems[currentIndex + 1]
@@ -581,10 +593,14 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                         const currentItem = visibleItems[currentIndex]
 
                         // If current item is an expanded folder, collapse it
-                        if (currentItem?.children && expandedItemIdsState.includes(currentItem.id)) {
-                            setExpandedItemIdsState(expandedItemIdsState.filter((id) => id !== currentItem.id))
-                            onSetExpandedItemIds &&
-                                onSetExpandedItemIds(expandedItemIdsState.filter((id) => id !== currentItem.id))
+                        if (
+                            currentItem?.children &&
+                            currentItem?.children?.length >= 0 &&
+                            expandedItemIdsState.includes(currentItem.id)
+                        ) {
+                            const newExpandedIds = expandedItemIdsState.filter((id) => id !== currentItem.id)
+                            setExpandedItemIdsState(newExpandedIds)
+                            onSetExpandedItemIds && onSetExpandedItemIds(newExpandedIds)
                             return
                         }
 
@@ -629,7 +645,6 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                             // If no item is focused, focus the first item
                             if (visibleItems.length > 0) {
                                 setFocusedId(visibleItems[0].id)
-                                setSelectedId(undefined)
                             }
                         } else if (currentIndex < visibleItems.length - 1) {
                             setFocusedId(visibleItems[currentIndex + 1].id)
@@ -646,7 +661,6 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                             // If no item is focused, focus the first item
                             if (visibleItems.length > 0) {
                                 setFocusedId(visibleItems[0].id)
-                                setSelectedId(undefined)
                             }
                         } else if (currentIndex > 0) {
                             // Otherwise move focus to previous item
@@ -685,21 +699,19 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
 
                         // Skip if item is disabled
                         if (!currentItem.disabledReason) {
-                            if (currentItem.children) {
+                            if (currentItem.children && currentItem.children?.length >= 0) {
                                 // Handle folder click
-                                handleClick(currentItem, true)
 
                                 // Toggle folder expanded state
                                 if (expandedItemIdsState.includes(currentItem.id)) {
+                                    onFolderClick?.(currentItem, false)
                                     // Close folder by removing from expanded IDs
                                     setExpandedItemIdsState(expandedItemIdsState.filter((id) => id !== currentItem.id))
-                                    onSetExpandedItemIds &&
-                                        onSetExpandedItemIds(expandedItemIdsState.filter((id) => id !== currentItem.id))
                                 } else {
+                                    onFolderClick?.(currentItem, true)
                                     // Open folder by adding to expanded IDs
-                                    setExpandedItemIdsState([...expandedItemIdsState, currentItem.id])
-                                    onSetExpandedItemIds &&
-                                        onSetExpandedItemIds([...expandedItemIdsState, currentItem.id])
+                                    const newExpandedIds = [...new Set([...expandedItemIdsState, currentItem.id])]
+                                    setExpandedItemIdsState(newExpandedIds)
                                 }
                             } else {
                                 if (onNodeClick) {
@@ -731,14 +743,67 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                 focusContent,
                 handleClick,
                 onNodeClick,
+                onFolderClick,
                 onSetExpandedItemIds,
                 isNodeTreeContextMenuOpen,
             ]
         )
 
+        // Add function to scroll focused item into view
+        const scrollFocusedIntoView = useCallback(() => {
+            if (!containerRef.current) {
+                return
+            }
+
+            // Look for either focused or selected element
+            const elementId = focusedId || selectedId
+            if (!elementId) {
+                return
+            }
+
+            // Find the element
+            const element = containerRef.current.querySelector(`[data-id="${elementId}"]`)
+            if (!element) {
+                return
+            }
+
+            // Get container bounds
+            const containerBounds = containerRef.current.getBoundingClientRect()
+            const elementBounds = element.getBoundingClientRect()
+
+            // Calculate if element is outside visible area
+            const SCROLL_PADDING = 64
+            const isAboveFold = elementBounds.top - SCROLL_PADDING < containerBounds.top
+            const isBelowFold = elementBounds.bottom + SCROLL_PADDING > containerBounds.bottom
+
+            if (isAboveFold || isBelowFold) {
+                element.scrollIntoView({
+                    block: 'nearest',
+                    behavior: 'smooth',
+                })
+            }
+        }, [selectedId, focusedId])
+
+        // Scroll to focused item when tree is finished building or prop is not provided
+        useEffect(() => {
+            if (isFinishedBuildingTreeData ?? true) {
+                scrollFocusedIntoView()
+            }
+        }, [scrollFocusedIntoView, isFinishedBuildingTreeData])
+
+        useEffect(() => {
+            // On prop change, set focusedId if it's not already focused
+            // if the content has been focused (via keyboard), don't focus the tree
+            if (defaultSelectedFolderOrNodeId && !hasFocusedContent) {
+                setFocusedId(defaultSelectedFolderOrNodeId)
+                setSelectedId(defaultSelectedFolderOrNodeId)
+            }
+        }, [defaultSelectedFolderOrNodeId, hasFocusedContent])
+
         return (
             <DndContext onDragEnd={onDragEnd}>
                 <ScrollableShadows
+                    ref={containerRef}
                     direction="vertical"
                     tabIndex={0}
                     role="tree"
@@ -760,7 +825,12 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                             focusedId={focusedId}
                             handleClick={handleClick}
                             expandedItemIds={expandedItemIdsState}
-                            onSetExpandedItemIds={onSetExpandedItemIds}
+                            onSetExpandedItemIds={(ids) => {
+                                // Set local state
+                                setExpandedItemIdsState(ids)
+                                // Call prop callback if provided
+                                onSetExpandedItemIds?.(ids)
+                            }}
                             defaultNodeIcon={defaultNodeIcon}
                             showFolderActiveState={showFolderActiveState}
                             itemSideAction={itemSideAction}
