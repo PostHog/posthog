@@ -165,11 +165,11 @@ impl Manager {
         // defs row's "updated_by_id" and "verified_by_id"
         if params.use_enterprise_taxonomy {
             qb.push(format!(
-                " JOIN {0} AS {1} ON {1}.\"id\" = {2}.\"updated_by_id\" ",
+                " LEFT JOIN {0} AS {1} ON {1}.\"id\" = {2}.\"updated_by_id\" ",
                 USER_TABLE, USER_TABLE_UPDATED_ALIAS, ENTERPRISE_PROP_DEFS_TABLE,
             ));
             qb.push(format!(
-                " JOIN {0} AS {1} ON {1}.\"id\" = {2}.\"verified_by_id\" ",
+                " LEFT JOIN {0} AS {1} ON {1}.\"id\" = {2}.\"verified_by_id\" ",
                 USER_TABLE, USER_TABLE_VERIFIED_ALIAS, ENTERPRISE_PROP_DEFS_TABLE,
             ));
         }
@@ -240,10 +240,10 @@ impl Manager {
             // JOIN the row on a potentially different user, two User table name
             // aliases must be applied to the fully-qualified selections
             for col_name in USER_TABLE_COLUMNS {
-                selections.push(format!("{}.\"{}\"", USER_TABLE_UPDATED_ALIAS, col_name));
+                selections.push(format!("{}.\"ub_{}\"", USER_TABLE_UPDATED_ALIAS, col_name));
             }
             for col_name in USER_TABLE_COLUMNS {
-                selections.push(format!("{}.\"{}\"", USER_TABLE_VERIFIED_ALIAS, col_name));
+                selections.push(format!("{}.\"vb_{}\"", USER_TABLE_VERIFIED_ALIAS, col_name));
             }
         }
 

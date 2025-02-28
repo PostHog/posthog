@@ -16,7 +16,7 @@ use axum::{
     Json, Router,
 };
 use chrono::{DateTime, Utc};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sqlx::{Execute, Executor, FromRow, Postgres, QueryBuilder, Row};
 use tracing::debug;
 use url::form_urlencoded;
@@ -40,7 +40,7 @@ async fn project_property_definitions_handler(
     OriginalUri(uri): OriginalUri,
     Path(project_id): Path<i32>,
     Query(params): Query<HashMap<String, String>>,
-) -> Result<Json<PropDefResponse>, ApiError> {
+) -> Result<Json<PropertyDefinitionResponse>, ApiError> {
     // parse and validate request's query params
     let params = parse_request(params);
     params.valid()?;
@@ -73,17 +73,14 @@ async fn project_property_definitions_handler(
         }
     };
 
-    let mut prop_defs = vec![];
+    let mut prop_defs: Vec<PropertyDefinition> = vec![];
     match qmgr.pool.fetch_all(props_query).await {
         Ok(result) => {
             for row in result {
-                debug!("PgRow: {:?}", row);
-
-                // TODO: iterate on this! populate ee & User fields when available etc.
-                let pd = PropDef::from_row(&row).map_err(|e| {
+                let pd = PropDefRow::from_row(&row).map_err(|e| {
                     ApiError::QueryError(format!("deserializing prop defs row: {}", e))
                 })?;
-                prop_defs.push(pd);
+                prop_defs.push(pd.into());
             }
         }
         Err(e) => {
@@ -101,7 +98,7 @@ async fn project_property_definitions_handler(
     let (prev_url, next_url) = gen_next_prev_urls(uri, total_count, params.limit, params.offset);
 
     // execute the queries, and populate the response
-    let out = PropDefResponse {
+    let out = PropertyDefinitionResponse {
         count: total_count,
         next: next_url,
         prev: prev_url,
@@ -183,16 +180,16 @@ fn parse_request(params: HashMap<String, String>) -> Params {
         .map(|raw| raw.split(" ").map(|s| s.trim().to_string()).collect())
         .unwrap_or_default();
 
-    // NOTE: so far I'm assuming this should be calculated on the Django (caller) side and
-    // passed to this app as a flag b/c it references User model (etc.) but perhaps we just
-    // manually run those queries here too? TBD. the flag allows us to decide the base table
-    // to select from in our property defs queries. see also:
+    // NOTE: this is calculated using the User model in the Django app, so probably easiest to
+    // to just pass the result of those checks from the caller (Django) to this API? the flag decides
+    // if the props def query should join in enterprise prop defs and (indirectly) the users table.
+    // defaulting to true for now, but TBD if this is in parity w/original yet. see also:
     // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L463
     // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L504-L508
     let use_enterprise_taxonomy = params
         .get("use_enterprise_taxonomy")
         .and_then(|s| s.parse::<bool>().ok())
-        .unwrap_or(false);
+        .unwrap_or(true);
 
     // DIVERGES FROM DJANGO API: the new Rust API will accept lists as space-separated query param values
     // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L214
@@ -331,58 +328,147 @@ impl Params {
     }
 }
 
+#[derive(Serialize, FromRow)]
+struct PropDefRow {
+    id: uuid::Uuid,
+    name: String,
+    #[serde(rename = "type")]
+    parent_type: Option<String>,
+    property_type: Option<String>,
+    is_numerical: Option<bool>,
+    is_seen_on_filtered_events: Option<bool>,
+    updated_at: Option<DateTime<Utc>>,
+    // if present, the "updated_by" posthog_user
+    ub_id: Option<i64>,
+    ub_uuid: Option<uuid::Uuid>,
+    ub_distinct_id: Option<String>,
+    ub_first_name: Option<String>,
+    ub_last_name: Option<String>,
+    ub_email: Option<String>,
+    ub_is_email_verified: Option<bool>,
+    ub_hedgehog_config: Option<String>, // JSON value; TODO: hydrate this for resp
+    verified: Option<bool>,
+    verified_at: Option<DateTime<Utc>>,
+    // if present, the "verified_by" posthog_user
+    vb_id: Option<i64>,
+    vb_uuid: Option<uuid::Uuid>,
+    vb_distinct_id: Option<String>,
+    vb_first_name: Option<String>,
+    vb_last_name: Option<String>,
+    vb_email: Option<String>,
+    vb_is_email_verified: Option<bool>,
+    vb_hedgehog_config: Option<String>, // JSON value; TODO: hydrate this for resp
+    tags: Option<Vec<String>>,
+}
+
+//
+// JSON API response structures below. These are shaped as the original Django API does
+//
+
 #[derive(Serialize)]
-pub struct PropDefResponse {
+pub struct PropertyDefinitionResponse {
     count: i64,
     next: Option<String>,
     prev: Option<String>,
-    results: Vec<PropDef>,
+    results: Vec<PropertyDefinition>,
 }
 
-#[derive(Serialize, FromRow)]
-pub struct PropDef {
-    // required fields
+#[derive(Serialize)]
+pub struct PropertyDefinition {
     id: uuid::Uuid,
     name: String,
-    property_type: String,
-    is_numerical: bool,
-    is_seen_on_filtered_events: bool,
-
-    // enterprise prop defs only fields below
-    #[serde(default)]
+    #[serde(rename = "type")]
+    parent_type: Option<String>,
+    property_type: Option<String>,
+    is_numerical: Option<bool>,
+    is_seen_on_filtered_events: Option<bool>,
     updated_at: Option<DateTime<Utc>>,
-    #[serde(default)]
-    updated_by_id: Option<i64>, // TODO: when available, JOIN in the User record instead!
-    #[serde(default)]
+    updated_by: Option<User>,
     verified: Option<bool>,
-    #[serde(default)]
     verified_at: Option<DateTime<Utc>>,
-    #[serde(default)]
-    verified_by_id: Option<i64>, // TODO: when available, JOIN in the User record instead!
-    #[serde(default)]
-    description: Option<String>,
-    #[serde(default)]
-    tags: Vec<String>,
+    verified_by: Option<User>,
+    tags: Option<Vec<String>>,
 }
 
-// TODO: hydrate User(s) JOINed into prop defs query into this
-#[derive(Serialize, FromRow)]
+impl From<PropDefRow> for PropertyDefinition {
+    fn from(row: PropDefRow) -> Self {
+        let mut updated_by: Option<User> = None;
+        if row.ub_id.is_some() {
+            let mut hcfg: Option<HedgehogConfig> = None;
+            if row.ub_hedgehog_config.is_some() {
+                let raw = row.ub_hedgehog_config.unwrap();
+                hcfg = serde_json::from_str(&raw).unwrap_or(None);
+            }
+
+            let ub = User {
+                id: row.ub_id.unwrap(),
+                uuid: row.ub_uuid.unwrap(),
+                first_name: row.ub_first_name,
+                last_name: row.ub_last_name,
+                distinct_id: row.ub_distinct_id,
+                email: row.ub_email,
+                is_email_verified: row.ub_is_email_verified,
+                hedgehog_config: hcfg,
+            };
+
+            updated_by = Some(ub);
+        }
+
+        let mut verified_by: Option<User> = None;
+        if row.vb_id.is_some() {
+            let mut hcfg: Option<HedgehogConfig> = None;
+            if row.vb_hedgehog_config.is_some() {
+                let raw = row.vb_hedgehog_config.unwrap();
+                hcfg = serde_json::from_str(&raw).unwrap_or(None);
+            }
+
+            let vb = User {
+                id: row.vb_id.unwrap(),
+                uuid: row.vb_uuid.unwrap(),
+                first_name: row.vb_first_name,
+                last_name: row.vb_last_name,
+                distinct_id: row.vb_distinct_id,
+                email: row.vb_email,
+                is_email_verified: row.vb_is_email_verified,
+                hedgehog_config: hcfg,
+            };
+
+            verified_by = Some(vb);
+        }
+
+        PropertyDefinition {
+            id: row.id,
+            name: row.name,
+            parent_type: row.parent_type,
+            property_type: row.property_type,
+            is_numerical: row.is_numerical,
+            is_seen_on_filtered_events: row.is_seen_on_filtered_events,
+            updated_at: row.updated_at,
+            updated_by: updated_by,
+            verified: row.verified,
+            verified_at: row.verified_at,
+            verified_by: verified_by,
+            tags: row.tags,
+        }
+    }
+}
+
+#[derive(Serialize)]
 pub struct User {
-    id: u32,
+    id: i64,
     uuid: uuid::Uuid,
-    distinct_id: String,
-    first_name: String,
-    last_name: String,
-    email: String,
-    is_email_verified: bool,
-    hedgehog_config: HedgehogConfig,
+    distinct_id: Option<String>,
+    first_name: Option<String>,
+    last_name: Option<String>,
+    email: Option<String>,
+    is_email_verified: Option<bool>,
+    hedgehog_config: Option<HedgehogConfig>, // JSON value; TODO: hydrate this for resp
 }
 
-// TODO: optionally include when prop defs query JOINs in User records
-#[derive(Serialize, FromRow)]
+#[derive(Deserialize, Serialize)]
 pub struct HedgehogConfig {
-    use_as_profile: bool,
-    color: String,
-    accessories: Vec<String>,
+    use_as_profile: Option<bool>,
+    color: Option<String>,
+    accessories: Option<Vec<String>>,
     role_at_organization: Option<String>,
 }
