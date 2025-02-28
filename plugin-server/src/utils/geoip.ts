@@ -30,7 +30,7 @@ export class GeoIPService {
         status.info('🌎', 'GeoIPService created')
         // NOTE: We typically clean these up in a shutdown task but this isn't necessary anymore as the server shutdown cancels all scheduled jobs
         // We should rely on that instead
-        schedule.scheduleJob('0 * * * *', async () => await this.backgroundRefreshMmdb())
+        schedule.scheduleJob('0 * * * *', () => this.backgroundRefreshMmdb())
     }
 
     private ensureMmdbLoaded() {
