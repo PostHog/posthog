@@ -5,6 +5,7 @@ import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { getSeriesColor } from 'lib/colors'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { useCallback, useState } from 'react'
@@ -195,8 +196,8 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                           id: 0,
                           labels: yData[0]?.data.map((_, i) => xData.data[i] || ''),
                           data: yData[0]?.data || [],
-                          backgroundColor: yData[0]?.data.map((_, i) => `hsl(${(i * 50) % 360}, 65%, 55%)`),
-                          borderColor: yData[0]?.data.map((_, i) => `hsl(${(i * 50) % 360}, 65%, 55%)`),
+                          backgroundColor: yData[0]?.data.map((_, i) => getSeriesColor(i)),
+                          borderColor: yData[0]?.data.map((_, i) => getSeriesColor(i)),
                       },
                   ]
                 : []
