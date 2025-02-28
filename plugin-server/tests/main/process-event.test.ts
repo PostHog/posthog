@@ -901,12 +901,12 @@ test('capture first team event', async () => {
         new UUIDT().toString()
     )
 
-    expect(captureTeamEvent).toHaveBeenCalledWith({
-        team: team,
-        event: 'first team event ingested',
-        properties: { team: team.uuid },
-        distinctId: 'plugin_test_user_distinct_id_1001',
-    })
+    expect(captureTeamEvent).toHaveBeenCalledWith(
+        expect.objectContaining({ uuid: team.uuid, organization_id: team.organization_id }),
+        'first team event ingested',
+        { host: undefined, realm: undefined, sdk: undefined },
+        'plugin_test_user_distinct_id_1001'
+    )
 
     team = await getFirstTeam(hub)
     expect(team.ingested_event).toEqual(true)
