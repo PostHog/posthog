@@ -115,6 +115,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
         case PluginServerMode.functional_tests:
             return {
                 mmdb: true,
+                ingestionV2Combined: true,
                 pluginScheduledTasks: true,
                 processPluginJobs: true,
                 processAsyncOnEventHandlers: true,
