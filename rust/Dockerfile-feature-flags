@@ -11,10 +11,11 @@ COPY . .
 RUN cargo chef prepare --recipe-path recipe.json --bin $BIN
 
 FROM base AS builder
+WORKDIR /app
 ARG BIN
 
 # Ensure working C compile setup (not installed by default in arm64 images)
-RUN apt update && apt install build-essential libssl-dev cmake -y
+RUN apt-get update && apt-get install build-essential libssl-dev cmake -y
 
 COPY --from=planner /app/recipe.json recipe.json
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
@@ -29,11 +30,11 @@ RUN --mount=type=secret,id=SCCACHE_WEBDAV_ENDPOINT,required=false \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
     if [ -f "/run/secrets/SCCACHE_WEBDAV_ENDPOINT" ] && [ -f "/run/secrets/SCCACHE_WEBDAV_TOKEN" ]; then \
-        SCCACHE_WEBDAV_ENDPOINT=$(cat /run/secrets/SCCACHE_WEBDAV_ENDPOINT) \
-        SCCACHE_WEBDAV_TOKEN=$(cat /run/secrets/SCCACHE_WEBDAV_TOKEN) \
-        cargo build --release --bin $BIN; \
+    SCCACHE_WEBDAV_ENDPOINT=$(cat /run/secrets/SCCACHE_WEBDAV_ENDPOINT) \
+    SCCACHE_WEBDAV_TOKEN=$(cat /run/secrets/SCCACHE_WEBDAV_TOKEN) \
+    cargo build --release --bin $BIN; \
     else \
-        cargo build --release --bin $BIN; \
+    cargo build --release --bin $BIN; \
     fi
 
 
