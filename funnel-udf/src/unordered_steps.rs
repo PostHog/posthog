@@ -37,9 +37,8 @@ struct Result(i8, PropVal, Vec<f64>, Vec<Vec<Uuid>>);
 
 struct Vars {
     max_step: (usize, EnteredTimestamp),
-    event_uuids: Vec<Vec<Uuid>>,
-    entered_timestamp: Vec<EnteredTimestamp>,
     events_by_step: Vec<VecDeque<Event>>,
+    num_steps_completed: usize,
 }
 
 struct AggregateFunnelRow {
@@ -92,8 +91,7 @@ impl AggregateFunnelRow {
             events_by_step: repeat(VecDeque::new()).take(args.num_steps).collect(),
             // Max step keeps track of the place where we have matched the most events
             max_step: (0, DEFAULT_ENTERED_TIMESTAMP.clone()),
-            event_uuids: repeat(Vec::new()).take(args.num_steps).collect(),
-            entered_timestamp: vec![DEFAULT_ENTERED_TIMESTAMP.clone(); args.num_steps + 1],
+            num_steps_completed: 0,
         };
 
         let filtered_events = args
@@ -110,58 +108,36 @@ impl AggregateFunnelRow {
 
         for (timestamp, events_with_same_timestamp) in &filtered_events {
             let events_with_same_timestamp: Vec<_> = events_with_same_timestamp.collect();
-            vars.entered_timestamp[0] = EnteredTimestamp {
-                timestamp,
-                excluded: false,
-                timings: vec![],
-                uuids: vec![],
-            };
 
             if events_with_same_timestamp.len() == 1 {
-                self.process_event(
-                    args,
-                    &mut vars,
-                    events_with_same_timestamp[0],
-                    prop_val,
-                    false,
-                );
-            } else if events_with_same_timestamp
-                .iter()
-                .map(|x| &x.steps)
-                .all_equal()
-            {
-                // Deal with the most common case where they are all the same event (order doesn't matter)
-                for event in events_with_same_timestamp {
-                    self.process_event(args, &mut vars, event, prop_val, false);
-                }
+                self.process_event(args, &mut vars, events_with_same_timestamp[0], prop_val);
             } else {
-                // Handle permutations for different events with the same timestamp
-                // We ignore strict steps and exclusions in this case
-                // The behavior here is mostly dictated by how it was handled in the old style
-
-                let sorted_events = events_with_same_timestamp
+                // Split events into those with negative steps (exclusions) and positive steps
+                let (exclusion_events, step_events): (Vec<_>, Vec<_>) = events_with_same_timestamp
                     .iter()
-                    .flat_map(|&event| {
-                        event
-                            .steps
-                            .iter()
-                            .filter(|&&step| step > 0)
-                            .map(|&step| Event {
-                                steps: vec![step],
-                                ..event.clone()
-                            })
-                    })
-                    .sorted_by_key(|event| event.steps[0]);
+                    .partition(|&event| event.steps.iter().all(|&step| step < 0));
 
-                // Run exclusions, if they exist, then run matching events.
-                for event in sorted_events {
-                    self.process_event(args, &mut vars, &event, prop_val, true);
+                if exclusion_events.is_empty() {
+                    for event in events_with_same_timestamp {
+                        self.process_event(args, &mut vars, event, prop_val);
+                    }
+                } else {
+                    // Handle permutations for different events with the same timestamp
+                    // First run the steps (positive values)
+                    for event in step_events {
+                        self.process_event(args, &mut vars, event, prop_val);
+                    }
+
+                    // Then run the exclusions (negative values)
+                    for event in exclusion_events {
+                        self.process_event(args, &mut vars, event, prop_val);
+                    }
+
+                    // Then run the steps again to ensure proper processing
+                    for event in step_events {
+                        self.process_event(args, &mut vars, event, prop_val);
+                    }
                 }
-            }
-
-            // If we hit the goal, we can terminate early
-            if vars.entered_timestamp[args.num_steps].timestamp > 0.0 {
-                break;
             }
         }
 
@@ -194,17 +170,10 @@ impl AggregateFunnelRow {
     }
 
     #[inline(always)]
-    fn process_event(
-        &mut self,
-        args: &Args,
-        vars: &mut Vars,
-        event: &Event,
-        prop_val: &PropVal,
-        processing_multiple_events: bool,
-    ) {
+    fn process_event(&mut self, args: &Args, vars: &mut Vars, event: &Event, prop_val: &PropVal) {
         if event.steps[0] < 0 {
             // TODO
-            // exclusion, clear everything
+            // exclusion - set exclusion on max_steps and if they get another event, remove the user
             return;
         }
 
@@ -227,127 +196,60 @@ impl AggregateFunnelRow {
             })
             .unwrap() as usize;
 
+        if vars.events_by_step[min_timestamp_step].is_empty() {
+            vars.num_steps_completed += 1;
+        }
         vars.events_by_step[min_timestamp_step].push_back(event.clone());
 
         // 2. Delete all events that are out of the match window
         for step in 0..vars.events_by_step.len() {
-            if !vars.events_by_step[step].is_empty() {   
+            if !vars.events_by_step[step].is_empty() {
                 loop {
                     let front_event = vars.events_by_step[step].front();
                     if front_event.is_none() {
-                        // Reduce the number of steps we have completed in max_steps
+                        vars.num_steps_completed -= 1;
                         break;
                     }
 
                     let front_event = front_event.unwrap();
-                    if event.timestamp - front_event.timestamp > args.conversion_window_limit as f64 {
+                    if event.timestamp - front_event.timestamp > args.conversion_window_limit as f64
+                    {
                         vars.events_by_step[step].pop_front();
                     } else {
                         break;
-                }
-            }
-        }
-
-        for step in event.steps.iter() {
-            let step = *step as usize;
-
-            if vars.entered_timestamp[step].timestamp == 0.0
-                || event.timestamp < vars.entered_timestamp[step].timestamp
-            {
-                if step > vars.max_step.0 {
-                    vars.max_step = (
-                        step,
-                        EnteredTimestamp {
-                            timestamp: event.timestamp,
-                            excluded: false,
-                            timings: vec![event.timestamp],
-                            uuids: vec![event.uuid],
-                        },
-                    );
-                }
-            }
-        }
-
-        for step in event.steps.iter().rev() {
-            let mut exclusion = false;
-            let step = (if *step < 0 {
-                exclusion = true;
-                -*step
-            } else {
-                *step
-            }) as usize;
-
-            let in_match_window = (event.timestamp - vars.entered_timestamp[step - 1].timestamp)
-                <= args.conversion_window_limit as f64;
-            let previous_step_excluded = vars.entered_timestamp[step - 1].excluded;
-            let already_reached_this_step = vars.entered_timestamp[step].timestamp
-                == vars.entered_timestamp[step - 1].timestamp
-                && vars.entered_timestamp[step].timestamp != 0.0;
-
-            if in_match_window && !already_reached_this_step {
-                if exclusion {
-                    if !previous_step_excluded {
-                        vars.entered_timestamp[step - 1].excluded = true;
-                        if vars.max_step.0 == step - 1 {
-                            let max_timestamp_in_match_window = (event.timestamp
-                                - vars.max_step.1.timestamp)
-                                <= args.conversion_window_limit as f64;
-                            if max_timestamp_in_match_window {
-                                vars.max_step.1.excluded = true;
-                            }
-                        }
-                    }
-                } else {
-                    let is_unmatched_step_attribution = self
-                        .breakdown_step
-                        .map(|breakdown_step| step - 1 == breakdown_step)
-                        .unwrap_or(false)
-                        && *prop_val != event.breakdown;
-                    let already_used_event = processing_multiple_events
-                        && vars.entered_timestamp[step - 1].uuids.contains(&event.uuid);
-                    if !is_unmatched_step_attribution && !already_used_event {
-                        let new_entered_timestamp = |vars: &Vars| -> EnteredTimestamp {
-                            EnteredTimestamp {
-                                timestamp: vars.entered_timestamp[step - 1].timestamp,
-                                excluded: previous_step_excluded,
-                                timings: {
-                                    let mut timings =
-                                        vars.entered_timestamp[step - 1].timings.clone();
-                                    timings.push(event.timestamp);
-                                    timings
-                                },
-                                uuids: {
-                                    let mut uuids = vars.entered_timestamp[step - 1].uuids.clone();
-                                    uuids.push(event.uuid);
-                                    uuids
-                                },
-                            }
-                        };
-                        if !previous_step_excluded {
-                            vars.entered_timestamp[step] = new_entered_timestamp(vars);
-                            if vars.event_uuids[step - 1].len() < MAX_REPLAY_EVENTS - 1 {
-                                vars.event_uuids[step - 1].push(event.uuid);
-                            }
-                        }
-
-                        if step > vars.max_step.0
-                            || (step == vars.max_step.0 && vars.max_step.1.excluded)
-                        {
-                            vars.max_step = (step, new_entered_timestamp(vars));
-                        }
                     }
                 }
             }
         }
 
-        // If a strict funnel, clear all of the steps that we didn't match to
-        // If we are processing multiple events, skip this step, because ordering makes it complicated
-        if !processing_multiple_events && args.funnel_order_type == "strict" {
-            for i in 1..vars.entered_timestamp.len() {
-                if !event.steps.contains(&(i as i8)) {
-                    vars.entered_timestamp[i] = DEFAULT_ENTERED_TIMESTAMP;
-                }
-            }
+        // 3. Update max_step if we've completed more steps than before
+        if vars.num_steps_completed > vars.max_step.0 {
+            let mut timestamps_with_uuids: Vec<(f64, Uuid)> = vars
+                .events_by_step
+                .iter()
+                .filter_map(|deque| deque.front().map(|e| (e.timestamp, e.uuid)))
+                .collect();
+
+            timestamps_with_uuids.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+
+            let timings = timestamps_with_uuids
+                .windows(2)
+                .map(|w| w[1].0 - w[0].0)
+                .collect::<Vec<f64>>();
+            let uuids = timestamps_with_uuids
+                .iter()
+                .map(|(_, u)| *u)
+                .collect::<Vec<Uuid>>();
+
+            vars.max_step = (
+                vars.num_steps_completed,
+                EnteredTimestamp {
+                    timestamp: event.timestamp,
+                    excluded: false,
+                    timings: timings,
+                    uuids: uuids,
+                },
+            );
         }
     }
 }
