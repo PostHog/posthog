@@ -3,11 +3,9 @@ import datetime
 import os
 
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
-from posthog.clickhouse.table_engines import (
-    MergeTreeEngine,
-    ReplicationScheme,
-)
+from posthog.clickhouse.table_engines import ReplacingMergeTree
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_PASSWORD
+from .currencies import SUPPORTED_CURRENCY_CODES
 
 
 # This loads historical data from `historical.csv`
@@ -27,7 +25,8 @@ from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_PASSWORD
 # 1. Remove all dates older than 2000-01-01
 # 2. Truncate all rates to 4 decimal places
 # 3. Remove USD because it's the base currency, therefore it's always 1:1
-# 4. Add UYU rate for 2000-01-01 because we only had from 2010 onwards, based on https://fred.stlouisfed.org/series/FXRATEUYA618NUPN
+# 4. Add some rates for less known currencies from https://fxtop.com/en/historical-currency-converter.php
+# 5. Add BTC rates from https://github.com/Habrador/Bitcoin-price-visualization/blob/main/Bitcoin-price-USD.csv, and manual from the cutoff onwards
 #
 # The resulting CSV is stored in `historical.csv`
 #
@@ -61,6 +60,11 @@ def HISTORICAL_EXCHANGE_RATE_DICTIONARY():
                 for i, value in enumerate(row[1:], 1):
                     currency = currencies[i]
 
+                    # The CSV file SHOULD contain only supported currency codes
+                    # but let's be sure to not fail for any reason
+                    if currency not in SUPPORTED_CURRENCY_CODES:
+                        continue
+
                     # Only add non-empty values
                     value = value.strip()
                     if value:
@@ -74,19 +78,6 @@ def HISTORICAL_EXCHANGE_RATE_DICTIONARY():
             except ValueError:
                 # Skip rows with invalid dates
                 continue
-
-    # Fill in missing dates
-    start_date = datetime.datetime(2000, 1, 1)
-    end_date = datetime.datetime(2024, 12, 31)
-    current_date = start_date
-
-    while current_date <= end_date:
-        date_str = current_date.strftime("%Y-%m-%d")
-
-        if date_str not in rates_dict:
-            rates_dict[date_str] = {}
-
-        current_date += datetime.timedelta(days=1)
 
     return rates_dict
 
@@ -103,7 +94,7 @@ def HISTORICAL_EXCHANGE_RATE_TUPLES():
 EXCHANGE_RATE_TABLE_NAME = "exchange_rate"
 EXCHANGE_RATE_DICTIONARY_NAME = "exchange_rate_dict"
 
-# `version` is used to ensure the latest version is kept, see `MergeTreeEngine`
+# `version` is used to ensure the latest version is kept, see https://clickhouse.com/docs/engines/table-engines/mergetree-family/replacingmergetree
 EXCHANGE_RATE_TABLE_SQL = (
     lambda on_cluster=True: """
 CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause} (
@@ -115,9 +106,7 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause} (
 ORDER BY (date, currency);
 """.format(
         table_name=EXCHANGE_RATE_TABLE_NAME,
-        engine=MergeTreeEngine(
-            "exchange_rate", replication_scheme=ReplicationScheme.REPLICATED, replacing_col="version"
-        ),
+        engine=ReplacingMergeTree("exchange_rate", ver="version"),
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
     )
 )
@@ -135,13 +124,11 @@ def EXCHANGE_RATE_DATA_BACKFILL_SQL(exchange_rates=None):
     if exchange_rates is None:
         exchange_rates = HISTORICAL_EXCHANGE_RATE_TUPLES()
 
+    values = ",\n".join(f"(toDate('{date}'), '{currency}', {rate})" for date, currency, rate in exchange_rates)
+
     return f"""
 INSERT INTO exchange_rate (date, currency, rate) VALUES
-{
-''',
-'''.join(f"(toDate('{date}'), '{currency}', {rate})" for date, currency, rate in exchange_rates)},
-;
-"""
+  {values};"""
 
 
 # Use COMPLEX_KEY_HASHED, as we have a composite key
@@ -155,7 +142,7 @@ CREATE DICTIONARY IF NOT EXISTS {EXCHANGE_RATE_DICTIONARY_NAME} {ON_CLUSTER_CLAU
     rate Decimal64(4)
 )
 PRIMARY KEY (date, currency)
-SOURCE(CLICKHOUSE(TABLE '(SELECT date, currency, anyLast(rate) AS rate FROM {EXCHANGE_RATE_TABLE_NAME} GROUP BY date, currency)' PASSWORD '{CLICKHOUSE_PASSWORD}'))
+SOURCE(CLICKHOUSE(QUERY 'SELECT date, currency, anyLast(rate) AS rate FROM {EXCHANGE_RATE_TABLE_NAME} GROUP BY date, currency' PASSWORD '{CLICKHOUSE_PASSWORD}'))
 LIFETIME(MIN 3000 MAX 3600)
 LAYOUT(COMPLEX_KEY_HASHED())
 """
