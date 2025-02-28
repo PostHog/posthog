@@ -11,7 +11,7 @@
             sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
         FROM events
         LEFT OUTER JOIN
@@ -39,7 +39,7 @@
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                   min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
            FROM events
            LEFT OUTER JOIN
@@ -76,7 +76,7 @@
             coalesce(argMax(events_after_exposure.value, events_after_exposure.timestamp), 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
         FROM events
@@ -100,7 +100,7 @@
            FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                   min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
                   replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
            FROM events
@@ -139,7 +139,7 @@
             sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
         FROM events
@@ -163,7 +163,7 @@
            FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                   min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
                   replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
            FROM events
@@ -202,7 +202,7 @@
             sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
         FROM events
@@ -226,7 +226,7 @@
            FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                   min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
                   replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
            FROM events
@@ -265,7 +265,7 @@
             coalesce(argMax(events_after_exposure.value, events_after_exposure.timestamp), 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
         FROM events
         LEFT OUTER JOIN
@@ -293,7 +293,7 @@
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                   min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
            FROM events
            LEFT OUTER JOIN
@@ -330,7 +330,7 @@
             sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
         FROM events
         LEFT OUTER JOIN
@@ -358,7 +358,7 @@
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                   min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
            FROM events
            LEFT OUTER JOIN
@@ -395,7 +395,7 @@
             sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
         FROM events
         LEFT OUTER JOIN
@@ -423,7 +423,7 @@
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                   min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
            FROM events
            LEFT OUTER JOIN
@@ -460,7 +460,7 @@
             sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
         FROM events
         LEFT OUTER JOIN
@@ -488,7 +488,7 @@
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                   min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
            FROM events
            LEFT OUTER JOIN
@@ -525,7 +525,7 @@
             sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
         FROM events
         LEFT OUTER JOIN
@@ -553,7 +553,7 @@
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                   min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
            FROM events
            LEFT OUTER JOIN
@@ -590,7 +590,7 @@
             sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
         FROM events
         LEFT OUTER JOIN
@@ -618,7 +618,7 @@
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                   min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
            FROM events
            LEFT OUTER JOIN
@@ -655,7 +655,7 @@
             sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
         FROM events
         LEFT OUTER JOIN
@@ -683,7 +683,7 @@
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                   min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
            FROM events
            LEFT OUTER JOIN
@@ -720,7 +720,7 @@
             sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
         FROM events
@@ -754,7 +754,7 @@
            FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                   min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
                   replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
            FROM events
@@ -803,7 +803,7 @@
             sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
         FROM events
@@ -827,7 +827,7 @@
            FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                   min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
                   replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
            FROM events
@@ -866,7 +866,7 @@
             sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
         FROM events
@@ -890,7 +890,7 @@
            FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                   min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
                   replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
            FROM events
@@ -929,7 +929,7 @@
             sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
         FROM events
@@ -953,7 +953,7 @@
            FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                   min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
                   replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
            FROM events
@@ -992,7 +992,7 @@
             sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
         FROM events
@@ -1016,7 +1016,7 @@
            FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                   min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
                   replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
            FROM events
@@ -1055,7 +1055,7 @@
             sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
         FROM events
@@ -1079,7 +1079,7 @@
            FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                   min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
                   replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
            FROM events
@@ -1127,7 +1127,7 @@
             sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
         FROM events
@@ -1154,7 +1154,7 @@
            FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                   min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
                   replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
            FROM events
@@ -1196,7 +1196,7 @@
             sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
         FROM events
@@ -1220,7 +1220,7 @@
            FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                   min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
                   replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
            FROM events
@@ -1279,7 +1279,7 @@
             sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
         FROM events
@@ -1306,7 +1306,7 @@
            FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                   min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
                   replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
            FROM events
@@ -1348,7 +1348,7 @@
             sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
         FROM events
@@ -1372,7 +1372,7 @@
            FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                   min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
                   replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
            FROM events
@@ -1411,7 +1411,7 @@
             sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
         FROM events
@@ -1443,7 +1443,7 @@
            FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                   min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
                   replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
            FROM events
@@ -1490,7 +1490,7 @@
             sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
         FROM events
@@ -1514,7 +1514,7 @@
            FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                   min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
                   replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
            FROM events
@@ -1553,7 +1553,7 @@
             sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
         FROM events
@@ -1577,7 +1577,7 @@
            FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                   min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
                   replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
            FROM events
@@ -1616,7 +1616,7 @@
             sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
         FROM events
@@ -1640,7 +1640,7 @@
            FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`ds` Date, `id` String, `usage` Int64, `userid` String')) AS usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                   min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
                   replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '') AS exposure_identifier
            FROM events
@@ -1679,7 +1679,7 @@
             sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
                events__person.properties___email AS exposure_identifier
         FROM events
@@ -1717,7 +1717,7 @@
            FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/*.parquet', 'object_storage_root_user', 'object_storage_root_password', 'Parquet', '`customer_id` String, `customer_name` String, `customer_email` String, `customer_created_at` DateTime64(3, \'UTC\')') AS customers) AS subscriptions__subscription_customer ON equals(subscriptions.subscription_customer_id, subscriptions__subscription_customer.subscriptions__subscription_customer___customer_id)
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                   min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
                   events__person.properties___email AS exposure_identifier
            FROM events
@@ -1766,7 +1766,7 @@
             sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
         FROM events
         LEFT OUTER JOIN
@@ -1814,7 +1814,7 @@
                                                                  HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                   min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
            FROM events
            LEFT OUTER JOIN
@@ -1861,7 +1861,7 @@
             sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
         FROM events
         LEFT OUTER JOIN
@@ -1889,7 +1889,7 @@
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                   min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
            FROM events
            LEFT OUTER JOIN
@@ -1926,7 +1926,7 @@
             sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
         FROM events
         LEFT OUTER JOIN
@@ -1954,7 +1954,7 @@
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                   min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
            FROM events
            LEFT OUTER JOIN
@@ -1991,7 +1991,7 @@
             sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
         FROM events
         LEFT OUTER JOIN
@@ -2019,7 +2019,7 @@
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                   min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
            FROM events
            LEFT OUTER JOIN
@@ -2056,7 +2056,7 @@
             sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
         FROM events
         LEFT OUTER JOIN
@@ -2084,7 +2084,7 @@
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                   min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
            FROM events
            LEFT OUTER JOIN
@@ -2121,7 +2121,7 @@
             sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
         FROM events
         LEFT OUTER JOIN
@@ -2149,7 +2149,7 @@
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                   min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
            FROM events
            LEFT OUTER JOIN
@@ -2195,7 +2195,7 @@
             sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
         FROM events
         LEFT OUTER JOIN
@@ -2226,7 +2226,7 @@
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                   min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
            FROM events
            LEFT OUTER JOIN
@@ -2269,7 +2269,7 @@
             sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
         FROM events
         LEFT OUTER JOIN
@@ -2297,7 +2297,7 @@
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                   min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
            FROM events
            LEFT OUTER JOIN
@@ -2354,7 +2354,7 @@
             sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
         FROM events
         LEFT OUTER JOIN
@@ -2385,7 +2385,7 @@
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                   min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
            FROM events
            LEFT OUTER JOIN
@@ -2428,7 +2428,7 @@
             sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
         FROM events
         LEFT OUTER JOIN
@@ -2456,7 +2456,7 @@
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                   min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
            FROM events
            LEFT OUTER JOIN
@@ -2493,7 +2493,7 @@
             sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
         FROM events
         LEFT OUTER JOIN
@@ -2537,7 +2537,7 @@
                     groups.group_key) AS events__group_0 ON equals(events.`$group_0`, events__group_0.key)
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                   min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
            FROM events
            LEFT OUTER JOIN
@@ -2582,7 +2582,7 @@
             sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
         FROM events
         LEFT OUTER JOIN
@@ -2610,7 +2610,7 @@
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                   min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
            FROM events
            LEFT OUTER JOIN
@@ -2647,7 +2647,7 @@
             sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
         FROM events
         LEFT OUTER JOIN
@@ -2675,7 +2675,7 @@
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                   min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
            FROM events
            LEFT OUTER JOIN
@@ -2712,7 +2712,7 @@
             sum(coalesce(events_after_exposure.value, 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
         FROM events
         LEFT OUTER JOIN
@@ -2740,7 +2740,7 @@
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                   min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
            FROM events
            LEFT OUTER JOIN
@@ -2786,7 +2786,7 @@
             coalesce(argMax(events_after_exposure.value, events_after_exposure.timestamp), 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
         FROM events
         LEFT OUTER JOIN
@@ -2814,7 +2814,7 @@
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                   min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
            FROM events
            LEFT OUTER JOIN
@@ -2860,7 +2860,7 @@
             coalesce(argMax(events_after_exposure.value, events_after_exposure.timestamp), 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
         FROM events
         LEFT OUTER JOIN
@@ -2888,7 +2888,7 @@
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                   min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
            FROM events
            LEFT OUTER JOIN
@@ -2934,7 +2934,7 @@
             coalesce(argMax(events_after_exposure.value, events_after_exposure.timestamp), 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
         FROM events
         LEFT OUTER JOIN
@@ -2962,7 +2962,7 @@
            HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                   min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
            FROM events
            LEFT OUTER JOIN
@@ -3008,7 +3008,7 @@
             coalesce(argMax(events_after_exposure.value, events_after_exposure.timestamp), 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
         FROM events
         LEFT OUTER JOIN
@@ -3056,7 +3056,7 @@
                                                                  HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                   min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
            FROM events
            LEFT OUTER JOIN
@@ -3112,7 +3112,7 @@
             coalesce(argMax(events_after_exposure.value, events_after_exposure.timestamp), 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
         FROM events
         LEFT OUTER JOIN
@@ -3160,7 +3160,7 @@
                                                                  HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                   min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
            FROM events
            LEFT OUTER JOIN
@@ -3216,7 +3216,7 @@
             coalesce(argMax(events_after_exposure.value, events_after_exposure.timestamp), 0) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
         FROM events
         LEFT OUTER JOIN
@@ -3264,7 +3264,7 @@
                                                                  HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
-                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                   min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
            FROM events
            LEFT OUTER JOIN
@@ -3320,7 +3320,7 @@
             coalesce(argMax(events_after_exposure.value, events_after_exposure.timestamp), 0) AS value
      FROM
        (SELECT events.person_id AS entity_id,
-               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0), ifNull(in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), 0), ifNull(in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''), ['control', 'test']), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@posthog.com%'), 1))
@@ -3334,7 +3334,7 @@
         FROM events
         INNER JOIN
           (SELECT events.person_id AS entity_id,
-                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                   min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
            FROM events
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0), ifNull(in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), 0), ifNull(in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''), ['control', 'test']), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@posthog.com%'), 1))
@@ -3373,7 +3373,7 @@
             coalesce(argMax(events_after_exposure.value, events_after_exposure.timestamp), 0) AS value
      FROM
        (SELECT events.person_id AS entity_id,
-               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0), ifNull(in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), 0), ifNull(in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''), ['control', 'test']), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@earlierevent.com%'), 1))
@@ -3387,7 +3387,7 @@
         FROM events
         INNER JOIN
           (SELECT events.person_id AS entity_id,
-                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                   min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
            FROM events
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0), ifNull(in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), 0), ifNull(in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''), ['control', 'test']), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@earlierevent.com%'), 1))
@@ -3426,7 +3426,7 @@
             coalesce(argMax(events_after_exposure.value, events_after_exposure.timestamp), 0) AS value
      FROM
        (SELECT events.person_id AS entity_id,
-               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+               if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
         FROM events
         WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0), ifNull(in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), 0), ifNull(in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''), ['control', 'test']), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@laterevent.com%'), 1))
@@ -3440,7 +3440,7 @@
         FROM events
         INNER JOIN
           (SELECT events.person_id AS entity_id,
-                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '__multiple__', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
+                  if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
                   min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time
            FROM events
            WHERE and(equals(events.team_id, 99999), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0), ifNull(in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), 0), ifNull(in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''), ['control', 'test']), 0)), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@laterevent.com%'), 1))
