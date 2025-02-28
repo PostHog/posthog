@@ -71,6 +71,7 @@ export function Sparkline({
                             borderColor: color,
                             borderWidth: type === 'line' ? 2 : 0,
                             pointRadius: 0,
+                            borderRadius: 2,
                         }
                     }),
                 },
@@ -116,6 +117,7 @@ export function Sparkline({
                                 display: true,
                                 tickLength: 0,
                             },
+                            border: { display: false },
                             alignToPixels: true,
                             afterFit: (axis) => {
                                 // Remove unneccessary padding
