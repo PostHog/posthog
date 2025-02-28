@@ -418,6 +418,10 @@ class FeatureFlagSerializer(
 
     def update(self, instance: FeatureFlag, validated_data: dict, *args: Any, **kwargs: Any) -> FeatureFlag:
         request = self.context["request"]
+        # This is a workaround to ensure update works when called from a scheduled task.
+        if request and not hasattr(request, "data"):
+            request.data = {}
+
         validated_data["last_modified_by"] = request.user
 
         if "deleted" in validated_data and validated_data["deleted"] is True and instance.features.count() > 0:
