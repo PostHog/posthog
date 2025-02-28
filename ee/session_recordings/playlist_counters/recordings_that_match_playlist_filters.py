@@ -147,8 +147,15 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
             )
 
             redis_client = get_client()
+
+            existing_value = redis_client.get(f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist.short_id}")
+
             value_to_set = json.dumps(
-                {"session_ids": [r.session_id for r in recordings], "has_more": more_recordings_available}
+                {
+                    "session_ids": [r.session_id for r in recordings],
+                    "has_more": more_recordings_available,
+                    "previous_ids": existing_value.get("session_ids", None),
+                }
             )
             redis_client.setex(
                 f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist.short_id}", THIRTY_SIX_HOURS_IN_SECONDS, value_to_set

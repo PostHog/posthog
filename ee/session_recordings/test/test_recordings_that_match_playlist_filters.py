@@ -68,3 +68,35 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest):
             "session_ids": ["123"],
             "has_more": True,
         }
+
+    @patch("posthoganalytics.capture_exception")
+    @patch("ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query")
+    def test_count_recordings_that_match_recordings_records_previous_ids(
+        self, mock_list_recordings_from_query: MagicMock, mock_capture_exception: MagicMock
+    ):
+        mock_list_recordings_from_query.return_value = (
+            [
+                SessionRecording.objects.create(
+                    team=self.team,
+                    session_id="123",
+                )
+            ],
+            True,
+            None,
+        )
+        playlist = SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            name="test",
+            filters={},
+        )
+        self.redis_client.set(
+            f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist.short_id}", json.dumps({"session_ids": ["245"], "has_more": True})
+        )
+        count_recordings_that_match_playlist_filters(playlist.id)
+        mock_capture_exception.assert_not_called()
+
+        assert json.loads(self.redis_client.get(f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist.short_id}")) == {
+            "session_ids": ["123"],
+            "has_more": True,
+            "previous_ids": ["245"],
+        }
