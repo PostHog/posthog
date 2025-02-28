@@ -14,16 +14,13 @@ import {
     ContextMenuSubContent,
     ContextMenuSubTrigger,
     ContextMenuTrigger,
-} from './LemonContextMenu'
+} from './ContextMenu'
 
 type Story = StoryObj<typeof ContextMenu>
 const meta: Meta<typeof ContextMenu> = {
-    title: 'Lemon UI/Lemon Context Menu/Lemon Context Menu',
+    title: 'UI/Context Menu',
     component: ContextMenu,
     args: {},
-    parameters: {
-        mockDate: '2023-01-26',
-    },
     tags: ['autodocs'],
 }
 export default meta

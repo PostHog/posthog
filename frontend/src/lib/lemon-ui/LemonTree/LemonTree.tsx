@@ -5,9 +5,8 @@ import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableSh
 import { cn } from 'lib/utils/css-classes'
 import { forwardRef, HTMLAttributes, useCallback, useEffect, useRef, useState } from 'react'
 
+import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '../../ui/ContextMenu/ContextMenu'
 import { LemonButton, SideAction } from '../LemonButton'
-import { ContextMenuContent, ContextMenuTrigger } from '../LemonContextMenu/LemonContextMenu'
-import { ContextMenu } from '../LemonContextMenu/LemonContextMenu'
 import { Spinner } from '../Spinner/Spinner'
 import { getIcon, TreeNodeDraggable, TreeNodeDroppable } from './LemonTreeUtils'
 
