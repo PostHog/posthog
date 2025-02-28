@@ -14,6 +14,7 @@ import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
+import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 import { urls } from 'scenes/urls'
 
 import { insightVizDataCollectionId, insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
@@ -26,7 +27,7 @@ import {
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { ChartDisplayType, ExportContext, ExporterFormat, InsightLogicProps } from '~/types'
+import { ChartDisplayType, ExportContext, ExporterFormat, GraphDataset, GraphType, InsightLogicProps } from '~/types'
 
 import { dataNodeLogic, DataNodeLogicProps } from '../DataNode/dataNodeLogic'
 import { DateRange } from '../DataNode/DateRange'
@@ -149,6 +150,8 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         responseError,
         queryCancelled,
         isChartSettingsPanelOpen,
+        xData,
+        yData,
     } = useValues(dataVisualizationLogic)
     const { setEditorQuery } = useActions(variablesLogic)
 
@@ -184,6 +187,29 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         visualizationType === ChartDisplayType.ActionsStackedBar
     ) {
         component = <LineGraph />
+    } else if (visualizationType === ChartDisplayType.ActionsPie) {
+        const pieData: GraphDataset[] =
+            yData && xData?.column
+                ? [
+                      {
+                          id: 0,
+                          labels: yData[0]?.data.map((_, i) => xData.data[i] || ''),
+                          data: yData[0]?.data || [],
+                          backgroundColor: yData[0]?.data.map((_, i) => `hsl(${(i * 50) % 360}, 65%, 55%)`),
+                          borderColor: yData[0]?.data.map((_, i) => `hsl(${(i * 50) % 360}, 65%, 55%)`),
+                      },
+                  ]
+                : []
+
+        component = (
+            <PieChart
+                datasets={pieData}
+                labels={pieData[0]?.labels || []}
+                type={GraphType.Pie}
+                data-attr="hogql-pie-chart"
+                labelGroupType="none"
+            />
+        )
     } else if (visualizationType === ChartDisplayType.BoldNumber) {
         component = <HogQLBoldNumber />
     }
