@@ -15,8 +15,8 @@ import {
     RawClickHouseEvent,
     RawSessionReplayEvent,
 } from '../src/types'
-import { PostgresRouter, PostgresUse } from '../src/utils/db/postgres'
 import { parseRawClickHouseEvent } from '../src/utils/event'
+import { PostgresRouter, PostgresUse } from '../src/utils/postgres'
 import { createPostgresPool, UUIDT } from '../src/utils/utils'
 import { RawAppMetric } from '../src/worker/ingestion/app-metrics'
 import { insertRow } from '../tests/helpers/sql'

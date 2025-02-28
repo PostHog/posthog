@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
 
-import { PluginsServerConfig } from '../../types'
+import { Config } from '../../types'
 import { trackedFetch } from '../../utils/fetch'
 import { status } from '../../utils/status'
 import {
@@ -13,7 +13,7 @@ import {
  * This class is only used by the kafka based queuing system. For the Cyclotron system there is no need for this.
  */
 export class FetchExecutorService {
-    constructor(private serverConfig: PluginsServerConfig) {}
+    constructor(private serverConfig: Config) {}
 
     async execute(invocation: HogFunctionInvocation): Promise<HogFunctionInvocationResult | undefined> {
         if (invocation.queue !== 'fetch' || !invocation.queueParameters) {

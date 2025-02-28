@@ -1,22 +1,24 @@
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
-import { template as geoipTemplate } from '~/src/cdp/templates/_transformations/geoip/geoip.template'
-import { compileHog } from '~/src/cdp/templates/compiler'
-import { insertHogFunction as _insertHogFunction } from '~/tests/cdp/fixtures'
+import { Hub, PipelineEvent, Team } from '../../src/types'
+import { closeHub, createHub } from '../../src/utils/hub'
 import {
     getProducedKafkaMessages,
     getProducedKafkaMessagesForTopic,
     mockProducer,
-} from '~/tests/helpers/mocks/producer.mock'
-import { forSnapshot } from '~/tests/helpers/snapshots'
-import { createTeam, getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
-
-import { Hub, PipelineEvent, Team } from '../../src/types'
-import { closeHub, createHub } from '../../src/utils/db/hub'
+    resetMockProducer,
+} from '../_tests/helpers/producer.mock'
+import { forSnapshot } from '../_tests/helpers/snapshots'
+import { createTeam, getFirstTeam, resetTestDatabase } from '../_tests/helpers/sql'
+import { insertHogFunction as _insertHogFunction } from '../cdp/_tests/fixtures'
+import { template as geoipTemplate } from '../cdp/templates/_transformations/geoip/geoip.template'
+import { compileHog } from '../cdp/templates/compiler'
 import { HogFunctionType } from '../cdp/types'
+import { fetchTeam } from '../services/team-manager'
 import { status } from '../utils/status'
 import { UUIDT } from '../utils/utils'
+import { EventDroppedError } from './event-pipeline-runner-v2/event-pipeline-runner'
 import { IngestionConsumer } from './ingestion-consumer'
 
 const DEFAULT_TEST_TIMEOUT = 5000
@@ -102,8 +104,10 @@ describe('IngestionConsumer', () => {
 
         hub.kafkaProducer = mockProducer
         team = await getFirstTeam(hub)
-        const team2Id = await createTeam(hub.db.postgres, team.organization_id)
-        team2 = (await hub.db.fetchTeam(team2Id)) as Team
+        const team2Id = await createTeam(hub.postgres, team.organization_id)
+        team2 = (await fetchTeam(hub.postgres, team2Id)) as Team
+
+        resetMockProducer()
     })
 
     afterEach(async () => {
@@ -340,40 +344,50 @@ describe('IngestionConsumer', () => {
 
     describe('error handling', () => {
         let messages: Message[]
+        let error: any
 
         beforeEach(async () => {
             ingester = new IngestionConsumer(hub)
             await ingester.start()
             // Simulate some sort of error happening by mocking out the runner
             messages = createKafkaMessages([createEvent()])
+            error = new Error('test')
             jest.spyOn(status, 'error').mockImplementation(() => {})
+            jest.spyOn(ingester as any, 'getEventPipelineRunner').mockImplementationOnce(() => ({
+                run: () => {
+                    throw error
+                },
+                getPromises: () => [],
+            }))
         })
 
         afterEach(() => {
-            jest.restoreAllMocks()
+            jest.clearAllMocks()
         })
 
-        it('should handle explicitly non retriable errors by sending to DLQ', async () => {
-            // NOTE: I don't think this makes a lot of sense but currently is just mimicing existing behavior for the migration
-            // We should figure this out better and have more explictly named errors
-
-            const error: any = new Error('test')
-            error.isRetriable = false
-            jest.spyOn(ingester as any, 'runEventPipeline').mockRejectedValue(error)
-
-            await ingester.handleKafkaBatch(messages)
-
-            expect(jest.mocked(status.error)).toHaveBeenCalledWith('🔥', 'Error processing message', expect.any(Object))
-
+        it('should handled expected error failures such as eventDroppedError and write to the DLQ', async () => {
+            error = new EventDroppedError('purposeful_drop')
+            await expect(ingester.handleKafkaBatch(messages)).resolves.not.toThrow()
             expect(forSnapshot(getProducedKafkaMessages())).toMatchSnapshot()
         })
 
-        it.each([undefined, true])('should throw if isRetriable is set to %s', async (isRetriable) => {
-            const error: any = new Error('test')
-            error.isRetriable = isRetriable
-            jest.spyOn(ingester as any, 'runEventPipeline').mockRejectedValue(error)
+        it('should not write to the DLQ if doNotSendToDLQ is true', async () => {
+            error = new EventDroppedError('purposeful_drop', { doNotSendToDLQ: true })
+            await expect(ingester.handleKafkaBatch(messages)).resolves.not.toThrow()
+            expect(getProducedKafkaMessages()).toMatchObject([])
+        })
 
-            await expect(ingester.handleKafkaBatch(messages)).rejects.toThrow()
+        it('raises if something goes wrong when writing to the DLQ', async () => {
+            error = new EventDroppedError('purposeful_drop')
+            mockProducer.produce = jest.fn().mockImplementation(() => {
+                throw new Error('test')
+            })
+            await expect(ingester.handleKafkaBatch(messages)).rejects.toThrow('test')
+        })
+
+        it('raises for other errors', async () => {
+            error = new Error('test')
+            await expect(ingester.handleKafkaBatch(messages)).rejects.toThrow('test')
         })
     })
 
@@ -471,15 +485,8 @@ describe('IngestionConsumer', () => {
                 'person processing off',
                 () => [createEvent({ event: '$pageview', properties: { $process_person_profile: false } })],
             ],
-            [
-                'client ingestion warning',
-                () => [
-                    createEvent({
-                        event: '$$client_ingestion_warning',
-                        properties: { $$client_ingestion_warning_message: 'test' },
-                    }),
-                ],
-            ],
+            ['bad uuid', () => [createEvent({ uuid: 'WAT' })]],
+            // Handled errors mean we know that it was invalid and are purposefully moving on - everything else is unhandled
         ]
 
         it.each(eventTests)('%s', async (_, createEvents) => {

@@ -9,9 +9,9 @@ import {
 } from 'node-rdkafka'
 import { Counter, Summary } from 'prom-client'
 
-import { getSpan } from '../sentry'
-import { PluginsServerConfig } from '../types'
-import { DependencyUnavailableError, MessageSizeTooLarge } from '../utils/db/error'
+import { Config } from '../types'
+import { DependencyUnavailableError } from '../utils/errors'
+import { getSpan } from '../utils/sentry'
 import { status } from '../utils/status'
 import { createRdConnectionConfigFromEnvVars } from './config'
 
@@ -37,11 +37,21 @@ export type TopicMessage = {
     }[]
 }
 
+export class MessageSizeTooLarge extends Error {
+    constructor(message: string, error: Error) {
+        super(message)
+        this.name = 'MessageSizeTooLarge'
+        this.error = error
+    }
+    readonly error: Error
+    readonly isRetriable = false
+}
+
 export class KafkaProducerWrapper {
     /** Kafka producer used for syncing Postgres and ClickHouse person data. */
     public producer: HighLevelProducer
 
-    static async create(config: PluginsServerConfig, mode: 'producer' | 'consumer' = 'producer') {
+    static async create(config: Config, mode: 'producer' | 'consumer' = 'producer') {
         const globalConfig = createRdConnectionConfigFromEnvVars(config, mode)
         const producer = new HighLevelProducer({
             ...globalConfig,

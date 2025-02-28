@@ -3,7 +3,7 @@ import fs from 'fs/promises'
 import * as schedule from 'node-schedule'
 import { Counter } from 'prom-client'
 
-import { Hub, PluginsServerConfig } from '../types'
+import { Config, Hub } from '../types'
 import { status } from './status'
 
 export type GeoIp = {
@@ -26,7 +26,7 @@ export class GeoIPService {
     private _mmdb?: ReaderModel
     private _mmdbMetadata?: MmdbMetadata
 
-    constructor(private config: PluginsServerConfig) {
+    constructor(private config: Config) {
         status.info('🌎', 'GeoIPService created')
         // NOTE: We typically clean these up in a shutdown task but this isn't necessary anymore as the server shutdown cancels all scheduled jobs
         // We should rely on that instead

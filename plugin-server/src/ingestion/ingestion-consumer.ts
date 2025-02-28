@@ -1,26 +1,19 @@
 import { Message, MessageHeader } from 'node-rdkafka'
-import { Histogram } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
 
 import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
 import { BatchConsumer, startBatchConsumer } from '../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../kafka/config'
 import { KafkaProducerWrapper } from '../kafka/producer'
-import { IngestionOverflowMode } from '../main/ingestion-queues/batch-processing/each-batch-ingestion'
-import { ingestionOverflowingMessagesTotal } from '../main/ingestion-queues/batch-processing/metrics'
-import { addSentryBreadcrumbsEventListeners } from '../main/ingestion-queues/kafka-metrics'
-import {
-    eventDroppedCounter,
-    ingestionPartitionKeyOverflowed,
-    latestOffsetTimestampGauge,
-    setUsageInNonPersonEventsCounter,
-} from '../main/ingestion-queues/metrics'
-import { runInstrumentedFunction } from '../main/utils'
 import { Hub, PipelineEvent, PluginServerService } from '../types'
-import { normalizeEvent } from '../utils/event'
+import { runInstrumentedFunction } from '../utils/instrument'
+import { eventDroppedCounter } from '../utils/metrics'
+import { setupMmdb } from '../utils/mmdb'
 import { captureException } from '../utils/posthog'
-import { retryIfRetriable } from '../utils/retries'
 import { status } from '../utils/status'
-import { EventPipelineResult, EventPipelineRunner } from '../worker/ingestion/event-pipeline/runner'
+import { EventDroppedError, EventPipelineRunnerV2 } from './event-pipeline-runner-v2/event-pipeline-runner'
+import { normalizeEvent } from './event-pipeline-runner-v2/utils/event-utils'
+import { PersonsDB } from './event-pipeline-runner-v2/utils/persons-db'
 import { MemoryRateLimiter } from './utils/overflow-detector'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
@@ -36,6 +29,22 @@ const histogramKafkaBatchSizeKb = new Histogram({
     name: 'ingestion_batch_size_kb',
     help: 'The size in kb of the batches we are receiving from Kafka',
     buckets: [0, 128, 512, 1024, 5120, 10240, 20480, 51200, 102400, 204800, Infinity],
+})
+
+const ingestionOverflowingMessagesTotal = new Counter({
+    name: 'ingestion_overflowing_messages_total',
+    help: 'Count of messages rerouted to the overflow topic.',
+})
+
+export const setUsageInNonPersonEventsCounter = new Counter({
+    name: 'set_usage_in_non_person_events',
+    help: 'Count of events where $set usage was found in non-person events',
+})
+
+export const ingestionPartitionKeyOverflowed = new Counter({
+    name: 'ingestion_partition_key_overflowed',
+    help: 'Indicates that a given key has overflowed capacity and been redirected to a different topic. Value incremented once a minute.',
+    labelNames: ['partition_key'],
 })
 
 type IncomingEvent = { message: Message; event: PipelineEvent }
@@ -66,6 +75,7 @@ export class IngestionConsumer {
     protected kafkaProducer?: KafkaProducerWrapper
     protected kafkaOverflowProducer?: KafkaProducerWrapper
     public hogTransformer: HogTransformerService
+    public personsDB: PersonsDB
 
     private overflowRateLimiter: MemoryRateLimiter
     private ingestionWarningLimiter: MemoryRateLimiter
@@ -89,6 +99,7 @@ export class IngestionConsumer {
 
         this.ingestionWarningLimiter = new MemoryRateLimiter(1, 1.0 / 3600)
         this.hogTransformer = new HogTransformerService(hub)
+        this.personsDB = new PersonsDB(hub.postgres, hub.kafkaProducer)
     }
 
     public get service(): PluginServerService {
@@ -116,6 +127,7 @@ export class IngestionConsumer {
                 groupId: this.groupId,
                 handleBatch: async (messages) => this.handleKafkaBatch(messages),
             }),
+            setupMmdb(this.hub),
             this.hogTransformer.start(),
         ])
     }
@@ -166,14 +178,6 @@ export class IngestionConsumer {
         status.debug('🔁', `Waiting for promises`, { promises: this.promises.size })
         await this.runInstrumented('awaitScheduledWork', () => Promise.all(this.promises))
         status.debug('🔁', `Processed batch`)
-
-        for (const message of messages) {
-            if (message.timestamp) {
-                latestOffsetTimestampGauge
-                    .labels({ partition: message.partition, topic: message.topic, groupId: this.groupId })
-                    .set(message.timestamp)
-            }
-        }
     }
 
     private async processEventsForDistinctId(incomingEvents: IncomingEvent[]): Promise<void> {
@@ -209,19 +213,17 @@ export class IngestionConsumer {
                     continue
                 }
 
-                const result = await this.runInstrumented('runEventPipeline', () => this.runEventPipeline(event))
+                const runner = this.getEventPipelineRunner(event)
+                try {
+                    await runner.run()
+                } catch (error) {
+                    await this.handleProcessingError(error, message, event)
+                }
 
-                status.debug('🔁', `Processed event`, {
-                    event,
-                })
-
-                // This contains the Kafka producer ACKs & message promises, to avoid blocking after every message.
-                result.ackPromises?.forEach((promise) => {
-                    void this.scheduleWork(
-                        promise.catch(async (error) => {
-                            await this.handleProcessingError(error, message, event)
-                        })
-                    )
+                // TRICKY: We want to later catch anything that goes wrong with flushing
+                // the promises so we can send the event to the DLQ
+                this.scheduleWork(Promise.all(runner.getPromises())).catch((error) => {
+                    return this.handleProcessingError(error, message, event)
                 })
             } catch (error) {
                 await this.handleProcessingError(error, message, event)
@@ -229,11 +231,9 @@ export class IngestionConsumer {
         }
     }
 
-    private async runEventPipeline(event: PipelineEvent): Promise<EventPipelineResult> {
-        return await retryIfRetriable(async () => {
-            const runner = new EventPipelineRunner(this.hub, event, this.hogTransformer)
-            return await runner.runEventPipeline(event)
-        })
+    private getEventPipelineRunner(event: PipelineEvent): EventPipelineRunnerV2 {
+        // Mostly a helper method for testing
+        return new EventPipelineRunnerV2(this.hub, event, this.personsDB, this.hogTransformer)
     }
 
     private parseKafkaBatch(messages: Message[]): Promise<IncomingEventsByDistinctId> {
@@ -300,7 +300,7 @@ export class IngestionConsumer {
             consumerMaxBytesPerPartition: this.hub.KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION,
             consumerMaxWaitMs: this.hub.KAFKA_CONSUMPTION_MAX_WAIT_MS,
             consumerErrorBackoffMs: this.hub.KAFKA_CONSUMPTION_ERROR_BACKOFF_MS,
-            fetchBatchSize: this.hub.INGESTION_BATCH_SIZE,
+            fetchBatchSize: this.hub.KAFKA_CONSUMPTION_BATCH_SIZE,
             batchingTimeoutMs: this.hub.KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS,
             topicCreationTimeoutMs: this.hub.KAFKA_TOPIC_CREATION_TIMEOUT_MS,
             topicMetadataRefreshInterval: this.hub.KAFKA_TOPIC_METADATA_REFRESH_INTERVAL_MS,
@@ -325,8 +325,6 @@ export class IngestionConsumer {
             callEachBatchWhenEmpty: false,
         })
 
-        addSentryBreadcrumbsEventListeners(this.batchConsumer.consumer)
-
         this.batchConsumer.consumer.on('disconnected', async (err) => {
             if (!this.isStopping) {
                 return
@@ -339,28 +337,21 @@ export class IngestionConsumer {
     }
 
     private async handleProcessingError(error: any, message: Message, event: PipelineEvent) {
-        status.error('🔥', `Error processing message`, {
-            stack: error.stack,
-            error: error,
-        })
+        if (error instanceof EventDroppedError) {
+            // In the case of an EventDroppedError we know that the error was expected and as such we should
+            // send it to the DLQ unless the doNotSendToDLQ flag is set
+            // We then return as there is nothing else to do
 
-        // If the error is a non-retriable error, push to the dlq and commit the offset. Else raise the
-        // error.
-        //
-        // NOTE: there is behavior to push to a DLQ at the moment within EventPipelineRunner. This
-        // doesn't work so well with e.g. messages that when sent to the DLQ is it's self too large.
-        // Here we explicitly do _not_ add any additional metadata to the message. We might want to add
-        // some metadata to the message e.g. in the header or reference e.g. the sentry event id.
-        //
-        // TODO: property abstract out this `isRetriable` error logic. This is currently relying on the
-        // fact that node-rdkafka adheres to the `isRetriable` interface.
+            if (error.doNotSendToDLQ) {
+                return
+            }
 
-        if (error?.isRetriable === false) {
-            const sentryEventId = captureException(error)
-            const headers: MessageHeader[] = message.headers ?? []
-            headers.push({ ['sentry-event-id']: sentryEventId })
-            headers.push({ ['event-id']: event.uuid })
             try {
+                const sentryEventId = captureException(error)
+                const headers: MessageHeader[] = message.headers ?? []
+                headers.push({ ['sentry-event-id']: sentryEventId })
+                headers.push({ ['event-id']: event.uuid })
+
                 await this.kafkaProducer!.produce({
                     topic: this.dlqTopic,
                     value: message.value,
@@ -368,22 +359,23 @@ export class IngestionConsumer {
                     headers: headers,
                 })
             } catch (error) {
-                // If we can't send to the DLQ and it's not retriable, just continue. We'll commit the
-                // offset and move on.
-                if (error?.isRetriable === false) {
-                    status.error('🔥', `Error pushing to DLQ`, {
-                        stack: error.stack,
-                        error: error,
-                    })
-                    return
-                }
-
-                // If we can't send to the DLQ and it is retriable, raise the error.
+                status.error('🔥', `Error pushing to DLQ`, {
+                    stack: error.stack,
+                    error: error,
+                })
                 throw error
             }
-        } else {
-            throw error
+
+            return // EventDroppedError is handled
         }
+
+        // All other errors indicate that something went wrong and we crash out
+        captureException(error, {
+            tags: { team_id: event.team_id },
+            extra: { originalEvent: event },
+        })
+
+        throw error
     }
 
     private logDroppedEvent(token?: string, distinctId?: string) {
@@ -417,12 +409,8 @@ export class IngestionConsumer {
         }
 
         ingestionOverflowingMessagesTotal.inc(kafkaMessages.length)
-
-        const overflowMode = this.hub.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY
-            ? IngestionOverflowMode.Reroute
-            : IngestionOverflowMode.RerouteRandomly
-
-        const useRandomPartitioning = overflowMode === IngestionOverflowMode.RerouteRandomly
+        // TODO: Do we want this as a flag?
+        const useRandomPartitioning = true
 
         await Promise.all(
             kafkaMessages.map((message) =>

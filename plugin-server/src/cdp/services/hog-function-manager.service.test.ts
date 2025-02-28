@@ -1,12 +1,13 @@
-import { DateTime, DurationLike } from 'luxon'
+import { DurationLike } from 'luxon'
+import { DateTime } from 'luxon'
 
-import { HogFunctionType, IntegrationType } from '~/src/cdp/types'
-import { Hub } from '~/src/types'
-import { closeHub, createHub } from '~/src/utils/db/hub'
-import { PostgresUse } from '~/src/utils/db/postgres'
-import { insertHogFunction, insertIntegration } from '~/tests/cdp/fixtures'
-import { createTeam, resetTestDatabase } from '~/tests/helpers/sql'
-
+import { createTeam, resetTestDatabase } from '../../_tests/helpers/sql'
+import { fetchTeam } from '../../services/team-manager'
+import { Hub } from '../../types'
+import { closeHub, createHub } from '../../utils/hub'
+import { PostgresUse } from '../../utils/postgres'
+import { insertHogFunction, insertIntegration } from '../_tests/fixtures'
+import { HogFunctionType, IntegrationType } from '../types'
 import { HogFunctionManagerService } from './hog-function-manager.service'
 
 describe('HogFunctionManager', () => {
@@ -24,10 +25,10 @@ describe('HogFunctionManager', () => {
         await resetTestDatabase()
         manager = new HogFunctionManagerService(hub)
 
-        const team = await hub.db.fetchTeam(2)
+        const team = await fetchTeam(hub.postgres, 2)
 
-        teamId1 = await createTeam(hub.db.postgres, team!.organization_id)
-        teamId2 = await createTeam(hub.db.postgres, team!.organization_id)
+        teamId1 = await createTeam(hub.postgres, team!.organization_id)
+        teamId2 = await createTeam(hub.postgres, team!.organization_id)
 
         hogFunctions = []
         integrations = []
@@ -139,7 +140,7 @@ describe('HogFunctionManager', () => {
             }),
         ])
 
-        await hub.db.postgres.query(
+        await hub.postgres.query(
             PostgresUse.COMMON_WRITE,
             `UPDATE posthog_hogfunction SET name='Test Hog Function team 1 updated', updated_at = NOW() WHERE id = $1`,
             [hogFunctions[0].id],
@@ -190,7 +191,7 @@ describe('HogFunctionManager', () => {
             },
         ])
 
-        await hub.db.postgres.query(
+        await hub.postgres.query(
             PostgresUse.COMMON_WRITE,
             `UPDATE posthog_hogfunction SET enabled=false, updated_at = NOW() WHERE id = $1`,
             [hogFunctions[0].id],
@@ -261,9 +262,9 @@ describe('Hogfunction Manager - Execution Order', () => {
         await resetTestDatabase()
         manager = new HogFunctionManagerService(hub)
 
-        const team = await hub.db.fetchTeam(2)
-        teamId = await createTeam(hub.db.postgres, team!.organization_id)
-        teamId2 = await createTeam(hub.db.postgres, team!.organization_id)
+        const team = await fetchTeam(hub.postgres, 2)
+        teamId = await createTeam(hub.postgres, team!.organization_id)
+        teamId2 = await createTeam(hub.postgres, team!.organization_id)
 
         hogFunctions = []
 
@@ -313,7 +314,7 @@ describe('Hogfunction Manager - Execution Order', () => {
         // change order in database and reload single functions to simulate changes over the django API.
 
         // Update fn2's to be last
-        await hub.db.postgres.query(
+        await hub.postgres.query(
             PostgresUse.COMMON_WRITE,
             `UPDATE posthog_hogfunction SET execution_order = 3, updated_at = NOW() WHERE id = $1`,
             [hogFunctions[1].id],
@@ -321,7 +322,7 @@ describe('Hogfunction Manager - Execution Order', () => {
         )
 
         // therefore fn3's execution order should be 2
-        await hub.db.postgres.query(
+        await hub.postgres.query(
             PostgresUse.COMMON_WRITE,
             `UPDATE posthog_hogfunction SET execution_order = 2, updated_at = NOW() WHERE id = $1`,
             [hogFunctions[2].id],
@@ -338,21 +339,21 @@ describe('Hogfunction Manager - Execution Order', () => {
         ])
 
         // change fn1 to be last
-        await hub.db.postgres.query(
+        await hub.postgres.query(
             PostgresUse.COMMON_WRITE,
             `UPDATE posthog_hogfunction SET execution_order = 3, updated_at = NOW() WHERE id = $1`,
             [hogFunctions[0].id],
             'testKey'
         )
         // change fn3 to be first
-        await hub.db.postgres.query(
+        await hub.postgres.query(
             PostgresUse.COMMON_WRITE,
             `UPDATE posthog_hogfunction SET execution_order = 1, updated_at = NOW() WHERE id = $1`,
             [hogFunctions[2].id],
             'testKey'
         )
         // change fn2 to be second
-        await hub.db.postgres.query(
+        await hub.postgres.query(
             PostgresUse.COMMON_WRITE,
             `UPDATE posthog_hogfunction SET execution_order = 2, updated_at = NOW() WHERE id = $1`,
             [hogFunctions[1].id],
@@ -454,8 +455,8 @@ describe('HogFunctionManager - Integration Updates', () => {
         await resetTestDatabase()
         manager = new HogFunctionManagerService(hub)
 
-        const team = await hub.db.fetchTeam(2)
-        teamId = await createTeam(hub.db.postgres, team!.organization_id)
+        const team = await fetchTeam(hub.postgres, 2)
+        teamId = await createTeam(hub.postgres, team!.organization_id)
 
         // Create an integration
         integration = await insertIntegration(hub.postgres, teamId, {
@@ -500,7 +501,7 @@ describe('HogFunctionManager - Integration Updates', () => {
         })
 
         // Update the integration in the database
-        await hub.db.postgres.query(
+        await hub.postgres.query(
             PostgresUse.COMMON_WRITE,
             `UPDATE posthog_integration 
              SET config = jsonb_set(config, '{team}', '"updated-team"'::jsonb),
@@ -513,7 +514,7 @@ describe('HogFunctionManager - Integration Updates', () => {
         await manager.reloadIntegrations(teamId, [integration.id])
 
         // Verify the database update worked
-        const updatedIntegration = await hub.db.postgres.query(
+        const updatedIntegration = await hub.postgres.query(
             PostgresUse.COMMON_READ,
             `SELECT config, sensitive_config FROM posthog_integration WHERE id = $1`,
             [integration.id],

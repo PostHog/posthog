@@ -4,9 +4,8 @@ import { Counter, Gauge, Histogram } from 'prom-client'
 import { BatchConsumer, startBatchConsumer } from '../../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../../kafka/config'
 import { KafkaProducerWrapper } from '../../kafka/producer'
-import { addSentryBreadcrumbsEventListeners } from '../../main/ingestion-queues/kafka-metrics'
-import { runInstrumentedFunction } from '../../main/utils'
-import { Hub, PluginServerService, TeamId } from '../../types'
+import { Hub, PluginServerService } from '../../types'
+import { runInstrumentedFunction } from '../../utils/instrument'
 import { status } from '../../utils/status'
 import { CdpRedis, createCdpRedisPool } from '../redis'
 import { FetchExecutorService } from '../services/fetch-executor.service'
@@ -54,11 +53,6 @@ export const counterJobsProcessed = new Counter({
     help: 'The number of jobs we are managing to process',
     labelNames: ['queue'],
 })
-
-export interface TeamIDWithConfig {
-    teamId: TeamId | null
-    consoleLogIngestionEnabled: boolean
-}
 
 export abstract class CdpConsumerBase {
     batchConsumer?: BatchConsumer
@@ -137,7 +131,7 @@ export abstract class CdpConsumerBase {
             // queuedMinMessages: this.hub.KAFKA_QUEUE_SIZE,
             consumerMaxWaitMs: this.hub.KAFKA_CONSUMPTION_MAX_WAIT_MS,
             consumerErrorBackoffMs: this.hub.KAFKA_CONSUMPTION_ERROR_BACKOFF_MS,
-            fetchBatchSize: this.hub.INGESTION_BATCH_SIZE,
+            fetchBatchSize: this.hub.KAFKA_CONSUMPTION_BATCH_SIZE,
             batchingTimeoutMs: this.hub.KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS,
             topicCreationTimeoutMs: this.hub.KAFKA_TOPIC_CREATION_TIMEOUT_MS,
             topicMetadataRefreshInterval: this.hub.KAFKA_TOPIC_METADATA_REFRESH_INTERVAL_MS,
@@ -161,8 +155,6 @@ export abstract class CdpConsumerBase {
             },
             callEachBatchWhenEmpty: false,
         })
-
-        addSentryBreadcrumbsEventListeners(this.batchConsumer.consumer)
 
         this.batchConsumer.consumer.on('disconnected', async (err) => {
             if (!this.isStopping) {

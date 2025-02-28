@@ -1,4 +1,3 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
 import { Counter } from 'prom-client'
 
 import {
@@ -8,8 +7,8 @@ import {
     HogFunctionTypeType,
 } from '../../cdp/types'
 import { createInvocation, isLegacyPluginHogFunction } from '../../cdp/utils'
-import { runInstrumentedFunction } from '../../main/utils'
-import { Hub } from '../../types'
+import { Hub, PluginEvent } from '../../types'
+import { runInstrumentedFunction } from '../../utils/instrument'
 import { status } from '../../utils/status'
 import { buildGlobalsWithInputs, HogExecutorService } from '../services/hog-executor.service'
 import { HogFunctionManagerService } from '../services/hog-function-manager.service'
