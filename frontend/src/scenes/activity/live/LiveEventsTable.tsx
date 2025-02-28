@@ -8,6 +8,9 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
+import { Link } from 'lib/lemon-ui/Link'
+import { urls } from 'scenes/urls'
+import { ActivityTab, PropertyOperator } from '~/types'
 
 import type { LiveEvent } from '~/types'
 
@@ -17,7 +20,27 @@ const columns: LemonTableColumns<LiveEvent> = [
         key: 'event',
         className: 'max-w-80',
         render: function Render(_, event: LiveEvent) {
-            return <PropertyKeyInfo value={event.event} type={TaxonomicFilterGroupType.Events} />
+            const searchUrl = urls.activity(ActivityTab.ExploreEvents) + `?q=${encodeURIComponent(JSON.stringify({
+                kind: 'DataTableNode',
+                full: true,
+                source: {
+                    kind: 'EventsQuery',
+                    properties: [
+                        {
+                            key: '$event_uuid',
+                            operator: PropertyOperator.Exact,
+                            type: 'event',
+                            value: event.uuid
+                        }
+                    ]
+                },
+                propertiesViaUrl: true
+            }))}`
+            return (
+                <Link to={searchUrl}>
+                    <PropertyKeyInfo value={event.event} type={TaxonomicFilterGroupType.Events} />
+                </Link>
+            )
         },
     },
     {
