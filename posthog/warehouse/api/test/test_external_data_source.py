@@ -415,7 +415,6 @@ class TestExternalDataSource(APIBaseTest):
                 "last_run_at",
                 "schemas",
                 "job_inputs",
-                "sync_time_of_day",
             ],
         )
         self.assertEqual(
