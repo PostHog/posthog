@@ -27,7 +27,7 @@ const processCost = (event: PluginEvent) => {
         return event
     }
 
-    if (!event.properties['$ai_provider'] || !event.properties['$ai_model']) {
+    if (!event.properties['$ai_model']) {
         return event
     }
 

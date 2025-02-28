@@ -5,8 +5,10 @@ import { useActions, useValues } from 'kea'
 import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconBranch, IconMonitor, IconPhone } from 'lib/lemon-ui/icons/icons'
 import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useState } from 'react'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -29,37 +31,49 @@ export const WebAnalyticsFilters = (): JSX.Element => {
     const { domainFilter } = useValues(webAnalyticsLogic)
     const { setDomainFilter } = useActions(webAnalyticsLogic)
 
+    const { featureFlags } = useValues(featureFlagLogic)
+    const hasDomainDropdown = featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_DOMAIN_DROPDOWN]
+
     return (
         <div className="flex flex-col md:flex-row md:justify-between gap-2">
             <div className="flex items-start shrink-0">
                 <div className="flex flex-1 flex-row gap-2 items-center">
                     <div className="flex flex-row gap-1 items-center flex-1 md:flex-none">
                         <ReloadAll iconOnly />
-                        <LemonSelect
-                            className="grow md:grow-0"
-                            size="small"
-                            value={domainFilter || 'all'}
-                            icon={<IconGlobe />}
-                            onChange={(value) => setDomainFilter(value)}
-                            disabled={authorizedUrls.length === 0}
-                            options={[
-                                {
-                                    options: [
-                                        { label: 'All domains', value: 'all' },
-                                        ...authorizedUrls.map((url) => ({ label: url, value: url })),
-                                    ],
-                                    footer: (
-                                        <span className="text-xs px-2">
-                                            Have more domains? Go to{' '}
-                                            <Link to={urls.settings('environment', 'web-analytics-authorized-urls')}>
-                                                settings
-                                            </Link>
-                                        </span>
-                                    ),
-                                },
-                            ]}
-                        />
-                        <WebAnalyticsDeviceToggle />
+                        {hasDomainDropdown && (
+                            <>
+                                <LemonSelect
+                                    className="grow md:grow-0"
+                                    size="small"
+                                    value={domainFilter || 'all'}
+                                    icon={<IconGlobe />}
+                                    onChange={(value) => setDomainFilter(value)}
+                                    disabled={authorizedUrls.length === 0}
+                                    options={[
+                                        {
+                                            options: [
+                                                { label: 'All domains', value: 'all' },
+                                                ...authorizedUrls.map((url) => ({ label: url, value: url })),
+                                            ],
+                                            footer: (
+                                                <span className="text-xs px-2">
+                                                    Have more domains? Go to{' '}
+                                                    <Link
+                                                        to={urls.settings(
+                                                            'environment',
+                                                            'web-analytics-authorized-urls'
+                                                        )}
+                                                    >
+                                                        settings
+                                                    </Link>
+                                                </span>
+                                            ),
+                                        },
+                                    ]}
+                                />
+                                <WebAnalyticsDeviceToggle />
+                            </>
+                        )}
                     </div>
 
                     <div className="hidden md:flex items-center gap-2">

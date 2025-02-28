@@ -41,7 +41,7 @@ export function ReloadAll({ iconOnly }: { iconOnly?: boolean }): JSX.Element {
             icon={areAnyLoading ? <Spinner textColored /> : <IconRefresh />}
             disabledReason={areAnyLoading ? 'Loading' : undefined}
         >
-            {!iconOnly ? 'Reload' : ''}
+            {!iconOnly && 'Reload'}
         </LemonButton>
     )
 }

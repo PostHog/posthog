@@ -39,6 +39,15 @@ class FeatureFlag(models.Model):
     deleted = models.BooleanField(default=False)
     active = models.BooleanField(default=True)
 
+    version = models.IntegerField(default=0, null=True)
+    last_modified_by = models.ForeignKey(
+        "User",
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="updated_feature_flags",
+        db_index=False,
+    )
+
     rollback_conditions = models.JSONField(null=True, blank=True)
     performed_rollback = models.BooleanField(null=True, blank=True)
 

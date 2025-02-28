@@ -33,7 +33,7 @@ export function AuthorizedUrlForm({
     return (
         <Form
             logic={authorizedUrlListLogic}
-            props={{ actionId, type, experimentId, allowWildCards }}
+            props={{ actionId: actionId ?? null, experimentId: experimentId ?? null, type, allowWildCards }}
             formKey="proposedUrl"
             enableFormOnSubmit
             className="w-full space-y-2"

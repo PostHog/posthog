@@ -89,6 +89,27 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         for table_name in tables:
             assert serialized_database.get(table_name) is not None
 
+    def test_serialize_database_deleted_saved_query(self):
+        saved_query_name = "deleted_saved_query"
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="DELETED",
+            query={
+                "kind": "HogQLQuery",
+                "query": "select event as event from events LIMIT 100",
+            },
+            deleted=True,
+            deleted_name=saved_query_name,
+        )
+        database = create_hogql_database(team_id=self.team.pk)
+
+        serialized_database = serialize_database(HogQLContext(team_id=self.team.pk, database=database))
+
+        assert saved_query_name not in serialized_database
+        assert saved_query_name not in database._view_table_names
+        assert "DELETED" not in serialized_database
+        assert "DELETED" not in database._view_table_names
+
     def test_serialize_database_warehouse_table_s3(self):
         credentials = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
         DataWarehouseTable.objects.create(

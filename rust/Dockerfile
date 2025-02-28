@@ -15,7 +15,7 @@ ARG BIN
 RUN apt update && apt install build-essential libssl-dev cmake -y
 
 COPY --from=planner /app/recipe.json recipe.json
-RUN cargo chef cook --release --recipe-path recipe.json
+RUN cargo chef cook --release --recipe-path recipe.json --bin $BIN
 
 COPY . .
 RUN cargo build --release --bin $BIN

@@ -621,28 +621,35 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 let filters = rawWebAnalyticsFilters
 
                 // Add domain filter if set
-                if (domainFilter) {
+                if (
+                    featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_DOMAIN_DROPDOWN] &&
+                    domainFilter &&
+                    domainFilter !== 'all'
+                ) {
+                    // Remove the leading protocol if it exists
+                    const value = domainFilter.replace(/^https?:\/\//, '')
+
                     filters = [
                         ...filters,
                         {
-                            type: PropertyFilterType.Event,
                             key: '$host',
-                            value: domainFilter,
+                            value: value,
                             operator: PropertyOperator.Exact,
+                            type: PropertyFilterType.Event,
                         },
                     ]
                 }
 
                 // Add device type filter if set
-                if (deviceTypeFilter) {
+                if (featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_DOMAIN_DROPDOWN] && deviceTypeFilter) {
                     filters = [
                         ...filters,
                         {
-                            type: PropertyFilterType.Event,
                             key: '$device_type',
                             // Extra handling for device type to include mobile+tablet as a single filter
                             value: deviceTypeFilter === 'Desktop' ? 'Desktop' : ['Mobile', 'Tablet'],
                             operator: PropertyOperator.Exact,
+                            type: PropertyFilterType.Event,
                         },
                     ]
                 }
@@ -2054,8 +2061,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
     actionToUrl(({ values }) => {
         const stateToUrl = (): string => {
+            const urlParams = new URLSearchParams()
+
             const {
-                webAnalyticsFilters,
+                rawWebAnalyticsFilters,
                 conversionGoal,
                 dateFilter: { dateTo, dateFrom, interval },
                 _sourceTab,
@@ -2072,9 +2081,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 deviceTypeFilter,
             } = values
 
-            const urlParams = new URLSearchParams()
-            if (webAnalyticsFilters.length > 0) {
-                urlParams.set('filters', JSON.stringify(webAnalyticsFilters))
+            // Make sure we're storing the raw filters only, or else we'll have issues with the domain/device type filters
+            // spreading from their individual dropdowns to the global filters list
+            if (rawWebAnalyticsFilters.length > 0) {
+                urlParams.set('filters', JSON.stringify(rawWebAnalyticsFilters))
             }
             if (conversionGoal) {
                 if ('actionId' in conversionGoal) {

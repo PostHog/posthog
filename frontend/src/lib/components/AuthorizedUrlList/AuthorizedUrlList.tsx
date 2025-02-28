@@ -69,7 +69,7 @@ export function AuthorizedUrlList({
             )}
 
             {urlsKeyed.map((keyedURL, index) => {
-                // If there are no authorized urls, highglight the first suggestion
+                // If there are no authorized urls, highlight the first suggestion
                 const isFirstSuggestion = keyedURL.originalIndex === 0 && keyedURL.type === 'suggestion'
                 const isHighlighted = noAuthorizedUrls && isFirstSuggestion
 

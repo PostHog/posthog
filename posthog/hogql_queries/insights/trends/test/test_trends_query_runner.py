@@ -511,7 +511,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             [
-                "9-Jan-2020 00:00",
+                "9-Jan 00:00",
             ],
             response.results[0]["labels"],
             response.results[0]["labels"],
