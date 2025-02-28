@@ -80,7 +80,7 @@ describe('GeoIp', () => {
                 [
                   [
                     "🌎",
-                    "Loaded MMDB failed",
+                    "Loading MMDB from disk failed!",
                     {
                       "error": "ENOENT: no such file or directory, open 'non-existent-file.mmdb'",
                       "location": "non-existent-file.mmdb",
