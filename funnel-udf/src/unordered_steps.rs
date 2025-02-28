@@ -84,6 +84,9 @@ impl AggregateFunnelRow {
     #[inline(always)]
     fn loop_prop_val(&mut self, args: &Args, prop_val: &PropVal) {
         let mut vars = Vars {
+            // For each step, we store a deque of events (in chronological order) that have reached that step
+            events_by_step: repeat(VecDeque::new()).take(args.num_steps).collect(),
+            // Max step keeps track of the place where we have matched the most events
             max_step: (0, DEFAULT_ENTERED_TIMESTAMP.clone()),
             event_uuids: repeat(Vec::new()).take(args.num_steps).collect(),
             entered_timestamp: vec![DEFAULT_ENTERED_TIMESTAMP.clone(); args.num_steps + 1]
@@ -191,6 +194,24 @@ impl AggregateFunnelRow {
         prop_val: &PropVal,
         processing_multiple_events: bool
     ) {
+        if (*step[0] < 0) {
+            // exclusion, clear everything
+        }
+
+        for step in event.steps.iter() {
+            let step = step as usize;
+            if vars.entered_timestamp[step].timestamp == 0.0 || event.timestamp < vars.entered_timestamp[step].timestamp {
+                if step > vars.max_step.0 {
+                    vars.max_step = (step, EnteredTimestamp {
+                        timestamp: event.timestamp,
+                        excluded: false,
+                        timings: vec![event.timestamp],
+                        uuids: vec![event.uuid],
+                    });
+                }
+            }
+        }
+
         for step in event.steps.iter().rev() {
             let mut exclusion = false;
             let step = (if *step < 0 {
