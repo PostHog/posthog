@@ -8,6 +8,7 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql_queries.experiments import MULTIPLE_VARIANT_KEY
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.experiment import Experiment
@@ -144,7 +145,13 @@ class ExperimentExposuresQueryRunner(QueryRunner):
                         parse_expr("toDate(toString(min(timestamp))) as day"),
                         ast.Alias(
                             alias="variant",
-                            expr=ast.Field(chain=["properties", feature_flag_property]),
+                            expr=parse_expr(
+                                "if(count(distinct {feature_flag_property}) > 1, '{MULTIPLE_VARIANT_KEY}', any({feature_flag_property}))",
+                                placeholders={
+                                    "feature_flag_property": ast.Field(chain=["properties", feature_flag_property]),
+                                    "multiple_variant_key": ast.Constant(value=MULTIPLE_VARIANT_KEY),
+                                },
+                            ),
                         ),
                         ast.Field(chain=["person_id"]),
                     ],

@@ -6,7 +6,7 @@
          count(subq.person_id) AS exposed_count
   FROM
     (SELECT toDateOrNull(toString(min(toTimeZone(events.timestamp, 'UTC')))) AS day,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '') AS variant,
+            if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
             if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id
      FROM events
      LEFT OUTER JOIN
@@ -38,7 +38,7 @@
          count(subq.person_id) AS exposed_count
   FROM
     (SELECT toDateOrNull(toString(min(toTimeZone(events.timestamp, 'UTC')))) AS day,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '') AS variant,
+            if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
             if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id
      FROM events
      LEFT OUTER JOIN
@@ -80,7 +80,7 @@
          count(subq.person_id) AS exposed_count
   FROM
     (SELECT toDateOrNull(toString(min(toTimeZone(events.timestamp, 'UTC')))) AS day,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '') AS variant,
+            if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
             if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id
      FROM events
      LEFT OUTER JOIN
@@ -112,7 +112,7 @@
          count(subq.person_id) AS exposed_count
   FROM
     (SELECT toDateOrNull(toString(min(toTimeZone(events.timestamp, 'UTC')))) AS day,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '') AS variant,
+            if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
             if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id
      FROM events
      LEFT OUTER JOIN
@@ -144,7 +144,7 @@
          count(subq.person_id) AS exposed_count
   FROM
     (SELECT toDateOrNull(toString(min(toTimeZone(events.timestamp, 'UTC')))) AS day,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '') AS variant,
+            if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
             if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id
      FROM events
      LEFT OUTER JOIN
@@ -176,7 +176,7 @@
          count(subq.person_id) AS exposed_count
   FROM
     (SELECT toDateOrNull(toString(min(toTimeZone(events.timestamp, 'UTC')))) AS day,
-            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '') AS variant,
+            if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), 0), '{MULTIPLE_VARIANT_KEY}', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
             if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id
      FROM events
      LEFT OUTER JOIN
