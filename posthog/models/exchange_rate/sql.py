@@ -100,7 +100,7 @@ EXCHANGE_RATE_TABLE_SQL = (
 CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause} (
     date Date,
     currency String,
-    rate Decimal64(4),
+    rate Decimal64(10),
     version UInt32 DEFAULT toUnixTimestamp(now())
 ) ENGINE = {engine}
 ORDER BY (date, currency);
@@ -139,7 +139,7 @@ EXCHANGE_RATE_DICTIONARY_SQL = (
 CREATE DICTIONARY IF NOT EXISTS {EXCHANGE_RATE_DICTIONARY_NAME} {ON_CLUSTER_CLAUSE(on_cluster)} (
     date Date,
     currency String,
-    rate Decimal64(4)
+    rate Decimal64(10)
 )
 PRIMARY KEY (date, currency)
 SOURCE(CLICKHOUSE(QUERY 'SELECT date, currency, anyLast(rate) AS rate FROM {EXCHANGE_RATE_TABLE_NAME} GROUP BY date, currency' PASSWORD '{CLICKHOUSE_PASSWORD}'))
