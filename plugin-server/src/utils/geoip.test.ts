@@ -62,7 +62,7 @@ describe('GeoIp', () => {
                 }),
             } as any
 
-            jest.spyOn(status, 'warn').mockImplementation((...args) => {})
+            jest.spyOn(status, 'warn').mockImplementation(() => {})
             jest.spyOn(geoipCompareCounter, 'inc').mockImplementation(() => {})
         })
 
