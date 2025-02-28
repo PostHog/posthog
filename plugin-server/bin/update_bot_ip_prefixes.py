@@ -1,8 +1,6 @@
 import requests
 import itertools
 
-flatten = itertools.chain.from_iterable
-
 
 def get_prefixes_from_url(url):
     data = requests.get(url).json()
