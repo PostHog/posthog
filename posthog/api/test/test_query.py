@@ -8,6 +8,7 @@ from rest_framework import status
 from posthog.api.services.query import process_query_dict
 
 
+from posthog.models.insight_variable import InsightVariable
 from posthog.models.property_definition import PropertyDefinition, PropertyType
 from posthog.models.utils import UUIDT
 from posthog.hogql.constants import LimitContext
@@ -1010,6 +1011,44 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(response_with_dashboard_filters, CachedHogQLQueryResponse)
         self.assertEqual(response_with_dashboard_filters.results, [(1,)])
 
+    def test_dashboard_variables_overrides(self):
+        variable = InsightVariable.objects.create(
+            team=self.team, name="Test", code_name="test", default_value="some_default_value", type="String"
+        )
+        variable_id = str(variable.pk)
+        variable_override_value = "helloooooo"
+
+        api_response = self.client.post(
+            f"/api/projects/{self.team.id}/query/",
+            {
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select {variables.test}",
+                    "explain": True,
+                    "filters": {"dateRange": {"date_from": "-7d"}},
+                    "variables": {
+                        variable_id: {
+                            "variableId": variable_id,
+                            "code_name": variable.code_name,
+                            "value": variable_override_value,
+                        }
+                    },
+                },
+                "client_query_id": "5d92fb51-5088-45e8-91b2-843aef3d69bd",
+                "filters_override": None,
+                "variables_override": {
+                    variable_id: {
+                        "code_name": variable.code_name,
+                        "variableId": variable_id,
+                        "value": variable_override_value,
+                    }
+                },
+            },
+        ).json()
+
+        response = CachedHogQLQueryResponse.model_validate(api_response)
+        assert response.results[0][0] == variable_override_value
+
 
 class TestQueryAwaited(ClickhouseTestMixin, APIBaseTest):
     def test_async_query_invalid_json(self):
@@ -1134,7 +1173,7 @@ class TestQueryRetrieve(APIBaseTest):
             }
         ).encode()
         response = self.client.delete(f"/api/projects/{self.team.id}/query/{self.valid_query_id}/")
-        self.assertEqual(response.status_code, 204)
+        self.assertEqual(response.status_code, 200)
         self.assertEqual(self.redis_client_mock.delete.call_count, 2)
 
 

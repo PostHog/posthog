@@ -4358,6 +4358,7 @@ name = "property-defs-rs"
 version = "0.1.0"
 dependencies = [
  "ahash",
+ "anyhow",
  "axum 0.7.5",
  "chrono",
  "common-alloc",
@@ -4373,10 +4374,12 @@ dependencies = [
  "serde_json",
  "serve-metrics",
  "sqlx",
+ "thiserror",
  "time",
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "url",
  "uuid",
 ]
 
