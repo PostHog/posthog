@@ -81,27 +81,26 @@ class PathsV2QueryRunner(QueryRunner):
         )
 
     def paths_per_actor_and_session_as_tuple_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
-
         return parse_select(
             """
             SELECT
                 actor_id,
                 --path_time_tuple.1 as path_basic,
                 --path_time_tuple.2 as time,
-                --session_index,
+                session_index,
 
                 /* Combines the two arrays into an array of tuples, where each tuple contains:
                 1. The timestamp.
                 2. The path item.
                 3. The time difference between the current and previous timestamp. */
-                arrayZip(timestamp_array, path_item_array, arrayDifference(timestamp_array)) as path_tuple_array,
+                arrayZip(timestamp_array, path_item_array, arrayDifference(timestamp_array)) as paths_array,
 
                 /* Splits the tuple array if the time difference is greater than the session window. */
-                arraySplit(x -> if(x.3 < (1800), 0, 1), paths_tuple) as session_paths
+                arraySplit(x -> if(x.3 < (1800), 0, 1), paths_array) as paths_array_session_split
             FROM {paths_per_actor_as_array_query}
-            --ARRAY JOIN
-                --session_paths AS path_time_tuple,
-                --arrayEnumerate(session_paths) AS session_index
+            ARRAY JOIN
+                paths_array_session_split AS paths_array_per_session,
+                arrayEnumerate(paths_array_per_session) AS session_index
         """,
             placeholders={
                 "paths_per_actor_as_array_query": self.paths_per_actor_as_array_query(),
