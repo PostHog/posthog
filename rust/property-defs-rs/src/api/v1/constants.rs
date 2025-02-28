@@ -38,7 +38,7 @@ pub const ENTERPRISE_PROP_DEFS_TABLE_COLUMNS: [&str; 5] = [
     // "deprecated_tags",
 ];
 
-pub const USER_TABLE_COLUMNS: [&str; 8] = [
+pub const USER_TABLE_COLUMNS: [&str; 9] = [
     "id",
     "uuid",
     "first_name",
@@ -47,6 +47,7 @@ pub const USER_TABLE_COLUMNS: [&str; 8] = [
     "is_email_verified",
     "distinct_id",
     "hedgehog_config",
+    "role_at_organization",
     // "password", "is_staff", "is_active", "date_joined", "temporary_token",
     // "anonymize_data", "toolbar_mode", "current_team_id", "current_organization_id",
     // "pending_email", "requested_password_reset_at", "theme_mode", "strapi_id"

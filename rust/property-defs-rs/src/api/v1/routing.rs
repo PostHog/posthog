@@ -350,7 +350,8 @@ struct PropDefRow {
     ub_last_name: Option<String>,
     ub_email: Option<String>,
     ub_is_email_verified: Option<bool>,
-    ub_hedgehog_config: Option<String>, // JSON value, hydrate into response struct
+    ub_hedgehog_config: Option<String>, // JSON value
+    ub_role_at_organization: Option<String>,
     verified: Option<bool>,
     verified_at: Option<DateTime<Utc>>,
     // if present, the "verified_by" posthog_user
@@ -361,7 +362,8 @@ struct PropDefRow {
     vb_last_name: Option<String>,
     vb_email: Option<String>,
     vb_is_email_verified: Option<bool>,
-    vb_hedgehog_config: Option<String>, // JSON value, hydrate into response struct
+    vb_hedgehog_config: Option<String>, // JSON value
+    vb_role_at_organization: Option<String>,
     tags: Option<Vec<String>>,
 }
 
