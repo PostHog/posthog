@@ -902,16 +902,10 @@ test('capture first team event', async () => {
     )
 
     expect(captureTeamEvent).toHaveBeenCalledWith({
-        distinctId: 'plugin_test_user_distinct_id_1001',
+        team: team,
         event: 'first team event ingested',
-        properties: {
-            team: team.uuid,
-        },
-        groups: {
-            project: team.uuid,
-            organization: team.organization_id,
-            instance: 'unknown',
-        },
+        properties: { team: team.uuid },
+        distinctId: 'plugin_test_user_distinct_id_1001',
     })
 
     team = await getFirstTeam(hub)
