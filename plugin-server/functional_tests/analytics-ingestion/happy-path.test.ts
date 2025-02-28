@@ -520,7 +520,7 @@ test.concurrent(`event ingestion: events without a team_id get processed correct
     })
 })
 
-test.concurrent('consumer updates timestamp exported to prometheus', async () => {
+test.concurrent.only('consumer updates timestamp exported to prometheus', async () => {
     // NOTE: it may be another event other than the one we emit here that causes
     // the gauge to increase, but pushing this event through should at least
     // ensure that the gauge is updated.
@@ -530,7 +530,7 @@ test.concurrent('consumer updates timestamp exported to prometheus', async () =>
     const metricBefore = await getMetric({
         name: 'latest_processed_timestamp_ms',
         type: 'GAUGE',
-        labels: { topic: 'events_plugin_ingestion', partition: '0', groupId: 'ingestion' },
+        labels: { topic: 'events_plugin_ingestion', partition: '0', groupId: 'clickhouse-ingestion' },
     })
 
     await capture({ teamId, distinctId, uuid: new UUIDT().toString(), event: 'custom event', properties: {} })
@@ -539,7 +539,7 @@ test.concurrent('consumer updates timestamp exported to prometheus', async () =>
         const metricAfter = await getMetric({
             name: 'latest_processed_timestamp_ms',
             type: 'GAUGE',
-            labels: { topic: 'events_plugin_ingestion', partition: '0', groupId: 'ingestion' },
+            labels: { topic: 'events_plugin_ingestion', partition: '0', groupId: 'clickhouse-ingestion' },
         })
         expect(metricAfter).toBeGreaterThan(metricBefore)
         expect(metricAfter).toBeLessThan(Date.now()) // Make sure, e.g. we're not setting micro seconds
