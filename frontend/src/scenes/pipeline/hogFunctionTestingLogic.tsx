@@ -209,6 +209,9 @@ export const hogFunctionTestingLogic = kea<hogFunctionTestingLogicType>([
                     after: dateRange?.after ?? undefined,
                     before: dateRange?.before ?? undefined,
                     orderBy: ['timestamp DESC'],
+                    modifiers: {
+                        personsOnEventsMode: 'person_id_no_override_properties_on_events',
+                    },
                 }
                 groupTypes.forEach((groupType) => {
                     const name = escapePropertyAsHogQlIdentifier(groupType.group_type)
@@ -241,6 +244,9 @@ export const hogFunctionTestingLogic = kea<hogFunctionTestingLogicType>([
                     },
                     trendsFilter: {
                         display: ChartDisplayType.BoldNumber,
+                    },
+                    modifiers: {
+                        personsOnEventsMode: 'person_id_no_override_properties_on_events',
                     },
                 }
             },
@@ -298,9 +304,6 @@ export const hogFunctionTestingLogic = kea<hogFunctionTestingLogicType>([
     listeners(({ actions }) => ({
         changeDateRange: () => {
             actions.loadEvents()
-            actions.loadTotalEvents()
-            actions.resetCurrentPage()
-            actions.resetSelectedForRetry()
         },
         loadEvents: () => {
             actions.loadTotalEvents()
