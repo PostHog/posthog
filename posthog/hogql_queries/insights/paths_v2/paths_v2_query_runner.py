@@ -38,7 +38,7 @@ class PathsV2QueryRunner(QueryRunner):
             results=response.results, timings=response.timings, hogql=response.hogql, modifiers=self.modifiers
         )
 
-    def to_query(self) -> ast.SelectQuery:
+    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         return parse_select("select 1 limit 0")
 
     def event_base_query(self) -> ast.SelectQuery | ast.SelectSetQuery:

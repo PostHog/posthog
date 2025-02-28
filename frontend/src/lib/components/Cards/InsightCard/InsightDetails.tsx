@@ -264,7 +264,7 @@ function PathsSummary({ query }: { query: PathsQuery }): JSX.Element {
     )
 }
 
-function PathsV2Summary({ query }: { query: PathsV2Query }): JSX.Element {
+function PathsV2Summary({ query: _query }: { query: PathsV2Query }): JSX.Element {
     // TODO: implement paths-v2 summary
     return <div className="SeriesDisplay" />
 }

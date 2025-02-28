@@ -41,6 +41,7 @@ import { LifecycleToggles } from './LifecycleToggles'
 import { TrendsFormula } from './TrendsFormula'
 import { TrendsSeries } from './TrendsSeries'
 import { TrendsSeriesLabel } from './TrendsSeriesLabel'
+import { PathsV2SessionWindow } from 'scenes/insights/EditorFilters/PathsV2SessionWindow'
 
 export interface EditorFiltersProps {
     query: InsightQueryNode
@@ -140,6 +141,9 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                               component: PathsTargetEnd,
                           },
                       ]
+                    : []),
+                ...(isPathsV2
+                    ? [{ key: 'session-window', label: 'Session Window', component: PathsV2SessionWindow }]
                     : []),
             ]),
         },
