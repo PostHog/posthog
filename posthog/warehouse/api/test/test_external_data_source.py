@@ -415,6 +415,7 @@ class TestExternalDataSource(APIBaseTest):
                 "last_run_at",
                 "schemas",
                 "job_inputs",
+                "sync_time_of_day",
             ],
         )
         self.assertEqual(
@@ -433,6 +434,7 @@ class TestExternalDataSource(APIBaseTest):
                     "sync_type": schema.sync_type,
                     "table": schema.table,
                     "sync_frequency": sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval),
+                    "sync_time_of_day": schema.sync_time_of_day,
                 }
             ],
         )
