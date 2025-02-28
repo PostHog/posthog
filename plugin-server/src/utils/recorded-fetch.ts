@@ -66,72 +66,66 @@ export async function recordedFetch(url: RequestInfo, init?: RequestInit): Promi
         return trackedFetch(url, init)
     }
 
-    const id = new UUIDT().toString()
-    const requestTimestamp = new Date()
-
-    // Record request details
-    const request: RecordedRequest = {
-        url: url.toString(),
-        method: init?.method || 'GET',
-        headers: init?.headers ? convertHeadersToRecord(init.headers) : {},
-        body: init?.body ? convertBodyToString(init.body) : null,
-        timestamp: requestTimestamp,
+    let id: string
+    let request: RecordedRequest
+    try {
+        id = new UUIDT().toString()
+        request = {
+            url: url.toString(),
+            method: init?.method || 'GET',
+            headers: init?.headers ? convertHeadersToRecord(init.headers) : {},
+            body: init?.body ? convertBodyToString(init.body) : null,
+            timestamp: new Date(),
+        }
+    } catch {
+        // If recording setup fails, just do the fetch
+        return trackedFetch(url, init)
     }
 
+    let response: Response
     try {
-        // Make the actual request using the original trackedFetch
-        const response = await trackedFetch(url, init)
+        response = await trackedFetch(url, init)
+    } catch (error) {
+        try {
+            globalHttpCallRecorder.addCall({
+                id,
+                request,
+                response: {
+                    status: 0,
+                    statusText: (error as Error).message,
+                    headers: {},
+                    body: null,
+                    timestamp: new Date(),
+                },
+                error: error as Error,
+            })
+        } catch {} // Ignore recording errors
+        throw error
+    }
 
-        // Clone the response to read the body without consuming it
+    // Try to record successful response
+    try {
         const clonedResponse = response.clone()
         const responseBody = await clonedResponse.text()
-
-        // Extract headers from response
         const responseHeaders: Record<string, string> = {}
         response.headers.forEach((value, key) => {
             responseHeaders[key.toLowerCase()] = value
         })
 
-        // Record response details
-        const recordedResponse: RecordedResponse = {
-            status: response.status,
-            statusText: response.statusText,
-            headers: responseHeaders,
-            body: responseBody,
-            timestamp: new Date(),
-        }
-
-        // Add the recorded call to the global recorder
         globalHttpCallRecorder.addCall({
             id,
             request,
-            response: recordedResponse,
+            response: {
+                status: response.status,
+                statusText: response.statusText,
+                headers: responseHeaders,
+                body: responseBody,
+                timestamp: new Date(),
+            },
         })
+    } catch {} // Ignore recording errors
 
-        return response
-    } catch (err) {
-        const error = err as Error
-
-        // Record error details
-        const recordedResponse: RecordedResponse = {
-            status: 0,
-            statusText: error.message,
-            headers: {},
-            body: null,
-            timestamp: new Date(),
-        }
-
-        // Add the recorded call to the global recorder
-        globalHttpCallRecorder.addCall({
-            id,
-            request,
-            response: recordedResponse,
-            error,
-        })
-
-        // Just rethrow the original error
-        throw error
-    }
+    return response
 }
 
 /**
