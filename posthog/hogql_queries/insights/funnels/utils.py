@@ -26,12 +26,9 @@ def get_funnel_order_class(funnelsFilter: FunnelsFilter, use_udf=False):
         Funnel,
         FunnelUDF,
         FunnelStrict,
-        FunnelUnordered,
     )
 
-    if funnelsFilter.funnelOrderType == StepOrderValue.UNORDERED:
-        return FunnelUnordered
-    elif use_udf:
+    if use_udf:
         return FunnelUDF
     elif funnelsFilter.funnelOrderType == StepOrderValue.STRICT:
         return FunnelStrict
@@ -43,13 +40,9 @@ def get_funnel_actor_class(funnelsFilter: FunnelsFilter, use_udf=False):
         FunnelUDF,
         FunnelActors,
         FunnelStrictActors,
-        FunnelUnorderedActors,
         FunnelTrendsActors,
         FunnelTrendsUDF,
     )
-
-    if funnelsFilter.funnelOrderType == StepOrderValue.UNORDERED:
-        return FunnelUnorderedActors
 
     if funnelsFilter.funnelVizType == FunnelVizType.TRENDS:
         if use_udf:
