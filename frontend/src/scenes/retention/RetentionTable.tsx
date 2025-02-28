@@ -9,6 +9,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { retentionModalLogic } from './retentionModalLogic'
 import { retentionTableLogic } from './retentionTableLogic'
+import { ProcessedRetentionValue } from './types'
 
 export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolean }): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -54,12 +55,14 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                                                     // Stop before the last item in a row, which is an incomplete time period
                                                     if (
                                                         (columnIndex >= row.length - 1 &&
-                                                            row[columnIndex].isCurrentPeriod) ||
+                                                            (row[columnIndex] as ProcessedRetentionValue)
+                                                                .isCurrentPeriod) ||
                                                         !row[columnIndex]
                                                     ) {
                                                         return null
                                                     }
-                                                    return row[columnIndex].percentage
+
+                                                    return (row[columnIndex] as ProcessedRetentionValue).percentage
                                                 })
                                             ) || 0
                                         }
@@ -86,7 +89,7 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                                 {columnIndex <= (hideSizeColumn ? 0 : 1) ? (
                                     <span className="RetentionTable__TextTab">{column}</span>
                                 ) : (
-                                    !column.isFuture && (
+                                    typeof column === 'object' && (
                                         <CohortDay
                                             percentage={column.percentage}
                                             clickable={true}
