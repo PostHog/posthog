@@ -429,6 +429,7 @@ class TestExternalDataSchema(APIBaseTest):
             mock_sync_external_data_job_workflow.assert_called_once()
 
             schema.refresh_from_db()
+            assert schema.sync_time_of_day is not None
             assert schema.sync_time_of_day.hour == 15
             assert schema.sync_time_of_day.minute == 30
             assert schema.sync_time_of_day.second == 0

@@ -56,7 +56,7 @@ def get_sync_schedule(external_data_schema: "ExternalDataSchema"):
     hour = 0
     minute = 0
     if external_data_schema.sync_time_of_day:
-        sync_time_of_day = external_data_schema.sync_time_of_day
+        sync_time_of_day = str(external_data_schema.sync_time_of_day)
         hour = int(sync_time_of_day.split(":")[0])
         minute = int(sync_time_of_day.split(":")[1])
 
