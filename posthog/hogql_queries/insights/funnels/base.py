@@ -34,6 +34,7 @@ from posthog.schema import (
     FunnelVizType,
     FunnelExclusionEventsNode,
     FunnelMathType,
+    StepOrderValue,
 )
 from posthog.types import EntityNode, ExclusionEntityNode
 
@@ -317,6 +318,22 @@ class FunnelBase(ABC):
         people: Optional[list[uuid.UUID]] = None,
         sampling_factor: Optional[float] = None,
     ) -> dict[str, Any]:
+        if isinstance(step, DataWarehouseNode):
+            raise ValidationError(
+                "Data warehouse tables are not supported in funnels just yet. For now, please try this funnel without the data warehouse-based step."
+            )
+
+        if self.context.funnelsFilter.funnelOrderType == StepOrderValue.UNORDERED:
+            return {
+                "action_id": None,
+                "name": f"Completed {index + 1} step{'s' if index != 0 else ''}",
+                "custom_name": None,
+                "order": index,
+                "people": people if people else [],
+                "count": correct_result_for_sampling(count, sampling_factor),
+                "type": "events" if isinstance(step, EventsNode) else "actions",
+            }
+
         action_id: Optional[str | int]
         if isinstance(step, EventsNode):
             name = step.event
