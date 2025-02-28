@@ -243,7 +243,7 @@ class OauthIntegration:
         return f"{settings.SITE_URL.replace('http://', 'https://')}/integrations/{kind}/callback"
 
     @classmethod
-    def authorize_url(cls, kind: str, next="") -> str:
+    def authorize_url(cls, kind: str, token: str, next="") -> str:
         oauth_config = cls.oauth_config_for_kind(kind)
 
         query_params = {
@@ -251,7 +251,7 @@ class OauthIntegration:
             "scope": oauth_config.scope,
             "redirect_uri": cls.redirect_uri(kind),
             "response_type": "code",
-            "state": urlencode({"next": next}),
+            "state": urlencode({"next": next, "token": token}),
             **(oauth_config.additional_authorize_params or {}),
         }
 

@@ -1,5 +1,6 @@
 import json
 
+import os
 from typing import Any
 
 from django.http import HttpResponse
@@ -75,11 +76,15 @@ class IntegrationViewSet(
     def authorize(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         kind = request.GET.get("kind")
         next = request.GET.get("next", "")
+        token = os.urandom(33).hex()
 
         if kind in OauthIntegration.supported_kinds:
             try:
-                auth_url = OauthIntegration.authorize_url(kind, next=next)
-                return redirect(auth_url)
+                auth_url = OauthIntegration.authorize_url(kind, next=next, token=token)
+                response = redirect(auth_url)
+                response.set_cookie("ph_oauth_state", token, max_age=60 * 5)
+
+                return response
             except NotImplementedError:
                 raise ValidationError("Kind not configured")
 
