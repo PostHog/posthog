@@ -520,7 +520,7 @@ test.concurrent(`event ingestion: events without a team_id get processed correct
     })
 })
 
-test.concurrent.only('consumer updates timestamp exported to prometheus', async () => {
+test.concurrent('consumer updates timestamp exported to prometheus', async () => {
     // NOTE: it may be another event other than the one we emit here that causes
     // the gauge to increase, but pushing this event through should at least
     // ensure that the gauge is updated.
