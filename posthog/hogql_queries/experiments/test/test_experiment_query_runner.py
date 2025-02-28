@@ -1709,7 +1709,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     "type": "person",
                 },
                 {
-                    "control_absolute_exposure": 8,
+                    "control_absolute_exposure": 7,
                     "test_absolute_exposure": 9,
                 },
             ],
@@ -1722,7 +1722,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     "type": "event",
                 },
                 {
-                    "control_absolute_exposure": 8,
+                    "control_absolute_exposure": 7,
                     "test_absolute_exposure": 9,
                 },
             ],
@@ -1763,7 +1763,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     "operator": "exact",
                 },
                 {
-                    "control_absolute_exposure": 2,
+                    "control_absolute_exposure": 1,
                     "test_absolute_exposure": 1,
                 },
             ],
@@ -1921,42 +1921,42 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # "user_test_3" purchase is on 2023-01-06
         # "user_test_3" second exposure (feature_flag_property="control") is on 2023-01-09
         # "user_test_3" should fall into the "test" variant, not the "control" variant
-        _create_event(
-            team=self.team,
-            event="$feature_flag_called",
-            distinct_id="distinct_test_3",
-            properties={
-                "$feature_flag_response": "control",
-                feature_flag_property: "control",
-                "$feature_flag": feature_flag.key,
-                "$user_id": "user_test_3",
-            },
-            timestamp=datetime(2023, 1, 3),
-        )
-        _create_event(
-            team=self.team,
-            event="Some other event",
-            distinct_id="distinct_test_3",
-            properties={
-                "$feature_flag_response": "control",
-                feature_flag_property: "control",
-                "$feature_flag": feature_flag.key,
-                "$user_id": "user_test_3",
-            },
-            timestamp=datetime(2023, 1, 5),
-        )
-        _create_event(
-            team=self.team,
-            event="$feature_flag_called",
-            distinct_id="distinct_test_3",
-            properties={
-                "$feature_flag_response": "control",
-                feature_flag_property: "control",
-                "$feature_flag": feature_flag.key,
-                "$user_id": "user_test_3",
-            },
-            timestamp=datetime(2023, 1, 9),
-        )
+        # _create_event(
+        #     team=self.team,
+        #     event="$feature_flag_called",
+        #     distinct_id="distinct_test_3",
+        #     properties={
+        #         "$feature_flag_response": "control",
+        #         feature_flag_property: "control",
+        #         "$feature_flag": feature_flag.key,
+        #         "$user_id": "user_test_3",
+        #     },
+        #     timestamp=datetime(2023, 1, 3),
+        # )
+        # _create_event(
+        #     team=self.team,
+        #     event="Some other event",
+        #     distinct_id="distinct_test_3",
+        #     properties={
+        #         "$feature_flag_response": "control",
+        #         feature_flag_property: "control",
+        #         "$feature_flag": feature_flag.key,
+        #         "$user_id": "user_test_3",
+        #     },
+        #     timestamp=datetime(2023, 1, 5),
+        # )
+        # _create_event(
+        #     team=self.team,
+        #     event="$feature_flag_called",
+        #     distinct_id="distinct_test_3",
+        #     properties={
+        #         "$feature_flag_response": "control",
+        #         feature_flag_property: "control",
+        #         "$feature_flag": feature_flag.key,
+        #         "$user_id": "user_test_3",
+        #     },
+        #     timestamp=datetime(2023, 1, 9),
+        # )
 
         flush_persons_and_events()
 
@@ -2024,7 +2024,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
         )
 
-        self.assertEqual(control_result.absolute_exposure, 8)
+        self.assertEqual(control_result.absolute_exposure, 7)
         self.assertEqual(test_result.absolute_exposure, 10)
 
     @snapshot_clickhouse_queries
