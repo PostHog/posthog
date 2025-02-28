@@ -151,21 +151,16 @@ impl AggregateFunnelRow {
             return;
         }
 
-        for i in 0..final_index {
-            //if event_uuids[i].len() >= MAX_REPLAY_EVENTS && !event_uuids[i].contains(&final_value.uuids[i]) {
-            // Always put the actual event uuids first, we use it to extract timestamps
-            // This might create duplicates, but that's fine (we can remove it in clickhouse)
-            vars.event_uuids[i].insert(0, final_value.uuids[i].clone());
-        }
         self.results.push(Result(
             final_index as i8 - 1,
             prop_val.clone(),
-            final_value
-                .timings
-                .windows(2)
-                .map(|w| w[1] - w[0])
+            final_value.timings.clone(),
+            vars.max_step
+                .1
+                .uuids
+                .iter()
+                .map(|uuid| vec![*uuid])
                 .collect(),
-            vars.event_uuids,
         ))
     }
 
@@ -173,7 +168,9 @@ impl AggregateFunnelRow {
     fn process_event(&mut self, args: &Args, vars: &mut Vars, event: &Event, prop_val: &PropVal) {
         if event.steps[0] < 0 {
             // TODO
-            // exclusion - set exclusion on max_steps and if they get another event, remove the user
+            // Want to exclude the user if their longest path includes this exclusion
+            // Everything that passes this timestamp is now tainted
+            // Exclude if their max steps crosses over an exclusion (process them completely differently)
             return;
         }
 
