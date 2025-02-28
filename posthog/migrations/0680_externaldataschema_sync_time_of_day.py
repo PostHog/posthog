@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0676_team_session_recording_masking_config"),
+        ("posthog", "0679_feature_flag_concurrency"),
     ]
 
     operations = [
