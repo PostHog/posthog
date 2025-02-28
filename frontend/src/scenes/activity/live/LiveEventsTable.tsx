@@ -6,11 +6,10 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { Link } from 'lib/lemon-ui/Link'
 import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
-import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
-import { ActivityTab, PropertyOperator } from '~/types'
 
 import type { LiveEvent } from '~/types'
 
@@ -20,26 +19,8 @@ const columns: LemonTableColumns<LiveEvent> = [
         key: 'event',
         className: 'max-w-80',
         render: function Render(_, event: LiveEvent) {
-            const searchUrl =
-                urls.activity(ActivityTab.ExploreEvents) +
-                `?q=${encodeURIComponent(
-                    JSON.stringify({
-                        kind: 'DataTableNode',
-                        full: true,
-                        source: {
-                            kind: 'EventsQuery',
-                            properties: [
-                                {
-                                    key: '$event_uuid',
-                                    operator: PropertyOperator.Exact,
-                                    type: 'event',
-                                    value: event.uuid,
-                                },
-                            ],
-                        },
-                        propertiesViaUrl: true,
-                    })
-                )}`
+            const searchUrl = urls.absolute(urls.currentProject(urls.event(String(event.uuid), event.timestamp)))
+
             return (
                 <Link to={searchUrl}>
                     <PropertyKeyInfo value={event.event} type={TaxonomicFilterGroupType.Events} />
