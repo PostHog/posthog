@@ -1,7 +1,6 @@
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass
-from dateutil import parser
 from datetime import date, datetime
 from difflib import get_close_matches
 from typing import Literal, Optional, Union, cast
@@ -1143,7 +1142,7 @@ class _Printer(Visitor):
                     if not has_tz_override:
                         args.append(self.visit(ast.Constant(value=self._get_timezone())))
 
-                    # If the datetime is in correct format, use optimal toDateTime, it's more strict but faster
+                    # If the datetime is in correct format, use optimal toDateTime, it's stricter but faster
                     # and it allows CH to use index efficiently.
                     if (
                         relevant_clickhouse_name == "parseDateTime64BestEffortOrNull"
@@ -1151,19 +1150,21 @@ class _Printer(Visitor):
                         and isinstance(node.args[0], Constant)
                         and isinstance(node.args[0].type, StringType)
                     ):
-                        try:
-                            t = parser.isoparse(node.args[0].value)
-                            # if we have timezone info, toDateTime64 cannot handle
-                            if t.tzinfo is None:
-                                relevant_clickhouse_name = "toDateTime64"
-                        except ValueError:
-                            pass
-
+                        relevant_clickhouse_name = "parseDateTime64BestEffort"
+                        pattern_with_microseconds_str = r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{1,6}$"
+                        pattern_mysql_str = r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$"
+                        if re.match(pattern_with_microseconds_str, node.args[0].value):
+                            relevant_clickhouse_name = "toDateTime64"
+                        elif re.match(pattern_mysql_str, node.args[0].value) or re.match(
+                            r"^\d{4}-\d{2}-\d{2}$", node.args[0].value
+                        ):
+                            relevant_clickhouse_name = "toDateTime"
                     if (
                         relevant_clickhouse_name == "now64"
                         and (len(node.args) == 0 or (has_tz_override and len(node.args) == 1))
                     ) or (
-                        relevant_clickhouse_name in ("parseDateTime64BestEffortOrNull", "toDateTime64")
+                        relevant_clickhouse_name
+                        in ("parseDateTime64BestEffortOrNull", "parseDateTime64BestEffort", "toDateTime64")
                         and (len(node.args) == 1 or (has_tz_override and len(node.args) == 2))
                     ):
                         # These two CH functions require a precision argument before timezone

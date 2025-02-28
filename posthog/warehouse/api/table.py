@@ -185,6 +185,12 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         instance: DataWarehouseTable = self.get_object()
+
+        if instance.external_data_source is not None:
+            return response.Response(
+                status=status.HTTP_400_BAD_REQUEST, data={"message": "Can't delete a sourced table"}
+            )
+
         instance.soft_delete()
 
         return response.Response(status=status.HTTP_204_NO_CONTENT)

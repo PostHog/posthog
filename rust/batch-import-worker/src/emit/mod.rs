@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use anyhow::Error;
 use async_trait::async_trait;
 use common_types::InternallyCapturedEvent;
@@ -15,8 +17,9 @@ pub trait Emitter: Send + Sync {
 pub trait Transaction<'a>: Send + Sync {
     async fn emit(&self, data: &[InternallyCapturedEvent]) -> Result<(), Error>;
 
-    async fn commit_write(self: Box<Self>) -> Result<(), Error> {
-        Ok(())
+    // Commits return a delay to wait before the next commit start
+    async fn commit_write(self: Box<Self>) -> Result<Duration, Error> {
+        Ok(Duration::from_secs(0))
     }
 }
 
