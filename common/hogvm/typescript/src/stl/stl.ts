@@ -18,6 +18,7 @@ import {
     toUnixTimestampMilli,
 } from './date'
 import { printHogStringOutput } from './print'
+import { isIPAddressInRange } from './ip'
 
 // TODO: this file should be generated from or mergred with posthog/hogql/compiler/javascript_stl.py
 
@@ -975,6 +976,11 @@ export const STL: Record<string, STLFunction> = {
         fn: ([data], _, options) => sha256HmacChainHex(data, options),
         minArgs: 1,
         maxArgs: 1,
+    },
+    isIPAddressInRange: {
+        fn: ([address, prefix]) => isIPAddressInRange(address, prefix),
+        minArgs: 2,
+        maxArgs: 2,
     },
     keys: {
         fn: ([obj]) => {

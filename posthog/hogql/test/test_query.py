@@ -1391,7 +1391,14 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             FROM
                 events
             WHERE
-                and(equals(event, '$exception'), isNotNull(issue_id), and(1, greaterOrEquals(timestamp, toDateTime('2025-02-10 23:53:03.175952'))))
+                and(
+                    equals(event, '$exception'),
+                    isNotNull(issue_id),
+                    or(
+                        and(greater(timestamp, toDateTime('2025-02-10 23:53:03.175952+02:30')), less(timestamp, toDateTime('2025-02-11 23:53'))),
+                        and(greater(timestamp, toDateTime('2025-02-12 23:53:03')), less(timestamp, toDateTime('2025-02-13 23:53:03.175952')))
+                    )
+                )
             GROUP BY
                 issue_id
             ORDER BY

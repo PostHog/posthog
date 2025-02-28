@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{atomic::Ordering, Arc};
 
 use anyhow::{Context, Error};
 
@@ -12,6 +12,7 @@ use crate::{
     emit::Emitter,
     parse::{format::ParserFn, Parsed},
     source::DataSource,
+    spawn_liveness_loop,
 };
 
 pub mod config;
@@ -206,6 +207,7 @@ impl Job {
     }
 
     async fn do_commit(&self) -> Result<(), Error> {
+        let liveness_loop_flag = spawn_liveness_loop(self.context.worker_liveness.clone());
         self.shutdown_guard()?;
         let mut checkpoint_lock = self.checkpoint.lock().await;
 
@@ -237,10 +239,14 @@ impl Job {
         info!("Beginning PG part commit");
         self.begin_part_commit(&key, parsed.consumed).await?;
         info!("Beginning emitter part commit");
-        txn.commit_write().await?;
+
+        let to_sleep = txn.commit_write().await?;
         info!("Finishing PG part commit");
         self.complete_commit().await?;
         info!("Committed part {} consumed {} bytes", key, parsed.consumed);
+        info!("Sleeping for {:?}", to_sleep);
+        tokio::time::sleep(to_sleep).await;
+        liveness_loop_flag.store(false, Ordering::Relaxed);
 
         Ok(())
     }
