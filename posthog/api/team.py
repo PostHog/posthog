@@ -55,7 +55,6 @@ from posthog.utils import (
     get_week_start_for_country_code,
 )
 from django.core.cache import cache
-from rest_framework.throttling import UserRateThrottle
 from posthog.settings import SITE_URL
 
 
@@ -812,8 +811,11 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         if wizard_data is None:
             raise serializers.ValidationError({"hash": ["This hash is invalid or has expired."]}, code="invalid_hash")
 
-        # Set the project API key in the wizard data
-        wizard_data = {"project_api_key": request.user.team.api_token, "host": get_api_host()}
+        wizard_data = {
+            "project_api_key": request.user.team.api_token,
+            "host": get_api_host(),
+            "user_distinct_id": request.user.distinct_id,
+        }
 
         cache.set(cache_key, wizard_data, SETUP_WIZARD_CACHE_TIMEOUT)
 
@@ -878,8 +880,3 @@ def validate_team_attrs(
                 "Field autocapture_exceptions_errors_to_ignore must be less than 300 characters. Complex config should be provided in posthog-js initialization."
             )
     return attrs
-
-
-# Define a custom throttle class
-class WizardAuthRateThrottle(UserRateThrottle):
-    rate = "5/day"

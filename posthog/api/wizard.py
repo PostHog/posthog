@@ -17,13 +17,14 @@ from openai.types.chat import (
 from posthoganalytics.ai.openai import OpenAI
 
 from posthog.rate_limit import SetupWizardQueryRateThrottle
+from rest_framework.exceptions import AuthenticationFailed
 
 from .utils import action
 
 logger = logging.getLogger("sentry.api")
 
 SETUP_WIZARD_CACHE_PREFIX = "setup-wizard:v1:"
-SETUP_WIZARD_CACHE_TIMEOUT = 600  # Valid for 10 minutes
+SETUP_WIZARD_CACHE_TIMEOUT = 600
 SETUP_WIZARD_MODEL = "o3-mini"
 
 
@@ -47,34 +48,43 @@ class SetupWizardViewSet(viewsets.ViewSet):
     lookup_field = "hash"
     lookup_url_kwarg = "hash"
 
-    @action(methods=["GET"], detail=False, url_path="data")
-    def get_data(self, request: Request, hash=None) -> Response:
+    @action(methods=["POST"], detail=False, url_path="initialize")
+    def initialize(self, request: Request) -> Response:
         """
-        This tries to retrieve and return the cache content if possible
-        otherwise creates new cache
+        This endpoint is used to initialize the setup wizard. It creates a unique hash for the user to authenticate.
+        """
+
+        serializer = SetupWizardSerializer()
+
+        return Response(serializer.create())
+
+    @action(methods=["GET"], detail=False, url_path="data")
+    def data(self, request: Request, hash=None) -> Response:
+        """
+        This endpoint is used to get the data for the setup wizard to use.
         """
 
         hash = request.headers.get("X-PostHog-Wizard-Hash")
 
-        if hash is not None:
-            key = f"{SETUP_WIZARD_CACHE_PREFIX}{hash}"
-            wizard_data = cache.get(key)
+        if not hash:
+            raise AuthenticationFailed("X-PostHog-Wizard-Hash header is required.")
 
-            if wizard_data is None:
-                return Response(status=404)
+        key = f"{SETUP_WIZARD_CACHE_PREFIX}{hash}"
 
-            if not wizard_data.get("project_api_key") or not wizard_data.get("host"):
-                return Response({"error": "Setup wizard not authenticated. Please login first"}, status=400)
+        wizard_data = cache.get(key)
 
-            return Response(wizard_data)
-        else:
-            serializer = SetupWizardSerializer()
-            return Response(serializer.create())
+        if wizard_data is None:
+            return Response(status=404)
+
+        if not wizard_data.get("project_api_key") or not wizard_data.get("host"):
+            return Response({"error": "Setup wizard not authenticated. Please login first"}, status=400)
+
+        return Response(wizard_data)
 
     @action(methods=["POST"], detail=False, url_path="query", throttle_classes=[SetupWizardQueryRateThrottle])
     def query(self, request: Request) -> Response:
         """
-        This endpoint acts as a proxy for the setup wizard.
+        This endpoint acts as a proxy for the setup wizard when making OpenAI calls.
         """
 
         message = request.data.get("message")
@@ -82,16 +92,16 @@ class SetupWizardViewSet(viewsets.ViewSet):
         hash = request.headers.get("X-PostHog-Wizard-Hash")
 
         if not hash:
-            return Response({"error": "X-PostHog-Wizard-Hash header is required."}, status=400)
+            raise AuthenticationFailed("X-PostHog-Wizard-Hash header is required.")
 
         key = f"{SETUP_WIZARD_CACHE_PREFIX}{hash}"
         wizard_data = cache.get(key)
 
         if wizard_data is None:
-            return Response({"error": "Invalid hash."}, status=400)
+            raise AuthenticationFailed("Invalid hash.")
 
         if not wizard_data.get("project_api_key") or not wizard_data.get("host"):
-            return Response({"error": "Setup wizard not authenticated. Please login first"}, status=400)
+            raise AuthenticationFailed("Setup wizard not authenticated. Please login first")
 
         if not message or not json_schema:
             return Response({"error": "Both message and json_schema are required."}, status=400)
@@ -114,11 +124,6 @@ class SetupWizardViewSet(viewsets.ViewSet):
             model=SETUP_WIZARD_MODEL,
             messages=messages,
             response_format={"type": "json_schema", "json_schema": json_schema},
-            # posthog_distinct_id="setup-wizard", #type: ignore
-            # posthog_properties={
-            #     "ai_product": "setup_wizard",
-            #     "ai_feature": "query",
-            # },
         )
 
         if not completion.choices or not completion.choices[0].message.content:
