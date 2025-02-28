@@ -174,14 +174,14 @@ class TestTable(APIBaseTest):
     def test_update_schema_400_with_source(self):
         columns = {"id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"}}
 
-        souce = ExternalDataSource.objects.create(team=self.team, team_id=self.team.pk)
+        source = ExternalDataSource.objects.create(team=self.team, team_id=self.team.pk)
         table = DataWarehouseTable.objects.create(
             name="test_table",
             format="Parquet",
             team=self.team,
             team_id=self.team.pk,
             columns=columns,
-            external_data_source_id=souce.pk,
+            external_data_source_id=source.pk,
         )
         response = self.client.post(
             f"/api/projects/{self.team.pk}/warehouse_tables/{table.id}/update_schema", {"updates": {"id": "float"}}
@@ -281,3 +281,33 @@ class TestTable(APIBaseTest):
         )
         assert response.status_code == 400
         assert DataWarehouseTable.objects.count() == 1
+
+    def test_delete_table(self):
+        table = DataWarehouseTable.objects.create(
+            name="test_table", format="Parquet", team=self.team, team_id=self.team.pk, columns={}
+        )
+        response = self.client.delete(f"/api/projects/{self.team.pk}/warehouse_tables/{table.id}")
+
+        assert response.status_code == 204
+
+        table.refresh_from_db()
+
+        assert table.deleted is True
+
+    def test_delete_table_with_source(self):
+        source = ExternalDataSource.objects.create(team=self.team, team_id=self.team.pk)
+        table = DataWarehouseTable.objects.create(
+            name="test_table",
+            format="Parquet",
+            team=self.team,
+            team_id=self.team.pk,
+            columns={},
+            external_data_source_id=source.pk,
+        )
+        response = self.client.delete(f"/api/projects/{self.team.pk}/warehouse_tables/{table.id}")
+
+        assert response.status_code == 400
+
+        table.refresh_from_db()
+
+        assert table.deleted is False
