@@ -2,7 +2,7 @@ import LRU from 'lru-cache'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
-import { PersonsDB } from '../../../ingestion/event-pipeline-runner/utils/persons-db'
+import { PersonsDB } from '../../../ingestion/event-pipeline-runner-v2/utils/persons-db'
 import { TopicMessage } from '../../../kafka/producer'
 import { Hub, InternalPerson, Person, PluginEvent, Properties, PropertyUpdateOperation } from '../../../types'
 import { captureIngestionWarning } from '../../../utils/ingestion-warnings'

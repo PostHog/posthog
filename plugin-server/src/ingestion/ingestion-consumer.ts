@@ -11,9 +11,9 @@ import { eventDroppedCounter } from '../utils/metrics'
 import { setupMmdb } from '../utils/mmdb'
 import { captureException } from '../utils/posthog'
 import { status } from '../utils/status'
-import { EventDroppedError, EventPipelineRunnerV2 } from './event-pipeline-runner/event-pipeline-runner'
-import { normalizeEvent } from './event-pipeline-runner/utils/event-utils'
-import { PersonsDB } from './event-pipeline-runner/utils/persons-db'
+import { EventDroppedError, EventPipelineRunnerV2 } from './event-pipeline-runner-v2/event-pipeline-runner'
+import { normalizeEvent } from './event-pipeline-runner-v2/utils/event-utils'
+import { PersonsDB } from './event-pipeline-runner-v2/utils/persons-db'
 import { MemoryRateLimiter } from './utils/overflow-detector'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals

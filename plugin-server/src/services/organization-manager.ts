@@ -1,4 +1,4 @@
-import { timeoutGuard } from '../ingestion/event-pipeline-runner/utils/utils'
+import { timeoutGuard } from '../ingestion/event-pipeline-runner-v2/utils/utils'
 import { ProductFeature, RawOrganization, Team, TeamId } from '../types'
 import { PostgresRouter, PostgresUse } from '../utils/postgres'
 import { getByAge } from '../utils/utils'

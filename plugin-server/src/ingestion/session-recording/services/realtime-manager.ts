@@ -6,7 +6,7 @@ import { Config, RedisPool } from '../../../types'
 import { captureException } from '../../../utils/posthog'
 import { createRedis } from '../../../utils/redis'
 import { status } from '../../../utils/status'
-import { timeoutGuard } from '../../event-pipeline-runner/utils/utils'
+import { timeoutGuard } from '../../event-pipeline-runner-v2/utils/utils'
 
 const Keys = {
     snapshots(prefix: string, teamId: number, suffix: string): string {

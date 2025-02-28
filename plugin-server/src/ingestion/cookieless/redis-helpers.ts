@@ -1,7 +1,7 @@
 import { Pool as GenericPool } from 'generic-pool'
 import Redis from 'ioredis'
 
-import { timeoutGuard } from '~/src/ingestion/event-pipeline-runner/utils/utils'
+import { timeoutGuard } from '~/src/ingestion/event-pipeline-runner-v2/utils/utils'
 import { CacheOptions } from '~/src/types'
 
 import { RedisOperationError } from '../../utils/errors'

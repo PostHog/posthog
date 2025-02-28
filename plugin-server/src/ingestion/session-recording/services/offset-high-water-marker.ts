@@ -4,7 +4,7 @@ import { TopicPartition } from 'node-rdkafka'
 import { RedisPool } from '../../../types'
 import { captureException } from '../../../utils/posthog'
 import { status } from '../../../utils/status'
-import { timeoutGuard } from '../../event-pipeline-runner/utils/utils'
+import { timeoutGuard } from '../../event-pipeline-runner-v2/utils/utils'
 
 export const offsetHighWaterMarkKey = (prefix: string, tp: TopicPartition) => {
     return `${prefix}high-water-marks/${tp.topic}/${tp.partition}`

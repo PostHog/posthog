@@ -18,7 +18,7 @@ import { HogFunctionType } from '../cdp/types'
 import { fetchTeam } from '../services/team-manager'
 import { status } from '../utils/status'
 import { UUIDT } from '../utils/utils'
-import { EventDroppedError } from './event-pipeline-runner/event-pipeline-runner'
+import { EventDroppedError } from './event-pipeline-runner-v2/event-pipeline-runner'
 import { IngestionConsumer } from './ingestion-consumer'
 
 const DEFAULT_TEST_TIMEOUT = 5000

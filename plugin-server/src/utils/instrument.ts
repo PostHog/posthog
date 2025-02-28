@@ -1,6 +1,6 @@
 import { exponentialBuckets, Histogram } from 'prom-client'
 
-import { timeoutGuard } from '../ingestion/event-pipeline-runner/utils/utils'
+import { timeoutGuard } from '../ingestion/event-pipeline-runner-v2/utils/utils'
 import { captureException } from './posthog'
 import { status } from './status'
 

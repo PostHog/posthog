@@ -1,4 +1,4 @@
-import { timeoutGuard } from '../ingestion/event-pipeline-runner/utils/utils'
+import { timeoutGuard } from '../ingestion/event-pipeline-runner-v2/utils/utils'
 
 export async function asyncTimeoutGuard(
     options: {

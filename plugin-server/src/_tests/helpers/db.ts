@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
 
-import { toPerson } from '../../ingestion/event-pipeline-runner/utils/persons-db'
+import { toPerson } from '../../ingestion/event-pipeline-runner-v2/utils/persons-db'
 import {
     ClickHouseEvent,
     ClickhouseGroup,

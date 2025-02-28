@@ -1,4 +1,4 @@
-import { timeoutGuard } from '../ingestion/event-pipeline-runner/utils/utils'
+import { timeoutGuard } from '../ingestion/event-pipeline-runner-v2/utils/utils'
 import { CacheOptions, Config, RedisPool } from '../types'
 import { instrumentQuery } from './metrics'
 import { createRedisPool } from './redis'
