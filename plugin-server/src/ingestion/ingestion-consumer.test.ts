@@ -506,7 +506,6 @@ describe('IngestionConsumer', () => {
                     }),
                 ],
             ],
-
             [
                 'groups',
                 () => [
@@ -547,6 +546,31 @@ describe('IngestionConsumer', () => {
                         },
                     }),
                 ],
+            ],
+            [
+                'person property merging via alias',
+                () => {
+                    const anonId1 = new UUIDT().toString()
+                    const anonId2 = new UUIDT().toString()
+                    return [
+                        createEvent({
+                            distinct_id: anonId1,
+                            event: 'custom event',
+                            properties: { $set: { k: 'v' } },
+                        }),
+                        createEvent({
+                            distinct_id: anonId2,
+                            event: 'custom event',
+                            properties: { $set: { j: 'w' } },
+                        }),
+                        // final event should have k, j, l
+                        createEvent({
+                            distinct_id: anonId2,
+                            event: '$create_alias',
+                            properties: { alias: anonId1, $set: { l: 'x' } },
+                        }),
+                    ]
+                },
             ],
         ]
 
