@@ -15,7 +15,7 @@ import {
     setUsageInNonPersonEventsCounter,
 } from '../main/ingestion-queues/metrics'
 import { runInstrumentedFunction } from '../main/utils'
-import { Hub, PipelineEvent, PluginServerService } from '../types'
+import { Hub, PipelineEvent, PluginServerService, PluginsServerConfig } from '../types'
 import { normalizeEvent } from '../utils/event'
 import { captureException } from '../utils/posthog'
 import { retryIfRetriable } from '../utils/retries'
@@ -72,12 +72,23 @@ export class IngestionConsumer {
     private tokensToDrop: string[] = []
     private tokenDistinctIdsToDrop: string[] = []
 
-    constructor(private hub: Hub) {
+    constructor(
+        private hub: Hub,
+        overrides: Partial<
+            Pick<
+                PluginsServerConfig,
+                | 'INGESTION_CONSUMER_GROUP_ID'
+                | 'INGESTION_CONSUMER_CONSUME_TOPIC'
+                | 'INGESTION_CONSUMER_OVERFLOW_TOPIC'
+                | 'INGESTION_CONSUMER_DLQ_TOPIC'
+            >
+        > = {}
+    ) {
         // The group and topic are configurable allowing for multiple ingestion consumers to be run in parallel
-        this.groupId = hub.INGESTION_CONSUMER_GROUP_ID
-        this.topic = hub.INGESTION_CONSUMER_CONSUME_TOPIC
-        this.overflowTopic = hub.INGESTION_CONSUMER_OVERFLOW_TOPIC
-        this.dlqTopic = hub.INGESTION_CONSUMER_DLQ_TOPIC
+        this.groupId = overrides.INGESTION_CONSUMER_GROUP_ID ?? hub.INGESTION_CONSUMER_GROUP_ID
+        this.topic = overrides.INGESTION_CONSUMER_CONSUME_TOPIC ?? hub.INGESTION_CONSUMER_CONSUME_TOPIC
+        this.overflowTopic = overrides.INGESTION_CONSUMER_OVERFLOW_TOPIC ?? hub.INGESTION_CONSUMER_OVERFLOW_TOPIC
+        this.dlqTopic = overrides.INGESTION_CONSUMER_DLQ_TOPIC ?? hub.INGESTION_CONSUMER_DLQ_TOPIC
         this.tokensToDrop = hub.DROP_EVENTS_BY_TOKEN.split(',').filter((x) => !!x)
         this.tokenDistinctIdsToDrop = hub.DROP_EVENTS_BY_TOKEN_DISTINCT_ID.split(',').filter((x) => !!x)
 
