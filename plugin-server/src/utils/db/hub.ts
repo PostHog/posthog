@@ -11,17 +11,10 @@ import { getPluginServerCapabilities } from '../../capabilities'
 import { EncryptedFields } from '../../cdp/encryption-utils'
 import { buildIntegerMatcher, defaultConfig } from '../../config/config'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from '../../config/constants'
-import { KAFKA_JOBS } from '../../config/kafka-topics'
 import { CookielessManager } from '../../ingestion/cookieless/cookieless-manager'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { getObjectStorage } from '../../main/services/object_storage'
-import {
-    EnqueuedPluginJob,
-    Hub,
-    KafkaSecurityProtocol,
-    PluginServerCapabilities,
-    PluginsServerConfig,
-} from '../../types'
+import { Hub, KafkaSecurityProtocol, PluginServerCapabilities, PluginsServerConfig } from '../../types'
 import { ActionManager } from '../../worker/ingestion/action-manager'
 import { ActionMatcher } from '../../worker/ingestion/action-matcher'
 import { AppMetrics } from '../../worker/ingestion/app-metrics'

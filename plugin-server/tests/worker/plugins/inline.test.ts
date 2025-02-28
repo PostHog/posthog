@@ -66,7 +66,6 @@ describe('Inline plugin', () => {
             expect(row.error).toBeNull()
             expect(row.organization_id).toBeNull()
             expect(row.metrics).toBeNull()
-            expect(row.public_jobs).toBeNull()
         }
     })
 

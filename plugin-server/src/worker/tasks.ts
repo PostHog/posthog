@@ -1,13 +1,8 @@
-import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
-
-import { Hub, PluginTaskType } from '../types'
+import { Hub } from '../types'
 import { retryIfRetriable } from '../utils/retries'
 import { status } from '../utils/status'
 import { sleep } from '../utils/utils'
-import { runPluginTask, runProcessEvent } from './plugins/run'
 import { setupPlugins } from './plugins/setup'
-
-type TaskRunner = (hub: Hub, args: any) => Promise<any> | any
 
 // If a reload is already scheduled, this will be a promise that resolves when the reload is done.
 let RELOAD_PLUGINS_PROMISE: Promise<void> | undefined
@@ -54,20 +49,4 @@ export const reloadPlugins = async (hub: Hub) => {
 
         await RELOAD_PLUGINS_PROMISE
     }
-}
-
-export const workerTasks: Record<string, TaskRunner> = {
-    runEveryMinute: async (hub, args: { pluginConfigId: number }) => {
-        return runPluginTask(hub, 'runEveryMinute', PluginTaskType.Schedule, args.pluginConfigId)
-    },
-    runEveryHour: (hub, args: { pluginConfigId: number }) => {
-        return runPluginTask(hub, 'runEveryHour', PluginTaskType.Schedule, args.pluginConfigId)
-    },
-    runEveryDay: (hub, args: { pluginConfigId: number }) => {
-        return runPluginTask(hub, 'runEveryDay', PluginTaskType.Schedule, args.pluginConfigId)
-    },
-    // Exported only for tests
-    _testsRunProcessEvent: async (hub, args: { event: PluginEvent }) => {
-        return runProcessEvent(hub, args.event)
-    },
 }

@@ -66,7 +66,7 @@ describe('plugins', () => {
 
         expect(pluginConfig.plugin).toEqual({
             ...plugin60,
-            capabilities: { jobs: [], scheduled_tasks: [], methods: ['processEvent'] },
+            capabilities: { methods: ['processEvent'] },
         })
 
         expect(pluginConfig.attachments).toEqual({
@@ -93,7 +93,7 @@ describe('plugins', () => {
                 60,
                 {
                     ...plugin60,
-                    capabilities: { jobs: [], scheduled_tasks: [], methods: ['processEvent'] },
+                    capabilities: { methods: ['processEvent'] },
                 },
             ],
         ])
@@ -176,7 +176,6 @@ describe('plugins', () => {
             'config',
             'geoip',
             'global',
-            'jobs',
             'storage',
             'utils',
         ])
@@ -504,8 +503,6 @@ describe('plugins', () => {
         // async loading of capabilities
 
         expect(pluginConfig.plugin!.capabilities!.methods!.sort()).toEqual(['processEvent', 'setupPlugin'])
-        expect(pluginConfig.plugin!.capabilities!.jobs).toHaveLength(0)
-        expect(pluginConfig.plugin!.capabilities!.scheduled_tasks).toHaveLength(0)
     })
 
     test('plugin with source files loads all capabilities, no random caps', async () => {
@@ -514,12 +511,6 @@ describe('plugins', () => {
             export function processEvent (event, meta) { event.properties={"x": 1}; return event }
             export function randomFunction (event, meta) { return event}
             export function onEvent (event, meta) { return event }
-
-            export function runEveryHour(meta) {console.log('1')}
-
-            export const jobs = {
-                x: (event, meta) => console.log(event)
-            }
         `),
         ])
         getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
@@ -534,8 +525,6 @@ describe('plugins', () => {
         // async loading of capabilities
 
         expect(pluginConfig.plugin!.capabilities!.methods!.sort()).toEqual(['onEvent', 'processEvent'])
-        expect(pluginConfig.plugin!.capabilities!.jobs).toEqual(['x'])
-        expect(pluginConfig.plugin!.capabilities!.scheduled_tasks).toEqual(['runEveryHour'])
     })
 
     test('plugin with source file loads capabilities', async () => {
@@ -558,8 +547,6 @@ describe('plugins', () => {
         // async loading of capabilities
 
         expect(pluginConfig.plugin!.capabilities!.methods!.sort()).toEqual(['onEvent', 'processEvent'])
-        expect(pluginConfig.plugin!.capabilities!.jobs).toEqual([])
-        expect(pluginConfig.plugin!.capabilities!.scheduled_tasks).toEqual([])
 
         unlink()
     })
@@ -586,8 +573,6 @@ describe('plugins', () => {
         // async loading of capabilities
 
         expect(pluginConfig.plugin!.capabilities!.methods!.sort()).toEqual(['onEvent', 'processEvent'])
-        expect(pluginConfig.plugin!.capabilities!.jobs).toEqual([])
-        expect(pluginConfig.plugin!.capabilities!.scheduled_tasks).toEqual([])
     })
 
     test('reloading plugins after config changes', async () => {
@@ -665,7 +650,7 @@ describe('plugins', () => {
         getPluginRows.mockReturnValueOnce([{ ...plugin60 }]).mockReturnValueOnce([
             {
                 ...plugin60,
-                capabilities: { jobs: [], scheduled_tasks: [], methods: ['processEvent'] },
+                capabilities: { methods: ['processEvent'] },
             },
         ]) // updated in DB via first `setPluginCapabilities` call.
         getPluginAttachmentRows.mockReturnValue([pluginAttachment1])

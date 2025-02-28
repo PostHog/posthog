@@ -136,7 +136,7 @@ describe('runAppsOnEventPipeline()', () => {
         const organizationId = await createOrganization(hub.postgres)
         const plugin = await createPlugin(hub.postgres, {
             organization_id: organizationId,
-            name: 'runEveryMinute plugin',
+            name: 'test plugin',
             plugin_type: 'source',
             is_global: false,
             source__index_ts: `

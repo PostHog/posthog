@@ -21,10 +21,6 @@ export const KAFKA_BUFFER = `${prefix}conversion_events_buffer${suffix}`
 export const KAFKA_INGESTION_WARNINGS = `${prefix}clickhouse_ingestion_warnings${suffix}`
 export const KAFKA_APP_METRICS = `${prefix}clickhouse_app_metrics${suffix}`
 export const KAFKA_APP_METRICS_2 = `${prefix}clickhouse_app_metrics2${suffix}`
-export const KAFKA_JOBS = `${prefix}jobs${suffix}`
-export const KAFKA_JOBS_DLQ = `${prefix}jobs_dlq${suffix}`
-export const KAFKA_SCHEDULED_TASKS = `${prefix}scheduled_tasks${suffix}`
-export const KAFKA_SCHEDULED_TASKS_DLQ = `${prefix}scheduled_tasks_dlq${suffix}`
 export const KAFKA_METRICS_TIME_TO_SEE_DATA = `${prefix}clickhouse_metrics_time_to_see_data${suffix}`
 
 // read session recording snapshot items

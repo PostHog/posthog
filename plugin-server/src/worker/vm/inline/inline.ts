@@ -57,8 +57,6 @@ export const INLINE_PLUGIN_MAP: Record<InlinePluginId, RegisteredInlinePlugin> =
             config_schema: SEMVER_FLATTENER_CONFIG_SCHEMA,
             tag: 'semver-flattener',
             capabilities: {
-                jobs: [],
-                scheduled_tasks: [],
                 methods: ['processEvent'],
             },
             is_stateless: false, // TODO - this plugin /could/ be stateless, but right now we cache config parsing, which is stateful

@@ -44,12 +44,6 @@ export const kafkaConsumerEventRequestPendingMsSummary = new Summary({
     percentiles: [0.5, 0.9, 0.95, 0.99],
 })
 
-export const scheduledTaskCounter = new Counter({
-    name: 'scheduled_task',
-    help: 'Scheduled task status change',
-    labelNames: ['status', 'task'],
-})
-
 export const ingestionPartitionKeyOverflowed = new Counter({
     name: 'ingestion_partition_key_overflowed',
     help: 'Indicates that a given key has overflowed capacity and been redirected to a different topic. Value incremented once a minute.',

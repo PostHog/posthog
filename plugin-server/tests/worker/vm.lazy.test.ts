@@ -1,6 +1,6 @@
 import { RetryError } from '@posthog/plugin-scaffold'
 
-import { PluginLogEntrySource, PluginLogEntryType, PluginTaskType } from '../../src/types'
+import { PluginLogEntrySource, PluginLogEntryType } from '../../src/types'
 import { status } from '../../src/utils/status'
 import { LazyPluginVM } from '../../src/worker/vm/lazy'
 import { createPluginConfigVM } from '../../src/worker/vm/vm'
@@ -47,11 +47,6 @@ describe('LazyPluginVM', () => {
         methods: {
             processEvent: 'processEvent',
         },
-        tasks: {
-            schedule: {
-                runEveryMinute: 'runEveryMinute',
-            },
-        },
         vmResponseVariable: 'arghhhhh',
     }
 
@@ -65,9 +60,6 @@ describe('LazyPluginVM', () => {
             void initializeVm(vm)
 
             expect(await vm.getPluginMethod('processEvent')).toEqual('processEvent')
-            expect(await vm.getTask('someTask', PluginTaskType.Schedule)).toEqual(null)
-            expect(await vm.getTask('runEveryMinute', PluginTaskType.Schedule)).toEqual('runEveryMinute')
-            expect(await vm.getScheduledTasks()).toEqual(mockVM.tasks.schedule)
         })
 
         it('logs info and clears errors on success', async () => {
@@ -109,8 +101,6 @@ describe('LazyPluginVM', () => {
             void initializeVm(vm)
 
             expect(await vm.getPluginMethod('processEvent')).toEqual(null)
-            expect(await vm.getTask('runEveryMinute', PluginTaskType.Schedule)).toEqual(null)
-            expect(await vm.getScheduledTasks()).toEqual({})
         })
 
         it('disables plugin if vm creation fails before setupPlugin', async () => {

@@ -4,7 +4,6 @@ import { getVMPluginCapabilities, shouldSetupPluginInServer } from '../../src/wo
 import { createPluginConfigVM } from '../../src/worker/vm/vm'
 import { pluginConfig39 } from '../helpers/plugins'
 
-jest.mock('../../src/worker/plugins/loadSchedule')
 jest.mock('../../src/worker/plugins/loadPluginsFromDB', () => ({
     loadPluginsFromDB: () => Promise.resolve({ plugins: [], pluginConfigs: [], pluginConfigsPerTeam: [] }),
 }))
@@ -25,14 +24,14 @@ describe('capabilities', () => {
     describe('getVMPluginCapabilities()', () => {
         function getCapabilities(indexJs: string): PluginCapabilities {
             const vm = createPluginConfigVM(hub, pluginConfig39, indexJs)
-            return getVMPluginCapabilities(vm.methods, vm.tasks)
+            return getVMPluginCapabilities(vm.methods)
         }
 
         it('handles processEvent', () => {
             const capabilities = getCapabilities(`
                 function processEvent (event, meta) { return null }
             `)
-            expect(capabilities).toEqual({ jobs: [], scheduled_tasks: [], methods: ['processEvent'] })
+            expect(capabilities).toEqual({ methods: ['processEvent'] })
         })
 
         it('handles setupPlugin', () => {
@@ -40,7 +39,7 @@ describe('capabilities', () => {
                 function setupPlugin (meta) { meta.global.key = 'value' }
                 function processEvent (event, meta) { event.properties={"x": 1}; return event }
             `)
-            expect(capabilities).toEqual({ jobs: [], scheduled_tasks: [], methods: ['setupPlugin', 'processEvent'] })
+            expect(capabilities).toEqual({ methods: ['setupPlugin', 'processEvent'] })
         })
 
         it('handles all capabilities', () => {
@@ -49,15 +48,8 @@ describe('capabilities', () => {
                 export function randomFunction (event, meta) { return event}
                 export function onEvent (event, meta) { return event }
                 export function getSettings (meta) { return { handlesLargeBatches: true } }
-                export function runEveryHour(meta) {console.log('1')}
-
-                export const jobs = {
-                    x: (event, meta) => console.log(event)
-                }
             `)
             expect(capabilities).toEqual({
-                jobs: ['x'],
-                scheduled_tasks: ['runEveryHour'],
                 methods: ['onEvent', 'processEvent', 'getSettings'],
             })
         })
@@ -66,10 +58,7 @@ describe('capabilities', () => {
     describe('shouldSetupPluginInServer()', () => {
         describe('no capabilities', () => {
             it('returns false if the server has no capabilities', () => {
-                const shouldSetupPlugin = shouldSetupPluginInServer(
-                    {},
-                    { methods: ['processEvent', 'onEvent'], scheduled_tasks: ['runEveryMinute'], jobs: ['someJob'] }
-                )
+                const shouldSetupPlugin = shouldSetupPluginInServer({}, { methods: ['processEvent', 'onEvent'] })
                 expect(shouldSetupPlugin).toEqual(false)
             })
 
@@ -96,8 +85,6 @@ describe('capabilities', () => {
                     { ingestion: true },
                     {
                         methods: ['onEvent'],
-                        scheduled_tasks: ['runEveryMinute'],
-                        jobs: ['someJob'],
                     }
                 )
                 expect(shouldSetupPlugin).toEqual(false)
@@ -118,8 +105,6 @@ describe('capabilities', () => {
                     { ingestionOverflow: true },
                     {
                         methods: ['onEvent'],
-                        scheduled_tasks: ['runEveryMinute'],
-                        jobs: ['someJob'],
                     }
                 )
                 expect(shouldSetupPlugin).toEqual(false)
@@ -140,8 +125,6 @@ describe('capabilities', () => {
                     { ingestionHistorical: true },
                     {
                         methods: ['onEvent'],
-                        scheduled_tasks: ['runEveryMinute'],
-                        jobs: ['someJob'],
                     }
                 )
                 expect(shouldSetupPlugin).toEqual(false)

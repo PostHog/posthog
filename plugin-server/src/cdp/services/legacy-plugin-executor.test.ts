@@ -54,8 +54,8 @@ describe('LegacyPluginExecutorService', () => {
             plugin_type: 'source',
             is_global: false,
             source__index_ts: `
-            export async function runEveryMinute() {
-                console.info(JSON.stringify(['runEveryMinute']))
+            export async function processEvent(event) {
+                return event
             }
         `,
         })

@@ -14,9 +14,6 @@ type gcsMeta = LegacyDestinationPluginMeta & {
         bucketName: string
         exportEventsToIgnore: string
     }
-    jobs: {
-        exportEventsWithRetry: string[]
-    }
     attachments: any
 }
 

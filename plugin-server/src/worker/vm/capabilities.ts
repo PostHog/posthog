@@ -1,4 +1,4 @@
-import { PluginCapabilities, PluginMethods, PluginTask, PluginTaskType } from '../../types'
+import { PluginCapabilities, PluginMethods } from '../../types'
 import { PluginServerCapabilities } from './../../types'
 
 const PROCESS_EVENT_CAPABILITIES = new Set<keyof PluginServerCapabilities>([
@@ -9,32 +9,13 @@ const PROCESS_EVENT_CAPABILITIES = new Set<keyof PluginServerCapabilities>([
     'ingestionV2Combined',
 ])
 
-export function getVMPluginCapabilities(
-    methods: PluginMethods,
-    tasks: Record<PluginTaskType, Record<string, PluginTask>>
-): PluginCapabilities {
-    const capabilities: Required<PluginCapabilities> = { scheduled_tasks: [], jobs: [], methods: [] }
+export function getVMPluginCapabilities(methods: PluginMethods): PluginCapabilities {
+    const capabilities: Required<PluginCapabilities> = { methods: [] }
 
     if (methods) {
         for (const [key, value] of Object.entries(methods)) {
             if (value as PluginMethods[keyof PluginMethods] | undefined) {
                 capabilities.methods.push(key)
-            }
-        }
-    }
-
-    if (tasks?.schedule) {
-        for (const [key, value] of Object.entries(tasks.schedule)) {
-            if (value) {
-                capabilities.scheduled_tasks.push(key)
-            }
-        }
-    }
-
-    if (tasks?.job) {
-        for (const [key, value] of Object.entries(tasks.job)) {
-            if (value) {
-                capabilities.jobs.push(key)
             }
         }
     }

@@ -253,7 +253,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     PLUGIN_LOAD_SEQUENTIALLY: boolean // could help with reducing memory usage spikes on startup
     KAFKAJS_LOG_LEVEL: 'NOTHING' | 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
     MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: number
-    USE_KAFKA_FOR_SCHEDULED_TASKS: boolean // distribute scheduled tasks across the scheduler workers
     EVENT_OVERFLOW_BUCKET_CAPACITY: number
     EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: number
     /** Label of the PostHog Cloud environment. Null if not running PostHog Cloud. @example 'US' */
@@ -482,13 +481,10 @@ export interface Plugin {
     capabilities?: PluginCapabilities
     metrics?: StoredPluginMetrics
     is_stateless?: boolean
-    public_jobs?: Record<string, JobSpec>
     log_level?: PluginLogLevel
 }
 
 export interface PluginCapabilities {
-    jobs?: string[]
-    scheduled_tasks?: string[]
     methods?: string[]
 }
 
@@ -583,19 +579,6 @@ export interface PluginLogEntry {
     instance_id: string
 }
 
-export enum PluginTaskType {
-    Job = 'job',
-    Schedule = 'schedule',
-}
-
-export interface PluginTask {
-    name: string
-    type: PluginTaskType
-    exec: (payload?: Record<string, any>) => Promise<any>
-
-    __ignoreForAppMetrics?: boolean
-}
-
 export type PluginMethods = {
     setupPlugin?: () => Promise<void>
     teardownPlugin?: () => Promise<void>
@@ -634,7 +617,6 @@ export interface Alert {
 export interface PluginConfigVMResponse {
     vm: VM
     methods: PluginMethods
-    tasks: Record<PluginTaskType, Record<string, PluginTask>>
     vmResponseVariable: string
     usedImports: Set<string>
 }
