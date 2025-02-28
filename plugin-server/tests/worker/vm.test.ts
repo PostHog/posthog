@@ -4,7 +4,7 @@ import { getParsedQueuedMessages, mockProducer } from '../helpers/mocks/producer
 import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import fetch from 'node-fetch'
 
-import { KAFKA_EVENTS_PLUGIN_INGESTION, KAFKA_PLUGIN_LOG_ENTRIES } from '../../src/config/kafka-topics'
+import { KAFKA_PLUGIN_LOG_ENTRIES } from '../../src/config/kafka-topics'
 import { Hub, PluginLogEntrySource, PluginLogEntryType } from '../../src/types'
 import { PluginConfig, PluginConfigVMResponse } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'

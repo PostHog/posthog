@@ -37,10 +37,9 @@ import { AppMetrics } from '../worker/ingestion/app-metrics'
 import { GroupTypeManager } from '../worker/ingestion/group-type-manager'
 import { OrganizationManager } from '../worker/ingestion/organization-manager'
 import { TeamManager } from '../worker/ingestion/team-manager'
-import Piscina, { makePiscina as defaultMakePiscina } from '../worker/piscina'
 import { teardownPlugins } from '../worker/plugins/teardown'
 import { RustyHook } from '../worker/rusty-hook'
-import { reloadPlugins } from '../worker/tasks'
+import { initPlugins as _initPlugins, reloadPlugins } from '../worker/tasks'
 import { syncInlinePlugins } from '../worker/vm/inline/inline'
 import { populatePluginCapabilities } from '../worker/vm/lazy'
 import { startAnalyticsEventsIngestionConsumer } from './ingestion-queues/analytics-events-ingestion-consumer'
@@ -74,7 +73,6 @@ const pluginServerStartupTimeMs = new Counter({
 
 export async function startPluginsServer(
     config: Partial<PluginsServerConfig>,
-    makePiscina: (serverConfig: PluginsServerConfig, hub: Hub) => Promise<Piscina> = defaultMakePiscina,
     capabilities?: PluginServerCapabilities
 ): Promise<ServerInstance> {
     const timer = new Date()
@@ -90,9 +88,6 @@ export async function startPluginsServer(
 
     // Used to trigger reloads of plugin code/config
     let pubSub: PubSub | undefined
-
-    // A Node Worker Thread pool
-    let piscina: Piscina | undefined
 
     const services: PluginServerService[] = []
 
@@ -201,12 +196,17 @@ export async function startPluginsServer(
         stop: closeJobs,
     }
 
-    const setupHub = async (): Promise<Hub> => {
-        if (!serverInstance.hub) {
-            serverInstance.hub = await createHub(serverConfig, capabilities)
+    const hub = await createHub(serverConfig, capabilities)
+    serverInstance.hub = hub
+
+    let _initPluginsPromise: Promise<void> | undefined
+
+    const initPlugins = () => {
+        if (!_initPluginsPromise) {
+            _initPluginsPromise = _initPlugins(hub)
         }
 
-        return serverInstance.hub
+        return _initPluginsPromise
     }
 
     // Creating a dedicated single-connection redis client to this Redis, as it's not relevant for hobby
@@ -219,7 +219,6 @@ export async function startPluginsServer(
         if (capabilities.ingestionV2Combined) {
             // NOTE: This is for single process deployments like local dev and hobby - it runs all possible consumers
             // in a single process. In production these are each separate Deployments of the standard ingestion consumer
-            const hub = await setupHub()
 
             const consumersOptions = [
                 {
@@ -242,7 +241,7 @@ export async function startPluginsServer(
                     INGESTION_CONSUMER_CONSUME_TOPIC: consumerOption.topic,
                     INGESTION_CONSUMER_GROUP_ID: consumerOption.group_id,
                 }
-                piscina = piscina ?? (await makePiscina(serverConfig, hub))
+                await initPlugins()
 
                 const consumer = new IngestionConsumer(modifiedHub)
                 await consumer.start()
@@ -250,10 +249,7 @@ export async function startPluginsServer(
             }
         } else {
             if (capabilities.ingestionV2) {
-                const hub = await setupHub()
-                // NOTE: Piscina is only needed whilst we have legacy plugins running. Once we have all
-                // moved to hog functions we can remove this.
-                piscina = piscina ?? (await makePiscina(serverConfig, hub))
+                await initPlugins()
                 const consumer = new IngestionConsumer(hub)
                 await consumer.start()
                 services.push(consumer.service)
@@ -262,8 +258,7 @@ export async function startPluginsServer(
             // Below are all legacy consumers that will be replaced by the new ingestion consumer that covers all cases
 
             if (capabilities.ingestion) {
-                const hub = await setupHub()
-                piscina = piscina ?? (await makePiscina(serverConfig, hub))
+                await initPlugins()
                 services.push(
                     await startAnalyticsEventsIngestionConsumer({
                         hub: hub,
@@ -272,8 +267,7 @@ export async function startPluginsServer(
             }
 
             if (capabilities.ingestionHistorical) {
-                const hub = await setupHub()
-                piscina = piscina ?? (await makePiscina(serverConfig, hub))
+                await initPlugins()
                 services.push(
                     await startAnalyticsEventsIngestionHistoricalConsumer({
                         hub: hub,
@@ -292,8 +286,7 @@ export async function startPluginsServer(
                         throw new Error(`Invalid events ingestion pipeline: ${pipelineKey}`)
                     }
 
-                    const hub = await setupHub()
-                    piscina = piscina ?? (await makePiscina(serverConfig, hub))
+                    await initPlugins()
                     services.push(
                         await startEventsIngestionPipelineConsumer({
                             hub: hub,
@@ -304,8 +297,7 @@ export async function startPluginsServer(
             }
 
             if (capabilities.ingestionOverflow) {
-                const hub = await setupHub()
-                piscina = piscina ?? (await makePiscina(serverConfig, hub))
+                await initPlugins()
                 services.push(
                     await startAnalyticsEventsIngestionOverflowConsumer({
                         hub: hub,
@@ -315,8 +307,7 @@ export async function startPluginsServer(
         }
 
         if (capabilities.processAsyncOnEventHandlers) {
-            const hub = await setupHub()
-            piscina = piscina ?? (await makePiscina(serverConfig, hub))
+            await initPlugins()
             services.push(
                 await startAsyncOnEventHandlerConsumer({
                     hub: hub,
@@ -363,8 +354,7 @@ export async function startPluginsServer(
         }
 
         if (capabilities.syncInlinePlugins) {
-            const hub = await setupHub()
-
+            await initPlugins()
             await syncInlinePlugins(hub)
         }
 
@@ -434,7 +424,6 @@ export async function startPluginsServer(
         }
 
         if (capabilities.sessionRecordingBlobIngestionV2) {
-            const hub = await setupHub()
             const postgres = hub?.postgres ?? new PostgresRouter(serverConfig)
             const batchConsumerFactory = new DefaultBatchConsumerFactory(serverConfig)
             const producer = hub?.kafkaProducer ?? (await KafkaProducerWrapper.create(serverConfig))
@@ -450,7 +439,6 @@ export async function startPluginsServer(
         }
 
         if (capabilities.sessionRecordingBlobIngestionV2Overflow) {
-            const hub = await setupHub()
             const postgres = hub?.postgres ?? new PostgresRouter(serverConfig)
             const batchConsumerFactory = new DefaultBatchConsumerFactory(serverConfig)
             const producer = hub?.kafkaProducer ?? (await KafkaProducerWrapper.create(serverConfig))
@@ -466,23 +454,19 @@ export async function startPluginsServer(
         }
 
         if (capabilities.cdpProcessedEvents) {
-            const hub = await setupHub()
             const consumer = new CdpProcessedEventsConsumer(hub)
             await consumer.start()
             services.push(consumer.service)
         }
 
         if (capabilities.cdpInternalEvents) {
-            const hub = await setupHub()
             const consumer = new CdpInternalEventsConsumer(hub)
             await consumer.start()
             services.push(consumer.service)
         }
 
         if (capabilities.cdpApi) {
-            const hub = await setupHub()
-            // NOTE: For silly reasons piscina is where the mmdb server is loaded which we need...
-            piscina = piscina ?? (await makePiscina(serverConfig, hub))
+            await initPlugins()
             const api = new CdpApi(hub)
             await api.start()
             services.push(api.service)
@@ -490,8 +474,6 @@ export async function startPluginsServer(
         }
 
         if (capabilities.cdpCyclotronWorker) {
-            const hub = await setupHub()
-
             if (!hub.CYCLOTRON_DATABASE_URL) {
                 status.error('💥', 'Cyclotron database URL not set.')
             } else {
@@ -508,7 +490,6 @@ export async function startPluginsServer(
         }
 
         if (capabilities.cdpCyclotronWorkerPlugins) {
-            const hub = await setupHub()
             if (!hub.CYCLOTRON_DATABASE_URL) {
                 status.error('💥', 'Cyclotron database URL not set.')
             } else {

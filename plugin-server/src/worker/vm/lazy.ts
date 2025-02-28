@@ -140,16 +140,6 @@ export class LazyPluginVM implements PluginInstance {
                         return
                     }
 
-                    const shouldSetupNow =
-                        (!this.ready && // harmless check used to skip setup in tests
-                            vm.tasks?.schedule &&
-                            Object.values(vm.tasks?.schedule).length > 0) ||
-                        (vm.tasks?.job && Object.values(vm.tasks?.job).length > 0)
-
-                    if (shouldSetupNow) {
-                        await this._setupPlugin(vm.vm)
-                        this.ready = true
-                    }
                     status.debug('🔌', `Loaded ${logInfo}.`)
                     await this.createLogEntry(
                         `Plugin loaded (instance ID ${this.hub.instanceId}).`,

@@ -1,8 +1,12 @@
-import { Hub } from '../types'
+import { Hub, PluginConfig } from '../types'
+import { processError } from '../utils/db/error'
+import { captureException } from '../utils/posthog'
 import { retryIfRetriable } from '../utils/retries'
 import { status } from '../utils/status'
-import { sleep } from '../utils/utils'
+import { pluginConfigIdFromStack, sleep } from '../utils/utils'
+import { setupMmdb } from './plugins/mmdb'
 import { setupPlugins } from './plugins/setup'
+import { TimeoutError } from './vm/vm'
 
 // If a reload is already scheduled, this will be a promise that resolves when the reload is done.
 let RELOAD_PLUGINS_PROMISE: Promise<void> | undefined
@@ -49,4 +53,40 @@ export const reloadPlugins = async (hub: Hub) => {
 
         await RELOAD_PLUGINS_PROMISE
     }
+}
+
+// Sets up mmdb and does the initial plugins loading.
+export async function initPlugins(hub: Hub) {
+    ;['unhandledRejection', 'uncaughtException'].forEach((event) => {
+        process.on(event, (error: Error) => {
+            processUnhandledException(error, hub, event)
+        })
+    })
+
+    await setupMmdb(hub)
+    await setupPlugins(hub)
+}
+
+export function processUnhandledException(error: Error, server: Hub, kind: string): void {
+    let pluginConfig: PluginConfig | undefined = undefined
+
+    if (error instanceof TimeoutError) {
+        pluginConfig = error.pluginConfig
+    } else {
+        const pluginConfigId = pluginConfigIdFromStack(error.stack || '', server.pluginConfigSecretLookup)
+        pluginConfig = pluginConfigId ? server.pluginConfigs.get(pluginConfigId) : undefined
+    }
+
+    if (pluginConfig) {
+        void processError(server, pluginConfig, error)
+        return
+    }
+
+    captureException(error, {
+        extra: {
+            type: `${kind} in worker`,
+        },
+    })
+
+    status.error('🤮', `${kind}!`, { error, stack: error.stack })
 }

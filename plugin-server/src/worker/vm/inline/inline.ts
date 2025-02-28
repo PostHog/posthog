@@ -75,8 +75,6 @@ export const INLINE_PLUGIN_MAP: Record<InlinePluginId, RegisteredInlinePlugin> =
             config_schema: USER_AGENT_CONFIG_SCHEMA,
             tag: 'user-agent',
             capabilities: {
-                jobs: [],
-                scheduled_tasks: [],
                 methods: ['processEvent'],
             },
             is_stateless: false,
