@@ -134,7 +134,7 @@ const VolumeColumn: QueryContextColumnComponent = (props) => {
 
     return data ? (
         <div className="flex justify-end">
-            <Sparkline className="h-8" data={[{ name: 'Exceptions', color: 'border', values: data }]} labels={labels} />
+            <Sparkline className="h-8" data={data} labels={labels} />
         </div>
     ) : null
 }
