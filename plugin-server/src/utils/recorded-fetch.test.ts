@@ -107,381 +107,250 @@ describe('HttpCallRecorder', () => {
             },
         })
 
-        it('should match identical calls', () => {
-            const call1 = createMockCall(
-                'https://example.com/api',
-                'POST',
-                { 'content-type': 'application/json' },
-                '{"data":"test"}'
-            )
+        describe('basic request matching', () => {
+            it('should match identical POST requests', () => {
+                const call1 = createMockCall(
+                    'https://example.com/api',
+                    'POST',
+                    { 'content-type': 'application/json' },
+                    '{"data":"test"}'
+                )
+                const call2 = createMockCall(
+                    'https://example.com/api',
+                    'POST',
+                    { 'content-type': 'application/json' },
+                    '{"data":"test"}'
+                )
 
-            const call2 = createMockCall(
-                'https://example.com/api',
-                'POST',
-                { 'content-type': 'application/json' },
-                '{"data":"test"}'
-            )
+                const result = globalHttpCallRecorder.compareCalls([call1], [call2])
+                expect(result.matches).toBe(true)
+                expect(result.details.matchedCalls).toBe(1)
+                expect(result.details.mismatchDetails).toHaveLength(0)
+            })
 
-            const result = globalHttpCallRecorder.compareCalls([call1], [call2])
+            it('should enforce exact URL matches including query params', () => {
+                const legacyCall = createMockCall('https://example.com/api?param1=value1', 'POST')
+                const hogfnCall = createMockCall('https://example.com/api?param2=value2', 'POST')
 
-            expect(result.matches).toBe(true)
-            expect(result.details.matchedCalls).toBe(1)
-            expect(result.details.mismatchDetails).toHaveLength(0)
+                const result = globalHttpCallRecorder.compareCalls([legacyCall], [hogfnCall])
+                expect(result.matches).toBe(false)
+                expect(result.details.mismatchDetails).toHaveLength(1)
+                expect(result.details.mismatchDetails[0].differences[0]).toBe(
+                    'Call 1: Expected [legacy] POST https://example.com/api?param1=value1 but got [hogfn] POST https://example.com/api?param2=value2'
+                )
+            })
         })
 
-        it('should match calls with different query parameters since we want exact URL matches', () => {
-            const legacyCall = createMockCall('https://example.com/api?param1=value1')
-            const hogfnCall = createMockCall('https://example.com/api?param2=value2')
+        describe('request ordering', () => {
+            it('should enforce strict call order for all requests', () => {
+                const legacyCalls = [
+                    createMockCall('https://example.com/api/data1', 'GET'),
+                    createMockCall('https://example.com/api/data2', 'GET'),
+                    createMockCall('https://example.com/api/action', 'POST', {}, '{"type":"final"}'),
+                ]
+                const hogfnCalls = [
+                    createMockCall('https://example.com/api/data2', 'GET'),
+                    createMockCall('https://example.com/api/data1', 'GET'),
+                    createMockCall('https://example.com/api/action', 'POST', {}, '{"type":"final"}'),
+                ]
 
-            const result = globalHttpCallRecorder.compareCalls([legacyCall], [hogfnCall])
+                const result = globalHttpCallRecorder.compareCalls(legacyCalls, hogfnCalls)
+                expect(result.matches).toBe(false)
+                expect(result.details.mismatchDetails).toHaveLength(2)
+                expect(result.details.mismatchDetails[0].differences[0]).toBe(
+                    'Call 1: Expected [legacy] GET https://example.com/api/data1 but got [hogfn] GET https://example.com/api/data2'
+                )
+            })
 
-            expect(result.matches).toBe(false)
-            expect(result.details.mismatchDetails).toHaveLength(1)
-            expect(result.details.mismatchDetails[0].differences[0]).toBe(
-                'Call 1: Expected [legacy] https://example.com/api?param1=value1 but got [hogfn] https://example.com/api?param2=value2'
-            )
+            it('should fail when number of calls differs', () => {
+                const legacyCalls = [
+                    createMockCall('https://example.com/api/data1', 'GET'),
+                    createMockCall('https://example.com/api/data2', 'GET'),
+                ]
+                const hogfnCalls = [createMockCall('https://example.com/api/data1', 'GET')]
+
+                const result = globalHttpCallRecorder.compareCalls(legacyCalls, hogfnCalls)
+                expect(result.matches).toBe(false)
+                expect(result.details.mismatchDetails).toHaveLength(1)
+                expect(result.details.mismatchDetails[0].differences[0]).toBe(
+                    'Call sequence length mismatch: expected 2 calls but got 1 calls'
+                )
+            })
         })
 
-        it('should detect URL differences with exact values', () => {
-            const legacyCall = createMockCall('https://example.com/api?param1=value1')
-            const hogfnCall = createMockCall('https://example.com/api?param2=value2')
-
-            const result = globalHttpCallRecorder.compareCalls([legacyCall], [hogfnCall])
-
-            expect(result.matches).toBe(false)
-            expect(result.details.mismatchDetails).toHaveLength(1)
-            expect(result.details.mismatchDetails[0].differences[0]).toBe(
-                'Call 1: Expected [legacy] https://example.com/api?param1=value1 but got [hogfn] https://example.com/api?param2=value2'
-            )
-        })
-
-        it('should match exact URLs including query params', () => {
-            const call1 = createMockCall('https://example.com/api?param1=value1&param2=value2')
-            const call2 = createMockCall('https://example.com/api?param1=value1&param2=value2')
-
-            const result = globalHttpCallRecorder.compareCalls([call1], [call2])
-
-            expect(result.matches).toBe(true)
-            expect(result.details.mismatchDetails).toHaveLength(0)
-        })
-
-        it('should enforce strict call order', () => {
-            const legacyCall1 = createMockCall('https://example.com/api1')
-            const legacyCall2 = createMockCall('https://example.com/api2')
-            const hogfnCall1 = createMockCall('https://example.com/api2')
-            const hogfnCall2 = createMockCall('https://example.com/api1')
-
-            const result = globalHttpCallRecorder.compareCalls([legacyCall1, legacyCall2], [hogfnCall1, hogfnCall2])
-
-            expect(result.matches).toBe(false)
-            expect(result.details.mismatchDetails).toHaveLength(2)
-            expect(result.details.mismatchDetails[0].differences[0]).toBe(
-                'Call 1: Expected [legacy] https://example.com/api1 but got [hogfn] https://example.com/api2'
-            )
-            expect(result.details.mismatchDetails[1].differences[0]).toBe(
-                'Call 2: Expected [legacy] https://example.com/api2 but got [hogfn] https://example.com/api1'
-            )
-        })
-
-        it('should handle different numbers of calls', () => {
-            const legacyCalls = [createMockCall('https://example.com/api1'), createMockCall('https://example.com/api2')]
-            const hogfnCalls = [createMockCall('https://example.com/api1')]
-
-            const result = globalHttpCallRecorder.compareCalls(legacyCalls, hogfnCalls)
-
-            expect(result.matches).toBe(false)
-            expect(result.details.totalCalls1).toBe(2)
-            expect(result.details.totalCalls2).toBe(1)
-            expect(result.details.mismatchDetails[0].differences[0]).toBe(
-                'Call sequence length mismatch: expected 2 calls but got 1 calls'
-            )
-        })
-
-        it('should show specific differences in nested JSON objects', () => {
-            const legacyCall = createMockCall(
-                'https://example.com/api',
-                'POST',
-                { 'content-type': 'application/json' },
-                JSON.stringify({
-                    user: {
-                        name: 'John',
-                        settings: {
-                            theme: 'dark',
-                            notifications: true,
-                        },
-                    },
-                })
-            )
-
-            const hogfnCall = createMockCall(
-                'https://example.com/api',
-                'POST',
-                { 'content-type': 'application/json' },
-                JSON.stringify({
-                    user: {
-                        name: 'John',
-                        settings: {
-                            theme: 'light',
-                            notifications: true,
-                        },
-                    },
-                })
-            )
-
-            const result = globalHttpCallRecorder.compareCalls([legacyCall], [hogfnCall])
-
-            expect(result.matches).toBe(false)
-            expect(result.details.mismatchDetails).toHaveLength(1)
-            expect(result.details.mismatchDetails[0].differences[0]).toBe(
-                'Call 1: Request body differences: user.settings.theme: [legacy] "dark" ≠ [hogfn] "light"'
-            )
-        })
-
-        it('should match JSON bodies with different property order', () => {
-            const call1 = createMockCall(
-                'https://example.com/api',
-                'POST',
-                { 'content-type': 'application/json' },
-                JSON.stringify({
-                    deeply: {
-                        nested: {
-                            object: {
-                                b: 2,
-                                a: 1,
-                                d: {
-                                    z: true,
-                                    y: [3, 2, 1],
-                                },
-                                c: 3,
-                            },
-                        },
-                    },
-                })
-            )
-
-            const call2 = createMockCall(
-                'https://example.com/api',
-                'POST',
-                { 'content-type': 'application/json' },
-                JSON.stringify({
-                    deeply: {
-                        nested: {
-                            object: {
-                                a: 1,
-                                b: 2,
-                                c: 3,
-                                d: {
-                                    y: [3, 2, 1],
-                                    z: true,
-                                },
-                            },
-                        },
-                    },
-                })
-            )
-
-            const result = globalHttpCallRecorder.compareCalls([call1], [call2])
-
-            expect(result.matches).toBe(true)
-            expect(result.details.mismatchDetails).toHaveLength(0)
-        })
-
-        it('should show array differences with indices', () => {
-            const legacyCall = createMockCall(
-                'https://example.com/api',
-                'POST',
-                { 'content-type': 'application/json' },
-                JSON.stringify({
-                    items: [1, 2, 3],
-                })
-            )
-
-            const hogfnCall = createMockCall(
-                'https://example.com/api',
-                'POST',
-                { 'content-type': 'application/json' },
-                JSON.stringify({
-                    items: [1, 4, 3],
-                })
-            )
-
-            const result = globalHttpCallRecorder.compareCalls([legacyCall], [hogfnCall])
-
-            expect(result.matches).toBe(false)
-            expect(result.details.mismatchDetails).toHaveLength(1)
-            expect(result.details.mismatchDetails[0].differences[0]).toBe(
-                'Call 1: Request body differences: items[1]: [legacy] 2 ≠ [hogfn] 4'
-            )
-        })
-
-        it('should detect multiple differences in the same call', () => {
-            const legacyCall = createMockCall(
-                'https://example.com/api',
-                'POST',
-                { 'content-type': 'application/json' },
-                JSON.stringify({
-                    user: {
-                        name: 'John',
-                        settings: {
-                            theme: 'dark',
-                            notifications: {
-                                email: true,
-                                push: false,
-                                frequency: 'daily',
-                            },
-                        },
-                        preferences: {
-                            language: 'en',
-                            timezone: 'UTC',
-                        },
-                    },
-                    items: [1, 2, 3, 4],
-                    tags: ['important', 'urgent', 'review'],
-                })
-            )
-
-            const hogfnCall = createMockCall(
-                'https://example.com/api',
-                'POST',
-                { 'content-type': 'application/json' },
-                JSON.stringify({
-                    user: {
-                        name: 'John',
-                        settings: {
-                            theme: 'light',
-                            notifications: {
-                                email: true,
-                                push: true, // different
-                                frequency: 'weekly', // different
-                            },
-                        },
-                        preferences: {
-                            language: 'es', // different
-                            timezone: 'UTC',
-                        },
-                    },
-                    items: [1, 5, 3, 6], // two different items
-                    tags: ['urgent', 'review', 'important'], // same tags but different order
-                })
-            )
-
-            const result = globalHttpCallRecorder.compareCalls([legacyCall], [hogfnCall])
-
-            expect(result.matches).toBe(false)
-            expect(result.details.mismatchDetails).toHaveLength(1)
-
-            const differences = result.details.mismatchDetails[0].differences
-            expect(differences).toEqual([
-                'Call 1: Request body differences: user.settings.theme: [legacy] "dark" ≠ [hogfn] "light"',
-                'Call 1: Request body differences: user.settings.notifications.push: [legacy] false ≠ [hogfn] true',
-                'Call 1: Request body differences: user.settings.notifications.frequency: [legacy] "daily" ≠ [hogfn] "weekly"',
-                'Call 1: Request body differences: user.preferences.language: [legacy] "en" ≠ [hogfn] "es"',
-                'Call 1: Request body differences: items[1]: [legacy] 2 ≠ [hogfn] 5',
-                'Call 1: Request body differences: items[3]: [legacy] 4 ≠ [hogfn] 6',
-                'Call 1: Request body differences: tags[0]: [legacy] "important" ≠ [hogfn] "urgent"',
-                'Call 1: Request body differences: tags[1]: [legacy] "urgent" ≠ [hogfn] "review"',
-                'Call 1: Request body differences: tags[2]: [legacy] "review" ≠ [hogfn] "important"',
-            ])
-        })
-
-        it('should handle multiple calls in strict order', () => {
-            const legacyCalls = [
-                createMockCall('https://example.com/api1', 'GET'),
-                createMockCall('https://example.com/api2', 'POST', {}, '{"data":"test"}'),
-                createMockCall('https://example.com/api3', 'PUT', {}, '{"data":"update"}'),
-            ]
-
-            const hogfnCalls = [
-                createMockCall('https://example.com/api1', 'GET'),
-                createMockCall('https://example.com/api2', 'POST', {}, '{"data":"test"}'),
-                createMockCall('https://example.com/api3', 'PUT', {}, '{"data":"different"}'),
-            ]
-
-            const result = globalHttpCallRecorder.compareCalls(legacyCalls, hogfnCalls)
-
-            expect(result.matches).toBe(false)
-            expect(result.details.mismatchDetails).toHaveLength(1)
-            expect(result.details.mismatchDetails[0].differences[0]).toBe(
-                'Call 3: Request body differences: data: [legacy] "update" ≠ [hogfn] "different"'
-            )
-        })
-
-        it('should detect multiple differences across multiple calls', () => {
-            const legacyCalls = [
-                createMockCall(
-                    'https://example.com/api1',
+        describe('JSON body comparison', () => {
+            it('should detect differences in nested JSON objects', () => {
+                const legacyCall = createMockCall(
+                    'https://example.com/api',
                     'POST',
                     { 'content-type': 'application/json' },
                     JSON.stringify({
-                        action: 'create',
-                        data: { id: 1, status: 'active' },
-                    })
-                ),
-                createMockCall(
-                    'https://example.com/api2',
-                    'PUT',
-                    { 'content-type': 'application/json' },
-                    JSON.stringify({
-                        items: [1, 2, 3],
-                        metadata: {
-                            source: 'legacy',
-                            priority: 'high',
+                        user: {
+                            settings: {
+                                theme: 'dark',
+                                notifications: true,
+                            },
                         },
                     })
-                ),
-                createMockCall('https://example.com/api3?type=sync', 'GET'),
-            ]
-
-            const hogfnCalls = [
-                createMockCall(
-                    'https://example.com/api1',
+                )
+                const hogfnCall = createMockCall(
+                    'https://example.com/api',
                     'POST',
                     { 'content-type': 'application/json' },
                     JSON.stringify({
-                        action: 'update', // different action
-                        data: { id: 1, status: 'inactive' }, // different status
-                    })
-                ),
-                createMockCall(
-                    'https://example.com/api2',
-                    'PUT',
-                    { 'content-type': 'application/json' },
-                    JSON.stringify({
-                        items: [1, 4, 3], // different item
-                        metadata: {
-                            source: 'hogfn', // different source
-                            priority: 'low', // different priority
+                        user: {
+                            settings: {
+                                theme: 'light',
+                                notifications: true,
+                            },
                         },
                     })
-                ),
-                createMockCall('https://example.com/api3?type=full', 'GET'), // different query param
-            ]
+                )
 
-            const result = globalHttpCallRecorder.compareCalls(legacyCalls, hogfnCalls)
+                const result = globalHttpCallRecorder.compareCalls([legacyCall], [hogfnCall])
+                expect(result.matches).toBe(false)
+                expect(result.details.mismatchDetails).toHaveLength(1)
+                expect(result.details.mismatchDetails[0].differences[0]).toBe(
+                    'Call 1: Request body differences: user.settings.theme: [legacy] "dark" ≠ [hogfn] "light"'
+                )
+            })
 
-            expect(result.matches).toBe(false)
-            expect(result.details.mismatchDetails).toHaveLength(3)
+            it('should match JSON bodies with different property order', () => {
+                const call1 = createMockCall(
+                    'https://example.com/api',
+                    'POST',
+                    { 'content-type': 'application/json' },
+                    JSON.stringify({
+                        nested: { b: 2, a: 1, c: 3 },
+                    })
+                )
+                const call2 = createMockCall(
+                    'https://example.com/api',
+                    'POST',
+                    { 'content-type': 'application/json' },
+                    JSON.stringify({
+                        nested: { a: 1, b: 2, c: 3 },
+                    })
+                )
 
-            // Check first call differences
-            const call1Differences = result.details.mismatchDetails[0].differences
-            expect(call1Differences).toEqual([
-                'Call 1: Request body differences: action: [legacy] "create" ≠ [hogfn] "update"',
-                'Call 1: Request body differences: data.status: [legacy] "active" ≠ [hogfn] "inactive"',
-            ])
+                const result = globalHttpCallRecorder.compareCalls([call1], [call2])
+                expect(result.matches).toBe(true)
+                expect(result.details.mismatchDetails).toHaveLength(0)
+            })
 
-            // Check second call differences
-            const call2Differences = result.details.mismatchDetails[1].differences
-            expect(call2Differences).toEqual([
-                'Call 2: Request body differences: items[1]: [legacy] 2 ≠ [hogfn] 4',
-                'Call 2: Request body differences: metadata.source: [legacy] "legacy" ≠ [hogfn] "hogfn"',
-                'Call 2: Request body differences: metadata.priority: [legacy] "high" ≠ [hogfn] "low"',
-            ])
+            it('should show array differences with indices', () => {
+                const legacyCall = createMockCall(
+                    'https://example.com/api',
+                    'POST',
+                    { 'content-type': 'application/json' },
+                    JSON.stringify({ items: [1, 2, 3] })
+                )
+                const hogfnCall = createMockCall(
+                    'https://example.com/api',
+                    'POST',
+                    { 'content-type': 'application/json' },
+                    JSON.stringify({ items: [1, 4, 3] })
+                )
 
-            // Check third call differences
-            const call3Differences = result.details.mismatchDetails[2].differences
-            expect(call3Differences).toEqual([
-                'Call 3: Expected [legacy] https://example.com/api3?type=sync but got [hogfn] https://example.com/api3?type=full',
-            ])
+                const result = globalHttpCallRecorder.compareCalls([legacyCall], [hogfnCall])
+                expect(result.matches).toBe(false)
+                expect(result.details.mismatchDetails).toHaveLength(1)
+                expect(result.details.mismatchDetails[0].differences[0]).toBe(
+                    'Call 1: Request body differences: items[1]: [legacy] 2 ≠ [hogfn] 4'
+                )
+            })
+        })
+
+        describe('chained requests', () => {
+            it('should detect differences in both GET and POST requests', () => {
+                const legacyCalls = [
+                    createMockCall('https://example.com/api/users/123?region=EU'),
+                    createMockCall(
+                        'https://example.com/api/analytics',
+                        'POST',
+                        { 'content-type': 'application/json' },
+                        JSON.stringify({
+                            userId: 123,
+                            region: 'EU',
+                            event: 'user_login',
+                        })
+                    ),
+                ]
+                const hogfnCalls = [
+                    createMockCall('https://example.com/api/users/123?region=US'),
+                    createMockCall(
+                        'https://example.com/api/analytics',
+                        'POST',
+                        { 'content-type': 'application/json' },
+                        JSON.stringify({
+                            userId: 123,
+                            region: 'US',
+                            event: 'user_login',
+                        })
+                    ),
+                ]
+
+                const result = globalHttpCallRecorder.compareCalls(legacyCalls, hogfnCalls)
+                expect(result.matches).toBe(false)
+                expect(result.details.mismatchDetails).toHaveLength(2)
+                expect(result.details.mismatchDetails[0].differences[0]).toBe(
+                    'Call 1: Expected [legacy] GET https://example.com/api/users/123?region=EU but got [hogfn] GET https://example.com/api/users/123?region=US'
+                )
+                expect(result.details.mismatchDetails[1].differences[0]).toBe(
+                    'Call 2: Request body differences: region: [legacy] "EU" ≠ [hogfn] "US"'
+                )
+            })
+
+            it('should handle complex chained requests with multiple dependencies', () => {
+                const legacyCalls = [
+                    createMockCall('https://example.com/api/users/123?region=EU'),
+                    createMockCall('https://eu.example.com/api/orders?userId=123'),
+                    createMockCall(
+                        'https://example.com/api/analytics',
+                        'POST',
+                        { 'content-type': 'application/json' },
+                        JSON.stringify({
+                            userId: 123,
+                            region: 'EU',
+                            orderCount: 5,
+                            totalSpent: 500,
+                            currency: 'EUR',
+                        })
+                    ),
+                ]
+                const hogfnCalls = [
+                    createMockCall('https://example.com/api/users/123?region=US'),
+                    createMockCall('https://us.example.com/api/orders?userId=123'),
+                    createMockCall(
+                        'https://example.com/api/analytics',
+                        'POST',
+                        { 'content-type': 'application/json' },
+                        JSON.stringify({
+                            userId: 123,
+                            region: 'US',
+                            orderCount: 3,
+                            totalSpent: 300,
+                            currency: 'USD',
+                        })
+                    ),
+                ]
+
+                const result = globalHttpCallRecorder.compareCalls(legacyCalls, hogfnCalls)
+                expect(result.matches).toBe(false)
+                expect(result.details.mismatchDetails).toHaveLength(3)
+                expect(result.details.mismatchDetails[0].differences[0]).toBe(
+                    'Call 1: Expected [legacy] GET https://example.com/api/users/123?region=EU but got [hogfn] GET https://example.com/api/users/123?region=US'
+                )
+                expect(result.details.mismatchDetails[1].differences[0]).toBe(
+                    'Call 2: Expected [legacy] GET https://eu.example.com/api/orders?userId=123 but got [hogfn] GET https://us.example.com/api/orders?userId=123'
+                )
+                expect(result.details.mismatchDetails[2].differences).toEqual([
+                    'Call 3: Request body differences: region: [legacy] "EU" ≠ [hogfn] "US"',
+                    'Call 3: Request body differences: orderCount: [legacy] 5 ≠ [hogfn] 3',
+                    'Call 3: Request body differences: totalSpent: [legacy] 500 ≠ [hogfn] 300',
+                    'Call 3: Request body differences: currency: [legacy] "EUR" ≠ [hogfn] "USD"',
+                ])
+            })
         })
     })
 })

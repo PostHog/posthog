@@ -112,55 +112,47 @@ export class HttpCallRecorder {
     private compareHttpCalls(call1: RecordedHttpCall, call2: RecordedHttpCall, index: number): string[] {
         const differences: string[] = []
 
-        // Compare full URLs (including query params)
-        if (call1.request.url !== call2.request.url) {
-            differences.push(
-                `Call ${index + 1}: Expected [legacy] ${call1.request.url} but got [hogfn] ${call2.request.url}`
-            )
-        }
-
-        // Compare request method
+        // Compare request method - always check method regardless of type
         if (call1.request.method !== call2.request.method) {
             differences.push(
                 `Call ${index + 1}: Expected [legacy] ${call1.request.method} but got [hogfn] ${call2.request.method}`
             )
+            return differences
         }
 
-        // Compare request bodies (if they exist and are JSON)
-        const bodyDiffs = this.compareJsonBodies(call1.request.body, call2.request.body, index + 1)
-        differences.push(...bodyDiffs)
+        // Compare URLs for all requests
+        if (call1.request.url !== call2.request.url) {
+            differences.push(
+                `Call ${index + 1}: Expected [legacy] ${call1.request.method} ${call1.request.url} but got [hogfn] ${
+                    call2.request.method
+                } ${call2.request.url}`
+            )
+            // For GET requests, we only care about URL differences
+            if (call1.request.method === 'GET') {
+                return differences
+            }
+        }
+
+        // For non-GET requests, compare request bodies if they exist
+        if (call1.request.body || call2.request.body) {
+            try {
+                const body1 = call1.request.body ? JSON.parse(call1.request.body) : null
+                const body2 = call2.request.body ? JSON.parse(call2.request.body) : null
+                const bodyDiffs = this.findObjectDifferences(body1, body2, '', index + 1)
+                differences.push(...bodyDiffs)
+            } catch {
+                // If parsing fails, compare as strings
+                if (call1.request.body !== call2.request.body) {
+                    differences.push(
+                        `Call ${index + 1}: Request body differences: body: [legacy] ${call1.request.body} ≠ [hogfn] ${
+                            call2.request.body
+                        }`
+                    )
+                }
+            }
+        }
 
         return differences
-    }
-
-    private compareJsonBodies(
-        body1: string | null | undefined,
-        body2: string | null | undefined,
-        callNumber: number
-    ): string[] {
-        // If both bodies are empty/null/undefined, they match
-        if (!body1 && !body2) {
-            return []
-        }
-
-        // If only one body is empty, they don't match
-        if (!body1 || !body2) {
-            return [
-                `Call ${callNumber}: Request body differences: body: [legacy] ${body1 || 'null'} ≠ [hogfn] ${
-                    body2 || 'null'
-                }`,
-            ]
-        }
-
-        try {
-            const json1 = JSON.parse(body1)
-            const json2 = JSON.parse(body2)
-
-            return this.findObjectDifferences(json1, json2, '', callNumber)
-        } catch {
-            // If parsing fails, compare as strings
-            return [`Call ${callNumber}: Request body differences: body: [legacy] ${body1} ≠ [hogfn] ${body2}`]
-        }
     }
 
     private findObjectDifferences(obj1: any, obj2: any, path: string = '', callNumber: number): string[] {
