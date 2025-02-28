@@ -439,10 +439,10 @@ impl From<PropDefRow> for PropertyDefinition {
             is_numerical: row.is_numerical,
             is_seen_on_filtered_events: row.is_seen_on_filtered_events,
             updated_at: row.updated_at,
-            updated_by: updated_by,
+            updated_by,
             verified: row.verified,
             verified_at: row.verified_at,
-            verified_by: verified_by,
+            verified_by,
             tags: row.tags,
         }
     }
