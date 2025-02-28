@@ -72,6 +72,13 @@ export const costs: ModelRow[] = [
         },
     },
     {
+        model: 'codestral-mamba',
+        cost: {
+            prompt_token: 0.00000025,
+            completion_token: 0.00000025,
+        },
+    },
+    {
         model: 'mistral-nemo:free',
         cost: {
             prompt_token: 0,
@@ -86,10 +93,10 @@ export const costs: ModelRow[] = [
         },
     },
     {
-        model: 'codestral-mamba',
+        model: 'mistral-7b-instruct-v0.3',
         cost: {
-            prompt_token: 0.00000025,
-            completion_token: 0.00000025,
+            prompt_token: 0.00000003,
+            completion_token: 0.000000055,
         },
     },
     {
@@ -101,13 +108,6 @@ export const costs: ModelRow[] = [
     },
     {
         model: 'mistral-7b-instruct',
-        cost: {
-            prompt_token: 0.00000003,
-            completion_token: 0.000000055,
-        },
-    },
-    {
-        model: 'mistral-7b-instruct-v0.3',
         cost: {
             prompt_token: 0.00000003,
             completion_token: 0.000000055,
@@ -128,17 +128,17 @@ export const costs: ModelRow[] = [
         },
     },
     {
-        model: 'mistral-small',
-        cost: {
-            prompt_token: 0.0000002,
-            completion_token: 0.0000006,
-        },
-    },
-    {
         model: 'mistral-tiny',
         cost: {
             prompt_token: 0.00000025,
             completion_token: 0.00000025,
+        },
+    },
+    {
+        model: 'mistral-small',
+        cost: {
+            prompt_token: 0.0000002,
+            completion_token: 0.0000006,
         },
     },
     {

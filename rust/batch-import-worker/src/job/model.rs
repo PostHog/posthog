@@ -3,7 +3,7 @@ use std::{fmt::Display, sync::Arc};
 use anyhow::{Context, Error};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
+use sqlx::{postgres::PgQueryResult, PgPool};
 use tracing::warn;
 use uuid::Uuid;
 
@@ -67,6 +67,7 @@ impl PartState {
 impl JobModel {
     pub async fn claim_next_job(context: Arc<AppContext>) -> Result<Option<JobModel>, Error> {
         // We use select for update to lock a row, then update it, returning the updated row
+        let new_lease_id = Uuid::now_v7().to_string();
         let row = sqlx::query_as!(
             JobRow,
             r#"
@@ -81,7 +82,8 @@ impl JobModel {
             UPDATE posthog_batchimport
             SET
                 status = 'running',
-                leased_until = now() + interval '5 minutes'
+                leased_until = now() + interval '30 minutes', -- We lease for a long time because job init can be quite slow
+                lease_id = $1
             FROM next_job
             WHERE posthog_batchimport.id = next_job.id
             RETURNING
@@ -95,6 +97,7 @@ impl JobModel {
                 posthog_batchimport.secrets,
                 next_job.previous_lease_id
             "#,
+            new_lease_id
         )
         .fetch_optional(&context.db)
         .await?;
@@ -105,7 +108,7 @@ impl JobModel {
 
         let id = row.id;
 
-        match (row, context.encryption_keys.as_slice())
+        match (row, context.encryption_keys.as_slice(), new_lease_id)
             .try_into()
             .context("Failed to parse job row")
         {
@@ -139,20 +142,23 @@ impl JobModel {
     }
 
     pub async fn flush(&mut self, pool: &PgPool, extend_lease: bool) -> Result<(), Error> {
-        if extend_lease {
-            self.lease_id = Some(Uuid::now_v7().to_string());
-        } else {
-            self.lease_id = None;
+        let Some(old_lease) = self.lease_id.take() else {
+            anyhow::bail!("Cannot flush a job with no lease")
         };
 
         if extend_lease {
-            self.leased_until =
-                Some(self.leased_until.unwrap_or_else(Utc::now) + chrono::Duration::minutes(5));
+            self.lease_id = Some(Uuid::now_v7().to_string());
+        }
+
+        if extend_lease {
+            // We only allow the lease to be set to 5 minutes from now, except in the initial claim
+            // case, where we allow it to be set to 30 minutes from now, because job init can be slow
+            self.leased_until = Some(Utc::now() + chrono::Duration::minutes(5));
         } else {
             self.leased_until = None;
         };
 
-        sqlx::query!(
+        let res = sqlx::query!(
             r#"
             UPDATE posthog_batchimport
             SET
@@ -162,17 +168,20 @@ impl JobModel {
                 updated_at = now(),
                 lease_id = $5,
                 leased_until = $6
-            WHERE id = $1
+            WHERE id = $1 AND lease_id = $7
             "#,
             self.id,
             self.status.to_string(),
             self.status_message,
             serde_json::to_value(&self.state)?,
             self.lease_id,
-            self.leased_until
+            self.leased_until,
+            old_lease
         )
         .execute(pool)
         .await?;
+
+        throw_if_no_rows(res)?;
 
         Ok(())
     }
@@ -180,7 +189,7 @@ impl JobModel {
     pub async fn pause(&mut self, context: Arc<AppContext>, reason: String) -> Result<(), Error> {
         self.status = JobStatus::Paused;
         self.status_message = Some(reason);
-        self.flush(&context.db, false).await
+        self.flush(&context.db, true).await
     }
 
     pub async fn unpause(&mut self, context: Arc<AppContext>) -> Result<(), Error> {
@@ -224,11 +233,11 @@ struct JobRow {
     previous_lease_id: Option<String>,
 }
 
-impl TryFrom<(JobRow, &[String])> for JobModel {
+impl TryFrom<(JobRow, &[String], String)> for JobModel {
     type Error = Error;
 
-    fn try_from(input: (JobRow, &[String])) -> Result<Self, Self::Error> {
-        let (row, keys) = input;
+    fn try_from(input: (JobRow, &[String], String)) -> Result<Self, Self::Error> {
+        let (row, keys, lease_id) = input;
         let state = match row.state {
             Some(s) => serde_json::from_value(s).context("Parsing state")?,
             None => JobState { parts: vec![] },
@@ -243,7 +252,7 @@ impl TryFrom<(JobRow, &[String])> for JobModel {
             team_id: row.team_id,
             created_at: row.created_at,
             updated_at: row.updated_at,
-            lease_id: None,
+            lease_id: Some(lease_id),
             leased_until: None,
             status: JobStatus::Running,
             status_message: row.status_message,
@@ -252,5 +261,14 @@ impl TryFrom<(JobRow, &[String])> for JobModel {
             secrets,
             was_leased: row.previous_lease_id.is_some(),
         })
+    }
+}
+
+// Returns an InvalidLock error if the query run did not affect any rows.
+pub fn throw_if_no_rows(res: PgQueryResult) -> Result<(), Error> {
+    if res.rows_affected() == 0 {
+        anyhow::bail!("No update done")
+    } else {
+        Ok(())
     }
 }

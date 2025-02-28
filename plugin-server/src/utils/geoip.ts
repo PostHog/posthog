@@ -1,5 +1,4 @@
 import { City, Reader, ReaderModel } from '@maxmind/geoip2-node'
-import { join } from 'path'
 import { Counter } from 'prom-client'
 
 import { Config, Hub } from '../types'
@@ -18,11 +17,27 @@ export const geoipCompareCounter = new Counter({
 export class GeoIPService {
     private _mmdbPromise: Promise<ReaderModel> | undefined
 
-    constructor(private config: Config) {}
+    constructor(private config: Config) {
+        status.info('🌎', 'GeoIPService created')
+    }
 
     private getMmdb() {
         if (!this._mmdbPromise) {
-            this._mmdbPromise = Reader.open(join(this.config.BASE_DIR, this.config.MMDB_FILE_LOCATION))
+            status.info('🌎', 'Loading MMDB from disk...', {
+                location: this.config.MMDB_FILE_LOCATION,
+            })
+            this._mmdbPromise = Reader.open(this.config.MMDB_FILE_LOCATION)
+                .then((mmdb) => {
+                    status.info('🌎', 'Loading MMDB from disk succeeded!')
+                    return mmdb
+                })
+                .catch((e) => {
+                    status.warn('🌎', 'Loading MMDB from disk failed!', {
+                        location: this.config.MMDB_FILE_LOCATION,
+                        error: e.message,
+                    })
+                    throw e
+                })
         }
 
         return this._mmdbPromise
