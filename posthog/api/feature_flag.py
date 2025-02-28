@@ -469,9 +469,9 @@ class FeatureFlagSerializer(
 
             instance = super().update(instance, validated_data)
 
-        # Continue with the update outside of the transaction. This is an intentional choice to avoid deadlocks.
-        # If the following updates fail, it's not the end of the world.
-
+        # Continue with the update outside of the transaction. This is an intentional choice
+        # to avoid deadlocks. Not to mention, before making the concurrency changes, these
+        # updates were already occurring outside of a transaction.
         analytics_dashboards = validated_data.pop("analytics_dashboards", None)
 
         if analytics_dashboards is not None:
