@@ -3,6 +3,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { ContextMenuGroup, ContextMenuItem } from 'lib/lemon-ui/LemonContextMenu/LemonContextMenu'
 import { LemonTree } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { useRef } from 'react'
 
@@ -120,6 +121,76 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                                 return true
                             }
                             return false
+                        }}
+                        itemContextMenu={(item) => {
+                            if (specialItemsIds.includes(item.id || '')) {
+                                return undefined
+                            }
+                            return (
+                                <ContextMenuGroup>
+                                    {item.record?.type === 'folder' || item.record?.type === 'project' ? (
+                                        <ContextMenuItem
+                                            onClick={(e) => {
+                                                e.stopPropagation()
+                                                const folder = prompt(
+                                                    item.record?.path
+                                                        ? `Create a folder under "${item.record?.path}":`
+                                                        : 'Create a new folder:',
+                                                    ''
+                                                )
+                                                if (folder) {
+                                                    addFolder(
+                                                        item.record?.path
+                                                            ? joinPath([item.record?.path, folder])
+                                                            : folder
+                                                    )
+                                                }
+                                            }}
+                                        >
+                                            New Folder
+                                        </ContextMenuItem>
+                                    ) : null}
+                                    {item.record?.path ? (
+                                        <ContextMenuItem
+                                            onClick={() => {
+                                                const oldPath = item.record?.path
+                                                const splits = splitPath(oldPath)
+                                                if (splits.length > 0) {
+                                                    const folder = prompt('New name?', splits[splits.length - 1])
+                                                    if (folder) {
+                                                        moveItem(oldPath, joinPath([...splits.slice(0, -1), folder]))
+                                                    }
+                                                }
+                                            }}
+                                        >
+                                            Rename
+                                        </ContextMenuItem>
+                                    ) : null}
+                                    {item.record?.path ? (
+                                        <ContextMenuItem
+                                            onClick={(e) => {
+                                                e.stopPropagation()
+                                                if (item.record?.path) {
+                                                    void navigator.clipboard.writeText(item.record?.path)
+                                                }
+                                            }}
+                                        >
+                                            Copy Path
+                                        </ContextMenuItem>
+                                    ) : null}
+                                    {item.record?.created_at ? (
+                                        <ContextMenuItem
+                                            onClick={(e) => {
+                                                e.stopPropagation()
+                                                deleteItem(item.record as unknown as FileSystemEntry)
+                                            }}
+                                        >
+                                            Delete
+                                        </ContextMenuItem>
+                                    ) : null}
+                                    {/* Add more menu items as needed */}
+                                </ContextMenuGroup>
+                            )
                         }}
                         itemSideAction={(item) => {
                             if (specialItemsIds.includes(item.id || '')) {

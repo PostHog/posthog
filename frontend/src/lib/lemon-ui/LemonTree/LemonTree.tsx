@@ -6,6 +6,8 @@ import { cn } from 'lib/utils/css-classes'
 import { forwardRef, HTMLAttributes, useCallback, useEffect, useRef, useState } from 'react'
 
 import { LemonButton, SideAction } from '../LemonButton'
+import { ContextMenuContent, ContextMenuTrigger } from '../LemonContextMenu/LemonContextMenu'
+import { ContextMenu } from '../LemonContextMenu/LemonContextMenu'
 import { Spinner } from '../Spinner/Spinner'
 import { getIcon, TreeNodeDraggable, TreeNodeDroppable } from './LemonTreeUtils'
 
@@ -50,6 +52,8 @@ type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
     isItemDroppable?: (item: TreeDataItem) => boolean
     /** The side action to render for the item. */
     itemSideAction?: (item: TreeDataItem) => SideAction | undefined
+    /** The context menu to render for the item. */
+    itemContextMenu?: (item: TreeDataItem) => React.ReactNode
     /** Whether the item is loading */
     isItemLoading?: (item: TreeDataItem) => boolean
     /** Whether the item is unapplied */
@@ -84,6 +88,8 @@ export type LemonTreeNodeProps = LemonTreeBaseProps & {
     handleClick: (item: TreeDataItem | undefined, isKeyboardAction?: boolean) => void
     /** The depth of the item. */
     depth?: number
+    /** Whether the context menu is open */
+    onContextMenuOpen?: (open: boolean) => void
 }
 
 const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
@@ -104,6 +110,8 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
             depth = 0,
             itemSideAction,
             enableDragAndDrop = false,
+            onContextMenuOpen,
+            itemContextMenu,
             ...props
         },
         ref
@@ -112,12 +120,21 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
 
         // Handle meta key to enable dragging
         const [isModifierKeyPressed, setIsModifierKeyPressed] = useState(false)
+        const [isContextMenuOpenForItem, setIsContextMenuOpenForItem] = useState<string | undefined>(undefined)
 
         if (!(data instanceof Array)) {
             data = [data]
         }
 
-        // TODO: move this keydown listener to the parent component
+        function handleContextMenuOpen(open: boolean, itemId: string): void {
+            // Set local state
+            setIsContextMenuOpenForItem(open ? itemId : undefined)
+
+            // Tell parent that the context menu is open
+            onContextMenuOpen?.(open)
+        }
+
+        // Listen for meta key to enable dragging
         useEffect(() => {
             const handleKeyDown = (e: KeyboardEvent): void => {
                 if (e.metaKey || e.ctrlKey) {
@@ -156,70 +173,77 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                         >
                             <AccordionPrimitive.Item value={item.id} className="flex flex-col w-full">
                                 <AccordionPrimitive.Trigger className="flex items-center gap-2 w-full h-8" asChild>
-                                    <LemonButton
-                                        className={cn(
-                                            'group/lemon-tree-button',
-                                            'flex-1 flex items-center gap-2 cursor-pointer font-normal',
-                                            focusedId === item.id &&
-                                                'ring-2 ring-inset ring-offset-[-1px] ring-accent-primary',
-                                            selectedId === item.id &&
-                                                'border-l-[4px] border-l-accent-primary rounded-tl-sm rounded-bl-sm'
-                                        )}
-                                        onClick={() => handleClick(item)}
-                                        onKeyDown={(e) => e.key === 'Enter' && handleClick(item, true)}
-                                        type="tertiary"
-                                        role="treeitem"
-                                        tabIndex={-1}
-                                        size="small"
-                                        fullWidth
-                                        data-id={item.id}
-                                        active={
-                                            selectedId === item.id ||
-                                            (showFolderActiveState &&
-                                                item.children &&
-                                                expandedItemIds?.includes(item.id))
-                                        }
-                                        icon={getIcon({
-                                            item,
-                                            expandedItemIds: expandedItemIds ?? [],
-                                            defaultNodeIcon,
-                                        })}
-                                        disabledReason={item.disabledReason}
-                                        tooltipPlacement="right"
-                                        style={{ paddingLeft: `${DEPTH_OFFSET}px` }}
-                                        truncate
-                                        tooltip={item.name}
-                                        sideAction={itemSideAction ? itemSideAction(item) : undefined}
+                                    <ContextMenu
+                                        onOpenChange={(open) => {
+                                            handleContextMenuOpen(open, item.id)
+                                        }}
                                     >
-                                        <span
-                                            className={cn('', {
-                                                'font-bold': selectedId === item.id,
-                                                'text-secondary': item.disabledReason,
-                                            })}
-                                        >
-                                            {renderItem ? (
-                                                <>
-                                                    {renderItem(item, item.name)}
-                                                    {item.record?.loading && <Spinner className="ml-1" />}
-                                                    {item.record?.unapplied && (
-                                                        <IconUpload className="ml-1 text-warning" />
+                                        <ContextMenuTrigger asChild>
+                                            <LemonButton
+                                                className={cn(
+                                                    'group/lemon-tree-button',
+                                                    'flex-1 flex items-center gap-2 cursor-pointer font-normal',
+                                                    focusedId === item.id ||
+                                                        (isContextMenuOpenForItem === item.id &&
+                                                            'ring-2 ring-inset ring-offset-[-1px] ring-accent-primary'),
+                                                    selectedId === item.id &&
+                                                        'border-l-[4px] border-l-accent-primary rounded-tl-sm rounded-bl-sm'
+                                                )}
+                                                onClick={() => handleClick(item)}
+                                                onKeyDown={(e) => e.key === 'Enter' && handleClick(item, true)}
+                                                type="tertiary"
+                                                role="treeitem"
+                                                tabIndex={-1}
+                                                size="small"
+                                                fullWidth
+                                                data-id={item.id}
+                                                active={
+                                                    selectedId === item.id ||
+                                                    (showFolderActiveState &&
+                                                        item.children &&
+                                                        expandedItemIds?.includes(item.id))
+                                                }
+                                                icon={getIcon({
+                                                    item,
+                                                    expandedItemIds: expandedItemIds ?? [],
+                                                    defaultNodeIcon,
+                                                })}
+                                                disabledReason={item.disabledReason}
+                                                tooltipPlacement="right"
+                                                style={{ paddingLeft: `${DEPTH_OFFSET}px` }}
+                                                truncate
+                                                tooltip={item.name}
+                                                sideAction={itemSideAction ? itemSideAction(item) : undefined}
+                                            >
+                                                <span
+                                                    className={cn('', {
+                                                        'font-bold': selectedId === item.id,
+                                                        'text-secondary': item.disabledReason,
+                                                    })}
+                                                >
+                                                    {renderItem ? (
+                                                        <>
+                                                            {renderItem(item, item.name)}
+                                                            {item.record?.loading && <Spinner className="ml-1" />}
+                                                            {item.record?.unapplied && (
+                                                                <IconUpload className="ml-1 text-warning" />
+                                                            )}
+                                                        </>
+                                                    ) : (
+                                                        item.name
                                                     )}
-                                                </>
-                                            ) : (
-                                                item.name
-                                            )}
-                                        </span>
-                                    </LemonButton>
+                                                </span>
+                                            </LemonButton>
+                                        </ContextMenuTrigger>
+
+                                        {isContextMenuOpenForItem === item.id && itemContextMenu?.(item) ? (
+                                            <ContextMenuContent loop>{itemContextMenu(item)}</ContextMenuContent>
+                                        ) : null}
+                                    </ContextMenu>
                                 </AccordionPrimitive.Trigger>
 
                                 {item.children && (
                                     <AccordionPrimitive.Content className="relative">
-                                        {/* Depth line */}
-                                        <div
-                                            className="absolute -top-2 left-0 bottom-0 w-px -z-[1] bg-fill-separator"
-                                            // eslint-disable-next-line react/forbid-dom-props
-                                            style={{ transform: `translateX(${DEPTH_OFFSET}px)` }}
-                                        />
                                         <LemonTreeNode
                                             data={item.children}
                                             selectedId={selectedId}
@@ -236,6 +260,8 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                             isItemDraggable={isItemDraggable}
                                             isItemDroppable={isItemDroppable}
                                             enableDragAndDrop={enableDragAndDrop}
+                                            onContextMenuOpen={onContextMenuOpen}
+                                            itemContextMenu={itemContextMenu}
                                             {...props}
                                         />
                                     </AccordionPrimitive.Content>
@@ -294,6 +320,7 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
             isItemDroppable,
             itemSideAction,
             enableDragAndDrop = false,
+            itemContextMenu,
             ...props
         },
         ref
@@ -305,6 +332,7 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
         // Add new state for type-ahead
         const [typeAheadBuffer, setTypeAheadBuffer] = useState<string>('')
         const typeAheadTimeoutRef = useRef<NodeJS.Timeout>()
+        const [isNodeTreeContextMenuOpen, setIsNodeTreeContextMenuOpen] = useState(false)
 
         function collectAllFolderIds(items: TreeDataItem[] | TreeDataItem, allIds: string[]): void {
             if (items instanceof Array) {
@@ -411,6 +439,11 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
         // Add function to handle type-ahead search
         const handleTypeAhead = useCallback(
             (char: string) => {
+                // Don't allow typeahead when context menu is open
+                if (isNodeTreeContextMenuOpen) {
+                    return
+                }
+
                 // Clear existing timeout
                 if (typeAheadTimeoutRef.current) {
                     clearTimeout(typeAheadTimeoutRef.current)
@@ -455,6 +488,7 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                 findPathToItem,
                 onSetExpandedItemIds,
                 expandedItemIdsState,
+                isNodeTreeContextMenuOpen,
             ]
         )
 
@@ -497,6 +531,11 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
         // Update handleKeyDown to include type-ahead
         const handleKeyDown = useCallback(
             (e: React.KeyboardEvent) => {
+                // Don't allow keyboard navigation when context menu is open
+                if (isNodeTreeContextMenuOpen) {
+                    return
+                }
+
                 // Handle single printable characters for type-ahead
                 if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
                     handleTypeAhead(e.key)
@@ -693,6 +732,7 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                 handleClick,
                 onNodeClick,
                 onSetExpandedItemIds,
+                isNodeTreeContextMenuOpen,
             ]
         )
 
@@ -728,6 +768,10 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                             isItemDraggable={isItemDraggable}
                             isItemDroppable={isItemDroppable}
                             enableDragAndDrop={enableDragAndDrop}
+                            onContextMenuOpen={(open) => {
+                                setIsNodeTreeContextMenuOpen(open)
+                            }}
+                            itemContextMenu={itemContextMenu}
                             {...props}
                         />
                     </TreeNodeDroppable>
