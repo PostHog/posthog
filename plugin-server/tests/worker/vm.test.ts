@@ -56,7 +56,7 @@ describe('vm tests', () => {
         const indexJs = ''
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
 
-        expect(Object.keys(vm).sort()).toEqual(['methods', 'tasks', 'usedImports', 'vm', 'vmResponseVariable'])
+        expect(Object.keys(vm).sort()).toEqual(['methods', 'usedImports', 'vm', 'vmResponseVariable'])
         expect(Object.keys(vm.methods).sort()).toEqual([
             'composeWebhook',
             'getSettings',
