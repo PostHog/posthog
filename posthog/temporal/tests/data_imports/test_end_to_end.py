@@ -1390,7 +1390,7 @@ async def test_delta_no_merging_on_first_sync_after_reset(team, postgres_config,
     first_call_args, first_call_kwargs = mock_write.call_args_list[0]
     second_call_args, second_call_kwargs = mock_write.call_args_list[1]
 
-    # The first call should be an append
+    # The first call should be an overwrite
     assert first_call_kwargs == {
         "mode": "overwrite",
         "schema_mode": "overwrite",
@@ -1400,7 +1400,7 @@ async def test_delta_no_merging_on_first_sync_after_reset(team, postgres_config,
         "engine": "rust",
     }
 
-    # The last call should be an append
+    # The subsequent call should be an append
     assert second_call_kwargs == {
         "mode": "append",
         "schema_mode": "merge",
