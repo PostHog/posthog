@@ -293,12 +293,13 @@ export async function startPluginsServer(
             ]
 
             for (const consumerOption of consumersOptions) {
+                piscina = piscina ?? (await makePiscina(serverConfig, hub))
+
                 const modifiedHub: Hub = {
                     ...hub,
                     INGESTION_CONSUMER_CONSUME_TOPIC: consumerOption.topic,
                     INGESTION_CONSUMER_GROUP_ID: consumerOption.group_id,
                 }
-                piscina = piscina ?? (await makePiscina(serverConfig, hub))
 
                 const consumer = new IngestionConsumer(modifiedHub)
                 await consumer.start()
