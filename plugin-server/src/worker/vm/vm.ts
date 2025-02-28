@@ -7,7 +7,6 @@ import { Hub, PluginConfig, PluginConfigVMResponse } from '../../types'
 import { createCache } from './extensions/cache'
 import { createConsole } from './extensions/console'
 import { createGeoIp } from './extensions/geoip'
-import { createJobs } from './extensions/jobs'
 import { createPosthog } from './extensions/posthog'
 import { createStorage } from './extensions/storage'
 import { createUtils } from './extensions/utilities'
@@ -98,7 +97,6 @@ export function createPluginConfigVM(
             attachments: pluginConfig.attachments,
             storage: createStorage(hub, pluginConfig),
             geoip: createGeoIp(hub),
-            jobs: createJobs(hub, pluginConfig),
             utils: createUtils(hub, pluginConfig.id),
         },
         '__pluginHostMeta'

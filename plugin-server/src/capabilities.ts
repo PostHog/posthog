@@ -12,8 +12,6 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             return {
                 mmdb: true,
                 ingestionV2Combined: true,
-                pluginScheduledTasks: true,
-                processPluginJobs: true,
                 processAsyncOnEventHandlers: true,
                 processAsyncWebhooksHandlers: true,
                 sessionRecordingBlobIngestion: true,
@@ -100,18 +98,6 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
         case PluginServerMode.async_webhooks:
             return {
                 processAsyncWebhooksHandlers: true,
-                ...sharedCapabilities,
-            }
-        case PluginServerMode.jobs:
-            return {
-                processPluginJobs: true,
-                ...sharedCapabilities,
-            }
-        case PluginServerMode.scheduler:
-            return {
-                pluginScheduledTasks: true,
-                appManagementSingleton: true,
-                syncInlinePlugins: true,
                 ...sharedCapabilities,
             }
         case PluginServerMode.cdp_processed_events:

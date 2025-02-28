@@ -145,24 +145,6 @@ export async function createHub(
 
     const cookielessManager = new CookielessManager(serverConfig, redisPool, teamManager)
 
-    const enqueuePluginJob = async (job: EnqueuedPluginJob) => {
-        // NOTE: we use the producer directly here rather than using the wrapper
-        // such that we can a response immediately on error, and thus bubble up
-        // any errors in producing. It's important that we ensure that we have
-        // an acknowledgement as for instance there are some jobs that are
-        // chained, and if we do not manage to produce then the chain will be
-        // broken.
-        await kafkaProducer.queueMessages({
-            topic: KAFKA_JOBS,
-            messages: [
-                {
-                    value: Buffer.from(JSON.stringify(job)),
-                    key: Buffer.from(job.pluginConfigTeam.toString()),
-                },
-            ],
-        })
-    }
-
     const hub: Hub = {
         ...serverConfig,
         instanceId,
@@ -173,7 +155,6 @@ export async function createHub(
         clickhouse,
         kafka,
         kafkaProducer,
-        enqueuePluginJob,
         objectStorage: objectStorage,
         groupTypeManager,
 

@@ -81,8 +81,6 @@ export enum PluginServerMode {
     events_ingestion = 'events-ingestion',
     async_onevent = 'async-onevent',
     async_webhooks = 'async-webhooks',
-    jobs = 'jobs',
-    scheduler = 'scheduler',
     analytics_ingestion = 'analytics-ingestion',
     recordings_blob_ingestion = 'recordings-blob-ingestion',
     recordings_blob_ingestion_overflow = 'recordings-blob-ingestion-overflow',
@@ -379,8 +377,6 @@ export interface Hub extends PluginsServerConfig {
     // geoip database, setup in workers
     mmdb?: ReaderModel
     geoipService: GeoIPService
-    // functions
-    enqueuePluginJob: (job: EnqueuedPluginJob) => Promise<void>
     // ValueMatchers used for various opt-in/out features
     pluginConfigsToSkipElementsParsing: ValueMatcher<number>
     // lookups
@@ -401,8 +397,6 @@ export interface PluginServerCapabilities {
     eventsIngestionPipelines?: boolean
     ingestionV2Combined?: boolean
     ingestionV2?: boolean
-    pluginScheduledTasks?: boolean
-    processPluginJobs?: boolean
     processAsyncOnEventHandlers?: boolean
     processAsyncWebhooksHandlers?: boolean
     sessionRecordingBlobIngestion?: boolean
@@ -421,7 +415,6 @@ export interface PluginServerCapabilities {
     syncInlinePlugins?: boolean
 }
 
-export type EnqueuedJob = EnqueuedPluginJob | GraphileWorkerCronScheduleJob
 export interface EnqueuedPluginJob {
     type: string
     payload: Record<string, any>
@@ -429,16 +422,6 @@ export interface EnqueuedPluginJob {
     pluginConfigId: number
     pluginConfigTeam: number
     jobKey?: string
-}
-
-export interface GraphileWorkerCronScheduleJob {
-    timestamp?: number
-    jobKey?: string
-}
-
-export enum JobName {
-    PLUGIN_JOB = 'pluginJob',
-    BUFFER_JOB = 'bufferJob',
 }
 
 export type PluginId = Plugin['id']

@@ -1,6 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 
-import { EnqueuedPluginJob, Hub, PluginTaskType } from '../types'
+import { Hub, PluginTaskType } from '../types'
 import { retryIfRetriable } from '../utils/retries'
 import { status } from '../utils/status'
 import { sleep } from '../utils/utils'
@@ -57,9 +57,6 @@ export const reloadPlugins = async (hub: Hub) => {
 }
 
 export const workerTasks: Record<string, TaskRunner> = {
-    runPluginJob: (hub, { job }: { job: EnqueuedPluginJob }) => {
-        return runPluginTask(hub, job.type, PluginTaskType.Job, job.pluginConfigId, job.payload)
-    },
     runEveryMinute: async (hub, args: { pluginConfigId: number }) => {
         return runPluginTask(hub, 'runEveryMinute', PluginTaskType.Schedule, args.pluginConfigId)
     },
@@ -68,12 +65,6 @@ export const workerTasks: Record<string, TaskRunner> = {
     },
     runEveryDay: (hub, args: { pluginConfigId: number }) => {
         return runPluginTask(hub, 'runEveryDay', PluginTaskType.Schedule, args.pluginConfigId)
-    },
-    getPluginSchedule: (hub) => {
-        return hub.pluginSchedule
-    },
-    pluginScheduleReady: (hub) => {
-        return hub.pluginSchedule !== null
     },
     // Exported only for tests
     _testsRunProcessEvent: async (hub, args: { event: PluginEvent }) => {
