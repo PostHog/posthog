@@ -113,6 +113,9 @@ jobs:
                   labels: ${{ steps.meta.outputs.labels }}
                   platforms: linux/arm64,linux/amd64
                   build-args: BIN=${{ matrix.image }}
+                  secrets: |
+                      SCCACHE_WEBDAV_ENDPOINT=${{ env.SCCACHE_WEBDAV_ENDPOINT }}
+                      SCCACHE_WEBDAV_TOKEN=${{ env.SCCACHE_WEBDAV_TOKEN }}
 
             - name: Container image digest
               id: digest

@@ -1,9 +1,5 @@
-import { Reader } from '@maxmind/geoip2-node'
-import { readFileSync } from 'fs'
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
-import { join } from 'path'
-import { brotliDecompressSync } from 'zlib'
 
 import { template as geoipTemplate } from '~/src/cdp/templates/_transformations/geoip/geoip.template'
 import { compileHog } from '~/src/cdp/templates/compiler'
@@ -103,10 +99,6 @@ describe('IngestionConsumer', () => {
         offsetIncrementer = 0
         await resetTestDatabase()
         hub = await createHub()
-
-        // Set up GeoIP database
-        const mmdbBrotliContents = readFileSync(join(__dirname, '../../tests/assets/GeoLite2-City-Test.mmdb.br'))
-        hub.mmdb = Reader.openBuffer(Buffer.from(brotliDecompressSync(mmdbBrotliContents)))
 
         hub.kafkaProducer = mockProducer
         team = await getFirstTeam(hub)
@@ -539,8 +531,8 @@ describe('IngestionConsumer', () => {
             async () => {
                 // make the geoip lookup fail
                 const event = createEvent({
-                    ip: '1.1.1.1',
-                    properties: { $ip: '1.1.1.1' },
+                    ip: '256.256.256.256',
+                    properties: { $ip: '256.256.256.256' },
                 })
                 const messages = createKafkaMessages([event])
 
@@ -588,7 +580,7 @@ describe('IngestionConsumer', () => {
                             level: 'info',
                             log_source: 'hog_function',
                             log_source_id: transformationFunction.id,
-                            message: 'geoip lookup failed for ip, 1.1.1.1',
+                            message: 'geoip lookup failed for ip, 256.256.256.256',
                             team_id: team.id,
                             timestamp: expect.stringMatching(/2025-01-01 00:00:00\.\d{3}/),
                         },

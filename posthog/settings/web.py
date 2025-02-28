@@ -303,7 +303,7 @@ SPECTACULAR_SETTINGS = {
     "ENUM_NAME_OVERRIDES": {
         "DashboardRestrictionLevel": "posthog.models.dashboard.Dashboard.RestrictionLevel",
         "OrganizationMembershipLevel": "posthog.models.organization.OrganizationMembership.Level",
-        "SurveyType": "posthog.models.feedback.survey.Survey.SurveyType",
+        "SurveyType": "posthog.models.surveys.survey.Survey.SurveyType",
     },
 }
 

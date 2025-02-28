@@ -7,7 +7,7 @@ from inline_snapshot import snapshot
 import pytest
 from posthog.models.action.action import Action
 from posthog.models.feature_flag.feature_flag import FeatureFlag
-from posthog.models.feedback.survey import Survey
+from posthog.models.surveys.survey import Survey
 from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from posthog.models.plugin import Plugin, PluginConfig, PluginSourceFile
 from posthog.models.project import Project
@@ -219,7 +219,9 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
                 "name": "Basic survey",
                 "type": "popover",
                 "end_date": None,
-                "questions": [{"type": "open", "question": "What's a survey?"}],
+                "questions": [
+                    {"id": str(survey_basic.questions[0]["id"]), "type": "open", "question": "What's a survey?"}
+                ],
                 "appearance": None,
                 "conditions": None,
                 "start_date": None,
@@ -232,7 +234,9 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
                 "name": "Survey with flags",
                 "type": "popover",
                 "end_date": None,
-                "questions": [{"type": "open", "question": "What's a hedgehog?"}],
+                "questions": [
+                    {"id": str(survey_with_flags.questions[0]["id"]), "type": "open", "question": "What's a hedgehog?"}
+                ],
                 "appearance": None,
                 "conditions": None,
                 "start_date": None,
@@ -248,7 +252,9 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
                 "name": "survey with actions",
                 "type": "popover",
                 "end_date": None,
-                "questions": [{"type": "open", "question": "Why's a hedgehog?"}],
+                "questions": [
+                    {"id": str(survey_with_actions.questions[0]["id"]), "type": "open", "question": "Why's a hedgehog?"}
+                ],
                 "appearance": None,
                 "conditions": {
                     "actions": {

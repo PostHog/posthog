@@ -699,8 +699,6 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                         // Skip if item is disabled
                         if (!currentItem.disabledReason) {
                             if (currentItem.children && currentItem.children?.length >= 0) {
-                                // Handle folder click
-
                                 // Toggle folder expanded state
                                 if (expandedItemIdsState.includes(currentItem.id)) {
                                     onFolderClick?.(currentItem, false)

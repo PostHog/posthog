@@ -132,7 +132,7 @@ def convert_universal_filters_to_recordings_query(universal_filters: dict[str, A
 
 @shared_task(
     ignore_result=True,
-    queue=CeleryQueue.SESSION_REPLAY_PERSISTENCE.value,
+    queue=CeleryQueue.SESSION_REPLAY_GENERAL.value,
     # limit how many run per worker instance - if we have 10 workers, this will run 600 times per hour
     rate_limit="60/h",
     expires=TASK_EXPIRATION_TIME,
@@ -164,10 +164,6 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
         REPLAY_TEAM_PLAYLIST_COUNT_FAILED.inc()
 
 
-@shared_task(
-    ignore_result=True,
-    queue=CeleryQueue.SESSION_REPLAY_PERSISTENCE.value,
-)
 def enqueue_recordings_that_match_playlist_filters() -> None:
     teams_with_counter_processing = settings.PLAYLIST_COUNTER_PROCESSING_ALLOWED_TEAMS
 

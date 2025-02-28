@@ -21,6 +21,7 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
     const { isNavShown, mobileLayout } = useValues(navigation3000Logic)
     const { toggleNavCollapsed, hideNavOnMobile } = useActions(navigation3000Logic)
     const { treeData, loadingPaths, expandedFolders, lastViewedId, viableItems, helpNoticeVisible } =
+
         useValues(projectTreeLogic)
 
     const {
