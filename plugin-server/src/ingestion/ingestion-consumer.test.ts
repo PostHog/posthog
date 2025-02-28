@@ -15,7 +15,6 @@ import { createTeam, getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql
 import { Hub, PipelineEvent, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { HogFunctionType } from '../cdp/types'
-import { PostgresUse } from '../utils/db/postgres'
 import { status } from '../utils/status'
 import { UUIDT } from '../utils/utils'
 import { IngestionConsumer } from './ingestion-consumer'
