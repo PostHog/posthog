@@ -8,7 +8,10 @@ use crate::{
 use anyhow::Result;
 use axum::{
     extract::{OriginalUri, Path, Query, State},
-    http::Uri,
+    http::{
+        uri::{Authority, Scheme},
+        Uri,
+    },
     routing::get,
     Json, Router,
 };
@@ -232,12 +235,15 @@ fn gen_next_prev_urls(
     let prev_offset = curr_offset - curr_limit;
 
     (
-        gen_url(uri.clone(), total_count, prev_offset),
-        gen_url(uri.clone(), total_count, next_offset),
+        gen_url(uri.clone(), total_count, curr_limit, prev_offset),
+        gen_url(uri.clone(), total_count, curr_limit, next_offset),
     )
 }
 
-fn gen_url(uri: Uri, total_count: i64, new_offset: i64) -> Option<String> {
+// TODO: since this is an internal API to be called by Django, we will
+// probably eliminate this in favor of letting the PropertyDefinitionsViewSet
+// handling next & prev URI generation...
+fn gen_url(uri: Uri, total_count: i64, curr_limit: i64, new_offset: i64) -> Option<String> {
     if new_offset < 0 || new_offset > total_count {
         return None;
     }
@@ -252,8 +258,9 @@ fn gen_url(uri: Uri, total_count: i64, new_offset: i64) -> Option<String> {
         })
         .unwrap_or_default();
 
-    // Modify a single query parameter
+    // Modify limit and offset params only
     query_params.insert("offset".to_string(), new_offset.to_string());
+    query_params.insert("limit".to_string(), curr_limit.to_string());
 
     // Rebuild the Uri with the modified query parameters
     let new_query = form_urlencoded::Serializer::new(String::new())
@@ -269,8 +276,12 @@ fn gen_url(uri: Uri, total_count: i64, new_offset: i64) -> Option<String> {
         .path()
         .to_string();
     let uri = Uri::builder()
-        .scheme(uri.scheme().unwrap().as_str())
-        .authority(uri.authority().unwrap().as_str())
+        .scheme(uri.scheme().unwrap_or(&Scheme::HTTP).as_str())
+        .authority(
+            uri.authority()
+                .unwrap_or(&Authority::from_static("localhost:3301"))
+                .as_str(),
+        )
         .path_and_query(base_uri + "?" + &new_query)
         .build()
         .unwrap();
