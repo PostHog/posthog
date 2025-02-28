@@ -47,7 +47,7 @@ SESSION_REPLAY_AI_REGEX_MODEL = get_from_env("SESSION_REPLAY_AI_REGEX_MODEL", "g
 
 PLAYLIST_COUNTER_PROCESSING_MAX_ALLOWED_TEAM_ID = get_from_env(
     get_from_env(
-        "PLAYLIST_COUNTER_PROCESSING_MAX_ALLOWED_TEAM_ID", default="2" if settings.DEBUG else "", type_cast=int
+        "PLAYLIST_COUNTER_PROCESSING_MAX_ALLOWED_TEAM_ID", default="2" if settings.DEBUG else "0", type_cast=int
     )
 )
 
