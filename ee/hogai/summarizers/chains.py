@@ -11,7 +11,7 @@ from .actions import ActionSummarizer
 from .prompts import ACTIONS_SUMMARIZER_SYSTEM_PROMPT
 
 
-def batch_summarize_actions(actions: Sequence[Action]) -> list[str | BaseException]:
+async def abatch_summarize_actions(actions: Sequence[Action]) -> list[str | BaseException]:
     prompts = []
     for action in actions:
         try:
@@ -33,4 +33,4 @@ def batch_summarize_actions(actions: Sequence[Action]) -> list[str | BaseExcepti
         prompts.append(prompt)
 
     chain = ChatOpenAI(model="gpt-4o", temperature=0, streaming=False) | StrOutputParser()
-    return chain.batch(prompts, return_exceptions=True)
+    return await chain.abatch(prompts, return_exceptions=True)
