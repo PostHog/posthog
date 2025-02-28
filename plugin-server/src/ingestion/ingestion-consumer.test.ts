@@ -15,6 +15,7 @@ import { createTeam, getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql
 import { Hub, PipelineEvent, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { HogFunctionType } from '../cdp/types'
+import { PostgresUse } from '../utils/db/postgres'
 import { status } from '../utils/status'
 import { UUIDT } from '../utils/utils'
 import { IngestionConsumer } from './ingestion-consumer'
@@ -474,7 +475,10 @@ describe('IngestionConsumer', () => {
             [
                 'forced person upgrade',
                 () => [
-                    createEvent({ event: '$pageview', properties: { $process_person_profile: false } }),
+                    createEvent({
+                        event: '$pageview',
+                        properties: { $process_person_profile: false, $set: { update1: '1' } },
+                    }),
                     createEvent({
                         event: '$identify',
                         properties: { $process_person_profile: true, $set: { email: 'test@example.com' } },
@@ -482,15 +486,16 @@ describe('IngestionConsumer', () => {
                     // Add an event at least a minute in the future and it should get force upgraded
                     createEvent({
                         event: '$pageview',
-                        properties: { $process_person_profile: false, $set: { update1: '1' } },
+                        properties: { $process_person_profile: false, $set: { update2: '2' } },
                         timestamp: DateTime.now().plus({ minutes: 2 }).toISO(),
                     }),
                     // Add a person-full event and ensure all properties are there that should be
                     createEvent({
                         event: '$pageview',
-                        properties: { $process_person_profile: true, $set: { update2: '2' } },
+                        properties: { $process_person_profile: true, $set: { update3: '3' } },
                         timestamp: DateTime.now().plus({ minutes: 3 }).toISO(),
                     }),
+                    // Snapshot should contain update2 and update3 but not update1
                 ],
             ],
             [
@@ -499,6 +504,48 @@ describe('IngestionConsumer', () => {
                     createEvent({
                         event: '$$client_ingestion_warning',
                         properties: { $$client_ingestion_warning_message: 'test' },
+                    }),
+                ],
+            ],
+
+            [
+                'groups',
+                () => [
+                    createEvent({
+                        event: '$pageview',
+                        properties: {
+                            $groups: {
+                                a: 'group-a',
+                                b: 'group-b',
+                                c: 'group-c',
+                                d: 'group-d',
+                                e: 'group-e',
+                                f: 'group-f',
+                            },
+                        },
+                    }),
+                    createEvent({
+                        event: '$groupidentify',
+                        properties: {
+                            $group_type: 'a',
+                            $group_key: 'group-a',
+                            $group_set: {
+                                id: 'group-a',
+                                foo: 'bar',
+                            },
+                        },
+                    }),
+                    // This triggers an event but not a groups clickhouse change as the max groups is already hit
+                    createEvent({
+                        event: '$groupidentify',
+                        properties: {
+                            $group_type: 'f',
+                            $group_key: 'group-f',
+                            $group_set: {
+                                id: 'group-f',
+                                foo: 'bar',
+                            },
+                        },
                     }),
                 ],
             ],
