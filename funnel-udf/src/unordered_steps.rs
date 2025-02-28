@@ -94,7 +94,7 @@ impl AggregateFunnelRow {
             num_steps_completed: 0,
         };
 
-        let filtered_events = args
+        let (exclusions, non_exclusions): (Vec<&Event>, Vec<&Event>) = args
             .value
             .iter()
             .filter(|e| {
@@ -104,57 +104,40 @@ impl AggregateFunnelRow {
                     true
                 }
             })
-            .group_by(|e| e.timestamp);
+            .partition(|&event| event.steps.iter().all(|&step| step < 0));
 
-        for (timestamp, events_with_same_timestamp) in &filtered_events {
-            let events_with_same_timestamp: Vec<_> = events_with_same_timestamp.collect();
-
-            if events_with_same_timestamp.len() == 1 {
-                self.process_event(args, &mut vars, events_with_same_timestamp[0], prop_val);
-            } else {
-                // Split events into those with negative steps (exclusions) and positive steps
-                let (exclusion_events, step_events): (Vec<_>, Vec<_>) = events_with_same_timestamp
-                    .iter()
-                    .partition(|&event| event.steps.iter().all(|&step| step < 0));
-
-                if exclusion_events.is_empty() {
-                    for event in events_with_same_timestamp {
-                        self.process_event(args, &mut vars, event, prop_val);
-                    }
-                } else {
-                    // Handle permutations for different events with the same timestamp
-                    // First run the steps (positive values)
-                    for event in step_events {
-                        self.process_event(args, &mut vars, event, prop_val);
-                    }
-
-                    // Then run the exclusions (negative values)
-                    for event in exclusion_events {
-                        self.process_event(args, &mut vars, event, prop_val);
-                    }
-
-                    // Then run the steps again to ensure proper processing
-                    for event in step_events {
-                        self.process_event(args, &mut vars, event, prop_val);
-                    }
-                }
-            }
+        for event in non_exclusions {
+            self.process_event(args, &mut vars, event, prop_val);
         }
 
         // Find the furthest step we have made it to and print it
         let final_index = vars.max_step.0;
         let final_value = &vars.max_step.1;
 
-        if final_value.excluded {
-            self.results
-                .push(Result(-1, prop_val.clone(), vec![], vec![]));
-            return;
+        // Check for exclusions
+        for exclusion in exclusions {
+            // Check if the exclusion timestamp falls within the range of our max step
+            if !vars.max_step.1.timings.is_empty() {
+                let start_timestamp = vars.max_step.1.timings.first().unwrap();
+                let end_timestamp = vars.max_step.1.timings.last().unwrap();
+
+                if exclusion.timestamp > *start_timestamp && exclusion.timestamp < *end_timestamp {
+                    // Exclusion falls within our funnel path, mark as excluded
+                    self.results
+                        .push(Result(-1, prop_val.clone(), vec![], vec![]));
+                    return;
+                }
+            }
         }
 
         self.results.push(Result(
             final_index as i8 - 1,
             prop_val.clone(),
-            final_value.timings.clone(),
+            final_value
+                .timings
+                .windows(2)
+                .map(|w| w[1] - w[0])
+                .collect(),
             vars.max_step
                 .1
                 .uuids
@@ -230,8 +213,8 @@ impl AggregateFunnelRow {
             timestamps_with_uuids.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
 
             let timings = timestamps_with_uuids
-                .windows(2)
-                .map(|w| w[1].0 - w[0].0)
+                .iter()
+                .map(|(t, _)| *t)
                 .collect::<Vec<f64>>();
             let uuids = timestamps_with_uuids
                 .iter()
