@@ -62,8 +62,6 @@ let known_bot_filter_list := ['bot', 'crawler', 'spider', 'feedfetcher-google',
 'domains project', 'pagepeeker', 'vigil', 'php-curl-class', 'ptst',
 'seostar.co']
 
-print('userAgentProperty', inputs.userAgent)
-
 let userAgentProperty := inputs.userAgent
 
 // Check if user agent property exists in event
@@ -98,7 +96,6 @@ if (notEmpty(inputs.customBotPatterns)) {
 fun isBotUa(ua) {
     for (let bot_name in bot_list) {
         if (ua =~* bot_name) {
-            print('Matched', ua, bot_name)
             return true
         }
     }
@@ -298,7 +295,6 @@ let known_bot_ip_prefixes := [
   '2c0f:fb50::/32',
 ];
 
-print(inputs.customIpPrefixes);
 if (inputs.customIpPrefixes and notEmpty(inputs.customIpPrefixes)) {
     let custom_prefixes := splitByString(',', inputs.customIpPrefixes)
     // Add each custom prefix to the list
