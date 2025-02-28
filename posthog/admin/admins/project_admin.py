@@ -21,7 +21,8 @@ class ProjectAdmin(admin.ModelAdmin):
         "organization__id",
         "organization__name",
     )
-    readonly_fields = ["organization", "created_at"]
+    autocomplete_fields = ["organization"]
+    readonly_fields = ["created_at"]
     inlines = [TeamInline]
 
     def organization_link(self, project: Project):

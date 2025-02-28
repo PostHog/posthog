@@ -1,6 +1,7 @@
 import time
 from typing import Optional
 from uuid import UUID
+import posthoganalytics
 from sentry_sdk import capture_exception
 
 import requests
@@ -912,8 +913,9 @@ def ee_count_items_in_playlists() -> None:
         from ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters import (
             enqueue_recordings_that_match_playlist_filters,
         )
-    except ImportError:
-        pass
+    except ImportError as ie:
+        posthoganalytics.capture_exception(ie)
+        logger.exception("Failed to import task to count items in playlists", error=ie)
     else:
         enqueue_recordings_that_match_playlist_filters()
 

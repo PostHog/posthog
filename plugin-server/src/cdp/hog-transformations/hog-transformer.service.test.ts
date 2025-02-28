@@ -1,9 +1,5 @@
-import { Reader } from '@maxmind/geoip2-node'
 import { PluginEvent } from '@posthog/plugin-scaffold'
-import { readFileSync } from 'fs'
 import { DateTime } from 'luxon'
-import { join } from 'path'
-import { brotliDecompressSync } from 'zlib'
 
 import { posthogFilterOutPlugin } from '../../../src/cdp/legacy-plugins/_transformations/posthog-filter-out-plugin/template'
 import { template as defaultTemplate } from '../../../src/cdp/templates/_transformations/default/default.template'
@@ -32,14 +28,14 @@ jest.mock('../../utils/status', () => ({
 
 const createPluginEvent = (event: Partial<PluginEvent> = {}, teamId: number = 1): PluginEvent => {
     return {
-        ip: '89.160.20.129',
+        ip: '12.87.118.0',
         site_url: 'http://localhost',
         team_id: teamId,
         now: '2024-06-07T12:00:00.000Z',
         uuid: 'event-id',
         event: 'event-name',
         distinct_id: 'distinct-id',
-        properties: { $current_url: 'https://example.com', $ip: '89.160.20.129' },
+        properties: { $current_url: 'https://example.com', $ip: '12.87.118.0' },
         timestamp: '2024-01-01T00:00:00Z',
         ...event,
     }
@@ -49,8 +45,6 @@ describe('HogTransformer', () => {
     let hub: Hub
     let hogTransformer: HogTransformerService
     let teamId: number
-
-    const mmdbBrotliContents = readFileSync(join(__dirname, '../../../tests/assets/GeoLite2-City-Test.mmdb.br'))
 
     beforeEach(async () => {
         hub = await createHub()
@@ -63,7 +57,6 @@ describe('HogTransformer', () => {
         const team = await getFirstTeam(hub)
         teamId = team.id
 
-        hub.mmdb = Reader.openBuffer(brotliDecompressSync(mmdbBrotliContents))
         hogTransformer = new HogTransformerService(hub)
         await hogTransformer.start()
     })
@@ -100,51 +93,52 @@ describe('HogTransformer', () => {
             expect(result.event?.properties).toMatchInlineSnapshot(`
                 {
                   "$current_url": "https://example.com",
-                  "$geoip_accuracy_radius": 76,
-                  "$geoip_city_name": "Linköping",
-                  "$geoip_continent_code": "EU",
-                  "$geoip_continent_name": "Europe",
-                  "$geoip_country_code": "SE",
-                  "$geoip_country_name": "Sweden",
-                  "$geoip_latitude": 58.4167,
-                  "$geoip_longitude": 15.6167,
-                  "$geoip_subdivision_1_code": "E",
-                  "$geoip_subdivision_1_name": "Östergötland County",
-                  "$geoip_time_zone": "Europe/Stockholm",
-                  "$ip": "89.160.20.129",
+                  "$geoip_accuracy_radius": 20,
+                  "$geoip_city_name": "Cleveland",
+                  "$geoip_continent_code": "NA",
+                  "$geoip_continent_name": "North America",
+                  "$geoip_country_code": "US",
+                  "$geoip_country_name": "United States",
+                  "$geoip_latitude": 41.5,
+                  "$geoip_longitude": -81.6938,
+                  "$geoip_postal_code": "44192",
+                  "$geoip_subdivision_1_code": "OH",
+                  "$geoip_subdivision_1_name": "Ohio",
+                  "$geoip_time_zone": "America/New_York",
+                  "$ip": "12.87.118.0",
                   "$set": {
-                    "$geoip_accuracy_radius": 76,
+                    "$geoip_accuracy_radius": 20,
                     "$geoip_city_confidence": null,
-                    "$geoip_city_name": "Linköping",
-                    "$geoip_continent_code": "EU",
-                    "$geoip_continent_name": "Europe",
-                    "$geoip_country_code": "SE",
-                    "$geoip_country_name": "Sweden",
-                    "$geoip_latitude": 58.4167,
-                    "$geoip_longitude": 15.6167,
-                    "$geoip_postal_code": null,
-                    "$geoip_subdivision_1_code": "E",
-                    "$geoip_subdivision_1_name": "Östergötland County",
+                    "$geoip_city_name": "Cleveland",
+                    "$geoip_continent_code": "NA",
+                    "$geoip_continent_name": "North America",
+                    "$geoip_country_code": "US",
+                    "$geoip_country_name": "United States",
+                    "$geoip_latitude": 41.5,
+                    "$geoip_longitude": -81.6938,
+                    "$geoip_postal_code": "44192",
+                    "$geoip_subdivision_1_code": "OH",
+                    "$geoip_subdivision_1_name": "Ohio",
                     "$geoip_subdivision_2_code": null,
                     "$geoip_subdivision_2_name": null,
-                    "$geoip_time_zone": "Europe/Stockholm",
+                    "$geoip_time_zone": "America/New_York",
                   },
                   "$set_once": {
-                    "$initial_geoip_accuracy_radius": 76,
+                    "$initial_geoip_accuracy_radius": 20,
                     "$initial_geoip_city_confidence": null,
-                    "$initial_geoip_city_name": "Linköping",
-                    "$initial_geoip_continent_code": "EU",
-                    "$initial_geoip_continent_name": "Europe",
-                    "$initial_geoip_country_code": "SE",
-                    "$initial_geoip_country_name": "Sweden",
-                    "$initial_geoip_latitude": 58.4167,
-                    "$initial_geoip_longitude": 15.6167,
-                    "$initial_geoip_postal_code": null,
-                    "$initial_geoip_subdivision_1_code": "E",
-                    "$initial_geoip_subdivision_1_name": "Östergötland County",
+                    "$initial_geoip_city_name": "Cleveland",
+                    "$initial_geoip_continent_code": "NA",
+                    "$initial_geoip_continent_name": "North America",
+                    "$initial_geoip_country_code": "US",
+                    "$initial_geoip_country_name": "United States",
+                    "$initial_geoip_latitude": 41.5,
+                    "$initial_geoip_longitude": -81.6938,
+                    "$initial_geoip_postal_code": "44192",
+                    "$initial_geoip_subdivision_1_code": "OH",
+                    "$initial_geoip_subdivision_1_name": "Ohio",
                     "$initial_geoip_subdivision_2_code": null,
                     "$initial_geoip_subdivision_2_name": null,
-                    "$initial_geoip_time_zone": "Europe/Stockholm",
+                    "$initial_geoip_time_zone": "America/New_York",
                   },
                   "$transformations_failed": [],
                   "$transformations_succeeded": [
@@ -185,11 +179,11 @@ describe('HogTransformer', () => {
                 {
                   "distinct_id": "modified-distinct-id",
                   "event": "modified-event",
-                  "ip": "89.160.20.129",
+                  "ip": "12.87.118.0",
                   "now": "2024-06-07T12:00:00.000Z",
                   "properties": {
                     "$current_url": "https://example.com",
-                    "$ip": "89.160.20.129",
+                    "$ip": "12.87.118.0",
                     "$transformations_failed": [],
                     "$transformations_succeeded": [
                       "Modifier (d77e792e-0f35-431b-a983-097534aa4767)",
@@ -667,11 +661,11 @@ describe('HogTransformer', () => {
                 {
                   "distinct_id": "distinct-id",
                   "event": "keep-me",
-                  "ip": "89.160.20.129",
+                  "ip": "12.87.118.0",
                   "now": "2024-06-07T12:00:00.000Z",
                   "properties": {
                     "$current_url": "https://example.com",
-                    "$ip": "89.160.20.129",
+                    "$ip": "12.87.118.0",
                     "$transformations_failed": [],
                     "$transformations_succeeded": [
                       "Filter Out Plugin (c342e9ae-9f76-4379-a465-d33b4826bc05)",
@@ -729,47 +723,48 @@ describe('HogTransformer', () => {
                   "now": "2024-06-07T12:00:00.000Z",
                   "properties": {
                     "$current_url": "https://example.com",
-                    "$geoip_accuracy_radius": 76,
-                    "$geoip_city_name": "Linköping",
-                    "$geoip_continent_code": "EU",
-                    "$geoip_continent_name": "Europe",
-                    "$geoip_country_name": "Sweden",
-                    "$geoip_subdivision_1_code": "E",
-                    "$geoip_subdivision_1_name": "Östergötland County",
-                    "$geoip_time_zone": "Europe/Stockholm",
+                    "$geoip_accuracy_radius": 20,
+                    "$geoip_city_name": "Cleveland",
+                    "$geoip_continent_code": "NA",
+                    "$geoip_continent_name": "North America",
+                    "$geoip_country_name": "United States",
+                    "$geoip_postal_code": "44192",
+                    "$geoip_subdivision_1_code": "OH",
+                    "$geoip_subdivision_1_name": "Ohio",
+                    "$geoip_time_zone": "America/New_York",
                     "$set": {
-                      "$geoip_accuracy_radius": 76,
+                      "$geoip_accuracy_radius": 20,
                       "$geoip_city_confidence": null,
-                      "$geoip_city_name": "Linköping",
-                      "$geoip_continent_code": "EU",
-                      "$geoip_continent_name": "Europe",
-                      "$geoip_country_code": "SE",
-                      "$geoip_country_name": "Sweden",
-                      "$geoip_latitude": 58.4167,
-                      "$geoip_longitude": 15.6167,
-                      "$geoip_postal_code": null,
-                      "$geoip_subdivision_1_code": "E",
-                      "$geoip_subdivision_1_name": "Östergötland County",
+                      "$geoip_city_name": "Cleveland",
+                      "$geoip_continent_code": "NA",
+                      "$geoip_continent_name": "North America",
+                      "$geoip_country_code": "US",
+                      "$geoip_country_name": "United States",
+                      "$geoip_latitude": 41.5,
+                      "$geoip_longitude": -81.6938,
+                      "$geoip_postal_code": "44192",
+                      "$geoip_subdivision_1_code": "OH",
+                      "$geoip_subdivision_1_name": "Ohio",
                       "$geoip_subdivision_2_code": null,
                       "$geoip_subdivision_2_name": null,
-                      "$geoip_time_zone": "Europe/Stockholm",
+                      "$geoip_time_zone": "America/New_York",
                     },
                     "$set_once": {
-                      "$initial_geoip_accuracy_radius": 76,
+                      "$initial_geoip_accuracy_radius": 20,
                       "$initial_geoip_city_confidence": null,
-                      "$initial_geoip_city_name": "Linköping",
-                      "$initial_geoip_continent_code": "EU",
-                      "$initial_geoip_continent_name": "Europe",
-                      "$initial_geoip_country_code": "SE",
-                      "$initial_geoip_country_name": "Sweden",
-                      "$initial_geoip_latitude": 58.4167,
-                      "$initial_geoip_longitude": 15.6167,
-                      "$initial_geoip_postal_code": null,
-                      "$initial_geoip_subdivision_1_code": "E",
-                      "$initial_geoip_subdivision_1_name": "Östergötland County",
+                      "$initial_geoip_city_name": "Cleveland",
+                      "$initial_geoip_continent_code": "NA",
+                      "$initial_geoip_continent_name": "North America",
+                      "$initial_geoip_country_code": "US",
+                      "$initial_geoip_country_name": "United States",
+                      "$initial_geoip_latitude": 41.5,
+                      "$initial_geoip_longitude": -81.6938,
+                      "$initial_geoip_postal_code": "44192",
+                      "$initial_geoip_subdivision_1_code": "OH",
+                      "$initial_geoip_subdivision_1_name": "Ohio",
                       "$initial_geoip_subdivision_2_code": null,
                       "$initial_geoip_subdivision_2_name": null,
-                      "$initial_geoip_time_zone": "Europe/Stockholm",
+                      "$initial_geoip_time_zone": "America/New_York",
                     },
                     "$transformations_failed": [],
                     "$transformations_succeeded": [

@@ -1,7 +1,7 @@
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
-from posthog.schema import DashboardFilter, NodeKind
+from posthog.schema import DashboardFilter, HogQLVariable, NodeKind
 from typing import Any
 
 WRAPPER_NODE_KINDS = [NodeKind.DATA_TABLE_NODE, NodeKind.DATA_VISUALIZATION_NODE, NodeKind.INSIGHT_VIZ_NODE]
@@ -88,13 +88,14 @@ def apply_dashboard_variables(query: Any, variables_overrides: dict[str, dict], 
 
         updated_variables = query_variables.copy()
         for variable_id, overriden_hogql_variable in variables_overrides.items():
-            query_variable = updated_variables.get(variable_id)
+            query_variable: HogQLVariable = updated_variables.get(variable_id)
+
             if query_variable:
-                updated_variables[variable_id] = {
-                    "variableId": variable_id,
-                    "code_name": query_variable["code_name"],
-                    "value": overriden_hogql_variable.get("value"),
-                }
+                updated_variables[variable_id] = HogQLVariable(
+                    variableId=variable_id,
+                    code_name=query_variable.code_name,
+                    value=overriden_hogql_variable.get("value"),
+                )
 
         return query.model_copy(update={"variables": updated_variables})
 

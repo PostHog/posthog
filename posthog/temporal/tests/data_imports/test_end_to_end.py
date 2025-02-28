@@ -6,6 +6,7 @@ from unittest import mock
 
 import aioboto3
 from deltalake import DeltaTable
+import deltalake
 import posthoganalytics
 import psycopg
 import pytest
@@ -38,6 +39,7 @@ from posthog.schema import (
 )
 from posthog.temporal.data_imports import ACTIVITIES
 from posthog.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
+from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 from posthog.warehouse.models import (
     ExternalDataJob,
@@ -110,6 +112,7 @@ async def _run(
     sync_type: Optional[ExternalDataSchema.SyncType] = None,
     sync_type_config: Optional[dict] = None,
     billable: Optional[bool] = None,
+    ignore_assertions: Optional[bool] = False,
 ):
     source = await sync_to_async(ExternalDataSource.objects.create)(
         source_id=uuid.uuid4(),
@@ -142,27 +145,28 @@ async def _run(
     ) as mock_trigger_compaction_job:
         await _execute_run(workflow_id, inputs, mock_data_response)
 
-    run: ExternalDataJob = await get_latest_run_if_exists(team_id=team.pk, pipeline_id=source.pk)
+    if not ignore_assertions:
+        run: ExternalDataJob = await get_latest_run_if_exists(team_id=team.pk, pipeline_id=source.pk)
 
-    assert run is not None
-    assert run.status == ExternalDataJob.Status.COMPLETED
+        assert run is not None
+        assert run.status == ExternalDataJob.Status.COMPLETED
 
-    mock_trigger_compaction_job.assert_called()
+        mock_trigger_compaction_job.assert_called()
 
-    await sync_to_async(schema.refresh_from_db)()
+        await sync_to_async(schema.refresh_from_db)()
 
-    assert schema.last_synced_at == run.created_at
+        assert schema.last_synced_at == run.created_at
 
-    res = await sync_to_async(execute_hogql_query)(f"SELECT * FROM {table_name}", team)
-    assert len(res.results) == 1
+        res = await sync_to_async(execute_hogql_query)(f"SELECT * FROM {table_name}", team)
+        assert len(res.results) == 1
 
-    for name, field in external_tables.get(table_name, {}).items():
-        if field.hidden:
-            continue
-        assert name in (res.columns or [])
+        for name, field in external_tables.get(table_name, {}).items():
+            if field.hidden:
+                continue
+            assert name in (res.columns or [])
 
-    await sync_to_async(schema.refresh_from_db)()
-    assert schema.sync_type_config.get("reset_pipeline", None) is None
+        await sync_to_async(schema.refresh_from_db)()
+        assert schema.sync_type_config.get("reset_pipeline", None) is None
 
     return workflow_id, inputs
 
@@ -1256,3 +1260,152 @@ async def test_billable_job(team, stripe_balance_transaction):
 
     run: ExternalDataJob = await get_latest_run_if_exists(team_id=team.pk, pipeline_id=inputs.external_data_source_id)
     assert run.billable is False
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_delta_no_merging_on_first_sync(team, postgres_config, postgres_connection):
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.test_table (id integer)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.test_table (id) VALUES (1)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.test_table (id) VALUES (2)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.commit()
+
+    with (
+        mock.patch("posthog.temporal.data_imports.pipelines.postgres.postgres.DEFAULT_CHUNK_SIZE", 1),
+        mock.patch.object(DeltaTable, "merge") as mock_merge,
+        mock.patch.object(deltalake, "write_deltalake") as mock_write,
+        mock.patch.object(PipelineNonDLT, "_post_run_operations") as mock_post_run_operations,
+    ):
+        await _run(
+            team=team,
+            schema_name="test_table",
+            table_name="postgres_test_table",
+            source_type="Postgres",
+            job_inputs={
+                "host": postgres_config["host"],
+                "port": postgres_config["port"],
+                "database": postgres_config["database"],
+                "user": postgres_config["user"],
+                "password": postgres_config["password"],
+                "schema": postgres_config["schema"],
+                "ssh_tunnel_enabled": "False",
+            },
+            mock_data_response=[],
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={"incremental_field": "id", "incremental_field_type": "integer"},
+            ignore_assertions=True,
+        )
+
+    mock_post_run_operations.assert_called_once()
+
+    mock_merge.assert_not_called()
+    assert mock_write.call_count == 2
+
+    first_call_args, first_call_kwargs = mock_write.call_args_list[0]
+    second_call_args, second_call_kwargs = mock_write.call_args_list[1]
+
+    # The first call should be an append
+    assert first_call_kwargs == {
+        "mode": "overwrite",
+        "schema_mode": "overwrite",
+        "table_or_uri": mock.ANY,
+        "data": mock.ANY,
+        "partition_by": None,
+        "engine": "rust",
+    }
+
+    # The last call should be an append
+    assert second_call_kwargs == {
+        "mode": "append",
+        "schema_mode": "merge",
+        "table_or_uri": mock.ANY,
+        "data": mock.ANY,
+        "partition_by": None,
+        "engine": "rust",
+    }
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_delta_no_merging_on_first_sync_after_reset(team, postgres_config, postgres_connection):
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.test_table (id integer)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.test_table (id) VALUES (1)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.test_table (id) VALUES (2)".format(schema=postgres_config["schema"])
+    )
+    await postgres_connection.commit()
+
+    workflow_id, inputs = await _run(
+        team=team,
+        schema_name="test_table",
+        table_name="postgres_test_table",
+        source_type="Postgres",
+        job_inputs={
+            "host": postgres_config["host"],
+            "port": postgres_config["port"],
+            "database": postgres_config["database"],
+            "user": postgres_config["user"],
+            "password": postgres_config["password"],
+            "schema": postgres_config["schema"],
+            "ssh_tunnel_enabled": "False",
+        },
+        mock_data_response=[],
+        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type_config={"incremental_field": "id", "incremental_field_type": "integer"},
+        ignore_assertions=True,
+    )
+
+    with (
+        mock.patch("posthog.temporal.data_imports.pipelines.postgres.postgres.DEFAULT_CHUNK_SIZE", 1),
+        mock.patch.object(DeltaTable, "merge") as mock_merge,
+        mock.patch.object(deltalake, "write_deltalake") as mock_write,
+        mock.patch.object(PipelineNonDLT, "_post_run_operations") as mock_post_run_operations,
+    ):
+        await _execute_run(
+            str(uuid.uuid4()),
+            ExternalDataWorkflowInputs(
+                team_id=inputs.team_id,
+                external_data_source_id=inputs.external_data_source_id,
+                external_data_schema_id=inputs.external_data_schema_id,
+                reset_pipeline=True,
+            ),
+            [],
+        )
+
+    mock_post_run_operations.assert_called_once()
+
+    mock_merge.assert_not_called()
+    assert mock_write.call_count == 2
+
+    first_call_args, first_call_kwargs = mock_write.call_args_list[0]
+    second_call_args, second_call_kwargs = mock_write.call_args_list[1]
+
+    # The first call should be an overwrite
+    assert first_call_kwargs == {
+        "mode": "overwrite",
+        "schema_mode": "overwrite",
+        "table_or_uri": mock.ANY,
+        "data": mock.ANY,
+        "partition_by": None,
+        "engine": "rust",
+    }
+
+    # The subsequent call should be an append
+    assert second_call_kwargs == {
+        "mode": "append",
+        "schema_mode": "merge",
+        "table_or_uri": mock.ANY,
+        "data": mock.ANY,
+        "partition_by": None,
+        "engine": "rust",
+    }
