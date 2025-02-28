@@ -387,10 +387,6 @@ export interface Hub extends PluginsServerConfig {
 export interface PluginServerCapabilities {
     // Warning: when adding more entries, make sure to update worker/vm/capabilities.ts
     // and the shouldSetupPluginInServer() test accordingly.
-    ingestion?: boolean
-    ingestionOverflow?: boolean
-    ingestionHistorical?: boolean
-    eventsIngestionPipelines?: boolean
     ingestionV2Combined?: boolean
     ingestionV2?: boolean
     pluginScheduledTasks?: boolean

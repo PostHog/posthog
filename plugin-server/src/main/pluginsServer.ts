@@ -320,58 +320,6 @@ export async function startPluginsServer(
             }
 
             // Below are all legacy consumers that will be replaced by the new ingestion consumer that covers all cases
-
-            if (capabilities.ingestion) {
-                const hub = await setupHub()
-                piscina = piscina ?? (await makePiscina(serverConfig, hub))
-                services.push(
-                    await startAnalyticsEventsIngestionConsumer({
-                        hub: hub,
-                    })
-                )
-            }
-
-            if (capabilities.ingestionHistorical) {
-                const hub = await setupHub()
-                piscina = piscina ?? (await makePiscina(serverConfig, hub))
-                services.push(
-                    await startAnalyticsEventsIngestionHistoricalConsumer({
-                        hub: hub,
-                    })
-                )
-            }
-
-            if (capabilities.eventsIngestionPipelines) {
-                const pipelinesToRun =
-                    serverConfig.PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE === null
-                        ? Object.keys(PIPELINES)
-                        : [serverConfig.PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE]
-
-                for (const pipelineKey of pipelinesToRun) {
-                    if (pipelineKey === null || !PIPELINES[pipelineKey]) {
-                        throw new Error(`Invalid events ingestion pipeline: ${pipelineKey}`)
-                    }
-
-                    const hub = await setupHub()
-                    piscina = piscina ?? (await makePiscina(serverConfig, hub))
-                    services.push(
-                        await startEventsIngestionPipelineConsumer({
-                            hub: hub,
-                            pipelineKey: pipelineKey,
-                        })
-                    )
-                }
-            }
-
-            if (capabilities.ingestionOverflow) {
-                const hub = await setupHub()
-                piscina = piscina ?? (await makePiscina(serverConfig, hub))
-                services.push(
-                    await startAnalyticsEventsIngestionOverflowConsumer({
-                        hub: hub,
-                    })
-                )
-            }
         }
 
         if (capabilities.processAsyncOnEventHandlers) {
