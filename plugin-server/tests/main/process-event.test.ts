@@ -35,7 +35,7 @@ import { createUserTeamAndOrganization, getFirstTeam, getTeams, resetTestDatabas
 
 jest.mock('../../src/utils/status')
 jest.setTimeout(600000) // 600 sec timeout.
-jest.mock('../../../src/utils/posthog', () => ({
+jest.mock('../../src/utils/posthog', () => ({
     captureTeamEvent: jest.fn(),
 }))
 
