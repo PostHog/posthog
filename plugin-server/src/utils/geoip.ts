@@ -22,25 +22,28 @@ type MmdbMetadata = {
 }
 
 export class GeoIPService {
-    private _initialMmdbPromise?: Promise<void>
+    private _initialMmdbPromise?: Promise<any>
     private _mmdb?: ReaderModel
     private _mmdbMetadata?: MmdbMetadata
 
     constructor(private config: PluginsServerConfig) {
         status.info('🌎', 'GeoIPService created')
-
-        schedule.scheduleJob('0 */4 * * *', async () => await this.backgroundRefreshMmdb())
+        // NOTE: We typically clean these up in a shutdown task but this isn't necessary anymore as the server shutdown cancels all scheduled jobs
+        // We should rely on that instead
+        schedule.scheduleJob('0 * * * *', async () => await this.backgroundRefreshMmdb())
     }
 
     private ensureMmdbLoaded() {
         // This is a lazy getter. If we don't have mmdb or the loading promise then we need to load it
         if (!this._initialMmdbPromise) {
-            this._initialMmdbPromise = Promise.all([this.loadMmdb(), this.loadMmdbMetadata()]).then(
-                ([mmdb, metadata]) => {
+            this._initialMmdbPromise = this.loadMmdb()
+                .then((mmdb) => {
                     this._mmdb = mmdb
+                    return this.loadMmdbMetadata()
+                })
+                .then((metadata) => {
                     this._mmdbMetadata = metadata
-                }
-            )
+                })
         }
 
         return this._initialMmdbPromise
@@ -66,6 +69,10 @@ export class GeoIPService {
         try {
             return JSON.parse(await fs.readFile(this.config.MMDB_FILE_LOCATION.replace('.mmdb', '.json'), 'utf8'))
         } catch (e) {
+            status.warn('🌎', 'Error loading MMDB metadata', {
+                error: e.message,
+                location: this.config.MMDB_FILE_LOCATION,
+            })
             // NOTE: For self hosted instances this may fail as it is just using the bundled file so we just ignore the refreshing
             return undefined
         }
