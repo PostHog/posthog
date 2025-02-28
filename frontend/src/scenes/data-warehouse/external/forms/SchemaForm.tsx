@@ -55,7 +55,7 @@ export default function SchemaForm(): JSX.Element {
                             {
                                 title: (
                                     <div className="flex items-center gap-2">
-                                        <span>Sync Time of Day</span>
+                                        <span>First Sync Time</span>
                                         <div className="flex items-center gap-1">
                                             <span>UTC</span>
                                             <LemonSwitch checked={isLocalTime} onChange={setIsLocalTime} />
