@@ -391,9 +391,8 @@ impl From<PropDefRow> for PropertyDefinition {
         let mut updated_by: Option<User> = None;
         if row.ub_id.is_some() {
             let mut hcfg: Option<HedgehogConfig> = None;
-            if row.ub_hedgehog_config.is_some() {
-                let raw = row.ub_hedgehog_config.unwrap();
-                hcfg = serde_json::from_str(&raw).unwrap_or(None);
+            if let Some(raw_hcfg) = &row.ub_hedgehog_config {
+                hcfg = serde_json::from_str(raw_hcfg).ok();
             }
 
             let ub = User {
@@ -413,9 +412,8 @@ impl From<PropDefRow> for PropertyDefinition {
         let mut verified_by: Option<User> = None;
         if row.vb_id.is_some() {
             let mut hcfg: Option<HedgehogConfig> = None;
-            if row.vb_hedgehog_config.is_some() {
-                let raw = row.vb_hedgehog_config.unwrap();
-                hcfg = serde_json::from_str(&raw).unwrap_or(None);
+            if let Some(raw_hcfg) = &row.vb_hedgehog_config {
+                hcfg = serde_json::from_str(raw_hcfg).ok();
             }
 
             let vb = User {
