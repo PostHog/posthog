@@ -23,16 +23,16 @@ export class GeoIPService {
 
     private getMmdb() {
         if (!this._mmdbPromise) {
-            status.info('🌎', 'Loading MMDB', {
+            status.info('🌎', 'Loading MMDB from disk...', {
                 location: this.config.MMDB_FILE_LOCATION,
             })
             this._mmdbPromise = Reader.open(this.config.MMDB_FILE_LOCATION)
                 .then((mmdb) => {
-                    status.info('🌎', 'Loaded MMDB succeeded')
+                    status.info('🌎', 'Loading MMDB from disk succeeded!')
                     return mmdb
                 })
                 .catch((e) => {
-                    status.warn('🌎', 'Loaded MMDB failed', {
+                    status.warn('🌎', 'Loading MMDB from disk failed!', {
                         location: this.config.MMDB_FILE_LOCATION,
                         error: e.message,
                     })
