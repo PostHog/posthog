@@ -14,7 +14,7 @@ import {
     PluginsServerConfig,
     TimestampFormat,
 } from '../types'
-import { captureException } from './exceptions'
+import { captureException } from './posthog'
 import { status } from './status'
 
 /** Time until autoexit (due to error) gives up on graceful exit and kills the process right away. */
