@@ -20,22 +20,26 @@ const columns: LemonTableColumns<LiveEvent> = [
         key: 'event',
         className: 'max-w-80',
         render: function Render(_, event: LiveEvent) {
-            const searchUrl = urls.activity(ActivityTab.ExploreEvents) + `?q=${encodeURIComponent(JSON.stringify({
-                kind: 'DataTableNode',
-                full: true,
-                source: {
-                    kind: 'EventsQuery',
-                    properties: [
-                        {
-                            key: '$event_uuid',
-                            operator: PropertyOperator.Exact,
-                            type: 'event',
-                            value: event.uuid
-                        }
-                    ]
-                },
-                propertiesViaUrl: true
-            }))}`
+            const searchUrl =
+                urls.activity(ActivityTab.ExploreEvents) +
+                `?q=${encodeURIComponent(
+                    JSON.stringify({
+                        kind: 'DataTableNode',
+                        full: true,
+                        source: {
+                            kind: 'EventsQuery',
+                            properties: [
+                                {
+                                    key: '$event_uuid',
+                                    operator: PropertyOperator.Exact,
+                                    type: 'event',
+                                    value: event.uuid,
+                                },
+                            ],
+                        },
+                        propertiesViaUrl: true,
+                    })
+                )}`
             return (
                 <Link to={searchUrl}>
                     <PropertyKeyInfo value={event.event} type={TaxonomicFilterGroupType.Events} />
