@@ -22,7 +22,7 @@ type MmdbMetadata = {
 }
 
 export class GeoIPService {
-    private _initialMmdbPromise?: Promise<any>
+    private _initialMmdbPromise?: Promise<void>
     private _mmdb?: ReaderModel
     private _mmdbMetadata?: MmdbMetadata
 
