@@ -300,7 +300,7 @@ function RunsFilters({ id }: { id: string }): JSX.Element {
                         formKey="configuration"
                         className="space-y-3"
                     >
-                        <HogFunctionFilters />
+                        <HogFunctionFilters embedded={true} />
                     </Form>
                 }
             >
