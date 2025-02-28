@@ -1915,49 +1915,6 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             timestamp=datetime(2023, 1, 3),
         )
 
-        # "user_test_3" first exposure (feature_flag_property="control") is on 2023-01-03
-        # "user_test_3" relevant exposure (feature_flag_property="test") is on 2023-01-04
-        # "user_test_3" other event (feature_flag_property="control" is on 2023-01-05
-        # "user_test_3" purchase is on 2023-01-06
-        # "user_test_3" second exposure (feature_flag_property="control") is on 2023-01-09
-        # "user_test_3" should fall into the "test" variant, not the "control" variant
-        # _create_event(
-        #     team=self.team,
-        #     event="$feature_flag_called",
-        #     distinct_id="distinct_test_3",
-        #     properties={
-        #         "$feature_flag_response": "control",
-        #         feature_flag_property: "control",
-        #         "$feature_flag": feature_flag.key,
-        #         "$user_id": "user_test_3",
-        #     },
-        #     timestamp=datetime(2023, 1, 3),
-        # )
-        # _create_event(
-        #     team=self.team,
-        #     event="Some other event",
-        #     distinct_id="distinct_test_3",
-        #     properties={
-        #         "$feature_flag_response": "control",
-        #         feature_flag_property: "control",
-        #         "$feature_flag": feature_flag.key,
-        #         "$user_id": "user_test_3",
-        #     },
-        #     timestamp=datetime(2023, 1, 5),
-        # )
-        # _create_event(
-        #     team=self.team,
-        #     event="$feature_flag_called",
-        #     distinct_id="distinct_test_3",
-        #     properties={
-        #         "$feature_flag_response": "control",
-        #         feature_flag_property: "control",
-        #         "$feature_flag": feature_flag.key,
-        #         "$user_id": "user_test_3",
-        #     },
-        #     timestamp=datetime(2023, 1, 9),
-        # )
-
         flush_persons_and_events()
 
         if name == "cohort_static" and cohort:
