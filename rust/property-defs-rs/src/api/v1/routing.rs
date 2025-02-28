@@ -16,6 +16,7 @@ use axum::{
     Json, Router,
 };
 use chrono::{DateTime, Utc};
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use sqlx::{Execute, Executor, FromRow, Postgres, QueryBuilder, Row};
 use tracing::debug;
@@ -112,11 +113,13 @@ fn parse_request(params: HashMap<String, String>) -> Params {
     // search terms: optional - each term is a fragment that will be
     // fuzzy-searched in Postgres against the specified search fields
     // DIVERGES FROM DJANGO API: the new Rust API will accept lists as space-separated query param values
+    let search_terms_filter = Regex::new(r"^[ a-z0-9$_]+$").unwrap();
     let search_terms: Vec<String> = params
         .get("search")
+        .filter(|s| search_terms_filter.is_match(s))
         .map(|raw| {
             raw.split(" ")
-                .map(|s| s.trim().to_string().to_lowercase())
+                .map(|s| s.trim().to_lowercase().to_string())
                 .collect()
         })
         .unwrap_or_default();
@@ -124,17 +127,20 @@ fn parse_request(params: HashMap<String, String>) -> Params {
     // which columns should we fuzzy-search for each of the user-supplied search terms?
     // defaults to "posthog_propertydefinition.name" column, but user can supply more
     // DIVERGES FROM DJANGO API: the new Rust API will accept lists as space-separated query param values
-    let search_fields: HashSet<String> = HashSet::from([
-        "name".to_string(), // this is the default value, always include it
-        params
-            .get("search_fields")
-            .map(|raw| {
-                raw.split(" ")
-                    .map(|s| s.trim().to_string().to_lowercase())
-                    .collect()
-            })
-            .unwrap_or_default(),
-    ]);
+    let mut search_fields: HashSet<String> = HashSet::from(["name".to_string()]);
+    let sf_overrides: Vec<String> = params
+        .get("search_fields")
+        .map(|raw| {
+            raw.split(" ")
+                .map(|s| s.trim().to_lowercase().to_string())
+                .collect()
+        })
+        .unwrap_or_default();
+    for field in sf_overrides {
+        if !field.is_empty() {
+            search_fields.insert(field);
+        }
+    }
 
     // which category of properties do we filter for? default is "event"
     let parent_type = params
@@ -344,7 +350,7 @@ struct PropDefRow {
     ub_last_name: Option<String>,
     ub_email: Option<String>,
     ub_is_email_verified: Option<bool>,
-    ub_hedgehog_config: Option<String>, // JSON value; TODO: hydrate this for resp
+    ub_hedgehog_config: Option<String>, // JSON value, hydrate into response struct
     verified: Option<bool>,
     verified_at: Option<DateTime<Utc>>,
     // if present, the "verified_by" posthog_user
@@ -355,7 +361,7 @@ struct PropDefRow {
     vb_last_name: Option<String>,
     vb_email: Option<String>,
     vb_is_email_verified: Option<bool>,
-    vb_hedgehog_config: Option<String>, // JSON value; TODO: hydrate this for resp
+    vb_hedgehog_config: Option<String>, // JSON value, hydrate into response struct
     tags: Option<Vec<String>>,
 }
 

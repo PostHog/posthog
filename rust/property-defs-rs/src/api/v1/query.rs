@@ -442,15 +442,6 @@ impl Manager {
             // Original Django monolith query construction step is here:
             // https://github.com/PostHog/posthog/blob/master/posthog/filters.py#L61-L84
             if !search_fields.is_empty() && !search_terms.is_empty() {
-                /* TODO: I don't think we need this cleansing step in the Rust service as Django does
-                let cleansed_terms: Vec<String> = search
-                    .as_ref()
-                    .unwrap()
-                    .iter()
-                    .map(|s| s.replace("\0", ""))
-                    .collect();
-                */
-
                 // outer loop: one AND clause for every search term supplied by caller.
                 // each of these clauses may be enriched with "search_extras" suffix
                 for (tndx, term) in search_terms.iter().enumerate() {
@@ -464,9 +455,12 @@ impl Manager {
                         if fndx == 0 {
                             qb.push("(");
                         }
-                        qb.push_bind(field.clone());
+                        qb.push(field.clone());
                         qb.push(" ILIKE ");
-                        qb.push_bind(format!("%{}%", term));
+                        // applying terms directly to ensure fuzzy matches are
+                        // in parity with original query. Terms are cleansed
+                        // upstream to ensure this is safe.
+                        qb.push(format!("'%{}%'", term));
                         if search_fields.len() > 1 && fndx < search_fields.len() - 1 {
                             qb.push(" OR ");
                         }

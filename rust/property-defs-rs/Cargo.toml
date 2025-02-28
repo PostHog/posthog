@@ -28,6 +28,7 @@ rand = { workspace = true }
 url =  { workspace = true }
 anyhow = { workspace = true }
 thiserror.workspace = true
+regex = "1.11.1"
 
 [lints]
 workspace = true
