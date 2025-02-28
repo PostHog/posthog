@@ -37,7 +37,7 @@ class UpdatedAction:
 def get_actions_qs(start_dt: datetime, offset: int | None = None, batch_size: int | None = None):
     actions_to_summarize = Action.objects.filter(
         (Q(updated_at__gte=F("last_summarized_at")) | Q(last_summarized_at__isnull=True)) & Q(updated_at__lte=start_dt)
-    ).order_by("updated_at", "team_id")
+    ).order_by("id", "team_id", "updated_at")
     if offset is None or batch_size is None:
         return actions_to_summarize
     return actions_to_summarize[offset : offset + batch_size]
@@ -140,7 +140,7 @@ class SyncVectorsInputs:
 
 
 @temporalio.workflow.defn(name="ai-sync-vectors")
-class SyncVectors(PostHogWorkflow):
+class SyncVectorsWorkflow(PostHogWorkflow):
     _updated_actions_by_team: defaultdict[int, set[int]]
 
     def __init__(self):
@@ -176,8 +176,9 @@ class SyncVectors(PostHogWorkflow):
 
         tasks: list[Coroutine[Any, Any, None]] = []
         for team_id, action_ids in self._updated_actions_by_team.items():
-            for batch in range(0, len(action_ids), inputs.sync_batch_size):
-                batch_action_ids = list(action_ids)[batch : batch + inputs.sync_batch_size]
+            sorted_action_ids = sorted(action_ids)  # Deterministic order
+            for batch in range(0, len(sorted_action_ids), inputs.sync_batch_size):
+                batch_action_ids = sorted_action_ids[batch : batch + inputs.sync_batch_size]
                 tasks.append(
                     temporalio.workflow.execute_activity(
                         sync_action_vectors_for_team,

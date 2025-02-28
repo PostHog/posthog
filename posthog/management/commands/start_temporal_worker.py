@@ -4,17 +4,20 @@ import logging
 import structlog
 from temporalio import workflow
 
+from posthog.temporal.schedule import init_general_queue_schedules
+
 with workflow.unsafe.imports_passed_through():
     from django.conf import settings
     from django.core.management.base import BaseCommand
 
 from posthog.constants import (
     BATCH_EXPORTS_TASK_QUEUE,
-    DATA_WAREHOUSE_TASK_QUEUE,
     DATA_WAREHOUSE_COMPACTION_TASK_QUEUE,
+    DATA_WAREHOUSE_TASK_QUEUE,
     GENERAL_PURPOSE_TASK_QUEUE,
     SYNC_BATCH_EXPORTS_TASK_QUEUE,
 )
+from posthog.temporal.ai import ACTIVITIES as AI_ACTIVITIES, WORKFLOWS as AI_WORKFLOWS
 from posthog.temporal.batch_exports import (
     ACTIVITIES as BATCH_EXPORTS_ACTIVITIES,
     WORKFLOWS as BATCH_EXPORTS_WORKFLOWS,
@@ -33,14 +36,14 @@ WORKFLOWS_DICT = {
     BATCH_EXPORTS_TASK_QUEUE: BATCH_EXPORTS_WORKFLOWS,
     DATA_WAREHOUSE_TASK_QUEUE: DATA_SYNC_WORKFLOWS + DATA_MODELING_WORKFLOWS,
     DATA_WAREHOUSE_COMPACTION_TASK_QUEUE: DATA_SYNC_WORKFLOWS + DATA_MODELING_WORKFLOWS,
-    GENERAL_PURPOSE_TASK_QUEUE: PROXY_SERVICE_WORKFLOWS + DELETE_PERSONS_WORKFLOWS,
+    GENERAL_PURPOSE_TASK_QUEUE: PROXY_SERVICE_WORKFLOWS + DELETE_PERSONS_WORKFLOWS + AI_WORKFLOWS,
 }
 ACTIVITIES_DICT = {
     SYNC_BATCH_EXPORTS_TASK_QUEUE: BATCH_EXPORTS_ACTIVITIES,
     BATCH_EXPORTS_TASK_QUEUE: BATCH_EXPORTS_ACTIVITIES,
     DATA_WAREHOUSE_TASK_QUEUE: DATA_SYNC_ACTIVITIES + DATA_MODELING_ACTIVITIES,
     DATA_WAREHOUSE_COMPACTION_TASK_QUEUE: DATA_SYNC_ACTIVITIES + DATA_MODELING_ACTIVITIES,
-    GENERAL_PURPOSE_TASK_QUEUE: PROXY_SERVICE_ACTIVITIES + DELETE_PERSONS_ACTIVITIES,
+    GENERAL_PURPOSE_TASK_QUEUE: PROXY_SERVICE_ACTIVITIES + DELETE_PERSONS_ACTIVITIES + AI_ACTIVITIES,
 }
 
 
@@ -109,6 +112,9 @@ class Command(BaseCommand):
         client_key = options.get("client_key", None)
         max_concurrent_workflow_tasks = options.get("max_concurrent_workflow_tasks", None)
         max_concurrent_activities = options.get("max_concurrent_activities", None)
+
+        if task_queue == GENERAL_PURPOSE_TASK_QUEUE:
+            init_general_queue_schedules()
 
         try:
             workflows = WORKFLOWS_DICT[task_queue]
