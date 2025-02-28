@@ -52,6 +52,10 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                                         percentage={
                                             mean(
                                                 tableRows.map((row) => {
+                                                    if (columnIndex >= row.length) {
+                                                        return null
+                                                    }
+
                                                     // Stop before the last item in a row, which is an incomplete time period
                                                     if (
                                                         (columnIndex >= row.length - 1 &&
