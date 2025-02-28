@@ -375,16 +375,6 @@ export const surveyLogic = kea<surveyLogicType>([
 
                 const answerFilter = createAnswerFilterHogQLExpression(values.answerFilters, survey)
 
-                const filters = [
-                    `AND properties['$survey_id'] = '${props.id}'`,
-                    `AND timestamp >= ${startDate}`,
-                    `AND timestamp <= ${endDate}`,
-                ]
-
-                if (answerFilter !== '') {
-                    filters.push(answerFilter)
-                }
-
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
                     query: hogql`
@@ -392,17 +382,26 @@ export const surveyLogic = kea<surveyLogicType>([
                             (SELECT COUNT(DISTINCT person_id)
                                 FROM events
                                 WHERE event = 'survey shown'
-                                    ${filters.join('\n')}
+                                    AND properties.$survey_id = ${props.id}
+                                    AND timestamp >= ${startDate}
+                                    AND timestamp <= ${endDate}
+                                    ${answerFilter !== '' && answerFilter}
                                     AND {filters}),
-                            (SELECT COUNT(DISTINCT person_id)
-                                FROM events
-                                WHERE event = 'survey dismissed'
-                                    ${filters.join('\n')}
+                                    (SELECT COUNT(DISTINCT person_id)
+                                    FROM events
+                                    WHERE event = 'survey dismissed'
+                                    AND properties.$survey_id = ${props.id}
+                                    AND timestamp >= ${startDate}
+                                    AND timestamp <= ${endDate}
+                                    ${answerFilter !== '' && answerFilter}
                                     AND {filters}),
-                            (SELECT COUNT(DISTINCT person_id)
-                                FROM events
-                                WHERE event = 'survey sent'
-                                    ${filters.join('\n')}
+                                    (SELECT COUNT(DISTINCT person_id)
+                                    FROM events
+                                    WHERE event = 'survey sent'
+                                    AND properties.$survey_id = ${props.id}
+                                    AND timestamp >= ${startDate}
+                                    AND timestamp <= ${endDate}
+                                    ${answerFilter !== '' && answerFilter}
                                     AND {filters})
                     `,
                     filters: {
