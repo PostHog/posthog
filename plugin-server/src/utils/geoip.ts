@@ -1,6 +1,6 @@
 import { City, Reader, ReaderModel } from '@maxmind/geoip2-node'
 import fs from 'fs/promises'
-import { DateTime } from 'luxon'
+import * as schedule from 'node-schedule'
 import { Counter } from 'prom-client'
 
 import { Hub, PluginsServerConfig } from '../types'
@@ -16,66 +16,93 @@ export const geoipCompareCounter = new Counter({
     labelNames: ['result'],
 })
 
+// This is the shape of the metadata file that we save to S3 whenever we refresh the MMDB file
+type MmdbMetadata = {
+    date: string
+}
+
 export class GeoIPService {
-    private _mmdbPromise: Promise<ReaderModel> | undefined
-    private _lastRefreshDate: string | undefined
+    private _initialMmdbPromise?: Promise<void>
+    private _mmdb?: ReaderModel
+    private _mmdbMetadata?: MmdbMetadata
 
     constructor(private config: PluginsServerConfig) {
         status.info('🌎', 'GeoIPService created')
+
+        schedule.scheduleJob('0 */4 * * *', async () => await this.backgroundRefreshMmdb())
     }
 
-    private getMmdb() {
-        if (!this._mmdbPromise) {
-            this._mmdbPromise = this.refreshMmdbIfNeeded()
-        }
-
-        return this._mmdbPromise
-    }
-
-    private async refreshMmdbIfNeeded(): Promise<ReaderModel> {
-        status.info('🌎', 'Refreshing MMDB')
-        /**
-         * NOTE: We sync the MMDB files to S3 in posthog-cloud-infra along with a JSON file that contains the date of the last refresh.
-         * That way we can do a cheap check to see if we need to refresh the MMDB file rather than downloading the whole file every time.
-         */
-        try {
-            const metadata: { date: string } = JSON.parse(
-                await fs.readFile(this.config.MMDB_FILE_LOCATION.replace('.mmdb', '.json'), 'utf8')
+    private ensureMmdbLoaded() {
+        // This is a lazy getter. If we don't have mmdb or the loading promise then we need to load it
+        if (!this._initialMmdbPromise) {
+            this._initialMmdbPromise = Promise.all([this.loadMmdb(), this.loadMmdbMetadata()]).then(
+                ([mmdb, metadata]) => {
+                    this._mmdb = mmdb
+                    this._mmdbMetadata = metadata
+                }
             )
-
-            // If the date is different and we have a promise then we can return the promise
-            if (metadata.date === this._lastRefreshDate && this._mmdbPromise) {
-                return this._mmdbPromise
-            }
-
-            // Otherwise we can update the last refresh date and load the new file
-            this._lastRefreshDate = metadata.date
-        } catch (e) {
-            // NOTE: For self hosted instances this may fail as it is just using the bundled file so we just ignore the refreshing
         }
 
+        return this._initialMmdbPromise
+    }
+
+    private async loadMmdb(): Promise<ReaderModel> {
         status.info('🌎', 'Loading MMDB from disk...', {
             location: this.config.MMDB_FILE_LOCATION,
         })
-        return Reader.open(this.config.MMDB_FILE_LOCATION)
-            .then((mmdb) => {
-                status.info('🌎', 'Loading MMDB from disk succeeded!')
-                return mmdb
+
+        try {
+            return await Reader.open(this.config.MMDB_FILE_LOCATION)
+        } catch (e) {
+            status.warn('🌎', 'Loading MMDB from disk failed!', {
+                error: e.message,
+                location: this.config.MMDB_FILE_LOCATION,
             })
-            .catch((e) => {
-                status.warn('🌎', 'Loading MMDB from disk failed!', {
-                    error: e.message,
-                    location: this.config.MMDB_FILE_LOCATION,
-                })
-                throw e
-            })
+            throw e
+        }
     }
+
+    private async loadMmdbMetadata(): Promise<MmdbMetadata | undefined> {
+        try {
+            return JSON.parse(await fs.readFile(this.config.MMDB_FILE_LOCATION.replace('.mmdb', '.json'), 'utf8'))
+        } catch (e) {
+            // NOTE: For self hosted instances this may fail as it is just using the bundled file so we just ignore the refreshing
+            return undefined
+        }
+    }
+
+    /**
+     * This is called every hour to check if we need to refresh the MMDB file.
+     * To reduce load we check the metadata file first
+     */
+    private async backgroundRefreshMmdb(): Promise<void> {
+        if (!this._mmdbMetadata) {
+            status.info(
+                '🌎',
+                'No MMDB metadata found, skipping refresh as this indicates we are not using the S3 MMDB file'
+            )
+            return
+        }
+
+        const metadata = await this.loadMmdbMetadata()
+
+        if (metadata?.date === this._mmdbMetadata.date) {
+            status.debug('🌎', 'MMDB metadata is up to date, skipping refresh')
+            return
+        }
+
+        status.info('🌎', 'Refreshing MMDB from disk (s3)')
+
+        const mmdb = await this.loadMmdb()
+        this._mmdb = mmdb
+        this._mmdbMetadata = metadata
+    }
+
     async get(hub: Hub): Promise<GeoIp> {
         // NOTE: There is a lot of code here just testing that the values are the same as before.
         // Once released we don't need the Hub and can simplify this.
-        let mmdb: ReaderModel | undefined
         try {
-            mmdb = await this.getMmdb()
+            await this.ensureMmdbLoaded()
         } catch (e) {
             if (!this.config.MMDB_COMPARE_MODE) {
                 // If we aren't comparing then we should fail hard
@@ -99,9 +126,7 @@ export class GeoIPService {
                 } catch {}
 
                 try {
-                    if (mmdb) {
-                        newGeoipResult = mmdb.city(ip)
-                    }
+                    newGeoipResult = this._mmdb?.city(ip) ?? null
                 } catch {}
 
                 if (this.config.MMDB_COMPARE_MODE) {
