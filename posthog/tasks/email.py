@@ -133,6 +133,7 @@ def send_member_join(invitee_uuid: str, organization_id: str) -> None:
         subject=f"{invitee.first_name} joined you on PostHog",
         template_name="member_join",
         template_context={"invitee": invitee, "organization": organization},
+        use_http=True,
     )
     # Don't send this email to the new member themselves
     members_to_email = organization.members.exclude(email=invitee.email)
