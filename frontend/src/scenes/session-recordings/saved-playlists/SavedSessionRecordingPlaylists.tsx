@@ -134,7 +134,9 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                                     {recordings_counts.saved_filters?.increased ? <IconArrowUp /> : null}
                                 </span>
                             ) : (
-                                <LemonBadge status="muted" content="?" className="cursor-pointer" />
+                                <span>
+                                    <LemonBadge status="muted" content="?" className="cursor-pointer" />
+                                </span>
                             )}
                         </Tooltip>
                     </div>
