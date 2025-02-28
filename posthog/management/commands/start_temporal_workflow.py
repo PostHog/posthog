@@ -8,7 +8,7 @@ from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
 from posthog.temporal.batch_exports import WORKFLOWS as BATCH_EXPORT_WORKFLOWS
 from posthog.temporal.common.client import connect
-from posthog.temporal.data_imports import WORKFLOWS as DATA_IMPORT_WORKFLOWS
+from posthog.temporal.data_imports.settings import WORKFLOWS as DATA_IMPORT_WORKFLOWS
 from posthog.temporal.delete_persons import WORKFLOWS as DELETE_PERSONS_WORKFLOWS
 from posthog.temporal.proxy_service import WORKFLOWS as PROXY_SERVICE_WORKFLOWS
 

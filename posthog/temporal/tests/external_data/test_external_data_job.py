@@ -6,7 +6,7 @@ import pytest
 from asgiref.sync import sync_to_async
 from django.test import override_settings
 
-from posthog.temporal.data_imports import import_data_activity_sync
+from posthog.temporal.data_imports.settings import import_data_activity_sync
 from posthog.temporal.data_imports.external_data_job import (
     UpdateExternalDataJobStatusInputs,
     create_source_templates,

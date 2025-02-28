@@ -1,4 +1,5 @@
 import decimal
+from unittest.mock import MagicMock
 import uuid
 from ipaddress import IPv4Address, IPv6Address
 
@@ -6,7 +7,12 @@ import pyarrow as pa
 import pytest
 from dateutil import parser
 
-from posthog.temporal.data_imports.pipelines.pipeline.utils import _get_max_decimal_type, table_from_py_list
+from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
+from posthog.temporal.data_imports.pipelines.pipeline.utils import (
+    _get_max_decimal_type,
+    should_partition_table,
+    table_from_py_list,
+)
 
 
 def test_table_from_py_list_uuid():
@@ -269,3 +275,55 @@ def test_table_from_py_list_with_ipv6_address():
             ]
         )
     )
+
+
+def test_should_partition_table_non_incremental_schema():
+    schema = MagicMock()
+    schema.is_incremental = False
+
+    res = should_partition_table(None, schema)
+    assert res is False
+
+
+def test_should_partition_table_no_table():
+    schema = MagicMock()
+    schema.is_incremental = True
+
+    res = should_partition_table(None, schema)
+    assert res is True
+
+
+def test_should_partition_table_with_table_and_no_key():
+    schema = MagicMock()
+    schema.is_incremental = True
+
+    delta_table = MagicMock()
+
+    to_pyarrow_mock = MagicMock()
+    to_pyarrow_mock.names = ["column1", "column2"]
+
+    schema_mock = MagicMock()
+    schema_mock.to_pyarrow = MagicMock(return_value=to_pyarrow_mock)
+
+    delta_table.schema = MagicMock(return_value=schema_mock)
+
+    res = should_partition_table(delta_table, schema)
+    assert res is False
+
+
+def test_should_partition_table_with_table_and_key():
+    schema = MagicMock()
+    schema.is_incremental = True
+
+    delta_table = MagicMock()
+
+    to_pyarrow_mock = MagicMock()
+    to_pyarrow_mock.names = ["column1", "column2", PARTITION_KEY]
+
+    schema_mock = MagicMock()
+    schema_mock.to_pyarrow = MagicMock(return_value=to_pyarrow_mock)
+
+    delta_table.schema = MagicMock(return_value=schema_mock)
+
+    res = should_partition_table(delta_table, schema)
+    assert res is True
