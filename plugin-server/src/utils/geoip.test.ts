@@ -76,15 +76,25 @@ describe('GeoIp', () => {
 
             // Check that the counter and the log was called
             expect(geoipCompareCounter.inc).toHaveBeenCalledWith({ result: 'different' })
-            expect(jest.mocked(status.warn).mock.calls[0]).toMatchInlineSnapshot(`
+            expect(jest.mocked(status.warn).mock.calls).toMatchInlineSnapshot(`
                 [
-                  "🌎",
-                  "New GeoIP result was different",
-                  {
-                    "ip": "12.87.118.0",
-                    "newGeoipResult": undefined,
-                    "oldGeoipResult": "{"geonameId":1234567890}",
-                  },
+                  [
+                    "🌎",
+                    "Loading MMDB from disk failed!",
+                    {
+                      "error": "ENOENT: no such file or directory, open 'non-existent-file.mmdb'",
+                      "location": "non-existent-file.mmdb",
+                    },
+                  ],
+                  [
+                    "🌎",
+                    "New GeoIP result was different",
+                    {
+                      "ip": "12.87.118.0",
+                      "newGeoipResult": undefined,
+                      "oldGeoipResult": "{"geonameId":1234567890}",
+                    },
+                  ],
                 ]
             `)
         })
