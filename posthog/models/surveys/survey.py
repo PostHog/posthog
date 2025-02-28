@@ -1,4 +1,5 @@
 import json
+import uuid
 from datetime import timedelta
 
 from django.db import models
@@ -271,6 +272,20 @@ def update_response_sampling_limits(sender, instance, **kwargs):
 def pre_save_survey(sender, instance, *args, **kwargs):
     update_survey_iterations(sender, instance)
     update_response_sampling_limits(sender, instance)
+    ensure_question_ids(instance)
+
+
+def ensure_question_ids(instance):
+    """
+    Ensures that each question in the survey has a unique ID.
+    If a question doesn't have an ID, a new UUID is generated and assigned.
+    """
+    if not instance.questions:
+        return
+
+    for question in instance.questions:
+        if not question.get("id"):
+            question["id"] = str(uuid.uuid4())
 
 
 def update_survey_iterations(sender, instance, *args, **kwargs):

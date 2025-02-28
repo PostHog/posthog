@@ -206,6 +206,9 @@ export function getDefaultConfig(): PluginsServerConfig {
 
         CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: '',
 
+        // Destination Migration Diffing
+        DESTINATION_MIGRATION_DIFFING_ENABLED: false,
+
         // Cyclotron
         CYCLOTRON_DATABASE_URL: isTestEnv()
             ? 'postgres://posthog:posthog@localhost:5432/test_cyclotron'
