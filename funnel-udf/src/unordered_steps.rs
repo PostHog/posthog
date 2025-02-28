@@ -1,28 +1,8 @@
+use crate::steps::{Args, EnteredTimestamp, Event, Result};
 use crate::PropVal;
-use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
 use std::collections::VecDeque;
 use std::iter::repeat;
 use uuid::Uuid;
-
-#[derive(Clone, Deserialize)]
-struct EnteredTimestamp {
-    timestamp: f64,
-    excluded: bool,
-    timings: Vec<f64>,
-    uuids: Vec<Uuid>,
-}
-
-#[derive(Clone, Deserialize)]
-struct Event {
-    timestamp: f64,
-    uuid: Uuid,
-    breakdown: PropVal,
-    steps: Vec<i8>,
-}
-
-#[derive(Serialize)]
-struct Result(i8, PropVal, Vec<f64>, Vec<Vec<Uuid>>);
 
 struct Vars {
     max_step: (usize, EnteredTimestamp),
@@ -41,11 +21,6 @@ const DEFAULT_ENTERED_TIMESTAMP: EnteredTimestamp = EnteredTimestamp {
     timings: vec![],
     uuids: vec![],
 };
-
-#[inline(always)]
-fn parse_args(line: &str) -> Args {
-    serde_json::from_str(line).expect("Invalid JSON input")
-}
 
 impl AggregateFunnelRowUnordered {
     #[inline(always)]

@@ -7,33 +7,33 @@ use std::iter::repeat;
 use uuid::Uuid;
 
 #[derive(Clone, Deserialize)]
-struct EnteredTimestamp {
-    timestamp: f64,
-    excluded: bool,
-    timings: Vec<f64>,
-    uuids: Vec<Uuid>,
+pub struct EnteredTimestamp {
+    pub timestamp: f64,
+    pub excluded: bool,
+    pub timings: Vec<f64>,
+    pub uuids: Vec<Uuid>,
 }
 
 #[derive(Clone, Deserialize)]
-struct Event {
-    timestamp: f64,
-    uuid: Uuid,
-    breakdown: PropVal,
-    steps: Vec<i8>,
+pub struct Event {
+    pub timestamp: f64,
+    pub uuid: Uuid,
+    pub breakdown: PropVal,
+    pub steps: Vec<i8>,
 }
 
 #[derive(Deserialize)]
-struct Args {
-    num_steps: usize,
-    conversion_window_limit: u64, // In seconds
-    breakdown_attribution_type: String,
-    funnel_order_type: String,
-    prop_vals: Vec<PropVal>,
-    value: Vec<Event>,
+pub struct Args {
+    pub num_steps: usize,
+    pub conversion_window_limit: u64, // In seconds
+    pub breakdown_attribution_type: String,
+    pub funnel_order_type: String,
+    pub prop_vals: Vec<PropVal>,
+    pub value: Vec<Event>,
 }
 
 #[derive(Serialize)]
-struct Result(i8, PropVal, Vec<f64>, Vec<Vec<Uuid>>);
+pub struct Result(pub i8, pub PropVal, pub Vec<f64>, pub Vec<Vec<Uuid>>);
 
 struct Vars {
     max_step: (usize, EnteredTimestamp),
@@ -58,18 +58,18 @@ const DEFAULT_ENTERED_TIMESTAMP: EnteredTimestamp = EnteredTimestamp {
 pub fn process_line(line: &str) -> Value {
     let args = parse_args(line);
     if args.funnel_order_type == "unordered" {
-        let result = AggregateFunnelRowUnordered {
+        let mut aggregate_funnel_row = AggregateFunnelRowUnordered {
             results: Vec::with_capacity(args.prop_vals.len()),
             breakdown_step: Option::None,
-        }
-        .calculate_funnel_from_user_events(&args);
+        };
+        let result = aggregate_funnel_row.calculate_funnel_from_user_events(&args);
         return json!({ "result": result });
     }
-    let result = AggregateFunnelRow {
+    let mut aggregate_funnel_row = AggregateFunnelRow {
         results: Vec::with_capacity(args.prop_vals.len()),
         breakdown_step: Option::None,
-    }
-    .calculate_funnel_from_user_events(&args);
+    };
+    let result = aggregate_funnel_row.calculate_funnel_from_user_events(&args);
     json!({ "result": result })
 }
 
