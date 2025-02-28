@@ -302,6 +302,7 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                                         <li>
                                             Hold down <KeyboardShortcut command /> to enable drag and drop.
                                         </li>
+                                        <li>Right click on tree item for more options.</li>
                                     </ul>
                                 </LemonBanner>
                             </div>
