@@ -115,10 +115,6 @@ describe('IngestionConsumer', () => {
         await resetTestDatabase()
         hub = await createHub()
 
-        // Set up GeoIP database
-        const mmdbBrotliContents = readFileSync(join(__dirname, '../../tests/assets/GeoLite2-City-Test.mmdb.br'))
-        hub.mmdb = Reader.openBuffer(brotliDecompressSync(mmdbBrotliContents))
-
         hub.kafkaProducer = mockProducer
         team = await getFirstTeam(hub)
         const team2Id = await createTeam(hub.db.postgres, team.organization_id)
@@ -704,13 +700,6 @@ describe('IngestionConsumer', () => {
                 hub = await createHub()
                 await resetTestDatabase()
                 team = await getFirstTeam(hub)
-
-                // Set up GeoIP database
-                const mmdbBrotliContents = readFileSync(
-                    join(__dirname, '../../tests/assets/GeoLite2-City-Test.mmdb.br')
-                )
-                hub.mmdb = Reader.openBuffer(Buffer.from(brotliDecompressSync(mmdbBrotliContents)))
-                hub.kafkaProducer = mockProducer
 
                 // Create and start ingester first
                 ingester = new IngestionConsumer(hub)
