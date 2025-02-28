@@ -5,8 +5,9 @@ import { useActions, useValues } from 'kea'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
+import { IconLink } from 'lib/lemon-ui/icons'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { Link } from 'lib/lemon-ui/Link'
 import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
@@ -19,13 +20,7 @@ const columns: LemonTableColumns<LiveEvent> = [
         key: 'event',
         className: 'max-w-80',
         render: function Render(_, event: LiveEvent) {
-            const searchUrl = urls.absolute(urls.currentProject(urls.event(String(event.uuid), event.timestamp)))
-
-            return (
-                <Link to={searchUrl}>
-                    <PropertyKeyInfo value={event.event} type={TaxonomicFilterGroupType.Events} />
-                </Link>
-            )
+            return <PropertyKeyInfo value={event.event} type={TaxonomicFilterGroupType.Events} />
         },
     },
     {
@@ -53,6 +48,43 @@ const columns: LemonTableColumns<LiveEvent> = [
         render: function Render(_, event: LiveEvent) {
             return <TZLabel time={event.timestamp} />
         },
+    },
+    {
+        dataIndex: '__more' as any,
+        title: '',
+        render: function Render(_, event: LiveEvent) {
+            return (
+                <More
+                    overlay={
+                        <>
+                            {event.uuid && event.timestamp && (
+                                <Tooltip
+                                    title="Events may not show up in the explore view for a few minutes after they are seen in the live view."
+                                    placement="top"
+                                >
+                                    <LemonButton
+                                        fullWidth
+                                        sideIcon={<IconLink />}
+                                        data-attr="events-table-event-link"
+                                        onClick={() =>
+                                            void copyToClipboard(
+                                                urls.absolute(
+                                                    urls.currentProject(urls.event(String(event.uuid), event.timestamp))
+                                                ),
+                                                'link to event'
+                                            )
+                                        }
+                                    >
+                                        Copy link to event
+                                    </LemonButton>
+                                </Tooltip>
+                            )}
+                        </>
+                    }
+                />
+            )
+        },
+        width: 0,
     },
 ]
 
