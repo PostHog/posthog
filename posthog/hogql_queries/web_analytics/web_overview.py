@@ -96,7 +96,7 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
         parsed_select = parse_select(
             """
 SELECT
-    any(events.person_id) as person_id,
+    any(events.person_id) as session_person_id,
     session.session_id as session_id,
     min(session.$start_timestamp) as start_timestamp
 FROM events
@@ -179,8 +179,8 @@ HAVING {inside_start_timestamp_period}
 
         if self.query.conversionGoal:
             select = [
-                current_period_aggregate("uniq", "person_id", "unique_users"),
-                previous_period_aggregate("uniq", "person_id", "previous_unique_users"),
+                current_period_aggregate("uniq", "session_person_id", "unique_users"),
+                previous_period_aggregate("uniq", "session_person_id", "previous_unique_users"),
                 current_period_aggregate("sum", "conversion_count", "total_conversion_count"),
                 previous_period_aggregate("sum", "conversion_count", "previous_total_conversion_count"),
                 current_period_aggregate("uniq", "conversion_person_id", "unique_conversions"),
@@ -211,8 +211,8 @@ HAVING {inside_start_timestamp_period}
                 )
         else:
             select = [
-                current_period_aggregate("uniq", "person_id", "unique_users"),
-                previous_period_aggregate("uniq", "person_id", "previous_unique_users"),
+                current_period_aggregate("uniq", "session_person_id", "unique_users"),
+                previous_period_aggregate("uniq", "session_person_id", "previous_unique_users"),
                 current_period_aggregate("sum", "filtered_pageview_count", "total_filtered_pageview_count"),
                 previous_period_aggregate("sum", "filtered_pageview_count", "previous_filtered_pageview_count"),
                 current_period_aggregate("uniq", "session_id", "unique_sessions"),
