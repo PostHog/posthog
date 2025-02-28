@@ -136,8 +136,6 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 ingestion: true,
                 ingestionHistorical: true,
                 eventsIngestionPipelines: true,
-                pluginScheduledTasks: true,
-                processPluginJobs: true,
                 processAsyncOnEventHandlers: true,
                 processAsyncWebhooksHandlers: true,
                 sessionRecordingBlobIngestion: true,
