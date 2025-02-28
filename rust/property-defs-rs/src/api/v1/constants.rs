@@ -26,7 +26,7 @@ pub const PROPERTY_DEFS_TABLE_COLUMNS: [&str; 6] = [
     "name",
     "is_numerical",
     "property_type",
-    // "property_type_format", "volume_30_day", "query_usage_30_day"
+    // "type", "property_type_format", "volume_30_day", "query_usage_30_day"
 ];
 
 pub const ENTERPRISE_PROP_DEFS_TABLE_COLUMNS: [&str; 5] = [

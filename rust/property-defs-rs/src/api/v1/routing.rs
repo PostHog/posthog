@@ -113,7 +113,7 @@ fn parse_request(params: HashMap<String, String>) -> Params {
     // search terms: optional - each term is a fragment that will be
     // fuzzy-searched in Postgres against the specified search fields
     // DIVERGES FROM DJANGO API: the new Rust API will accept lists as space-separated query param values
-    let search_terms_filter = Regex::new(r"^[ a-z0-9$_]+$").unwrap();
+    let search_terms_filter = Regex::new(r"^[ a-z0-9$._-]+$").unwrap();
     let search_terms: Vec<String> = params
         .get("search")
         .filter(|s| search_terms_filter.is_match(s))
@@ -463,7 +463,7 @@ pub struct User {
     last_name: Option<String>,
     email: Option<String>,
     is_email_verified: Option<bool>,
-    hedgehog_config: Option<HedgehogConfig>, // JSON value; TODO: hydrate this for resp
+    hedgehog_config: Option<HedgehogConfig>,
 }
 
 #[derive(Deserialize, Serialize)]
