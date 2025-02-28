@@ -332,6 +332,8 @@ export async function runProcessEvent(hub: Hub, event: PluginEvent): Promise<Plu
 
     const pluginMethodsToRun = await getPluginMethodsForTeam(hub, teamId, 'processEvent')
 
+    status.info('Running processEvent for team', { teamId }, pluginMethodsToRun)
+
     let returnedEvent: PluginEvent | null = event
 
     const pluginsSucceeded: string[] = event.properties?.$plugins_succeeded || []
