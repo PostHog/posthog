@@ -144,9 +144,10 @@ export const sdksLogic = kea<sdksLogicType>([
         ],
         combinedSnippetAndLiveEventsHosts: [
             (selectors) => [selectors.snippetHosts, selectors.eventHosts],
-            (snippetHosts: string[], eventHosts: string[]): string[] => {
+            // if the connected kea hasn't mounted for some reason, eventHosts can be undefined
+            (snippetHosts: string[], eventHosts?: string[]): string[] => {
                 const combinedSnippetAndLiveEventsHosts = snippetHosts
-                for (const host of eventHosts) {
+                for (const host of eventHosts ?? []) {
                     const hostProtocol = new URL(host).protocol
                     const currentProtocol = window.location.protocol
                     if (hostProtocol === currentProtocol && !combinedSnippetAndLiveEventsHosts.includes(host)) {
