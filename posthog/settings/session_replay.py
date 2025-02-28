@@ -45,10 +45,10 @@ SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS = get_list(get_from_env("SESSION_REPLA
 SESSION_REPLAY_AI_DEFAULT_MODEL = get_from_env("SESSION_REPLAY_AI_DEFAULT_MODEL", "gpt-4o")
 SESSION_REPLAY_AI_REGEX_MODEL = get_from_env("SESSION_REPLAY_AI_REGEX_MODEL", "gpt-4o-mini")
 
-PLAYLIST_COUNTER_PROCESSING_ALLOWED_TEAMS = get_list(
-    get_from_env("PLAYLIST_COUNTER_PROCESSING_ALLOWED_TEAMS", "1,2" if settings.DEBUG else "")
+PLAYLIST_COUNTER_PROCESSING_MAX_ALLOWED_TEAM_ID = get_from_env(
+    get_from_env("PLAYLIST_COUNTER_PROCESSING_MAX_ALLOWED_TEAM_ID", "2" if settings.DEBUG else "", type_cast=int)
 )
-# TODO want this to be 24 hours in prod but initial testing is better with 1 hour
+
 PLAYLIST_COUNTER_PROCESSING_SCHEDULE_SECONDS = get_from_env(
     "PLAYLIST_COUNTER_PROCESSING_SCHEDULE_SECONDS", 60 if settings.DEBUG else 3600, type_cast=int
 )

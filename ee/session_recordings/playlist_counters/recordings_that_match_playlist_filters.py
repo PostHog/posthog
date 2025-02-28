@@ -148,7 +148,7 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
 
             redis_client = get_client()
 
-            existing_value = redis_client.get(f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist.short_id}")
+            existing_value = redis_client.get(f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist.short_id}") or {}
 
             value_to_set = json.dumps(
                 {
@@ -166,17 +166,21 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
         logger.info("Playlist does not exist", playlist_id=playlist_id)
         REPLAY_TEAM_PLAYLIST_COUNT_UNKNOWN.inc()
     except Exception as e:
-        posthoganalytics.capture_exception(e)
+        posthoganalytics.capture_exception(
+            e, properties={"playlist_id": playlist_id, "posthog_feature": "session_replay_playlist_counters"}
+        )
         logger.exception("Failed to count recordings that match playlist filters", playlist_id=playlist_id, error=e)
         REPLAY_TEAM_PLAYLIST_COUNT_FAILED.inc()
 
 
 def enqueue_recordings_that_match_playlist_filters() -> None:
-    teams_with_counter_processing = settings.PLAYLIST_COUNTER_PROCESSING_ALLOWED_TEAMS
+    if not settings.PLAYLIST_COUNTER_PROCESSING_MAX_ALLOWED_TEAM_ID:
+        raise Exception("PLAYLIST_COUNTER_PROCESSING_MAX_ALLOWED_TEAM_ID is not set")
 
-    for team in teams_with_counter_processing:
-        all_playlists = SessionRecordingPlaylist.objects.filter(team_id=int(team), deleted=False, filters__isnull=False)
-        REPLAY_TEAM_PLAYLISTS_IN_TEAM_COUNT.inc(all_playlists.count())
+    all_playlists = SessionRecordingPlaylist.objects.filter(
+        team_id__lte=int(settings.PLAYLIST_COUNTER_PROCESSING_MAX_ALLOWED_TEAM_ID), deleted=False, filters__isnull=False
+    )
+    REPLAY_TEAM_PLAYLISTS_IN_TEAM_COUNT.inc(all_playlists.count())
 
-        for playlist in all_playlists:
-            count_recordings_that_match_playlist_filters.delay(playlist.id)
+    for playlist in all_playlists:
+        count_recordings_that_match_playlist_filters.delay(playlist.id)
