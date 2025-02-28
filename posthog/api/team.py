@@ -56,6 +56,7 @@ from posthog.utils import (
 )
 from django.core.cache import cache
 from rest_framework.throttling import UserRateThrottle
+from posthog.settings import SITE_URL
 
 
 class PremiumMultiProjectPermissions(BasePermission):  # TODO: Rename to include "Env" in name
@@ -768,7 +769,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
 
     @action(
         methods=["POST"],
-        detail=False,
+        detail=True,
         url_path="authenticate_wizard",
         throttle_classes=[SetupWizardAuthenticationRateThrottle],
     )
@@ -785,7 +786,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
             raise serializers.ValidationError({"hash": ["This hash is invalid or has expired."]}, code="invalid_hash")
 
         # Set the project API key in the wizard data
-        wizard_data = {"project_api_key": request.user.team.api_token, "host": "http://localhost:8010/"}
+        wizard_data = {"project_api_key": request.user.team.api_token, "host": get_api_host()}
 
         cache.set(cache_key, wizard_data, SETUP_WIZARD_CACHE_TIMEOUT)
 
@@ -795,6 +796,14 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
     def user_permissions(self):
         team = self.get_object() if self.action == "reset_token" else None
         return UserPermissions(cast(User, self.request.user), team)
+
+
+def get_api_host():
+    if SITE_URL == "https://us.posthog.com":
+        return "https://us.i.posthog.com"
+    elif SITE_URL == "https://eu.posthog.com":
+        return "https://eu.i.posthog.com"
+    return SITE_URL
 
 
 class RootTeamViewSet(TeamViewSet):

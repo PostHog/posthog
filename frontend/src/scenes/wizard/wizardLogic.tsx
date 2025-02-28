@@ -22,16 +22,15 @@ export const wizardLogic = kea<wizardLogicType>([
         setView: (view: 'pending' | 'creating' | 'success' | 'invalid') => ({ view }),
         authenticateWizard: (wizardHash: string) => ({ wizardHash }),
     }),
-    loaders(({ actions, values }) => ({
+    loaders(({ actions }) => ({
         wizardToken: [
             null as WizardTokenResponseType | null,
             {
                 authenticateWizard: async ({ wizardHash }: { wizardHash: string }) => {
                     try {
-                        const response: WizardTokenResponseType = await api.create(
-                            `api/projects/${values.currentTeam?.id}/authenticate_wizard/`,
-                            { hash: wizardHash }
-                        )
+                        const response: WizardTokenResponseType = await api.wizard.authenticateWizard({
+                            hash: wizardHash,
+                        })
                         actions.setView('success')
                         return response
                     } catch (e: any) {
