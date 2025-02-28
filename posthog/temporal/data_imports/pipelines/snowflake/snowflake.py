@@ -71,7 +71,7 @@ def _build_query(
     db_incremental_field_last_value: Optional[Any],
 ) -> tuple[str, tuple[Any, ...]]:
     if not is_incremental:
-        return f"SELECT * FROM IDENTIFIER(%s)", (f"{database}.{schema}.{table_name}",)
+        return "SELECT * FROM IDENTIFIER(%s)", (f"{database}.{schema}.{table_name}",)
 
     if incremental_field is None or incremental_field_type is None:
         raise ValueError("incremental_field and incremental_field_type can't be None")
@@ -79,7 +79,7 @@ def _build_query(
     if db_incremental_field_last_value is None:
         db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
 
-    return f"SELECT * FROM IDENTIFIER(%s) WHERE IDENTIFIER(%s) >= %s ORDER BY IDENTIFIER(%s) ASC", (
+    return "SELECT * FROM IDENTIFIER(%s) WHERE IDENTIFIER(%s) >= %s ORDER BY IDENTIFIER(%s) ASC", (
         f"{database}.{schema}.{table_name}",
         incremental_field,
         db_incremental_field_last_value,
@@ -88,9 +88,13 @@ def _build_query(
 
 
 def _get_primary_keys(cursor: SnowflakeCursor, database: str, schema: str, table_name: str) -> list[str] | None:
-    cursor.execute(f"SHOW PRIMARY KEYS IN IDENTIFIER(%s)", (f"{database}.{schema}.{table_name}",))
+    cursor.execute("SHOW PRIMARY KEYS IN IDENTIFIER(%s)", (f"{database}.{schema}.{table_name}",))
 
     column_index = next((i for i, row in enumerate(cursor.description) if row.name == "column_name"), -1)
+
+    if column_index == -1:
+        raise ValueError("column_name not found in Snowflake cursor description")
+
     keys = [row[column_index] for row in cursor]
 
     return keys if len(keys) > 0 else None
