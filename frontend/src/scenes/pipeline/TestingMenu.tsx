@@ -97,7 +97,18 @@ export function TestingMenu({ id }: HogFunctionTestingProps): JSX.Element {
     const { setSelectingMany, retryInvocation, selectForRetry, deselectForRetry, resetSelectedForRetry } = useActions(
         hogFunctionTestingLogic({ id })
     )
-    const { loading, loaded, showPaygate, groupTypes, configuration } = useValues(hogFunctionConfigurationLogic({ id }))
+    const {
+        loading,
+        loaded,
+        showPaygate,
+        groupTypes,
+        configuration,
+        isConfigurationSubmitting,
+        willReEnableOnSave,
+        willChangeEnabledOnSave,
+        configurationChanged,
+    } = useValues(hogFunctionConfigurationLogic({ id }))
+    const { submitConfiguration } = useActions(hogFunctionConfigurationLogic({ id }))
 
     if (loading && !loaded) {
         return <SpinnerOverlay />
@@ -189,6 +200,21 @@ export function TestingMenu({ id }: HogFunctionTestingProps): JSX.Element {
                                 </LemonButton>
                             </>
                         )}
+                        {configurationChanged ? (
+                            <LemonButton
+                                type="primary"
+                                htmlType="submit"
+                                onClick={submitConfiguration}
+                                loading={isConfigurationSubmitting}
+                            >
+                                Save
+                                {willReEnableOnSave
+                                    ? ' & re-enable'
+                                    : willChangeEnabledOnSave
+                                    ? ` & ${configuration.enabled ? 'enable' : 'disable'}`
+                                    : ''}
+                            </LemonButton>
+                        ) : null}
                     </>
                 }
             />

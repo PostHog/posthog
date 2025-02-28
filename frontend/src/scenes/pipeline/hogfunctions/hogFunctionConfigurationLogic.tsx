@@ -47,6 +47,7 @@ import {
     HogFunctionType,
     HogFunctionTypeType,
     PersonType,
+    PipelineNodeTab,
     PipelineStage,
     PropertyFilterType,
     PropertyGroupFilter,
@@ -1155,7 +1156,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 }
             }
 
-            const possibleMenuIds: string[] = ['configuration', 'testing']
+            const possibleMenuIds: string[] = [PipelineNodeTab.Configuration, PipelineNodeTab.Testing]
             if (
                 !(
                     possibleMenuIds.includes(newRoute[newRoute.length - 1]) &&
