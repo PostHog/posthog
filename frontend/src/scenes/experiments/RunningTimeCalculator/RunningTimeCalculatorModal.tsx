@@ -20,6 +20,7 @@ export function RunningTimeCalculatorModal(): JSX.Element {
         metricIndex,
         uniqueUsers,
         averageEventsPerUser,
+        averagePropertyValuePerUser,
         metricResultLoading,
     } = useValues(runningTimeCalculatorLogic({ experimentId }))
     const { setMinimumDetectableEffect, setMetricIndex } = useActions(runningTimeCalculatorLogic({ experimentId }))
@@ -47,7 +48,7 @@ export function RunningTimeCalculatorModal(): JSX.Element {
                                     parameters: {
                                         ...experiment?.parameters,
                                         recommended_running_time: recommendedRunningTime,
-                                        recommended_sample_size: recommendedSampleSize,
+                                        recommended_sample_size: recommendedSampleSize || undefined,
                                     },
                                 })
                                 closeCalculateRunningTimeModal()
@@ -101,7 +102,7 @@ export function RunningTimeCalculatorModal(): JSX.Element {
                                     <Spinner className="text-3xl transform -translate-y-[-10px]" />
                                 </div>
                             </div>
-                        ) : uniqueUsers !== null && averageEventsPerUser !== null ? (
+                        ) : uniqueUsers !== null && variance !== null ? (
                             <div className="border-t pt-2">
                                 <div className="grid grid-cols-3 gap-4">
                                     <div>
@@ -113,12 +114,22 @@ export function RunningTimeCalculatorModal(): JSX.Element {
                                             Last {TIMEFRAME_HISTORICAL_DATA_DAYS} days
                                         </div>
                                     </div>
-                                    <div>
-                                        <div className="card-secondary">Avg. events per user</div>
-                                        <div className="font-semibold">
-                                            ~{humanFriendlyNumber(averageEventsPerUser || 0, 0)}
+                                    {averageEventsPerUser !== null && (
+                                        <div>
+                                            <div className="card-secondary">Avg. events per user</div>
+                                            <div className="font-semibold">
+                                                ~{humanFriendlyNumber(averageEventsPerUser || 0, 0)}
+                                            </div>
                                         </div>
-                                    </div>
+                                    )}
+                                    {averagePropertyValuePerUser !== null && (
+                                        <div>
+                                            <div className="card-secondary">Avg. property value per user</div>
+                                            <div className="font-semibold">
+                                                ~{humanFriendlyNumber(averagePropertyValuePerUser, 0)}
+                                            </div>
+                                        </div>
+                                    )}
                                     <div>
                                         <div className="card-secondary">Estimated variance</div>
                                         <div className="font-semibold">~{humanFriendlyNumber(variance, 0)}</div>
@@ -129,7 +140,7 @@ export function RunningTimeCalculatorModal(): JSX.Element {
                     </div>
                 </div>
 
-                {!metricResultLoading && uniqueUsers !== null && averageEventsPerUser !== null && (
+                {!metricResultLoading && uniqueUsers !== null && (
                     <>
                         {/* Step 2: MDE configuration */}
                         <div className="rounded bg-light p-4 space-y-3">
@@ -162,32 +173,34 @@ export function RunningTimeCalculatorModal(): JSX.Element {
                         </div>
 
                         {/* Step 3: Results */}
-                        <div className="rounded bg-light p-4 space-y-3">
-                            <div className="flex items-center gap-2">
-                                <span className="rounded-full bg-muted text-white w-6 h-6 flex items-center justify-center font-semibold">
-                                    3
-                                </span>
-                                <h4 className="font-semibold m-0">Estimated experiment size & duration</h4>
-                            </div>
-                            <p className="text-muted">
-                                These are just statistical estimates – you can conclude the experiment earlier if a
-                                significant effect is detected. Running shorter may make results less reliable.
-                            </p>
-                            <div className="grid grid-cols-2 gap-4 pt-2">
-                                <div>
-                                    <div className="card-secondary">Recommended sample size</div>
-                                    <div className="text-lg font-semibold">
-                                        ~{humanFriendlyNumber(recommendedSampleSize, 0)} users
+                        {recommendedSampleSize !== null && recommendedRunningTime !== null && (
+                            <div className="rounded bg-light p-4 space-y-3">
+                                <div className="flex items-center gap-2">
+                                    <span className="rounded-full bg-muted text-white w-6 h-6 flex items-center justify-center font-semibold">
+                                        3
+                                    </span>
+                                    <h4 className="font-semibold m-0">Estimated experiment size & duration</h4>
+                                </div>
+                                <p className="text-muted">
+                                    These are just statistical estimates – you can conclude the experiment earlier if a
+                                    significant effect is detected. Running shorter may make results less reliable.
+                                </p>
+                                <div className="grid grid-cols-2 gap-4 pt-2">
+                                    <div>
+                                        <div className="card-secondary">Recommended sample size</div>
+                                        <div className="text-lg font-semibold">
+                                            ~{humanFriendlyNumber(recommendedSampleSize, 0)} users
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <div className="card-secondary">Estimated running time</div>
+                                        <div className="text-lg font-semibold">
+                                            ~{humanFriendlyNumber(recommendedRunningTime, 1)} days
+                                        </div>
                                     </div>
                                 </div>
-                                <div>
-                                    <div className="card-secondary">Estimated running time</div>
-                                    <div className="text-lg font-semibold">
-                                        ~{humanFriendlyNumber(recommendedRunningTime, 1)} days
-                                    </div>
-                                </div>
                             </div>
-                        </div>
+                        )}
                     </>
                 )}
             </div>

@@ -166,29 +166,17 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
             },
         ],
         recommendedSampleSize: [
-            (s) => [s.metric, s.minimumDetectableEffect, s.variance, s.averagePropertyValuePerUser],
-            (
-                metric: ExperimentMetric,
-                minimumDetectableEffect: number,
-                variance: number,
-                averagePropertyValuePerUser: number
-            ): number | null => {
-                const numberOfVariants = 2
-                const standardDeviation = Math.sqrt(variance)
-
-                if (metric.metric_type === ExperimentMetricType.COUNT) {
-                    return (
-                        ((16 * variance) / ((minimumDetectableEffect / 100) * standardDeviation) ** 2) *
-                        numberOfVariants
-                    )
-                } else if (metric.metric_type === ExperimentMetricType.CONTINUOUS) {
-                    return (
-                        ((16 * variance) / ((minimumDetectableEffect / 100) * averagePropertyValuePerUser) ** 2) *
-                        numberOfVariants
-                    )
+            (s) => [s.metric, s.minimumDetectableEffect, s.variance],
+            (metric: ExperimentMetric, minimumDetectableEffect: number, variance: number): number | null => {
+                if (!metric) {
+                    return null
                 }
 
-                return null
+                const numberOfVariants = 2
+                const standardDeviation = Math.sqrt(variance)
+                const minimumDetectableEffectDecimal = minimumDetectableEffect / 100
+
+                return ((16 * variance) / (minimumDetectableEffectDecimal * standardDeviation) ** 2) * numberOfVariants
             },
         ],
         recommendedRunningTime: [

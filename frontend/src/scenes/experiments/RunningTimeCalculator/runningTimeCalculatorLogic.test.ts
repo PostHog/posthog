@@ -49,6 +49,7 @@ describe('runningTimeCalculatorLogic', () => {
         })
     })
 
+    // Should match https://docs.google.com/spreadsheets/d/11alyC8n7uqewZFLKfV4UAbW-0zH__EdV_Hrk2OQ4140/edit?gid=2067479228#gid=2067479228
     describe('calculations for CONTINUOUS', () => {
         beforeEach(() => {
             experimentLogic.actions.setExperiment({
@@ -74,8 +75,8 @@ describe('runningTimeCalculatorLogic', () => {
             await expectLogic(logic).toMatchValues({
                 minimumDetectableEffect: 5,
                 variance: expect.closeTo(625, 0),
-                recommendedSampleSize: expect.closeTo(3200, 0),
-                recommendedRunningTime: expect.closeTo(3.2, 1),
+                recommendedSampleSize: expect.closeTo(12800, 0),
+                recommendedRunningTime: expect.closeTo(12.8, 1),
             })
         })
     })
