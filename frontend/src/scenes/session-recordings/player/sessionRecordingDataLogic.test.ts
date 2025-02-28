@@ -1,10 +1,13 @@
+import { EventType, IncrementalSource, mutationData, NodeType } from '@posthog/rrweb-types'
 import { expectLogic } from 'kea-test-utils'
 import { api, MOCK_TEAM_ID } from 'lib/api.mock'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { convertSnapshotsByWindowId } from 'scenes/session-recordings/__mocks__/recording_snapshots'
 import { encodedWebSnapshotData } from 'scenes/session-recordings/player/__mocks__/encoded-snapshot-data'
 import {
+    chunkMutationSnapshot,
     deduplicateSnapshots,
+    MUTATION_CHUNK_SIZE,
     parseEncodedSnapshots,
     sessionRecordingDataLogic,
 } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
@@ -18,7 +21,7 @@ import { initKeaTests } from '~/test/init'
 import { AvailableFeature, RecordingSnapshot, SessionRecordingSnapshotSource } from '~/types'
 
 import recordingEventsJson from '../__mocks__/recording_events_query'
-import recordingMetaJson from '../__mocks__/recording_meta.json'
+import { recordingMetaJson } from '../__mocks__/recording_meta'
 import { snapshotsAsJSONLines, sortedRecordingSnapshots } from '../__mocks__/recording_snapshots'
 
 const sortedRecordingSnapshotsJson = sortedRecordingSnapshots()
@@ -430,6 +433,97 @@ describe('sessionRecordingDataLogic', () => {
             expect(parsed.length).toEqual(numberOfParsedLinesInData / 2)
 
             expect(parsed).toMatchSnapshot()
+        })
+    })
+
+    describe('mutation chunking', () => {
+        const createMutationSnapshot = (addsCount: number): RecordingSnapshot =>
+            ({
+                type: EventType.IncrementalSnapshot,
+                timestamp: 1000,
+                data: {
+                    source: IncrementalSource.Mutation,
+                    adds: Array(addsCount).fill({ parentId: 1, nextId: null, node: { type: 1, tagName: 'div' } }),
+                    removes: [{ parentId: 1, id: 2 }],
+                    texts: [{ id: 3, value: 'text' }],
+                    attributes: [{ id: 4, attributes: { class: 'test' } }],
+                },
+                windowId: '1',
+            } as RecordingSnapshot)
+
+        it('does not chunk snapshots with adds below chunk size', () => {
+            const snapshot = createMutationSnapshot(100)
+            const chunks = chunkMutationSnapshot(snapshot)
+            expect(chunks).toEqual([snapshot])
+        })
+
+        it('chunks large mutation snapshots correctly', () => {
+            const addsCount = MUTATION_CHUNK_SIZE * 2 + 500 // Will create 3 chunks
+            const snapshot = createMutationSnapshot(addsCount)
+            const chunks = chunkMutationSnapshot(snapshot)
+
+            expect(chunks.length).toBe(3)
+
+            // First chunk
+            expect(chunks[0]).toMatchObject({
+                timestamp: 1000,
+                data: {
+                    adds: expect.arrayContaining([expect.any(Object)]),
+                    removes: (snapshot.data as mutationData).removes,
+                    texts: [],
+                    attributes: [],
+                },
+            })
+            expect((chunks[0].data as mutationData).adds.length).toBe(MUTATION_CHUNK_SIZE)
+
+            // Middle chunk
+            expect(chunks[1]).toMatchObject({
+                timestamp: 1001,
+                data: {
+                    adds: expect.arrayContaining([expect.any(Object)]),
+                    removes: [],
+                    texts: [],
+                    attributes: [],
+                },
+            })
+            expect((chunks[1].data as mutationData).adds.length).toBe(MUTATION_CHUNK_SIZE)
+
+            // Last chunk
+            expect(chunks[2]).toMatchObject({
+                timestamp: 1002,
+                data: {
+                    adds: expect.arrayContaining([expect.any(Object)]),
+                    removes: [],
+                    texts: (snapshot.data as mutationData).texts,
+                    attributes: (snapshot.data as mutationData).attributes,
+                },
+            })
+            expect((chunks[2].data as mutationData).adds.length).toBe(500)
+        })
+
+        it('handles delay correctly when chunking', () => {
+            const snapshot = createMutationSnapshot(MUTATION_CHUNK_SIZE * 2)
+            snapshot.delay = 100
+
+            const chunks = chunkMutationSnapshot(snapshot)
+
+            expect(chunks.length).toBe(2)
+            expect(chunks[0].delay).toBe(100)
+            expect(chunks[1].delay).toBe(101)
+        })
+
+        it('does not chunk non-mutation snapshots', () => {
+            const snapshot: RecordingSnapshot = {
+                type: EventType.FullSnapshot,
+                timestamp: 1000,
+                data: {
+                    node: { type: NodeType.Document, id: 1, childNodes: [] },
+                    initialOffset: { top: 0, left: 0 },
+                },
+                windowId: '1',
+            }
+            const chunks = chunkMutationSnapshot(snapshot)
+            expect(chunks).toEqual([snapshot])
         })
     })
 })

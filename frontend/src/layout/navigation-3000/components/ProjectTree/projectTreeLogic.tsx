@@ -16,7 +16,7 @@ import { FileSystemEntry, FileSystemType } from '~/queries/schema/schema-general
 import { getDefaultTree } from './defaultTree'
 import type { projectTreeLogicType } from './projectTreeLogicType'
 import { FileSystemImport, ProjectTreeAction } from './types'
-import { convertFileSystemEntryToTreeDataItem } from './utils'
+import { convertFileSystemEntryToTreeDataItem, joinPath, splitPath } from './utils'
 
 export const projectTreeLogic = kea<projectTreeLogicType>([
     path(['layout', 'navigation-3000', 'components', 'projectTreeLogic']),
@@ -40,6 +40,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         createSavedItem: (savedItem: FileSystemEntry) => ({ savedItem }),
         updateSavedItem: (savedItem: FileSystemEntry) => ({ savedItem }),
         deleteSavedItem: (savedItem: FileSystemEntry) => ({ savedItem }),
+        updateExpandedFolders: (folders: string[]) => ({ folders }),
+        updateActiveFolder: (folder: string | null) => ({ folder }),
+        updateLastViewedPath: (path: string) => ({ path }),
+        toggleFolder: (folder: string, isExpanded: boolean) => ({ folder, isExpanded }),
+        updateSelectedFolder: (folder: string) => ({ folder }),
+        updateHelpNoticeVisibility: (visible: boolean) => ({ visible }),
     }),
     loaders(({ actions, values }) => ({
         savedItems: [
@@ -112,6 +118,34 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 deleteSavedItem: (state, { savedItem }) => state.filter((item) => item.id !== savedItem.id),
             },
         ],
+        expandedFolders: [
+            [] as string[],
+            { persist: true },
+            {
+                updateExpandedFolders: (_, { folders }) => folders,
+            },
+        ],
+        activeFolder: [
+            null as string | null,
+            { persist: true },
+            {
+                updateActiveFolder: (_, { folder }) => folder,
+            },
+        ],
+        lastViewedPath: [
+            '',
+            { persist: true },
+            {
+                updateLastViewedPath: (_, { path }) => path,
+            },
+        ],
+        helpNoticeVisible: [
+            true,
+            { persist: true },
+            {
+                updateHelpNoticeVisibility: (_, { visible }) => visible,
+            },
+        ],
     }),
     selectors({
         unfiledLoading: [(s) => [s.unfiledLoadingCount], (unfiledLoadingCount) => unfiledLoadingCount > 0],
@@ -170,9 +204,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     if (action.type === 'move-create' || action.type === 'move' || action.type === 'create') {
                         if (action.newPath) {
                             unappliedPaths[action.newPath] = true
-                            const split = action.newPath.split('/')
+                            const split = splitPath(action.newPath)
                             for (let i = 1; i < split.length; i++) {
-                                unappliedPaths[split.slice(0, i).join('/')] = true
+                                unappliedPaths[joinPath(split.slice(0, i))] = true
                             }
                         }
                     }
@@ -241,7 +275,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 ...(pendingActionsCount > 0
                     ? [
                           {
-                              id: 'applyPendingActions',
+                              id: '__apply_pending_actions__',
                               name: `--- Apply${
                                   pendingLoaderLoading ? 'ing' : ''
                               } ${pendingActionsCount} unsaved change${pendingActionsCount > 1 ? 's' : ''} ---`,
@@ -253,8 +287,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                       ]
                     : [
                           {
-                              id: '--',
-                              name: '----------------------',
+                              id: '__separator__',
+                              name: '',
                           },
                       ]),
                 {
@@ -299,6 +333,17 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 path: folder,
                 newPath: folder,
             })
+        },
+        toggleFolder: ({ folder, isExpanded }) => {
+            if (isExpanded) {
+                actions.updateExpandedFolders(values.expandedFolders.filter((f) => f !== folder))
+            } else {
+                actions.updateExpandedFolders([...values.expandedFolders, folder])
+            }
+        },
+        updateSelectedFolder: ({ folder }) => {
+            actions.updateActiveFolder(folder)
+            actions.updateLastViewedPath(folder)
         },
     })),
     afterMount(({ actions }) => {

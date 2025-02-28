@@ -1,4 +1,13 @@
-export type ColumnScalar = 'INTEGER' | 'FLOAT' | 'DATETIME' | 'DATE' | 'BOOLEAN' | 'DECIMAL' | 'STRING' | 'TUPLE'
+export type ColumnScalar =
+    | 'INTEGER'
+    | 'FLOAT'
+    | 'DATETIME'
+    | 'DATE'
+    | 'BOOLEAN'
+    | 'DECIMAL'
+    | 'STRING'
+    | 'TUPLE'
+    | 'ARRAY'
 
 export interface FormattingTemplate {
     id: string

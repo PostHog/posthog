@@ -269,6 +269,8 @@ export const experimentLogic = kea<experimentLogicType>([
         closeDistributionModal: true,
         openReleaseConditionsModal: true,
         closeReleaseConditionsModal: true,
+        openDescriptionModal: true,
+        closeDescriptionModal: true,
         updateExperimentVariantImages: (variantPreviewMediaIds: Record<string, string[]>) => ({
             variantPreviewMediaIds,
         }),
@@ -788,6 +790,13 @@ export const experimentLogic = kea<experimentLogicType>([
                 closeCalculateRunningTimeModal: () => false,
             },
         ],
+        isDescriptionModalOpen: [
+            false,
+            {
+                openDescriptionModal: () => true,
+                closeDescriptionModal: () => false,
+            },
+        ],
     }),
     listeners(({ values, actions }) => ({
         createExperiment: async ({ draft }) => {
@@ -1205,7 +1214,7 @@ export const experimentLogic = kea<experimentLogicType>([
                                 ? query.count_query
                                 : query.funnels_query) as InsightQueryNode,
                         }
-                        await api.create(`api/projects/${teamLogic.values.currentTeamId}/insights`, {
+                        await api.create(`api/projects/${projectLogic.values.currentProjectId}/insights`, {
                             name: query.name || undefined,
                             query: insightQuery,
                             dashboards: [dashboard.id],

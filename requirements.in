@@ -25,7 +25,7 @@ dagster-webserver==1.9.9
 dagster-postgres==0.25.9
 dagster-celery==0.25.9
 # dagster-cloud==1.9.8
-deltalake==0.23.2
+deltalake==0.25.2
 dj-database-url==0.5.0
 Django~=4.2.17
 django-axes==5.9.0
@@ -69,7 +69,7 @@ pandas==2.2.0
 paramiko==3.4.0
 Pillow==10.2.0
 pdpyras==5.2.0
-posthoganalytics==3.13.0
+posthoganalytics==3.16.0
 psutil==6.0.0
 psycopg2-binary==2.9.7
 pymssql==2.3.1
@@ -93,7 +93,7 @@ semantic_version==2.8.5
 simple-salesforce>=1.12.6
 scikit-learn==1.5.0
 slack_sdk==3.17.1
-snowflake-connector-python==3.6.0
+snowflake-connector-python==3.13.2
 snowflake-sqlalchemy==1.7.3
 social-auth-app-django==5.0.0
 social-auth-core==4.3.0

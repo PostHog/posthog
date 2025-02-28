@@ -763,6 +763,28 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             { resultEqualityCheck: equal },
         ],
 
+        filtersContainPersonProperties: [
+            (s) => [s.configuration],
+            (configuration) => {
+                const filters = configuration.filters
+                let containsPersonProperties = false
+                if (filters?.properties && !containsPersonProperties) {
+                    containsPersonProperties = filters.properties.some((p) => p.type === 'person')
+                }
+                if (filters?.actions && !containsPersonProperties) {
+                    containsPersonProperties = filters.actions.some((a) =>
+                        a.properties?.some((p) => p.type === 'person')
+                    )
+                }
+                if (filters?.events && !containsPersonProperties) {
+                    containsPersonProperties = filters.events.some((e) =>
+                        e.properties?.some((p) => p.type === 'person')
+                    )
+                }
+                return containsPersonProperties
+            },
+        ],
+
         sparklineQuery: [
             (s) => [s.configuration, s.matchingFilters, s.type],
             (configuration, matchingFilters, type): TrendsQuery | null => {
@@ -787,6 +809,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     },
                     trendsFilter: {
                         display: ChartDisplayType.ActionsBar,
+                    },
+                    modifiers: {
+                        personsOnEventsMode: 'person_id_no_override_properties_on_events',
                     },
                 }
             },
@@ -840,6 +865,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     select: ['*', 'person'],
                     after: '-7d',
                     orderBy: ['timestamp DESC'],
+                    modifiers: {
+                        // NOTE: We always want to show events with the person properties at the time the event was created as that is what the function will see
+                        personsOnEventsMode: 'person_id_no_override_properties_on_events',
+                    },
                 }
                 groupTypes.forEach((groupType) => {
                     const name = escapePropertyAsHogQlIdentifier(groupType.group_type)

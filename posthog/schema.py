@@ -1261,6 +1261,13 @@ class PropertyOperator(StrEnum):
     IS_CLEANED_PATH_EXACT = "is_cleaned_path_exact"
 
 
+class QueryIndexUsage(StrEnum):
+    UNDECISIVE = "undecisive"
+    NO = "no"
+    PARTIAL = "partial"
+    YES = "yes"
+
+
 class QueryResponseAlternative5(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1427,6 +1434,11 @@ class StepOrderValue(StrEnum):
     STRICT = "strict"
     UNORDERED = "unordered"
     ORDERED = "ordered"
+
+
+class StickinessComputationMode(StrEnum):
+    NON_CUMULATIVE = "non_cumulative"
+    CUMULATIVE = "cumulative"
 
 
 class StickinessFilterLegacy(BaseModel):
@@ -2533,6 +2545,7 @@ class QueryResponseAlternative7(BaseModel):
         extra="forbid",
     )
     errors: list[HogQLNotice]
+    isUsingIndices: Optional[QueryIndexUsage] = None
     isValid: Optional[bool] = None
     isValidView: Optional[bool] = None
     notices: list[HogQLNotice]
@@ -2777,6 +2790,7 @@ class StickinessFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    computedAs: Optional[StickinessComputationMode] = None
     display: Optional[ChartDisplayType] = None
     hiddenLegendIndexes: Optional[list[int]] = None
     showLegend: Optional[bool] = None
@@ -4950,6 +4964,7 @@ class HogQLMetadataResponse(BaseModel):
         extra="forbid",
     )
     errors: list[HogQLNotice]
+    isUsingIndices: Optional[QueryIndexUsage] = None
     isValid: Optional[bool] = None
     isValidView: Optional[bool] = None
     notices: list[HogQLNotice]

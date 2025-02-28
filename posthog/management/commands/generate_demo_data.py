@@ -69,6 +69,13 @@ class Command(BaseCommand):
             default="hedgebox",
             help="Product to simulate (default: hedgebox, alternatives: spikegpt)",
         )
+        parser.add_argument(
+            "--staff",
+            type=bool,
+            action="store_true",
+            default=False,
+            help="Create a staff user",
+        )
 
     def handle(self, *args, **options):
         timer = monotonic()
@@ -123,6 +130,7 @@ class Command(BaseCommand):
                         email,
                         "Employee 427",
                         "Hedgebox Inc.",
+                        is_staff=bool(options.get("staff")),
                         password=password,
                         disallow_collision=True,
                     )
