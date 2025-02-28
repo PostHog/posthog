@@ -1,17 +1,19 @@
 import { IconCalendar, IconPin, IconPinFilled } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonInput, LemonTable, Link } from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, LemonDivider, LemonInput, LemonTable, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { isObject } from 'lib/utils'
 import { SavedSessionRecordingPlaylistsEmptyState } from 'scenes/session-recordings/saved-playlists/SavedSessionRecordingPlaylistsEmptyState'
 import { urls } from 'scenes/urls'
 
-import { ReplayTabs, SessionRecordingPlaylistType } from '~/types'
+import { PlaylistRecordingsCounts, ReplayTabs, SessionRecordingPlaylistType } from '~/types'
 
 import { PLAYLISTS_PER_PAGE, savedSessionRecordingPlaylistsLogic } from './savedSessionRecordingPlaylistsLogic'
 
@@ -36,10 +38,16 @@ function nameColumn(): LemonTableColumn<SessionRecordingPlaylistType, 'name'> {
     }
 }
 
+function isPlaylistRecordingsCounts(x: unknown): x is PlaylistRecordingsCounts {
+    return isObject(x) && ('query_count' in x || 'pinned_count' in x)
+}
+
 export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPlaylistsProps): JSX.Element {
     const logic = savedSessionRecordingPlaylistsLogic({ tab })
     const { playlists, playlistsLoading, filters, sorting, pagination } = useValues(logic)
     const { setSavedPlaylistsFilters, updatePlaylist, duplicatePlaylist, deletePlaylist } = useActions(logic)
+
+    const showCountColumn = useFeatureFlag('SESSION_RECORDINGS_PLAYLIST_COUNT_COLUMN')
 
     const columns: LemonTableColumns<SessionRecordingPlaylistType> = [
         {
@@ -52,6 +60,55 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                         onClick={() => updatePlaylist(short_id, { pinned: !pinned })}
                         icon={pinned ? <IconPinFilled /> : <IconPin />}
                     />
+                )
+            },
+        },
+        {
+            dataIndex: 'recordings_counts',
+            title: 'Count',
+            tooltip: 'Count of recordings in the playlist',
+            isHidden: !showCountColumn,
+            width: 0,
+            render: function Render(recordings_counts) {
+                if (!isPlaylistRecordingsCounts(recordings_counts)) {
+                    return null
+                }
+
+                const count = (recordings_counts.pinned_count || 0) + (recordings_counts.query_count || 0)
+
+                const tooltip = (
+                    <div className="flex flex-col space-y-1 items-center">
+                        <span>Playlist counts are recalculated once a day.</span>
+                        {recordings_counts.pinned_count ? (
+                            <span>Collection has {recordings_counts.pinned_count} pinned recordings</span>
+                        ) : null}
+                        {recordings_counts.query_count ? (
+                            <span>
+                                Saved filters match {recordings_counts.query_count}
+                                {recordings_counts.has_more && '+'} recordings
+                            </span>
+                        ) : null}
+                    </div>
+                )
+
+                return (
+                    <div className="flex items-center justify-center w-full h-full">
+                        <Tooltip title={tooltip}>
+                            <span>
+                                {count ? (
+                                    <LemonBadge.Number
+                                        status={count ? 'primary' : 'muted'}
+                                        className="text-xs cursor-pointer"
+                                        count={count}
+                                        maxDigits={3}
+                                        forcePlus={recordings_counts.has_more}
+                                    />
+                                ) : (
+                                    <LemonBadge status="muted" content="?" className="cursor-pointer" />
+                                )}
+                            </span>
+                        </Tooltip>
+                    </div>
                 )
             },
         },

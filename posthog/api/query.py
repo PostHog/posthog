@@ -12,6 +12,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from sentry_sdk import set_tag
 from asgiref.sync import sync_to_async
+from concurrent.futures import ThreadPoolExecutor
 
 from posthog.exceptions_capture import capture_exception
 from posthog.api.documentation import extend_schema
@@ -51,6 +52,15 @@ from posthog.schema import (
     QueryStatusResponse,
 )
 from typing import cast
+
+
+# Create a dedicated thread pool for query processing
+# Setting max_workers to ensure we don't overwhelm the system
+# while still allowing concurrent queries
+QUERY_EXECUTOR = ThreadPoolExecutor(
+    max_workers=50,  # 50 should be enough to have 200 simultaneous queries across clickhouse
+    thread_name_prefix="query_processor",
+)
 
 
 def _process_query_request(
@@ -181,9 +191,9 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     @monitor(feature=Feature.QUERY, endpoint="query", method="DELETE")
     def destroy(self, request, pk=None, *args, **kwargs):
         dequeue_only = request.query_params.get("dequeue_only", False) == "true"
-        cancel_query(self.team.pk, pk, dequeue_only=dequeue_only)
+        message = cancel_query(self.team.pk, pk, dequeue_only=dequeue_only)
 
-        return Response(status=204)
+        return Response(status=200, data={"message": message})
 
     @action(methods=["GET"], detail=False)
     def draft_sql(self, request: Request, *args, **kwargs) -> Response:
@@ -262,19 +272,25 @@ async def query_awaited(request: Request, *args, **kwargs) -> StreamingHttpRespo
             execution_mode = ExecutionMode.CALCULATE_BLOCKING_ALWAYS
 
         # Start the query processing in a background thread
-        loop = asyncio.get_event_loop()
-        query_task = loop.run_in_executor(
-            None,
-            lambda: process_query_model(
-                team=team,
-                query=query,
-                execution_mode=execution_mode,
-                query_id=client_query_id,
-                user=request.user
-                if not isinstance(request.user, AnonymousUser)
-                else None,  # just for typing, actual auth check happens above
-            ),
-        )
+        loop = asyncio.get_running_loop()
+
+        async def async_process_query():
+            # Run the synchronous function in an executor and await its result
+            return await loop.run_in_executor(
+                QUERY_EXECUTOR,
+                lambda: process_query_model(
+                    team=team,
+                    query=query,
+                    execution_mode=execution_mode,
+                    query_id=client_query_id,
+                    user=request.user
+                    if not isinstance(request.user, AnonymousUser)
+                    else None,  # just for typing, actual auth check happens above
+                ),
+            )
+
+        # Create a task from the async wrapper
+        query_task = asyncio.create_task(async_process_query())
 
         async def event_stream():
             assert kwargs.get("team_id") is not None

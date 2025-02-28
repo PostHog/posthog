@@ -987,7 +987,7 @@ class TestActivateBillingAPI(APILicensedTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_deactivate_products.assert_called_once_with(self.organization, "product_1")
-        mock_get_billing.assert_called_once_with(self.organization, None, {})
+        mock_get_billing.assert_called_once_with(self.organization, {})
 
     def test_deactivate_failure(self):
         url = "/api/billing/deactivate"

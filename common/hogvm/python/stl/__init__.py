@@ -9,6 +9,7 @@ import json
 
 import pytz
 
+from .ip import isIPAddressInRange
 from .print import print_hog_string_output
 from .date import (
     now,
@@ -960,6 +961,9 @@ STL: dict[str, STLFunction] = {
     "md5Hex": STLFunction(fn=lambda args, team, stdout, timeout: md5Hex(args[0]), minArgs=1, maxArgs=1),
     "sha256HmacChainHex": STLFunction(
         fn=lambda args, team, stdout, timeout: sha256HmacChainHex(args[0]), minArgs=1, maxArgs=1
+    ),
+    "isIPAddressInRange": STLFunction(
+        fn=lambda args, team, stdout, timeout: isIPAddressInRange(args[0], args[1]), minArgs=2, maxArgs=2
     ),
     "keys": STLFunction(fn=keys, minArgs=1, maxArgs=1),
     "values": STLFunction(fn=values, minArgs=1, maxArgs=1),

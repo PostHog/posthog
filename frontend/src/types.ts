@@ -1433,6 +1433,12 @@ export interface RecordingEventType
     fullyLoaded: boolean
 }
 
+export interface PlaylistRecordingsCounts {
+    query_count?: number
+    pinned_count?: number
+    has_more?: boolean
+}
+
 export interface SessionRecordingPlaylistType {
     /** The primary key in the database, used as well in API endpoints */
     id: number
@@ -1447,6 +1453,12 @@ export interface SessionRecordingPlaylistType {
     last_modified_at: string
     last_modified_by: UserBasicType | null
     filters?: LegacyRecordingFilters
+    /**
+     * the count of recordings matching filters, calculated periodically
+     * and pinned recordings which is calculated in real-time
+     * marked as has more if the filters count onoy matched one page and there are more available
+     */
+    recordings_counts?: PlaylistRecordingsCounts
 }
 
 export interface SessionRecordingSegmentType {
@@ -1751,6 +1763,8 @@ export interface BillingType {
     deactivated?: boolean
     current_total_amount_usd?: string
     current_total_amount_usd_after_discount?: string
+    projected_total_amount_usd?: string
+    projected_total_amount_usd_after_discount?: string
     products: BillingProductV2Type[]
 
     custom_limits_usd?: {
@@ -2443,6 +2457,12 @@ export interface RetentionEntity {
     properties?: AnyPropertyFilter[]
 }
 
+export enum RetentionDashboardDisplayType {
+    TableOnly = 'table_only',
+    GraphOnly = 'graph_only',
+    All = 'all',
+}
+
 export interface RetentionFilterType extends FilterType {
     retention_type?: RetentionType
     /** Whether retention is with regard to initial cohort size, or that of the previous period. */
@@ -2890,6 +2910,7 @@ export interface SurveyAppearance {
 
 export interface SurveyQuestionBase {
     question: string
+    id?: string
     description?: string | null
     descriptionContentType?: SurveyQuestionDescriptionContentType
     optional?: boolean
@@ -3012,6 +3033,8 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     id: number | null
     created_by: UserBasicType | null
     created_at: string | null
+    version: number | null
+    last_modified_by: UserBasicType | null
     is_simple_flag: boolean
     rollout_percentage: number | null
     experiment_set: number[] | null
@@ -4036,6 +4059,7 @@ export enum ActivityScope {
     COMMENT = 'Comment',
     COHORT = 'Cohort',
     TEAM = 'Team',
+    ERROR_TRACKING_ISSUE = 'ErrorTrackingIssue',
 }
 
 export type CommentType = {

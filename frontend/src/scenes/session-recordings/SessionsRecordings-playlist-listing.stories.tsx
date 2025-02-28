@@ -3,13 +3,13 @@ import { router } from 'kea-router'
 import { useEffect } from 'react'
 import { App } from 'scenes/App'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events_query'
-import recordings from 'scenes/session-recordings/__mocks__/recordings.json'
+import { recordings } from 'scenes/session-recordings/__mocks__/recordings'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import { ReplayTabs } from '~/types'
 
-import recording_playlists from './__mocks__/recording_playlists.json'
+import { recordingPlaylists } from './__mocks__/recording_playlists'
 
 const meta: Meta = {
     title: 'Replay/Listings',
@@ -21,7 +21,7 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/session_recording_playlists': recording_playlists,
+                '/api/projects/:team_id/session_recording_playlists': recordingPlaylists,
                 '/api/environments/:team_id/session_recordings': (req) => {
                     const version = req.url.searchParams.get('version')
                     return [

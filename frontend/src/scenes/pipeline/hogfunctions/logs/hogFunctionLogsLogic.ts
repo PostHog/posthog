@@ -2,7 +2,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { beforeUnload } from 'kea-router'
 import api from 'lib/api'
-import { dayjs } from 'lib/dayjs'
+import { Dayjs, dayjs } from 'lib/dayjs'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { LogEntryLevel } from '~/types'
@@ -40,16 +40,25 @@ async function runWithParallelism<T, R>(
     return results
 }
 
-const loadClickhouseEvents = async (eventIds: string[]): Promise<any[]> => {
+const loadClickhouseEvents = async (
+    eventIds: string[],
+    { date_from, date_to }: { date_from?: string; date_to?: string }
+): Promise<any[]> => {
     const query: HogQLQuery = {
         kind: NodeKind.HogQLQuery,
         query: `
-            select uuid, distinct_id, event, timestamp, properties, elements_chain, person.id, person.properties, person.created_at 
-            from events
-            where uuid in (${eventIds.map((x) => `'${x}'`).join(',')})`,
+            SELECT uuid, distinct_id, event, timestamp, properties, elements_chain, person.id, person.properties, person.created_at 
+            FROM events
+            WHERE uuid in (${eventIds.map((x) => `'${x}'`).join(',')})
+            AND timestamp > {filters.dateRange.from}
+            AND timestamp < {filters.dateRange.to}
+        `,
     }
 
-    const response = await api.query(query, undefined, undefined, true)
+    const response = await api.query(query, undefined, undefined, true, {
+        date_from: date_from,
+        date_to: date_to,
+    })
 
     return response.results.map((x) => {
         const [
@@ -205,8 +214,27 @@ export const hogFunctionLogsLogic = kea<hogFunctionLogsLogicType>([
                         actions.setRowExpanded(groupedLogEntries[0].instanceId, true)
                     }
 
-                    // Load all events by ID
-                    const events = await loadClickhouseEvents(Object.values(values.eventIdByInvocationId ?? {}))
+                    // We want to get the oldest and newest "min" timestamp as that will be closest to when the event was processed
+                    // NOTE: This isn't perfect as the event timestamp might be different to the time it was processed
+                    const [timestampRangeStart, timestampRangeEnd] = groupedLogEntries.reduce(
+                        ([accStart, accEnd], x) => {
+                            if (!accStart) {
+                                return [x.minTimestamp, x.minTimestamp]
+                            }
+
+                            return [
+                                x.minTimestamp.isBefore(accStart) ? x.minTimestamp : accStart,
+                                x.maxTimestamp.isAfter(accEnd) ? x.maxTimestamp : accEnd,
+                            ]
+                        },
+                        [null as Dayjs | null, null as Dayjs | null]
+                    )
+
+                    // Load all events by ID using the date range to speed up the query (we add time either side to account for processing delays)
+                    const events = await loadClickhouseEvents(Object.values(values.eventIdByInvocationId ?? {}), {
+                        date_from: timestampRangeStart?.subtract(1, 'day').toISOString(),
+                        date_to: timestampRangeEnd?.add(1, 'day').toISOString(),
+                    })
 
                     const eventsById: Record<string, any> = {}
                     for (const event of events) {

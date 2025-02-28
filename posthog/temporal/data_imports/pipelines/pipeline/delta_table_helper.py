@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+import json
 from conditional_cache import lru_cache
 from typing import Any
 import deltalake.exceptions
@@ -19,6 +20,7 @@ class DeltaTableHelper:
     _resource_name: str
     _job: ExternalDataJob
     _logger: FilteringBoundLogger
+    _is_first_sync: bool = False
 
     def __init__(self, resource_name: str, job: ExternalDataJob, logger: FilteringBoundLogger) -> None:
         self._resource_name = resource_name
@@ -80,7 +82,8 @@ class DeltaTableHelper:
                 if "parse decimal overflow" in "".join(e.args):
                     s3 = get_s3_client()
                     s3.delete(delta_uri, recursive=True)
-                    return None
+
+        self._is_first_sync = True
 
         return None
 
@@ -98,6 +101,8 @@ class DeltaTableHelper:
 
         self.get_delta_table.cache_clear()
 
+        self._is_first_sync = True
+
     def write_to_deltalake(
         self, data: pa.Table, is_incremental: bool, chunk_index: int, primary_keys: Sequence[Any] | None
     ) -> deltalake.DeltaTable:
@@ -106,9 +111,13 @@ class DeltaTableHelper:
         if delta_table:
             delta_table = self._evolve_delta_schema(data.schema)
 
-        if is_incremental and delta_table is not None:
+        self._logger.debug(f"write_to_deltalake: _is_first_sync = {self._is_first_sync}")
+
+        if is_incremental and delta_table is not None and not self._is_first_sync:
             if not primary_keys or len(primary_keys) == 0:
                 raise Exception("Primary key required for incremental syncs")
+
+            self._logger.debug(f"write_to_deltalake: merging...")
 
             # Normalize keys and check the keys actually exist in the dataset
             py_table_column_names = data.column_names
@@ -128,6 +137,8 @@ class DeltaTableHelper:
             if chunk_index == 0 or delta_table is None:
                 mode = "overwrite"
                 schema_mode = "overwrite"
+
+            self._logger.debug(f"write_to_deltalake: mode = {mode}")
 
             if delta_table is None:
                 storage_options = self._get_credentials()
@@ -167,9 +178,11 @@ class DeltaTableHelper:
             raise Exception("Deltatable not found")
 
         self._logger.debug("Compacting table...")
-        table.optimize.compact()
+        compact_stats = table.optimize.compact()
+        self._logger.debug(json.dumps(compact_stats))
 
         self._logger.debug("Vacuuming table...")
-        table.vacuum(retention_hours=24, enforce_retention_duration=False, dry_run=False)
+        vacuum_stats = table.vacuum(retention_hours=24, enforce_retention_duration=False, dry_run=False)
+        self._logger.debug(json.dumps(vacuum_stats))
 
         self._logger.debug("Compacting and vacuuming complete")
