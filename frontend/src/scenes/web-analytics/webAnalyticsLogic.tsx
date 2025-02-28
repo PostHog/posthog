@@ -93,6 +93,8 @@ export enum ProductTab {
     SESSION_ATTRIBUTION_EXPLORER = 'session-attribution-explorer',
 }
 
+export type DeviceType = 'Desktop' | 'Mobile'
+
 export type WebVitalsPercentile = PropertyMathType.P75 | PropertyMathType.P90 | PropertyMathType.P99
 
 const loadPriorityMap: Record<TileId, number> = {
@@ -230,6 +232,7 @@ export interface WebAnalyticsStatusCheck {
     isSendingPageViews: boolean
     isSendingPageLeaves: boolean
     isSendingPageLeavesScroll: boolean
+    hasAuthorizedUrls: boolean
 }
 
 const GEOIP_TEMPLATE_IDS = ['template-geoip', 'plugin-posthog-plugin-geoip']
@@ -281,6 +284,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         setDeviceTab: (tab: string) => ({ tab }),
         setPathTab: (tab: string) => ({ tab }),
         setGeographyTab: (tab: string) => ({ tab }),
+        setDomainFilter: (domain: string | null) => ({ domain }),
+        setDeviceTypeFilter: (deviceType: DeviceType | null) => ({ deviceType }),
         clearTablesOrderBy: () => true,
         setTablesOrderBy: (orderBy: WebAnalyticsOrderByFields, direction: WebAnalyticsOrderByDirection) => ({
             orderBy,
@@ -307,7 +312,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         setWebVitalsTab: (tab: WebVitalsMetric) => ({ tab }),
     }),
     reducers({
-        _webAnalyticsFilters: [
+        rawWebAnalyticsFilters: [
             INITIAL_WEB_ANALYTICS_FILTER,
             persistConfig,
             {
@@ -332,9 +337,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             },
                         ]
                     }
+
                     const similarFilterExists = oldPropertyFilters.some(
                         (f) => f.type === type && f.key === key && f.operator === PropertyOperator.Exact
                     )
+
                     if (similarFilterExists) {
                         // if there's already a matching property, turn it off or merge them
                         return oldPropertyFilters
@@ -367,6 +374,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             })
                             .filter(isNotNil)
                     }
+
                     // no matching property, so add one
                     const newFilter: WebAnalyticsPropertyFilter = {
                         type,
@@ -376,6 +384,26 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     }
 
                     return [...oldPropertyFilters, newFilter]
+                },
+            },
+        ],
+        domainFilter: [
+            null as string | null,
+            persistConfig,
+            {
+                setDomainFilter: (_: string | null, payload: unknown) => {
+                    const { domain } = payload as { domain: string | null }
+                    return domain
+                },
+            },
+        ],
+        deviceTypeFilter: [
+            null as DeviceType | null,
+            persistConfig,
+            {
+                setDeviceTypeFilter: (_: DeviceType | null, payload: unknown) => {
+                    const { deviceType } = payload as { deviceType: DeviceType | null }
+                    return deviceType
                 },
             },
         ],
@@ -571,24 +599,73 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         geographyTab: [(s) => [s._geographyTab], (geographyTab: string | null) => geographyTab || GeographyTab.MAP],
         isPathCleaningEnabled: [
             (s) => [s._isPathCleaningEnabled, s.hasAvailableFeature],
-            (isPathCleaningEnabled, hasAvailableFeature) =>
-                hasAvailableFeature(AvailableFeature.PATHS_ADVANCED) && isPathCleaningEnabled,
+            (isPathCleaningEnabled: boolean, hasAvailableFeature) => {
+                return hasAvailableFeature(AvailableFeature.PATHS_ADVANCED) && isPathCleaningEnabled
+            },
         ],
         webAnalyticsFilters: [
-            (s) => [s._webAnalyticsFilters, s.isPathCleaningEnabled, () => values.featureFlags],
-            (webAnalyticsFilters: WebAnalyticsPropertyFilters, isPathCleaningEnabled: boolean, featureFlags) => {
-                if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_IMPROVED_PATH_CLEANING] || !isPathCleaningEnabled) {
-                    return webAnalyticsFilters
+            (s) => [
+                s.rawWebAnalyticsFilters,
+                s.isPathCleaningEnabled,
+                s.domainFilter,
+                s.deviceTypeFilter,
+                () => values.featureFlags,
+            ],
+            (
+                rawWebAnalyticsFilters: WebAnalyticsPropertyFilters,
+                isPathCleaningEnabled: boolean,
+                domainFilter: string | null,
+                deviceTypeFilter: DeviceType | null,
+                featureFlags: Record<string, boolean>
+            ) => {
+                let filters = rawWebAnalyticsFilters
+
+                // Add domain filter if set
+                if (
+                    featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_DOMAIN_DROPDOWN] &&
+                    domainFilter &&
+                    domainFilter !== 'all'
+                ) {
+                    // Remove the leading protocol if it exists
+                    const value = domainFilter.replace(/^https?:\/\//, '')
+
+                    filters = [
+                        ...filters,
+                        {
+                            key: '$host',
+                            value: value,
+                            operator: PropertyOperator.Exact,
+                            type: PropertyFilterType.Event,
+                        },
+                    ]
+                }
+
+                // Add device type filter if set
+                if (featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_DOMAIN_DROPDOWN] && deviceTypeFilter) {
+                    filters = [
+                        ...filters,
+                        {
+                            key: '$device_type',
+                            // Extra handling for device type to include mobile+tablet as a single filter
+                            value: deviceTypeFilter === 'Desktop' ? 'Desktop' : ['Mobile', 'Tablet'],
+                            operator: PropertyOperator.Exact,
+                            type: PropertyFilterType.Event,
+                        },
+                    ]
                 }
 
                 // Translate exact path filters to cleaned path filters
-                return webAnalyticsFilters.map((filter) => ({
-                    ...filter,
-                    operator:
-                        filter.operator === PropertyOperator.Exact
-                            ? PropertyOperator.IsCleanedPathExact
-                            : filter.operator,
-                }))
+                if (featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_IMPROVED_PATH_CLEANING] && isPathCleaningEnabled) {
+                    filters = filters.map((filter) => ({
+                        ...filter,
+                        operator:
+                            filter.operator === PropertyOperator.Exact
+                                ? PropertyOperator.IsCleanedPathExact
+                                : filter.operator,
+                    }))
+                }
+
+                return filters
             },
         ],
         tabs: [
@@ -1727,24 +1804,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 return webAnalyticsFilters.some((filter) => filter.key === '$geoip_country_code')
             },
         ],
-        hasDeviceTypeFilter: [
-            (s) => [s.webAnalyticsFilters],
-            (webAnalyticsFilters: WebAnalyticsPropertyFilters) => {
-                return webAnalyticsFilters.some((filter) => filter.key === '$device_type')
-            },
-        ],
-        hasBrowserFilter: [
-            (s) => [s.webAnalyticsFilters],
-            (webAnalyticsFilters: WebAnalyticsPropertyFilters) => {
-                return webAnalyticsFilters.some((filter) => filter.key === '$browser')
-            },
-        ],
-        hasOSFilter: [
-            (s) => [s.webAnalyticsFilters],
-            (webAnalyticsFilters: WebAnalyticsPropertyFilters) => {
-                return webAnalyticsFilters.some((filter) => filter.key === '$os')
-            },
-        ],
         replayFilters: [
             (s) => [s.webAnalyticsFilters, s.dateFilter, s.shouldFilterTestAccounts, s.conversionGoal],
             (
@@ -1944,6 +2003,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     isSendingPageViews,
                     isSendingPageLeaves,
                     isSendingPageLeavesScroll,
+                    hasAuthorizedUrls: !!values.currentTeam?.app_urls && values.currentTeam.app_urls.length > 0,
                 }
             },
         },
@@ -2001,8 +2061,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
     actionToUrl(({ values }) => {
         const stateToUrl = (): string => {
+            const urlParams = new URLSearchParams()
+
             const {
-                webAnalyticsFilters,
+                rawWebAnalyticsFilters,
                 conversionGoal,
                 dateFilter: { dateTo, dateFrom, interval },
                 _sourceTab,
@@ -2015,11 +2077,14 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 compareFilter,
                 productTab,
                 webVitalsPercentile,
+                domainFilter,
+                deviceTypeFilter,
             } = values
 
-            const urlParams = new URLSearchParams()
-            if (webAnalyticsFilters.length > 0) {
-                urlParams.set('filters', JSON.stringify(webAnalyticsFilters))
+            // Make sure we're storing the raw filters only, or else we'll have issues with the domain/device type filters
+            // spreading from their individual dropdowns to the global filters list
+            if (rawWebAnalyticsFilters.length > 0) {
+                urlParams.set('filters', JSON.stringify(rawWebAnalyticsFilters))
             }
             if (conversionGoal) {
                 if ('actionId' in conversionGoal) {
@@ -2063,6 +2128,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             if (productTab === ProductTab.WEB_VITALS) {
                 urlParams.set('percentile', webVitalsPercentile)
             }
+            if (domainFilter) {
+                urlParams.set('domain', domainFilter)
+            }
+            if (deviceTypeFilter) {
+                urlParams.set('device_type', deviceTypeFilter)
+            }
 
             const basePath = productTab === ProductTab.WEB_VITALS ? '/web/web-vitals' : '/web'
             return `${basePath}${urlParams.toString() ? '?' + urlParams.toString() : ''}`
@@ -2083,6 +2154,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             setProductTab: stateToUrl,
             setWebVitalsPercentile: stateToUrl,
             setIsPathCleaningEnabled: stateToUrl,
+            setDomainFilter: stateToUrl,
+            setDeviceTypeFilter: stateToUrl,
         }
     }),
 
@@ -2105,6 +2178,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 filter_test_accounts,
                 compare_filter,
                 percentile,
+                domain,
+                device_type,
             }: Record<string, any>
         ): void => {
             if (![ProductTab.ANALYTICS, ProductTab.WEB_VITALS].includes(productTab)) {
@@ -2163,6 +2238,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             }
             if (percentile && percentile !== values.webVitalsPercentile) {
                 actions.setWebVitalsPercentile(percentile as WebVitalsPercentile)
+            }
+            if (domain && domain !== values.domainFilter) {
+                actions.setDomainFilter(domain === 'all' ? null : domain)
+            }
+            if (device_type && device_type !== values.deviceTypeFilter) {
+                actions.setDeviceTypeFilter(device_type)
             }
         }
 

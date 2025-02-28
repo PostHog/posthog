@@ -5,7 +5,8 @@ use common_kafka::kafka_consumer::SingleTopicConsumer;
 
 use futures::future::ready;
 use property_defs_rs::{
-    app_context::AppContext, config::Config, update_consumer_loop, update_producer_loop,
+    api::v1::query::Manager, api::v1::routing::apply_routes, app_context::AppContext,
+    config::Config, update_consumer_loop, update_producer_loop,
 };
 
 use quick_cache::sync::Cache;
@@ -32,8 +33,9 @@ pub async fn index() -> &'static str {
     "property definitions service"
 }
 
-fn start_health_liveness_server(config: &Config, context: Arc<AppContext>) -> JoinHandle<()> {
-    let config = config.clone();
+fn start_server(config: &Config, context: Arc<AppContext>) -> JoinHandle<()> {
+    let api_ctx = context.clone();
+
     let router = Router::new()
         .route("/", get(index))
         .route("/_readiness", get(index))
@@ -41,8 +43,11 @@ fn start_health_liveness_server(config: &Config, context: Arc<AppContext>) -> Jo
             "/_liveness",
             get(move || ready(context.liveness.get_status())),
         );
+    let router = apply_routes(router, api_ctx);
     let router = setup_metrics_routes(router);
+
     let bind = format!("{}:{}", config.host, config.port);
+
     tokio::task::spawn(async move {
         serve(router, &bind)
             .await
@@ -59,14 +64,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let consumer = SingleTopicConsumer::new(config.kafka.clone(), config.consumer.clone())?;
 
-    let context = Arc::new(AppContext::new(&config).await?);
+    // owns Postgres client and biz logic that handles property defs API calls
+    let query_manager = Manager::new(&config).await?;
+
+    let context = Arc::new(AppContext::new(&config, query_manager).await?);
 
     info!(
         "Subscribed to topic: {}",
         config.consumer.kafka_consumer_topic
     );
 
-    start_health_liveness_server(&config, context.clone());
+    start_server(&config, context.clone());
 
     let (tx, rx) = mpsc::channel(config.update_batch_size * config.channel_slots_per_worker);
 

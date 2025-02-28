@@ -30,6 +30,7 @@ import { OrganizationManager } from '../../worker/ingestion/organization-manager
 import { TeamManager } from '../../worker/ingestion/team-manager'
 import { RustyHook } from '../../worker/rusty-hook'
 import { isTestEnv } from '../env-utils'
+import { GeoIPService } from '../geoip'
 import { status } from '../status'
 import { UUIDT } from '../utils'
 import { PluginsApiKeyManager } from './../../worker/vm/extensions/helpers/api-key-manager'
@@ -190,6 +191,7 @@ export async function createHub(
         rustyHook,
         actionMatcher,
         actionManager,
+        geoipService: new GeoIPService(serverConfig),
         pluginConfigsToSkipElementsParsing: buildIntegerMatcher(process.env.SKIP_ELEMENTS_PARSING_PLUGINS, true),
         eventsToDropByToken: createEventsToDropByToken(process.env.DROP_EVENTS_BY_TOKEN_DISTINCT_ID),
         eventsToSkipPersonsProcessingByToken: createEventsToDropByToken(

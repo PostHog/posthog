@@ -1261,6 +1261,13 @@ class PropertyOperator(StrEnum):
     IS_CLEANED_PATH_EXACT = "is_cleaned_path_exact"
 
 
+class QueryIndexUsage(StrEnum):
+    UNDECISIVE = "undecisive"
+    NO = "no"
+    PARTIAL = "partial"
+    YES = "yes"
+
+
 class QueryResponseAlternative5(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1356,6 +1363,12 @@ class ResultCustomizationByValue(BaseModel):
     )
     assignmentBy: Literal["value"] = "value"
     color: DataColorToken
+
+
+class RetentionDashboardDisplayType(StrEnum):
+    TABLE_ONLY = "table_only"
+    GRAPH_ONLY = "graph_only"
+    ALL = "all"
 
 
 class RetentionEntityKind(StrEnum):
@@ -2538,6 +2551,7 @@ class QueryResponseAlternative7(BaseModel):
         extra="forbid",
     )
     errors: list[HogQLNotice]
+    isUsingIndices: Optional[QueryIndexUsage] = None
     isValid: Optional[bool] = None
     isValidView: Optional[bool] = None
     notices: list[HogQLNotice]
@@ -4956,6 +4970,7 @@ class HogQLMetadataResponse(BaseModel):
         extra="forbid",
     )
     errors: list[HogQLNotice]
+    isUsingIndices: Optional[QueryIndexUsage] = None
     isValid: Optional[bool] = None
     isValidView: Optional[bool] = None
     notices: list[HogQLNotice]
@@ -5872,6 +5887,8 @@ class RetentionFilter(BaseModel):
         extra="forbid",
     )
     cumulative: Optional[bool] = None
+    dashboardDisplay: Optional[RetentionDashboardDisplayType] = None
+    display: Optional[ChartDisplayType] = Field(default=None, description="controls the display of the retention graph")
     period: Optional[RetentionPeriod] = RetentionPeriod.DAY
     retentionReference: Optional[RetentionReference] = Field(
         default=None,

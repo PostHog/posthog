@@ -227,7 +227,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         if instance.table is not None:
             instance.table.soft_delete()
 
-        self.perform_destroy(instance)
+        instance.soft_delete()
 
         return response.Response(status=status.HTTP_204_NO_CONTENT)
 
