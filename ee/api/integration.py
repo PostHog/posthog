@@ -22,6 +22,10 @@ class PublicIntegrationViewSet(viewsets.GenericViewSet):
     authentication_classes = []
     permission_classes = []
 
+    @action(methods=["POST"], detail=False, url_path="slack/interactivity-callback")
+    def slack_interactivity_callback(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return Response({"status": "ok"})
+
     @action(methods=["POST"], detail=False, url_path="slack/events")
     def slack_events(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         try:
