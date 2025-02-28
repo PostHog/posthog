@@ -52,27 +52,9 @@ describe('server', () => {
             {
                 http: true,
                 mmdb: true,
-                ingestion: true,
-                ingestionOverflow: true,
-                ingestionHistorical: true,
+                ingestionV2: true,
                 appManagementSingleton: true,
                 preflightSchedules: true,
-                syncInlinePlugins: true,
-            }
-        )
-    })
-    test('startPluginsServer does not error - pipelines', async () => {
-        const testCode = `
-        async function processEvent (event) {
-            return event
-        }
-    `
-        await resetTestDatabase(testCode)
-        pluginsServer = await createPluginServer(
-            {},
-            {
-                http: true,
-                eventsIngestionPipelines: true,
                 syncInlinePlugins: true,
             }
         )
@@ -139,7 +121,7 @@ describe('server', () => {
         test('starts graphile for scheduled tasks capability', async () => {
             pluginsServer = await createPluginServer(
                 {},
-                { ingestion: true, pluginScheduledTasks: true, processPluginJobs: true, syncInlinePlugins: true }
+                { ingestionV2: true, pluginScheduledTasks: true, processPluginJobs: true, syncInlinePlugins: true }
             )
 
             expect(startGraphileWorker).toHaveBeenCalled()
@@ -148,7 +130,7 @@ describe('server', () => {
         test('disabling pluginScheduledTasks', async () => {
             pluginsServer = await createPluginServer(
                 {},
-                { ingestion: true, pluginScheduledTasks: false, processPluginJobs: true }
+                { ingestionV2: true, pluginScheduledTasks: false, processPluginJobs: true }
             )
 
             expect(startGraphileWorker).toHaveBeenCalled()
@@ -157,7 +139,7 @@ describe('server', () => {
         test('disabling processPluginJobs', async () => {
             pluginsServer = await createPluginServer(
                 {},
-                { ingestion: true, pluginScheduledTasks: true, processPluginJobs: false }
+                { ingestionV2: true, pluginScheduledTasks: true, processPluginJobs: false }
             )
 
             expect(startGraphileWorker).toHaveBeenCalled()
@@ -166,7 +148,7 @@ describe('server', () => {
         test('disabling processPluginJobs, ingestion, and pluginScheduledTasks', async () => {
             pluginsServer = await createPluginServer(
                 {},
-                { ingestion: false, pluginScheduledTasks: false, processPluginJobs: false }
+                { ingestionV2: false, pluginScheduledTasks: false, processPluginJobs: false }
             )
 
             expect(startGraphileWorker).not.toHaveBeenCalled()

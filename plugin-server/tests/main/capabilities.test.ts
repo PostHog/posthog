@@ -10,7 +10,7 @@ jest.mock('../../src/main/graphile-worker/schedule')
 
 describe('stringToPluginServerMode', () => {
     test('gives the right value for ingestion -> PluginServerMode.plugins_ingestion', () => {
-        expect(stringToPluginServerMode['ingestion']).toEqual(PluginServerMode.ingestion)
+        expect(stringToPluginServerMode['ingestion-v2']).toEqual(PluginServerMode.ingestion_v2)
     })
 
     test('gives undefined for invalid input', () => {
@@ -37,7 +37,7 @@ describe('capabilities', () => {
         it('sets up pluginJob handler if processPluginJobs is on', async () => {
             const graphileWorker = new GraphileWorker(hub)
             jest.spyOn(graphileWorker, 'start').mockImplementation(jest.fn())
-            hub.capabilities.ingestion = false
+            hub.capabilities.ingestionV2 = false
             hub.capabilities.processPluginJobs = true
             hub.capabilities.pluginScheduledTasks = false
 
@@ -55,7 +55,7 @@ describe('capabilities', () => {
             const graphileWorker = new GraphileWorker(hub)
             jest.spyOn(graphileWorker, 'start').mockImplementation(jest.fn())
 
-            hub.capabilities.ingestion = false
+            hub.capabilities.ingestionV2 = false
             hub.capabilities.processPluginJobs = false
             hub.capabilities.pluginScheduledTasks = true
 
