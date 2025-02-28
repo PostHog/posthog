@@ -115,7 +115,7 @@ impl AggregateFunnelRowUnordered {
             .iter()
             .min_by_key(|&&step| {
                 let step = step as usize;
-                vars.events_by_step[step]
+                vars.events_by_step[step-1]
                     .back()
                     .map(|e| e.timestamp)
                     .unwrap_or(0.0);
@@ -130,16 +130,16 @@ impl AggregateFunnelRowUnordered {
             return;
         }
 
-        if vars.events_by_step[min_timestamp_step].is_empty() {
+        if vars.events_by_step[min_timestamp_step-1].is_empty() {
             vars.num_steps_completed += 1;
         }
-        vars.events_by_step[min_timestamp_step].push_back(event.clone());
+        vars.events_by_step[min_timestamp_step-1].push_back(event.clone());
 
         // 2. Delete all events that are out of the match window
-        for step in 0..vars.events_by_step.len() {
-            if !vars.events_by_step[step].is_empty() {
+        for index in 0..vars.events_by_step.len() {
+            if !vars.events_by_step[index].is_empty() {
                 loop {
-                    let front_event = vars.events_by_step[step].front();
+                    let front_event = vars.events_by_step[index].front();
                     if front_event.is_none() {
                         vars.num_steps_completed -= 1;
                         break;
@@ -148,7 +148,7 @@ impl AggregateFunnelRowUnordered {
                     let front_event = front_event.unwrap();
                     if event.timestamp - front_event.timestamp > args.conversion_window_limit as f64
                     {
-                        vars.events_by_step[step].pop_front();
+                        vars.events_by_step[index].pop_front();
                     } else {
                         break;
                     }
