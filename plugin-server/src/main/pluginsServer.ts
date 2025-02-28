@@ -236,14 +236,13 @@ export async function startPluginsServer(
             ]
 
             for (const consumerOption of consumersOptions) {
-                const modifiedHub: Hub = {
+                await initPlugins()
+
+                const consumer = new IngestionConsumer({
                     ...hub,
                     INGESTION_CONSUMER_CONSUME_TOPIC: consumerOption.topic,
                     INGESTION_CONSUMER_GROUP_ID: consumerOption.group_id,
-                }
-                await initPlugins()
-
-                const consumer = new IngestionConsumer(modifiedHub)
+                })
                 await consumer.start()
                 services.push(consumer.service)
             }
