@@ -284,7 +284,7 @@ def append_partition_key_to_table(
         and incremental_field_type != IncrementalFieldType.DateTime
         and incremental_field_type != IncrementalFieldType.Timestamp
     ):
-        logger.debug("No partition key added due to incremental_field_type={incremental_field_type}")
+        logger.debug(f"No partition key added due to incremental_field_type={incremental_field_type}")
         return table
 
     partition_array: list[str | None] = []
