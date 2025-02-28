@@ -141,6 +141,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         RUSTY_HOOK_URL: '',
         HOG_HOOK_URL: '',
         CAPTURE_CONFIG_REDIS_HOST: null,
+
+        // posthog
         POSTHOG_API_KEY: '',
         POSTHOG_HOST_URL: 'http://localhost:8010',
 
