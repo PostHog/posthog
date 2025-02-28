@@ -46,7 +46,7 @@ SESSION_REPLAY_AI_DEFAULT_MODEL = get_from_env("SESSION_REPLAY_AI_DEFAULT_MODEL"
 SESSION_REPLAY_AI_REGEX_MODEL = get_from_env("SESSION_REPLAY_AI_REGEX_MODEL", "gpt-4o-mini")
 
 PLAYLIST_COUNTER_PROCESSING_ALLOWED_TEAMS = get_list(
-    get_from_env("TEAMS_WITH_PLAYLIST_COUNTER_PROCESSING", "1,2" if settings.DEBUG else "")
+    get_from_env("PLAYLIST_COUNTER_PROCESSING_ALLOWED_TEAMS", "1,2" if settings.DEBUG else "")
 )
 # TODO want this to be 24 hours in prod but initial testing is better with 1 hour
 PLAYLIST_COUNTER_PROCESSING_SCHEDULE_SECONDS = get_from_env(
