@@ -83,6 +83,7 @@ export class GeoIPService {
      * To reduce load we check the metadata file first
      */
     private async backgroundRefreshMmdb(): Promise<void> {
+        status.debug('🌎', 'Checking if we need to refresh the MMDB')
         if (!this._mmdbMetadata) {
             status.info(
                 '🌎',
