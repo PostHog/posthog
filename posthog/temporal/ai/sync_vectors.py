@@ -1,8 +1,9 @@
 import asyncio
+import json
 from collections import defaultdict
 from collections.abc import Coroutine
-from dataclasses import dataclass, field
-from datetime import datetime
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 from typing import Any
 
 import cohere
@@ -17,6 +18,7 @@ from django.db.models import F, Q
 from ee.hogai.summarizers.chains import abatch_summarize_actions
 from posthog.models import Action, Team
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.utils import get_scheduled_start_time
 
 cohere_client = cohere.ClientV2()
 
@@ -25,7 +27,7 @@ cohere_client = cohere.ClientV2()
 class RetrieveActionsInputs:
     offset: int
     batch_size: int
-    start_dt: datetime
+    start_dt: str
 
 
 @dataclass
@@ -45,17 +47,18 @@ def get_actions_qs(start_dt: datetime, offset: int | None = None, batch_size: in
 
 @dataclass
 class GetApproximateActionsCountInputs:
-    start_dt: datetime
+    start_dt: str
 
 
 @temporalio.activity.defn
 async def get_approximate_actions_count(inputs: GetApproximateActionsCountInputs) -> int:
-    return await get_actions_qs(inputs.start_dt).acount()
+    return await get_actions_qs(datetime.fromisoformat(inputs.start_dt)).acount()
 
 
 @temporalio.activity.defn
 async def batch_summarize_and_embed_actions(inputs: RetrieveActionsInputs) -> list[UpdatedAction]:
-    actions_to_summarize = get_actions_qs(inputs.start_dt, inputs.offset, inputs.batch_size)
+    workflow_start_dt = datetime.fromisoformat(inputs.start_dt)
+    actions_to_summarize = get_actions_qs(workflow_start_dt, inputs.offset, inputs.batch_size)
     actions = [action async for action in actions_to_summarize]
 
     summaries = await abatch_summarize_actions(actions)
@@ -64,7 +67,7 @@ async def batch_summarize_and_embed_actions(inputs: RetrieveActionsInputs) -> li
         if isinstance(maybe_summary, BaseException):
             posthoganalytics.capture_exception(maybe_summary, context={"action_id": action.id})
             continue
-        action.last_summarized_at = inputs.start_dt
+        action.last_summarized_at = workflow_start_dt
         action.summary = maybe_summary
         models_to_update.append(action)
 
@@ -101,7 +104,7 @@ async def sync_action_vectors_for_team(inputs: SyncActionVectorsForTeamInputs):
     if not models_to_update:
         return
 
-    ns = tpuf.Namespace(f"project:{team.id}")
+    ns = tpuf.Namespace(f"project_{team.id}")
     # Blocking API call
     ns.upsert(
         ids=[action.id for action in models_to_update],
@@ -132,7 +135,7 @@ async def sync_action_vectors_for_team(inputs: SyncActionVectorsForTeamInputs):
 
 @dataclass
 class SyncVectorsInputs:
-    start_dt: datetime = field(default_factory=datetime.now)
+    start_dt: datetime | None = None
     batch_size: int = 96
     max_parallel_requests: int = 4
     sync_batch_size: int = 2000  # Maximum available is 5k/namespace/s
@@ -146,11 +149,21 @@ class SyncVectorsWorkflow(PostHogWorkflow):
     def __init__(self):
         self._updated_actions_by_team = defaultdict(set)
 
+    @staticmethod
+    def parse_inputs(inputs: list[str]) -> SyncVectorsInputs:
+        """Parse inputs from the management command CLI."""
+        loaded = json.loads(inputs[0])
+        return SyncVectorsInputs(**loaded)
+
     @temporalio.workflow.run
     async def run(self, inputs: SyncVectorsInputs):
+        start_dt = inputs.start_dt or get_scheduled_start_time()
+        start_dt_str = start_dt.isoformat()
+
         approximate_count = await temporalio.workflow.execute_activity(
             get_approximate_actions_count,
-            GetApproximateActionsCountInputs(inputs.start_dt),
+            GetApproximateActionsCountInputs(start_dt_str),
+            start_to_close_timeout=timedelta(seconds=15),
         )
         if not approximate_count:
             return
@@ -160,7 +173,8 @@ class SyncVectorsWorkflow(PostHogWorkflow):
             tasks.append(
                 temporalio.workflow.execute_activity(
                     batch_summarize_and_embed_actions,
-                    RetrieveActionsInputs(i, inputs.batch_size, inputs.start_dt),
+                    RetrieveActionsInputs(i, inputs.batch_size, start_dt_str),
+                    start_to_close_timeout=timedelta(minutes=5),
                 )
             )
 
@@ -183,6 +197,7 @@ class SyncVectorsWorkflow(PostHogWorkflow):
                     temporalio.workflow.execute_activity(
                         sync_action_vectors_for_team,
                         SyncActionVectorsForTeamInputs(team_id, batch_action_ids),
+                        start_to_close_timeout=timedelta(minutes=1),
                     )
                 )
 

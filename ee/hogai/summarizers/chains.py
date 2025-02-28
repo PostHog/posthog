@@ -22,13 +22,13 @@ async def abatch_summarize_actions(actions: Sequence[Action]) -> list[str | Base
 
         taxonomy_prompt = action_summarizer.taxonomy_description
         prompt = ChatPromptTemplate.from_messages(
-            ("system", ACTIONS_SUMMARIZER_SYSTEM_PROMPT),
-            ("user", "{action_description}"),
+            [
+                ("system", ACTIONS_SUMMARIZER_SYSTEM_PROMPT),
+                ("user", "{action_description}"),
+            ]
         ).format_prompt(
-            {
-                "taxonomy": f"\n\n{taxonomy_prompt}" if taxonomy_prompt else "",
-                "action_description": action_summarizer.summary,
-            }
+            taxonomy=f"\n\n{taxonomy_prompt}" if taxonomy_prompt else "",
+            action_description=action_summarizer.summary,
         )
         prompts.append(prompt)
 

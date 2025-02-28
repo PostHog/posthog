@@ -1,4 +1,5 @@
 import asyncio
+from dataclasses import asdict
 from datetime import timedelta
 
 import structlog
@@ -13,8 +14,9 @@ from temporalio.client import (
 )
 
 from posthog.constants import GENERAL_PURPOSE_TASK_QUEUE
+from posthog.temporal.ai import SyncVectorsInputs
 from posthog.temporal.common.client import async_connect
-from posthog.temporal.common.schedule import a_create_schedule
+from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
 
 logger = structlog.get_logger(__name__)
 
@@ -23,12 +25,16 @@ async def create_sync_vectors_schedule(client: Client):
     sync_vectors_schedule = Schedule(
         action=ScheduleActionStartWorkflow(
             "ai-sync-vectors",
+            asdict(SyncVectorsInputs()),
             id="ai-sync-vectors-schedule",
             task_queue=GENERAL_PURPOSE_TASK_QUEUE,
         ),
         spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(minutes=30))]),
     )
-    await a_create_schedule(client, "ai-sync-vectors-schedule", sync_vectors_schedule, trigger_immediately=True)
+    if await a_schedule_exists(client, "ai-sync-vectors-schedule"):
+        await a_update_schedule(client, "ai-sync-vectors-schedule", sync_vectors_schedule)
+    else:
+        await a_create_schedule(client, "ai-sync-vectors-schedule", sync_vectors_schedule, trigger_immediately=True)
 
 
 schedules = [create_sync_vectors_schedule]
