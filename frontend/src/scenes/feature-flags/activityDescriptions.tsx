@@ -142,7 +142,14 @@ const featureFlagActionsMapping: Record<
             }
         }
 
-        if (isMultivariateFlag) {
+        if (filtersBefore?.multivariate?.variants?.length && filtersAfter.multivariate === null) {
+            changes.push(
+                <SentenceList
+                    key="remove-variants-list"
+                    listParts={[<span key="remove-variants">removed all variants</span>]}
+                />
+            )
+        } else if (isMultivariateFlag) {
             filtersAfter.payloads &&
                 Object.keys(filtersAfter.payloads).forEach((key: string) => {
                     const changedPayload = filtersAfter.payloads?.[key]?.toString() || null
@@ -162,6 +169,12 @@ const featureFlagActionsMapping: Record<
                     )
                 })
 
+            // Identify removed variants
+            const beforeVariants = new Set((filtersBefore?.multivariate?.variants || []).map((v) => v.key))
+            const afterVariants = new Set((filtersAfter?.multivariate?.variants || []).map((v) => v.key))
+            const removedVariants = [...beforeVariants].filter((key) => !afterVariants.has(key))
+
+            // First add the rollout percentage changes
             changes.push(
                 <SentenceList
                     listParts={(filtersAfter.multivariate?.variants || []).map((v) => (
@@ -172,6 +185,20 @@ const featureFlagActionsMapping: Record<
                     prefix="changed the rollout percentage for the variants to"
                 />
             )
+
+            // Then add removed variants if any
+            if (removedVariants.length > 0) {
+                changes.push(
+                    <SentenceList
+                        listParts={removedVariants.map((key) => (
+                            <span key={key} className="highlighted-activity">
+                                <strong>{key}</strong>
+                            </span>
+                        ))}
+                        prefix="removed variant(s)"
+                    />
+                )
+            }
         }
 
         if (changes.length > 0) {
