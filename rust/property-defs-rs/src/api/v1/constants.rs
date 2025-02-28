@@ -19,13 +19,12 @@ pub const EVENT_PROPERTY_TABLE_ALIAS: &str = "check_for_matching_event_property"
 
 pub const PARENT_PROPERTY_TYPES: [&str; 4] = ["event", "person", "group", "session"];
 
-pub const PROPERTY_DEFS_TABLE_COLUMNS: [&str; 7] = [
+pub const PROPERTY_DEFS_TABLE_COLUMNS: [&str; 6] = [
     "id",
     "project_id",
     "team_id",
     "name",
     "is_numerical",
-    "type",
     "property_type",
     // "property_type_format", "volume_30_day", "query_usage_30_day"
 ];

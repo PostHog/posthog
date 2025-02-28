@@ -328,12 +328,10 @@ impl Params {
     }
 }
 
-#[derive(Serialize, FromRow)]
+#[derive(Deserialize, Serialize, FromRow)]
 struct PropDefRow {
     id: uuid::Uuid,
     name: String,
-    #[serde(rename = "type")]
-    parent_type: Option<String>,
     property_type: Option<String>,
     is_numerical: Option<bool>,
     is_seen_on_filtered_events: Option<bool>,
@@ -377,8 +375,6 @@ pub struct PropertyDefinitionResponse {
 pub struct PropertyDefinition {
     id: uuid::Uuid,
     name: String,
-    #[serde(rename = "type")]
-    parent_type: Option<String>,
     property_type: Option<String>,
     is_numerical: Option<bool>,
     is_seen_on_filtered_events: Option<bool>,
@@ -439,7 +435,6 @@ impl From<PropDefRow> for PropertyDefinition {
         PropertyDefinition {
             id: row.id,
             name: row.name,
-            parent_type: row.parent_type,
             property_type: row.property_type,
             is_numerical: row.is_numerical,
             is_seen_on_filtered_events: row.is_seen_on_filtered_events,

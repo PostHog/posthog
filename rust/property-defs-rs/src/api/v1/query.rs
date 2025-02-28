@@ -240,10 +240,16 @@ impl Manager {
             // JOIN the row on a potentially different user, two User table name
             // aliases must be applied to the fully-qualified selections
             for col_name in USER_TABLE_COLUMNS {
-                selections.push(format!("{}.\"ub_{}\"", USER_TABLE_UPDATED_ALIAS, col_name));
+                selections.push(format!(
+                    "{0}.\"{1}\" AS ub_{1}",
+                    USER_TABLE_UPDATED_ALIAS, col_name
+                ));
             }
             for col_name in USER_TABLE_COLUMNS {
-                selections.push(format!("{}.\"vb_{}\"", USER_TABLE_VERIFIED_ALIAS, col_name));
+                selections.push(format!(
+                    "{0}.\"{1}\" AS vb_{1}",
+                    USER_TABLE_VERIFIED_ALIAS, col_name
+                ));
             }
         }
 
