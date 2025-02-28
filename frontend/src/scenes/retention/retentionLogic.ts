@@ -37,7 +37,7 @@ export const retentionLogic = kea<retentionLogicType>([
                         const totalCount = result.values[0]['count']
                         const previousCount = index > 0 ? result.values[index - 1]['count'] : totalCount
                         const referenceCount =
-                            retentionFilter?.retentionReference === 'total' ? totalCount : previousCount
+                            retentionFilter?.retentionReference === 'previous' ? previousCount : totalCount
                         const percentage = referenceCount > 0 ? (value['count'] / referenceCount) * 100 : 0
 
                         const periodUnit = (
