@@ -17,16 +17,27 @@ export const geoipCompareCounter = new Counter({
 export class GeoIPService {
     private _mmdbPromise: Promise<ReaderModel> | undefined
 
-    constructor(private config: PluginsServerConfig) {}
+    constructor(private config: PluginsServerConfig) {
+        status.info('🌎', 'GeoIPService created')
+    }
 
     private getMmdb() {
         if (!this._mmdbPromise) {
-            this._mmdbPromise = Reader.open(this.config.MMDB_FILE_LOCATION).catch((e) => {
-                status.warn('🌎', 'Error getting MMDB', {
-                    error: e.message,
-                })
-                throw e
+            status.info('🌎', 'Loading MMDB', {
+                location: this.config.MMDB_FILE_LOCATION,
             })
+            this._mmdbPromise = Reader.open(this.config.MMDB_FILE_LOCATION)
+                .then((mmdb) => {
+                    status.info('🌎', 'Loaded MMDB succeeded')
+                    return mmdb
+                })
+                .catch((e) => {
+                    status.warn('🌎', 'Loaded MMDB failed', {
+                        location: this.config.MMDB_FILE_LOCATION,
+                        error: e.message,
+                    })
+                    throw e
+                })
         }
 
         return this._mmdbPromise
