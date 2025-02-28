@@ -907,7 +907,10 @@ def ee_persist_finished_recordings() -> None:
         persist_finished_recordings()
 
 
-@shared_task(ignore_result=True)
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.SESSION_REPLAY_GENERAL.value,
+)
 def ee_count_items_in_playlists() -> None:
     try:
         from ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters import (
