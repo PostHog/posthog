@@ -40,6 +40,7 @@ import { surveysLogic } from './surveysLogic'
 import {
     calculateNpsBreakdown,
     calculateNpsScore,
+    createAnswerFilterHogQLExpression,
     getResponseFieldWithId,
     sanitizeHTML,
     sanitizeSurveyAppearance,
@@ -182,6 +183,10 @@ const getMultipleChoiceResponseFieldCondition = (questionIndex: number, question
 function duplicateExistingSurvey(survey: Survey | NewSurvey): Partial<Survey> {
     return {
         ...survey,
+        questions: survey.questions.map((question) => ({
+            ...question,
+            id: undefined,
+        })),
         id: NEW_SURVEY.id,
         name: `${survey.name} (copy)`,
         archived: false,
@@ -368,6 +373,18 @@ export const surveyLogic = kea<surveyLogicType>([
                 const startDate = getSurveyStartDateForQuery(survey)
                 const endDate = getSurveyEndDateForQuery(survey)
 
+                const answerFilter = createAnswerFilterHogQLExpression(values.answerFilters, survey)
+
+                const filters = [
+                    `AND properties['$survey_id'] = '${props.id}'`,
+                    `AND timestamp >= ${startDate}`,
+                    `AND timestamp <= ${endDate}`,
+                ]
+
+                if (answerFilter !== '') {
+                    filters.push(answerFilter)
+                }
+
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
                     query: hogql`
@@ -375,27 +392,21 @@ export const surveyLogic = kea<surveyLogicType>([
                             (SELECT COUNT(DISTINCT person_id)
                                 FROM events
                                 WHERE event = 'survey shown'
-                                    AND properties.$survey_id = ${props.id}
-                                    AND timestamp >= ${startDate}
-                                    AND timestamp <= ${endDate}
+                                    ${filters.join('\n')}
                                     AND {filters}),
                             (SELECT COUNT(DISTINCT person_id)
                                 FROM events
                                 WHERE event = 'survey dismissed'
-                                    AND properties.$survey_id = ${props.id}
-                                    AND timestamp >= ${startDate}
-                                    AND timestamp <= ${endDate}
+                                    ${filters.join('\n')}
                                     AND {filters}),
                             (SELECT COUNT(DISTINCT person_id)
                                 FROM events
                                 WHERE event = 'survey sent'
-                                    AND properties.$survey_id = ${props.id}
-                                    AND timestamp >= ${startDate}
-                                    AND timestamp <= ${endDate}
+                                    ${filters.join('\n')}
                                     AND {filters})
                     `,
                     filters: {
-                        properties: [...values.propertyFilters, ...values.answerFilters],
+                        properties: values.propertyFilters,
                     },
                 }
 
@@ -427,6 +438,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
                     query: `
+                        -- QUERYING NPS RESPONSES
                         SELECT
                             ${getResponseFieldCondition(questionIndex, question.id)} AS survey_response,
                             COUNT(survey_response)
@@ -435,11 +447,12 @@ export const surveyLogic = kea<surveyLogicType>([
                             AND properties.$survey_id = '${props.id}'
                             AND timestamp >= '${startDate}'
                             AND timestamp <= '${endDate}'
+                            ${createAnswerFilterHogQLExpression(values.answerFilters, survey)}
                             AND {filters}
                         GROUP BY survey_response
                     `,
                     filters: {
-                        properties: [...values.propertyFilters, ...values.answerFilters],
+                        properties: values.propertyFilters,
                     },
                 }
 
@@ -488,11 +501,12 @@ export const surveyLogic = kea<surveyLogicType>([
                             AND properties.$survey_id = '${survey.id}'
                             AND timestamp >= '${startDate}'
                             AND timestamp <= '${endDate}'
+                            ${createAnswerFilterHogQLExpression(values.answerFilters, survey)}
                             AND {filters}
                         GROUP BY survey_response, survey_iteration
                     `,
                     filters: {
-                        properties: [...values.propertyFilters, ...values.answerFilters],
+                        properties: values.propertyFilters,
                     },
                 }
 
@@ -570,11 +584,12 @@ export const surveyLogic = kea<surveyLogicType>([
                             AND properties.$survey_id = '${props.id}'
                             AND timestamp >= '${startDate}'
                             AND timestamp <= '${endDate}'
+                            ${createAnswerFilterHogQLExpression(values.answerFilters, survey)}
                             AND {filters}
                         GROUP BY survey_response
                     `,
                     filters: {
-                        properties: [...values.propertyFilters, ...values.answerFilters],
+                        properties: values.propertyFilters,
                     },
                 }
 
@@ -615,12 +630,13 @@ export const surveyLogic = kea<surveyLogicType>([
                             AND properties.$survey_id == '${survey.id}'
                             AND timestamp >= '${startDate}'
                             AND timestamp <= '${endDate}'
+                            ${createAnswerFilterHogQLExpression(values.answerFilters, survey)}
                             AND {filters}
                         GROUP BY choice
                         ORDER BY count() DESC
                     `,
                     filters: {
-                        properties: [...values.propertyFilters, ...values.answerFilters],
+                        properties: values.propertyFilters,
                     },
                 }
 
@@ -683,11 +699,12 @@ export const surveyLogic = kea<surveyLogicType>([
                             AND ${responseCondition}
                             AND timestamp >= '${startDate}'
                             AND timestamp <= '${endDate}'
+                            ${createAnswerFilterHogQLExpression(values.answerFilters, survey)}
                             AND {filters}
                         LIMIT 20
                     `,
                     filters: {
-                        properties: [...values.propertyFilters, ...values.answerFilters],
+                        properties: values.propertyFilters,
                     },
                 }
 
@@ -1211,6 +1228,13 @@ export const surveyLogic = kea<surveyLogicType>([
                 }
                 const surveyWithResults = survey
 
+                const where = [`event == 'survey sent'`]
+                const answerFilter = createAnswerFilterHogQLExpression(answerFilters, survey)
+
+                if (answerFilter !== '') {
+                    where.push(answerFilter)
+                }
+
                 return {
                     kind: NodeKind.DataTableNode,
                     source: {
@@ -1243,7 +1267,7 @@ export const surveyLogic = kea<surveyLogicType>([
                             `coalesce(JSONExtractString(properties, '$current_url')) -- URL`,
                         ],
                         orderBy: ['timestamp DESC'],
-                        where: [`event == 'survey sent'`],
+                        where,
                         after: getSurveyStartDateForQuery(surveyWithResults),
                         properties: [
                             {
@@ -1253,7 +1277,6 @@ export const surveyLogic = kea<surveyLogicType>([
                                 value: survey.id,
                             },
                             ...propertyFilters,
-                            ...answerFilters,
                         ],
                     },
                     propertiesViaUrl: true,
