@@ -59,7 +59,7 @@ function _SurveyResponseFilters(): JSX.Element {
 
     const handleUpdateFilter = (questionIndex: number, field: 'operator' | 'value', value: any): void => {
         const newFilters = [...answerFilters]
-        const filterIndex = newFilters.findIndex((f) => f.key === getSurveyResponseKey(questionIndex))
+        const filterIndex = newFilters.findIndex((f) => f.key.includes(getSurveyResponseKey(questionIndex)))
 
         if (filterIndex >= 0) {
             // Ensure we're working with an EventPropertyFilter
@@ -82,7 +82,7 @@ function _SurveyResponseFilters(): JSX.Element {
     }
 
     const getFilterForQuestion = (questionIndex: number): EventPropertyFilter | undefined => {
-        const filter = answerFilters.find((f) => f.key === getSurveyResponseKey(questionIndex))
+        const filter = answerFilters.find((f) => f.key.includes(getSurveyResponseKey(questionIndex)))
         return filter
     }
 
