@@ -1,11 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { Counter } from 'prom-client'
 
-import {
-    HogFunctionInvocationGlobals,
-    HogFunctionInvocationResult,
-    HogFunctionType,
-} from '../../cdp/types'
+import { HogFunctionInvocationGlobals, HogFunctionInvocationResult, HogFunctionType } from '../../cdp/types'
 import { createInvocation, isLegacyPluginHogFunction } from '../../cdp/utils'
 import { runInstrumentedFunction } from '../../main/utils'
 import { Hub } from '../../types'
