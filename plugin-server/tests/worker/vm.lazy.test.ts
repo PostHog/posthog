@@ -27,8 +27,6 @@ describe('LazyPluginVM', () => {
         db,
         capabilities: {
             ingestion: true,
-            pluginScheduledTasks: true,
-            processPluginJobs: true,
             processAsyncHandlers: true,
         },
         celery: {
