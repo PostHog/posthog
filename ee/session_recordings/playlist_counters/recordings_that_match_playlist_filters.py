@@ -1,3 +1,4 @@
+from datetime import datetime
 import json
 from typing import Any
 import posthoganalytics
@@ -37,6 +38,11 @@ REPLAY_TEAM_PLAYLIST_COUNT_FAILED = Counter(
 REPLAY_TEAM_PLAYLIST_COUNT_UNKNOWN = Counter(
     "replay_playlist_count_unknown",
     "when a count task for a playlist is unknown",
+)
+
+REPLAY_TEAM_PLAYLIST_COUNT_SKIPPED = Counter(
+    "replay_playlist_count_skipped",
+    "when a count task for a playlist is skipped because the cooldown period has not passed",
 )
 
 REPLAY_PLAYLIST_COUNT_TIMER = Histogram(
@@ -141,20 +147,33 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
     try:
         with REPLAY_PLAYLIST_COUNT_TIMER.time():
             playlist = SessionRecordingPlaylist.objects.get(id=playlist_id)
+            redis_client = get_client()
+
+            existing_value = redis_client.get(f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist.short_id}")
+            if existing_value:
+                existing_value = json.loads(existing_value)
+            else:
+                existing_value = {}
+
+            if existing_value.get("refreshed_at"):
+                last_refreshed_at = datetime.fromisoformat(existing_value["refreshed_at"])
+                seconds_since_refresh = int((datetime.now() - last_refreshed_at).total_seconds())
+
+                if seconds_since_refresh <= settings.PLAYLIST_COUNTER_PROCESSING_COOLDOWN_SECONDS:
+                    REPLAY_TEAM_PLAYLIST_COUNT_SKIPPED.inc()
+                    return
+
             query = convert_universal_filters_to_recordings_query(playlist.filters)
             (recordings, more_recordings_available, _) = list_recordings_from_query(
                 query, user=None, team=playlist.team
             )
-
-            redis_client = get_client()
-
-            existing_value = redis_client.get(f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist.short_id}") or {}
 
             value_to_set = json.dumps(
                 {
                     "session_ids": [r.session_id for r in recordings],
                     "has_more": more_recordings_available,
                     "previous_ids": existing_value.get("session_ids", None),
+                    "refreshed_at": datetime.now().isoformat(),
                 }
             )
             redis_client.setex(
