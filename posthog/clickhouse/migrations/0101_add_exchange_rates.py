@@ -18,7 +18,7 @@ operations = [
     run_sql_with_exceptions(EXCHANGE_RATE_TABLE_SQL()),
     run_sql_with_exceptions(EXCHANGE_RATE_TABLE_SQL(on_cluster=False), node_role=NodeRole.COORDINATOR),
     run_sql_with_exceptions(EXCHANGE_RATE_DATA_BACKFILL_SQL()),
-    run_sql_with_exceptions(EXCHANGE_RATE_DATA_BACKFILL_SQL(on_cluster=False), node_role=NodeRole.COORDINATOR),
+    run_sql_with_exceptions(EXCHANGE_RATE_DATA_BACKFILL_SQL(), node_role=NodeRole.COORDINATOR),
     run_sql_with_exceptions(EXCHANGE_RATE_DICTIONARY_SQL()),
     run_sql_with_exceptions(EXCHANGE_RATE_DICTIONARY_SQL(on_cluster=False), node_role=NodeRole.COORDINATOR),
 ]
