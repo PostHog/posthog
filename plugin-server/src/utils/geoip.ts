@@ -54,7 +54,9 @@ export class GeoIPService {
             // NOTE: For self hosted instances this may fail as it is just using the bundled file so we just ignore the refreshing
         }
 
-        status.info('🌎', 'Loading MMDB from disk...')
+        status.info('🌎', 'Loading MMDB from disk...', {
+            location: this.config.MMDB_FILE_LOCATION,
+        })
         return Reader.open(this.config.MMDB_FILE_LOCATION)
             .then((mmdb) => {
                 status.info('🌎', 'Loading MMDB from disk succeeded!')
@@ -63,6 +65,7 @@ export class GeoIPService {
             .catch((e) => {
                 status.warn('🌎', 'Loading MMDB from disk failed!', {
                     error: e.message,
+                    location: this.config.MMDB_FILE_LOCATION,
                 })
                 throw e
             })
