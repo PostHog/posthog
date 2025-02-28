@@ -2075,3 +2075,130 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(test_result.count, 3)
         self.assertEqual(control_result.absolute_exposure, 7)
         self.assertEqual(test_result.absolute_exposure, 9)
+
+    @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_query_runner_excludes_multiple_variants(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"version": 2}
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        metric = ExperimentMetric(
+            metric_type=ExperimentMetricType.COUNT,
+            metric_config=ExperimentEventMetricConfig(event="$pageview"),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        # User who sees only control variant
+        _create_person(distinct_ids=["user_control"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="user_control",
+            timestamp="2020-01-02T12:00:00Z",
+            properties={
+                "$feature_flag_response": "control",
+                feature_flag_property: "control",
+                "$feature_flag": feature_flag.key,
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user_control",
+            timestamp="2020-01-02T12:01:00Z",
+            properties={feature_flag_property: "control"},
+        )
+
+        # User who sees only test variant
+        _create_person(distinct_ids=["user_test"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="user_test",
+            timestamp="2020-01-02T12:00:00Z",
+            properties={
+                "$feature_flag_response": "test",
+                feature_flag_property: "test",
+                "$feature_flag": feature_flag.key,
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user_test",
+            timestamp="2020-01-02T12:01:00Z",
+            properties={feature_flag_property: "test"},
+        )
+
+        # User who sees both variants (should be excluded)
+        _create_person(distinct_ids=["user_multiple"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="user_multiple",
+            timestamp="2020-01-02T12:00:00Z",
+            properties={
+                "$feature_flag_response": "control",
+                feature_flag_property: "control",
+                "$feature_flag": feature_flag.key,
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="user_multiple",
+            timestamp="2020-01-02T12:01:00Z",
+            properties={
+                "$feature_flag_response": "test",
+                feature_flag_property: "test",
+                "$feature_flag": feature_flag.key,
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user_multiple",
+            timestamp="2020-01-02T12:02:00Z",
+            properties={feature_flag_property: "control"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user_multiple",
+            timestamp="2020-01-02T12:03:00Z",
+            properties={feature_flag_property: "test"},
+        )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = query_runner.calculate()
+
+        self.assertEqual(len(result.variants), 2)
+
+        control_variant = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
+        )
+        test_variant = cast(
+            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
+        )
+
+        # Verify that only the single-variant users are counted
+        self.assertEqual(control_variant.count, 1)  # Only from user_control
+        self.assertEqual(test_variant.count, 1)  # Only from user_test
+
+        # Verify the exposure counts (users who have been exposed to the variant)
+        self.assertEqual(control_variant.absolute_exposure, 1)  # Only user_control
+        self.assertEqual(test_variant.absolute_exposure, 1)  # Only user_test

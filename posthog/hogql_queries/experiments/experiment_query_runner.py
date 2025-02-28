@@ -199,7 +199,7 @@ class ExperimentQueryRunner(QueryRunner):
             ast.Alias(
                 alias="variant",
                 expr=parse_expr(
-                    "if(count(distinct {feature_flag_property}) > 1, '{MULTIPLE_VARIANT_KEY}', any({feature_flag_property}))",
+                    "if(count(distinct {feature_flag_property}) > 1, {multiple_variant_key}, any({feature_flag_property}))",
                     placeholders={
                         "feature_flag_property": ast.Field(chain=["properties", feature_flag_property]),
                         "multiple_variant_key": ast.Constant(value=MULTIPLE_VARIANT_KEY),
