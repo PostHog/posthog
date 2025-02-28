@@ -171,7 +171,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                 validated_data["sync_frequency_interval"] = sync_frequency_interval
                 instance.sync_frequency_interval = sync_frequency_interval
 
-        if sync_time_of_day:
+        if sync_time_of_day is not None:
             if sync_time_of_day != instance.sync_time_of_day:
                 was_sync_time_of_day_updated = True
                 validated_data["sync_time_of_day"] = sync_time_of_day

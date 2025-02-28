@@ -393,7 +393,7 @@ const SyncMethodModal = ({ schema }: { schema: ExternalDataSourceSchema }): JSX.
                                 sync_type: syncType,
                                 incremental_field: null,
                                 incremental_field_type: null,
-                                sync_time_of_day: '00:00:00',
+                                sync_time_of_day: currentSyncMethodModalSchema.sync_time_of_day ?? '00:00:00',
                             })
                         } else {
                             updateSchema({
@@ -402,7 +402,7 @@ const SyncMethodModal = ({ schema }: { schema: ExternalDataSourceSchema }): JSX.
                                 sync_type: syncType,
                                 incremental_field: incrementalField,
                                 incremental_field_type: incrementalFieldType,
-                                sync_time_of_day: '00:00:00',
+                                sync_time_of_day: currentSyncMethodModalSchema.sync_time_of_day ?? '00:00:00',
                             })
                         }
                     }}
