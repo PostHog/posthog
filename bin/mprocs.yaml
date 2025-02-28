@@ -1,6 +1,6 @@
 procs:
     backend:
-        shell: 'bin/check_kafka_clickhouse_up && ./bin/start-backend'
+        shell: 'bin/check_kafka_clickhouse_up && python manage.py migrate && ./bin/start-backend'
 
     celery-worker:
         shell: 'bin/check_kafka_clickhouse_up && ./bin/start-celery worker'
