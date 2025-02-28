@@ -7,8 +7,9 @@ import posthog from 'posthog-js'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { ErrorTrackingIssue, ErrorTrackingIssueAssignee } from '~/queries/schema/schema-general'
-import { Breadcrumb } from '~/types'
+import { ActivityScope, Breadcrumb } from '~/types'
 
 import type { errorTrackingIssueSceneLogicType } from './errorTrackingIssueSceneLogicType'
 import { errorTrackingLogic } from './errorTrackingLogic'
@@ -112,6 +113,16 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                         name: exceptionType,
                     },
                 ]
+            },
+        ],
+
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            (_, p) => [p.id],
+            (issueId): SidePanelSceneContext => {
+                return {
+                    activity_scope: ActivityScope.ERROR_TRACKING_ISSUE,
+                    activity_item_id: issueId,
+                }
             },
         ],
 
