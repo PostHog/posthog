@@ -151,7 +151,14 @@ test.concurrent(`liveness check endpoint works`, async () => {
         const body = await response.json()
         expect(body).toEqual(
             expect.objectContaining({
-                checks: expect.objectContaining({ 'analytics-ingestion': 'ok' }),
+                checks: expect.objectContaining({
+                    'ingestion-consumer-client_iwarnings_ingestion': 'ok',
+                    'ingestion-consumer-events_plugin_ingestion': 'ok',
+                    'ingestion-consumer-events_plugin_ingestion_historical': 'ok',
+                    'ingestion-consumer-events_plugin_ingestion_overflow': 'ok',
+                    'ingestion-consumer-exceptions_ingestion': 'ok',
+                    'ingestion-consumer-heatmaps_ingestion': 'ok',
+                }),
             })
         )
     })
