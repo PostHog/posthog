@@ -163,7 +163,6 @@ SUPPORTED_CURRENCIES = {
     "YER": "Yemeni Rial",
     "ZAR": "South African Rand",
     "ZMW": "Zambian Kwacha",
-    "ZWG": "Zimbabwean Dollar",
 }
 
 SUPPORTED_CURRENCY_CODES = set(SUPPORTED_CURRENCIES.keys())
