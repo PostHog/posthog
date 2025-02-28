@@ -46,9 +46,11 @@ SESSION_REPLAY_AI_DEFAULT_MODEL = get_from_env("SESSION_REPLAY_AI_DEFAULT_MODEL"
 SESSION_REPLAY_AI_REGEX_MODEL = get_from_env("SESSION_REPLAY_AI_REGEX_MODEL", "gpt-4o-mini")
 
 PLAYLIST_COUNTER_PROCESSING_MAX_ALLOWED_TEAM_ID = get_from_env(
-    get_from_env("PLAYLIST_COUNTER_PROCESSING_MAX_ALLOWED_TEAM_ID", "2" if settings.DEBUG else "", type_cast=int)
+    get_from_env(
+        "PLAYLIST_COUNTER_PROCESSING_MAX_ALLOWED_TEAM_ID", default="2" if settings.DEBUG else "", type_cast=int
+    )
 )
 
 PLAYLIST_COUNTER_PROCESSING_SCHEDULE_SECONDS = get_from_env(
-    "PLAYLIST_COUNTER_PROCESSING_SCHEDULE_SECONDS", 60 if settings.DEBUG else 3600, type_cast=int
+    "PLAYLIST_COUNTER_PROCESSING_SCHEDULE_SECONDS", default=60 if settings.DEBUG else 3600, type_cast=int
 )
