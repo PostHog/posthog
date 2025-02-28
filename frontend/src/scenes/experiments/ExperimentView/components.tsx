@@ -62,6 +62,14 @@ export function VariantTag({
 }): JSX.Element {
     const { experiment, getIndexForVariant, metricResults } = useValues(experimentLogic({ experimentId }))
 
+    if (variantKey === '$multiple') {
+        return (
+            <Tooltip title="This indicates a potential implementation issue where users are seeing multiple variants instead of a single consistent variant.">
+                <LemonTag type="danger">{variantKey}</LemonTag>
+            </Tooltip>
+        )
+    }
+
     if (!metricResults) {
         return <></>
     }
