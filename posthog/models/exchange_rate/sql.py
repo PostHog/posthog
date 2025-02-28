@@ -4,7 +4,7 @@ import os
 
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import ReplacingMergeTree
-from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_PASSWORD
+from posthog.settings import CLICKHOUSE_PASSWORD
 from .currencies import SUPPORTED_CURRENCY_CODES
 
 
@@ -94,9 +94,10 @@ def HISTORICAL_EXCHANGE_RATE_TUPLES():
 EXCHANGE_RATE_TABLE_NAME = "exchange_rate"
 EXCHANGE_RATE_DICTIONARY_NAME = "exchange_rate_dict"
 
+
 # `version` is used to ensure the latest version is kept, see https://clickhouse.com/docs/engines/table-engines/mergetree-family/replacingmergetree
-EXCHANGE_RATE_TABLE_SQL = (
-    lambda on_cluster=True: """
+def EXCHANGE_RATE_TABLE_SQL(on_cluster=True):
+    return """
 CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause} (
     date Date,
     currency String,
@@ -109,15 +110,20 @@ ORDER BY (date, currency);
         engine=ReplacingMergeTree("exchange_rate", ver="version"),
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
     )
-)
 
 
-DROP_EXCHANGE_RATE_TABLE_SQL = f"DROP TABLE IF EXISTS {EXCHANGE_RATE_TABLE_NAME} ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
+def DROP_EXCHANGE_RATE_TABLE_SQL(on_cluster=True):
+    return "DROP TABLE IF EXISTS {table_name} {on_cluster_clause}".format(
+        table_name=EXCHANGE_RATE_TABLE_NAME,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+    )
 
 
-TRUNCATE_EXCHANGE_RATE_TABLE_SQL = (
-    f"TRUNCATE TABLE IF EXISTS {EXCHANGE_RATE_TABLE_NAME} ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
-)
+def TRUNCATE_EXCHANGE_RATE_TABLE_SQL(on_cluster=True):
+    return "TRUNCATE TABLE IF EXISTS {table_name} {on_cluster_clause}".format(
+        table_name=EXCHANGE_RATE_TABLE_NAME,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+    )
 
 
 def EXCHANGE_RATE_DATA_BACKFILL_SQL(exchange_rates=None):
@@ -134,20 +140,26 @@ INSERT INTO exchange_rate (date, currency, rate) VALUES
 # Use COMPLEX_KEY_HASHED, as we have a composite key
 # Also, note the `anyLast` function, which is used to get the latest rate for a given date and currency
 # given that we might have more than one while the merges haven't finished yet
-EXCHANGE_RATE_DICTIONARY_SQL = (
-    lambda on_cluster=True: f"""
-CREATE DICTIONARY IF NOT EXISTS {EXCHANGE_RATE_DICTIONARY_NAME} {ON_CLUSTER_CLAUSE(on_cluster)} (
+def EXCHANGE_RATE_DICTIONARY_SQL(on_cluster=True):
+    return """
+CREATE DICTIONARY IF NOT EXISTS {exchange_rate_dictionary_name} {on_cluster_clause} (
     date Date,
     currency String,
     rate Decimal64(10)
 )
 PRIMARY KEY (date, currency)
-SOURCE(CLICKHOUSE(QUERY 'SELECT date, currency, anyLast(rate) AS rate FROM {EXCHANGE_RATE_TABLE_NAME} GROUP BY date, currency' PASSWORD '{CLICKHOUSE_PASSWORD}'))
+SOURCE(CLICKHOUSE(QUERY 'SELECT date, currency, anyLast(rate) AS rate FROM {exchange_rate_table_name} GROUP BY date, currency' PASSWORD '{clickhouse_password}'))
 LIFETIME(MIN 3000 MAX 3600)
-LAYOUT(COMPLEX_KEY_HASHED())
-"""
-)
+LAYOUT(COMPLEX_KEY_HASHED())""".format(
+        exchange_rate_dictionary_name=EXCHANGE_RATE_DICTIONARY_NAME,
+        exchange_rate_table_name=EXCHANGE_RATE_TABLE_NAME,
+        clickhouse_password=CLICKHOUSE_PASSWORD,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+    )
 
-DROP_EXCHANGE_RATE_DICTIONARY_SQL = (
-    f"DROP DICTIONARY IF EXISTS {EXCHANGE_RATE_DICTIONARY_NAME} ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
-)
+
+def DROP_EXCHANGE_RATE_DICTIONARY_SQL(on_cluster=True):
+    return "DROP DICTIONARY IF EXISTS {dictionary_name} {on_cluster_clause}".format(
+        dictionary_name=EXCHANGE_RATE_DICTIONARY_NAME,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+    ).strip()
