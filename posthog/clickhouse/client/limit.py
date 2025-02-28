@@ -8,6 +8,8 @@ from celery import current_task
 from prometheus_client import Counter
 
 from posthog import redis
+from posthog.settings import TEST
+from posthog.utils import generate_short_id
 
 CONCURRENT_QUERY_LIMIT_EXCEEDED_COUNTER = Counter(
     "posthog_clickhouse_query_concurrency_limit_exceeded",
@@ -135,6 +137,25 @@ class RateLimit:
                     self.release(running_tasks_key, task_id)
 
         return wrapper
+
+
+__API_CONCURRENT_QUERY_PER_TEAM: Optional[RateLimit] = None
+
+
+def get_api_personal_rate_limiter():
+    global __API_CONCURRENT_QUERY_PER_TEAM
+    if __API_CONCURRENT_QUERY_PER_TEAM is None:
+        __API_CONCURRENT_QUERY_PER_TEAM = RateLimit(
+            max_concurrent_tasks=5,
+            applicable=lambda *args, **kwargs: not TEST and kwargs.get("team_id") and kwargs.get("is_api"),
+            limit_name="api_per_team",
+            get_task_name=lambda *args, **kwargs: f"api:query:per-team:{kwargs.get('team_id')}",
+            get_task_id=lambda *args, **kwargs: current_task.request.id
+            if current_task
+            else kwargs.get("task_id", generate_short_id()),
+            ttl=600,
+        )
+    return __API_CONCURRENT_QUERY_PER_TEAM
 
 
 class ConcurrencyLimitExceeded(Exception):

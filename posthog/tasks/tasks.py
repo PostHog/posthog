@@ -13,7 +13,7 @@ from prometheus_client import Gauge
 from redis import Redis
 from structlog import get_logger
 
-from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, limit_concurrency
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, limit_concurrency, get_api_personal_rate_limiter
 from posthog.cloud_utils import is_cloud
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.hogql.constants import LimitContext
@@ -64,21 +64,23 @@ def process_query_task(
     user_id: Optional[int],
     query_id: str,
     query_json: dict,
+    is_api: bool,
     limit_context: Optional[LimitContext] = None,
 ) -> None:
-    """
-    Kick off query
-    Once complete save results to redis
-    """
-    from posthog.clickhouse.client import execute_process_query
+    with get_api_personal_rate_limiter().run(is_api=is_api, team_id=team_id, task_id=query_id):
+        """
+        Kick off query
+        Once complete save results to redis
+        """
+        from posthog.clickhouse.client import execute_process_query
 
-    execute_process_query(
-        team_id=team_id,
-        user_id=user_id,
-        query_id=query_id,
-        query_json=query_json,
-        limit_context=limit_context,
-    )
+        execute_process_query(
+            team_id=team_id,
+            user_id=user_id,
+            query_id=query_id,
+            query_json=query_json,
+            limit_context=limit_context,
+        )
 
 
 @shared_task(ignore_result=True)
