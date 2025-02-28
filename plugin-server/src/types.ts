@@ -74,16 +74,11 @@ export enum KafkaSaslMechanism {
 }
 
 export enum PluginServerMode {
-    ingestion = 'ingestion',
     ingestion_v2 = 'ingestion-v2',
-    ingestion_overflow = 'ingestion-overflow',
-    ingestion_historical = 'ingestion-historical',
-    events_ingestion = 'events-ingestion',
     async_onevent = 'async-onevent',
     async_webhooks = 'async-webhooks',
     jobs = 'jobs',
     scheduler = 'scheduler',
-    analytics_ingestion = 'analytics-ingestion',
     recordings_blob_ingestion = 'recordings-blob-ingestion',
     recordings_blob_ingestion_overflow = 'recordings-blob-ingestion-overflow',
     recordings_blob_ingestion_v2 = 'recordings-blob-ingestion-v2',
