@@ -5,14 +5,12 @@ import { useActions, useValues } from 'kea'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
-import { IconLink } from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
-import { urls } from 'scenes/urls'
 
+import { EventCopyLinkButton } from '~/queries/nodes/DataTable/EventRowActions'
 import type { LiveEvent } from '~/types'
 
 const columns: LemonTableColumns<LiveEvent> = [
@@ -52,35 +50,13 @@ const columns: LemonTableColumns<LiveEvent> = [
     },
     {
         dataIndex: '__more' as any,
-        title: '',
         render: function Render(_, event: LiveEvent) {
             return (
                 <More
                     overlay={
-                        <>
-                            {event.uuid && event.timestamp && (
-                                <Tooltip
-                                    title="Events may not show up in the explore view for a few minutes after they are seen in the live view."
-                                    placement="top"
-                                >
-                                    <LemonButton
-                                        fullWidth
-                                        sideIcon={<IconLink />}
-                                        data-attr="events-table-event-link"
-                                        onClick={() =>
-                                            void copyToClipboard(
-                                                urls.absolute(
-                                                    urls.currentProject(urls.event(String(event.uuid), event.timestamp))
-                                                ),
-                                                'link to event'
-                                            )
-                                        }
-                                    >
-                                        Copy link to event
-                                    </LemonButton>
-                                </Tooltip>
-                            )}
-                        </>
+                        <Tooltip title="It may take up to a few minutes for the event to show up in the Explore view">
+                            <EventCopyLinkButton event={event} />
+                        </Tooltip>
                     }
                 />
             )
