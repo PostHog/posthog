@@ -56,20 +56,22 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                                                     return !(
                                                         (columnIndex >= row.length - 1 &&
                                                             (row[columnIndex] as ProcessedRetentionValue)
-                                                                .isCurrentPeriod) ||
+                                                                ?.isCurrentPeriod) ||
                                                         !row[columnIndex] ||
-                                                        (row[columnIndex] as ProcessedRetentionValue).count <= 0
+                                                        (row[columnIndex] as ProcessedRetentionValue)?.count <= 0
                                                     )
                                                 })
                                                 if (validRows.length === 0) {
                                                     return 0
                                                 }
                                                 const weights = validRows.map((row) =>
-                                                    parseInt(row[1]?.toString() || '0')
+                                                    parseInt((row[1] as number)?.toString() || '0')
                                                 )
                                                 const weightedSum = sum(
                                                     validRows.map(
-                                                        (row, i) => ((row[columnIndex] as ProcessedRetentionValue)?.percentage || 0) * weights[i]
+                                                        (row, i) =>
+                                                            ((row[columnIndex] as ProcessedRetentionValue)
+                                                                ?.percentage || 0) * weights[i]
                                                     )
                                                 )
                                                 const totalWeight = sum(weights)
@@ -107,14 +109,14 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                                                     if (
                                                         (columnIndex >= row.length - 1 &&
                                                             (row[columnIndex] as ProcessedRetentionValue)
-                                                                .isCurrentPeriod) ||
+                                                                ?.isCurrentPeriod) ||
                                                         !row[columnIndex] ||
-                                                        (row[columnIndex] as ProcessedRetentionValue).count <= 0
+                                                        (row[columnIndex] as ProcessedRetentionValue)?.count <= 0
                                                     ) {
                                                         return null
                                                     }
 
-                                                    return (row[columnIndex] as ProcessedRetentionValue).percentage
+                                                    return (row[columnIndex] as ProcessedRetentionValue)?.percentage
                                                 })
                                             ) || 0
                                         }
