@@ -186,6 +186,7 @@ def mysql_source(
     is_incremental: bool,
     logger: FilteringBoundLogger,
     db_incremental_field_last_value: Optional[Any],
+    team_id: Optional[int] = None,
     incremental_field: Optional[str] = None,
     incremental_field_type: Optional[IncrementalFieldType] = None,
 ) -> SourceResponse:

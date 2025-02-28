@@ -260,6 +260,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                             db_incremental_field_last_value=processed_incremental_last_value
                             if schema.is_incremental
                             else None,
+                            team_id=inputs.team_id,
                         )
                     else:
                         source = sql_source_for_type(
@@ -334,6 +335,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                     if schema.is_incremental
                     else None,
                     db_incremental_field_last_value=processed_incremental_last_value if schema.is_incremental else None,
+                    team_id=inputs.team_id,
                 )
             else:
                 source = sql_source_for_type(
@@ -366,7 +368,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 reset_pipeline=reset_pipeline,
             )
         elif model.pipeline.source_type == ExternalDataSource.Type.SNOWFLAKE:
-            from posthog.temporal.data_imports.pipelines.snowflake.snowflake import (
+            from posthog.temporal.data_imports.pipelines.sql_database import (
                 snowflake_source,
             )
 
@@ -394,8 +396,6 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 warehouse=warehouse,
                 role=role,
                 table_names=endpoints,
-                logger=logger,
-                is_incremental=schema.is_incremental,
                 incremental_field=schema.sync_type_config.get("incremental_field") if schema.is_incremental else None,
                 incremental_field_type=schema.sync_type_config.get("incremental_field_type")
                 if schema.is_incremental
