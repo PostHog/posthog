@@ -46,7 +46,6 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
             "last_calculated_at",
             "created_by",
             "post_to_slack",
-            "hidden",
         )
 
     def validate(self, data):
