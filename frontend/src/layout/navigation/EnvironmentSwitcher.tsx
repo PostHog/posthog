@@ -58,6 +58,12 @@ export function EnvironmentSwitcherOverlay({ onClickInside }: { onClickInside?: 
                     />
                 ),
                 disabledReason: 'Select an environment of this project below',
+                sideAction: {
+                    icon: <IconGear />,
+                    tooltip: "Go to this project's settings",
+                    onClick: onClickInside,
+                    to: urls.project(currentTeam.project_id, urls.settings()),
+                },
                 onClick: () => {},
                 className: 'opacity-100',
             })
