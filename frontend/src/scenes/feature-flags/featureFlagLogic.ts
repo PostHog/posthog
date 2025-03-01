@@ -574,6 +574,31 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     loaders(({ values, props, actions }) => ({
         featureFlag: {
             loadFeatureFlag: async () => {
+                const sourceId = router.values.searchParams.sourceId
+                if (props.id === 'new' && sourceId) {
+                    // Used when "duplicating a feature flag". This populates the form with the source flag's data.
+                    const sourceFlag = await api.featureFlags.get(sourceId)
+                    const {
+                        id,
+                        created_at,
+                        created_by,
+                        is_simple_flag,
+                        experiment_set,
+                        features,
+                        surveys,
+                        ...flagToKeep
+                    } = sourceFlag
+
+                    // Remove sourceId from URL
+                    router.actions.replace(router.values.location.pathname)
+
+                    return {
+                        ...NEW_FLAG,
+                        ...flagToKeep,
+                        key: '',
+                    } as FeatureFlagType
+                }
+
                 if (props.id && props.id !== 'new' && props.id !== 'link') {
                     try {
                         const retrievedFlag: FeatureFlagType = await api.featureFlags.get(props.id)
@@ -1205,6 +1230,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
     })),
     afterMount(({ props, actions }) => {
+        if (props.id === 'new' && router.values.searchParams.sourceId) {
+            actions.loadFeatureFlag()
+            return
+        }
+
         const foundFlag = featureFlagsLogic
             .findMounted()
             ?.values.featureFlags.results.find((flag) => flag.id === props.id)

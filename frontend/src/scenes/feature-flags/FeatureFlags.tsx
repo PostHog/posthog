@@ -260,6 +260,10 @@ export function OverViewTab({
                                     </AccessControlledLemonButton>
                                 )}
 
+                                <LemonButton to={urls.featureFlagDuplicate(featureFlag.id)} data-attr="usage" fullWidth>
+                                    Duplicate feature flag
+                                </LemonButton>
+
                                 <LemonButton to={tryInInsightsUrl(featureFlag)} data-attr="usage" fullWidth>
                                     Try out in Insights
                                 </LemonButton>
