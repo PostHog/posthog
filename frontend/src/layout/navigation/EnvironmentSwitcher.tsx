@@ -62,7 +62,7 @@ export function EnvironmentSwitcherOverlay({ onClickInside }: { onClickInside?: 
                     icon: <IconGear />,
                     tooltip: "Go to this project's settings",
                     onClick: onClickInside,
-                    to: urls.project(currentTeam.project_id, urls.settings()),
+                    to: urls.project(currentTeam.project_id, urls.settings('project')),
                 },
                 onClick: () => {},
                 className: 'opacity-100',
@@ -202,7 +202,7 @@ function convertTeamToMenuItem(
             icon: <IconGear />,
             tooltip: "Go to this environment's settings",
             onClick: onClickInside,
-            to: urls.project(team.id, urls.settings()),
+            to: urls.project(team.id, urls.settings('environment')),
         },
     }
 }
