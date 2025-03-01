@@ -144,6 +144,8 @@ def convert_universal_filters_to_recordings_query(universal_filters: dict[str, A
     expires=TASK_EXPIRATION_TIME,
 )
 def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
+    playlist: SessionRecordingPlaylist | None = None
+    query: RecordingsQuery | None = None
     try:
         with REPLAY_PLAYLIST_COUNT_TIMER.time():
             playlist = SessionRecordingPlaylist.objects.get(id=playlist_id)
