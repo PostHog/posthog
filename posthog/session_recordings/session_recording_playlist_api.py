@@ -149,7 +149,10 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
 
             playlist_items: QuerySet[SessionRecordingPlaylistItem] = playlist.playlist_items.filter(deleted=False)
             watched_playlist_items = current_user_viewed(
-                list(playlist.playlist_items.values_list("session_id", flat=True)), user, team
+                # mypy can't detect that it's safe to pass queryset to list() 🤷
+                list(playlist.playlist_items.values_list("session_id", flat=True)),  # type: ignore
+                user,
+                team,
             )
 
             item_count = playlist_items.count()
