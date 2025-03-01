@@ -1,4 +1,4 @@
-import { IconGear, IconPlus } from '@posthog/icons'
+import { IconChevronRight, IconGear, IconPlus } from '@posthog/icons'
 import { LemonInput, LemonTag, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -11,10 +11,10 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { AvailableFeature } from '~/types'
+import { AvailableFeature, TeamPublicType } from '~/types'
 
 import { globalModalsLogic } from '../GlobalModals'
-import { environmentSwitcherLogic } from './environmentsSwitcherLogic'
+import { environmentSwitcherLogic, TeamBasicTypeWithProjectName } from './environmentsSwitcherLogic'
 
 /**
  * Regex matching a possible emoji (any emoji) at the beginning of the string.
@@ -25,104 +25,119 @@ const EMOJI_INITIAL_REGEX =
     /^(\u00a9|\u00ae|[\u25a0-\u27bf]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff]) /
 
 export function EnvironmentSwitcherOverlay({ onClickInside }: { onClickInside?: () => void }): JSX.Element {
-    const { sortedProjectsMap } = useValues(environmentSwitcherLogic)
+    const { searchedProjectsMap } = useValues(environmentSwitcherLogic)
     const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
     const { currentTeam } = useValues(teamLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { showCreateProjectModal, showCreateEnvironmentModal } = useActions(globalModalsLogic)
     const { location } = useValues(router)
 
-    const projectSections = useMemo<LemonMenuSection[] | null>(() => {
-        if (!currentOrganization) {
-            return null
+    const [currentProjectSection, otherProjectsSection] = useMemo<
+        [LemonMenuSection | null, LemonMenuSection | null]
+    >(() => {
+        if (!currentOrganization || !currentTeam?.project_id) {
+            return [null, null]
         }
 
-        const projectSectionsResult: LemonMenuSection[] = []
-        for (const [projectId, [projectName, projectTeams]] of sortedProjectsMap.entries()) {
+        const currentProjectItems: LemonMenuItem[] = []
+        const matchForCurrentProject = searchedProjectsMap.get(currentTeam.project_id)
+        if (matchForCurrentProject) {
+            const [projectName, projectTeams] = matchForCurrentProject
             const projectNameWithoutEmoji = projectName.replace(EMOJI_INITIAL_REGEX, '').trim()
             const projectNameEmojiMatch = projectName.match(EMOJI_INITIAL_REGEX)?.[1]
-            const projectItems: LemonMenuItem[] = [
-                {
-                    label: <span className="opacity-[var(--opacity-disabled)]">{projectNameWithoutEmoji}</span>,
-                    icon: projectNameEmojiMatch ? (
-                        <div className="size-6 text-xl leading-6 text-center">{projectNameEmojiMatch}</div>
-                    ) : (
-                        <UploadedLogo name={projectName} entityId={projectId} outlinedLettermark />
-                    ),
-                    disabledReason: 'Select an environment of this project below',
-                    onClick: () => {},
-                    sideAction: {
-                        icon: <IconPlus />,
-                        tooltip: `New environment within ${projectName}`,
-                        tooltipPlacement: 'right',
-                        disabledReason: projectCreationForbiddenReason?.replace('project', 'environment'),
-                        onClick: () => {
-                            onClickInside?.()
-                            guardAvailableFeature(AvailableFeature.ORGANIZATIONS_PROJECTS, showCreateEnvironmentModal, {
-                                currentUsage: currentOrganization?.teams?.length,
-                            })
-                        },
-                        'data-attr': 'new-environment-button',
-                    },
-                    className: 'opacity-100',
-                },
-            ]
+            currentProjectItems.push({
+                label: projectNameWithoutEmoji,
+                icon: projectNameEmojiMatch ? (
+                    <div className="size-5 text-xl leading-5 text-center">{projectNameEmojiMatch}</div>
+                ) : (
+                    <UploadedLogo
+                        name={projectName}
+                        entityId={currentTeam.project_id}
+                        outlinedLettermark
+                        size="small"
+                    />
+                ),
+                disabledReason: 'Select an environment of this project below',
+                onClick: () => {},
+                className: 'opacity-100',
+            })
             for (const team of projectTeams) {
-                projectItems.push({
-                    label: (
-                        <>
-                            {team.name}
-                            {team.is_demo && (
-                                <LemonTag className="ml-1.5" type="highlight">
-                                    DEMO
-                                </LemonTag>
-                            )}
-                        </>
-                    ),
-                    key: team.id,
-                    active: currentTeam?.id === team.id,
-                    to: determineProjectSwitchUrl(location.pathname, team.id),
-                    tooltip:
-                        currentTeam?.id === team.id ? (
-                            'Currently active environment'
-                        ) : (
-                            <>
-                                Switch to environment <strong>{team.name}</strong>
-                                {currentTeam?.project_id !== team.project_id && (
-                                    <>
-                                        {' '}
-                                        of project <strong>{projectName}</strong>
-                                    </>
-                                )}
-                            </>
-                        ),
-                    onClick: onClickInside,
-                    sideAction: {
-                        icon: <IconGear />,
-                        tooltip: "Go to this environment's settings",
-                        tooltipPlacement: 'right',
-                        onClick: onClickInside,
-                        to: urls.project(team.id, urls.settings()),
-                    },
-                    icon: <div className="size-6" />, // Icon-sized filler
-                })
+                currentProjectItems.push(convertTeamToMenuItem(team, currentTeam, onClickInside, true))
             }
-            projectSectionsResult.push({ key: projectId, items: projectItems })
+            currentProjectItems.push({
+                icon: <IconPlus />,
+                label: 'New environment in project',
+                onClick: () => {
+                    onClickInside?.()
+                    guardAvailableFeature(AvailableFeature.ORGANIZATIONS_PROJECTS, showCreateEnvironmentModal, {
+                        currentUsage: currentOrganization?.teams?.length,
+                    })
+                },
+                disabledReason: projectCreationForbiddenReason?.replace('project', 'environment'),
+                'data-attr': 'new-environment-button',
+            })
         }
-        return projectSectionsResult
+
+        const otherProjectsItems: LemonMenuItem[] = []
+        for (const [projectId, [projectName, projectTeams]] of searchedProjectsMap.entries()) {
+            if (projectId === currentTeam?.project_id) {
+                continue
+            }
+            const projectNameWithoutEmoji = projectName.replace(EMOJI_INITIAL_REGEX, '').trim()
+            const projectNameEmojiMatch = projectName.match(EMOJI_INITIAL_REGEX)?.[1]
+            otherProjectsItems.push({
+                key: projectId,
+                label: (
+                    <>
+                        {projectNameWithoutEmoji}
+                        <LemonTag size="small" className="border-text-3000 uppercase ml-1.5">
+                            {projectTeams[0].name}
+                        </LemonTag>
+                        {projectTeams.length > 1 && <span className="text-xxs ml-1">+ {projectTeams.length - 1}</span>}
+                    </>
+                ),
+                icon: projectNameEmojiMatch ? (
+                    <div className="size-6 text-xl leading-6 text-center">{projectNameEmojiMatch}</div>
+                ) : (
+                    <UploadedLogo name={projectName} entityId={projectId} outlinedLettermark size="small" />
+                ),
+                to: determineProjectSwitchUrl(location.pathname, projectTeams[0].id),
+                onClick: onClickInside,
+                tooltip: `Switch to this project (& its ${projectTeams.length > 1 ? 'first' : 'only'} environment)`,
+                sideAction:
+                    projectTeams.length > 1
+                        ? {
+                              icon: <IconChevronRight />,
+                              dropdown: {
+                                  overlay: (
+                                      <LemonMenuOverlay
+                                          items={projectTeams.map((team) =>
+                                              convertTeamToMenuItem(team, currentTeam, onClickInside)
+                                          )}
+                                      />
+                                  ),
+                                  placement: 'right-start',
+                              },
+                          }
+                        : null,
+            })
+        }
+        return [
+            currentProjectItems.length ? { title: 'Current project', items: currentProjectItems } : null,
+            otherProjectsItems.length ? { title: 'Other projects', items: otherProjectsItems } : null,
+        ]
     }, [
         currentOrganization,
-        sortedProjectsMap,
+        currentTeam,
+        searchedProjectsMap,
         projectCreationForbiddenReason,
+        location.pathname,
         onClickInside,
         guardAvailableFeature,
         showCreateEnvironmentModal,
-        currentTeam?.id,
-        currentTeam?.project_id,
-        location.pathname,
     ])
 
-    if (!projectSections) {
+    if (!currentOrganization || !currentTeam) {
         return <Spinner />
     }
 
@@ -132,7 +147,8 @@ export function EnvironmentSwitcherOverlay({ onClickInside }: { onClickInside?: 
                 {
                     items: [{ label: EnvironmentSwitcherSearch }],
                 },
-                ...projectSections,
+                currentProjectSection,
+                otherProjectsSection,
                 {
                     icon: <IconPlus />,
                     label: 'New project',
@@ -148,6 +164,41 @@ export function EnvironmentSwitcherOverlay({ onClickInside }: { onClickInside?: 
             ]}
         />
     )
+}
+
+function convertTeamToMenuItem(
+    team: TeamBasicTypeWithProjectName,
+    currentTeam: TeamPublicType,
+    onClickInside?: () => void,
+    inset: boolean = false
+): LemonMenuItem {
+    return {
+        label: (
+            <>
+                {!inset && <span className="mr-1.5">{team.project_name}</span>}
+                <LemonTag size="small" className="border-text-3000 uppercase">
+                    {team.name}
+                </LemonTag>
+            </>
+        ),
+        key: team.id,
+        active: team.id === currentTeam.id,
+        to: determineProjectSwitchUrl(location.pathname, team.id),
+        icon: inset ? <div className="size-5" /> : null,
+        tooltip:
+            team.id === currentTeam.id
+                ? 'Currently active environment'
+                : team.project_id === currentTeam.project_id
+                ? 'Switch to this environment'
+                : 'Switch to this project & this environment',
+        onClick: onClickInside,
+        sideAction: {
+            icon: <IconGear />,
+            tooltip: "Go to this environment's settings",
+            onClick: onClickInside,
+            to: urls.project(team.id, urls.settings()),
+        },
+    }
 }
 
 function determineProjectSwitchUrl(pathname: string, newTeamId: number): string {
