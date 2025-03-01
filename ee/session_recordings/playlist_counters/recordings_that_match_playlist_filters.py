@@ -182,13 +182,27 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
 
             REPLAY_TEAM_PLAYLIST_COUNT_SUCCEEDED.inc()
     except SessionRecordingPlaylist.DoesNotExist:
-        logger.info("Playlist does not exist", playlist_id=playlist_id)
+        logger.info(
+            "Playlist does not exist",
+            playlist_id=playlist_id,
+            playlist_short_id=playlist.short_id if playlist else None,
+        )
         REPLAY_TEAM_PLAYLIST_COUNT_UNKNOWN.inc()
     except Exception as e:
         posthoganalytics.capture_exception(
-            e, properties={"playlist_id": playlist_id, "posthog_feature": "session_replay_playlist_counters"}
+            e,
+            properties={
+                "playlist_id": playlist_id,
+                "playlist_short_id": playlist.short_id if playlist else None,
+                "posthog_feature": "session_replay_playlist_counters",
+            },
         )
-        logger.exception("Failed to count recordings that match playlist filters", playlist_id=playlist_id, error=e)
+        logger.exception(
+            "Failed to count recordings that match playlist filters",
+            playlist_id=playlist_id,
+            playlist_short_id=playlist.short_id if playlist else None,
+            error=e,
+        )
         REPLAY_TEAM_PLAYLIST_COUNT_FAILED.inc()
 
 
