@@ -156,7 +156,8 @@ fn parse_request(params: HashMap<String, String>) -> Params {
     // defaults to "-1" if the caller didn't supply the group_type_index, or the parent_type != "group"
     let group_type_index: i32 = params.get("group_type_index").map_or(-1, |s| {
         s.parse::<i32>().ok().map_or(-1, |gti| {
-            if parent_type == PropertyParentType::Group && (1..GROUP_TYPE_LIMIT).contains(&gti) {
+            if parent_type == PropertyParentType::Group {
+                // group_type_index value on "group" type query is validated downstream
                 gti
             } else {
                 -1
@@ -311,7 +312,9 @@ pub struct Params {
 impl Params {
     // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L81-L96
     pub fn valid(&self) -> Result<(), ApiError> {
-        if self.parent_type == PropertyParentType::Group && self.group_type_index <= 0 {
+        if self.parent_type == PropertyParentType::Group
+            && (0..GROUP_TYPE_LIMIT).contains(&self.group_type_index)
+        {
             return Err(ApiError::InvalidRequestParam(
                 "property_type 'group' requires 'group_type_index' parameter".to_string(),
             ));

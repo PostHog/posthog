@@ -10,13 +10,10 @@ use crate::{
         routing::Params,
     },
     //metrics_consts::{},
-    config::Config,
     types::PropertyParentType,
 };
 
-use sqlx::{
-    postgres::PgArguments, postgres::PgPoolOptions, query::Query, PgPool, Postgres, QueryBuilder,
-};
+use sqlx::{postgres::PgArguments, query::Query, PgPool, Postgres, QueryBuilder};
 
 use std::collections::{HashMap, HashSet};
 
@@ -27,10 +24,7 @@ pub struct Manager {
 }
 
 impl Manager {
-    pub async fn new(cfg: &Config) -> Result<Self, sqlx::Error> {
-        let options = PgPoolOptions::new().max_connections(cfg.max_pg_connections);
-        let api_pool = options.connect(&cfg.database_url).await?;
-
+    pub async fn new(api_pool: PgPool) -> Result<Self, sqlx::Error> {
         Ok(Self {
             pool: api_pool,
             search_term_aliases: extract_aliases(),
