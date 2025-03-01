@@ -1348,13 +1348,47 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 ),
             )
             self.assertEqual(
-                self._select("select 1 from events LIMIT 1 BY event LIMIT 1 OFFSET 3"),
+                self._select("select 1 from events LIMIT 1 BY event LIMIT 2 OFFSET 3"),
                 ast.SelectQuery(
                     select=[ast.Constant(value=1)],
                     select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-                    limit=ast.Constant(value=1),
+                    limit=ast.Constant(value=2),
                     offset=ast.Constant(value=3),
-                    limit_by=ast.LimitByExpr(offset_value=ast.Constant(value=1), exprs=[ast.Field(chain=["event"])]),
+                    limit_by=ast.LimitByExpr(n=ast.Constant(value=1), exprs=[ast.Field(chain=["event"])]),
+                ),
+            )
+            self.assertEqual(
+                self._select("select 1 from events LIMIT 1 OFFSET 4 BY event LIMIT 2"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                    limit=ast.Constant(value=2),
+                    limit_by=ast.LimitByExpr(
+                        n=ast.Constant(value=1), offset_value=ast.Constant(value=4), exprs=[ast.Field(chain=["event"])]
+                    ),
+                ),
+            )
+            self.assertEqual(
+                self._select("select 1 from events LIMIT 4, 1 BY event LIMIT 2"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                    limit=ast.Constant(value=2),
+                    limit_by=ast.LimitByExpr(
+                        n=ast.Constant(value=1), offset_value=ast.Constant(value=4), exprs=[ast.Field(chain=["event"])]
+                    ),
+                ),
+            )
+            self.assertEqual(
+                self._select("select 1 from events LIMIT 1 OFFSET 4 BY event LIMIT 2 OFFSET 5"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                    limit=ast.Constant(value=2),
+                    offset=ast.Constant(value=5),
+                    limit_by=ast.LimitByExpr(
+                        n=ast.Constant(value=1), offset_value=ast.Constant(value=4), exprs=[ast.Field(chain=["event"])]
+                    ),
                 ),
             )
 

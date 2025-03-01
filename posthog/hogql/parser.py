@@ -448,7 +448,30 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return self.visit(ctx.orderExprList())
 
     def visitLimitByClause(self, ctx: HogQLParser.LimitByClauseContext):
-        return ast.LimitByExpr(offset_value=self.visit(ctx.limitExpr()), exprs=self.visit(ctx.columnExprList()))
+        limit_expr = self.visit(ctx.limitExpr())
+
+        # If limit_expr is a tuple (n, offset), split it
+        if isinstance(limit_expr, tuple) and len(limit_expr) == 2:
+            n, offset_value = limit_expr
+            return ast.LimitByExpr(n=n, offset_value=offset_value, exprs=self.visit(ctx.columnExprList()))
+
+        # If no offset, just use limit_expr as n
+        return ast.LimitByExpr(n=limit_expr, offset_value=None, exprs=self.visit(ctx.columnExprList()))
+
+    def visitLimitExpr(self, ctx: HogQLParser.LimitExprContext):
+        # First expression is always the limit value (n)
+        n = self.visit(ctx.columnExpr(0))
+
+        # Check if we have an offset (second expression)
+        if ctx.columnExpr(1):
+            offset_value = self.visit(ctx.columnExpr(1))
+            # For "LIMIT a, b" syntax: a is offset, b is limit
+            if ctx.COMMA():
+                return (offset_value, n)  # Return tuple as (offset, limit)
+            # For "LIMIT a OFFSET b" syntax: a is limit, b is offset
+            return (n, offset_value)
+
+        return n
 
     def visitProjectionOrderByClause(self, ctx: HogQLParser.ProjectionOrderByClauseContext):
         raise NotImplementedError(f"Unsupported node: ProjectionOrderByClause")
