@@ -77,6 +77,7 @@ def to_dict(query: BaseModel) -> dict:
                                 "resultCustomizations",
                                 "resultCustomizationBy",
                                 "goalLines",
+                                "dashboardDisplay",
                             ]
                         }
 

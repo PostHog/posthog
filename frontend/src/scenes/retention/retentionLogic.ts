@@ -1,12 +1,12 @@
 import { connect, kea, key, path, props, selectors } from 'kea'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
-import { Dayjs } from 'lib/dayjs'
+import { dayjs } from 'lib/dayjs'
 import { formatDateRange } from 'lib/utils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { RetentionTablePayload } from 'scenes/retention/types'
+import { ProcessedRetentionPayload } from 'scenes/retention/types'
 
-import { RetentionFilter } from '~/queries/schema/schema-general'
+import { RetentionFilter, RetentionResult } from '~/queries/schema/schema-general'
 import { isRetentionQuery } from '~/queries/utils'
 import { DateMappingOption, InsightLogicProps, RetentionPeriod } from '~/types'
 
@@ -27,9 +27,40 @@ export const retentionLogic = kea<retentionLogicType>([
     })),
     selectors({
         results: [
-            (s) => [s.insightQuery, s.insightData],
-            (insightQuery, insightData): RetentionTablePayload[] => {
-                return isRetentionQuery(insightQuery) ? insightData?.result ?? [] : []
+            (s) => [s.insightQuery, s.insightData, s.retentionFilter],
+            (insightQuery, insightData, retentionFilter): ProcessedRetentionPayload[] => {
+                const rawResults = isRetentionQuery(insightQuery) ? insightData?.result ?? [] : []
+
+                const results: ProcessedRetentionPayload[] = rawResults.map((result: RetentionResult) => ({
+                    ...result,
+                    values: result.values.map((value, index) => {
+                        const totalCount = result.values[0]['count']
+                        const previousCount = index > 0 ? result.values[index - 1]['count'] : totalCount
+                        const referenceCount =
+                            retentionFilter?.retentionReference === 'previous' ? previousCount : totalCount
+                        const percentage = referenceCount > 0 ? (value['count'] / referenceCount) * 100 : 0
+
+                        const periodUnit = (
+                            retentionFilter?.period ?? RetentionPeriod.Day
+                        ).toLowerCase() as dayjs.UnitTypeLong
+                        const cellDate = dayjs.utc(result.date).add(index, periodUnit)
+                        const now = dayjs.utc()
+
+                        return {
+                            ...value,
+                            percentage,
+                            cellDate,
+                            isCurrentPeriod: cellDate.isSame(now, periodUnit),
+                            isFuture: cellDate.isAfter(now),
+                        }
+                    }),
+                }))
+
+                // Filter out future values for now
+                return results.map((result) => ({
+                    ...result,
+                    values: result.values.filter((value) => !value.isFuture),
+                }))
             },
         ],
         dateMappings: [
@@ -59,7 +90,8 @@ export const retentionLogic = kea<retentionLogicType>([
                     {
                         key: 'Year to date',
                         values: ['yStart'],
-                        getFormattedDate: (date: Dayjs): string => formatDateRange(date.startOf('y'), date.endOf('d')),
+                        getFormattedDate: (date: dayjs.Dayjs): string =>
+                            formatDateRange(date.startOf('y'), date.endOf('d')),
                         defaultInterval: 'month',
                     },
                     {

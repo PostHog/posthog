@@ -170,7 +170,7 @@ export const FEATURE_FLAGS = {
     SURVEYS_CUSTOM_FONTS: 'surveys-custom-fonts', // owner: #team-surveys
     YEAR_IN_HOG: 'year-in-hog', // owner: #team-replay
     SESSION_REPLAY_EXPORT_MOBILE_DATA: 'session-replay-export-mobile-data', // owner: #team-replay
-    DISCUSSIONS: 'discussions', // owner: #team-replay
+    DISCUSSIONS: 'discussions', // owner: @daibhin @benjackwhite
     REDIRECT_INSIGHT_CREATION_PRODUCT_ANALYTICS_ONBOARDING: 'redirect-insight-creation-product-analytics-onboarding', // owner: @biancayang
     AI_SESSION_SUMMARY: 'ai-session-summary', // owner: #team-replay
     AI_SESSION_PERMISSIONS: 'ai-session-permissions', // owner: #team-replay
