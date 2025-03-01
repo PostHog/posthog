@@ -195,12 +195,16 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
                 "playlist_id": playlist_id,
                 "playlist_short_id": playlist.short_id if playlist else None,
                 "posthog_feature": "session_replay_playlist_counters",
+                "filters": playlist.filters if playlist else None,
+                "query": query,
             },
         )
         logger.exception(
             "Failed to count recordings that match playlist filters",
             playlist_id=playlist_id,
             playlist_short_id=playlist.short_id if playlist else None,
+            filters=playlist.filters if playlist else None,
+            query=query,
             error=e,
         )
         REPLAY_TEAM_PLAYLIST_COUNT_FAILED.inc()
