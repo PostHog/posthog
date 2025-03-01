@@ -114,8 +114,8 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     last_modified_by = UserBasicSerializer(read_only=True)
 
-    def get_recordings_counts(self, playlist: SessionRecordingPlaylist) -> dict[str, int | bool | None]:
-        recordings_counts: dict[str, int | bool | None] = {
+    def get_recordings_counts(self, playlist: SessionRecordingPlaylist) -> dict[str, dict[str, int | bool | None]]:
+        recordings_counts: dict[str, dict[str, int | bool | None]] = {
             "saved_filters": {
                 "count": None,
                 "has_more": None,
