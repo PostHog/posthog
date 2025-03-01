@@ -184,6 +184,7 @@ function convertTeamToMenuItem(
                 {!inset && <span className="mr-1.5">{team.project_name}</span>}
                 <LemonTag size="small" className="border-text-3000 uppercase">
                     {team.name}
+                    {team.is_demo && ' • Demo'}
                 </LemonTag>
             </>
         ),
