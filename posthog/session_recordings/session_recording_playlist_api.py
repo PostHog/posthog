@@ -152,8 +152,10 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
                 playlist.playlist_items.values_list("session_id", flat=True).list(), user, team
             )
             recordings_counts["collection"] = {
-                "count": playlist_items.count() if playlist_items.count() > 0 else None,
-                "watched_count": len(watched_playlist_items) if len(watched_playlist_items) > 0 else None,
+                item_count = playlist_items.count()
+                watched_count = len(watched_playlist_items)
+                "count": item_count if item_count > 0 else None,
+                "watched_count": watched_count if watched_count > 0 else None,
             }
 
         except Exception as e:
