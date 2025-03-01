@@ -149,7 +149,7 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
 
             playlist_items: QuerySet[SessionRecordingPlaylistItem] = playlist.playlist_items.filter(deleted=False)
             watched_playlist_items = current_user_viewed(
-                playlist.playlist_items.values_list("session_id", flat=True), user, team
+                playlist.playlist_items.values_list("session_id", flat=True).list(), user, team
             )
             recordings_counts["collection"] = {
                 "count": playlist_items.count() if playlist_items.count() > 0 else None,
