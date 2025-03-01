@@ -1148,15 +1148,98 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   VISIT(OrderByClause) { return visit(ctx->orderExprList()); }
 
   VISIT(LimitByClause) {
-    auto limit_expr = ctx->limitExpr();
-    PyObject* offset_value = visitAsPyObject(limit_expr);
-    PyObject* exprs = visitAsPyObject(ctx->columnExprList());
+    PyObject* limit_expr_result = visitAsPyObject(ctx->limitExpr());
+    if (!limit_expr_result) {
+      throw ParsingError("Failed to parse limitExpr");
+    }
     
-    RETURN_NEW_AST_NODE("LimitByExpr", "{s:N,s:N}", "offset_value", offset_value, "exprs", exprs);
+    PyObject* exprs = visitAsPyObject(ctx->columnExprList());
+    if (!exprs) {
+      Py_DECREF(limit_expr_result);
+      throw ParsingError("Failed to parse columnExprList");
+    }
+
+    PyObject* n = NULL;
+    PyObject* offset_value = Py_None;
+    Py_INCREF(Py_None); // Increment None since we'll be using it
+    
+    // Check if it's a tuple
+    if (PyTuple_Check(limit_expr_result)) {
+      if (PyTuple_Size(limit_expr_result) >= 2) {
+        // Extract the tuple values - these are borrowed references
+        PyObject* first = PyTuple_GetItem(limit_expr_result, 0);
+        PyObject* second = PyTuple_GetItem(limit_expr_result, 1);
+        
+        // Create new references we'll own
+        n = first;
+        Py_INCREF(n);
+        
+        // Update offset_value (decref the None we previously incremented)
+        Py_DECREF(offset_value);
+        offset_value = second;
+        Py_INCREF(offset_value);
+        
+        // Now we have our own references for n and offset_value, we can safely DECREF the tuple
+        Py_DECREF(limit_expr_result);
+      } else {
+        // Tuple with wrong size
+        Py_DECREF(limit_expr_result);
+        Py_DECREF(offset_value);
+        Py_DECREF(exprs);
+        throw ParsingError("Tuple from limitExpr has fewer than 2 items");
+      }
+    } else {
+      // Not a tuple, just use as n (transfer ownership)
+      n = limit_expr_result;
+      // limit_expr_result reference is now owned by n, no need to DECREF
+    }
+    
+    // Create the LimitByExpr node (transfers ownership of n, offset_value, and exprs)
+    RETURN_NEW_AST_NODE("LimitByExpr", "{s:N,s:N,s:N}",
+                       "n", n,
+                       "offset_value", offset_value,
+                       "exprs", exprs);
+    // The RETURN_NEW_AST_NODE macro either returns the node or throws if creation fails
+    // No need to handle cleanup here as the macro handles it
   }
 
   VISIT(LimitExpr) {
-    return visitAsPyObject(ctx->columnExpr(0));
+    PyObject* first = visitAsPyObject(ctx->columnExpr(0));
+    if (!first) {
+      throw ParsingError("Failed to parse first columnExpr in LimitExpr");
+    }
+
+    // If no second expression, just return the first
+    if (!ctx->columnExpr(1)) {
+      return first; // Return first as is, ownership transferred
+    }
+
+    // We have both limit and offset
+    PyObject* second = visitAsPyObject(ctx->columnExpr(1));
+    if (!second) {
+      Py_DECREF(first);
+      throw ParsingError("Failed to parse second columnExpr in LimitExpr");
+    }
+
+    PyObject* result = PyTuple_New(2);
+    if (!result) {
+      Py_DECREF(first);
+      Py_DECREF(second);
+      throw PyInternalError();
+    }
+    
+    if (ctx->COMMA()) {
+      // For "LIMIT a, b" syntax: a is offset, b is limit
+      // PyTuple_SET_ITEM steals references, so we don't need to DECREF after
+      PyTuple_SET_ITEM(result, 0, second);  // offset (ownership transferred)
+      PyTuple_SET_ITEM(result, 1, first);   // limit (ownership transferred)
+    } else {
+      // For "LIMIT a OFFSET b" syntax: a is limit, b is offset
+      PyTuple_SET_ITEM(result, 0, first);   // limit (ownership transferred)
+      PyTuple_SET_ITEM(result, 1, second);  // offset (ownership transferred)
+    }
+
+    return result;
   }
 
   VISIT(OffsetOnlyClause) {
