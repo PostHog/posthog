@@ -54,6 +54,9 @@ cmake = { pkg-path = "cmake", version = "3.31.5", pkg-group = "cmake" }
 DEBUG = "1"
 POSTHOG_SKIP_MIGRATION_CHECKS = "1"
 DIRENV_LOG_FORMAT = "" # Disable direnv activation logging (in case direnv is present)
+OPENSSL_ROOT_DIR = "$FLOX_ENV"
+OPENSSL_LIB_DIR = "$FLOX_ENV/lib"
+OPENSSL_INCLUDE_DIR = "$FLOX_ENV/include"
 LDFLAGS="-L$FLOX_ENV/lib"
 CPPFLAGS="-I$FLOX_ENV/include"
 
