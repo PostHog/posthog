@@ -75,15 +75,24 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                     return null
                 }
 
-                const totalPinnedCount = recordings_counts.collection.count
+                const hasSavedFiltersCount = recordings_counts.saved_filters?.count !== null
+                const hasCollectionCount = recordings_counts.collection.count !== null
+
+                const totalPinnedCount =
+                    recordings_counts.collection.count === null ? 'null' : recordings_counts.collection.count
                 const unwatchedPinnedCount =
                     (recordings_counts.collection.count || 0) - (recordings_counts.collection.watched_count || 0)
-                const totalSavedFiltersCount = recordings_counts.saved_filters?.count || 0
+                const totalSavedFiltersCount =
+                    recordings_counts.saved_filters?.count === null
+                        ? 'null'
+                        : recordings_counts.saved_filters?.count || 0
                 const unwatchedSavedFiltersCount =
                     (recordings_counts.saved_filters?.count || 0) -
                     (recordings_counts.saved_filters?.watched_count || 0)
 
-                const totalCount = totalPinnedCount + totalSavedFiltersCount
+                const totalCount =
+                    (totalPinnedCount === 'null' ? 0 : totalPinnedCount) +
+                    (totalSavedFiltersCount === 'null' ? 0 : totalSavedFiltersCount)
                 const unwatchedCount = unwatchedPinnedCount + unwatchedSavedFiltersCount
 
                 const tooltip = (
@@ -119,13 +128,14 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                 return (
                     <div className="flex items-center justify-center w-full h-full">
                         <Tooltip title={tooltip}>
-                            {unwatchedCount || totalCount ? (
+                            {hasSavedFiltersCount || hasCollectionCount ? (
                                 <span className="flex items-center space-x-1">
                                     <LemonBadge.Number
                                         status={unwatchedCount || totalCount ? 'primary' : 'muted'}
                                         className="text-xs cursor-pointer"
                                         count={unwatchedCount || totalCount}
                                         maxDigits={3}
+                                        showZero={true}
                                         forcePlus={
                                             !!recordings_counts.saved_filters?.count &&
                                             !!recordings_counts.saved_filters?.has_more
