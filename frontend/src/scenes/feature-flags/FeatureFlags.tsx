@@ -260,7 +260,11 @@ export function OverViewTab({
                                     </AccessControlledLemonButton>
                                 )}
 
-                                <LemonButton to={urls.featureFlagDuplicate(featureFlag.id)} data-attr="usage" fullWidth>
+                                <LemonButton
+                                    to={urls.featureFlagDuplicate(featureFlag.id)}
+                                    data-attr="feature-flag-duplicate"
+                                    fullWidth
+                                >
                                     Duplicate feature flag
                                 </LemonButton>
 
