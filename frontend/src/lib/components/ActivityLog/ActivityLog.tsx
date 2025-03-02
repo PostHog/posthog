@@ -70,19 +70,24 @@ export type ActivityLogTabs = 'extended description' | 'diff' | 'raw'
 
 const ActivityLogDiff = ({ logItem }: { logItem: HumanizedActivityLogItem }): JSX.Element => {
     const changes = logItem.unprocessed.detail.changes
+
     return (
         <div className="flex flex-col space-y-2 px-2 py-1">
             <div className="flex flex-col space-y-2">
-                {changes?.map((change, i) => (
-                    <div key={i} className="flex flex-col space-y-2">
-                        <h2>{change.field}</h2>
-                        <MonacoDiffEditor
-                            original={JSON.stringify(change.before, null, 2)}
-                            modified={JSON.stringify(change.after, null, 2)}
-                            language="json"
-                        />
-                    </div>
-                ))}
+                {changes?.length ? (
+                    changes.map((change, i) => (
+                        <div key={i} className="flex flex-col space-y-2">
+                            <h2>{change.field}</h2>
+                            <MonacoDiffEditor
+                                original={JSON.stringify(change.before, null, 2)}
+                                modified={JSON.stringify(change.after, null, 2)}
+                                language="json"
+                            />
+                        </div>
+                    ))
+                ) : (
+                    <div className="text-secondary">This item has no changes to compare</div>
+                )}
             </div>
         </div>
     )
@@ -92,13 +97,8 @@ export const ActivityLogRow = ({ logItem }: { logItem: HumanizedActivityLogItem 
     const [isExpanded, setIsExpanded] = useState(false)
     const [activeTab, setActiveTab] = useState<ActivityLogTabs>('diff')
     return (
-        <div className="flex flex-col">
-            <div
-                className={clsx(
-                    'ActivityLogRow flex space-x-2 px-1 py-0.5',
-                    logItem.unread && 'ActivityLogRow--unread'
-                )}
-            >
+        <div className={clsx('flex flex-col px-1 py-0.5', isExpanded && 'border rounded')}>
+            <div className={clsx('ActivityLogRow flex space-x-2', logItem.unread && 'ActivityLogRow--unread')}>
                 <ProfilePicture
                     showName={false}
                     user={{
@@ -125,42 +125,46 @@ export const ActivityLogRow = ({ logItem }: { logItem: HumanizedActivityLogItem 
                 />
             </div>
             {isExpanded && (
-                <LemonTabs
-                    activeKey={activeTab}
-                    onChange={(key) => setActiveTab(key as ActivityLogTabs)}
-                    tabs={[
-                        {
-                            key: 'extended description',
-                            label: 'Extended Description',
-                            tooltip:
-                                'Some activities have a more detailed description that is not shown when collapsed.',
-                            content: (
-                                <div>
-                                    {logItem.extendedDescription
-                                        ? logItem.extendedDescription
-                                        : 'This item has no extended description'}
-                                </div>
-                            ),
-                        },
-                        {
-                            key: 'diff',
-                            label: 'Diff',
-                            tooltip:
-                                'Show the diff of the changes made to the item. Each activity item could have more than one change.',
-                            content: <ActivityLogDiff logItem={logItem} />,
-                        },
-                        {
-                            key: 'raw',
-                            label: 'Raw',
-                            tooltip: 'Show the raw data of the activity item.',
-                            content: (
-                                <div>
-                                    <pre>{JSON.stringify(logItem.unprocessed, null, 2)}</pre>
-                                </div>
-                            ),
-                        },
-                    ]}
-                />
+                <div className="px-1 py-0.5">
+                    <LemonTabs
+                        activeKey={activeTab}
+                        onChange={(key) => setActiveTab(key as ActivityLogTabs)}
+                        tabs={[
+                            logItem.extendedDescription
+                                ? {
+                                      key: 'extended description',
+                                      label: 'Extended Description',
+                                      tooltip:
+                                          'Some activities have a more detailed description that is not shown when collapsed.',
+                                      content: (
+                                          <div>
+                                              {logItem.extendedDescription
+                                                  ? logItem.extendedDescription
+                                                  : 'This item has no extended description'}
+                                          </div>
+                                      ),
+                                  }
+                                : false,
+                            {
+                                key: 'diff',
+                                label: 'Diff',
+                                tooltip:
+                                    'Show the diff of the changes made to the item. Each activity item could have more than one change.',
+                                content: <ActivityLogDiff logItem={logItem} />,
+                            },
+                            {
+                                key: 'raw',
+                                label: 'Raw',
+                                tooltip: 'Show the raw data of the activity item.',
+                                content: (
+                                    <div>
+                                        <pre>{JSON.stringify(logItem.unprocessed, null, 2)}</pre>
+                                    </div>
+                                ),
+                            },
+                        ]}
+                    />
+                </div>
             )}
         </div>
     )
