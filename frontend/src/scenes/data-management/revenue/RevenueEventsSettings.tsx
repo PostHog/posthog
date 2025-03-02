@@ -96,13 +96,15 @@ export function RevenueEventsSettings(): JSX.Element {
                 </LemonButton>
             </div>
 
-            <Query
-                query={eventsQuery}
-                context={{
-                    showOpenEditorButton: true,
-                    extraDataTableQueryFeatures: [QueryFeature.highlightExceptionEventRows],
-                }}
-            />
+            {eventsQuery ? (
+                <Query
+                    query={eventsQuery}
+                    context={{
+                        showOpenEditorButton: true,
+                        extraDataTableQueryFeatures: [QueryFeature.highlightExceptionEventRows],
+                    }}
+                />
+            ) : null}
         </div>
     )
 }

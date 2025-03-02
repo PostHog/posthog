@@ -35,33 +35,33 @@ def revenue_sum_expression(config: Union[RevenueTrackingConfig, dict, None]) -> 
     if isinstance(config, dict):
         config = RevenueTrackingConfig.model_validate(config)
 
-    exprs: list[ast.Expr] = []
-    if config:
-        for event in config.events:
-            exprs.append(
-                ast.Call(
-                    name="sumIf",
-                    args=[
-                        ast.Call(
-                            name="ifNull",
-                            args=[
-                                ast.Call(
-                                    name="toFloat",
-                                    args=[ast.Field(chain=["events", "properties", event.revenueProperty])],
-                                ),
-                                ast.Constant(value=0),
-                            ],
-                        ),
-                        ast.CompareOperation(
-                            left=ast.Field(chain=["event"]),
-                            op=ast.CompareOperationOp.Eq,
-                            right=ast.Constant(value=event.eventName),
-                        ),
-                    ],
-                )
-            )
-    if not exprs:
+    if not config or not config.events:
         return ast.Constant(value=None)
+
+    exprs: list[ast.Expr] = []
+    for event in config.events:
+        exprs.append(
+            ast.Call(
+                name="sumIf",
+                args=[
+                    ast.Call(
+                        name="ifNull",
+                        args=[
+                            ast.Call(
+                                name="toFloat",
+                                args=[ast.Field(chain=["events", "properties", event.revenueProperty])],
+                            ),
+                            ast.Constant(value=0),
+                        ],
+                    ),
+                    ast.CompareOperation(
+                        left=ast.Field(chain=["event"]),
+                        op=ast.CompareOperationOp.Eq,
+                        right=ast.Constant(value=event.eventName),
+                    ),
+                ],
+            )
+        )
     if len(exprs) == 1:
         return exprs[0]
     return ast.Call(name="plus", args=exprs)
@@ -71,17 +71,18 @@ def revenue_events_exprs(config: Union[RevenueTrackingConfig, dict, None]) -> li
     if isinstance(config, dict):
         config = RevenueTrackingConfig.model_validate(config)
 
-    exprs: list[ast.Expr] = []
-    if config:
-        for event in config.events:
-            exprs.append(
-                ast.CompareOperation(
-                    left=ast.Field(chain=["event"]),
-                    op=ast.CompareOperationOp.Eq,
-                    right=ast.Constant(value=event.eventName),
-                )
-            )
+    if not config or not config.events:
+        return []
 
+    exprs: list[ast.Expr] = []
+    for event in config.events:
+        exprs.append(
+            ast.CompareOperation(
+                left=ast.Field(chain=["event"]),
+                op=ast.CompareOperationOp.Eq,
+                right=ast.Constant(value=event.eventName),
+            )
+        )
     return exprs
 
 

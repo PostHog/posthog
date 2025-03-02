@@ -59,7 +59,7 @@ class RevenueExampleEventsQueryRunner(QueryRunner):
                     revenue_events_expr(tracking_config),
                     ast.CompareOperation(
                         op=CompareOperationOp.NotEq,
-                        left=revenue_expression(tracking_config),
+                        left=ast.Field(chain=["revenue"]),  # refers to the Alias above
                         right=ast.Constant(value=None),
                     ),
                 ]

@@ -96,7 +96,7 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
         ],
         eventsQuery: [
             (s) => [s.revenueTrackingConfig],
-            (revenueTrackingConfig: RevenueTrackingConfig) => {
+            (revenueTrackingConfig: RevenueTrackingConfig | null) => {
                 if (!revenueTrackingConfig) {
                     return null
                 }
