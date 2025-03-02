@@ -578,14 +578,23 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 if (props.id === 'new' && sourceId) {
                     // Used when "duplicating a feature flag". This populates the form with the source flag's data.
                     const sourceFlag = await api.featureFlags.get(sourceId)
+                    // But first, remove fields that we don't want to duplicate
                     const {
                         id,
                         created_at,
+                        key,
+                        deleted,
+                        active,
                         created_by,
                         is_simple_flag,
                         experiment_set,
                         features,
                         surveys,
+                        performed_rollback,
+                        can_edit,
+                        user_access_level,
+                        status,
+                        last_modified_by,
                         ...flagToKeep
                     } = sourceFlag
 
