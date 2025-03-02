@@ -1,5 +1,6 @@
 use property_defs_rs::api::v1::query::Manager;
 
+use chrono::{DateTime, Utc};
 use sqlx::{postgres::PgArguments, Arguments, PgPool};
 use uuid::Uuid;
 
@@ -286,7 +287,124 @@ async fn bootstrap_seed_data(test_pool: PgPool) -> Result<(), sqlx::Error> {
         .await?;
     }
 
-    // TODO: seed the ee_enterprisepropertydefinition, posthog_eventproperty and posthog_user tables too!
+    // inject these into enterprise prop defs as "updated_by" and "verified_by" for realism
+    let user_rows = [
+        // id (PK), uuid, first_name, last_name, email, is_email_verified, distinct_id, hegehog_config, role_at_organization
+        (
+            111,
+            Uuid::now_v7(),
+            "John",
+            "Keister",
+            "jk@example.com",
+            true,
+            Uuid::now_v7(),
+            r#"{"skin": "default", "color": "purple", "enabled": false, "accessories": ["eyepatch", "xmas_scarf", "graduation"], "use_as_profile": false, "walking_enabled": true, "controls_enabled": true, "party_mode_enabled": true, "interactions_enabled": true}
+"#,
+            "founder",
+        ),
+        (
+            111,
+            Uuid::now_v7(),
+            "Nancy",
+            "Guppy",
+            "ng@example.com",
+            true,
+            Uuid::now_v7(),
+            r#"{"skin": "spiderhog", "color": null, "enabled": false, "accessories": [], "use_as_profile": false, "walking_enabled": true, "controls_enabled": true, "party_mode_enabled": false, "interactions_enabled": true}"#,
+            "founder",
+        ),
+    ];
+
+    for row in user_rows {
+        let mut args = PgArguments::default();
+        args.add(row.0).unwrap();
+        args.add(row.1).unwrap();
+        args.add(row.2).unwrap();
+        args.add(row.3).unwrap();
+        args.add(row.4).unwrap();
+        args.add(row.5).unwrap();
+        args.add(row.6).unwrap();
+        args.add(row.7).unwrap();
+        args.add(row.8).unwrap();
+
+        sqlx::query_with(
+            r#"
+            INSERT INTO posthog_user
+                (id, uuid, first_name, last_name, email, is_email_verified, distinct_id, hegehog_config, role_at_organization)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        "#,
+            args,
+        )
+        .execute(&test_pool)
+        .await?;
+    }
+
+    // tie back event props "property" field to posthog_userdefinition rows
+    // of type PropertyParentType::Event defined above
+    let ep_rows = [
+        // id, event, property, team_id, project_id
+        (101, "$pageview", "user_email", 1, 1),
+        (102, "$pageview", "utm_source", 1, 1),
+        (103, "$pageview", "$time", 1, 1),
+        (104, "$pageview", "$sent_at", 1, 1),
+        (105, "$pageview", "attempted_event_type", 1, 1),
+        (106, "$pageview", "$screen_width", 1, 1),
+        (107, "$pageview", "session_timeout_ms", 1, 1),
+        (108, "$pageview", "$dead_clicks_enabled_server_side", 1, 1),
+        (109, "$pageview", "$feature/foo-bar-baz", 1, 1),
+    ];
+
+    for row in ep_rows {
+        let mut args = PgArguments::default();
+        args.add(row.0).unwrap();
+        args.add(row.1).unwrap();
+        args.add(row.2).unwrap();
+        args.add(row.3).unwrap();
+        args.add(row.4).unwrap();
+
+        sqlx::query_with(
+            r#"
+            INSERT INTO posthog_eventproperty
+                (id, event, property, team_id, project_id)
+                VALUES ($1, $2, $3, $4, $5)
+        "#,
+            args,
+        )
+        .execute(&test_pool)
+        .await?;
+    }
+
+    // enterprise prop defs rows are a bit different - these mostly serve to join in metadata
+    // on popsthog_propertydefinition rows we defined above, so we seed using those rows
+    for (ndx, row) in pd_rows.iter().enumerate() {
+        let mut args = PgArguments::default();
+        args.add(row.0).unwrap();
+        args.add("a fine property indeed").unwrap();
+        args.add(Utc::now()).unwrap();
+        args.add(user_rows[0].0).unwrap();
+        if ndx % 2 == 0 {
+            args.add(true).unwrap();
+            args.add(Some(Utc::now())).unwrap();
+            args.add(Some(user_rows[1].0)).unwrap();
+            args.add(Some(vec!["foo", "bar"])).unwrap();
+        } else {
+            args.add(false).unwrap();
+            args.add(None::<DateTime<Utc>>).unwrap();
+            args.add(None::<String>).unwrap();
+            args.add(None::<Vec<&str>>).unwrap();
+        }
+
+        sqlx::query_with(
+            r#"
+            INSERT INTO
+                (propertydefinition_ptr_id, description, updated_at, updated_by_id, verified, verified_at, verified_by_id, tags)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        "#,
+            args,
+        )
+        .execute(&test_pool)
+        .await?;
+    }
 
     Ok(())
 }
