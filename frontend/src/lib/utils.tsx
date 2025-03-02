@@ -172,7 +172,7 @@ export const selectStyle: Record<string, (base: Partial<CSSProperties>) => Parti
 }
 
 export function splitKebabCase(string: string): string {
-    return string.replace('-', ' ')
+    return string.replace(/-/g, ' ')
 }
 
 export function capitalizeFirstLetter(string: string): string {
