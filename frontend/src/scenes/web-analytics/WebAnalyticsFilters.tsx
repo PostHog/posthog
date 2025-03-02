@@ -28,7 +28,7 @@ export const WebAnalyticsFilters = (): JSX.Element => {
     const { authorizedUrls } = useValues(
         authorizedUrlListLogic({ type: AuthorizedUrlListType.WEB_ANALYTICS, actionId: null, experimentId: null })
     )
-    const { domainFilter } = useValues(webAnalyticsLogic)
+    const { domainFilter, hasHostFilter } = useValues(webAnalyticsLogic)
     const { setDomainFilter } = useActions(webAnalyticsLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
@@ -52,7 +52,10 @@ export const WebAnalyticsFilters = (): JSX.Element => {
                                     options={[
                                         {
                                             options: [
-                                                { label: 'All domains', value: 'all' },
+                                                {
+                                                    label: hasHostFilter ? 'Filtering by host' : 'All domains',
+                                                    value: 'all',
+                                                },
                                                 ...authorizedUrls.map((url) => ({ label: url, value: url })),
                                             ],
                                             footer: (

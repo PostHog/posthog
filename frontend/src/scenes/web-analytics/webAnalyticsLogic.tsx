@@ -385,15 +385,31 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
                     return [...oldPropertyFilters, newFilter]
                 },
+                setDomainFilter: (state) => {
+                    // the domain and host filters don't interact well, so remove the host filter when the domain filter is set
+                    return state.filter((filter) => filter.key !== '$host')
+                },
             },
         ],
         domainFilter: [
             null as string | null,
             persistConfig,
             {
-                setDomainFilter: (_: string | null, payload: unknown) => {
-                    const { domain } = payload as { domain: string | null }
+                setDomainFilter: (_: string | null, payload: { domain: string | null }) => {
+                    const { domain } = payload
                     return domain
+                },
+                togglePropertyFilter: (state, { key }) => {
+                    // the domain and host filters don't interact well, so remove the domain filter when the host filter is set
+                    return key === '$host' ? null : state
+                },
+                setWebAnalyticsFilters: (state, { webAnalyticsFilters }) => {
+                    // the domain and host filters don't interact well, so remove the domain filter when the host filter is set
+
+                    if (webAnalyticsFilters.some((f) => f.key === '$host')) {
+                        return null
+                    }
+                    return state
                 },
             },
         ],
@@ -603,6 +619,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 return hasAvailableFeature(AvailableFeature.PATHS_ADVANCED) && isPathCleaningEnabled
             },
         ],
+        hasHostFilter: [(s) => [s.rawWebAnalyticsFilters], (filters) => filters.some((f) => f.key === '$host')],
         webAnalyticsFilters: [
             (s) => [
                 s.rawWebAnalyticsFilters,
