@@ -416,7 +416,7 @@ async fn bootstrap_seed_data(test_pool: PgPool) -> Result<(), sqlx::Error> {
 
         sqlx::query_with(
             r#"
-            INSERT INTO
+            INSERT INTO ee_enterprisepropertydefinition
                 (propertydefinition_ptr_id, description, updated_at, updated_by_id, verified, verified_at, verified_by_id, tags)
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         "#,
