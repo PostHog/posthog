@@ -338,14 +338,15 @@ async fn bootstrap_seed_data(test_pool: PgPool) -> Result<(), sqlx::Error> {
         args.add(&row.8).unwrap();
         args.add(row.9).unwrap();
         args.add(json!("{}")).unwrap(); // events_column_config NOT NULL
+        args.add(Utc::now()).unwrap(); // date_joined NOT NULL
 
         sqlx::query_with(
             r#"
             INSERT INTO posthog_user
                 (id, uuid, password, first_name, last_name, is_staff, is_active, email,
                  is_email_verified, distinct_id, temporary_token, hedgehog_config,
-                 role_at_organization, events_column_config)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                 role_at_organization, events_column_config, date_joined)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
         "#,
             args,
         )
