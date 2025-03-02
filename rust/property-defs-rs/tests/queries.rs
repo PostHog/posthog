@@ -1,6 +1,7 @@
 use property_defs_rs::api::v1::query::Manager;
 
 use chrono::{DateTime, Utc};
+use serde_json::json;
 use sqlx::{postgres::PgArguments, Arguments, PgPool};
 use uuid::Uuid;
 
@@ -264,7 +265,7 @@ async fn bootstrap_seed_data(test_pool: PgPool) -> Result<(), sqlx::Error> {
         // - no records in the prod DB of property_type "Duration"
     ];
 
-    for row in pd_rows {
+    for row in pd_rows.iter() {
         let mut args = PgArguments::default();
         args.add(row.0).unwrap();
         args.add(row.1).unwrap();
@@ -299,8 +300,10 @@ async fn bootstrap_seed_data(test_pool: PgPool) -> Result<(), sqlx::Error> {
             true,
             Uuid::now_v7(),
             Uuid::now_v7(),
-            r#"{"skin": "default", "color": "purple", "enabled": false, "accessories": ["eyepatch", "xmas_scarf", "graduation"], "use_as_profile": false, "walking_enabled": true, "controls_enabled": true, "party_mode_enabled": true, "interactions_enabled": true}
-"#,
+            json!(
+                r#"{"skin": "default", "color": "purple", "enabled": false, "accessories": ["eyepatch", "xmas_scarf", "graduation"], "use_as_profile": false, "walking_enabled": true, "controls_enabled": true, "party_mode_enabled": true, "interactions_enabled": true}
+"#
+            ),
             "founder",
         ),
         (
@@ -312,12 +315,14 @@ async fn bootstrap_seed_data(test_pool: PgPool) -> Result<(), sqlx::Error> {
             true,
             Uuid::now_v7(),
             Uuid::now_v7(),
-            r#"{"skin": "spiderhog", "color": null, "enabled": false, "accessories": [], "use_as_profile": false, "walking_enabled": true, "controls_enabled": true, "party_mode_enabled": false, "interactions_enabled": true}"#,
+            json!(
+                r#"{"skin": "spiderhog", "color": null, "enabled": false, "accessories": [], "use_as_profile": false, "walking_enabled": true, "controls_enabled": true, "party_mode_enabled": false, "interactions_enabled": true}"#
+            ),
             "founder",
         ),
     ];
 
-    for row in user_rows {
+    for row in user_rows.iter() {
         let mut args = PgArguments::default();
         args.add(row.0).unwrap();
         args.add(row.1).unwrap();
@@ -327,7 +332,7 @@ async fn bootstrap_seed_data(test_pool: PgPool) -> Result<(), sqlx::Error> {
         args.add(row.5).unwrap();
         args.add(row.6).unwrap();
         args.add(row.7).unwrap();
-        args.add(row.8).unwrap();
+        args.add(&row.8).unwrap();
         args.add(row.9).unwrap();
 
         sqlx::query_with(
@@ -357,7 +362,7 @@ async fn bootstrap_seed_data(test_pool: PgPool) -> Result<(), sqlx::Error> {
         (109, "$pageview", "$feature/foo-bar-baz", 1, 1),
     ];
 
-    for row in ep_rows {
+    for row in ep_rows.iter() {
         let mut args = PgArguments::default();
         args.add(row.0).unwrap();
         args.add(row.1).unwrap();
@@ -389,11 +394,11 @@ async fn bootstrap_seed_data(test_pool: PgPool) -> Result<(), sqlx::Error> {
         args.add(row.0).unwrap();
         args.add("a fine property indeed").unwrap();
         args.add(Utc::now()).unwrap();
-        args.add(user_rows[0].0).unwrap();
+        args.add(&user_rows[0].0).unwrap();
         if ndx % 2 == 0 {
             args.add(true).unwrap();
             args.add(Some(Utc::now())).unwrap();
-            args.add(Some(user_rows[1].0)).unwrap();
+            args.add(Some(&user_rows[1].0)).unwrap();
             args.add(Some(vec!["foo", "bar"])).unwrap();
         } else {
             args.add(false).unwrap();
