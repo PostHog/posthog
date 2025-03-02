@@ -70,7 +70,7 @@ export type ActivityLogTabs = 'extended description' | 'diff' | 'raw'
 const ActivityLogDiff = ({ logItem }: { logItem: HumanizedActivityLogItem }): JSX.Element => {
     const changes = logItem.unprocessed.detail.changes
     return (
-        <div className="flex flex-col space-x-2 px-2 py-1">
+        <div className="flex flex-col space-y-2 px-2 py-1">
             <div className="flex flex-col space-y-2">
                 {changes?.map((change, i) => (
                     <div key={i} className="flex flex-col space-x-2">
