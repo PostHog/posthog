@@ -279,7 +279,7 @@ async fn bootstrap_seed_data(test_pool: PgPool) -> Result<(), sqlx::Error> {
         sqlx::query_with(
             r#"
             INSERT INTO posthog_propertydefinition
-                (id, name, project_id, team_id, is_numerical, type, property_type, group_type_index)
+                (id, name, project_id, team_id, is_numerical, "type", property_type, group_type_index)
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         "#,
             args,
