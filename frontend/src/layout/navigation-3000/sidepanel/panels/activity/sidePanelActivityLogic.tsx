@@ -239,6 +239,13 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
                             description: <LemonMarkdown>{changelogNotification.markdown}</LemonMarkdown>,
                             created_at: changelogNotification.notificationDate,
                             unread: changeLogIsUnread,
+                            unprocessed: {
+                                activity: 'changelog-notification',
+                                detail: {
+                                    markdown: changelogNotification.markdown,
+                                    notificationDate: changelogNotification.notificationDate,
+                                },
+                            },
                         }
                         const notifications = [changelogNotificationHumanized, ...importantChangesHumanized]
                         notifications.sort((a, b) => {
