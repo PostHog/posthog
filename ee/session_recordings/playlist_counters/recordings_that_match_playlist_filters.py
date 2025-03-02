@@ -158,7 +158,7 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
                 existing_value = {}
 
             # if we have results from the last hour we don't need to run the query
-            if existing_value.get("refreshed_at") and len(existing_value.get("session_ids", [])) > 0:
+            if existing_value.get("refreshed_at"):
                 last_refreshed_at = datetime.fromisoformat(existing_value["refreshed_at"])
                 seconds_since_refresh = int((datetime.now() - last_refreshed_at).total_seconds())
 
