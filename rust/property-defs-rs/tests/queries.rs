@@ -289,7 +289,7 @@ async fn bootstrap_seed_data(test_pool: PgPool) -> Result<(), sqlx::Error> {
 
     // inject these into enterprise prop defs as "updated_by" and "verified_by" for realism
     let user_rows = [
-        // id (PK), uuid, first_name, last_name, email, is_email_verified, distinct_id, temporary_token, hegehog_config, role_at_organization
+        // id (PK), uuid, first_name, last_name, email, is_email_verified, distinct_id, temporary_token, hedgehog_config, role_at_organization
         (
             111,
             Uuid::now_v7(),
@@ -333,7 +333,7 @@ async fn bootstrap_seed_data(test_pool: PgPool) -> Result<(), sqlx::Error> {
         sqlx::query_with(
             r#"
             INSERT INTO posthog_user
-                (id, uuid, first_name, last_name, email, is_email_verified, distinct_id, temporary_token, hegehog_config, role_at_organization)
+                (id, uuid, first_name, last_name, email, is_email_verified, distinct_id, temporary_token, hedgehog_config, role_at_organization)
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         "#,
             args,
