@@ -17,6 +17,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, ProductKey } from '~/types'
 
+import MonacoDiffEditor from '../MonacoDiffEditor'
 import { PayGateMini } from '../PayGateMini/PayGateMini'
 import { ProductIntroduction } from '../ProductIntroduction/ProductIntroduction'
 
@@ -75,16 +76,11 @@ const ActivityLogDiff = ({ logItem }: { logItem: HumanizedActivityLogItem }): JS
                 {changes?.map((change, i) => (
                     <div key={i} className="flex flex-col space-y-2">
                         <h2>{change.field}</h2>
-                        <div className="flex flex-row space-x-2">
-                            <div className="flex flex-col">
-                                <h3>before</h3>
-                                <pre>{JSON.stringify(change.before, null, 2)}</pre>
-                            </div>
-                            <div className="flex flex-col">
-                                <h3>after</h3>
-                                <pre>{JSON.stringify(change.after, null, 2)}</pre>
-                            </div>
-                        </div>
+                        <MonacoDiffEditor
+                            original={JSON.stringify(change.before, null, 2)}
+                            modified={JSON.stringify(change.after, null, 2)}
+                            language="json"
+                        />
                     </div>
                 ))}
             </div>
