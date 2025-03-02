@@ -18,7 +18,7 @@ use axum::{
 use chrono::{DateTime, Utc};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use sqlx::{Execute, Executor, FromRow, Postgres, QueryBuilder, Row};
+use sqlx::{types, Execute, Executor, FromRow, Postgres, QueryBuilder, Row};
 use tracing::debug;
 use url::form_urlencoded;
 
@@ -353,7 +353,7 @@ struct PropDefRow {
     ub_last_name: Option<String>,
     ub_email: Option<String>,
     ub_is_email_verified: Option<bool>,
-    ub_hedgehog_config: Option<String>, // JSON value
+    ub_hedgehog_config: Option<types::Json<HedgehogConfig>>,
     ub_role_at_organization: Option<String>,
     verified: Option<bool>,
     verified_at: Option<DateTime<Utc>>,
@@ -365,7 +365,7 @@ struct PropDefRow {
     vb_last_name: Option<String>,
     vb_email: Option<String>,
     vb_is_email_verified: Option<bool>,
-    vb_hedgehog_config: Option<String>, // JSON value
+    vb_hedgehog_config: Option<types::Json<HedgehogConfig>>,
     vb_role_at_organization: Option<String>,
     tags: Option<Vec<String>>,
 }
@@ -402,8 +402,8 @@ impl From<PropDefRow> for PropertyDefinition {
         let mut updated_by: Option<User> = None;
         if row.ub_id.is_some() {
             let mut hcfg: Option<HedgehogConfig> = None;
-            if let Some(raw_hcfg) = &row.ub_hedgehog_config {
-                hcfg = serde_json::from_str(raw_hcfg).ok();
+            if let Some(json_hcfg) = row.ub_hedgehog_config {
+                hcfg = Some(json_hcfg.as_ref().clone());
             }
 
             let ub = User {
@@ -423,8 +423,8 @@ impl From<PropDefRow> for PropertyDefinition {
         let mut verified_by: Option<User> = None;
         if row.vb_id.is_some() {
             let mut hcfg: Option<HedgehogConfig> = None;
-            if let Some(raw_hcfg) = &row.vb_hedgehog_config {
-                hcfg = serde_json::from_str(raw_hcfg).ok();
+            if let Some(json_hcfg) = row.vb_hedgehog_config {
+                hcfg = Some(json_hcfg.as_ref().clone());
             }
 
             let vb = User {
@@ -469,7 +469,7 @@ pub struct User {
     hedgehog_config: Option<HedgehogConfig>,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, FromRow, Clone)]
 pub struct HedgehogConfig {
     use_as_profile: Option<bool>,
     color: Option<String>,
