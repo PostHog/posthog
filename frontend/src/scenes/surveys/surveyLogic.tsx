@@ -294,7 +294,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         // Initialize answer filters for all questions - first for index-based, then for id-based
                         actions.setAnswerFilters(
                             survey.questions.map((question, index) => ({
-                                key: getResponseFieldWithId(index, question.id).indexBasedKey,
+                                key: getResponseFieldWithId(index, question?.id).indexBasedKey,
                                 operator: DEFAULT_OPERATORS[question.type].value,
                                 type: PropertyFilterType.Event as const,
                                 value: [],
@@ -439,7 +439,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     query: `
                         -- QUERYING NPS RESPONSES
                         SELECT
-                            ${getResponseFieldCondition(questionIndex, question.id)} AS survey_response,
+                            ${getResponseFieldCondition(questionIndex, question?.id)} AS survey_response,
                             COUNT(survey_response)
                         FROM events
                         WHERE event = 'survey sent'
@@ -494,7 +494,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         -- QUERYING NPS RECURRING RESPONSES
                         SELECT
                             JSONExtractString(properties, '$survey_iteration') AS survey_iteration,
-                            ${getResponseFieldCondition(questionIndex, question.id)} AS survey_response,
+                            ${getResponseFieldCondition(questionIndex, question?.id)} AS survey_response,
                             COUNT(survey_response)
                         FROM events
                         WHERE event = 'survey sent'
@@ -578,7 +578,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     query: `
                         -- QUERYING SINGLE CHOICE RESPONSES
                         SELECT
-                            ${getResponseFieldCondition(questionIndex, question.id)} AS survey_response,
+                            ${getResponseFieldCondition(questionIndex, question?.id)} AS survey_response,
                             COUNT(survey_response)
                         FROM events
                         WHERE event = 'survey sent'
@@ -626,7 +626,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         -- QUERYING MULTIPLE CHOICE RESPONSES
                         SELECT
                             count(),
-                            arrayJoin(${getMultipleChoiceResponseFieldCondition(questionIndex, question.id)}) AS choice
+                            arrayJoin(${getMultipleChoiceResponseFieldCondition(questionIndex, question?.id)}) AS choice
                         FROM events
                         WHERE event == 'survey sent'
                             AND properties.$survey_id == '${survey.id}'
@@ -680,7 +680,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 const endDate = getSurveyEndDateForQuery(survey)
 
                 // For open text responses, we need to check both formats in the WHERE clause
-                const ids = getResponseFieldWithId(questionIndex, question.id)
+                const ids = getResponseFieldWithId(questionIndex, question?.id)
 
                 // Build the condition to check for non-empty responses in either format
                 const responseCondition = ids.idBasedKey
