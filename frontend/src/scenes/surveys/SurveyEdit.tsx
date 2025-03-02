@@ -660,6 +660,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                   onAppearanceChange={(appearance) => {
                                                                       onChange(appearance)
                                                                   }}
+                                                                  validationErrors={surveyErrors?.appearance}
                                                               />
                                                               <LemonDivider className="mt-4" />
                                                               <div className="font-bold">Survey customization</div>
