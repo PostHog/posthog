@@ -14,7 +14,6 @@ import { urls } from 'scenes/urls'
 
 import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { CompareFilter, DataTableNode, HogQLQuery, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
 import {
     AnyPropertyFilter,
     BaseMathType,
@@ -377,31 +376,32 @@ export const surveyLogic = kea<surveyLogicType>([
 
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
-                    query: hogql`
+                    query: `
+                        -- QUERYING SURVEY USER STATS
                         SELECT
                             (SELECT COUNT(DISTINCT person_id)
                                 FROM events
                                 WHERE event = 'survey shown'
-                                    AND properties.$survey_id = ${props.id}
-                                    AND timestamp >= ${startDate}
-                                    AND timestamp <= ${endDate}
-                                    ${answerFilter !== '' && answerFilter}
+                                    AND properties.$survey_id = '${props.id}'
+                                    AND timestamp >= '${startDate}'
+                                    AND timestamp <= '${endDate}'
+                                    ${answerFilter !== '' ? answerFilter : ''}
                                     AND {filters}),
                                     (SELECT COUNT(DISTINCT person_id)
                                     FROM events
                                     WHERE event = 'survey dismissed'
-                                    AND properties.$survey_id = ${props.id}
-                                    AND timestamp >= ${startDate}
-                                    AND timestamp <= ${endDate}
-                                    ${answerFilter !== '' && answerFilter}
+                                    AND properties.$survey_id = '${props.id}'
+                                    AND timestamp >= '${startDate}'
+                                    AND timestamp <= '${endDate}'
+                                    ${answerFilter !== '' ? answerFilter : ''}
                                     AND {filters}),
                                     (SELECT COUNT(DISTINCT person_id)
                                     FROM events
                                     WHERE event = 'survey sent'
-                                    AND properties.$survey_id = ${props.id}
-                                    AND timestamp >= ${startDate}
-                                    AND timestamp <= ${endDate}
-                                    ${answerFilter !== '' && answerFilter}
+                                    AND properties.$survey_id = '${props.id}'
+                                    AND timestamp >= '${startDate}'
+                                    AND timestamp <= '${endDate}'
+                                    ${answerFilter !== '' ? answerFilter : ''}
                                     AND {filters})
                     `,
                     filters: {
@@ -491,6 +491,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
                     query: `
+                        -- QUERYING NPS RECURRING RESPONSES
                         SELECT
                             JSONExtractString(properties, '$survey_iteration') AS survey_iteration,
                             ${getResponseFieldCondition(questionIndex, question.id)} AS survey_response,
@@ -575,6 +576,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
                     query: `
+                        -- QUERYING SINGLE CHOICE RESPONSES
                         SELECT
                             ${getResponseFieldCondition(questionIndex, question.id)} AS survey_response,
                             COUNT(survey_response)
@@ -621,6 +623,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
                     query: `
+                        -- QUERYING MULTIPLE CHOICE RESPONSES
                         SELECT
                             count(),
                             arrayJoin(${getMultipleChoiceResponseFieldCondition(questionIndex, question.id)}) AS choice
@@ -1231,7 +1234,8 @@ export const surveyLogic = kea<surveyLogicType>([
                 const answerFilter = createAnswerFilterHogQLExpression(answerFilters, survey)
 
                 if (answerFilter !== '') {
-                    where.push(answerFilter)
+                    // skip the 'AND ' prefix
+                    where.push(answerFilter.slice(4))
                 }
 
                 return {

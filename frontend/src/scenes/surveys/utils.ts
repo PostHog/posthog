@@ -138,13 +138,19 @@ export function createAnswerFilterHogQLExpression(filters: EventPropertyFilter[]
             continue
         }
 
-        // Extract question index from the filter key (assuming format like "$survey_response_X")
-        const questionIndexMatch = filter.key.match(/\$survey_response_(\d+)/)
-        if (!questionIndexMatch) {
-            continue // Skip if we can't determine the question index
+        // Extract question index from the filter key (assuming format like "$survey_response_X" or "$survey_response")
+        let questionIndex = 0
+        if (filter.key === '$survey_response') {
+            // If the key is exactly "$survey_response", it's for question index 0
+            questionIndex = 0
+        } else {
+            const questionIndexMatch = filter.key.match(/\$survey_response_(\d+)/)
+            if (!questionIndexMatch) {
+                continue // Skip if we can't determine the question index
+            }
+            questionIndex = parseInt(questionIndexMatch[1])
         }
 
-        const questionIndex = parseInt(questionIndexMatch[1])
         const questionId = survey.questions[questionIndex]?.id
 
         // Get both key formats
@@ -191,28 +197,25 @@ export function createAnswerFilterHogQLExpression(filters: EventPropertyFilter[]
                 break
             case 'icontains':
                 // For ILIKE, we typically don't use arrays, but handle it just in case
-                const searchValue = Array.isArray(filter.value) ? filter.value[0] : filter.value
-                condition = `(properties['${indexBasedKey}'] ILIKE '%${searchValue}%'`
+                condition = `(properties['${indexBasedKey}'] ILIKE '%${filter.value}%'`
                 if (idBasedKey) {
-                    condition += ` OR properties['${idBasedKey}'] ILIKE '%${searchValue}%'`
+                    condition += ` OR properties['${idBasedKey}'] ILIKE '%${filter.value}%'`
                 }
                 condition += ')'
                 break
             case 'regex':
                 // Use match() function for regex
-                const regexPattern = Array.isArray(filter.value) ? filter.value[0] : filter.value
-                condition = `(match(properties['${indexBasedKey}'], '${regexPattern}')`
+                condition = `(match(properties['${indexBasedKey}'], '${filter.value}')`
                 if (idBasedKey) {
-                    condition += ` OR match(properties['${idBasedKey}'], '${regexPattern}')`
+                    condition += ` OR match(properties['${idBasedKey}'], '${filter.value}')`
                 }
                 condition += ')'
                 break
             case 'not_regex':
                 // Use NOT match() function for negative regex
-                const notRegexPattern = Array.isArray(filter.value) ? filter.value[0] : filter.value
-                condition = `(NOT match(properties['${indexBasedKey}'], '${notRegexPattern}')`
+                condition = `(NOT match(properties['${indexBasedKey}'], '${filter.value}')`
                 if (idBasedKey) {
-                    condition += ` OR NOT match(properties['${idBasedKey}'], '${notRegexPattern}')`
+                    condition += ` OR NOT match(properties['${idBasedKey}'], '${filter.value}')`
                 }
                 condition += ')'
                 break
@@ -230,8 +233,6 @@ export function createAnswerFilterHogQLExpression(filters: EventPropertyFilter[]
             hasValidFilter = true
         }
     }
-
-    console.log({ filterExpression })
 
     return hasValidFilter ? `AND ${filterExpression}` : ''
 }
