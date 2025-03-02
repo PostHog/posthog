@@ -89,8 +89,8 @@ CREATE TABLE IF NOT EXISTS posthog_user (
     CONSTRAINT posthog_user_strapi_id_check CHECK ((strapi_id >= 0))
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS posthog_user_distinct_id_uniq USING btree (distinct_id);
-CREATE UNIQUE INDEX IF NOT EXISTS posthog_user_email_uniq USING btree (email);
-CREATE UNIQUE INDEX IF NOT EXISTS posthog_user_tmp_token USING btree (temporary_token);
-CREATE UNIQUE INDEX IF NOT EXISTS posthog_user_uuid USING btree (uuid);
+CREATE UNIQUE INDEX IF NOT EXISTS posthog_user_distinct_id_uniq ON posthog_user USING btree (distinct_id);
+CREATE UNIQUE INDEX IF NOT EXISTS posthog_user_email_uniq ON posthog_user USING btree (email);
+CREATE UNIQUE INDEX IF NOT EXISTS posthog_user_tmp_token ON posthog_user USING btree (temporary_token);
+CREATE UNIQUE INDEX IF NOT EXISTS posthog_user_uuid ON posthog_user USING btree (uuid);
 -- NOTE: for now, I left off some indices that aren't relevant to property defs query testing
