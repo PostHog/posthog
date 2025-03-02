@@ -68,7 +68,8 @@ export type HumanizedActivityLogItem = {
     extendedDescription?: ExtendedDescription // e.g. an insight's filters summary
     created_at: dayjs.Dayjs
     unread?: boolean
-    unprocessed: ActivityLogItem
+    // used when showing e.g. diff of changes
+    unprocessed?: ActivityLogItem
 }
 
 export type Describer = (logItem: ActivityLogItem, asNotification?: boolean) => HumanizedChange
