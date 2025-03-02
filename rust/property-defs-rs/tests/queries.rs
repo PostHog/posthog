@@ -289,7 +289,7 @@ async fn bootstrap_seed_data(test_pool: PgPool) -> Result<(), sqlx::Error> {
 
     // inject these into enterprise prop defs as "updated_by" and "verified_by" for realism
     let user_rows = [
-        // id (PK), uuid, first_name, last_name, email, is_email_verified, distinct_id, hegehog_config, role_at_organization
+        // id (PK), uuid, first_name, last_name, email, is_email_verified, distinct_id, temporary_token, hegehog_config, role_at_organization
         (
             111,
             Uuid::now_v7(),
@@ -297,6 +297,7 @@ async fn bootstrap_seed_data(test_pool: PgPool) -> Result<(), sqlx::Error> {
             "Keister",
             "jk@example.com",
             true,
+            Uuid::now_v7(),
             Uuid::now_v7(),
             r#"{"skin": "default", "color": "purple", "enabled": false, "accessories": ["eyepatch", "xmas_scarf", "graduation"], "use_as_profile": false, "walking_enabled": true, "controls_enabled": true, "party_mode_enabled": true, "interactions_enabled": true}
 "#,
@@ -309,6 +310,7 @@ async fn bootstrap_seed_data(test_pool: PgPool) -> Result<(), sqlx::Error> {
             "Guppy",
             "ng@example.com",
             true,
+            Uuid::now_v7(),
             Uuid::now_v7(),
             r#"{"skin": "spiderhog", "color": null, "enabled": false, "accessories": [], "use_as_profile": false, "walking_enabled": true, "controls_enabled": true, "party_mode_enabled": false, "interactions_enabled": true}"#,
             "founder",
@@ -326,12 +328,13 @@ async fn bootstrap_seed_data(test_pool: PgPool) -> Result<(), sqlx::Error> {
         args.add(row.6).unwrap();
         args.add(row.7).unwrap();
         args.add(row.8).unwrap();
+        args.add(row.9).unwrap();
 
         sqlx::query_with(
             r#"
             INSERT INTO posthog_user
-                (id, uuid, first_name, last_name, email, is_email_verified, distinct_id, hegehog_config, role_at_organization)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                (id, uuid, first_name, last_name, email, is_email_verified, distinct_id, temporary_token, hegehog_config, role_at_organization)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         "#,
             args,
         )
@@ -377,6 +380,11 @@ async fn bootstrap_seed_data(test_pool: PgPool) -> Result<(), sqlx::Error> {
     // enterprise prop defs rows are a bit different - these mostly serve to join in metadata
     // on popsthog_propertydefinition rows we defined above, so we seed using those rows
     for (ndx, row) in pd_rows.iter().enumerate() {
+        // for now, only assign joinable enterprise prop rows for
+        // PropertyParentType(s) of Event and Person
+        if row.5 > 2 {
+            continue;
+        }
         let mut args = PgArguments::default();
         args.add(row.0).unwrap();
         args.add("a fine property indeed").unwrap();
