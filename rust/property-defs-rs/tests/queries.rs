@@ -322,24 +322,30 @@ async fn bootstrap_seed_data(test_pool: PgPool) -> Result<(), sqlx::Error> {
         ),
     ];
 
-    for row in user_rows.iter() {
+    for (ndx, row) in user_rows.iter().enumerate() {
         let mut args = PgArguments::default();
         args.add(row.0).unwrap();
         args.add(row.1).unwrap();
+        args.add(format!("password_{}", ndx)).unwrap(); // password NOT NULL
         args.add(row.2).unwrap();
         args.add(row.3).unwrap();
+        args.add(false).unwrap(); // is_staff NOT NULL
+        args.add(true).unwrap(); // is_active NOT NULL
         args.add(row.4).unwrap();
         args.add(row.5).unwrap();
         args.add(row.6).unwrap();
         args.add(row.7).unwrap();
         args.add(&row.8).unwrap();
         args.add(row.9).unwrap();
+        args.add(json!("{}")).unwrap(); // events_column_config NOT NULL
 
         sqlx::query_with(
             r#"
             INSERT INTO posthog_user
-                (id, uuid, first_name, last_name, email, is_email_verified, distinct_id, temporary_token, hedgehog_config, role_at_organization)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                (id, uuid, password, first_name, last_name, is_staff, is_active, email,
+                 is_email_verified, distinct_id, temporary_token, hedgehog_config,
+                 role_at_organization, events_column_config)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
         "#,
             args,
         )
