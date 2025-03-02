@@ -197,14 +197,19 @@ export function SurveyDisplaySummary({
                     </BindLogic>
                 </div>
             )}
-            {survey.conditions?.events && (
+            {(survey.conditions?.events?.values.length ?? 0) > 0 && (
                 <div className="flex flex-col font-medium gap-1">
                     <div className="flex-row">
                         <span>
                             When the user sends the following events (
-                            {survey.conditions.events.repeatedActivation ? 'every time they occur' : 'once per user'}):
+                            <span>
+                                {survey.conditions?.events?.repeatedActivation
+                                    ? 'every time they occur'
+                                    : 'once per user'}
+                            </span>
+                            ):
                         </span>
-                        {survey.conditions.events.values.map((event) => (
+                        {survey.conditions?.events?.values.map((event) => (
                             <LemonTag key={event.name}>{event.name}</LemonTag>
                         ))}
                     </div>
