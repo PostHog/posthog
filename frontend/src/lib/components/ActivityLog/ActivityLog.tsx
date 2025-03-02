@@ -73,7 +73,7 @@ const ActivityLogDiff = ({ logItem }: { logItem: HumanizedActivityLogItem }): JS
         <div className="flex flex-col space-y-2 px-2 py-1">
             <div className="flex flex-col space-y-2">
                 {changes?.map((change, i) => (
-                    <div key={i} className="flex flex-col space-x-2">
+                    <div key={i} className="flex flex-col space-y-2">
                         <h2>{change.field}</h2>
                         <div className="flex flex-row space-x-2">
                             <div className="flex flex-col">
