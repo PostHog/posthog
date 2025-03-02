@@ -125,12 +125,19 @@ class DeltaTableHelper:
                 normalize_column_name(x) for x in primary_keys if normalize_column_name(x) in py_table_column_names
             ]
 
-            delta_table.merge(
-                source=data,
-                source_alias="source",
-                target_alias="target",
-                predicate=" AND ".join([f"source.{c} = target.{c}" for c in normalized_primary_keys]),
-            ).when_matched_update_all().when_not_matched_insert_all().execute()
+            merge_stats = (
+                delta_table.merge(
+                    source=data,
+                    source_alias="source",
+                    target_alias="target",
+                    predicate=" AND ".join([f"source.{c} = target.{c}" for c in normalized_primary_keys]),
+                )
+                .when_matched_update_all()
+                .when_not_matched_insert_all()
+                .execute()
+            )
+
+            self._logger.debug(f"Delta Merge Stats: {json.dumps(merge_stats)}")
         else:
             mode = "append"
             schema_mode = "merge"
