@@ -59,7 +59,7 @@ function _SurveyResponseFilters(): JSX.Element {
 
     const handleUpdateFilter = (questionIndex: number, field: 'operator' | 'value', value: any): void => {
         const newFilters = [...answerFilters]
-        const filterIndex = newFilters.findIndex((f) => f.key.includes(getSurveyResponseKey(questionIndex)))
+        const filterIndex = newFilters.findIndex((f) => f.key === getSurveyResponseKey(questionIndex))
 
         if (filterIndex >= 0) {
             // Ensure we're working with an EventPropertyFilter
@@ -82,7 +82,7 @@ function _SurveyResponseFilters(): JSX.Element {
     }
 
     const getFilterForQuestion = (questionIndex: number): EventPropertyFilter | undefined => {
-        const filter = answerFilters.find((f) => f.key.includes(getSurveyResponseKey(questionIndex)))
+        const filter = answerFilters.find((f) => f.key === getSurveyResponseKey(questionIndex))
         return filter
     }
 
@@ -115,13 +115,13 @@ function _SurveyResponseFilters(): JSX.Element {
                             const operators = OPERATOR_OPTIONS[question.type] || []
 
                             return (
-                                <React.Fragment key={question.originalQuestionIndex}>
+                                <React.Fragment key={question.id ?? question.originalQuestionIndex}>
                                     {index > 0 && <LemonDivider className="my-0" label={FilterLogicalOperator.And} />}
                                     <div className="grid grid-cols-6 gap-2 p-2 items-center hover:bg-bg-light transition-all">
                                         <div className="col-span-3">
                                             <span className="font-medium">{question.question}</span>
                                             <div className="text-muted text-xs">
-                                                {SurveyQuestionLabel[question.type]} - {question.id}
+                                                {SurveyQuestionLabel[question.type]}
                                             </div>
                                         </div>
                                         <div>
