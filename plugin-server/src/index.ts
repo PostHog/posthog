@@ -1,8 +1,7 @@
-import { getPluginServerCapabilities } from './capabilities'
 import { defaultConfig } from './config/config'
-import { initApp } from './init'
-import { startPluginsServer } from './server'
+import { PluginServer } from './server'
+import { initSentry } from './utils/sentry'
 
-initApp(defaultConfig)
-const capabilities = getPluginServerCapabilities(defaultConfig)
-void startPluginsServer(defaultConfig, capabilities)
+initSentry(defaultConfig)
+const server = new PluginServer(defaultConfig)
+void server.start()
