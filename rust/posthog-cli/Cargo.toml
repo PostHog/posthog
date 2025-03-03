@@ -7,7 +7,7 @@ authors = [
     "Hugues <hugues@posthog.com>",
 ]
 description = "THE command line interface for PostHog"
-homepage = "posthog.com"
+homepage = "https://posthog.com"
 license = "MIT"
 edition = "2021"
 
