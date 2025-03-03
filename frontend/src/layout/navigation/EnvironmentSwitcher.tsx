@@ -99,7 +99,9 @@ export function EnvironmentSwitcherOverlay({ onClickInside }: { onClickInside?: 
                         <LemonTag size="small" className="border-text-3000 uppercase ml-1.5">
                             {projectTeams[0].name}
                         </LemonTag>
-                        {projectTeams.length > 1 && <span className="text-xxs ml-1">+ {projectTeams.length - 1}</span>}
+                        {projectTeams.length > 1 && (
+                            <span className="text-xs font-medium ml-1.5">+ {projectTeams.length - 1}</span>
+                        )}
                     </>
                 ),
                 icon: projectNameEmojiMatch ? (
@@ -175,13 +177,12 @@ export function EnvironmentSwitcherOverlay({ onClickInside }: { onClickInside?: 
 function convertTeamToMenuItem(
     team: TeamBasicTypeWithProjectName,
     currentTeam: TeamPublicType,
-    onClickInside?: () => void,
-    inset: boolean = false
+    onClickInside?: () => void
 ): LemonMenuItem {
     return {
         label: (
             <>
-                {!inset && <span className="mr-1.5">{team.project_name}</span>}
+                {team.project_id !== currentTeam.project_id && <span className="mr-1.5">{team.project_name}</span>}
                 <LemonTag size="small" className="border-text-3000 uppercase">
                     {team.name}
                     {team.is_demo && ' • Demo'}
@@ -191,7 +192,7 @@ function convertTeamToMenuItem(
         key: team.id,
         active: team.id === currentTeam.id,
         to: determineProjectSwitchUrl(location.pathname, team.id),
-        icon: inset ? <div className="size-5" /> : null,
+        icon: team.project_id === currentTeam.project_id ? <div className="size-5" /> : null,
         tooltip:
             team.id === currentTeam.id
                 ? 'Currently active environment'
