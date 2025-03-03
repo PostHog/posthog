@@ -38,6 +38,7 @@ APIScopeObject = Literal[
     "survey",
     "user",
     "webhook",
+    "hog_function",
 ]
 
 APIScopeActions = Literal[
