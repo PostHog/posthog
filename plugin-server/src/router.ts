@@ -4,8 +4,8 @@ import * as prometheus from 'prom-client'
 
 import { PluginServerService } from '~/src/types'
 
-import { status } from '../../utils/status'
-import { delay } from '../../utils/utils'
+import { status } from './utils/status'
+import { delay } from './utils/utils'
 
 prometheus.collectDefaultMetrics()
 const v8Profiler = require('v8-profiler-next')
