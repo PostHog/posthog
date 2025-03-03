@@ -45,7 +45,7 @@ function sanitizeActionFilters(filters?: FilterType): Partial<HogFunctionFilters
     return sanitized
 }
 
-export function HogFunctionFilters({ embedded = false }: { embedded: boolean }): JSX.Element {
+export function HogFunctionFilters({ embedded = false }: { embedded?: boolean }): JSX.Element {
     const { groupsTaxonomicTypes } = useValues(groupsModel)
     const { configuration, type, useMapping, filtersContainPersonProperties } = useValues(hogFunctionConfigurationLogic)
 
