@@ -9,7 +9,6 @@ from typing import Any, Optional
 import deltalake as deltalake
 import numpy as np
 import orjson
-import pandas as pd
 import pyarrow as pa
 import pyarrow.compute as pc
 from dateutil import parser
@@ -424,10 +423,21 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
 
     drop_column_names: list[Hashable] = []
 
-    columnar_table_data: dict[Hashable, pa.Array | np.ndarray[Any, np.dtype[Any]]] = {
-        key: np.array([None if isinstance(x, float) and np.isnan(x) else x for x in values], dtype=object)
-        for key, values in pd.DataFrame(table_data, dtype=object).to_dict(orient="list").items()
-    }
+    column_names = set(table_data[0].keys())
+    columnar_table_data: dict[str, pa.Array | np.ndarray[Any, np.dtype[Any]]] = {}
+
+    for col in column_names:
+        values = [
+            None if isinstance(row.get(col, None), float) and np.isnan(row.get(col, None)) else row.get(col, None)
+            for row in table_data
+        ]
+
+        try:
+            # We want to use pyarrow arrays where possible to optimise on memory usage
+            columnar_table_data[col] = pa.array(values)
+        except:
+            # Some values can't be interpreted by pyarrows directly
+            columnar_table_data[col] = np.array(values, dtype=object)
 
     for field_name in columnar_table_data.keys():
         py_type: type = type(None)
