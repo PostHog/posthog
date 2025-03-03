@@ -223,7 +223,7 @@ async function expectStoryToMatchComponentSnapshot(
         }
 
         // If needed, expand the root element so that all popovers are visible in the screenshot
-        document.querySelectorAll('.Popover').forEach((popover) => {
+        document.querySelectorAll('.Popover, .Tooltip').forEach((popover) => {
             const currentRootBoundingClientRect = rootEl.getBoundingClientRect()
             const popoverBoundingClientRect = popover.getBoundingClientRect()
             if (popoverBoundingClientRect.right > currentRootBoundingClientRect.right) {

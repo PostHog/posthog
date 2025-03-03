@@ -144,6 +144,8 @@ def convert_universal_filters_to_recordings_query(universal_filters: dict[str, A
     expires=TASK_EXPIRATION_TIME,
 )
 def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
+    playlist: SessionRecordingPlaylist | None = None
+    query: RecordingsQuery | None = None
     try:
         with REPLAY_PLAYLIST_COUNT_TIMER.time():
             playlist = SessionRecordingPlaylist.objects.get(id=playlist_id)
@@ -155,6 +157,7 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
             else:
                 existing_value = {}
 
+            # if we have results from the last hour we don't need to run the query
             if existing_value.get("refreshed_at"):
                 last_refreshed_at = datetime.fromisoformat(existing_value["refreshed_at"])
                 seconds_since_refresh = int((datetime.now() - last_refreshed_at).total_seconds())
@@ -182,13 +185,31 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
 
             REPLAY_TEAM_PLAYLIST_COUNT_SUCCEEDED.inc()
     except SessionRecordingPlaylist.DoesNotExist:
-        logger.info("Playlist does not exist", playlist_id=playlist_id)
+        logger.info(
+            "Playlist does not exist",
+            playlist_id=playlist_id,
+            playlist_short_id=playlist.short_id if playlist else None,
+        )
         REPLAY_TEAM_PLAYLIST_COUNT_UNKNOWN.inc()
     except Exception as e:
         posthoganalytics.capture_exception(
-            e, properties={"playlist_id": playlist_id, "posthog_feature": "session_replay_playlist_counters"}
+            e,
+            properties={
+                "playlist_id": playlist_id,
+                "playlist_short_id": playlist.short_id if playlist else None,
+                "posthog_feature": "session_replay_playlist_counters",
+                "filters": playlist.filters if playlist else None,
+                "query": query,
+            },
         )
-        logger.exception("Failed to count recordings that match playlist filters", playlist_id=playlist_id, error=e)
+        logger.exception(
+            "Failed to count recordings that match playlist filters",
+            playlist_id=playlist_id,
+            playlist_short_id=playlist.short_id if playlist else None,
+            filters=playlist.filters if playlist else None,
+            query=query,
+            error=e,
+        )
         REPLAY_TEAM_PLAYLIST_COUNT_FAILED.inc()
 
 

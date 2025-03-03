@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 def set_created_at(apps, schema_editor):
     try:
-        from posthog.client import sync_execute
+        from posthog.clickhouse.client import sync_execute
     except ImportError:
         sync_execute = None
 
