@@ -28,21 +28,21 @@ export function convertFileSystemEntryToTreeDataItem(imports: FileSystemImport[]
 
     // Iterate over each raw project item.
     for (const item of imports) {
-        const pathSplit = item.path.split('/').filter(Boolean)
+        const pathSplit = splitPath(item.path)
         const itemName = pathSplit.pop()!
-        const folderPath = pathSplit.join('/')
+        const folderPath = joinPath(pathSplit)
 
         // Split the folder path by "/" (ignoring empty parts).
-        const folderParts = folderPath ? folderPath.split('/').filter(Boolean) : []
+        const folderParts = folderPath ? splitPath(folderPath) : []
 
         // Start at the root level.
         let currentLevel = rootNodes
-        let accumulatedPath = ''
+        const accumulatedPath: string[] = []
 
         // Create (or find) nested folders as needed.
         for (const part of folderParts) {
-            accumulatedPath = accumulatedPath ? accumulatedPath + '/' + part : part
-            const folderNode = findOrCreateFolder(currentLevel, part, accumulatedPath)
+            accumulatedPath.push(part)
+            const folderNode = findOrCreateFolder(currentLevel, part, joinPath(accumulatedPath))
             currentLevel = folderNode.children!
         }
 
@@ -77,4 +77,40 @@ export function convertFileSystemEntryToTreeDataItem(imports: FileSystemImport[]
     }
     sortNodes(rootNodes)
     return rootNodes
+}
+
+/**
+ * Splits `path` by unescaped "/" delimiters.
+ *   - splitPath("a/b")            => ["a", "b"]
+ *   - splitPath("a\\/b/c")        => ["a/b", "c"]
+ *   - splitPath("a\\/b\\\\/c")    => ["a/b\\", "c"]
+ *   - splitPath("a\n\t/b")        => ["a\n\t", "b"]
+ *   - splitPath("a")              => ["a"]
+ *   - splitPath("")               => []
+ */
+export function splitPath(path: string): string[] {
+    const segments: string[] = []
+    let current = ''
+    for (let i = 0; i < path.length; i++) {
+        if (path[i] === '\\' && i < path.length - 1 && (path[i + 1] === '/' || path[i + 1] === '\\')) {
+            current += path[i + 1]
+            i++
+            continue
+        } else if (path[i] === '/') {
+            segments.push(current)
+            current = ''
+        } else {
+            current += path[i]
+        }
+    }
+    segments.push(current)
+    return segments.filter((s) => s !== '')
+}
+
+export function joinPath(path: string[]): string {
+    return path.map(escapePath).join('/')
+}
+
+export function escapePath(path: string): string {
+    return path.replace(/\\/g, '\\\\').replace(/\//g, '\\/')
 }

@@ -5,7 +5,7 @@ import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/se
 import { openPlayerShareDialog } from 'scenes/session-recordings/player/share/PlayerShare'
 import { PlayerShareLogicProps } from 'scenes/session-recordings/player/share/playerShareLogic'
 
-export function PlayerShareMenu({ iconsOnly }: { iconsOnly: boolean }): JSX.Element {
+export function PlayerShareMenu(): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
     const { setPause, setIsFullScreen } = useActions(sessionRecordingPlayerLogic)
 
@@ -47,7 +47,7 @@ export function PlayerShareMenu({ iconsOnly }: { iconsOnly: boolean }): JSX.Elem
             buttonSize="xsmall"
         >
             <LemonButton size="xsmall" icon={<IconShare />}>
-                {iconsOnly ? '' : 'Share'}
+                Share
             </LemonButton>
         </LemonMenu>
     )

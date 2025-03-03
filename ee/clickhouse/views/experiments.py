@@ -496,12 +496,11 @@ class ExperimentSerializer(serializers.ModelSerializer):
                     {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
                 ]
 
-                feature_flag_filters = {
-                    "groups": feature_flag.filters.get("groups", []),
-                    "multivariate": {"variants": variants or default_variants},
-                    "aggregation_group_type_index": aggregation_group_type_index,
-                    "holdout_groups": holdout_groups,
-                }
+                feature_flag_filters = feature_flag.filters
+                feature_flag_filters["groups"] = feature_flag.filters.get("groups", [])
+                feature_flag_filters["multivariate"] = {"variants": variants or default_variants}
+                feature_flag_filters["aggregation_group_type_index"] = aggregation_group_type_index
+                feature_flag_filters["holdout_groups"] = holdout_groups
 
                 existing_flag_serializer = FeatureFlagSerializer(
                     feature_flag,

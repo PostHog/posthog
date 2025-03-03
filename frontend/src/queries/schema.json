@@ -8607,6 +8607,9 @@
                     },
                     "type": "array"
                 },
+                "isUsingIndices": {
+                    "$ref": "#/definitions/QueryIndexUsage"
+                },
                 "isValid": {
                     "type": "boolean"
                 },
@@ -10508,6 +10511,10 @@
             ],
             "type": "string"
         },
+        "QueryIndexUsage": {
+            "enum": ["undecisive", "no", "partial", "yes"],
+            "type": "string"
+        },
         "QueryRequest": {
             "additionalProperties": false,
             "properties": {
@@ -10908,6 +10915,9 @@
                                 "$ref": "#/definitions/HogQLNotice"
                             },
                             "type": "array"
+                        },
+                        "isUsingIndices": {
+                            "$ref": "#/definitions/QueryIndexUsage"
                         },
                         "isValid": {
                             "type": "boolean"
@@ -13221,6 +13231,10 @@
             "required": ["assignmentBy", "color"],
             "type": "object"
         },
+        "RetentionDashboardDisplayType": {
+            "enum": ["table_only", "graph_only", "all"],
+            "type": "string"
+        },
         "RetentionEntity": {
             "additionalProperties": false,
             "properties": {
@@ -13264,6 +13278,13 @@
             "properties": {
                 "cumulative": {
                     "type": "boolean"
+                },
+                "dashboardDisplay": {
+                    "$ref": "#/definitions/RetentionDashboardDisplayType"
+                },
+                "display": {
+                    "$ref": "#/definitions/ChartDisplayType",
+                    "description": "controls the display of the retention graph"
                 },
                 "period": {
                     "$ref": "#/definitions/RetentionPeriod",

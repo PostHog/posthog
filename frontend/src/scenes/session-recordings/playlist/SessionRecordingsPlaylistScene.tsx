@@ -31,7 +31,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
     const { showFilters } = useValues(playerSettingsLogic)
     const { setShowFilters } = useActions(playerSettingsLogic)
 
-    if (!playlist && playlistLoading) {
+    if (playlistLoading) {
         return (
             <div className="space-y-4 mt-6">
                 <LemonSkeleton className="h-10 w-1/4" />
@@ -131,23 +131,22 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                     </>
                 }
             />
-            {playlist.short_id && pinnedRecordings !== null ? (
-                <div className="SessionRecordingPlaylistHeightWrapper">
-                    <SessionRecordingsPlaylist
-                        logicKey={playlist.short_id}
-                        // backwards compatibilty for legacy filters
-                        filters={
-                            playlist.filters && isUniversalFilters(playlist.filters)
-                                ? playlist.filters
-                                : convertLegacyFiltersToUniversalFilters({}, playlist.filters)
-                        }
-                        onFiltersChange={setFilters}
-                        onPinnedChange={onPinnedChange}
-                        pinnedRecordings={pinnedRecordings ?? []}
-                        updateSearchParams={true}
-                    />
-                </div>
-            ) : null}
+
+            <div className="SessionRecordingPlaylistHeightWrapper">
+                <SessionRecordingsPlaylist
+                    logicKey={playlist.short_id}
+                    // backwards compatibilty for legacy filters
+                    filters={
+                        playlist.filters && isUniversalFilters(playlist.filters)
+                            ? playlist.filters
+                            : convertLegacyFiltersToUniversalFilters({}, playlist.filters)
+                    }
+                    onFiltersChange={setFilters}
+                    onPinnedChange={onPinnedChange}
+                    pinnedRecordings={pinnedRecordings ?? []}
+                    updateSearchParams={true}
+                />
+            </div>
         </div>
     )
 }

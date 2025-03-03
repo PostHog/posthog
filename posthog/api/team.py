@@ -132,6 +132,7 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "session_recording_minimum_duration_milliseconds",
             "session_recording_linked_flag",
             "session_recording_network_payload_capture_config",
+            "session_recording_masking_config",
             "session_recording_url_trigger_config",
             "session_recording_url_blocklist_config",
             "session_recording_event_trigger_config",
@@ -172,6 +173,7 @@ TEAM_CONFIG_FIELDS = (
     "session_recording_minimum_duration_milliseconds",
     "session_recording_linked_flag",
     "session_recording_network_payload_capture_config",
+    "session_recording_masking_config",
     "session_recording_url_trigger_config",
     "session_recording_url_blocklist_config",
     "session_recording_event_trigger_config",
@@ -319,6 +321,31 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             raise exceptions.ValidationError(
                 "Must provide a dictionary with only 'recordHeaders' and/or 'recordBody' keys."
             )
+
+        return value
+
+    @staticmethod
+    def validate_session_recording_masking_config(value) -> dict | None:
+        if value is None:
+            return None
+
+        if not isinstance(value, dict):
+            raise exceptions.ValidationError("Must provide a dictionary or None.")
+
+        allowed_keys = {"maskAllInputs", "maskTextSelector"}
+
+        if not all(key in allowed_keys for key in value.keys()):
+            raise exceptions.ValidationError(
+                f"Must provide a dictionary with only known keys: {', '.join(allowed_keys)}."
+            )
+
+        if "maskAllInputs" in value:
+            if not isinstance(value["maskAllInputs"], bool):
+                raise exceptions.ValidationError("maskAllInputs must be a boolean.")
+
+        if "maskTextSelector" in value:
+            if not isinstance(value["maskTextSelector"], str):
+                raise exceptions.ValidationError("maskTextSelector must be a string.")
 
         return value
 

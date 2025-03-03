@@ -277,7 +277,8 @@ export function StatelessInsightLoadingState({
         >
             <span
                 className={clsx(
-                    'font-semibold transition-opacity duration-300 mb-1 text-center',
+                    'font-semibold transition-opacity duration-300 mb-1',
+                    renderEmptyStateAsSkeleton ? 'text-start' : 'text-center',
                     isLoadingMessageVisible ? 'opacity-100' : 'opacity-0'
                 )}
             >
@@ -291,23 +292,14 @@ export function StatelessInsightLoadingState({
                 )}
             </span>
 
-            <div className="flex flex-col items-center gap-1 max-w-120">
-                {renderEmptyStateAsSkeleton ? (
-                    <>
-                        {showLoadingDetails && (
-                            <>
-                                <LoadingBar />
-                            </>
-                        )}
-                    </>
-                ) : (
-                    <></>
-                )}
-            </div>
-
             {showLoadingDetails && (
-                <div className="flex flex-col items-center justify-center">
-                    {!renderEmptyStateAsSkeleton && <LoadingBar className="w-16 mx-auto mb-2" />}
+                <div
+                    className={clsx(
+                        'flex flex-col gap-2 justify-center max-w-120',
+                        renderEmptyStateAsSkeleton ? 'items-start' : 'items-center'
+                    )}
+                >
+                    <LoadingBar />
                     {suggestions}
                     <LoadingDetails
                         pollResponse={pollResponse}

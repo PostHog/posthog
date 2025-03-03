@@ -12,7 +12,7 @@ from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.queries.util import PersonPropertiesMode
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import tag_queries
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.constants import PropertyOperatorType
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext

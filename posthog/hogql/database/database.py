@@ -447,9 +447,9 @@ def create_hogql_database(
             if is_view:
                 views = define_mappings(
                     views,
-                    lambda team, warehouse_modifier: DataWarehouseSavedQuery.objects.filter(
-                        team_id=team.pk, name=warehouse_modifier.table_name
-                    ).latest("created_at"),
+                    lambda team, warehouse_modifier: DataWarehouseSavedQuery.objects.exclude(deleted=True)
+                    .filter(team_id=team.pk, name=warehouse_modifier.table_name)
+                    .latest("created_at"),
                 )
             else:
                 warehouse_tables = define_mappings(
@@ -618,7 +618,9 @@ def serialize_database(
     )
 
     # Fetch all views in a single query
-    all_views = DataWarehouseSavedQuery.objects.filter(team_id=context.team_id, deleted=False).all() if views else []
+    all_views = (
+        DataWarehouseSavedQuery.objects.exclude(deleted=True).filter(team_id=context.team_id).all() if views else []
+    )
 
     # Process warehouse tables
     for warehouse_table in warehouse_tables_with_data:

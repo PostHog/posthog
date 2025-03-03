@@ -13,7 +13,7 @@ from ee.clickhouse.queries.related_actors_query import RelatedActorsQuery
 from posthog.api.documentation import extend_schema
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.models.group import Group
 from posthog.models.group_type_mapping import GroupTypeMapping
 

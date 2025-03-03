@@ -31,6 +31,7 @@ import {
     PropertyGroupFilterValue,
     PropertyMathType,
     PropertyOperator,
+    RetentionDashboardDisplayType,
     RetentionFilterType,
     SessionPropertyFilter,
     SessionRecordingType,
@@ -388,10 +389,18 @@ export interface HogQLNotice {
     fix?: string
 }
 
+export enum QueryIndexUsage {
+    Undecisive = 'undecisive',
+    No = 'no',
+    Partial = 'partial',
+    Yes = 'yes',
+}
+
 export interface HogQLMetadataResponse {
     query?: string
     isValid?: boolean
     isValidView?: boolean
+    isUsingIndices?: QueryIndexUsage
     errors: HogQLNotice[]
     warnings: HogQLNotice[]
     notices: HogQLNotice[]
@@ -1096,8 +1105,13 @@ export type RetentionFilter = {
     targetEntity?: RetentionFilterLegacy['target_entity']
     /** @default Day */
     period?: RetentionFilterLegacy['period']
-    showMean?: RetentionFilterLegacy['show_mean']
     cumulative?: RetentionFilterLegacy['cumulative']
+
+    //frontend only
+    showMean?: RetentionFilterLegacy['show_mean']
+    /** controls the display of the retention graph */
+    display?: ChartDisplayType
+    dashboardDisplay?: RetentionDashboardDisplayType
 }
 
 export interface RetentionValue {

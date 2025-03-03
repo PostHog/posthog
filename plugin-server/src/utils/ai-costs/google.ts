@@ -2,6 +2,13 @@ import type { ModelRow } from './types'
 
 export const costs: ModelRow[] = [
     {
+        model: 'gemini-2.0-flash-lite-001',
+        cost: {
+            prompt_token: 0.000000075,
+            completion_token: 0.0000003,
+        },
+    },
+    {
         model: 'gemini-2.0-flash-001',
         cost: {
             prompt_token: 0.0000001,
@@ -114,14 +121,14 @@ export const costs: ModelRow[] = [
         },
     },
     {
-        model: 'gemini-pro-vision',
+        model: 'gemini-pro',
         cost: {
             prompt_token: 0.0000005,
             completion_token: 0.0000015,
         },
     },
     {
-        model: 'gemini-pro',
+        model: 'gemini-pro-vision',
         cost: {
             prompt_token: 0.0000005,
             completion_token: 0.0000015,
@@ -142,14 +149,14 @@ export const costs: ModelRow[] = [
         },
     },
     {
-        model: 'palm-2-chat-bison',
+        model: 'palm-2-codechat-bison',
         cost: {
             prompt_token: 0.000001,
             completion_token: 0.000002,
         },
     },
     {
-        model: 'palm-2-codechat-bison',
+        model: 'palm-2-chat-bison',
         cost: {
             prompt_token: 0.000001,
             completion_token: 0.000002,

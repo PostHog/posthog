@@ -28,7 +28,7 @@ from posthog.api.feature_flag import (
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action, get_token
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
@@ -43,7 +43,7 @@ from posthog.models.activity_logging.activity_log import (
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.feature_flag.feature_flag import FeatureFlag
-from posthog.models.feedback.survey import Survey, MAX_ITERATION_COUNT
+from posthog.models.surveys.survey import Survey, MAX_ITERATION_COUNT
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.utils_cors import cors_response

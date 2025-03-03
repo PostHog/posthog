@@ -8,7 +8,7 @@ from rest_framework.response import Response
 from posthog.api.utils import action
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.models.file_system import FileSystem, get_unfiled_files
+from posthog.models.file_system import FileSystem, save_unfiled_files
 from posthog.models.user import User
 from posthog.schema import FileSystemType
 
@@ -50,7 +50,7 @@ class FileSystemSerializer(serializers.ModelSerializer):
 
 
 class FileSystemsLimitOffsetPagination(pagination.LimitOffsetPagination):
-    default_limit = 1000
+    default_limit = 20000
 
 
 class UnfiledFilesQuerySerializer(serializers.Serializer):
@@ -80,7 +80,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         query_serializer = UnfiledFilesQuerySerializer(data=request.query_params)
         query_serializer.is_valid(raise_exception=True)
         file_type = query_serializer.validated_data.get("type")
-        files = get_unfiled_files(self.team, cast(User, request.user), file_type)
+        files = save_unfiled_files(self.team, cast(User, request.user), file_type)
 
         return Response(
             {

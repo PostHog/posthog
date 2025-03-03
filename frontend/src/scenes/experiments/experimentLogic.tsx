@@ -1214,7 +1214,7 @@ export const experimentLogic = kea<experimentLogicType>([
                                 ? query.count_query
                                 : query.funnels_query) as InsightQueryNode,
                         }
-                        await api.create(`api/projects/${teamLogic.values.currentTeamId}/insights`, {
+                        await api.create(`api/projects/${projectLogic.values.currentProjectId}/insights`, {
                             name: query.name || undefined,
                             query: insightQuery,
                             dashboards: [dashboard.id],

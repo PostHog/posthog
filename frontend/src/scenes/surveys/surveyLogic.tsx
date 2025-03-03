@@ -1259,7 +1259,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     const questionResults = surveyRatingResults[questionIdx]
 
                     // If we don't have any results, return 'No data available' instead of NaN.
-                    if (questionResults.total === 0 || !questionResults) {
+                    if (!questionResults || questionResults.total === 0) {
                         return 'No data available'
                     }
 
@@ -1461,7 +1461,7 @@ export const surveyLogic = kea<surveyLogicType>([
     forms(({ actions, props, values }) => ({
         survey: {
             defaults: { ...NEW_SURVEY } as NewSurvey | Survey,
-            errors: ({ name, questions, appearance }) => {
+            errors: ({ name, questions, appearance, type }) => {
                 const sanitizedAppearance = sanitizeSurveyAppearance(appearance)
                 return {
                     name: !name && 'Please enter a name.',
@@ -1538,6 +1538,12 @@ export const surveyLogic = kea<surveyLogicType>([
                             sanitizedAppearance.submitButtonTextColor,
                             'button text color'
                         ),
+                        widgetSelector:
+                            type === 'widget' &&
+                            appearance?.widgetType === 'selector' &&
+                            !sanitizedAppearance.widgetSelector
+                                ? 'Please enter a CSS selector.'
+                                : undefined,
                     },
                 }
             },
