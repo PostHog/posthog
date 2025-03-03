@@ -1,6 +1,6 @@
 import * as Sentry from '@sentry/node'
 
-import { ServerInstance, startPluginsServer } from '../src/main/pluginsServer'
+import { ServerInstance, startPluginsServer } from '../src/server'
 import { LogLevel, PluginServerCapabilities, PluginsServerConfig } from '../src/types'
 import { resetTestDatabase } from './helpers/sql'
 

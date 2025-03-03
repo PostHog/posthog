@@ -1,7 +1,7 @@
 import http from 'http'
 
 import { DEFAULT_HTTP_SERVER_PORT } from '../src/config/config'
-import { startPluginsServer } from '../src/main/pluginsServer'
+import { startPluginsServer } from '../src/server'
 import { resetTestDatabase } from './helpers/sql'
 
 jest.mock('../src/utils/status')

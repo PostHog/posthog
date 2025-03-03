@@ -1,5 +1,5 @@
 import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../src/config/kafka-topics'
-import { startPluginsServer } from '../src/main/pluginsServer'
+import { startPluginsServer } from '../src/server'
 import { Hub, LogLevel, PluginsServerConfig } from '../src/types'
 import { delay, UUIDT } from '../src/utils/utils'
 import { createPosthog, DummyPostHog } from '../src/worker/vm/extensions/posthog'
