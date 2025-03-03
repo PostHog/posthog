@@ -67,7 +67,7 @@ export const pathsV2DataLogic = kea<pathsV2DataLogicType>([
                 for (const result of results) {
                     const sourceIndex = result.step_index
                     const sourceId = sourceIndex + '_' + result.source_step
-                    const targetIndex = result.step_index + 11
+                    const targetIndex = result.step_index + 1
                     const targetId = targetIndex + '_' + result.target_step
 
                     if (!nodes[sourceId]) {
