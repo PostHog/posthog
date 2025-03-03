@@ -78,6 +78,10 @@ interface DataTableProps {
     // Override the data logic node key if needed
     dataNodeLogicKey?: string
     readOnly?: boolean
+    /*
+     Set a data-attr on the LemonTable component
+    */
+    dataAttr?: string
 }
 
 const eventGroupTypes = [
@@ -97,6 +101,7 @@ export function DataTable({
     context,
     cachedResults,
     readOnly,
+    dataAttr,
 }: DataTableProps): JSX.Element {
     const [uniqueNodeKey] = useState(() => uniqueNode++)
     const [dataKey] = useState(() => `DataNode.${uniqueKey || uniqueNodeKey}`)
@@ -517,6 +522,7 @@ export function DataTable({
                     ) : null}
                     {showResultsTable && (
                         <LemonTable
+                            data-attr={dataAttr}
                             className="DataTable"
                             loading={responseLoading && !nextDataLoading && !newDataLoading}
                             columns={lemonColumns}

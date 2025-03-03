@@ -1,17 +1,15 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 import { router } from 'kea-router'
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { rest } from 'msw'
+import { PersonsManagementScene } from 'scenes/persons-management/PersonsManagementScene'
 import { urls } from 'scenes/urls'
 
 import { mswServer } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AppContext } from '~/types'
-
-import { PersonsManagementScene } from './PersonsManagementScene'
-import { personsManagementSceneLogic } from './personsManagementSceneLogic'
 
 describe('PersonsManagementScene', () => {
     beforeEach(() => {
@@ -44,13 +42,13 @@ describe('PersonsManagementScene', () => {
                 }
                 return res(ctx.json({ results: [], count: 0 }))
             }),
-            rest.get(`/api/projects/:team_id/groups`, (req, res, ctx) => {
+            rest.get(`/api/projects/:team_id/groups`, (_req, res, ctx) => {
                 return res(ctx.json({ results: [], count: 0 }))
             }),
-            rest.get(`/api/projects/:team_id/property_definitions`, (req, res, ctx) => {
+            rest.get(`/api/projects/:team_id/property_definitions`, (_req, res, ctx) => {
                 return res(ctx.json({ results: [], count: 0 }))
             }),
-            rest.post(`/api/environments/:team_id/query_awaited/`, (req, res, ctx) => {
+            rest.post(`/api/environments/:team_id/query_awaited/`, (_req, res, ctx) => {
                 return res(
                     ctx.json({
                         results: [
@@ -74,9 +72,6 @@ describe('PersonsManagementScene', () => {
     })
 
     it('can search for persons', async () => {
-        const logic = personsManagementSceneLogic()
-        logic.mount()
-
         render(
             <Provider>
                 <PersonsManagementScene />
@@ -86,9 +81,12 @@ describe('PersonsManagementScene', () => {
         const searchInput = screen.getByPlaceholderText('Search for persons')
         userEvent.type(searchInput, 'test@example.com')
 
+        const lemonTable = screen.getByTestId('persons-table')
+        const tableWithin = within(lemonTable)
+
         await waitFor(() => {
-            expect(screen.getByText('Test User')).toBeInTheDocument()
-            expect(screen.getByText('test@example.com')).toBeInTheDocument()
+            expect(tableWithin.getByText('Test User')).toBeInTheDocument()
+            expect(tableWithin.getByText('test@example.com')).toBeInTheDocument()
         })
     })
 })
