@@ -1386,7 +1386,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             assert response2.status_code == status.HTTP_201_CREATED
             assert response2.json()["execution_order"] == 2
 
-            # Create a non-transformation function
+            # Create a non-transformation function - should not get execution_order
             response3 = self.client.post(
                 f"/api/projects/{self.team.id}/hog_functions/",
                 data={
