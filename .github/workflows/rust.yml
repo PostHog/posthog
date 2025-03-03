@@ -64,7 +64,7 @@ jobs:
 
             - name: Install sccache
               if: needs.changes.outputs.rust == 'true'
-              uses: mozilla-actions/sccache-action@v0.0.4
+              uses: mozilla-actions/sccache-action@v0.0.7
 
             - name: Configure sccache
               if: needs.changes.outputs.rust == 'true'
@@ -125,7 +125,7 @@ jobs:
 
             - name: Install sccache
               if: needs.changes.outputs.rust == 'true'
-              uses: mozilla-actions/sccache-action@v0.0.4
+              uses: mozilla-actions/sccache-action@v0.0.7
 
             - name: Configure sccache
               if: needs.changes.outputs.rust == 'true'
@@ -206,7 +206,7 @@ jobs:
 
             - name: Install sccache
               if: needs.changes.outputs.rust == 'true'
-              uses: mozilla-actions/sccache-action@v0.0.4
+              uses: mozilla-actions/sccache-action@v0.0.7
 
             - name: Configure sccache
               if: needs.changes.outputs.rust == 'true'
