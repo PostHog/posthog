@@ -208,9 +208,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             if team.id not in allowed_teams:
                 if not template:
                     raise serializers.ValidationError(
-                        {
-                            "template_id": "Transformation functions must be created from a template. Your team is not authorized to create custom transformations."
-                        }
+                        {"template_id": "Transformation functions must be created from a template."}
                     )
                 # Currently we do not allow modifying the core transformation templates when transformations are disabled
                 attrs["hog"] = template.hog

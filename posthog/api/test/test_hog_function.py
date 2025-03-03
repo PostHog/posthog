@@ -1290,7 +1290,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.json() == {
             "type": "validation_error",
             "code": "invalid_input",
-            "detail": "Transformation functions must be created from a template. Your team is not authorized to create custom transformations.",
+            "detail": "Transformation functions must be created from a template.",
             "attr": "template_id",
         }
 
@@ -1486,7 +1486,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.json() == {
             "type": "validation_error",
             "code": "invalid_input",
-            "detail": "Transformation functions must be created from a template. Your team is not authorized to create custom transformations.",
+            "detail": "Transformation functions must be created from a template.",
             "attr": "template_id",
         }
 
