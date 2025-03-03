@@ -32,3 +32,6 @@ pub const SOURCEMAP_FETCH: &str = "cymbal_sourcemap_fetch";
 pub const SAVE_SYMBOL_SET: &str = "cymbal_save_symbol_set";
 pub const SOURCEMAP_PARSE: &str = "cymbal_sourcemap_parse";
 pub const ISSUE_CREATED: &str = "cymbal_issue_created";
+pub const ISSUE_REOPENED: &str = "cymbal_issue_reopened";
+pub const FRAME_RESOLUTION_RESULTS_DELETED: &str = "cymbal_frame_resolution_results_deleted";
+pub const DROPPED_EVENTS: &str = "cymbal_dropped_events";

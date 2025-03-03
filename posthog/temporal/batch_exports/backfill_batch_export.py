@@ -17,15 +17,16 @@ from django.conf import settings
 from posthog.batch_exports.models import BatchExportBackfill
 from posthog.batch_exports.service import (
     BackfillBatchExportInputs,
+    BackfillDetails,
     unpause_batch_export,
 )
-from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
     CreateBatchExportBackfillInputs,
     UpdateBatchExportBackfillStatusInputs,
     create_batch_export_backfill_model,
     update_batch_export_backfill_model_status,
 )
+from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.heartbeat import Heartbeater
 
@@ -86,6 +87,7 @@ class BackfillScheduleInputs:
     end_at: str | None
     frequency_seconds: float
     start_delay: float = 5.0
+    backfill_id: str | None = None
 
 
 def get_utcnow():
@@ -239,8 +241,12 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
             ]
 
             args = await client.data_converter.decode(schedule_action.args)
-            args[0]["is_backfill"] = True
-            args[0]["is_earliest_backfill"] = start_at is None
+            args[0]["backfill_details"] = BackfillDetails(
+                backfill_id=inputs.backfill_id,
+                is_earliest_backfill=start_at is None,
+                start_at=inputs.start_at,
+                end_at=inputs.end_at,
+            )
 
             await asyncio.sleep(inputs.start_delay)
 
@@ -391,6 +397,7 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
             end_at=inputs.end_at,
             frequency_seconds=frequency_seconds,
             start_delay=inputs.start_delay,
+            backfill_id=backfill_id,
         )
         try:
             await temporalio.workflow.execute_activity(

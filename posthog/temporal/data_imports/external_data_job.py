@@ -3,32 +3,33 @@ import datetime as dt
 import json
 import re
 
-from django.db import close_old_connections
 import posthoganalytics
+from django.db import close_old_connections
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
-
 # TODO: remove dependency
-from posthog.temporal.batch_exports.base import PostHogWorkflow
+from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
 from posthog.temporal.data_imports.workflow_activities.check_billing_limits import (
     CheckBillingLimitsActivityInputs,
     check_billing_limits_activity,
 )
-from posthog.temporal.data_imports.workflow_activities.import_data_sync import import_data_activity_sync
+from posthog.temporal.data_imports.workflow_activities.create_job_model import (
+    CreateExternalDataJobModelActivityInputs,
+    create_external_data_job_model_activity,
+)
+from posthog.temporal.data_imports.workflow_activities.import_data_sync import (
+    ImportDataActivityInputs,
+    import_data_activity_sync,
+)
 from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import (
     SyncNewSchemasActivityInputs,
     sync_new_schemas_activity,
 )
 from posthog.temporal.utils import ExternalDataWorkflowInputs
-from posthog.temporal.data_imports.workflow_activities.create_job_model import (
-    CreateExternalDataJobModelActivityInputs,
-    create_external_data_job_model_activity,
-)
-from posthog.temporal.data_imports.workflow_activities.import_data_sync import ImportDataActivityInputs
 from posthog.utils import get_machine_id
 from posthog.warehouse.data_load.source_templates import create_warehouse_templates_for_source
-
 from posthog.warehouse.external_data_source.jobs import (
     update_external_job_status,
 )
@@ -36,7 +37,6 @@ from posthog.warehouse.models import (
     ExternalDataJob,
     ExternalDataSource,
 )
-from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
 from posthog.warehouse.models.external_data_schema import update_should_sync
 
 Any_Source_Errors: list[str] = ["Could not establish session to SSH gateway"]
@@ -60,12 +60,17 @@ Non_Retryable_Schema_Errors: dict[ExternalDataSource.Type, list[str]] = {
         "SSL connection has been closed unexpectedly",
         "Address not in tenant allow_list",
         "FATAL: no such database",
+        "does not exist",
     ],
     ExternalDataSource.Type.ZENDESK: ["404 Client Error: Not Found for url", "403 Client Error: Forbidden for url"],
     ExternalDataSource.Type.MYSQL: [
         "Can't connect to MySQL server on",
         "No primary key defined for table",
         "Access denied for user",
+    ],
+    ExternalDataSource.Type.SALESFORCE: [
+        "400 Client Error: Bad Request for url",
+        "403 Client Error: Forbidden for url",
     ],
     ExternalDataSource.Type.SNOWFLAKE: [
         "This account has been marked for decommission",

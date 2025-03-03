@@ -96,7 +96,7 @@ fun getPayload() {
     }
 }
 
-fetch(f'{inputs.host}/v1/batch', getPayload())
+fetch(f'{replaceAll(inputs.host, '/v1/batch', '')}/v1/batch', getPayload())
 """.strip(),
     inputs_schema=[
         {

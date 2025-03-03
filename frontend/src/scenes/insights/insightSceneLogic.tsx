@@ -19,7 +19,7 @@ import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigati
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
-import { DashboardFilter, HogQLVariable, Node } from '~/queries/schema'
+import { DashboardFilter, HogQLVariable, Node } from '~/queries/schema/schema-general'
 import { ActivityScope, Breadcrumb, DashboardType, InsightShortId, InsightType, ItemMode } from '~/types'
 
 import { insightDataLogic } from './insightDataLogic'
@@ -387,12 +387,15 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         }: {
             insightMode?: ItemMode
             insightId?: InsightShortId | 'new' | null
-        }): string | undefined =>
-            insightId && insightId !== 'new'
-                ? insightMode === ItemMode.View
-                    ? urls.insightView(insightId)
-                    : urls.insightEdit(insightId)
-                : undefined
+        }): string | undefined => {
+            if (!insightId || insightId === 'new') {
+                return undefined
+            }
+
+            const baseUrl = insightMode === ItemMode.View ? urls.insightView(insightId) : urls.insightEdit(insightId)
+            const searchParams = window.location.search
+            return searchParams ? `${baseUrl}${searchParams}` : baseUrl
+        }
 
         return {
             setInsightId: actionToUrl,

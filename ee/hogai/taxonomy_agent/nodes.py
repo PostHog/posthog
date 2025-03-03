@@ -9,13 +9,11 @@ from langchain_core.agents import AgentAction
 from langchain_core.messages import (
     AIMessage as LangchainAssistantMessage,
     BaseMessage,
-    HumanMessage as LangchainHumanMessage,
     merge_message_runs,
 )
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
-from langgraph.errors import NodeInterrupt
 from pydantic import ValidationError
 
 from ee.hogai.taxonomy_agent.parsers import (
@@ -28,27 +26,27 @@ from ee.hogai.taxonomy_agent.prompts import (
     REACT_DEFINITIONS_PROMPT,
     REACT_FOLLOW_UP_PROMPT,
     REACT_FORMAT_PROMPT,
-    REACT_FORMAT_REMINDER_PROMPT,
+    REACT_HELP_REQUEST_PROMPT,
     REACT_HUMAN_IN_THE_LOOP_PROMPT,
     REACT_MALFORMED_JSON_PROMPT,
     REACT_MISSING_ACTION_CORRECTION_PROMPT,
     REACT_MISSING_ACTION_PROMPT,
     REACT_PROPERTY_FILTERS_PROMPT,
     REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT,
+    REACT_REACHED_LIMIT_PROMPT,
     REACT_SCRATCHPAD_PROMPT,
     REACT_USER_PROMPT,
 )
-from ee.hogai.taxonomy_agent.toolkit import TaxonomyAgentTool, TaxonomyAgentToolkit
-from ee.hogai.utils.helpers import filter_messages, remove_line_breaks, slice_messages_to_conversation_start
+from ee.hogai.taxonomy_agent.toolkit import TaxonomyAgentTool, TaxonomyAgentToolkit, TaxonomyAgentToolUnion
+from ee.hogai.utils.helpers import remove_line_breaks
 from ee.hogai.utils.nodes import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.schema import (
-    AssistantMessage,
+    AssistantToolCallMessage,
     CachedTeamTaxonomyQueryResponse,
-    HumanMessage,
     TeamTaxonomyQuery,
     VisualizationMessage,
 )
@@ -99,6 +97,7 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                         "core_memory_instructions": CORE_MEMORY_INSTRUCTIONS,
                         "project_datetime": self.project_now,
                         "project_timezone": self.project_timezone,
+                        "project_name": self._team.name,
                     },
                     config,
                 ),
@@ -127,11 +126,6 @@ class TaxonomyAgentPlannerNode(AssistantNode):
         return PartialAssistantState(
             intermediate_steps=[*intermediate_steps, (result, None)],
         )
-
-    def router(self, state: AssistantState):
-        if state.intermediate_steps:
-            return "tools"
-        raise ValueError("Invalid state.")
 
     @property
     def _model(self) -> ChatOpenAI:
@@ -203,42 +197,26 @@ class TaxonomyAgentPlannerNode(AssistantNode):
         """
         Reconstruct the conversation for the agent. On this step we only care about previously asked questions and generated plans. All other messages are filtered out.
         """
-        start_id = state.start_id
-        filtered_messages = filter_messages(slice_messages_to_conversation_start(state.messages, start_id))
-        conversation = []
+        # Only process the last ten visualization messages.
+        viz_messages = [message for message in state.messages if isinstance(message, VisualizationMessage)][-10:]
+        conversation: list[BaseMessage] = []
 
-        for idx, message in enumerate(filtered_messages):
-            if isinstance(message, HumanMessage):
-                format_reminder = REACT_FORMAT_REMINDER_PROMPT if message.id == start_id else None
-                # Add initial instructions.
-                if idx == 0:
-                    conversation.append(
-                        HumanMessagePromptTemplate.from_template(REACT_USER_PROMPT, template_format="mustache").format(
-                            question=message.content,
-                            react_format_reminder=format_reminder,
-                        )
-                    )
-                # Add follow-up instructions only for the human message that initiated a generation.
-                elif message.id == start_id:
-                    conversation.append(
-                        HumanMessagePromptTemplate.from_template(
-                            REACT_FOLLOW_UP_PROMPT,
-                            template_format="mustache",
-                        ).format(
-                            feedback=message.content,
-                            react_format_reminder=format_reminder,
-                        )
-                    )
-                # Everything else leave as is.
-                else:
-                    conversation.append(LangchainHumanMessage(content=message.content))
-            elif isinstance(message, VisualizationMessage):
-                conversation.append(LangchainAssistantMessage(content=message.plan or ""))
-            elif isinstance(message, AssistantMessage) and (
-                # Filter out summarizer messages (which always follow viz), but leave clarification questions in
-                idx < 1 or not isinstance(filtered_messages[idx - 1], VisualizationMessage)
-            ):
-                conversation.append(LangchainAssistantMessage(content=message.content))
+        for idx, message in enumerate(viz_messages):
+            prompt = REACT_USER_PROMPT if idx == 0 else REACT_FOLLOW_UP_PROMPT
+            conversation.append(
+                HumanMessagePromptTemplate.from_template(prompt, template_format="mustache").format(
+                    question=message.query
+                )
+            )
+            conversation.append(LangchainAssistantMessage(content=message.plan or ""))
+
+        # The description of a new insight is added to the end of the conversation.
+        new_insight_prompt = REACT_USER_PROMPT if not conversation else REACT_FOLLOW_UP_PROMPT
+        conversation.append(
+            HumanMessagePromptTemplate.from_template(new_insight_prompt, template_format="mustache").format(
+                question=state.root_tool_insight_plan,
+            )
+        )
 
         return conversation
 
@@ -252,47 +230,64 @@ class TaxonomyAgentPlannerNode(AssistantNode):
 
 
 class TaxonomyAgentPlannerToolsNode(AssistantNode, ABC):
+    MAX_ITERATIONS = 16
+    """
+    Maximum number of iterations for the ReAct agent. After the limit is reached,
+    the agent will terminate the conversation and return a message to the root node
+    to request additional information.
+    """
+
     def _run_with_toolkit(
         self, state: AssistantState, toolkit: TaxonomyAgentToolkit, config: Optional[RunnableConfig] = None
     ) -> PartialAssistantState:
         intermediate_steps = state.intermediate_steps or []
         action, observation = intermediate_steps[-1]
 
+        input = None
+        output = ""
+
         try:
             input = TaxonomyAgentTool.model_validate({"name": action.tool, "arguments": action.tool_input}).root
         except ValidationError as e:
-            observation = str(
+            output = str(
                 ChatPromptTemplate.from_template(REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT, template_format="mustache")
                 .format_messages(exception=e.errors(include_url=False))[0]
                 .content
             )
-            return PartialAssistantState(
-                intermediate_steps=[*intermediate_steps[:-1], (action, str(observation))],
-            )
+        else:
+            # First check if we've reached the terminal stage.
+            # The plan has been found. Move to the generation.
+            if input.name == "final_answer":
+                return PartialAssistantState(
+                    plan=input.arguments,
+                    intermediate_steps=[],
+                )
 
+            # The agent has requested help, so we return a message to the root node.
+            if input.name == "ask_user_for_help":
+                return self._get_reset_state(state, REACT_HELP_REQUEST_PROMPT.format(request=input.arguments))
+
+        # If we're still here, the final prompt hasn't helped.
+        if len(intermediate_steps) >= self.MAX_ITERATIONS:
+            return self._get_reset_state(state, REACT_REACHED_LIMIT_PROMPT)
+
+        if input and not output:
+            output = self._handle_tool(input, toolkit)
+
+        return PartialAssistantState(
+            intermediate_steps=[*intermediate_steps[:-1], (action, output)],
+        )
+
+    def router(self, state: AssistantState):
+        # Human-in-the-loop. Get back to the root node.
+        if not state.root_tool_call_id:
+            return "root"
         # The plan has been found. Move to the generation.
-        if input.name == "final_answer":
-            return PartialAssistantState(
-                plan=input.arguments,
-                intermediate_steps=[],
-            )
-        if input.name == "ask_user_for_help":
-            # The agent has requested help, so we interrupt the graph.
-            if not state.resumed:
-                raise NodeInterrupt(input.arguments)
+        if state.plan:
+            return "plan_found"
+        return "continue"
 
-            # Feedback was provided.
-            last_message = state.messages[-1]
-            response = ""
-            if isinstance(last_message, HumanMessage):
-                response = last_message.content
-
-            return PartialAssistantState(
-                resumed=False,
-                intermediate_steps=[*intermediate_steps[:-1], (action, response)],
-            )
-
-        output = ""
+    def _handle_tool(self, input: TaxonomyAgentToolUnion, toolkit: TaxonomyAgentToolkit) -> str:
         if input.name == "retrieve_event_properties":
             output = toolkit.retrieve_event_properties(input.arguments)
         elif input.name == "retrieve_event_property_values":
@@ -303,12 +298,14 @@ class TaxonomyAgentPlannerToolsNode(AssistantNode, ABC):
             output = toolkit.retrieve_entity_property_values(input.arguments.entity, input.arguments.property_name)
         else:
             output = toolkit.handle_incorrect_response(input.arguments)
+        return output
 
-        return PartialAssistantState(
-            intermediate_steps=[*intermediate_steps[:-1], (action, output)],
-        )
-
-    def router(self, state: AssistantState):
-        if state.plan:
-            return "plan_found"
-        return "continue"
+    def _get_reset_state(self, state: AssistantState, output: str):
+        reset_state = PartialAssistantState.get_reset_state()
+        reset_state.messages = [
+            AssistantToolCallMessage(
+                tool_call_id=state.root_tool_call_id,
+                content=output,
+            )
+        ]
+        return reset_state

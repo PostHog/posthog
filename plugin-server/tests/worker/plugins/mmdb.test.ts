@@ -30,7 +30,7 @@ async function resetTestDatabaseWithMmdb(): Promise<void> {
 
 async function getCityName(hub: Hub, ipAddress: string) {
     if (hub.mmdb) {
-        return Promise.resolve(hub.mmdb.city(ipAddress).city.names.en)
+        return Promise.resolve(hub.mmdb.city(ipAddress).city!.names.en)
     } else {
         return Promise.reject('geoip database is not ready')
     }

@@ -8,7 +8,8 @@ import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { Link } from 'lib/lemon-ui/Link'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { getAppContext } from 'lib/utils/getAppContext'
-import { useState } from 'react'
+import posthog from 'posthog-js'
+import { useEffect, useState } from 'react'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
@@ -29,6 +30,10 @@ export function NotFound({ object, caption }: NotFoundProps): JSX.Element {
     const nodeLogic = useNotebookNode()
 
     const appContext = getAppContext()
+
+    useEffect(() => {
+        posthog.capture('not_found_shown', { object })
+    }, [])
 
     return (
         <div className="NotFoundComponent">

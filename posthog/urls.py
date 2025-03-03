@@ -255,7 +255,7 @@ if settings.TEST:
     # Used in posthog-js e2e tests
     @csrf_exempt
     def delete_events(request):
-        from posthog.client import sync_execute
+        from posthog.clickhouse.client import sync_execute
         from posthog.models.event.sql import TRUNCATE_EVENTS_TABLE_SQL
 
         sync_execute(TRUNCATE_EVENTS_TABLE_SQL())

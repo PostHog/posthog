@@ -1,0 +1,8 @@
+{% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %}
+{% block section %}
+<p>Hey, {{ user_name }},</p>
+
+<p>You disabled two-factor authentication (2FA) for {{ user_email }}.</p>
+
+<p>We advise turning it back on for your protection, but it's up to you. And if you didn't turn it off in the first place, you should let us know quickly so we can investigate.</p>
+{% endblock %}

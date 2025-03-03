@@ -1,4 +1,4 @@
-import { MultipleBreakdownType } from '~/queries/schema'
+import { MultipleBreakdownType } from '~/queries/schema/schema-general'
 import { BreakdownType } from '~/types'
 
 export const isAllCohort = (t: number | string): t is string => typeof t === 'string' && t == 'all'

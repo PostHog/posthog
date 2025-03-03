@@ -87,6 +87,14 @@ export const customerioPlugin: LegacyDestinationPlugin = {
                 type: 'string',
                 description: 'If this is set, only the specified events (comma-separated) will be sent to Customer.io.',
             },
+            {
+                key: 'legacy_plugin_config_id',
+                label: 'Legacy plugin config ID',
+                description: 'The ID of the legacy plugin config that this was migrated from. (DO NOT MODIFY THIS)',
+                type: 'string',
+                default: '',
+                required: true,
+            },
         ],
     },
 }

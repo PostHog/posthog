@@ -170,7 +170,7 @@ export function humanizePathsEventTypes(includeEventTypes: PathsFilter['includeE
             humanEventTypes = ['all events']
         }
         if (includeEventTypes.includes(PathType.HogQL)) {
-            humanEventTypes.push('HogQL expression')
+            humanEventTypes.push('SQL expression')
         }
     }
     return humanEventTypes

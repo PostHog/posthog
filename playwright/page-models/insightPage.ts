@@ -7,8 +7,6 @@ import { randomString } from '../utils'
 import { DashboardPage } from './dashboardPage'
 
 export class InsightPage {
-    readonly page: Page
-
     readonly saveButton: Locator
     readonly editButton: Locator
     readonly topBarName: Locator
@@ -33,9 +31,7 @@ export class InsightPage {
     readonly editor: Locator
     readonly updateSourceButton: Locator
 
-    constructor(page: Page) {
-        this.page = page
-
+    constructor(private readonly page: Page) {
         this.saveButton = page.getByTestId('insight-save-button')
         this.editButton = page.getByTestId('insight-edit-button')
         this.topBarName = page.getByTestId('top-bar-name')
@@ -84,6 +80,7 @@ export class InsightPage {
         await this.saveButton.click()
         // wait for save to complete and URL to change and include short id
         await this.page.waitForURL(/^(?!.*\/new$).+$/)
+        await this.page.waitForSelector('[data-attr="insight-edit-button"]', { state: 'visible' })
     }
 
     async edit(): Promise<void> {
@@ -181,5 +178,10 @@ export class InsightPage {
         await this.dashboardButton.click()
         await this.page.getByTestId('dashboard-searchfield').fill(dashboardName)
         await this.page.getByTestId('dashboard-list-item').getByRole('link').first().click()
+    }
+
+    async openPersonsModal(): Promise<void> {
+        await this.page.locator('.TrendsInsight .LineGraph').click()
+        await this.page.locator('[data-attr="persons-modal"]').waitFor({ state: 'visible' })
     }
 }

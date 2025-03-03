@@ -28,7 +28,7 @@ from posthog.api.feature_flag import (
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action, get_token
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
@@ -43,7 +43,7 @@ from posthog.models.activity_logging.activity_log import (
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.feature_flag.feature_flag import FeatureFlag
-from posthog.models.feedback.survey import Survey, MAX_ITERATION_COUNT
+from posthog.models.surveys.survey import Survey, MAX_ITERATION_COUNT
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.utils_cors import cors_response
@@ -64,6 +64,7 @@ class SurveySerializer(serializers.ModelSerializer):
     iteration_count = serializers.IntegerField(
         required=False, allow_null=True, max_value=MAX_ITERATION_COUNT, min_value=0
     )
+    schedule = serializers.CharField(required=False, allow_null=True)
 
     def get_feature_flag_keys(self, survey: Survey) -> list:
         return [
@@ -86,6 +87,7 @@ class SurveySerializer(serializers.ModelSerializer):
             "name",
             "description",
             "type",
+            "schedule",
             "linked_flag",
             "linked_flag_id",
             "targeting_flag",
@@ -136,6 +138,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
     iteration_count = serializers.IntegerField(
         required=False, allow_null=True, max_value=MAX_ITERATION_COUNT, min_value=0
     )
+    schedule = serializers.CharField(required=False, allow_null=True)
 
     class Meta:
         model = Survey
@@ -144,6 +147,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             "name",
             "description",
             "type",
+            "schedule",
             "linked_flag",
             "linked_flag_id",
             "targeting_flag_id",
@@ -211,15 +215,23 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         if value is None:
             return value
 
-        actions = value.get("actions")
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Conditions must be an object")
+
+        actions = value.get("actions", None)
+
         if actions is None:
             return value
 
-        values = actions.get("values")
+        values = actions.get("values", None)
         if values is None or len(values) == 0:
             return value
 
-        action_ids = (value.get("id") for value in values)
+        action_ids = [value.get("id") for value in values if isinstance(value, dict) and "id" in value]
+
+        if len(action_ids) == 0:
+            return value
+
         project_actions = Action.objects.filter(team__project_id=self.context["project_id"], id__in=action_ids)
 
         for project_action in project_actions:
@@ -288,6 +300,11 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             cleaned_questions.append(cleaned_question)
 
         return cleaned_questions
+
+    def validate_schedule(self, value):
+        if value is not None and value not in ["once", "recurring", "always"]:
+            raise serializers.ValidationError("Schedule must be one of: once, recurring, always")
+        return value
 
     def validate(self, data):
         linked_flag_id = data.get("linked_flag_id")
@@ -755,7 +772,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         survey = self.get_object()
 
-        cache_key = f'summarize_survey_responses_{self.team.pk}_{self.kwargs["pk"]}'
+        cache_key = f"summarize_survey_responses_{self.team.pk}_{self.kwargs['pk']}"
         # Check if the response is cached
         cached_response = cache.get(cache_key)
         if cached_response is not None:
@@ -853,6 +870,7 @@ class SurveyAPISerializer(serializers.ModelSerializer):
             "end_date",
             "current_iteration",
             "current_iteration_start_date",
+            "schedule",
         ]
         read_only_fields = fields
 

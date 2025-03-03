@@ -53,7 +53,8 @@ def to_dict(query: BaseModel) -> dict:
                             for entity in dumped["series"]
                         ]
                     elif name == insightFilterKey:
-                        # remove frontend-only props from insight filters
+                        # Remove frontend-only props from insight filters
+                        # Keep this in sync with frontend/src/scenes/insights/utils/queryUtils.ts `cleanInsightQuery` method
                         dumped[insightFilterKey] = {
                             key: value
                             for key, value in dumped[insightFilterKey].items()
@@ -71,7 +72,12 @@ def to_dict(query: BaseModel) -> dict:
                                 "showLabelsOnSeries",
                                 "showMean",
                                 "yAxisScaleType",
-                                "showMultipleYAxes",
+                                "hiddenLegendIndexes",
+                                "hiddenLegendBreakdowns",
+                                "resultCustomizations",
+                                "resultCustomizationBy",
+                                "goalLines",
+                                "dashboardDisplay",
                             ]
                         }
 

@@ -10,7 +10,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { getDefaultEventsQueryForTeam } from '~/queries/nodes/DataTable/defaultEventsQuery'
-import { Node } from '~/queries/schema'
+import { Node } from '~/queries/schema/schema-general'
 import { ActivityTab } from '~/types'
 
 import type { eventsSceneLogicType } from './eventsSceneLogicType'

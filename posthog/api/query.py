@@ -3,7 +3,7 @@ import uuid
 import json
 import time
 import asyncio
-from django.http import JsonResponse, HttpResponse
+from django.http import JsonResponse, StreamingHttpResponse
 from drf_spectacular.utils import OpenApiResponse
 from pydantic import BaseModel
 from rest_framework import status, viewsets
@@ -12,6 +12,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from sentry_sdk import set_tag
 from asgiref.sync import sync_to_async
+from concurrent.futures import ThreadPoolExecutor
 
 from posthog.exceptions_capture import capture_exception
 from posthog.api.documentation import extend_schema
@@ -19,6 +20,8 @@ from posthog.api.mixins import PydanticModelMixin
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
+from posthog.models.team import Team
+from django.contrib.auth.models import AnonymousUser
 
 from posthog.api.utils import action
 from posthog.clickhouse.client.execute_async import (
@@ -31,8 +34,8 @@ from posthog.errors import ExposedCHQueryError
 from posthog.hogql.ai import PromptUnclear, write_sql_from_prompt
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql_queries.apply_dashboard_filters import (
-    apply_dashboard_filters_to_dict,
-    apply_dashboard_variables_to_dict,
+    apply_dashboard_filters,
+    apply_dashboard_variables,
 )
 from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_from_refresh
 from posthog.models.user import User
@@ -49,6 +52,42 @@ from posthog.schema import (
     QueryStatusResponse,
 )
 from typing import cast
+
+
+# Create a dedicated thread pool for query processing
+# Setting max_workers to ensure we don't overwhelm the system
+# while still allowing concurrent queries
+QUERY_EXECUTOR = ThreadPoolExecutor(
+    max_workers=50,  # 50 should be enough to have 200 simultaneous queries across clickhouse
+    thread_name_prefix="query_processor",
+)
+
+
+def _process_query_request(
+    request_data: QueryRequest, team, client_query_id: str | None = None, user=None
+) -> tuple[BaseModel, str, ExecutionMode]:
+    """Helper function to process query requests and return the necessary data for both sync and async endpoints."""
+    query = request_data.query
+
+    if request_data.filters_override is not None:
+        query = apply_dashboard_filters(query, request_data.filters_override, team)
+
+    if request_data.variables_override is not None:
+        query = apply_dashboard_variables(query, request_data.variables_override, team)
+
+    query_id = client_query_id or uuid.uuid4().hex
+    execution_mode = execution_mode_from_refresh(request_data.refresh)
+
+    if request_data.async_:  # TODO: Legacy async, use "refresh=async" instead
+        execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE
+
+    if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
+        # Here in query endpoint we always want to calculate if the cache is stale
+        execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+
+    tag_queries(query=query.model_dump())
+
+    return query, query_id, execution_mode
 
 
 class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
@@ -76,45 +115,27 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     @monitor(feature=Feature.QUERY, endpoint="query", method="POST")
     def create(self, request, *args, **kwargs) -> Response:
         data = self.get_model(request.data, QueryRequest)
-        if data.filters_override is not None:
-            data.query = apply_dashboard_filters_to_dict(
-                data.query.model_dump(), data.filters_override.model_dump(), self.team
-            )  # type: ignore
 
-        if data.variables_override is not None:
-            if isinstance(data.query, BaseModel):
-                query_as_dict = data.query.model_dump()
-            else:
-                query_as_dict = data.query
-
-            data.query = apply_dashboard_variables_to_dict(query_as_dict, data.variables_override, self.team)  # type: ignore
-
-        client_query_id = data.client_query_id or uuid.uuid4().hex
-        execution_mode = execution_mode_from_refresh(data.refresh)
-        response_status: int = status.HTTP_200_OK
-
-        self._tag_client_query_id(client_query_id)
-
-        if data.async_:  # TODO: Legacy async, use "refresh=async" instead
-            execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE
-
-        if execution_mode == execution_mode.CACHE_ONLY_NEVER_CALCULATE:
-            # Here in query endpoint we always want to calculate if the cache is stale
-            execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
-
-        tag_queries(query=request.data["query"])
         try:
+            query, client_query_id, execution_mode = _process_query_request(
+                data, self.team, data.client_query_id, request.user
+            )
+            self._tag_client_query_id(client_query_id)
+
             result = process_query_model(
                 self.team,
-                data.query,
+                query,
                 execution_mode=execution_mode,
                 query_id=client_query_id,
                 user=request.user,
             )
             if isinstance(result, BaseModel):
                 result = result.model_dump(by_alias=True)
-            if result.get("query_status") and result["query_status"].get("complete") is False:
-                response_status = status.HTTP_202_ACCEPTED
+            response_status = (
+                status.HTTP_202_ACCEPTED
+                if result.get("query_status") and result["query_status"].get("complete") is False
+                else status.HTTP_200_OK
+            )
             return Response(result, status=response_status)
         except (ExposedHogQLError, ExposedCHQueryError) as e:
             raise ValidationError(str(e), getattr(e, "code_name", None))
@@ -122,6 +143,16 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             self.handle_column_ch_error(e)
             capture_exception(e)
             raise
+
+    def auth_for_awaiting(self, request: Request, *args, **kwargs):
+        # Parse the request data here so we don't need to read the body again
+        try:
+            # Get the raw Django request to access its body
+            return JsonResponse(
+                {"user": "ok", "data": request.data, "team_id": self.team.pk}, status=status.HTTP_200_OK
+            )
+        except json.JSONDecodeError:
+            return JsonResponse({"error": "Invalid JSON"}, status=status.HTTP_400_BAD_REQUEST)
 
     @extend_schema(
         description="(Experimental)",
@@ -159,8 +190,10 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     )
     @monitor(feature=Feature.QUERY, endpoint="query", method="DELETE")
     def destroy(self, request, pk=None, *args, **kwargs):
-        cancel_query(self.team.pk, pk)
-        return Response(status=204)
+        dequeue_only = request.query_params.get("dequeue_only", False) == "true"
+        message = cancel_query(self.team.pk, pk, dequeue_only=dequeue_only)
+
+        return Response(status=200, data={"message": message})
 
     @action(methods=["GET"], detail=False)
     def draft_sql(self, request: Request, *args, **kwargs) -> Response:
@@ -196,56 +229,146 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         set_tag("client_query_id", query_id)
 
 
-ASYNC_FALLBACK_TO_POLLING_TIMEOUT = 20
+MAX_QUERY_TIMEOUT = 600
 
 
-async def query_awaited(request: Request, *args, **kwargs) -> HttpResponse:
-    """Async endpoint for handling event source queries."""
+async def query_awaited(request: Request, *args, **kwargs) -> StreamingHttpResponse:
+    """Async endpoint for handling event source queries using Server-Sent Events (SSE)."""
 
-    # Call the create method on QueryViewSet
-    view = await sync_to_async(QueryViewSet.as_view)({"post": "create"}, **kwargs)
+    # Call the auth check method on QueryViewSet
+    request.META["HTTP_ACCEPT"] = "application/json"
+    view = await sync_to_async(QueryViewSet.as_view)({"post": "auth_for_awaiting"}, **kwargs)
     response = await sync_to_async(view)(request)
 
-    if (
-        response.status_code != 202
-    ):  # 202 means accepted, which means we're calculating async. Anything else means we can just return immediately
-        return response
+    if response.status_code != 200:  # Non-200 means we can return immediately, likely error
+        response.render()
+        content = response.rendered_content.decode("utf-8")
+        return StreamingHttpResponse(
+            [f"data: {content}\n\n".encode()],
+            status=response.status_code,
+            content_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+                "Connection": "keep-alive",
+            },
+        )
 
-    response.render()
-    data = json.loads(response.rendered_content)
+    try:
+        # Get the parsed data from the auth response
+        auth_content = json.loads(response.content)
+        json_data = auth_content["data"]
+        data = QueryRequest.model_validate(json_data)
+        team = await Team.objects.aget(pk=auth_content["team_id"])
+        query, client_query_id, execution_mode = _process_query_request(
+            data,
+            team,
+            data.client_query_id,
+            request.user,
+        )
+        if execution_mode in (ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE):
+            execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+        elif execution_mode == ExecutionMode.CALCULATE_ASYNC_ALWAYS:
+            execution_mode = ExecutionMode.CALCULATE_BLOCKING_ALWAYS
 
-    # For async responses, poll until complete or timeout
-    async def check_query_status():
-        assert kwargs.get("team_id") is not None
-        manager = QueryStatusManager(data["query_status"]["id"], cast(int, kwargs["team_id"]))
-        start_time = time.time()
-        sleep_time = 0.1  # Start with 100ms
-        max_sleep_time = 1.0  # Don't wait more than 1 second between checks
+        # Start the query processing in a background thread
+        loop = asyncio.get_running_loop()
 
-        while time.time() - start_time < ASYNC_FALLBACK_TO_POLLING_TIMEOUT:
+        async def async_process_query():
+            # Run the synchronous function in an executor and await its result
+            return await loop.run_in_executor(
+                QUERY_EXECUTOR,
+                lambda: process_query_model(
+                    team=team,
+                    query=query,
+                    execution_mode=execution_mode,
+                    query_id=client_query_id,
+                    user=request.user
+                    if not isinstance(request.user, AnonymousUser)
+                    else None,  # just for typing, actual auth check happens above
+                ),
+            )
+
+        # Create a task from the async wrapper
+        query_task = asyncio.create_task(async_process_query())
+
+        async def event_stream():
+            assert kwargs.get("team_id") is not None
+            manager = QueryStatusManager(client_query_id, cast(int, kwargs["team_id"]))
+            start_time = time.time()
+            last_update_time: float = start_time
+
+            # For things to feel snappy we want to frequently check initially, then back off so we don't overload redis
+            FAST_POLL_DURATION = 3.0  # First 3 seconds
+            MEDIUM_POLL_DURATION = 15.0  # Until 15 seconds
+            FAST_POLL_INTERVAL = 0.05
+            MEDIUM_POLL_INTERVAL = 0.1
+            SLOW_POLL_INTERVAL = 1.0
+            UPDATE_INTERVAL = 1.0  # How often to send updates to client
+
             try:
-                status = await sync_to_async(manager.get_query_status)(show_progress=True)
-                if status.complete:
-                    return status
-            except Exception:
-                pass
+                while time.time() - start_time < MAX_QUERY_TIMEOUT:
+                    # Check if the query task has completed
+                    if query_task.done():
+                        try:
+                            result = query_task.result()
+                        except (ExposedHogQLError, ExposedCHQueryError) as e:
+                            yield f"data: {json.dumps({'error': str(e), 'status_code': 400})}\n\n".encode()
+                        except Exception:
+                            yield f"data: {json.dumps({'error': 'Server error'})}\n\n".encode()
 
-            await asyncio.sleep(sleep_time)
-            sleep_time = min(sleep_time * 1.5, max_sleep_time)
+                        if isinstance(result, BaseModel):
+                            yield f"data: {result.model_dump_json(by_alias=True)}\n\n".encode()
+                        else:
+                            yield f"data: {json.dumps(result)}\n\n".encode()
+                        break
 
-        return None
+                    try:
+                        # Try to get a status updates while waiting
+                        current_time = time.time()
+                        if current_time - last_update_time >= UPDATE_INTERVAL:
+                            status = await sync_to_async(manager.get_clickhouse_progresses)()
 
-    status = await check_query_status()
+                            if isinstance(status, BaseModel):
+                                status_update = {"complete": False, **status.model_dump(by_alias=True)}
+                                yield f"data: {json.dumps(status_update)}\n\n".encode()
+                                last_update_time = current_time
+                    # Just ignore errors when getting progress, shouldn't impact users
+                    except Exception as e:
+                        capture_exception(e)
 
-    if status is None:
-        # If we timeout on responding syncronously, return the original response so the client can continue to poll
-        return response
-    elif isinstance(status, BaseModel) and hasattr(status, "results"):
-        response_data = json.dumps(status.results)
-    else:
-        response_data = json.dumps(status)
+                    elapsed_time = time.time() - start_time
+                    if elapsed_time < FAST_POLL_DURATION:
+                        await asyncio.sleep(FAST_POLL_INTERVAL)
+                    elif elapsed_time < MEDIUM_POLL_DURATION:
+                        await asyncio.sleep(MEDIUM_POLL_INTERVAL)
+                    else:
+                        await asyncio.sleep(SLOW_POLL_INTERVAL)
 
-    return HttpResponse(
-        response_data,
-        content_type="application/json",
-    )
+            finally:
+                # If we break the loop early, ensure we cancel the query task
+                if not query_task.done():
+                    query_task.cancel()
+                    yield f"data: {json.dumps({'error': 'Query cancelled'})}\n\n".encode()
+
+        return StreamingHttpResponse(
+            event_stream(),
+            content_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+                "Connection": "keep-alive",
+            },
+        )
+    except (ExposedHogQLError, ExposedCHQueryError) as e:
+        error_response = f"data: {json.dumps({'error': str(e)})}\n\n".encode()
+        return StreamingHttpResponse(
+            [error_response],
+            content_type="text/event-stream",
+            status=status.HTTP_400_BAD_REQUEST,
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+                "Connection": "keep-alive",
+            },
+        )

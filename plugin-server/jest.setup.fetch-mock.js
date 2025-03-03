@@ -17,7 +17,10 @@ beforeEach(() => {
         'https://google.com/results.json?query=fetched': { count: 2, query: 'bla', results: [true, true] },
         'https://mmdbcdn.posthog.net/': readFileSync(join(__dirname, 'tests', 'assets', 'GeoLite2-City-Test.mmdb.br')),
         'https://app.posthog.com/api/event?token=THIS+IS+NOT+A+TOKEN+FOR+TEAM+2': { hello: 'world' },
+        'https://onevent.com/': { success: true },
+        'https://www.example.com': { example: 'data' },
     }
+
     const headersToUrls = {
         'https://mmdbcdn.posthog.net/': new Map([
             ['content-type', 'vnd.maxmind.maxmind-db'],
@@ -25,18 +28,50 @@ beforeEach(() => {
         ]),
     }
 
-    jest.mocked(fetch).mockImplementation(
-        (url, options) =>
-            new Promise((resolve) =>
-                resolve({
-                    buffer: () => new Promise((resolve) => resolve(responsesToUrls[url]) || Buffer.from('fetchmock')),
-                    json: () => new Promise((resolve) => resolve(responsesToUrls[url]) || { fetch: 'mock' }),
-                    text: () => new Promise((resolve) => resolve(JSON.stringify(responsesToUrls[url])) || 'fetchmock'),
-                    status: () => (options.method === 'PUT' ? 201 : 200),
-                    headers: headersToUrls[url],
-                })
-            )
-    )
+    // Create a proper Response-like object factory
+    const createMockResponse = (url, options = {}) => {
+        const responseBody = responsesToUrls[url] || { fetch: 'mock' }
+        const responseHeaders = headersToUrls[url] || new Map()
+        const responseText =
+            typeof responseBody === 'object' && !Buffer.isBuffer(responseBody)
+                ? JSON.stringify(responseBody)
+                : String(responseBody)
+
+        // Create a proper Response-like object that matches the interface expected by recordedFetch
+        return {
+            // Properties
+            status: options.method === 'PUT' ? 201 : 200,
+            statusText: 'OK',
+            ok: true,
+            headers: {
+                get: (name) => {
+                    if (responseHeaders instanceof Map) {
+                        return responseHeaders.get(name) || null
+                    }
+                    return null
+                },
+                forEach: (callback) => {
+                    if (responseHeaders instanceof Map) {
+                        responseHeaders.forEach((value, key) => callback(value, key))
+                    }
+                },
+            },
+
+            // Methods
+            buffer: () => Promise.resolve(Buffer.isBuffer(responseBody) ? responseBody : Buffer.from(responseText)),
+            json: () => Promise.resolve(responseBody),
+            text: () => Promise.resolve(responseText),
+
+            // Clone method that returns a similar object with the same interface
+            clone: function () {
+                return createMockResponse(url, options)
+            },
+        }
+    }
+
+    jest.mocked(fetch).mockImplementation((url, options = {}) => {
+        return Promise.resolve(createMockResponse(url, options))
+    })
 })
 
 // NOTE: in testing we use the pino-pretty transport, which results in a handle

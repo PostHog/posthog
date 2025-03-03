@@ -102,7 +102,7 @@ def max_search_tool(query):
     for url in prioritized_urls[:max_urls_to_process]:
         try:
             logger.info(f"Searching {url}")
-            response = requests.get(url, allow_redirects=True, timeout=10)
+            response = requests.get(url, allow_redirects=True, timeout=180)
             response.raise_for_status()
             soup = BeautifulSoup(response.content, "html.parser")
 

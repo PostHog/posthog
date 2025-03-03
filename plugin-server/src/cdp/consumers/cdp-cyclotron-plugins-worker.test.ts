@@ -204,10 +204,8 @@ describe('CdpCyclotronWorkerPlugins', () => {
             expect(forSnapshot(getProducedKafkaMessagesForTopic('log_entries_test').map((m) => m.value.message)))
                 .toMatchInlineSnapshot(`
                 [
-                  "Executing plugin plugin-posthog-intercom-plugin",
                   "Fetch called but mocked due to test function",
-                  "Unable to search contact test@posthog.com in Intercom. Status Code: undefined. Error message: ",
-                  "Execution successful",
+                  "Contact test@posthog.com in Intercom not found",
                 ]
             `)
         })

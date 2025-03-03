@@ -24,13 +24,15 @@
  * - Each record is an array of [windowId, event]
  */
 
+import { DateTime } from 'luxon'
 import snappy from 'snappy'
-import { PassThrough } from 'stream'
 
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { MessageWithTeam } from '../teams/types'
-import { SessionBatchFileWriter } from './session-batch-file-writer'
-import { SessionBatchRecorder, SessionBlockMetadata } from './session-batch-recorder'
+import { SessionBatchFileStorage, SessionBatchFileWriter } from './session-batch-file-storage'
+import { SessionBatchRecorder } from './session-batch-recorder'
+import { SessionBlockMetadata } from './session-block-metadata'
+import { SessionMetadataStore } from './session-metadata-store'
 
 const enum EventType {
     FullSnapshot = 2,
@@ -41,16 +43,32 @@ const enum EventType {
 describe('session recording integration', () => {
     let recorder: SessionBatchRecorder
     let mockOffsetManager: jest.Mocked<KafkaOffsetManager>
+    let mockStorage: jest.Mocked<SessionBatchFileStorage>
     let mockWriter: jest.Mocked<SessionBatchFileWriter>
-    let mockStream: PassThrough
-    let mockFinish: jest.Mock
+    let mockMetadataStore: jest.Mocked<SessionMetadataStore>
+    let batchBuffer: Buffer
+    let currentOffset: number
 
     beforeEach(() => {
-        mockStream = new PassThrough()
-        mockFinish = jest.fn().mockResolvedValue(undefined)
+        currentOffset = 0
+        batchBuffer = Buffer.alloc(0)
+
         mockWriter = {
-            newBatch: jest.fn().mockReturnValue({ stream: mockStream, finish: mockFinish }),
-        } as unknown as jest.Mocked<SessionBatchFileWriter>
+            writeSession: jest.fn().mockImplementation(async (buffer: Buffer) => {
+                const startOffset = currentOffset
+                batchBuffer = Buffer.concat([batchBuffer, buffer])
+                currentOffset += buffer.length
+                return Promise.resolve({
+                    bytesWritten: buffer.length,
+                    url: `test-url?range=bytes=${startOffset}-${currentOffset - 1}`,
+                })
+            }),
+            finish: jest.fn().mockResolvedValue(undefined),
+        }
+
+        mockStorage = {
+            newBatch: jest.fn().mockReturnValue(mockWriter),
+        } as jest.Mocked<SessionBatchFileStorage>
 
         mockOffsetManager = {
             trackOffset: jest.fn(),
@@ -58,7 +76,11 @@ describe('session recording integration', () => {
             commit: jest.fn(),
         } as unknown as jest.Mocked<KafkaOffsetManager>
 
-        recorder = new SessionBatchRecorder(mockOffsetManager, mockWriter)
+        mockMetadataStore = {
+            storeSessionBlocks: jest.fn().mockResolvedValue(undefined),
+        } as unknown as jest.Mocked<SessionMetadataStore>
+
+        recorder = new SessionBatchRecorder(mockOffsetManager, mockStorage, mockMetadataStore)
     })
 
     const createMessage = (
@@ -76,12 +98,16 @@ describe('session recording integration', () => {
             eventsByWindowId: {
                 window1: events.map((event, index) => ({
                     ...event,
-                    timestamp: 1000 + index * 1000,
+                    timestamp: DateTime.fromISO('2025-01-01T10:00:00.000Z')
+                        .plus({ seconds: index * 2 })
+                        .toMillis(),
                 })),
             },
             eventsRange: {
-                start: 1000,
-                end: 1000 + (events.length - 1) * 1000,
+                start: DateTime.fromISO('2025-01-01T10:00:00.000Z'),
+                end: DateTime.fromISO('2025-01-01T10:00:00.000Z').plus({
+                    seconds: (events.length - 1) * 2,
+                }),
             },
             metadata: {
                 partition: 1,
@@ -93,14 +119,16 @@ describe('session recording integration', () => {
         },
     })
 
-    const readSessionFromBatch = async (
-        batchBuffer: Buffer,
-        blockMetadata: SessionBlockMetadata
-    ): Promise<[string, any][]> => {
-        const sessionBuffer = batchBuffer.subarray(
-            blockMetadata.blockStartOffset,
-            blockMetadata.blockStartOffset + blockMetadata.blockLength
-        )
+    const readSessionFromBatch = async (blockMetadata: SessionBlockMetadata): Promise<[string, any][]> => {
+        // Extract the byte range from the URL
+        const match = blockMetadata.blockUrl?.match(/bytes=(\d+)-(\d+)/)
+        if (!match) {
+            throw new Error('Invalid block URL format')
+        }
+        const startOffset = parseInt(match[1])
+        const endOffset = parseInt(match[2])
+
+        const sessionBuffer = batchBuffer.subarray(startOffset, endOffset + 1)
         const decompressed = await snappy.uncompress(sessionBuffer)
         return decompressed
             .toString()
@@ -129,16 +157,8 @@ describe('session recording integration', () => {
         // Record all messages
         messages.forEach((message) => recorder.record(message))
 
-        // Collect the output stream data
-        const streamDataPromise = new Promise<Buffer>((resolve) => {
-            const chunks: Buffer[] = []
-            mockStream.on('data', (chunk) => chunks.push(chunk))
-            mockStream.on('end', () => resolve(Buffer.concat(chunks)))
-        })
-
         // Flush and get metadata
         const metadata = await recorder.flush()
-        const batchBuffer = await streamDataPromise
 
         // Verify we got all sessions
         expect(metadata).toHaveLength(3)
@@ -146,7 +166,7 @@ describe('session recording integration', () => {
 
         // Read and verify each session's data
         for (const block of metadata) {
-            const events = await readSessionFromBatch(batchBuffer, block)
+            const events = await readSessionFromBatch(block)
             const originalMessage = messages.find((m) => m.message.session_id === block.sessionId)!
             const originalEvents = originalMessage.message.eventsByWindowId.window1
 
@@ -161,7 +181,8 @@ describe('session recording integration', () => {
         }
 
         // Verify the batch was properly finalized
-        expect(mockFinish).toHaveBeenCalled()
+        expect(mockWriter.finish).toHaveBeenCalled()
         expect(mockOffsetManager.commit).toHaveBeenCalled()
+        expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalledWith(metadata)
     })
 })

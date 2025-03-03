@@ -47,7 +47,14 @@ export class LegacyPluginExecutorService {
         return trackedFetch(...args)
     }
 
-    private legacyStorage(teamId: number, pluginConfigId: number): Pick<StorageExtension, 'get' | 'set'> {
+    private legacyStorage(teamId: number, pluginConfigId?: number | string): Pick<StorageExtension, 'get' | 'set'> {
+        if (!pluginConfigId) {
+            return {
+                get: () => Promise.resolve(null),
+                set: () => Promise.resolve(),
+            }
+        }
+
         const get = async (key: string, defaultValue: unknown): Promise<unknown> => {
             const result = await this.hub.db.postgres.query(
                 PostgresUse.PLUGIN_STORAGE_RW,
@@ -127,12 +134,16 @@ export class LegacyPluginExecutorService {
         }
 
         const fetch = (...args: Parameters<typeof trackedFetch>): Promise<Response> => {
-            if (isTestFunction) {
+            const method = args[1] && typeof args[1].method === 'string' ? args[1].method : 'GET'
+
+            if (isTestFunction && method.toUpperCase() !== 'GET') {
+                // For testing we mock out all non-GET requests
                 addLog('info', 'Fetch called but mocked due to test function')
                 return Promise.resolve({
-                    status: 500,
+                    status: 200,
                     json: () =>
                         Promise.resolve({
+                            status: 'OK',
                             message: 'Test function',
                         }),
                 } as Response)
@@ -149,8 +160,6 @@ export class LegacyPluginExecutorService {
                       | LegacyDestinationPlugin)
                 : null
 
-            addLog('debug', `Executing plugin ${pluginId}`)
-
             if (!pluginId || !plugin) {
                 throw new Error(`Plugin ${pluginId} not found`)
             }
@@ -163,19 +172,20 @@ export class LegacyPluginExecutorService {
 
             let state = this.pluginState[invocation.hogFunction.id]
 
+            // NOTE: If this is set then we can add in the legacy storage
+            const legacyPluginConfigId = invocation.globals.inputs?.legacy_plugin_config_id
+
             if (!state) {
-                // TODO: Modify fetch to be a silent log if it is a test function...
+                const geoip = await this.hub.geoipService.get(this.hub)
+
                 const meta: LegacyTransformationPluginMeta = {
                     config: invocation.globals.inputs,
                     global: {},
                     logger: logger,
                     geoip: {
                         locate: (ipAddress: string): Record<string, any> | null => {
-                            if (!this.hub.mmdb) {
-                                return null
-                            }
                             try {
-                                return this.hub.mmdb.city(ipAddress)
+                                return geoip.city(ipAddress)
                             } catch {
                                 return null
                             }
@@ -195,6 +205,7 @@ export class LegacyPluginExecutorService {
                             ...meta,
                             // Setup receives the real fetch always
                             fetch: this.fetch,
+                            storage: this.legacyStorage(invocation.hogFunction.team_id, legacyPluginConfigId),
                         })
                     }
                 }
@@ -253,10 +264,10 @@ export class LegacyPluginExecutorService {
                     // NOTE: We override logger and fetch here so we can track the calls
                     logger,
                     fetch,
+                    storage: this.legacyStorage(invocation.hogFunction.team_id, legacyPluginConfigId),
                 })
             } else {
                 if (plugin === firstTimeEventTrackerPlugin) {
-                    const pluginConfigId = parseInt(state.meta.config.legacy_plugin_config_id)
                     // Special fallback case until this is fully removed
                     const transformedEvent = await firstTimeEventTrackerPluginProcessEventAsync(
                         event as PluginEvent,
@@ -264,7 +275,7 @@ export class LegacyPluginExecutorService {
                             ...state.meta,
                             logger,
                         },
-                        this.legacyStorage(invocation.hogFunction.team_id, pluginConfigId)
+                        this.legacyStorage(invocation.hogFunction.team_id, legacyPluginConfigId)
                     )
                     result.execResult = transformedEvent
                 } else {
@@ -277,7 +288,6 @@ export class LegacyPluginExecutorService {
                 }
             }
 
-            addLog('debug', `Execution successful`)
             pluginExecutionDuration.observe(performance.now() - start)
         } catch (e) {
             if (e instanceof RetryError) {

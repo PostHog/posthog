@@ -2,7 +2,7 @@ import { LemonCheckbox, LemonLabel } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
-import { LifecycleFilter } from '~/queries/schema'
+import { LifecycleFilter } from '~/queries/schema/schema-general'
 import { EditorFilterProps, LifecycleToggle } from '~/types'
 
 // Tooltip explanations taken from https://posthog.com/docs/product-analytics/lifecycle#interpreting-your-lifecycle

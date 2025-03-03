@@ -1,9 +1,9 @@
 import './NotebookPanel.scss'
 
+import { IconExternal } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { useMemo } from 'react'
 import { urls } from 'scenes/urls'
 
@@ -42,21 +42,20 @@ export function NotebookPanel(): JSX.Element | null {
                                 selectNotebook(notebook.short_id)
                             }}
                         />
-                        <div className="flex-1" />
                         {selectedNotebook && <NotebookSyncInfo shortId={selectedNotebook} />}
 
+                        <div className="flex-1" />
+
+                        <NotebookMenu shortId={selectedNotebook} />
+                        {contentWidthHasEffect && <NotebookExpandButton size="small" />}
                         <LemonButton
                             size="small"
                             to={urls.notebook(selectedNotebook)}
                             onClick={() => closeSidePanel()}
-                            icon={<IconOpenInNew />}
+                            icon={<IconExternal />}
                             tooltip="Open as main focus"
-                            tooltipPlacement="left"
+                            tooltipPlacement="bottom"
                         />
-
-                        {contentWidthHasEffect && <NotebookExpandButton size="small" />}
-
-                        <NotebookMenu shortId={selectedNotebook} />
                     </SidePanelPaneHeader>
 
                     <div className="flex flex-col flex-1 overflow-y-auto px-4 py-2">

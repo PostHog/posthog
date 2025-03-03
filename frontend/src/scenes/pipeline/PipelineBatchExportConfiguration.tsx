@@ -9,6 +9,7 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
@@ -43,6 +44,7 @@ export function PipelineBatchExportConfiguration({ service, id }: { service?: st
     const { resetConfiguration, submitConfiguration, setSelectedModel, setConfigurationValue } = useActions(logic)
     const { featureFlags } = useValues(featureFlagLogic)
     const highFrequencyBatchExports = featureFlags[FEATURE_FLAGS.HIGH_FREQUENCY_BATCH_EXPORTS]
+    const sessionsBatchExports = featureFlags[FEATURE_FLAGS.SESSIONS_BATCH_EXPORTS]
 
     if (service && !BATCH_EXPORT_SERVICE_NAMES.includes(service as any)) {
         return <NotFound object={`batch export service ${service}`} />
@@ -172,6 +174,7 @@ export function PipelineBatchExportConfiguration({ service, id }: { service?: st
                                             options={tables.map((table) => ({
                                                 value: table.name,
                                                 label: table.id,
+                                                hidden: !sessionsBatchExports && table.name === 'sessions',
                                             }))}
                                             value={selectedModel}
                                             onSelect={(newValue) => {
@@ -181,11 +184,25 @@ export function PipelineBatchExportConfiguration({ service, id }: { service?: st
                                         />
                                     </LemonField>
                                 </div>
-                                <div className="flex gap-2 min-h-16">
-                                    <DatabaseTable
-                                        table={selectedModel ? selectedModel : 'events'}
-                                        tables={tables}
-                                        inEditSchemaMode={false}
+
+                                <div className="flex gap-2">
+                                    <LemonCollapse
+                                        className="flex flex-1"
+                                        panels={[
+                                            {
+                                                key: 'schema',
+                                                header: 'View model schema',
+                                                content: (
+                                                    <div className="flex-1">
+                                                        <DatabaseTable
+                                                            table={selectedModel ? selectedModel : 'events'}
+                                                            tables={tables}
+                                                            inEditSchemaMode={false}
+                                                        />
+                                                    </div>
+                                                ),
+                                            },
+                                        ]}
                                     />
                                 </div>
                                 {selectedModel === 'events' ? (

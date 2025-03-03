@@ -3,7 +3,7 @@ import { LemonButton, LemonButtonProps, LemonDropdown, Popover } from '@posthog/
 import { BindLogic, useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { AnyDataNode } from '~/queries/schema'
+import { AnyDataNode } from '~/queries/schema/schema-general'
 import { UniversalFiltersGroup, UniversalFilterValue } from '~/types'
 
 import { TaxonomicPropertyFilter } from '../PropertyFilters/components/TaxonomicPropertyFilter'

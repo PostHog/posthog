@@ -5,7 +5,7 @@ from typing import Any
 import structlog
 import temporalio
 from dateutil import parser
-from django.db.models import Prefetch
+from django.db.models import Prefetch, Q
 from psycopg2 import OperationalError
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.request import Request
@@ -157,6 +157,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
     client_secret = serializers.CharField(write_only=True)
     last_run_at = serializers.SerializerMethodField(read_only=True)
     created_by = serializers.SerializerMethodField(read_only=True)
+    latest_error = serializers.SerializerMethodField(read_only=True)
     status = serializers.SerializerMethodField(read_only=True)
     schemas = serializers.SerializerMethodField(read_only=True)
 
@@ -170,6 +171,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "client_secret",
             "account_id",
             "source_type",
+            "latest_error",
             "prefix",
             "last_run_at",
             "schemas",
@@ -181,6 +183,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "created_at",
             "status",
             "source_type",
+            "latest_error",
             "last_run_at",
             "schemas",
             "prefix",
@@ -206,6 +209,27 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "schema",
             "ssh-tunnel",
             "use_ssl",
+            # vitally
+            "payload",
+            "prefix",
+            "regionsubdomain",
+            "source_type",
+            # chargebee
+            "site_name",
+            # zendesk
+            "subdomain",
+            "email_address",
+            # hubspot
+            "redirect_uri",
+            # snowflake
+            "account_id",
+            "warehouse",
+            "role",
+            # bigquery
+            "dataset_id",
+            "project_id",
+            "client_email",
+            "token_uri",
         }
         job_inputs = representation.get("job_inputs", {})
         if isinstance(job_inputs, dict):
@@ -244,6 +268,10 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
         else:
             # Fallback during migration phase of going from source -> schema as the source of truth for syncs
             return instance.status
+
+    def get_latest_error(self, instance: ExternalDataSource):
+        schema_with_error = instance.schemas.filter(latest_error__isnull=False).first()
+        return schema_with_error.latest_error if schema_with_error else None
 
     def get_schemas(self, instance: ExternalDataSource):
         return ExternalDataSchemaSerializer(instance.schemas, many=True, read_only=True, context=self.context).data
@@ -308,7 +336,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     "schemas",
                     queryset=ExternalDataSchema.objects.filter(team_id=self.team_id)
                     .exclude(deleted=True)
-                    .filter(should_sync=True)
+                    .filter(
+                        Q(should_sync=True) | Q(latest_error__isnull=False)
+                    )  # OR to include schemas with errors or marked for sync
                     .select_related("source", "table__credential", "table__external_data_source"),
                     to_attr="active_schemas",
                 ),

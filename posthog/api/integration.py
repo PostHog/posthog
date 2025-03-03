@@ -1,5 +1,6 @@
 import json
 
+import os
 from typing import Any
 
 from django.http import HttpResponse
@@ -75,11 +76,15 @@ class IntegrationViewSet(
     def authorize(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         kind = request.GET.get("kind")
         next = request.GET.get("next", "")
+        token = os.urandom(33).hex()
 
         if kind in OauthIntegration.supported_kinds:
             try:
-                auth_url = OauthIntegration.authorize_url(kind, next=next)
-                return redirect(auth_url)
+                auth_url = OauthIntegration.authorize_url(kind, next=next, token=token)
+                response = redirect(auth_url)
+                response.set_cookie("ph_oauth_state", token, max_age=60 * 5)
+
+                return response
             except NotImplementedError:
                 raise ValidationError("Kind not configured")
 
@@ -89,16 +94,17 @@ class IntegrationViewSet(
     def channels(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
         slack = SlackIntegration(instance)
+        authed_user = instance.config["authed_user"]["id"]
 
         channels = [
             {
                 "id": channel["id"],
                 "name": channel["name"],
                 "is_private": channel["is_private"],
-                "is_member": channel["is_member"],
+                "is_member": channel.get("is_member", True),
                 "is_ext_shared": channel["is_ext_shared"],
             }
-            for channel in slack.list_channels()
+            for channel in slack.list_channels(authed_user)
         ]
 
         return Response({"channels": channels})

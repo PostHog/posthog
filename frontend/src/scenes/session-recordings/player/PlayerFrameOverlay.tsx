@@ -66,7 +66,7 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
     return content ? (
         <div
             className={clsx(
-                'PlayerFrameOverlay__content',
+                'PlayerFrameOverlay__content absolute inset-0 z-1 flex items-center justify-center bg-black/15 opacity-80 transition-opacity duration-100 hover:opacity-100',
                 pausedState && !isInExportContext && 'PlayerFrameOverlay__content--only-hover'
             )}
             aria-busy={currentPlayerState === SessionPlayerState.BUFFER}
@@ -80,7 +80,7 @@ export function PlayerFrameOverlay(): JSX.Element {
     const { togglePlayPause } = useActions(sessionRecordingPlayerLogic)
 
     return (
-        <div className="PlayerFrameOverlay" onClick={togglePlayPause}>
+        <div className="PlayerFrameOverlay absolute inset-0 z-10" onClick={togglePlayPause}>
             <PlayerFrameOverlayContent />
         </div>
     )
