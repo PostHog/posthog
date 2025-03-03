@@ -14,7 +14,7 @@ from posthog.async_migrations.definition import (
 from posthog.async_migrations.utils import execute_op_clickhouse, run_optimize_table
 from posthog.clickhouse.kafka_engine import STORAGE_POLICY
 from posthog.clickhouse.table_engines import ReplacingMergeTree
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.constants import AnalyticsDBMS
 from posthog.models.async_migration import AsyncMigration
 from posthog.models.person.person import Person

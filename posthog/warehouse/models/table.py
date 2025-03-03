@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Optional, TypeAlias
 from django.db import models
 
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.errors import wrap_query_error
 from posthog.hogql import ast
 from posthog.hogql.database.models import (

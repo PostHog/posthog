@@ -63,7 +63,7 @@ def execute_op_clickhouse(
     # If True, query is run on each shard.
     per_shard=False,
 ):
-    from posthog import client
+    from posthog.clickhouse import client
 
     tag_queries(kind="async_migration", id=query_id)
     settings = settings if settings else {"max_execution_time": timeout_seconds}

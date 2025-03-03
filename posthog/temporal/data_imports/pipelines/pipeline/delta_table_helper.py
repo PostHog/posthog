@@ -199,9 +199,11 @@ class DeltaTableHelper:
             raise Exception("Deltatable not found")
 
         self._logger.debug("Compacting table...")
-        table.optimize.compact()
+        compact_stats = table.optimize.compact()
+        self._logger.debug(json.dumps(compact_stats))
 
         self._logger.debug("Vacuuming table...")
-        table.vacuum(retention_hours=24, enforce_retention_duration=False, dry_run=False)
+        vacuum_stats = table.vacuum(retention_hours=24, enforce_retention_duration=False, dry_run=False)
+        self._logger.debug(json.dumps(vacuum_stats))
 
         self._logger.debug("Compacting and vacuuming complete")
