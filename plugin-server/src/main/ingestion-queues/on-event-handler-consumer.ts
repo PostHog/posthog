@@ -8,11 +8,7 @@ import { eachBatchAppsOnEventHandlers } from './batch-processing/each-batch-onev
 import { eachBatchWebhooksHandlers } from './batch-processing/each-batch-webhooks'
 import { KafkaJSIngestionConsumer, setupEventHandlers } from './kafka-queue'
 
-export const startAsyncOnEventHandlerConsumer = async ({
-    hub, // TODO: remove needing to pass in the whole hub and be more selective on dependency injection.
-}: {
-    hub: Hub
-}): Promise<PluginServerService> => {
+export const startAsyncOnEventHandlerConsumer = async ({ hub }: { hub: Hub }): Promise<PluginServerService> => {
     /*
         Consumes analytics events from the Kafka topic `clickhouse_events_json`
         and processes any onEvent plugin handlers configured for the team.
@@ -45,7 +41,7 @@ export const startAsyncWebhooksHandlerConsumer = async (hub: Hub): Promise<Plugi
     status.info('🔁', `Starting webhooks handler consumer`)
 
     const {
-        kafka, // TODO: remove needing to pass in the whole hub and be more selective on dependency injection.
+        kafka,
         postgres,
         teamManager,
         organizationManager,
