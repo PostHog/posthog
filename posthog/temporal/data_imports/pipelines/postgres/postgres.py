@@ -99,7 +99,7 @@ def _get_table_chunk_size(cursor: psycopg.Cursor, schema: str, table_name: str, 
             logger.debug(f"_get_table_chunk_size: No results returned. Using DEFAULT_CHUNK_SIZE={DEFAULT_CHUNK_SIZE}")
             return DEFAULT_CHUNK_SIZE
 
-        row_size_bytes = row[0]
+        row_size_bytes = row[0] or 1
 
         chunk_size = int(DEFAULT_TABLE_SIZE_BYTES / row_size_bytes)
 
