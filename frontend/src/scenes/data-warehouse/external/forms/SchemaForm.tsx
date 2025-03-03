@@ -1,14 +1,16 @@
 import { LemonButton, LemonCheckbox, LemonInput, LemonModal, LemonSwitch, LemonTable } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { sourceWizardLogic } from '../../new/sourceWizardLogic'
 import { SyncMethodForm } from './SyncMethodForm'
 
 export default function SchemaForm(): JSX.Element {
-    const { toggleSchemaShouldSync, openSyncMethodModal, updateSyncTimeOfDay, setIsLocalTime } =
+    const { toggleSchemaShouldSync, openSyncMethodModal, updateSyncTimeOfDay, setIsProjectTime } =
         useActions(sourceWizardLogic)
-    const { databaseSchema, isLocalTime } = useValues(sourceWizardLogic)
+    const { databaseSchema, isProjectTime } = useValues(sourceWizardLogic)
+    const { currentTeam } = useValues(teamLogic)
 
     return (
         <>
@@ -58,7 +60,7 @@ export default function SchemaForm(): JSX.Element {
                                         <span>First Sync Time</span>
                                         <div className="flex items-center gap-1">
                                             <span>UTC</span>
-                                            <LemonSwitch checked={isLocalTime} onChange={setIsLocalTime} />
+                                            <LemonSwitch checked={isProjectTime} onChange={setIsProjectTime} />
                                             <span>{dayjs().format('z')}</span>
                                         </div>
                                     </div>
@@ -66,10 +68,11 @@ export default function SchemaForm(): JSX.Element {
                                 key: 'sync_time_of_day_local',
                                 render: function RenderSyncTimeOfDayLocal(_, schema) {
                                     const utcTime = schema.sync_time_of_day || '00:00:00'
-                                    const localTime = isLocalTime
+                                    const localTime = isProjectTime
                                         ? dayjs
                                               .utc(`${dayjs().format('YYYY-MM-DD')}T${utcTime}`)
                                               .local()
+                                              .tz(currentTeam?.timezone || 'UTC')
                                               .format('HH:mm:00')
                                         : utcTime
 
@@ -80,9 +83,10 @@ export default function SchemaForm(): JSX.Element {
                                             value={localTime.substring(0, 5)}
                                             onChange={(value) => {
                                                 const newValue = `${value}:00`
-                                                const utcValue = isLocalTime
+                                                const utcValue = isProjectTime
                                                     ? dayjs(`${dayjs().format('YYYY-MM-DD')}T${newValue}`)
                                                           .utc()
+                                                          .tz(currentTeam?.timezone || 'UTC')
                                                           .format('HH:mm:00')
                                                     : newValue
                                                 updateSyncTimeOfDay(schema, utcValue)

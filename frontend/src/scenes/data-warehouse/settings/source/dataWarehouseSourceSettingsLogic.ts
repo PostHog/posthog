@@ -25,7 +25,7 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
         reloadSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
         resyncSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
         setCanLoadMoreJobs: (canLoadMoreJobs: boolean) => ({ canLoadMoreJobs }),
-        setIsLocalTime: (isLocalTime: boolean) => ({ isLocalTime }),
+        setIsProjectTime: (isProjectTime: boolean) => ({ isProjectTime }),
     }),
     loaders(({ actions, values }) => ({
         source: [
@@ -103,10 +103,10 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                 setSourceId: () => true,
             },
         ],
-        isLocalTime: [
+        isProjectTime: [
             false as boolean,
             {
-                setIsLocalTime: (_, { isLocalTime }) => isLocalTime,
+                setIsProjectTime: (_, { isProjectTime }) => isProjectTime,
             },
         ],
     })),

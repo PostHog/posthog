@@ -825,7 +825,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             schema,
             syncTimeOfDay,
         }),
-        setIsLocalTime: (isLocalTime: boolean) => ({ isLocalTime }),
+        setIsProjectTime: (isProjectTime: boolean) => ({ isProjectTime }),
     }),
     connect({
         values: [
@@ -951,10 +951,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 }),
             },
         ],
-        isLocalTime: [
+        isProjectTime: [
             false as boolean,
             {
-                setIsLocalTime: (_, { isLocalTime }) => isLocalTime,
+                setIsProjectTime: (_, { isProjectTime }) => isProjectTime,
             },
         ],
     }),

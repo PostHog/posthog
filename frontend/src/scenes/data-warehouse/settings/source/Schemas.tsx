@@ -18,6 +18,7 @@ import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { useEffect } from 'react'
 import { defaultQuery } from 'scenes/data-warehouse/utils'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { DataWarehouseSyncInterval, ExternalDataSourceSchema } from '~/types'
@@ -55,8 +56,9 @@ const StatusTagSetting: Record<string, LemonTagType> = {
 }
 
 export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Element => {
-    const { updateSchema, reloadSchema, resyncSchema, setIsLocalTime } = useActions(dataWarehouseSourceSettingsLogic)
-    const { isLocalTime } = useValues(dataWarehouseSourceSettingsLogic)
+    const { currentTeam } = useValues(teamLogic)
+    const { updateSchema, reloadSchema, resyncSchema, setIsProjectTime } = useActions(dataWarehouseSourceSettingsLogic)
+    const { isProjectTime } = useValues(dataWarehouseSourceSettingsLogic)
     const { schemaReloadingById } = useValues(dataWarehouseSettingsLogic)
 
     return (
@@ -105,7 +107,7 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                                 <span>First Sync Time</span>
                                 <div className="flex items-center gap-1">
                                     <span>UTC</span>
-                                    <LemonSwitch checked={isLocalTime} onChange={setIsLocalTime} />
+                                    <LemonSwitch checked={isProjectTime} onChange={setIsProjectTime} />
                                     <span>{dayjs().format('z')}</span>
                                 </div>
                             </div>
@@ -113,10 +115,11 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                         key: 'sync_time_of_day_local',
                         render: function RenderSyncTimeOfDayLocal(_, schema) {
                             const utcTime = schema.sync_time_of_day || '00:00:00'
-                            const localTime = isLocalTime
+                            const localTime = isProjectTime
                                 ? dayjs
                                       .utc(`${dayjs().format('YYYY-MM-DD')}T${utcTime}`)
                                       .local()
+                                      .tz(currentTeam?.timezone || 'UTC')
                                       .format('HH:mm:00')
                                 : utcTime
 
@@ -127,9 +130,10 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                                     value={localTime.substring(0, 5)}
                                     onChange={(value) => {
                                         const newValue = `${value}:00`
-                                        const utcValue = isLocalTime
+                                        const utcValue = isProjectTime
                                             ? dayjs(`${dayjs().format('YYYY-MM-DD')}T${newValue}`)
                                                   .utc()
+                                                  .tz(currentTeam?.timezone || 'UTC')
                                                   .format('HH:mm:00')
                                             : newValue
                                         updateSchema({ ...schema, sync_time_of_day: utcValue })
