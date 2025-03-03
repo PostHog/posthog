@@ -137,20 +137,32 @@ INSERT INTO exchange_rate (date, currency, rate) VALUES
   {values};"""
 
 
-# Use COMPLEX_KEY_HASHED, as we have a composite key
-# Also, note the `anyLast` function, which is used to get the latest rate for a given date and currency
+# Use RANGE_HASHED to simplify queries by date
+#
+# Because our underlying table is sparse (i.e. we don't have currencies for every date),
+# we'll create the concept of a "range" for each currency, which will be the date range
+# that a specific rate is valid for.
+#
+# Ideally, we'd set the `end_date` but we don't need that because Clickhouse has good
+# support for open-ended ranges, and therefore we always set it to NULL.
+# The `range_lookup_strategy 'max'` declaration will ensure that
+# we always get the latest rate for a given date and currency.
+#
+# Also, note the `anyLast` function on the query construction
+# It is used to get the latest rate for a given date and currency from the underlying table
 # given that we might have more than one while the merges haven't finished yet
 def EXCHANGE_RATE_DICTIONARY_SQL(on_cluster=True):
     return """
 CREATE DICTIONARY IF NOT EXISTS {exchange_rate_dictionary_name} {on_cluster_clause} (
-    date Date,
     currency String,
-    rate Decimal64(10)
+    rate Decimal64(10),
+    start_date Date,
+    end_date Nullable(Date),
 )
-PRIMARY KEY (date, currency)
-SOURCE(CLICKHOUSE(QUERY 'SELECT date, currency, anyLast(rate) AS rate FROM {exchange_rate_table_name} GROUP BY date, currency' PASSWORD '{clickhouse_password}'))
+PRIMARY KEY currency
+SOURCE(CLICKHOUSE(QUERY 'SELECT currency, anyLast(rate) AS rate, date AS start_date, NULL AS end_date FROM {exchange_rate_table_name} GROUP BY date, currency' PASSWORD '{clickhouse_password}'))
 LIFETIME(MIN 3000 MAX 3600)
-LAYOUT(COMPLEX_KEY_HASHED())""".format(
+LAYOUT(RANGE_HASHED(range_lookup_strategy 'max'))""".format(
         exchange_rate_dictionary_name=EXCHANGE_RATE_DICTIONARY_NAME,
         exchange_rate_table_name=EXCHANGE_RATE_TABLE_NAME,
         clickhouse_password=CLICKHOUSE_PASSWORD,
