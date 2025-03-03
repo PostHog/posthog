@@ -47,4 +47,10 @@ export interface SessionBatchFileStorage {
      * ```
      */
     newBatch(): SessionBatchFileWriter
+
+    /**
+     * Checks the health of the storage backend
+     * Returns true if the storage backend is healthy, false otherwise
+     */
+    checkHealth(): Promise<boolean>
 }

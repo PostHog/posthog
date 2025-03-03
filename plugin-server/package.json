@@ -33,9 +33,6 @@
         "build:cyclotron": "pnpm --filter=@posthog/cyclotron package",
         "update-ai-costs": "ts-node scripts/update-ai-costs.ts"
     },
-    "graphile-worker": {
-        "maxContiguousErrors": 300
-    },
     "bin": {
         "posthog-plugin-server": "bin/posthog-plugin-server"
     },
@@ -75,7 +72,6 @@
         "fastpriorityqueue": "^0.7.5",
         "fernet-nodejs": "^1.0.6",
         "generic-pool": "^3.7.1",
-        "graphile-worker": "0.13.0",
         "husky": "^7.0.4",
         "ioredis": "^4.27.6",
         "ipaddr.js": "^2.1.0",

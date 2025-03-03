@@ -781,8 +781,8 @@ importers:
         specifier: ^2.11.0
         version: 2.11.0
       posthog-js:
-        specifier: 1.224.1
-        version: 1.224.1(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.225.1
+        version: 1.225.1(@rrweb/types@2.0.0-alpha.17)
       posthog-js-lite:
         specifier: 3.0.0
         version: 3.0.0
@@ -1253,9 +1253,6 @@ importers:
       generic-pool:
         specifier: ^3.7.1
         version: 3.9.0
-      graphile-worker:
-        specifier: 0.13.0
-        version: 0.13.0
       husky:
         specifier: ^7.0.4
         version: 7.0.4
@@ -3242,9 +3239,6 @@ packages:
   '@google-cloud/storage@5.20.5':
     resolution: {integrity: sha512-lOs/dCyveVF8TkVFnFSF7IGd0CJrTm91qiK6JLu+Z8qiT+7Ag0RyVhxZIWkhiACqwABo7kSHDm8FdH8p2wxSSw==}
     engines: {node: '>=10'}
-
-  '@graphile/logger@0.2.0':
-    resolution: {integrity: sha512-jjcWBokl9eb1gVJ85QmoaQ73CQ52xAaOCF29ukRbYNl6lY+ts0ErTaDYOBlejcbUs2OpaiqYLO5uDhyLFzWw4w==}
 
   '@grpc/grpc-js@1.8.14':
     resolution: {integrity: sha512-w84maJ6CKl5aApCMzFll0hxtFNT6or9WwMslobKaqWUEf1K+zhlL43bSQhFreyYWIWR+Z0xnVFC1KtLm4ZpM/A==}
@@ -9363,11 +9357,6 @@ packages:
   graphemer@1.4.0:
     resolution: {integrity: sha512-EtKwoO6kxCL9WO5xipiHTZlSzBm7WLT627TqC/uVRd0HKmq8NXyebnNYxDoBi7wt8eTWrUrKXCOVaFq9x1kgag==}
 
-  graphile-worker@0.13.0:
-    resolution: {integrity: sha512-8Hl5XV6hkabZRhYzvbUfvjJfPFR5EPxYRVWlzQC2rqYHrjULTLBgBYZna5R9ukbnsbWSvn4vVrzOBIOgIC1jjw==}
-    engines: {node: '>=10.0.0'}
-    hasBin: true
-
   graphql@16.8.1:
     resolution: {integrity: sha512-59LZHPdGZVh695Ud9lRzPBVTtlX9ZCV150Er2W43ro37wVof0ctenSaskPPjN7lVTIN8mSZt8PHUNKZuNQUuxw==}
     engines: {node: ^12.22.0 || ^14.16.0 || ^16.0.0 || >=17.0.0}
@@ -12518,8 +12507,8 @@ packages:
   posthog-js@1.217.2:
     resolution: {integrity: sha512-3KC+UjI0UT5zh8kAOVqe/AfvRjBMKynRIBQNlv0TXnfpZG0+h3r/1ONecDgCCGLs/a/55SJCExrugDlx+HPH3w==}
 
-  posthog-js@1.224.1:
-    resolution: {integrity: sha512-C/0adjCiqvJ9JlGdlBT7HyxqBbMB8wFwb7/DKULyXfT4GJX/8ETaqXaJuSL3HLcuUJjxYPqDinBC6mt8QoVYnA==}
+  posthog-js@1.225.1:
+    resolution: {integrity: sha512-JO12aGlKbznD91osyNPgsQXP4jwLYdDtGrEL6idjGBb4ETFpud6tfe2Jdaow3672c3fNjFFNyu2ybXC3793VOA==}
     peerDependencies:
       '@rrweb/types': 2.0.0-alpha.17
 
@@ -12549,8 +12538,8 @@ packages:
   preact@10.25.4:
     resolution: {integrity: sha512-jLdZDb+Q+odkHJ+MpW/9U5cODzqnB+fy2EiHSZES7ldV5LK7yjlVzTp7R8Xy6W6y75kfK8iWYtFVH7lvjwrCMA==}
 
-  preact@10.26.3:
-    resolution: {integrity: sha512-OJCfNTdttkOTCbTN+gCnXn/woDqz1dIjvP+gdCoYGP2kKuX6w79FAP8qgY/r7jgAunvqHVVmEOKzKOFWzrXZdw==}
+  preact@10.26.4:
+    resolution: {integrity: sha512-KJhO7LBFTjP71d83trW+Ilnjbo+ySsaAgCfXOXUlmGzJ4ygYPWmysm77yg4emwfmoz3b22yvH5IsVFHbhUaH5w==}
 
   prelude-ls@1.1.2:
     resolution: {integrity: sha512-ESF23V4SKG6lVSGZgYNpbsiaAkdab6ZgOxe52p7+Kid3W3u3bxR4Vfd/o21dmN7jSt0IwgZ4v5MUd26FEtXE9w==}
@@ -14721,8 +14710,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.227.0:
-    resolution: {integrity: sha512-s12aNI6/Zy7GvWVaa7dNzjrrFSj3REwA74fi4dIqyt1hijzXXSn7+5Hby9gYAlokpZf0U4y1BIPxFgNEHM+nWA==}
+  unlayer-types@1.229.0:
+    resolution: {integrity: sha512-Oa9pxpxYOk8DJD+u3dQkBZF5/DugPMgs2Jhb1kC7+dVKZ2XVSXOW+pximNDfQ1r0ma+p7JQnwT2oP1Bhm0j9Pg==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -17431,8 +17420,6 @@ snapshots:
     transitivePeerDependencies:
       - encoding
       - supports-color
-
-  '@graphile/logger@0.2.0': {}
 
   '@grpc/grpc-js@1.8.14':
     dependencies:
@@ -25690,20 +25677,6 @@ snapshots:
 
   graphemer@1.4.0: {}
 
-  graphile-worker@0.13.0:
-    dependencies:
-      '@graphile/logger': 0.2.0
-      '@types/debug': 4.1.7
-      '@types/pg': 8.6.6
-      chokidar: 3.6.0
-      cosmiconfig: 7.1.0
-      json5: 2.2.3
-      pg: 8.10.0
-      tslib: 2.8.1
-      yargs: 16.2.0
-    transitivePeerDependencies:
-      - pg-native
-
   graphql@16.8.1: {}
 
   gtoken@5.3.2(encoding@0.1.13):
@@ -26173,7 +26146,7 @@ snapshots:
       hogan.js: 3.0.2
       htm: 3.1.1
       instantsearch-ui-components: 0.3.0
-      preact: 10.26.3
+      preact: 10.26.4
       qs: 6.9.7
       search-insights: 2.13.0
 
@@ -29503,12 +29476,12 @@ snapshots:
       preact: 10.25.4
       web-vitals: 4.2.4
 
-  posthog-js@1.224.1(@rrweb/types@2.0.0-alpha.17):
+  posthog-js@1.225.1(@rrweb/types@2.0.0-alpha.17):
     dependencies:
       '@rrweb/types': 2.0.0-alpha.17
       core-js: 3.40.0
       fflate: 0.4.8
-      preact: 10.26.3
+      preact: 10.26.4
       web-vitals: 4.2.4
 
   posthog-node@4.5.2:
@@ -29538,7 +29511,7 @@ snapshots:
 
   preact@10.25.4: {}
 
-  preact@10.26.3: {}
+  preact@10.26.4: {}
 
   prelude-ls@1.1.2: {}
 
@@ -30018,7 +29991,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.2.0):
     dependencies:
       react: 18.2.0
-      unlayer-types: 1.227.0
+      unlayer-types: 1.229.0
 
   react-error-boundary@3.1.4(react@18.2.0):
     dependencies:
@@ -32099,7 +32072,7 @@ snapshots:
 
   universalify@2.0.0: {}
 
-  unlayer-types@1.227.0: {}
+  unlayer-types@1.229.0: {}
 
   unpipe@1.0.0: {}
 
