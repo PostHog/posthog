@@ -23,7 +23,7 @@ describe('router', () => {
     let server: PluginServer
 
     beforeAll(async () => {
-        jest.spyOn(process, 'exit').mockImplementation(() => {})
+        jest.spyOn(process, 'exit').mockImplementation()
 
         server = new PluginServer({
             PLUGIN_SERVER_MODE: PluginServerMode.ingestion_v2,

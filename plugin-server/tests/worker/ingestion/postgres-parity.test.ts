@@ -34,7 +34,7 @@ describe('postgres parity', () => {
     })
 
     beforeEach(async () => {
-        jest.spyOn(process, 'exit').mockImplementation(() => {})
+        jest.spyOn(process, 'exit').mockImplementation()
         console.log('[TEST] Resetting tests databases')
         await resetTestDatabase(`
             async function processEvent (event) {
