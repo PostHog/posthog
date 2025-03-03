@@ -19,7 +19,9 @@ async fn test_simple_events_query(test_pool: PgPool) {
     let default_all_q = qmgr.count_query(&mut qb, project_id, &params);
     let result = qmgr.pool.fetch_one(default_all_q).await;
     assert!(result.is_ok());
-    assert!(result.unwrap().get::<i64, _>(0) == 37);
+
+    let total_count: i64 = result.unwrap().get(0);
+    assert_eq!(37, total_count);
 }
 
 async fn bootstrap_seed_data(test_pool: PgPool) -> Result<(), sqlx::Error> {
