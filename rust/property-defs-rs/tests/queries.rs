@@ -1,7 +1,6 @@
 use property_defs_rs::api::v1::{query::Manager, routing::Params};
 
 use chrono::{DateTime, Utc};
-use serde_json::json;
 use sqlx::{postgres::PgArguments, Arguments, Executor, PgPool, Row};
 use uuid::Uuid;
 
@@ -296,72 +295,6 @@ async fn bootstrap_seed_data(test_pool: PgPool) -> Result<(), sqlx::Error> {
         .await?;
     }
 
-    // inject these into enterprise prop defs as "updated_by" and "verified_by" for realism
-    let user_rows = [
-        // id (PK), uuid, first_name, last_name, email, is_email_verified, distinct_id, temporary_token, hedgehog_config, role_at_organization
-        (
-            111,
-            Uuid::now_v7(),
-            "John",
-            "Keister",
-            "jk@example.com",
-            true,
-            Uuid::now_v7(),
-            Uuid::now_v7(),
-            json!(
-                r#"{"skin": "default", "color": "purple", "enabled": false, "accessories": ["eyepatch", "xmas_scarf", "graduation"], "use_as_profile": false, "walking_enabled": true, "controls_enabled": true, "party_mode_enabled": true, "interactions_enabled": true}
-"#
-            ),
-            "founder",
-        ),
-        (
-            222,
-            Uuid::now_v7(),
-            "Nancy",
-            "Guppy",
-            "ng@example.com",
-            true,
-            Uuid::now_v7(),
-            Uuid::now_v7(),
-            json!(
-                r#"{"skin": "spiderhog", "color": null, "enabled": false, "accessories": [], "use_as_profile": false, "walking_enabled": true, "controls_enabled": true, "party_mode_enabled": false, "interactions_enabled": true}"#
-            ),
-            "founder",
-        ),
-    ];
-
-    for (ndx, row) in user_rows.iter().enumerate() {
-        let mut args = PgArguments::default();
-        args.add(row.0).unwrap();
-        args.add(row.1).unwrap();
-        args.add(format!("password_{}", ndx)).unwrap(); // password NOT NULL
-        args.add(row.2).unwrap();
-        args.add(row.3).unwrap();
-        args.add(false).unwrap(); // is_staff NOT NULL
-        args.add(true).unwrap(); // is_active NOT NULL
-        args.add(row.4).unwrap();
-        args.add(row.5).unwrap();
-        args.add(row.6).unwrap();
-        args.add(row.7).unwrap();
-        args.add(&row.8).unwrap();
-        args.add(row.9).unwrap();
-        args.add(json!("{}")).unwrap(); // events_column_config NOT NULL
-        args.add(Utc::now()).unwrap(); // date_joined NOT NULL
-
-        sqlx::query_with(
-            r#"
-            INSERT INTO posthog_user
-                (id, uuid, password, first_name, last_name, is_staff, is_active, email,
-                 is_email_verified, distinct_id, temporary_token, hedgehog_config,
-                 role_at_organization, events_column_config, date_joined)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
-        "#,
-            args,
-        )
-        .execute(&test_pool)
-        .await?;
-    }
-
     // tie back event props "property" field to posthog_userdefinition rows
     // of type PropertyParentType::Event defined above
     let ep_rows = [
@@ -409,16 +342,16 @@ async fn bootstrap_seed_data(test_pool: PgPool) -> Result<(), sqlx::Error> {
         args.add(row.0).unwrap();
         args.add("a fine property indeed").unwrap();
         args.add(Utc::now()).unwrap();
-        args.add(&user_rows[0].0).unwrap();
+        args.add(ndx as i64).unwrap();
         if ndx % 2 == 0 {
             args.add(true).unwrap();
             args.add(Some(Utc::now())).unwrap();
-            args.add(Some(&user_rows[1].0)).unwrap();
+            args.add(Some(ndx as i64)).unwrap();
             args.add(Some(vec!["foo", "bar"])).unwrap();
         } else {
             args.add(false).unwrap();
             args.add(None::<DateTime<Utc>>).unwrap();
-            args.add(None::<i32>).unwrap();
+            args.add(None::<i64>).unwrap();
             args.add(None::<Vec<&str>>).unwrap();
         }
 

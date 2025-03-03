@@ -7,11 +7,7 @@ use crate::{
 
 use anyhow::Result;
 use axum::{
-    extract::{OriginalUri, Path, Query, State},
-    http::{
-        uri::{Authority, Scheme},
-        Uri,
-    },
+    extract::{Path, Query, State},
     routing::get,
     Json, Router,
 };
@@ -20,7 +16,6 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use sqlx::{Execute, Executor, FromRow, Postgres, QueryBuilder, Row};
 use tracing::debug;
-use url::form_urlencoded;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -38,7 +33,6 @@ pub fn apply_routes(parent: Router, app_ctx: Arc<AppContext>) -> Router {
 
 async fn project_property_definitions_handler(
     State(app_ctx): State<Arc<AppContext>>,
-    OriginalUri(uri): OriginalUri,
     Path(project_id): Path<i32>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<PropertyDefinitionResponse>, ApiError> {
@@ -92,21 +86,11 @@ async fn project_property_definitions_handler(
         }
     }
 
-    // TODO: since this is an internal API, and using the incoming URI
-    // will likely not behave as expected for building user-visible
-    // next/prev URIs, we could return next limit/offset instead
-    // and let the caller (Django) build the URIs for responses?
-    let (prev_url, next_url) = gen_next_prev_urls(uri, total_count, params.limit, params.offset);
-
-    // execute the queries, and populate the response
-    let out = PropertyDefinitionResponse {
+    // build and return JSON response
+    Ok(Json(PropertyDefinitionResponse {
         count: total_count,
-        next: next_url,
-        prev: prev_url,
         results: prop_defs,
-    };
-
-    Ok(Json(out))
+    }))
 }
 
 fn parse_request(params: HashMap<String, String>) -> Params {
@@ -229,70 +213,6 @@ fn parse_request(params: HashMap<String, String>) -> Params {
     }
 }
 
-fn gen_next_prev_urls(
-    uri: Uri,
-    total_count: i64,
-    curr_limit: i64,
-    curr_offset: i64,
-) -> (Option<String>, Option<String>) {
-    let next_offset = curr_offset + curr_limit;
-    let prev_offset = curr_offset - curr_limit;
-
-    (
-        gen_url(uri.clone(), total_count, curr_limit, prev_offset),
-        gen_url(uri.clone(), total_count, curr_limit, next_offset),
-    )
-}
-
-// TODO: since this is an internal API to be called by Django, we will
-// probably eliminate this in favor of letting the PropertyDefinitionsViewSet
-// handling next & prev URI generation...
-fn gen_url(uri: Uri, total_count: i64, curr_limit: i64, new_offset: i64) -> Option<String> {
-    if new_offset < 0 || new_offset > total_count {
-        return None;
-    }
-
-    // Parse the query parameters
-    let mut query_params = uri
-        .query()
-        .map(|query| {
-            form_urlencoded::parse(query.as_bytes())
-                .into_owned()
-                .collect::<HashMap<String, String>>()
-        })
-        .unwrap_or_default();
-
-    // Modify limit and offset params only
-    query_params.insert("offset".to_string(), new_offset.to_string());
-    query_params.insert("limit".to_string(), curr_limit.to_string());
-
-    // Rebuild the Uri with the modified query parameters
-    let new_query = form_urlencoded::Serializer::new(String::new())
-        .extend_pairs(query_params)
-        .finish();
-
-    // Replace the original query with the modified query
-    let base_uri = uri
-        .clone()
-        .into_parts()
-        .path_and_query
-        .unwrap()
-        .path()
-        .to_string();
-    let uri = Uri::builder()
-        .scheme(uri.scheme().unwrap_or(&Scheme::HTTP).as_str())
-        .authority(
-            uri.authority()
-                .unwrap_or(&Authority::from_static("localhost:3301"))
-                .as_str(),
-        )
-        .path_and_query(base_uri + "?" + &new_query)
-        .build()
-        .unwrap();
-
-    Some(uri.to_string())
-}
-
 #[derive(Debug)]
 pub struct Params {
     pub search_terms: Vec<String>,
@@ -363,9 +283,8 @@ impl Default for Params {
 #[derive(Serialize)]
 pub struct PropertyDefinitionResponse {
     count: i64,
-    next: Option<String>,
-    prev: Option<String>,
     results: Vec<PropertyDefinition>,
+    // let the caller (Django monolith) handle pagination and next/prev URI building
 }
 
 #[derive(Serialize, Deserialize, FromRow)]
