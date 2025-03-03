@@ -2,7 +2,7 @@ import { IconPlusSmall } from '@posthog/icons'
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
-import { LemonBadge } from './LemonBadge'
+import { LemonBadge, LemonBadgeProps } from './LemonBadge'
 
 type Story = StoryObj<typeof LemonBadge>
 const meta: Meta<typeof LemonBadge> = {
@@ -61,14 +61,15 @@ export const Sizes: StoryFn<typeof LemonBadge> = () => {
 }
 
 export const Status: StoryFn<typeof LemonBadge> = () => {
+    const statuses = ['primary', 'success', 'warning', 'danger', 'muted', 'data']
     return (
         <div className="flex space-x-2 items-center">
-            <span>primary:</span>
-            <LemonBadge content={<IconPlusSmall />} status="primary" />
-            <span>danger:</span>
-            <LemonBadge content={<IconPlusSmall />} status="danger" />
-            <span>muted:</span>
-            <LemonBadge content={<IconPlusSmall />} status="muted" />
+            {statuses.map((status) => (
+                <>
+                    <span>{status}</span>
+                    <LemonBadge content={<IconPlusSmall />} status={status as LemonBadgeProps['status']} />
+                </>
+            ))}
         </div>
     )
 }

@@ -1,4 +1,4 @@
-import { Node } from '~/queries/schema'
+import { Node } from '~/queries/schema/schema-general'
 import {
     isActorsQuery,
     isEventsQuery,

@@ -14,6 +14,7 @@ function asRecording(param: Partial<SessionRecordingType>): SessionRecordingType
         recording_duration: 0,
         matching_events: [],
         viewed: false,
+        viewers: [],
         start_time: '2024-11-01 12:34',
         end_time: '2024-11-01 13:34',
         snapshot_source: 'web',

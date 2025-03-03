@@ -27,7 +27,7 @@ export function BatchExportBackfillModal({ id }: BatchExportBackfillModalLogicPr
 
     return (
         <LemonModal
-            title="Backfill batch export"
+            title="Start backfill"
             onClose={closeBackfillModal}
             isOpen={isBackfillModalOpen}
             width="30rem"
@@ -115,7 +115,7 @@ export function BatchExportBackfillModal({ id }: BatchExportBackfillModalLogicPr
                     }
                 </LemonField>
 
-                {batchExportConfig?.model == 'persons' ? (
+                {batchExportConfig?.model == 'persons' || batchExportConfig?.model == 'sessions' ? (
                     <LemonField name="earliest_backfill">
                         {({ onChange }) => (
                             <LemonCheckbox

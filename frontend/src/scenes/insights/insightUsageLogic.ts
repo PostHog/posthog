@@ -7,7 +7,7 @@ import { projectLogic } from 'scenes/projectLogic'
 
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
-import { Node } from '~/queries/schema'
+import { Node } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
 import { insightLogic } from './insightLogic'

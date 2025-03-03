@@ -34,7 +34,7 @@ jobs:
                     - image: cymbal
                       dockerfile: ./rust/Dockerfile
                     - image: feature-flags
-                      dockerfile: ./rust/Dockerfile
+                      dockerfile: ./rust/Dockerfile-feature-flags
                     - image: batch-import-worker
                       dockerfile: ./rust/Dockerfile
         runs-on: depot-ubuntu-22.04-4
@@ -102,6 +102,13 @@ jobs:
               id: buildx
               uses: docker/setup-buildx-action@v2
 
+            - name: Retrieve sccache configuration
+              id: sccache
+              run: |
+                  echo "endpoint=$SCCACHE_WEBDAV_ENDPOINT" >> "$GITHUB_OUTPUT"
+                  echo "::add-mask::$SCCACHE_WEBDAV_TOKEN"
+                  echo "token=$SCCACHE_WEBDAV_TOKEN" >> "$GITHUB_OUTPUT"
+
             - name: Build and push image
               id: docker_build
               uses: depot/build-push-action@v1
@@ -113,6 +120,9 @@ jobs:
                   labels: ${{ steps.meta.outputs.labels }}
                   platforms: linux/arm64,linux/amd64
                   build-args: BIN=${{ matrix.image }}
+                  secrets: |
+                      SCCACHE_WEBDAV_ENDPOINT=${{ steps.sccache.outputs.endpoint }}
+                      SCCACHE_WEBDAV_TOKEN=${{ steps.sccache.outputs.token }}
 
             - name: Container image digest
               id: digest

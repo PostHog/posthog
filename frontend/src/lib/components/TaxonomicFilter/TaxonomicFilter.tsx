@@ -13,7 +13,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useEffect, useMemo, useRef } from 'react'
 
 import { InfiniteSelectResults } from './InfiniteSelectResults'
-import { taxonomicFilterLogic } from './taxonomicFilterLogic'
+import { defaultDataWarehousePopoverFields, taxonomicFilterLogic } from './taxonomicFilterLogic'
 
 let uniqueMemoizedIndex = 0
 
@@ -37,6 +37,7 @@ export function TaxonomicFilter({
     propertyAllowList,
     hideBehavioralCohorts,
     showNumericalPropsOnly,
+    dataWarehousePopoverFields = defaultDataWarehousePopoverFields,
 }: TaxonomicFilterProps): JSX.Element {
     // Generate a unique key for each unique TaxonomicFilter that's rendered
     const taxonomicFilterLogicKey = useMemo(
@@ -64,6 +65,7 @@ export function TaxonomicFilter({
         propertyAllowList,
         hideBehavioralCohorts,
         showNumericalPropsOnly,
+        dataWarehousePopoverFields,
     }
 
     const logic = taxonomicFilterLogic(taxonomicFilterLogicProps)

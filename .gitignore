@@ -76,12 +76,22 @@ pnpm-error.log
 # pyright config (keep this until we have a standardized one)
 pyrightconfig.json
 settings.yml
-share/GeoLite2-City.mmdb
+share/GeoLite2-City.*
 staticfiles
 storybook-static
+frontend/storybook-static
+common/storybook/dist
 temp_test_run_data.json
 # ignore all dagster tmp directories that may be created
 tmp*/
 upgrade/
 venv
 yalc.lock
+# Flox.dev lockfile (will differ slightly per local dev env, even with consistent pinning in TOML file)
+.flox/env/manifest.lock
+
+playwright/.auth/
+playwright-report/
+test-results/
+playwright/playwright-report/
+playwright/test-results/

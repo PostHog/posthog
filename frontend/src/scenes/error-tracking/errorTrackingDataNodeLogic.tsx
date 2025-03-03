@@ -2,7 +2,7 @@ import { actions, connect, kea, listeners, path, props } from 'kea'
 import api from 'lib/api'
 
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { ErrorTrackingIssue } from '~/queries/schema'
+import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
 import type { errorTrackingDataNodeLogicType } from './errorTrackingDataNodeLogicType'
 import { mergeIssues } from './utils'

@@ -10,6 +10,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import {
     Breadcrumb,
     ExternalDataSourceCreatePayload,
@@ -1170,7 +1171,11 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     ...values.source,
                     source_type: values.selectedConnector.name,
                 })
+
                 lemonToast.success('New Data Resource Created')
+
+                activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.ConnectSource)
+
                 actions.setSourceId(id)
                 actions.resetSourceConnectionDetails()
                 actions.loadSources(null)

@@ -1,6 +1,6 @@
 // Global components
 @import 'vars';
-@import '../../../node_modules/react-toastify/dist/ReactToastify';
+@import '../../node_modules/react-toastify/dist/ReactToastify';
 @import 'functions';
 @import 'mixins';
 @import 'tailwindcss/base';
@@ -395,17 +395,28 @@
     --bg-fill-primary: var(--color-white);
     --bg-fill-secondary: var(--primitive-3000-25);
     --bg-fill-tertiary: var(--primitive-3000-50);
+
+    // Highlights
+    --bg-fill-primary-highlight: color-mix(
+        in oklab,
+        var(--color-primary-500) 10%,
+        transparent
+    ); /* highlight bg for primary blocks */
+
+    // Info fills
     --bg-fill-info-secondary: var(--color-blue-100); /* promonent bg for info blocks */
-    --bg-fill-input: var(--color-white);
     --bg-fill-info-tertiary: var(--color-blue-50); /* subtle bg for info blocks */
+
+    // Warning fills
     --bg-fill-warning-secondary: var(--color-yellow-100); /* prominent bg for warning blocks */
     --bg-fill-warning-tertiary: var(--color-yellow-50); /* subtle bg for warning blocks */
     --bg-fill-warning-highlight: color-mix(
         in oklab,
-        var(--color-yellow-500) 10%,
+        var(--color-yellow-500) 15%,
         transparent
     ); /* highlight bg for warning blocks */
 
+    // Error fills
     --bg-fill-error-secondary: var(--color-red-100); /* prominent bg for error blocks */
     --bg-fill-error-tertiary: var(--color-red-50); /* subtle bg for error blocks */
     --bg-fill-error-highlight: color-mix(
@@ -414,6 +425,7 @@
         transparent
     ); /* highlight bg for error blocks */
 
+    // Success fills
     --bg-fill-success-secondary: var(--color-green-100); /* promonent bg for success blocks */
     --bg-fill-success-tertiary: var(--color-green-50); /* subtle bg for success blocks */
     --bg-fill-success-highlight: color-mix(
@@ -422,11 +434,10 @@
         transparent
     ); /* highlight bg for success blocks */
 
-    --bg-fill-primary-highlight: color-mix(
-        in oklab,
-        var(--color-primary-500) 10%,
-        transparent
-    ); /* highlight bg for primary blocks */
+    // Inputs
+    --bg-fill-input: var(--color-white);
+    --bg-fill-switch: var(--primitive-neutral-cool-250);
+    --bg-fill-slider-rail: color-mix(in oklab, var(--color-black) 10%, transparent);
 
     // Content (text, icons)
     // //////////////////////////////////////////////////////////
@@ -458,14 +469,25 @@
 
     // Graph colors
     // //////////////////////////////////////////////////////////
-    --color-graph-axis-label: var(--text-secondary);
-    --color-graph-axis-line: var(--primitive-neutral-cool-50);
-    --color-graph-axis: var(--text-secondary);
-    --color-graph-crosshair: var(--primitive-neutral-cool-450);
-    --color-graph-tooltip-background: var(--bg-surface-tooltip);
-    --color-graph-tooltip-title: var(--text-primary);
-    --color-graph-tooltip-body: var(--bg-surface-tooltip);
+    --color-graph-axis-label: var(--text-secondary); /* Labels around graph */
+    --color-graph-axis-line: var(
+        --primitive-neutral-cool-100
+    ); /* Background lines in a graph, horizontal and vertical */
 
+    --color-graph-axis: var(--text-secondary); /* Line around a graph */
+    --color-graph-crosshair: var(--primitive-neutral-cool-450); /* Crosshair line, horizontal or vertical */
+
+    // Skeleton colors
+    // //////////////////////////////////////////////////////////
+    --color-skeleton-light: rgb(
+        190 190 190 / 20%
+    ); // Equivalent to --primitive-neutral-200 but with transparency, improve browser compatibility
+
+    --color-skeleton-dark: rgb(
+        129 129 129 / 24%
+    ); // Equivalent to --primitive-neutral-400 but with transparency, improve browser compatibility
+
+    // Breakpoint variables
     // Breakpoint variables
     // //////////////////////////////////////////////////////////
     --breakpoint-sm: 576px;
@@ -475,12 +497,14 @@
     --breakpoint-xxl: 1600px;
 
     // Brand colors
+    // //////////////////////////////////////////////////////////
     --brand-blue: #1d4aff;
     --brand-red: #f54e00;
     --brand-yellow: #f9bd2b;
     --brand-key: #000;
 
     // Shadows
+    // //////////////////////////////////////////////////////////
     --shadow-elevation-3000: 0 3px 0 var(--border-3000-light);
 
     // Non-color vars
@@ -505,7 +529,7 @@
     --green: var(--success);
     --black: var(--text-3000);
 
-    //// Data colors (e.g. insight series). Note: colors.ts relies on these values being hexadecimal
+    // Data colors (e.g. insight series). Note: colors.ts relies on these values being hexadecimal
     --data-color-1: #1d4aff;
     --data-color-1-hover: #1a3cf6;
     --data-color-2: #621da6;
@@ -533,23 +557,20 @@
     --lifecycle-resurrecting-hover: rgb(101.68966 8 255);
     --lifecycle-dormant-hover: rgb(120.15929 30.17699 3.84071);
 
-    // Funnels
-    // TODO: unify with lib/colors.ts, getGraphColors()
-    --funnel-axis: var(--border);
-    --funnel-grid: #ddd;
-
     // Z-indexes
     --z-bottom-notice: 1450;
     --z-command-palette: 1400;
     --z-force-modal-above-popovers: 1350;
     --z-tooltip: 1300;
-
-    // 1066 through 1069 are reserved to be set from code
     --z-definition-popover: 1250;
     --z-popover: 1200;
     --z-graph-tooltip: 1150;
 
-    // 1061 and 1062 are reserved to be set from code
+    // 1161 and 1162 are reserved to be set from code
+    // 1166 through 1169 are reserved to be set from code
+    // this allows us to place some modals on top of others
+    // we should never be forgiven
+    // if we ever need more than 7 modals active at the same time
     --z-modal: 1100;
     --z-hedgehog-buddy: 1050;
     --z-annotation-popover: 100;
@@ -737,11 +758,13 @@
 // We specifically override the brand colors for dark mode here
 // Because we can't do light-dark for the individual hue/saturation/lightness
 [theme='dark'] {
+    // Brand colors (dark mode)
+    // //////////////////////////////////////////////////////////
     --brand-primary-hue: var(--primitive-posthog-brand-yellow-hue);
     --brand-primary-saturation: var(--primitive-posthog-brand-yellow-saturation);
     --brand-primary-lightness: var(--primitive-posthog-brand-yellow-lightness);
 
-    // Accent colors
+    // Accent colors (dark mode)
     // //////////////////////////////////////////////////////////
     --accent-primary: hsl(var(--brand-primary-hue), var(--brand-primary-saturation), var(--brand-primary-lightness));
     --accent-primary-hover: hsl(
@@ -782,7 +805,7 @@
         10%
     );
 
-    // Backgrounds
+    // Backgrounds (dark mode)
     // //////////////////////////////////////////////////////////
     --bg-primary: var(--primitive-neutral-cool-950);
     --bg-surface-primary: var(--primitive-neutral-cool-850);
@@ -793,14 +816,13 @@
     --bg-surface-popover: var(--primitive-neutral-cool-850);
     --bg-surface-popover-inverse: var(--primitive-neutral-cool-950);
 
-    // Fills
+    // Fills (dark mode)
     // Small colourful areas: banners, pills, buttons, etc.
     // //////////////////////////////////////////////////////////
     --bg-fill-primary: var(--primitive-neutral-cool-900);
     --bg-fill-secondary: var(--primitive-neutral-cool-850);
     --bg-fill-tertiary: var(--primitive-neutral-cool-800);
     --bg-fill-info-secondary: var(--color-blue-950);
-    --bg-fill-input: var(--primitive-neutral-cool-850);
     --bg-fill-info-tertiary: var(--color-blue-950);
     --bg-fill-warning-secondary: var(--color-yellow-950);
     --bg-fill-warning-tertiary: color-mix(in oklab, var(--color-yellow-950) 10%, transparent);
@@ -812,8 +834,11 @@
     --bg-fill-success-tertiary: color-mix(in oklab, var(--color-green-950) 50%, transparent);
     --bg-fill-success-highlight: color-mix(in oklab, var(--color-green-950) 50%, transparent);
     --bg-fill-primary-highlight: color-mix(in oklab, var(--color-primary-950) 50%, transparent);
+    --bg-fill-input: var(--primitive-neutral-cool-850);
+    --bg-fill-switch: var(--primitive-neutral-cool-900);
+    --bg-fill-slider-rail: color-mix(in oklab, var(--color-white) 15%, transparent);
 
-    // Content (text, icons)
+    // Content (text, icons) (dark mode)
     // //////////////////////////////////////////////////////////
     --text-primary: var(--primitive-neutral-100);
     --text-primary-inverse: var(--primitive-neutral-950);
@@ -823,7 +848,7 @@
     --text-warning: var(--color-yellow-400);
     --text-error: var(--color-red-400);
 
-    // Content on fills
+    // Content on fills (dark mode)
     // Texts which are on colourful fills, ensures contrast
     // //////////////////////////////////////////////////////////
     --text-info-on-fill: var(--color-blue-50); /* On-fill text for info */
@@ -831,7 +856,7 @@
     --text-error-on-fill: var(--color-red-50); /* On-fill text for error */
     --text-success-on-fill: var(--color-green-50); /* On-fill text for success */
 
-    // Borders
+    // Borders (dark mode)
     // Borders for surfaces/fills (TODO: perhaps we need to do border-fill-primary, border-fill-warning, etc.)
     // //////////////////////////////////////////////////////////
     --border-primary: var(--primitive-neutral-cool-800);
@@ -841,15 +866,12 @@
     --border-error: var(--color-red-900); /* Border for error */
     --border-success: var(--color-green-900); /* Border for success */
 
-    // Graph colors
+    // Graph colors (dark mode)
     // //////////////////////////////////////////////////////////
     --color-graph-axis-label: var(--text-secondary);
     --color-graph-axis-line: var(--primitive-neutral-cool-750);
     --color-graph-axis: var(--text-secondary);
     --color-graph-crosshair: var(--primitive-neutral-cool-650);
-    --color-graph-tooltip-background: var(--bg-surface-tooltip-inverse);
-    --color-graph-tooltip-title: var(--text-primary);
-    --color-graph-tooltip-body: var(--bg-surface-tooltip-inverse);
 
     // Deprecated colors (Dark mode)
     --text-3000: var(--text-3000-dark);
@@ -977,7 +999,9 @@ body {
 
     h1,
     h2,
-    h3:not(.thank-you-message), // to prevent the survey thank you message to be styled, as these styles are only for PostHog main app
+    // Note: .thank-you-message is excluded in h3 below to prevent the survey thank you message to be styled,
+    // as these styles are only for PostHog main app. It's important to use :where() to avoid increased specificity
+    h3:where(:not(.thank-you-message)),
     h4,
     h5 {
         margin-top: 0;
@@ -1099,6 +1123,12 @@ hr {
     border-top: 1px solid var(--border);
 }
 
+dfn {
+    font-style: normal;
+    text-decoration: underline;
+    text-decoration-style: dotted;
+}
+
 // Vendor-specific adjustments
 
 input::-ms-clear {
@@ -1197,6 +1227,7 @@ input::-ms-clear {
     height: 22px;
     font-size: 12px;
     font-weight: bold;
+    line-height: 1rem;
     pointer-events: none;
     border: 2px solid var(--text-3000);
     border-radius: 50%;
@@ -1307,7 +1338,7 @@ html {
 input::placeholder,
 textarea::placeholder {
     // Overrides Tailwind's default
-    color: var(--text-secondary);
+    color: var(--text-tertiary);
 }
 
 a {
@@ -1421,6 +1452,10 @@ img {
 
 .system-ui {
     font-family: system-ui;
+}
+
+.inherit {
+    font-family: inherit;
 }
 
 // Highlight background blink

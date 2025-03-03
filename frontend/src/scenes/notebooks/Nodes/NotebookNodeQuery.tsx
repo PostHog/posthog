@@ -235,11 +235,11 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
             default: DEFAULT_QUERY,
         },
     },
-    href: (attrs) =>
-        attrs.query.kind === NodeKind.SavedInsightNode
-            ? urls.insightView(attrs.query.shortId)
-            : isInsightVizNode(attrs.query)
-            ? urls.insightNew(undefined, undefined, attrs.query)
+    href: ({ query }) =>
+        query.kind === NodeKind.SavedInsightNode
+            ? urls.insightView(query.shortId)
+            : isInsightVizNode(query)
+            ? urls.insightNew({ query })
             : undefined,
     Settings,
     pasteOptions: {

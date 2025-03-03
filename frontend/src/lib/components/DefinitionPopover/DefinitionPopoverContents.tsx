@@ -1,6 +1,6 @@
 import { hide } from '@floating-ui/react'
-import { IconInfo } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
+import { IconBadge, IconEye, IconHide } from '@posthog/icons'
+import { LemonButton, LemonDivider, LemonSegmentedButton, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActionPopoverInfo } from 'lib/components/DefinitionPopover/ActionPopoverInfo'
 import { CohortPopoverInfo } from 'lib/components/DefinitionPopover/CohortPopoverInfo'
@@ -9,6 +9,7 @@ import { definitionPopoverLogic, DefinitionPopoverState } from 'lib/components/D
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import {
+    DataWarehousePopoverField,
     SimpleOption,
     TaxonomicDefinitionTypes,
     TaxonomicFilterGroup,
@@ -19,51 +20,89 @@ import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP, isCoreFilter } from 'lib/taxonomy'
-import { useEffect, useMemo } from 'react'
+import { Fragment, useEffect, useMemo } from 'react'
 import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 
-import { ActionType, CohortType, EventDefinition, PropertyDefinition } from '~/types'
+import {
+    ActionType,
+    CohortType,
+    EventDefinition,
+    PropertyDefinition,
+    PropertyDefinitionVerificationStatus,
+} from '~/types'
 
 import { HogQLDropdown } from '../HogQLDropdown/HogQLDropdown'
 import { taxonomicFilterLogic } from '../TaxonomicFilter/taxonomicFilterLogic'
 import { TZLabel } from '../TZLabel'
 
-export function VerifiedDefinitionCheckbox({
+export function PropertyStatusControl({
     verified,
-    isProperty,
+    hidden,
+    showHiddenOption,
+    allowVerification,
     onChange,
     compact = false,
+    isProperty,
 }: {
     verified: boolean
-    isProperty: boolean
-    onChange: (nextVerified: boolean) => void
+    hidden: boolean
+    showHiddenOption: boolean
+    allowVerification: boolean
+    onChange: (status: { verified: boolean; hidden: boolean }) => void
     compact?: boolean
+    isProperty: boolean
 }): JSX.Element {
-    const copy = isProperty
-        ? 'Verifying a property is a signal to collaborators that this property should be used in favor of similar properties.'
-        : 'Verified events are prioritized in filters and other selection components. Verifying an event is a signal to collaborators that this event should be used in favor of similar events.'
+    const definitionType = isProperty ? 'property' : 'event'
+    const copy = {
+        verified: `Prioritize this ${definitionType} in filters and other selection components to signal to collaborators that this ${definitionType} should be used in favor of similar ${definitionType}s.`,
+        visible: `${
+            definitionType.charAt(0).toUpperCase() + definitionType.slice(1)
+        } is available for use but has not been verified by the team.`,
+        hidden: `Hide this ${definitionType} from filters and other selection components by default. Use this for deprecated or irrelevant ${definitionType}s.`,
+    }
+
+    const verifiedDisabledCorePropCopy = `Core PostHog ${definitionType}s are inherently treated as if verified, but they can still be hidden.`
+
+    const currentStatus: PropertyDefinitionVerificationStatus = hidden ? 'hidden' : verified ? 'verified' : 'visible'
 
     return (
         <>
-            {!compact && <p>{copy}</p>}
-
-            <LemonSwitch
-                checked={verified}
-                onChange={() => {
-                    onChange(!verified)
+            <LemonSegmentedButton
+                value={currentStatus}
+                onChange={(value) => {
+                    const status = value as PropertyDefinitionVerificationStatus
+                    onChange({
+                        verified: status === 'verified',
+                        hidden: status === 'hidden',
+                    })
                 }}
-                bordered
-                label={
-                    <>
-                        Mark as verified {isProperty ? 'property' : 'event'}
-                        {compact && (
-                            <Tooltip title={copy}>
-                                <IconInfo className="ml-2 text-secondary text-xl shrink-0" />
-                            </Tooltip>
-                        )}
-                    </>
-                }
+                options={[
+                    {
+                        value: 'verified',
+                        label: 'Verified',
+                        tooltip: allowVerification ? copy.verified : undefined,
+                        icon: <IconBadge />,
+                        disabledReason: !allowVerification ? verifiedDisabledCorePropCopy : undefined,
+                    },
+                    {
+                        value: 'visible',
+                        label: 'Visible',
+                        tooltip: copy.visible,
+                        icon: <IconEye />,
+                    },
+                    ...(showHiddenOption
+                        ? [
+                              {
+                                  value: 'hidden',
+                                  label: 'Hidden',
+                                  tooltip: copy.hidden,
+                                  icon: <IconHide />,
+                              },
+                          ]
+                        : []),
+                ]}
             />
+            {!compact && <p className="italic">{copy[currentStatus]}</p>}
         </>
     )
 }
@@ -84,7 +123,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
     } = useValues(definitionPopoverLogic)
 
     const { setLocalDefinition } = useActions(definitionPopoverLogic)
-    const { selectedItemMeta } = useValues(taxonomicFilterLogic)
+    const { selectedItemMeta, dataWarehousePopoverFields } = useValues(taxonomicFilterLogic)
     const { selectItem } = useActions(taxonomicFilterLogic)
 
     // Use effect here to make definition view stateful. TaxonomicFilterLogic won't mount within definitionPopoverLogic
@@ -200,6 +239,15 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
         return (
             <>
                 {sharedComponents}
+                {_definition.verified && (
+                    <div className="mb-4">
+                        <Tooltip title="This property is verified by the team. It is prioritized in filters and other selection components.">
+                            <LemonTag type="success">
+                                <IconBadge /> Verified
+                            </LemonTag>
+                        </Tooltip>
+                    </div>
+                )}
                 <DefinitionPopover.Grid cols={2}>
                     <DefinitionPopover.Card title="Property Type" value={_definition.property_type ?? '-'} />
                 </DefinitionPopover.Grid>
@@ -292,7 +340,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
             label: column.name + ' (' + column.type + ')',
             value: column.name,
         }))
-        const hogqlOption = { label: 'HogQL Expression', value: '' }
+        const hogqlOption = { label: 'SQL Expression', value: '' }
         const itemValue = localDefinition ? group?.getValue?.(localDefinition) : null
 
         const isUsingHogQLExpression = (value: string | undefined): boolean => {
@@ -303,53 +351,37 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
             return !column
         }
 
-        const distinct_id_field_value =
-            'distinct_id_field' in localDefinition ? localDefinition.distinct_id_field : undefined
-        const timestamp_field_value = 'timestamp_field' in localDefinition ? localDefinition.timestamp_field : undefined
-
         return (
             <form className="definition-popover-data-warehouse-schema-form">
                 <div className="flex flex-col justify-between gap-4">
                     <DefinitionPopover.Section>
-                        <label className="definition-popover-edit-form-label" htmlFor="ID Field">
-                            <span className="label-text">ID field</span>
-                        </label>
-                        <LemonSelect
-                            value={'id_field' in localDefinition ? localDefinition.id_field : undefined}
-                            options={columnOptions}
-                            onChange={(value) => setLocalDefinition({ id_field: value })}
-                        />
+                        {dataWarehousePopoverFields.map(
+                            ({ key, label, allowHogQL, hogQLOnly, tableName }: DataWarehousePopoverField) => {
+                                const fieldValue = key in localDefinition ? localDefinition[key] : undefined
+                                const isHogQL = isUsingHogQLExpression(fieldValue)
 
-                        <label className="definition-popover-edit-form-label" htmlFor="Distinct Id Field">
-                            <span className="label-text">Distinct ID field</span>
-                        </label>
-                        <LemonSelect
-                            value={isUsingHogQLExpression(distinct_id_field_value) ? '' : distinct_id_field_value}
-                            options={[...columnOptions, hogqlOption]}
-                            onChange={(value) => setLocalDefinition({ distinct_id_field: value })}
-                        />
-                        {isUsingHogQLExpression(distinct_id_field_value) && (
-                            <HogQLDropdown
-                                hogQLValue={distinct_id_field_value || ''}
-                                tableName={_definition.name}
-                                onHogQLValueChange={(value) => setLocalDefinition({ distinct_id_field: value })}
-                            />
-                        )}
-
-                        <label className="definition-popover-edit-form-label" htmlFor="Timestamp Field">
-                            <span className="label-text">Timestamp field</span>
-                        </label>
-                        <LemonSelect
-                            value={isUsingHogQLExpression(timestamp_field_value) ? '' : timestamp_field_value}
-                            options={[...columnOptions, hogqlOption]}
-                            onChange={(value) => setLocalDefinition({ timestamp_field: value })}
-                        />
-                        {isUsingHogQLExpression(timestamp_field_value) && (
-                            <HogQLDropdown
-                                hogQLValue={timestamp_field_value || ''}
-                                tableName={_definition.name}
-                                onHogQLValueChange={(value) => setLocalDefinition({ timestamp_field: value })}
-                            />
+                                return (
+                                    <Fragment key={key}>
+                                        <label className="definition-popover-edit-form-label" htmlFor={key}>
+                                            <span className="label-text">{label}</span>
+                                        </label>
+                                        {!hogQLOnly && (
+                                            <LemonSelect
+                                                value={isHogQL ? '' : fieldValue}
+                                                options={allowHogQL ? [...columnOptions, hogqlOption] : columnOptions}
+                                                onChange={(value) => setLocalDefinition({ [key]: value })}
+                                            />
+                                        )}
+                                        {((allowHogQL && isHogQL) || hogQLOnly) && (
+                                            <HogQLDropdown
+                                                hogQLValue={fieldValue || ''}
+                                                tableName={tableName || _definition.name}
+                                                onHogQLValueChange={(value) => setLocalDefinition({ [key]: value })}
+                                            />
+                                        )}
+                                    </Fragment>
+                                )
+                            }
                         )}
                     </DefinitionPopover.Section>
                     <div className="flex justify-end">
@@ -358,12 +390,10 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                                 selectItem(group, itemValue ?? null, localDefinition)
                             }}
                             disabledReason={
-                                'id_field' in localDefinition &&
-                                localDefinition.id_field &&
-                                'timestamp_field' in localDefinition &&
-                                localDefinition.timestamp_field &&
-                                'distinct_id_field' in localDefinition &&
-                                localDefinition.distinct_id_field
+                                dataWarehousePopoverFields.every(
+                                    ({ key }: DataWarehousePopoverField) =>
+                                        key in localDefinition && localDefinition[key]
+                                )
                                     ? null
                                     : 'Field mappings must be specified'
                             }
@@ -398,6 +428,10 @@ function DefinitionEdit(): JSX.Element {
     if (!definition || !hasTaxonomyFeatures) {
         return <></>
     }
+
+    const showHiddenOption = hasTaxonomyFeatures && 'hidden' in localDefinition
+    const allowVerification =
+        hasTaxonomyFeatures && !isCoreFilter(definition.name || '') && 'verified' in localDefinition
 
     return (
         <>
@@ -438,15 +472,20 @@ function DefinitionEdit(): JSX.Element {
                         </div>
                     </>
                 )}
-                {definition && definition.name && !isCoreFilter(definition.name) && 'verified' in localDefinition && (
-                    <VerifiedDefinitionCheckbox
-                        verified={!!localDefinition.verified}
-                        isProperty={isProperty}
-                        onChange={(nextVerified) => {
-                            setLocalDefinition({ verified: nextVerified })
-                        }}
-                        compact
-                    />
+                {definition && definition.name && (showHiddenOption || allowVerification) && (
+                    <div className="mb-4">
+                        <PropertyStatusControl
+                            isProperty={isProperty}
+                            verified={!!localDefinition.verified}
+                            hidden={!!(localDefinition as Partial<PropertyDefinition>).hidden}
+                            onChange={({ verified, hidden }) => {
+                                setLocalDefinition({ verified, hidden } as Partial<PropertyDefinition>)
+                            }}
+                            compact
+                            showHiddenOption={showHiddenOption}
+                            allowVerification={allowVerification}
+                        />
+                    </div>
                 )}
                 <LemonDivider className="DefinitionPopover mt-0" />
                 <div className="flex items-center justify-between gap-2 click-outside-block">

@@ -43,7 +43,7 @@ import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { hexToRGBA, lightenDarkenColor } from '~/lib/utils'
 import { groupsModel } from '~/models/groupsModel'
-import { GoalLine, TrendsFilter } from '~/queries/schema'
+import { GoalLine, TrendsFilter } from '~/queries/schema/schema-general'
 import { GraphDataset, GraphPoint, GraphPointPayload, GraphType } from '~/types'
 
 let tooltipRoot: Root
@@ -69,6 +69,30 @@ function truncateString(str: string, num: number): string {
         return str.slice(0, num) + ' ...'
     }
     return str
+}
+
+const RESOLVED_COLOR_MAP = new Map<string, string>()
+function resolveVariableColor(color: string | undefined): string | undefined {
+    if (!color) {
+        return color
+    }
+
+    if (RESOLVED_COLOR_MAP.has(color)) {
+        return RESOLVED_COLOR_MAP.get(color)
+    }
+
+    // Cache complex variables to avoid the `getComputedStyle` call on every call
+    if (color.startsWith('var(--')) {
+        const replaced = color.replace('var(', '').replace(')', '')
+        const computedColor = getComputedStyle(document.documentElement).getPropertyValue(replaced)
+        RESOLVED_COLOR_MAP.set(color, computedColor)
+        return computedColor
+    }
+
+    // Optimize to avoid the `startsWith` check on every call
+    RESOLVED_COLOR_MAP.set(color, color)
+
+    return color
 }
 
 export function onChartClick(
@@ -240,6 +264,7 @@ export interface LineGraphProps {
     yAxisScaleType?: string | null
     showMultipleYAxes?: boolean | null
     goalLines?: GoalLine[]
+    isStacked?: boolean
 }
 
 export const LineGraph = (props: LineGraphProps): JSX.Element => {
@@ -281,6 +306,7 @@ export function LineGraph_({
     showMultipleYAxes = false,
     legend = { display: false },
     goalLines: _goalLines,
+    isStacked = true,
 }: LineGraphProps): JSX.Element {
     let datasets = _datasets
 
@@ -297,7 +323,7 @@ export function LineGraph_({
     // Relying on useResizeObserver instead of Chart's onResize because the latter was not reliable
     const { width: chartWidth, height: chartHeight } = useResizeObserver({ ref: canvasRef })
 
-    const colors = getGraphColors(isDarkModeOn)
+    const colors = getGraphColors()
     const isHorizontal = type === GraphType.HorizontalBar
     const isPie = type === GraphType.Pie
     if (isPie) {
@@ -324,7 +350,19 @@ export function LineGraph_({
 
         if (canvas) {
             const handleEvent = (event: Event): void => {
-                console.error(event)
+                if ((window.performance as any)?.memory) {
+                    console.error(event, {
+                        usedJSHeapSize:
+                            ((window.performance as any)?.memory.usedJSHeapSize / 1024 / 1024).toFixed(2) + ' MB',
+                        totalJSHeapSize:
+                            ((window.performance as any)?.memory.totalJSHeapSize / 1024 / 1024).toFixed(2) + ' MB',
+                        jsHeapSizeLimit:
+                            ((window.performance as any)?.memory.jsHeapSizeLimit / 1024 / 1024).toFixed(2) + ' MB',
+                    })
+                } else {
+                    console.error(event)
+                }
+
                 Sentry.captureException(event)
             }
 
@@ -438,7 +476,7 @@ export function LineGraph_({
                     if (context.tick) {
                         for (const annotation of goalLinesWithColor) {
                             if (context.tick.value === annotation.value) {
-                                return annotation.borderColor
+                                return resolveVariableColor(annotation.borderColor)
                             }
                         }
                     }
@@ -597,7 +635,7 @@ export function LineGraph_({
                             type: 'line',
                             yMin: annotation.value,
                             yMax: annotation.value,
-                            borderColor: annotation.borderColor || 'rgb(255, 99, 132)',
+                            borderColor: resolveVariableColor(annotation.borderColor) || 'rgb(255, 99, 132)',
                             label: {
                                 content: annotation.label,
                                 display: annotation.displayLabel ?? true,
@@ -771,7 +809,7 @@ export function LineGraph_({
                 x: {
                     display: !hideXAxis,
                     beginAtZero: true,
-                    stacked: true,
+                    stacked: isStacked,
                     ticks: {
                         ...tickOptions,
                         precision,
@@ -790,7 +828,7 @@ export function LineGraph_({
                 y: {
                     display: !hideYAxis,
                     beginAtZero: true,
-                    stacked: true,
+                    stacked: isStacked,
                     ticks: {
                         ...tickOptions,
                         display: !hideYAxis,

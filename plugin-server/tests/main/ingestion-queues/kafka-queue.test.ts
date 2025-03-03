@@ -40,7 +40,7 @@ describe.skip('IngestionConsumer', () => {
         await resetTestDatabase()
         await resetTestDatabaseClickhouse(extraServerConfig)
         pluginServer = await startPluginsServer(extraServerConfig, makePiscina)
-        hub = pluginServer.hub
+        hub = pluginServer.hub!
         stopServer = pluginServer.stop
         posthog = createPosthog(hub, pluginConfig39)
     })

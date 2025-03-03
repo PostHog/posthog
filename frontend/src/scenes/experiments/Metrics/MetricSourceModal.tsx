@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import { Experiment } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
-import { getDefaultFunnelsMetric } from '../utils'
+import { getDefaultBinomialMetric, getDefaultFunnelsMetric } from '../utils'
 
 export function MetricSourceModal({
     experimentId,
@@ -13,16 +13,15 @@ export function MetricSourceModal({
     experimentId: Experiment['id']
     isSecondary?: boolean
 }): JSX.Element {
-    const { experiment, isPrimaryMetricSourceModalOpen, isSecondaryMetricSourceModalOpen } = useValues(
-        experimentLogic({ experimentId })
-    )
+    const { experiment, isPrimaryMetricSourceModalOpen, isSecondaryMetricSourceModalOpen, shouldUseExperimentMetrics } =
+        useValues(experimentLogic({ experimentId }))
     const {
         setExperiment,
         closePrimaryMetricSourceModal,
         closeSecondaryMetricSourceModal,
         openPrimaryMetricModal,
-        openPrimarySharedMetricModal,
         openSecondaryMetricModal,
+        openPrimarySharedMetricModal,
         openSecondarySharedMetricModal,
     } = useActions(experimentLogic({ experimentId }))
 
@@ -40,7 +39,10 @@ export function MetricSourceModal({
                     onClick={() => {
                         closeCurrentModal()
 
-                        const newMetrics = [...experiment[metricsField], getDefaultFunnelsMetric()]
+                        const defaultMetric = shouldUseExperimentMetrics
+                            ? getDefaultBinomialMetric()
+                            : getDefaultFunnelsMetric()
+                        const newMetrics = [...experiment[metricsField], defaultMetric]
                         setExperiment({
                             [metricsField]: newMetrics,
                         })

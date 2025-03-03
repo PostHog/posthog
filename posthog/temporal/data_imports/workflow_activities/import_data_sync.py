@@ -6,13 +6,13 @@ from typing import Any, Optional
 
 from django.db import close_old_connections
 from django.db.models import Prefetch
-
+from dlt.sources import DltSource
 from temporalio import activity
 
 from posthog.models.integration import Integration
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.data_imports.pipelines.bigquery import delete_all_temp_destination_tables, delete_table
-
+from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
 from posthog.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
 from posthog.warehouse.models import (
@@ -117,7 +117,8 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
         if schema.is_incremental:
             logger.debug(f"Incremental last value being used is: {processed_incremental_last_value}")
 
-        source = None
+        source: DltSource | SourceResponse
+
         if model.pipeline.source_type == ExternalDataSource.Type.STRIPE:
             from posthog.temporal.data_imports.pipelines.stripe import stripe_source
 
@@ -178,6 +179,8 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
             ExternalDataSource.Type.MSSQL,
         ]:
             from posthog.temporal.data_imports.pipelines.sql_database import sql_source_for_type
+            from posthog.temporal.data_imports.pipelines.postgres.postgres import postgres_source
+            from posthog.temporal.data_imports.pipelines.mysql.mysql import mysql_source
 
             host = model.pipeline.job_inputs.get("host")
             port = model.pipeline.job_inputs.get("port")
@@ -213,28 +216,74 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                     if tunnel is None:
                         raise Exception("Can't open tunnel to SSH server")
 
-                    source = sql_source_for_type(
-                        source_type=ExternalDataSource.Type(model.pipeline.source_type),
-                        host=tunnel.local_bind_host,
-                        port=tunnel.local_bind_port,
-                        user=user,
-                        password=password,
-                        database=database,
-                        sslmode="prefer",
-                        schema=pg_schema,
-                        table_names=endpoints,
-                        incremental_field=schema.sync_type_config.get("incremental_field")
-                        if schema.is_incremental
-                        else None,
-                        incremental_field_type=schema.sync_type_config.get("incremental_field_type")
-                        if schema.is_incremental
-                        else None,
-                        db_incremental_field_last_value=processed_incremental_last_value
-                        if schema.is_incremental
-                        else None,
-                        team_id=inputs.team_id,
-                        using_ssl=using_ssl,
-                    )
+                    if ExternalDataSource.Type(model.pipeline.source_type) == ExternalDataSource.Type.POSTGRES:
+                        source = postgres_source(
+                            host=tunnel.local_bind_host,
+                            port=tunnel.local_bind_port,
+                            user=user,
+                            password=password,
+                            database=database,
+                            sslmode="prefer",
+                            schema=pg_schema,
+                            table_names=endpoints,
+                            is_incremental=schema.is_incremental,
+                            logger=logger,
+                            incremental_field=schema.sync_type_config.get("incremental_field")
+                            if schema.is_incremental
+                            else None,
+                            incremental_field_type=schema.sync_type_config.get("incremental_field_type")
+                            if schema.is_incremental
+                            else None,
+                            db_incremental_field_last_value=processed_incremental_last_value
+                            if schema.is_incremental
+                            else None,
+                            team_id=inputs.team_id,
+                        )
+                    elif ExternalDataSource.Type(model.pipeline.source_type) == ExternalDataSource.Type.MYSQL:
+                        source = mysql_source(
+                            host=tunnel.local_bind_host,
+                            port=int(tunnel.local_bind_port),
+                            user=user,
+                            password=password,
+                            database=database,
+                            using_ssl=using_ssl,
+                            schema=pg_schema,
+                            table_names=endpoints,
+                            is_incremental=schema.is_incremental,
+                            logger=logger,
+                            incremental_field=schema.sync_type_config.get("incremental_field")
+                            if schema.is_incremental
+                            else None,
+                            incremental_field_type=schema.sync_type_config.get("incremental_field_type")
+                            if schema.is_incremental
+                            else None,
+                            db_incremental_field_last_value=processed_incremental_last_value
+                            if schema.is_incremental
+                            else None,
+                        )
+                    else:
+                        source = sql_source_for_type(
+                            source_type=ExternalDataSource.Type(model.pipeline.source_type),
+                            host=tunnel.local_bind_host,
+                            port=tunnel.local_bind_port,
+                            user=user,
+                            password=password,
+                            database=database,
+                            sslmode="prefer",
+                            schema=pg_schema,
+                            table_names=endpoints,
+                            incremental_field=schema.sync_type_config.get("incremental_field")
+                            if schema.is_incremental
+                            else None,
+                            incremental_field_type=schema.sync_type_config.get("incremental_field_type")
+                            if schema.is_incremental
+                            else None,
+                            db_incremental_field_last_value=processed_incremental_last_value
+                            if schema.is_incremental
+                            else None,
+                            team_id=inputs.team_id,
+                            using_ssl=using_ssl,
+                        )
 
                     return _run(
                         job_inputs=job_inputs,
@@ -245,24 +294,68 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                         reset_pipeline=reset_pipeline,
                     )
 
-            source = sql_source_for_type(
-                source_type=ExternalDataSource.Type(model.pipeline.source_type),
-                host=host,
-                port=port,
-                user=user,
-                password=password,
-                database=database,
-                sslmode="prefer",
-                schema=pg_schema,
-                table_names=endpoints,
-                incremental_field=schema.sync_type_config.get("incremental_field") if schema.is_incremental else None,
-                incremental_field_type=schema.sync_type_config.get("incremental_field_type")
-                if schema.is_incremental
-                else None,
-                db_incremental_field_last_value=processed_incremental_last_value if schema.is_incremental else None,
-                team_id=inputs.team_id,
-                using_ssl=using_ssl,
-            )
+            if ExternalDataSource.Type(model.pipeline.source_type) == ExternalDataSource.Type.POSTGRES:
+                source = postgres_source(
+                    host=host,
+                    port=port,
+                    user=user,
+                    password=password,
+                    database=database,
+                    sslmode="prefer",
+                    schema=pg_schema,
+                    table_names=endpoints,
+                    is_incremental=schema.is_incremental,
+                    logger=logger,
+                    incremental_field=schema.sync_type_config.get("incremental_field")
+                    if schema.is_incremental
+                    else None,
+                    incremental_field_type=schema.sync_type_config.get("incremental_field_type")
+                    if schema.is_incremental
+                    else None,
+                    db_incremental_field_last_value=processed_incremental_last_value if schema.is_incremental else None,
+                    team_id=inputs.team_id,
+                )
+            elif ExternalDataSource.Type(model.pipeline.source_type) == ExternalDataSource.Type.MYSQL:
+                source = mysql_source(
+                    host=host,
+                    port=int(port),
+                    user=user,
+                    password=password,
+                    database=database,
+                    using_ssl=using_ssl,
+                    schema=pg_schema,
+                    table_names=endpoints,
+                    is_incremental=schema.is_incremental,
+                    logger=logger,
+                    incremental_field=schema.sync_type_config.get("incremental_field")
+                    if schema.is_incremental
+                    else None,
+                    incremental_field_type=schema.sync_type_config.get("incremental_field_type")
+                    if schema.is_incremental
+                    else None,
+                    db_incremental_field_last_value=processed_incremental_last_value if schema.is_incremental else None,
+                )
+            else:
+                source = sql_source_for_type(
+                    source_type=ExternalDataSource.Type(model.pipeline.source_type),
+                    host=host,
+                    port=port,
+                    user=user,
+                    password=password,
+                    database=database,
+                    sslmode="prefer",
+                    schema=pg_schema,
+                    table_names=endpoints,
+                    incremental_field=schema.sync_type_config.get("incremental_field")
+                    if schema.is_incremental
+                    else None,
+                    incremental_field_type=schema.sync_type_config.get("incremental_field_type")
+                    if schema.is_incremental
+                    else None,
+                    db_incremental_field_last_value=processed_incremental_last_value if schema.is_incremental else None,
+                    team_id=inputs.team_id,
+                    using_ssl=using_ssl,
+                )
 
             return _run(
                 job_inputs=job_inputs,
@@ -273,7 +366,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 reset_pipeline=reset_pipeline,
             )
         elif model.pipeline.source_type == ExternalDataSource.Type.SNOWFLAKE:
-            from posthog.temporal.data_imports.pipelines.sql_database import (
+            from posthog.temporal.data_imports.pipelines.snowflake.snowflake import (
                 snowflake_source,
             )
 
@@ -301,6 +394,8 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 warehouse=warehouse,
                 role=role,
                 table_names=endpoints,
+                logger=logger,
+                is_incremental=schema.is_incremental,
                 incremental_field=schema.sync_type_config.get("incremental_field") if schema.is_incremental else None,
                 incremental_field_type=schema.sync_type_config.get("incremental_field_type")
                 if schema.is_incremental
@@ -505,7 +600,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
 
 def _run(
     job_inputs: PipelineInputs,
-    source: Any,
+    source: DltSource | SourceResponse,
     logger: FilteringBoundLogger,
     inputs: ImportDataActivityInputs,
     schema: ExternalDataSchema,

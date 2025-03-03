@@ -254,6 +254,10 @@ const featureFlagActionsMapping: Record<
     surveys: () => null,
     user_access_level: () => null,
     is_remote_configuration: () => null,
+    has_encrypted_payloads: () => null,
+    status: () => null,
+    version: () => null,
+    last_modified_by: () => null,
 }
 
 export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {

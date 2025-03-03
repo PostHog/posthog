@@ -220,6 +220,6 @@ pub fn from_bytes(bytes: Bytes, limit: usize, comp: String) -> Result<RawRequest
 
     match serde_json::from_str::<RawRequest>(&payload) {
         Ok(res) => Ok(res),
-        Err(e) => Err(CaptureError::RequestParsingError(e)),
+        Err(e) => Err(CaptureError::RequestParsingError(e.to_string())),
     }
 }

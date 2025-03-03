@@ -1,6 +1,7 @@
 import time
 from typing import Optional
 from uuid import UUID
+import posthoganalytics
 from sentry_sdk import capture_exception
 
 import requests
@@ -52,9 +53,11 @@ def redis_heartbeat() -> None:
     expires=60 * 10,  # Do not run queries that got stuck for more than this
     reject_on_worker_lost=True,
 )
-@limit_concurrency(90)  # Do not go above what CH can handle (max_concurrent_queries)
+@limit_concurrency(150, limit_name="global")  # Do not go above what CH can handle (max_concurrent_queries)
 @limit_concurrency(
-    10, key=lambda *args, **kwargs: kwargs.get("team_id") or args[0]
+    50,
+    key=lambda *args, **kwargs: kwargs.get("team_id") or args[0],
+    limit_name="per_team",
 )  # Do not run too many queries at once for the same team
 def process_query_task(
     team_id: int,
@@ -67,7 +70,7 @@ def process_query_task(
     Kick off query
     Once complete save results to redis
     """
-    from posthog.client import execute_process_query
+    from posthog.clickhouse.client import execute_process_query
 
     execute_process_query(
         team_id=team_id,
@@ -190,7 +193,7 @@ HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC = {"$heartbeat": "ingestion_api"}
 def ingestion_lag() -> None:
     from statshog.defaults.django import statsd
 
-    from posthog.client import sync_execute
+    from posthog.clickhouse.client import sync_execute
     from posthog.models.team.team import Team
 
     query = """
@@ -243,7 +246,7 @@ def replay_count_metrics() -> None:
     try:
         logger.info("[replay_count_metrics] running task")
 
-        from posthog.client import sync_execute
+        from posthog.clickhouse.client import sync_execute
 
         # ultimately I want to observe values by team id, but at the moment that would be lots of series, let's reduce the value first
         query = """
@@ -367,7 +370,7 @@ def graphile_worker_queue_size() -> None:
 def clickhouse_row_count() -> None:
     from statshog.defaults.django import statsd
 
-    from posthog.client import sync_execute
+    from posthog.clickhouse.client import sync_execute
 
     with pushed_metrics_registry("celery_clickhouse_row_count") as registry:
         row_count_gauge = Gauge(
@@ -401,7 +404,7 @@ def clickhouse_errors_count() -> None:
     225 - NO_ZOOKEEPER
     242 - TABLE_IS_READ_ONLY
     """
-    from posthog.client import sync_execute
+    from posthog.clickhouse.client import sync_execute
 
     QUERY = """
         select
@@ -434,7 +437,7 @@ def clickhouse_errors_count() -> None:
 def clickhouse_part_count() -> None:
     from statshog.defaults.django import statsd
 
-    from posthog.client import sync_execute
+    from posthog.clickhouse.client import sync_execute
 
     QUERY = """
         SELECT table, count(1) freq
@@ -465,7 +468,7 @@ def clickhouse_part_count() -> None:
 def clickhouse_mutation_count() -> None:
     from statshog.defaults.django import statsd
 
-    from posthog.client import sync_execute
+    from posthog.clickhouse.client import sync_execute
 
     QUERY = """
         SELECT
@@ -836,13 +839,19 @@ def send_org_usage_reports() -> None:
 @shared_task(ignore_result=True)
 def update_quota_limiting() -> None:
     try:
+        from ee.billing.quota_limiting import report_quota_limiting_event
         from ee.billing.quota_limiting import update_all_orgs_billing_quotas
 
+        report_quota_limiting_event("update_quota_limiting task started", {})
+
         update_all_orgs_billing_quotas()
+
+        report_quota_limiting_event("update_quota_limiting task finished", {})
     except ImportError:
-        pass
+        report_quota_limiting_event("update_quota_limiting task failed", {"error": "ImportError"})
     except Exception as e:
         capture_exception(e)
+        report_quota_limiting_event("update_quota_limiting task failed", {"error": str(e)})
 
 
 @shared_task(ignore_result=True)
@@ -896,6 +905,22 @@ def ee_persist_finished_recordings() -> None:
         pass
     else:
         persist_finished_recordings()
+
+
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.SESSION_REPLAY_GENERAL.value,
+)
+def ee_count_items_in_playlists() -> None:
+    try:
+        from ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters import (
+            enqueue_recordings_that_match_playlist_filters,
+        )
+    except ImportError as ie:
+        posthoganalytics.capture_exception(ie, properties={"posthog_feature": "session_replay_playlist_counters"})
+        logger.exception("Failed to import task to count items in playlists", error=ie)
+    else:
+        enqueue_recordings_that_match_playlist_filters()
 
 
 @shared_task(ignore_result=True)

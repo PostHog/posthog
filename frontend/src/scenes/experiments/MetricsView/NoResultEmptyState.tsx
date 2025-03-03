@@ -5,7 +5,7 @@ import { combineUrl } from 'kea-router/lib/utils'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
-import { NodeKind } from '~/queries/schema'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { ActivityTab, InsightType } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'

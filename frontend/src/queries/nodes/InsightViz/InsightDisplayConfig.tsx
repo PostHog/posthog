@@ -21,9 +21,9 @@ import { ShowLegendFilter } from 'scenes/insights/EditorFilters/ShowLegendFilter
 import { ShowMultipleYAxesFilter } from 'scenes/insights/EditorFilters/ShowMultipleYAxesFilter'
 import { ValueOnSeriesFilter } from 'scenes/insights/EditorFilters/ValueOnSeriesFilter'
 import { InsightDateFilter } from 'scenes/insights/filters/InsightDateFilter'
-import { RetentionCumulativeCheckbox } from 'scenes/insights/filters/RetentionCumulativeCheckbox'
+import { RetentionChartPicker } from 'scenes/insights/filters/RetentionChartPicker'
+import { RetentionDashboardDisplayPicker } from 'scenes/insights/filters/RetentionDashboardDisplayPicker'
 import { RetentionMeanCheckbox } from 'scenes/insights/filters/RetentionMeanCheckbox'
-import { RetentionReferencePicker } from 'scenes/insights/filters/RetentionReferencePicker'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { RetentionDatePicker } from 'scenes/insights/RetentionDatePicker'
@@ -77,6 +77,8 @@ export function InsightDisplayConfig(): JSX.Element {
         ((isTrends || isStickiness) && !(display && NON_TIME_SERIES_DISPLAY_TYPES.includes(display)))
     const showSmoothing =
         isTrends && !isValidBreakdown(breakdownFilter) && (!display || display === ChartDisplayType.ActionsLineGraph)
+    const showMultipleYAxesConfig = isTrends || isStickiness
+    const showAlertThresholdLinesConfig = isTrends
 
     const { showValuesOnSeries, mightContainFractionalNumbers } = useValues(trendsDataLogic(insightProps))
 
@@ -89,8 +91,10 @@ export function InsightDisplayConfig(): JSX.Element {
                           ...(supportsValueOnSeries ? [{ label: () => <ValueOnSeriesFilter /> }] : []),
                           ...(supportsPercentStackView ? [{ label: () => <PercentStackViewFilter /> }] : []),
                           ...(hasLegend ? [{ label: () => <ShowLegendFilter /> }] : []),
-                          { label: () => <ShowAlertThresholdLinesFilter /> },
-                          { label: () => <ShowMultipleYAxesFilter /> },
+                          ...(showAlertThresholdLinesConfig
+                              ? [{ label: () => <ShowAlertThresholdLinesFilter /> }]
+                              : []),
+                          ...(showMultipleYAxesConfig ? [{ label: () => <ShowMultipleYAxesFilter /> }] : []),
                       ],
                   },
               ]
@@ -136,6 +140,14 @@ export function InsightDisplayConfig(): JSX.Element {
                   },
               ]
             : []),
+        ...(isRetention
+            ? [
+                  {
+                      title: 'On dashboards',
+                      items: [{ label: () => <RetentionDashboardDisplayPicker /> }],
+                  },
+              ]
+            : []),
     ]
     const advancedOptionsCount: number =
         (supportsValueOnSeries && showValuesOnSeries ? 1 : 0) +
@@ -177,9 +189,7 @@ export function InsightDisplayConfig(): JSX.Element {
                 {!!isRetention && (
                     <ConfigFilter>
                         <RetentionDatePicker />
-                        <RetentionReferencePicker />
                         <RetentionMeanCheckbox />
-                        <RetentionCumulativeCheckbox />
                     </ConfigFilter>
                 )}
 
@@ -217,6 +227,11 @@ export function InsightDisplayConfig(): JSX.Element {
                 {supportsDisplay && (
                     <ConfigFilter>
                         <ChartFilter />
+                    </ConfigFilter>
+                )}
+                {!!isRetention && (
+                    <ConfigFilter>
+                        <RetentionChartPicker />
                     </ConfigFilter>
                 )}
                 {!!isStepsFunnel && (

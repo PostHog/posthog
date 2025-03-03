@@ -35,3 +35,8 @@ print(b)
 print(jsonStringify(b)) // just a json string "<lambda:0>"
 let c := jsonParse(jsonStringify(b))
 print(c) // prints a string, can't be called
+
+print('--------')
+
+let arrayMapObjects := arrayMap(a -> ({'a': a}), [1, 2, 3])
+print(arrayMapObjects)

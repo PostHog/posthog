@@ -374,7 +374,7 @@ class TestExternalDataSource(APIBaseTest):
         self._create_external_data_source()
         self._create_external_data_source()
 
-        with self.assertNumQueries(19):
+        with self.assertNumQueries(21):
             response = self.client.get(f"/api/projects/{self.team.pk}/external_data_sources/")
         payload = response.json()
 
@@ -410,6 +410,7 @@ class TestExternalDataSource(APIBaseTest):
                 "created_by",
                 "status",
                 "source_type",
+                "latest_error",
                 "prefix",
                 "last_run_at",
                 "schemas",
@@ -426,12 +427,12 @@ class TestExternalDataSource(APIBaseTest):
                     "incremental_field_type": None,
                     "last_synced_at": schema.last_synced_at,
                     "name": schema.name,
-                    "should_sync": schema.should_sync,
                     "latest_error": schema.latest_error,
+                    "should_sync": schema.should_sync,
                     "status": schema.status,
                     "sync_type": schema.sync_type,
                     "table": schema.table,
-                    "sync_frequency": sync_frequency_interval_to_sync_frequency(schema),
+                    "sync_frequency": sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval),
                 }
             ],
         )

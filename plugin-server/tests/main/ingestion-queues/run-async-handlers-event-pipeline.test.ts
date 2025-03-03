@@ -16,6 +16,7 @@
 //     KafkaJS consumer runner, which we assume will handle retries.
 
 import Redis from 'ioredis'
+// @ts-expect-error types don't exist for this package
 import LibrdKafkaError from 'node-rdkafka/lib/error'
 
 import { defaultConfig } from '../../../src/config/config'
@@ -57,7 +58,7 @@ describe('runAppsOnEventPipeline()', () => {
         jest.useFakeTimers({ advanceTimers: true })
         hub = await createHub()
         redis = await hub.redisPool.acquire()
-        await hub.postgres.query(PostgresUse.COMMON_WRITE, POSTGRES_DELETE_TABLES_QUERY, null, 'deleteTables') // Need to clear the DB to avoid unique constraint violations on ids
+        await hub.postgres.query(PostgresUse.COMMON_WRITE, POSTGRES_DELETE_TABLES_QUERY, [], 'deleteTables') // Need to clear the DB to avoid unique constraint violations on ids
     })
 
     afterEach(async () => {
@@ -110,17 +111,21 @@ describe('runAppsOnEventPipeline()', () => {
         )
 
         await expect(
-            processOnEventStep(hub, {
-                distinctId: 'asdf',
-                teamId: teamId,
-                event: 'some event',
-                properties: {},
-                eventUuid: new UUIDT().toString(),
-                person_created_at: null,
-                person_properties: {},
-                timestamp: new Date().toISOString() as ISOTimestamp,
-                elementsList: [],
-            })
+            processOnEventStep(
+                hub,
+                // @ts-expect-error - TODO: Add missing `projectId` field to event
+                {
+                    distinctId: 'asdf',
+                    teamId: teamId,
+                    event: 'some event',
+                    properties: {},
+                    eventUuid: new UUIDT().toString(),
+                    person_created_at: null,
+                    person_properties: {},
+                    timestamp: new Date().toISOString() as ISOTimestamp,
+                    elementsList: [],
+                }
+            )
         ).rejects.toEqual(new DependencyUnavailableError('Failed to produce', 'Kafka', error))
     })
 
@@ -157,6 +162,7 @@ describe('runAppsOnEventPipeline()', () => {
             elementsList: [],
         }
 
+        // @ts-expect-error - TODO: Add missing `projectId` field to event
         await expect(processOnEventStep(hub, event)).resolves.toEqual(null)
     })
 })
@@ -182,6 +188,8 @@ describe('eachBatchAsyncHandlers', () => {
 
     test('rejections from kafka are bubbled up to the consumer', async () => {
         piscina = await makePiscina(defaultConfig, hub)
+
+        // @ts-expect-error - TODO: piscina can be used, update types
         const ingestionConsumer = buildOnEventIngestionConsumer({ hub, piscina })
 
         const error = new LibrdKafkaError({ message: 'test', code: 1, errno: 1, origin: 'test', isRetriable: true })

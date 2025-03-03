@@ -533,16 +533,18 @@ export function HogFunctionInputs({
                 }}
             >
                 <SortableContext disabled={!showSource} items={inputSchemaIds} strategy={verticalListSortingStrategy}>
-                    {configuration.inputs_schema?.map((schema) => {
-                        return (
-                            <HogFunctionInputWithSchema
-                                key={schema.key}
-                                schema={schema}
-                                configuration={configuration}
-                                setConfigurationValue={setConfigurationValue}
-                            />
-                        )
-                    })}
+                    {configuration.inputs_schema
+                        ?.filter((i) => !i.hidden)
+                        .map((schema) => {
+                            return (
+                                <HogFunctionInputWithSchema
+                                    key={schema.key}
+                                    schema={schema}
+                                    configuration={configuration}
+                                    setConfigurationValue={setConfigurationValue}
+                                />
+                            )
+                        })}
                 </SortableContext>
             </DndContext>
         </>

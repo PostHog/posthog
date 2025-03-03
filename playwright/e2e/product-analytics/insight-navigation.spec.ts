@@ -1,9 +1,8 @@
-import { expect, test } from '@playwright/test'
-
 import { InsightType } from '~/types'
 
 import { InsightPage } from '../../page-models/insightPage'
-import {Navigation} from "../../utils/navigation";
+import { Navigation } from '../../utils/navigation'
+import { expect, test } from '../../utils/playwright-test-base'
 
 const typeTestCases: { type: InsightType; selector: string }[] = [
     { type: InsightType.TRENDS, selector: '.TrendsInsight canvas' },
@@ -20,7 +19,7 @@ typeTestCases.forEach(({ type, selector }) => {
     test.skip(`can navigate to ${type} insight from saved insights page`, async ({ page }) => {
         await new InsightPage(page).goToNew(type)
         // have to use contains to make paths match user paths
-        await expect(page.locator('.LemonTabs__tab--active')).toContainText(type, {ignoreCase: true})
+        await expect(page.locator('.LemonTabs__tab--active')).toContainText(type, { ignoreCase: true })
 
         // we don't need to wait for the insight to load, just that it or its loading state is visible
         const insightStillLoading = await page.locator('.insight-empty-state.warning').isVisible()
@@ -33,7 +32,7 @@ typeTestCases.forEach(({ type, selector }) => {
 // commented out because the query spec is incorrect
 // test.skip('can navigate to insight by query', async ({ page }) => {
 //     const insight = new InsightPage(page)
-//     const url = urls.insightNew(undefined, undefined, {
+//     const url = urls.insightNew({query: {
 //         kind: NodeKind.InsightVizNode,
 //         source: {
 //             kind: 'TrendsQuery',
@@ -51,7 +50,7 @@ typeTestCases.forEach(({ type, selector }) => {
 //             },
 //         },
 //         full: true,
-//     })
+//     }})
 //
 //     await page.goto(url)
 //

@@ -1,4 +1,3 @@
-import * as Sentry from '@sentry/node'
 import { Message, MessageHeader } from 'node-rdkafka'
 import { Histogram } from 'prom-client'
 
@@ -18,6 +17,7 @@ import {
 import { runInstrumentedFunction } from '../main/utils'
 import { Hub, PipelineEvent, PluginServerService } from '../types'
 import { normalizeEvent } from '../utils/event'
+import { captureException } from '../utils/posthog'
 import { retryIfRetriable } from '../utils/retries'
 import { status } from '../utils/status'
 import { EventPipelineResult, EventPipelineRunner } from '../worker/ingestion/event-pipeline/runner'
@@ -356,7 +356,7 @@ export class IngestionConsumer {
         // fact that node-rdkafka adheres to the `isRetriable` interface.
 
         if (error?.isRetriable === false) {
-            const sentryEventId = Sentry.captureException(error)
+            const sentryEventId = captureException(error)
             const headers: MessageHeader[] = message.headers ?? []
             headers.push({ ['sentry-event-id']: sentryEventId })
             headers.push({ ['event-id']: event.uuid })

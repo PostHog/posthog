@@ -1,4 +1,3 @@
-import { LemonBanner, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { apiHostOrigin } from 'lib/utils/apiHost'
@@ -9,7 +8,7 @@ export interface iOSSetupProps {
 }
 
 function IOSInstallCocoaPodsSnippet(): JSX.Element {
-    return <CodeSnippet language={Language.Ruby}>{'pod "PostHog", "~> 3.0.0"'}</CodeSnippet>
+    return <CodeSnippet language={Language.Ruby}>{'pod "PostHog", "~> 3.0"'}</CodeSnippet>
 }
 
 function IOSInstallSPMSnippet(): JSX.Element {
@@ -64,17 +63,6 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 export function SDKInstallIOSInstructions(props: iOSSetupProps): JSX.Element {
     return (
         <>
-            {props.includeReplay ? (
-                <LemonBanner type="info">
-                    🚧 NOTE: <Link to="https://posthog.com/docs/session-replay/mobile">Mobile recording</Link> is
-                    currently in beta. We are keen to gather as much feedback as possible so if you try this out please
-                    let us know. You can send feedback via the{' '}
-                    <Link to="https://us.posthog.com/#panel=support%3Afeedback%3Asession_replay%3Alow">
-                        in-app support panel
-                    </Link>{' '}
-                    or one of our other <Link to="https://posthog.com/docs/support-options">support options</Link>.
-                </LemonBanner>
-            ) : null}
             <h3>Install via CocoaPods</h3>
             <IOSInstallCocoaPodsSnippet />
             <h3>Or Install via SPM</h3>

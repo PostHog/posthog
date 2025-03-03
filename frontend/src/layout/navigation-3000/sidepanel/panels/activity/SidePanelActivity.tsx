@@ -1,13 +1,5 @@
 import { IconNotification } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonSelect,
-    LemonSelectOption,
-    LemonSkeleton,
-    LemonSwitch,
-    LemonTabs,
-    Spinner,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect, LemonSelectOption, LemonSkeleton, LemonTabs, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActivityLogRow } from 'lib/components/ActivityLog/ActivityLog'
 import { humanizeScope } from 'lib/components/ActivityLog/humanizeActivity'
@@ -15,7 +7,7 @@ import { MemberSelect } from 'lib/components/MemberSelect'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { usePageVisibility } from 'lib/hooks/usePageVisibility'
+import { usePageVisibilityCb } from 'lib/hooks/usePageVisibility'
 import { IconWithCount } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useEffect, useRef } from 'react'
@@ -55,21 +47,13 @@ export const SidePanelActivity = (): JSX.Element => {
         hasUnread,
         filters,
         filtersForCurrentPage,
-        showDetails,
     } = useValues(sidePanelActivityLogic)
-    const {
-        togglePolling,
-        setActiveTab,
-        maybeLoadOlderActivity,
-        markAllAsRead,
-        loadImportantChanges,
-        setFilters,
-        toggleShowDetails,
-    } = useActions(sidePanelActivityLogic)
+    const { togglePolling, setActiveTab, maybeLoadOlderActivity, markAllAsRead, loadImportantChanges, setFilters } =
+        useActions(sidePanelActivityLogic)
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    usePageVisibility((pageIsVisible) => {
+    usePageVisibilityCb((pageIsVisible) => {
         togglePolling(pageIsVisible)
     })
 
@@ -113,12 +97,6 @@ export const SidePanelActivity = (): JSX.Element => {
             label: `This ${humanizeScope(filtersForCurrentPage.scope, true)}`,
         })
     }
-
-    const toggleExtendedDescription = (
-        <>
-            <LemonSwitch bordered label="Show details" checked={showDetails} onChange={toggleShowDetails} />
-        </>
-    )
 
     return (
         <>
@@ -166,7 +144,6 @@ export const SidePanelActivity = (): JSX.Element => {
                     {activeTab === SidePanelActivityTab.Unread ? (
                         <div className="px-2 pb-2 space-y-2 shrink-0">
                             <div className="flex items-center justify-between gap-2">
-                                {toggleExtendedDescription}
                                 {hasUnread ? (
                                     <LemonButton type="secondary" onClick={() => markAllAsRead()}>
                                         Mark all as read
@@ -177,7 +154,6 @@ export const SidePanelActivity = (): JSX.Element => {
                     ) : activeTab === SidePanelActivityTab.All ? (
                         <div className="flex items-center justify-between gap-2 px-2 pb-2 space-y-2 shrink-0">
                             <div className="flex items-center gap-2">
-                                {toggleExtendedDescription}
                                 {allActivityResponseLoading ? <Spinner textColored /> : null}
                             </div>
 
@@ -220,11 +196,7 @@ export const SidePanelActivity = (): JSX.Element => {
                                         <LemonSkeleton className="h-12 my-2" repeat={10} fade />
                                     ) : hasNotifications ? (
                                         notifications.map((logItem, index) => (
-                                            <ActivityLogRow
-                                                logItem={logItem}
-                                                key={index}
-                                                showExtendedDescription={showDetails}
-                                            />
+                                            <ActivityLogRow logItem={logItem} key={index} />
                                         ))
                                     ) : (
                                         <div className="p-6 text-center border border-dashed rounded text-secondary">
@@ -239,11 +211,7 @@ export const SidePanelActivity = (): JSX.Element => {
                                     ) : allActivity.length ? (
                                         <>
                                             {allActivity.map((logItem, index) => (
-                                                <ActivityLogRow
-                                                    logItem={logItem}
-                                                    key={index}
-                                                    showExtendedDescription={showDetails}
-                                                />
+                                                <ActivityLogRow logItem={logItem} key={index} />
                                             ))}
 
                                             <div className="flex items-center justify-center h-10 gap-2 m-4 text-secondary">

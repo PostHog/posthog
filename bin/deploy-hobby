@@ -88,6 +88,7 @@ then
     git fetch --tags
     latestReleaseTag=$(git describe --tags `git rev-list --tags --max-count=1`)
     echo "Checking out latest PostHog release: $latestReleaseTag"
+    echo "Warning PostHog don't create tagged releases anymore. It's way better to use 'latest' than 'latest-release'"
     git checkout $latestReleaseTag
 elif [[ "$POSTHOG_APP_TAG" = "latest" ]]
 then
@@ -125,6 +126,7 @@ $TLS_BLOCK
 $DOMAIN, http://, https:// {
 encode gzip zstd
 reverse_proxy http://web:8000
+reverse_proxy http://livestream:8666
 }
 EOF
 
@@ -198,7 +200,7 @@ fi
 
 # setup docker-compose
 echo "Setting up Docker Compose"
-sudo curl -L "https://github.com/docker/compose/releases/download/v2.13.0/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose || true
+sudo curl -L "https://github.com/docker/compose/releases/download/v2.33.1/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose || true
 sudo chmod +x /usr/local/bin/docker-compose
 
 # enable docker without sudo
@@ -211,24 +213,28 @@ cp posthog/docker-compose.base.yml docker-compose.base.yml
 cp posthog/docker-compose.hobby.yml docker-compose.yml.tmpl
 envsubst < docker-compose.yml.tmpl > docker-compose.yml
 rm docker-compose.yml.tmpl
-echo "Starting the stack!" 
-sudo -E docker-compose -f docker-compose.yml up -d
+echo "Starting the stack!"
+sudo -E docker-compose -f docker-compose.yml up -d --no-build --pull always
 
 echo "We will need to wait ~5-10 minutes for things to settle down, migrations to finish, and TLS certs to be issued"
 echo ""
 echo "⏳ Waiting for PostHog web to boot (this will take a few minutes)"
-bash -c 'while [[ "$(curl -s -o /dev/null -w ''%{http_code}'' localhost/_health)" != "200" ]]; do sleep 5; done'
-echo "⌛️ PostHog looks up!"
-echo ""
-echo "🎉🎉🎉  Done! 🎉🎉🎉"
-# send log of this install for continued support!
-curl -o /dev/null -L --header "Content-Type: application/json" -d "{
-    \"api_key\": \"sTMFPsFhdP1Ssg\",
-    \"distinct_id\": \"${DOMAIN}\",
-    \"properties\": {\"domain\": \"${DOMAIN}\"},
-    \"type\": \"capture\",
-    \"event\": \"magic_curl_install_complete\"
-}" https://us.i.posthog.com/batch/ &> /dev/null
+if bash -c 'while [[ "$(curl -s -o /dev/null -w ''%{http_code}'' localhost/_health)" != "200" ]]; do sleep 5; done'; then
+    echo "⌛️ PostHog looks up!"
+    echo ""
+    echo "🎉🎉🎉  Done! 🎉🎉🎉"
+    # send log of this install for continued support!
+    curl -o /dev/null -L --header "Content-Type: application/json" -d "{
+        \"api_key\": \"sTMFPsFhdP1Ssg\",
+        \"distinct_id\": \"${DOMAIN}\",
+        \"properties\": {\"domain\": \"${DOMAIN}\"},
+        \"type\": \"capture\",
+        \"event\": \"magic_curl_install_complete\"
+    }" https://us.i.posthog.com/batch/ &> /dev/null
+else
+    echo "Failed to detect PostHog web boot. Please check the logs with 'docker-compose logs' for more details."
+fi
+
 echo ""
 echo "To stop the stack run 'docker-compose stop'"
 echo "To start the stack again run 'docker-compose start'"

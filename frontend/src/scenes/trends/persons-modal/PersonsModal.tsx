@@ -119,6 +119,7 @@ export function PersonsModal({
     return (
         <>
             <LemonModal
+                data-attr="persons-modal"
                 title={null}
                 isOpen={isModalOpen}
                 onClose={closeModal}
@@ -241,7 +242,7 @@ export function PersonsModal({
                                 <LemonSkeleton active={false} className="h-4 w-3/5" />
                             </div>
                         ) : (
-                            <div className="text-center p-5">
+                            <div className="text-center p-5" data-attr="persons-modal-no-matches">
                                 We couldn't find any matching {actorLabel.plural} for this data point.
                             </div>
                         )}
@@ -488,8 +489,9 @@ export function MissingPersonsAlert({
 }): JSX.Element {
     return (
         <LemonBanner type="info" className="mb-2">
-            {missingActorsCount} {missingActorsCount > 1 ? `${actorLabel.plural} are` : `${actorLabel.singular} is`} not
-            shown because they've been merged with those listed, or deleted.{' '}
+            {missingActorsCount}{' '}
+            <span>{missingActorsCount > 1 ? `${actorLabel.plural} are` : `${actorLabel.singular} is`}</span> not shown
+            because they've been merged with those listed, or deleted.{' '}
             <Link to="https://posthog.com/docs/how-posthog-works/queries#insights-counting-unique-persons">
                 Learn more.
             </Link>

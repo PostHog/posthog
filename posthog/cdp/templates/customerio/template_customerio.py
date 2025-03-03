@@ -259,9 +259,8 @@ class TemplateCustomerioMigrator(HogFunctionTemplateMigrator):
             "site_id": {"value": customerio_site_id},
             "token": {"value": token},
             "host": {"value": host},
-            "identifiers": {"value": {"email": "{person.properties.email}"}}
-            if identify_by_email
-            else {"value": {"id": "{event.distinct_id}"}},
+            "identifier_key": {"value": "email" if identify_by_email else "id"},
+            "identifier_value": {"value": "{person.properties.email}" if identify_by_email else "{event.distinct_id}"},
             "include_all_properties": {"value": True},
             "attributes": {"value": {}},
         }

@@ -1,32 +1,12 @@
-import { LemonButton } from '@posthog/lemon-ui'
-import { PageHeader } from 'lib/components/PageHeader'
-import { urls } from 'scenes/urls'
+import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
 
 export function ErrorTrackingAlerting(): JSX.Element {
     return (
-        <>
-            <PageHeader
-                buttons={
-                    <LemonButton type="primary" to={urls.errorTrackingAlert('new')} className="flex">
-                        Setup alert
-                    </LemonButton>
-                }
-            />
-
-            {/* <LinkedHogFunctions
-                logicKey="error-tracking-alerts"
-                type="internal_destination"
-                subTemplateId="errors"
-                filters={{
-                    events: [
-                        {
-                            id: `$error_something`,
-                            type: 'events',
-                        },
-                    ],
-                }}
-            />
-            <DestinationsTable types={['error_tracking_alert']} hideKind hideFeedback /> */}
-        </>
+        <LinkedHogFunctions
+            logicKey="error-tracking"
+            type="internal_destination"
+            subTemplateId="error-tracking"
+            filters={{}}
+        />
     )
 }

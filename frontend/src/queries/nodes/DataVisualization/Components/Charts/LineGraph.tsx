@@ -4,6 +4,7 @@ import './LineGraph.scss'
 import '../../../../../scenes/insights/InsightTooltip/InsightTooltip.scss'
 
 import { LemonTable } from '@posthog/lemon-ui'
+import { lemonToast } from '@posthog/lemon-ui'
 import {
     ChartData,
     ChartType,
@@ -27,8 +28,7 @@ import { hexToRGBA } from 'lib/utils'
 import { useEffect, useRef } from 'react'
 import { ensureTooltip } from 'scenes/insights/views/LineGraph/LineGraph'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { ChartSettings, YAxisSettings } from '~/queries/schema'
+import { ChartSettings, YAxisSettings } from '~/queries/schema/schema-general'
 import { ChartDisplayType, GraphType } from '~/types'
 
 import {
@@ -96,13 +96,20 @@ const getYAxisSettings = (
 // LineGraph displays a graph using either x and y data or series breakdown data
 export const LineGraph = (): JSX.Element => {
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
-    const { isDarkModeOn } = useValues(themeLogic)
-    const colors = getGraphColors(isDarkModeOn)
+    const colors = getGraphColors()
 
     // TODO: Extract this logic out of this component and inject values in
     // via props. Make this a purely presentational component
-    const { xData, yData, presetChartHeight, visualizationType, showEditingUI, chartSettings, dataVisualizationProps } =
-        useValues(dataVisualizationLogic)
+    const {
+        xData,
+        yData,
+        presetChartHeight,
+        visualizationType,
+        showEditingUI,
+        chartSettings,
+        dataVisualizationProps,
+        dashboardId,
+    } = useValues(dataVisualizationLogic)
     const isBarChart =
         visualizationType === ChartDisplayType.ActionsBar || visualizationType === ChartDisplayType.ActionsStackedBar
     const isStackedBarChart = visualizationType === ChartDisplayType.ActionsStackedBar
@@ -133,6 +140,17 @@ export const LineGraph = (): JSX.Element => {
                 (!hasRightYAxis || !!ySeriesData.find((n) => n.settings?.display?.yAxisPosition === 'left'))
         } else {
             return
+        }
+
+        // Show warning and limit series if there are too many
+        const MAX_SERIES = 200
+        if (ySeriesData.length > MAX_SERIES) {
+            if (!dashboardId) {
+                lemonToast.warning(
+                    `This breakdown has too many series (${ySeriesData.length}). Only showing top ${MAX_SERIES} series in the chart. All series are still available in the table below.`
+                )
+            }
+            ySeriesData = ySeriesData.slice(0, MAX_SERIES)
         }
 
         const data: ChartData = {
@@ -191,7 +209,7 @@ export const LineGraph = (): JSX.Element => {
             (acc, cur, curIndex) => {
                 const line: LineAnnotationOptions = {
                     label: {
-                        display: true,
+                        display: cur.displayLabel ?? true,
                         content: cur.label,
                         position: 'end',
                     },

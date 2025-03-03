@@ -7,6 +7,7 @@ from typing import Any, Literal, Optional
 from urllib.parse import urlencode
 
 from django.db import models
+from prometheus_client import Counter
 import requests
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
@@ -26,6 +27,10 @@ from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 from posthog.warehouse.util import database_sync_to_async
 
 logger = structlog.get_logger(__name__)
+
+oauth_refresh_counter = Counter(
+    "integration_oauth_refresh", "Number of times an oauth refresh has been attempted", labelnames=["kind", "result"]
+)
 
 
 def dot_get(d: Any, path: str, default: Any = None) -> Any:
@@ -119,6 +124,9 @@ class OauthConfig:
 class OauthIntegration:
     supported_kinds = ["slack", "salesforce", "hubspot", "google-ads", "snapchat", "linkedin-ads"]
     integration: Integration
+
+    def __str__(self) -> str:
+        return f"OauthIntegration(integration={self.integration.id}, kind={self.integration.kind}, team={self.integration.team_id})"
 
     def __init__(self, integration: Integration) -> None:
         self.integration = integration
@@ -355,12 +363,14 @@ class OauthIntegration:
         if res.status_code != 200 or not config.get("access_token"):
             logger.warning(f"Failed to refresh token for {self}", response=res.text)
             self.integration.errors = ERROR_TOKEN_REFRESH_FAILED
+            oauth_refresh_counter.labels(self.integration.kind, "failed").inc()
         else:
             logger.info(f"Refreshed access token for {self}")
             self.integration.sensitive_config["access_token"] = config["access_token"]
             self.integration.config["expires_in"] = config.get("expires_in")
             self.integration.config["refreshed_at"] = int(time.time())
             reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
+            oauth_refresh_counter.labels(self.integration.kind, "success").inc()
         self.integration.save()
 
 

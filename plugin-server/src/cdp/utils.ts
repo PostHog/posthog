@@ -2,13 +2,13 @@
 
 import { CyclotronJob, CyclotronJobUpdate } from '@posthog/cyclotron'
 import { Bytecodes } from '@posthog/hogvm'
-import { captureException } from '@sentry/node'
 import { DateTime } from 'luxon'
 import RE2 from 're2'
 import { gunzip, gzip } from 'zlib'
 
 import { RawClickHouseEvent, Team, TimestampFormat } from '../types'
 import { safeClickhouseString } from '../utils/db/utils'
+import { captureException } from '../utils/posthog'
 import { status } from '../utils/status'
 import { castTimestampOrNow, clickHouseTimestampToISO, UUIDT } from '../utils/utils'
 import { CdpInternalEvent } from './schema'
@@ -73,7 +73,11 @@ export function convertToHogFunctionInvocationGlobals(
         }
     }
 
-    const eventTimestamp = clickHouseTimestampToISO(event.timestamp)
+    // TRICKY: the timsestamp can sometimes be an ISO for example if coming from the test api
+    // so we need to handle that case
+    const eventTimestamp = DateTime.fromISO(event.timestamp).isValid
+        ? event.timestamp
+        : clickHouseTimestampToISO(event.timestamp)
 
     const context: HogFunctionInvocationGlobals = {
         project: {

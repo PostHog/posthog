@@ -17,7 +17,7 @@ import {
     WebOverviewItemKind,
     WebOverviewQuery,
     WebOverviewQueryResponse,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'

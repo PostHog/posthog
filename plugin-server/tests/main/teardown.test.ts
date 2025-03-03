@@ -1,11 +1,11 @@
 import ClickHouse from '@posthog/clickhouse'
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { waitForExpect } from '../../functional_tests/expectations'
 import { startPluginsServer } from '../../src/main/pluginsServer'
 import { Hub, LogLevel, PluginLogEntry, PluginLogEntrySource, PluginLogEntryType } from '../../src/types'
 import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
 import { makePiscina } from '../../src/worker/piscina'
+import { waitForExpect } from '../helpers/expectations'
 import { pluginConfig39 } from '../helpers/plugins'
 import { resetTestDatabase } from '../helpers/sql'
 

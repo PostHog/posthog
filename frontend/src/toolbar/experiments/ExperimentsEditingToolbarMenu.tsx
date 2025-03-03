@@ -6,37 +6,17 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
-import { useEffect, useMemo } from 'react'
 
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
-import { experimentsLogic } from '~/toolbar/experiments/experimentsLogic'
 import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
 import { WebExperimentVariant } from '~/toolbar/experiments/WebExperimentVariant'
 import { WebExperimentVariantHeader } from '~/toolbar/experiments/WebExperimentVariantHeader'
 
 export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
-    const { getExperiments } = useActions(experimentsLogic)
     const { selectedExperimentId, experimentForm, addVariantAvailable, selectedVariant, experimentFormErrors } =
         useValues(experimentsTabLogic)
-    const {
-        selectExperiment,
-        selectVariant,
-        inspectForElementWithIndex,
-        addNewVariant,
-        applyVariant,
-        setExperimentFormValue,
-    } = useActions(experimentsTabLogic)
-
-    useMemo(() => {
-        if (selectedExperimentId === 'new') {
-            selectVariant('test')
-            inspectForElementWithIndex('test', 'all-elements', 0)
-        }
-    }, [selectedExperimentId, selectVariant, inspectForElementWithIndex])
-
-    useEffect(() => {
-        getExperiments()
-    }, [])
+    const { selectExperiment, selectVariant, addNewVariant, applyVariant, setExperimentFormValue } =
+        useActions(experimentsTabLogic)
 
     return (
         <ToolbarMenu>
@@ -48,11 +28,22 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                 className="flex flex-col overflow-hidden flex-1"
             >
                 <ToolbarMenu.Header className="border-b">
-                    <h1 className="p-1 font-bold text-sm mb-0">
-                        {selectedExperimentId === 'new' ? 'New ' : 'Edit '}
-                        experiment
-                        {selectedVariant && `  variant : ${selectedVariant}`}
-                    </h1>
+                    {selectedExperimentId === 'new' ? (
+                        <div className="w-full px-2 pb-4 pt-2">
+                            <LemonLabel>Experiment name</LemonLabel>
+                            <LemonInput
+                                className="w-2/3 mt-1"
+                                placeholder="Example: Pricing page conversion"
+                                onChange={(newName: string) => {
+                                    setExperimentFormValue('name', newName)
+                                }}
+                                value={experimentForm.name}
+                                status={experimentFormErrors.name ? 'danger' : 'default'}
+                            />
+                        </div>
+                    ) : (
+                        <h2 className="p-2 font-bold">{experimentForm.name}</h2>
+                    )}
                     <div id="errorcontainer">
                         {Object.keys(experimentFormErrors).length > 0 &&
                             !Object.values(experimentFormErrors).every((el) => el === undefined) && (
@@ -67,25 +58,6 @@ export const ExperimentsEditingToolbarMenu = (): JSX.Element => {
                 </ToolbarMenu.Header>
                 <ToolbarMenu.Body>
                     <div className="space-y-6 p-2">
-                        <div className="flex w-full">
-                            {selectedExperimentId === 'new' ? (
-                                <div className="w-full">
-                                    <LemonLabel>Name</LemonLabel>
-                                    <LemonInput
-                                        className="w-2/3"
-                                        placeholder="Example: Pricing page conversion"
-                                        onChange={(newName: string) => {
-                                            experimentForm.name = newName
-                                            setExperimentFormValue('name', experimentForm.name)
-                                        }}
-                                        value={experimentForm.name}
-                                        status={experimentFormErrors.name ? 'danger' : 'default'}
-                                    />
-                                </div>
-                            ) : (
-                                <h4 className="col-span-2">{experimentForm.name}</h4>
-                            )}
-                        </div>
                         <div>
                             <div className="flex items-center justify-between mb-2">
                                 <LemonLabel>Variants</LemonLabel>

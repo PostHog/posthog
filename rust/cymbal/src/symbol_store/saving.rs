@@ -9,10 +9,11 @@ use uuid::Uuid;
 use crate::{
     error::{Error, FrameError, UnhandledError},
     metric_consts::{
-        SAVED_SYMBOL_SET_ERROR_RETURNED, SAVED_SYMBOL_SET_LOADED, SAVE_SYMBOL_SET,
-        SYMBOL_SET_DB_FETCHES, SYMBOL_SET_DB_HITS, SYMBOL_SET_DB_MISSES, SYMBOL_SET_FETCH_RETRY,
-        SYMBOL_SET_SAVED,
+        FRAME_RESOLUTION_RESULTS_DELETED, SAVED_SYMBOL_SET_ERROR_RETURNED, SAVED_SYMBOL_SET_LOADED,
+        SAVE_SYMBOL_SET, SYMBOL_SET_DB_FETCHES, SYMBOL_SET_DB_HITS, SYMBOL_SET_DB_MISSES,
+        SYMBOL_SET_FETCH_RETRY, SYMBOL_SET_SAVED,
     },
+    posthog_utils::capture_symbol_set_saved,
 };
 
 use super::{Fetcher, Parser, S3Client};
@@ -76,12 +77,12 @@ impl<F> Saving<F> {
     ) -> Result<String, UnhandledError> {
         info!("Saving symbol set data for {}", set_ref);
         let start = common_metrics::timing_guard(SAVE_SYMBOL_SET, &[]).label("data", "true");
-        // Generate a new opaque key, appending our prefix.
+        // Generate a new opaque key, prepending our prefix.
         let key = self.add_prefix(Uuid::now_v7().to_string());
         let mut content_hasher = Sha512::new();
         content_hasher.update(&data);
 
-        let record = SymbolSetRecord {
+        let mut record = SymbolSetRecord {
             id: Uuid::now_v7(),
             team_id,
             set_ref,
@@ -93,6 +94,25 @@ impl<F> Saving<F> {
 
         self.s3_client.put(&self.bucket, &key, data).await?;
         record.save(&self.pool).await?;
+        // We just saved new data for this symbol set, which invalidates all our previous stack frame resolution results,
+        // so delete them
+        let deleted: u64 = sqlx::query_scalar!(
+            r#"WITH deleted AS (DELETE FROM posthog_errortrackingstackframe WHERE symbol_set_id = $1 RETURNING *) SELECT count(*) from deleted"#,
+            record.id // The call to save() above ensures that this id is correct
+        )
+        .fetch_one(&self.pool)
+        .await?.map_or(0, |v| {
+            v.max(0) as u64
+        });
+
+        info!(
+            "Deleted {} stack frames for symbol set {}",
+            deleted, record.id
+        );
+        metrics::counter!(FRAME_RESOLUTION_RESULTS_DELETED).increment(deleted);
+
+        capture_symbol_set_saved(team_id, &record.set_ref, &key, deleted > 0);
+
         start.label("outcome", "success").fin();
         Ok(key)
     }
@@ -251,14 +271,21 @@ impl SymbolSetRecord {
         Ok(record)
     }
 
-    pub async fn save<'c, E>(&self, e: E) -> Result<(), UnhandledError>
+    // Save the current record to the database. If the record already exists, it will be updated
+    // with the new storage pointer, content hash and failure reason. If it doesn't exist, a new
+    // record will be created. Takes a mutable reference to self because it will update the found
+    // id if a conflict occurs.
+    pub async fn save<'c, E>(&mut self, e: E) -> Result<(), UnhandledError>
     where
         E: sqlx::Executor<'c, Database = sqlx::Postgres>,
     {
-        sqlx::query!(
-            r#"INSERT INTO posthog_errortrackingsymbolset (id, team_id, ref, storage_ptr, failure_reason, created_at, content_hash)
+        self.id = sqlx::query_scalar!(
+            r#"
+            INSERT INTO posthog_errortrackingsymbolset (id, team_id, ref, storage_ptr, failure_reason, created_at, content_hash)
             VALUES ($1, $2, $3, $4, $5, $6, $7)
-            ON CONFLICT (team_id, ref) DO UPDATE SET storage_ptr = $4, content_hash = $7"#,
+            ON CONFLICT (team_id, ref) DO UPDATE SET storage_ptr = $4, content_hash = $7, failure_reason = $5
+            RETURNING id
+            "#,
             self.id,
             self.team_id,
             self.set_ref,
@@ -267,7 +294,7 @@ impl SymbolSetRecord {
             self.created_at,
             self.content_hash
         )
-        .execute(e)
+        .fetch_one(e)
         .await?;
 
         metrics::counter!(SYMBOL_SET_SAVED).increment(1);

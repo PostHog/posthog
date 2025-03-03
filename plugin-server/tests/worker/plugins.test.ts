@@ -101,7 +101,7 @@ describe('plugins', () => {
 
         const processEvent = await instance.getPluginMethod('processEvent')
         const event = { event: '$test', properties: {}, team_id: 2 } as PluginEvent
-        await processEvent(event)
+        await processEvent!(event)
 
         expect(event.properties!['processed']).toEqual(true)
 

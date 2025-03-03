@@ -1,3 +1,4 @@
+import { DateTime } from 'luxon'
 import snappy from 'snappy'
 
 import { ParsedMessageData } from '../kafka/types'
@@ -27,8 +28,8 @@ describe('SnappySessionRecorder', () => {
             [windowId]: events,
         },
         eventsRange: {
-            start: events[0]?.timestamp || 0,
-            end: events[events.length - 1]?.timestamp || 0,
+            start: DateTime.fromMillis(events[0]?.timestamp || 0),
+            end: DateTime.fromMillis(events[events.length - 1]?.timestamp || 0),
         },
         metadata: {
             partition: 1,
@@ -202,8 +203,8 @@ describe('SnappySessionRecorder', () => {
             recorder.recordMessage(message)
             const result = await recorder.end()
 
-            expect(result.startTimestamp).toBe(1000)
-            expect(result.endTimestamp).toBe(2000)
+            expect(result.startDateTime).toEqual(DateTime.fromMillis(1000))
+            expect(result.endDateTime).toEqual(DateTime.fromMillis(2000))
         })
 
         it('should track min/max timestamps across multiple messages', async () => {
@@ -221,8 +222,8 @@ describe('SnappySessionRecorder', () => {
             messages.forEach((message) => recorder.recordMessage(message))
             const result = await recorder.end()
 
-            expect(result.startTimestamp).toBe(1000) // Min from all messages
-            expect(result.endTimestamp).toBe(4000) // Max from all messages
+            expect(result.startDateTime).toEqual(DateTime.fromMillis(1000)) // Min from all messages
+            expect(result.endDateTime).toEqual(DateTime.fromMillis(4000)) // Max from all messages
         })
 
         it('should handle empty events array', async () => {
@@ -230,8 +231,67 @@ describe('SnappySessionRecorder', () => {
             recorder.recordMessage(message)
             const result = await recorder.end()
 
-            expect(result.startTimestamp).toBe(0)
-            expect(result.endTimestamp).toBe(0)
+            expect(result.startDateTime).toEqual(DateTime.fromMillis(0))
+            expect(result.endDateTime).toEqual(DateTime.fromMillis(0))
+        })
+    })
+
+    describe('distinctId', () => {
+        it('should throw error when accessing distinctId before recording any messages', () => {
+            expect(() => recorder.distinctId).toThrow('No distinct_id set. No messages recorded yet.')
+        })
+
+        it('should store distinctId from first message', () => {
+            const message = createMessage('window1', [
+                {
+                    type: EventType.Meta,
+                    timestamp: 1000,
+                    data: {},
+                },
+            ])
+            recorder.recordMessage(message)
+
+            expect(recorder.distinctId).toBe('distinct_id')
+        })
+
+        it('should keep first message distinctId even if later messages have different distinctId', () => {
+            recorder.recordMessage(
+                createMessage('window1', [
+                    {
+                        type: EventType.Meta,
+                        timestamp: 1000,
+                        data: {},
+                    },
+                ])
+            )
+
+            const message2 = {
+                ...createMessage('window1', [
+                    {
+                        type: EventType.Meta,
+                        timestamp: 2000,
+                        data: {},
+                    },
+                ]),
+                distinct_id: 'different_distinct_id',
+            }
+            recorder.recordMessage(message2)
+
+            expect(recorder.distinctId).toBe('distinct_id')
+        })
+
+        it('should maintain distinctId after end() is called', async () => {
+            const message = createMessage('window1', [
+                {
+                    type: EventType.Meta,
+                    timestamp: 1000,
+                    data: {},
+                },
+            ])
+            recorder.recordMessage(message)
+            await recorder.end()
+
+            expect(recorder.distinctId).toBe('distinct_id')
         })
     })
 })

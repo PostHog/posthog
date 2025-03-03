@@ -142,6 +142,8 @@ describe('Utils', () => {
                 index: 0,
                 properties: { name: 'Acme Corp' },
             })
+
+            // @ts-expect-error this is correct TS
             expect(response['organization']).toBe(response['group_0'])
 
             // Verify that group_1 and project are set correctly
@@ -150,6 +152,8 @@ describe('Utils', () => {
                 index: 1,
                 properties: { name: 'Project X' },
             })
+
+            // @ts-expect-error this is correct TS
             expect(response['project']).toBe(response['group_1'])
         })
     })
