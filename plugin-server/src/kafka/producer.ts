@@ -9,9 +9,9 @@ import {
 } from 'node-rdkafka'
 import { Counter, Summary } from 'prom-client'
 
-import { getSpan } from '../utils/sentry'
 import { PluginsServerConfig } from '../types'
 import { DependencyUnavailableError, MessageSizeTooLarge } from '../utils/db/error'
+import { getSpan } from '../utils/sentry'
 import { status } from '../utils/status'
 import { createRdConnectionConfigFromEnvVars } from './config'
 

@@ -42,29 +42,7 @@ export const startAsyncOnEventHandlerConsumer = async ({
     }
 }
 
-export const startAsyncWebhooksHandlerConsumer = async ({
-    kafka, // TODO: remove needing to pass in the whole hub and be more selective on dependency injection.
-    postgres,
-    teamManager,
-    organizationManager,
-    actionMatcher,
-    actionManager,
-    serverConfig,
-    rustyHook,
-    appMetrics,
-    groupTypeManager,
-}: {
-    kafka: Kafka
-    postgres: PostgresRouter
-    teamManager: TeamManager
-    organizationManager: OrganizationManager
-    serverConfig: PluginsServerConfig
-    rustyHook: RustyHook
-    appMetrics: AppMetrics
-    groupTypeManager: GroupTypeManager
-    actionMatcher: ActionMatcher
-    actionManager: ActionManager
-}): Promise<PluginServerService> => {
+export const startAsyncWebhooksHandlerConsumer = async (hub: Hub): Promise<PluginServerService> => {
     /*
         Consumes analytics events from the Kafka topic `clickhouse_events_json`
         and processes any onEvent plugin handlers configured for the team.
@@ -74,11 +52,23 @@ export const startAsyncWebhooksHandlerConsumer = async ({
     */
     status.info('🔁', `Starting webhooks handler consumer`)
 
+    const {
+        kafka, // TODO: remove needing to pass in the whole hub and be more selective on dependency injection.
+        postgres,
+        teamManager,
+        organizationManager,
+        actionMatcher,
+        actionManager,
+        rustyHook,
+        appMetrics,
+        groupTypeManager,
+    } = hub
+
     const consumer = kafka.consumer({
         // NOTE: This should never clash with the group ID specified for the kafka engine posthog/ee/clickhouse/sql/clickhouse.py
         groupId: `${KAFKA_PREFIX}clickhouse-plugin-server-async-webhooks`,
-        sessionTimeout: serverConfig.KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS,
-        rebalanceTimeout: serverConfig.KAFKA_CONSUMPTION_REBALANCE_TIMEOUT_MS ?? undefined,
+        sessionTimeout: hub.KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS,
+        rebalanceTimeout: hub.KAFKA_CONSUMPTION_REBALANCE_TIMEOUT_MS ?? undefined,
         readUncommitted: false,
     })
     setupEventHandlers(consumer)
@@ -89,9 +79,9 @@ export const startAsyncWebhooksHandlerConsumer = async ({
         organizationManager,
         rustyHook,
         appMetrics,
-        serverConfig.EXTERNAL_REQUEST_TIMEOUT_MS
+        hub.EXTERNAL_REQUEST_TIMEOUT_MS
     )
-    const concurrency = serverConfig.TASKS_PER_WORKER || 20
+    const concurrency = hub.TASKS_PER_WORKER || 20
 
     await actionManager.start()
     await consumer.subscribe({ topic: KAFKA_EVENTS_JSON, fromBeginning: false })
@@ -124,7 +114,7 @@ export const startAsyncWebhooksHandlerConsumer = async ({
 
     return {
         id: 'webhooks-ingestion',
-        healthcheck: makeHealthCheck(consumer, serverConfig.KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS),
+        healthcheck: makeHealthCheck(consumer, hub.KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS),
         onShutdown,
     }
 }
