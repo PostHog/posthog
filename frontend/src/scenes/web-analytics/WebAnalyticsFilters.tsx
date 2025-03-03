@@ -28,7 +28,7 @@ const SettingsLink = (): JSX.Element => (
 export const WebAnalyticsFilters = (): JSX.Element => {
     const [expanded, setExpanded] = useState(false)
 
-    const { domainFilter, authorizedDomains } = useValues(webAnalyticsLogic)
+    const { domainFilter, hasHostFilter, authorizedDomains } = useValues(webAnalyticsLogic)
     const { setDomainFilter } = useActions(webAnalyticsLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
@@ -45,7 +45,7 @@ export const WebAnalyticsFilters = (): JSX.Element => {
                                 <LemonSelect
                                     className="grow md:grow-0"
                                     size="small"
-                                    value={domainFilter || 'all'}
+                                    value={domainFilter ?? (hasHostFilter ? 'host' : 'all')}
                                     icon={<IconGlobe />}
                                     onChange={(value) => setDomainFilter(value)}
                                     disabledReason={
@@ -59,6 +59,14 @@ export const WebAnalyticsFilters = (): JSX.Element => {
                                         {
                                             options: [
                                                 { label: 'All domains', value: 'all' },
+                                                ...(hasHostFilter
+                                                    ? [
+                                                          {
+                                                              label: 'All domains (host filter active)',
+                                                              value: 'host',
+                                                          },
+                                                      ]
+                                                    : []),
                                                 ...authorizedDomains.map((domain) => ({
                                                     label: domain,
                                                     value: domain,

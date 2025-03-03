@@ -38,7 +38,7 @@ describe('e2e ingestion timeout', () => {
             }
         `)
         await resetTestDatabaseClickhouse(extraServerConfig)
-        const startResponse = await startPluginsServer(extraServerConfig, { ingestion: true })
+        const startResponse = await startPluginsServer(extraServerConfig, { ingestionV2: true })
         hub = startResponse.hub!
         stopServer = startResponse.stop
         posthog = createPosthog(hub, pluginConfig39)
