@@ -31,6 +31,9 @@ import { shutdown as posthogShutdown } from './utils/posthog'
 import { PubSub } from './utils/pubsub'
 import { status } from './utils/status'
 import { delay } from './utils/utils'
+import { teardownPlugins } from './worker/plugins/teardown'
+import { initPlugins as _initPlugins, reloadPlugins } from './worker/tasks'
+import { populatePluginCapabilities } from './worker/vm/lazy'
 
 const pluginServerStartupTimeMs = new Counter({
     name: 'plugin_server_startup_time_ms',
@@ -61,20 +64,21 @@ export class PluginServer {
         const capabilities = getPluginServerCapabilities(this.config)
         const hub = (this.hub = await createHub(this.config, capabilities))
 
-        this.pubsub = new PubSub(this.hub, {
-            'reset-available-product-features-cache': (message) => {
-                // TODO: Can we make this nicer?
-                this.hub?.organizationManager.resetAvailableProductFeaturesCache(JSON.parse(message).organization_id)
-            },
-        })
-
-        await this.pubsub.start()
-
         // // Creating a dedicated single-connection redis client to this Redis, as it's not relevant for hobby
         // // and cloud deploys don't have concurrent uses. We should abstract multi-Redis into a router util.
         const captureRedis = this.config.CAPTURE_CONFIG_REDIS_HOST
             ? await createRedisClient(this.config.CAPTURE_CONFIG_REDIS_HOST)
             : undefined
+
+        let _initPluginsPromise: Promise<void> | undefined
+
+        const initPlugins = () => {
+            if (!_initPluginsPromise) {
+                _initPluginsPromise = _initPlugins(hub)
+            }
+
+            return _initPluginsPromise
+        }
 
         try {
             const serviceLoaders: (() => Promise<PluginServerService>)[] = []
@@ -82,7 +86,6 @@ export class PluginServer {
             if (capabilities.ingestionV2Combined) {
                 // NOTE: This is for single process deployments like local dev and hobby - it runs all possible consumers
                 // in a single process. In production these are each separate Deployments of the standard ingestion consumer
-
                 const consumersOptions = [
                     {
                         topic: KAFKA_EVENTS_PLUGIN_INGESTION,
@@ -100,6 +103,8 @@ export class PluginServer {
 
                 for (const consumerOption of consumersOptions) {
                     serviceLoaders.push(async () => {
+                        await initPlugins()
+
                         const modifiedHub: Hub = {
                             ...hub,
                             INGESTION_CONSUMER_CONSUME_TOPIC: consumerOption.topic,
@@ -114,6 +119,7 @@ export class PluginServer {
             } else {
                 if (capabilities.ingestionV2) {
                     serviceLoaders.push(async () => {
+                        await initPlugins()
                         const consumer = new IngestionConsumer(hub)
                         await consumer.start()
                         return consumer.service
@@ -253,6 +259,25 @@ export class PluginServer {
 
             const readyServices = await Promise.all(serviceLoaders.map((loader) => loader()))
             this.services.push(...readyServices)
+
+            this.pubsub = new PubSub(this.hub, {
+                [hub.PLUGINS_RELOAD_PUBSUB_CHANNEL]: async () => {
+                    status.info('⚡', 'Reloading plugins!')
+                    await reloadPlugins(hub)
+                },
+                'reset-available-product-features-cache': (message) => {
+                    hub.organizationManager.resetAvailableProductFeaturesCache(JSON.parse(message).organization_id)
+                },
+                'populate-plugin-capabilities': async (message) => {
+                    // We need this to be done in only once
+                    if (hub?.capabilities.appManagementSingleton) {
+                        await populatePluginCapabilities(hub, Number(JSON.parse(message).plugin_id))
+                    }
+                },
+            })
+
+            await this.pubsub.start()
+
             if (!isTestEnv()) {
                 // We don't run http server in test env currently
                 const app = setupCommonRoutes(this.services)
@@ -329,6 +354,9 @@ export class PluginServer {
         await Promise.allSettled([this.pubsub?.stop(), ...this.services.map((s) => s.onShutdown()), posthogShutdown()])
 
         if (this.hub) {
+            // Wait *up to* 5 seconds to shut down VMs.
+            await Promise.race([teardownPlugins(this.hub), delay(5000)])
+
             // Wait 2 seconds to flush the last queues and caches
             await Promise.all([this.hub?.kafkaProducer.flush(), delay(2000)])
             await closeHub(this.hub)
