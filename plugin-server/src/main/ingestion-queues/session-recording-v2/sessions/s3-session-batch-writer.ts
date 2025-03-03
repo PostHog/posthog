@@ -19,7 +19,7 @@ class S3SessionBatchFileWriter implements SessionBatchFileWriter {
         private readonly s3: S3Client,
         private readonly bucket: string,
         private readonly prefix: string,
-        private readonly timeout: number = 5000 // Default 5 second timeout
+        private readonly timeout: number = 5000
     ) {
         this.stream = new PassThrough()
         this.key = this.generateKey()
@@ -36,18 +36,15 @@ class S3SessionBatchFileWriter implements SessionBatchFileWriter {
             },
         })
 
-        // Handle stream errors
         this.stream.on('error', (error) => {
             this.handleError(error)
         })
 
-        // Add timeout
         this.timeoutId = setTimeout(() => {
             this.handleError(new Error(`S3 upload timed out after ${this.timeout}ms`))
             this.stream.destroy()
         }, this.timeout)
 
-        // Handle upload errors
         this.uploadPromise = upload.done().catch((error) => {
             status.error('🔄', 's3_session_batch_writer_upload_error', { key: this.key, error })
             this.handleError(error)
@@ -58,28 +55,23 @@ class S3SessionBatchFileWriter implements SessionBatchFileWriter {
     private handleError(error: Error): void {
         if (!this.error) {
             this.error = error
-            // Call all rejection callbacks
             this.rejectCallbacks.forEach((reject) => reject(error))
-            this.rejectCallbacks = [] // Clear the list
+            this.rejectCallbacks = []
         }
     }
 
     private async withErrorHandling<T>(operation: () => Promise<T>): Promise<T> {
-        // If we already have an error, reject immediately
         if (this.error) {
             throw this.error
         }
 
-        // Create a promise that will reject if an error occurs
         const errorPromise = new Promise<T>((_, reject) => {
             this.rejectCallbacks.push(reject)
         })
 
         try {
-            // Race between the operation and potential errors
             return await Promise.race([operation(), errorPromise])
         } finally {
-            // Remove the rejection callback
             this.rejectCallbacks = this.rejectCallbacks.filter((cb) => !this.rejectCallbacks.includes(cb))
         }
     }
