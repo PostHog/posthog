@@ -57,6 +57,10 @@ class S3SessionBatchFileWriter implements SessionBatchFileWriter {
             this.error = error
             this.rejectCallbacks.forEach((reject) => reject(error))
             this.rejectCallbacks = []
+            if (this.timeoutId) {
+                clearTimeout(this.timeoutId)
+                this.timeoutId = null
+            }
         }
     }
 
