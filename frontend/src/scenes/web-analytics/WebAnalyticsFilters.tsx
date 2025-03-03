@@ -22,50 +22,14 @@ import { WebPropertyFilters } from './WebPropertyFilters'
 export const WebAnalyticsFilters = (): JSX.Element => {
     const [expanded, setExpanded] = useState(false)
 
-    const { domainFilter, hasHostFilter, authorizedDomains } = useValues(webAnalyticsLogic)
-    const { setDomainFilter } = useActions(webAnalyticsLogic)
-
     return (
         <div className="flex flex-col md:flex-row md:justify-between gap-2">
             <div className="flex items-start shrink-0">
                 <div className="flex flex-1 flex-row gap-2 items-center">
                     <div className="flex flex-row gap-1 items-center flex-1 md:flex-none">
                         <ReloadAll iconOnly />
-                        <LemonSelect
-                            className="grow md:grow-0"
-                            size="small"
-                            value={domainFilter ?? (hasHostFilter ? 'host' : 'all')}
-                            icon={<IconGlobe />}
-                            onChange={(value) => setDomainFilter(value)}
-                            disabled={authorizedDomains.length === 0}
-                            options={[
-                                {
-                                    options: [
-                                        {
-                                            label: 'All domains',
-                                            value: 'all',
-                                        },
-                                        ...(hasHostFilter
-                                            ? [
-                                                {
-                                                    label: 'All domains (host filter active)',
-                                                    value: 'host',
-                                                },
-                                            ]
-                                            : []),
-                                        ...authorizedDomains.map((domain) => ({ label: domain, value: domain })),
-                                    ],
-                                    footer: (
-                                        <span className="text-xs px-2">
-                                            Have more domains? Go to{' '}
-                                            <Link to={urls.settings('environment', 'web-analytics-authorized-urls')}>
-                                                settings
-                                            </Link>
-                                        </span>
-                                    ),
-                                },
-                            ]}
-                        />
+
+                        <WebAnalyticsDomainSelector />
                         <WebAnalyticsDeviceToggle />
                     </div>
 
@@ -170,6 +134,51 @@ const PathCleaningToggle = (): JSX.Element | null => {
                 Path cleaning: <LemonSwitch checked={isPathCleaningEnabled} className="ml-1" />
             </LemonButton>
         </Tooltip>
+    )
+}
+
+const WebAnalyticsDomainSelector = (): JSX.Element => {
+    const { domainFilter, hasHostFilter } = useValues(webAnalyticsLogic)
+    const { setDomainFilter } = useActions(webAnalyticsLogic)
+
+    const { authorizedUrls } = useValues(
+        authorizedUrlListLogic({ type: AuthorizedUrlListType.WEB_ANALYTICS, actionId: null, experimentId: null })
+    )
+
+    return (
+        <LemonSelect
+            className="grow md:grow-0"
+            size="small"
+            value={domainFilter ?? (hasHostFilter ? 'host' : 'all')}
+            icon={<IconGlobe />}
+            onChange={(value) => setDomainFilter(value)}
+            disabled={authorizedUrls.length === 0}
+            options={[
+                {
+                    options: [
+                        {
+                            label: 'All domains',
+                            value: 'all',
+                        },
+                        ...(hasHostFilter
+                            ? [
+                                {
+                                    label: 'All domains (host filter active)',
+                                    value: 'host',
+                                },
+                            ]
+                            : []),
+                        ...authorizedUrls.map((url) => ({ label: url, value: url })),
+                    ],
+                    footer: (
+                        <span className="text-xs px-2">
+                            Have more domains? Go to{' '}
+                            <Link to={urls.settings('environment', 'web-analytics-authorized-urls')}>settings</Link>
+                        </span>
+                    ),
+                },
+            ]}
+        />
     )
 }
 
