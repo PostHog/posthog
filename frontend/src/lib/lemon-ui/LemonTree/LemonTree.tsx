@@ -25,6 +25,8 @@ export type TreeDataItem = {
     children?: TreeDataItem[]
     /** Disabled: The reason the item is disabled. */
     disabledReason?: string
+
+    type?: 'node' | 'seperator'
     /**
      * Handle a click on the item.
      * @param open - boolean to indicate if it's a folder and it's open state
@@ -117,8 +119,6 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
     ): JSX.Element => {
         const DEPTH_OFFSET = 4 + 8 * depth // 4 is .25rem to match lemon button padding x axis
 
-        // Handle meta key to enable dragging
-        const [isModifierKeyPressed, setIsModifierKeyPressed] = useState(false)
         const [isContextMenuOpenForItem, setIsContextMenuOpenForItem] = useState<string | undefined>(undefined)
 
         if (!(data instanceof Array)) {
@@ -133,32 +133,29 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
             onContextMenuOpen?.(open)
         }
 
-        // Listen for meta key to enable dragging
-        useEffect(() => {
-            const handleKeyDown = (e: KeyboardEvent): void => {
-                if (e.metaKey || e.ctrlKey) {
-                    setIsModifierKeyPressed(true)
-                }
-            }
-
-            const handleKeyUp = (e: KeyboardEvent): void => {
-                if (!e.metaKey && !e.ctrlKey) {
-                    setIsModifierKeyPressed(false)
-                }
-            }
-
-            window.addEventListener('keydown', handleKeyDown)
-            window.addEventListener('keyup', handleKeyUp)
-
-            return () => {
-                window.removeEventListener('keydown', handleKeyDown)
-                window.removeEventListener('keyup', handleKeyUp)
-            }
-        }, [])
-
         return (
             <ul className={cn('list-none m-0 p-0', className)} role="group">
                 {data.map((item) => {
+                    if (item.type === 'seperator') {
+                        return (
+                            <div key={item.id} className="h-1 -mx-2 flex items-center">
+                                <div className="border-b border-primary h-px my-2 flex-1" />
+                            </div>
+                        )
+                    }
+
+                    let cursorClass = 'cursor-pointer'
+
+                    if (enableDragAndDrop) {
+                        if (isItemDraggable?.(item)) {
+                            cursorClass = 'cursor-grab'
+                        } else {
+                            cursorClass = 'cursor-not-allowed'
+                        }
+                    } else {
+                        cursorClass = 'cursor-pointer'
+                    }
+
                     const content = (
                         <AccordionPrimitive.Root
                             type="multiple"
@@ -181,13 +178,18 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                             <LemonButton
                                                 className={cn(
                                                     'group/lemon-tree-button',
-                                                    'flex-1 flex items-center gap-2 cursor-pointer font-normal',
+                                                    'flex-1 flex items-center gap-2 font-normal',
+                                                    cursorClass,
                                                     (focusedId === item.id || isContextMenuOpenForItem === item.id) &&
                                                         'ring-2 ring-inset ring-offset-[-1px] ring-accent-primary',
                                                     selectedId === item.id &&
                                                         'border-l-[4px] border-l-accent-primary rounded-tl-sm rounded-bl-sm'
                                                 )}
-                                                onClick={() => handleClick(item)}
+                                                onClick={() => {
+                                                    if (!enableDragAndDrop) {
+                                                        handleClick(item)
+                                                    }
+                                                }}
                                                 onKeyDown={(e) => e.key === 'Enter' && handleClick(item, true)}
                                                 type="tertiary"
                                                 role="treeitem"
@@ -206,7 +208,8 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                     expandedItemIds: expandedItemIds ?? [],
                                                     defaultNodeIcon,
                                                 })}
-                                                disabledReason={item.disabledReason}
+                                                // disabledReason={item.disabledReason}
+                                                disabled={!isItemDraggable?.(item) && enableDragAndDrop}
                                                 tooltipPlacement="right"
                                                 style={{ paddingLeft: `${DEPTH_OFFSET}px` }}
                                                 truncate
@@ -274,18 +277,18 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
 
                     if (isItemDraggable?.(item)) {
                         wrappedContent = (
-                            <TreeNodeDroppable
-                                id={path}
-                                isDroppable={isItemDroppable?.(item) && path && enableDragAndDrop}
-                            >
-                                <TreeNodeDraggable id={path} enableDragging={isModifierKeyPressed && enableDragAndDrop}>
+                            <TreeNodeDroppable id={path} isDroppable={isItemDroppable?.(item) && path}>
+                                <TreeNodeDraggable
+                                    id={path}
+                                    enableDragging={isItemDraggable?.(item) && enableDragAndDrop}
+                                >
                                     {wrappedContent}
                                 </TreeNodeDraggable>
                             </TreeNodeDroppable>
                         )
                     } else if (isItemDroppable?.(item)) {
                         wrappedContent = (
-                            <TreeNodeDroppable id={path} isDroppable={isItemDroppable(item) && enableDragAndDrop}>
+                            <TreeNodeDroppable id={path} isDroppable={isItemDroppable(item)}>
                                 {wrappedContent}
                             </TreeNodeDroppable>
                         )
@@ -738,7 +741,6 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                 handleTypeAhead,
                 data,
                 focusContent,
-                handleClick,
                 onNodeClick,
                 onFolderClick,
                 onSetExpandedItemIds,
@@ -814,7 +816,7 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                     className="flex-1"
                     innerClassName="p-2"
                 >
-                    <TreeNodeDroppable id="" isDroppable={enableDragAndDrop && true} className="h-full pb-32">
+                    <TreeNodeDroppable id="" isDroppable={enableDragAndDrop} className="h-full pb-32">
                         <LemonTreeNode
                             data={data}
                             ref={ref}

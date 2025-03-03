@@ -11,7 +11,6 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 import { navigation3000Logic } from '../../navigationLogic'
-import { KeyboardShortcut } from '../KeyboardShortcut'
 import { NavbarBottom } from '../NavbarBottom'
 import { projectTreeLogic } from './projectTreeLogic'
 import { joinPath, splitPath } from './utils'
@@ -20,9 +19,17 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
     const { theme } = useValues(themeLogic)
     const { isNavShown, mobileLayout } = useValues(navigation3000Logic)
     const { toggleNavCollapsed, hideNavOnMobile } = useActions(navigation3000Logic)
-    const { treeData, loadingPaths, expandedFolders, lastViewedId, viableItems, helpNoticeVisible } =
-
-        useValues(projectTreeLogic)
+    const {
+        treeData,
+        loadingPaths,
+        expandedFolders,
+        lastViewedId,
+        viableItems,
+        helpNoticeVisible,
+        dragAndDropEnabled,
+        pendingActionsCount,
+        pendingLoaderLoading,
+    } = useValues(projectTreeLogic)
 
     const {
         addFolder,
@@ -32,6 +39,9 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
         updateLastViewedId,
         updateExpandedFolders,
         updateHelpNoticeVisibility,
+        toggleDragAndDrop,
+        applyPendingActions,
+        cancelPendingActions,
     } = useActions(projectTreeLogic)
     const containerRef = useRef<HTMLDivElement | null>(null)
 
@@ -41,6 +51,7 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
         'project',
         'project/Explore',
         'project/Create new',
+        'project/Unfiled',
         '__separator__',
         '__apply_pending_actions__',
     ]
@@ -53,6 +64,52 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                     // eslint-disable-next-line react/forbid-dom-props
                     style={theme?.sidebarStyle}
                 >
+                    <div className="flex gap-1 p-1 items-center justify-between">
+                        <h2 className="text-base font-bold m-0 pl-1">Files</h2>
+                        <div className="flex gap-1 items-center">
+                            {pendingActionsCount > 0 ? (
+                                <span>
+                                    {pendingActionsCount} <span>{pendingActionsCount > 1 ? 'changes' : 'change'}</span>
+                                </span>
+                            ) : null}
+                            <LemonButton
+                                onClick={() => {
+                                    cancelPendingActions()
+                                    toggleDragAndDrop(!dragAndDropEnabled)
+                                }}
+                                type="secondary"
+                                size="small"
+                                tooltip={
+                                    dragAndDropEnabled
+                                        ? 'Click to cancel editing and changes'
+                                        : 'Click to editinga and drag and drop'
+                                }
+                            >
+                                {dragAndDropEnabled ? `Cancel` : 'Edit'}
+                            </LemonButton>
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                disabledReason={pendingActionsCount === 0 ? 'Nothing to save' : undefined}
+                                className={pendingActionsCount === 0 ? 'opacity-30' : ''}
+                                loading={pendingLoaderLoading}
+                                tooltip={pendingActionsCount === 0 ? undefined : 'Save recent actions'}
+                                onClick={
+                                    !pendingLoaderLoading
+                                        ? () => {
+                                              applyPendingActions()
+                                              toggleDragAndDrop(!dragAndDropEnabled)
+                                          }
+                                        : undefined
+                                }
+                            >
+                                Save
+                            </LemonButton>
+                        </div>
+                    </div>
+
+                    <div className="border-b border-primary h-px" />
+
                     <LemonTree
                         contentRef={contentRef}
                         className="px-0 py-1"
@@ -71,7 +128,7 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                             }
                         }}
                         onSetExpandedItemIds={updateExpandedFolders}
-                        enableDragAndDrop={true}
+                        enableDragAndDrop={dragAndDropEnabled}
                         onDragEnd={(dragEvent) => {
                             const oldPath = dragEvent.active.id as string
                             const folder = dragEvent.over?.id
@@ -100,7 +157,8 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                             return (
                                 item.record?.type !== 'project' &&
                                 item.record?.path &&
-                                !specialItemsIds.includes(item.id || '')
+                                !specialItemsIds.includes(item.id || '') &&
+                                dragAndDropEnabled
                             )
                         }}
                         isItemDroppable={(item) => {
@@ -298,9 +356,6 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                                         <li>
                                             All your files are still here, open 'unfiled' to see them, and organize them
                                             the way you'd like.
-                                        </li>
-                                        <li>
-                                            Hold down <KeyboardShortcut command /> to enable drag and drop.
                                         </li>
                                         <li>Right click on tree item for more options.</li>
                                     </ul>
