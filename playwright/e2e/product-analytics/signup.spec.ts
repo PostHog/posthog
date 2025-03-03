@@ -1,6 +1,7 @@
-import { expect, test } from '../../utils/playwright-test-base'
-import { mockFeatureFlags } from '../../utils/mockApi'
 import { AppContext } from '~/types'
+
+import { mockFeatureFlags } from '../../utils/mockApi'
+import { expect, test } from '../../utils/playwright-test-base'
 
 const VALID_PASSWORD = 'hedgE-hog-123%'
 
@@ -108,7 +109,9 @@ test.describe('Signup', () => {
         await page.click('.Popover li:first-child')
         await expect(page.locator('[data-attr=signup-role-at-organization]')).toContainText('Engineering')
         await page.click('[type=submit]')
-        await expect(page.locator('.Toastify [data-attr="error-toast"]')).toContainText('Inactive social login session.')
+        await expect(page.locator('.Toastify [data-attr="error-toast"]')).toContainText(
+            'Inactive social login session.'
+        )
     })
 
     test('shows redirect notice if redirecting for maintenance', async ({ page }) => {
@@ -121,9 +124,9 @@ test.describe('Signup', () => {
             window.POSTHOG_APP_CONTEXT = {
                 ...window.POSTHOG_APP_CONTEXT,
                 preflight: {
-                    ...(window.POSTHOG_APP_CONTEXT?.preflight) as AppContext['preflight'],
-                    cloud: true
-                }
+                    ...(window.POSTHOG_APP_CONTEXT?.preflight as AppContext['preflight']),
+                    cloud: true,
+                },
             } as AppContext
         })
 
@@ -135,4 +138,4 @@ test.describe('Signup', () => {
             `You've been redirected to signup on our US instance while we perform maintenance on our other instance.`
         )
     })
-}) 
+})

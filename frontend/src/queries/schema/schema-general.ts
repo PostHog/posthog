@@ -31,6 +31,7 @@ import {
     PropertyGroupFilterValue,
     PropertyMathType,
     PropertyOperator,
+    RetentionDashboardDisplayType,
     RetentionFilterType,
     SessionPropertyFilter,
     SessionRecordingType,
@@ -102,6 +103,7 @@ export enum NodeKind {
     ExperimentMetric = 'ExperimentMetric',
     ExperimentQuery = 'ExperimentQuery',
     ExperimentExposureQuery = 'ExperimentExposureQuery',
+    ExperimentEventExposureConfig = 'ExperimentEventExposureConfig',
     ExperimentEventMetricConfig = 'ExperimentEventMetricConfig',
     ExperimentActionMetricConfig = 'ExperimentActionMetricConfig',
     ExperimentDataWarehouseMetricConfig = 'ExperimentDataWarehouseMetricConfig',
@@ -300,6 +302,7 @@ export interface HogQLVariable {
     variableId: string
     code_name: string
     value?: any
+    isNull?: boolean
 }
 
 export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
@@ -386,10 +389,18 @@ export interface HogQLNotice {
     fix?: string
 }
 
+export enum QueryIndexUsage {
+    Undecisive = 'undecisive',
+    No = 'no',
+    Partial = 'partial',
+    Yes = 'yes',
+}
+
 export interface HogQLMetadataResponse {
     query?: string
     isValid?: boolean
     isValidView?: boolean
+    isUsingIndices?: QueryIndexUsage
     errors: HogQLNotice[]
     warnings: HogQLNotice[]
     notices: HogQLNotice[]
@@ -1088,14 +1099,19 @@ export type RetentionFilterLegacy = Omit<RetentionFilterType, keyof FilterType>
 export type RetentionFilter = {
     retentionType?: RetentionFilterLegacy['retention_type']
     retentionReference?: RetentionFilterLegacy['retention_reference']
-    /** @default 11 */
+    /** @default 8 */
     totalIntervals?: integer
     returningEntity?: RetentionFilterLegacy['returning_entity']
     targetEntity?: RetentionFilterLegacy['target_entity']
     /** @default Day */
     period?: RetentionFilterLegacy['period']
-    showMean?: RetentionFilterLegacy['show_mean']
     cumulative?: RetentionFilterLegacy['cumulative']
+
+    //frontend only
+    showMean?: RetentionFilterLegacy['show_mean']
+    /** controls the display of the retention graph */
+    display?: ChartDisplayType
+    dashboardDisplay?: RetentionDashboardDisplayType
 }
 
 export interface RetentionValue {
@@ -1182,6 +1198,13 @@ export type StickinessOperator =
     | PropertyOperator.LessThanOrEqual
     | PropertyOperator.Exact
 
+export const StickinessComputationModes = {
+    NonCumulative: 'non_cumulative',
+    Cumulative: 'cumulative',
+} as const
+
+export type StickinessComputationMode = (typeof StickinessComputationModes)[keyof typeof StickinessComputationModes]
+
 export type StickinessFilter = {
     display?: StickinessFilterLegacy['display']
     showLegend?: StickinessFilterLegacy['show_legend']
@@ -1192,6 +1215,7 @@ export type StickinessFilter = {
         operator: StickinessOperator
         value: integer
     }
+    computedAs?: StickinessComputationMode
 }
 
 export const STICKINESS_FILTER_PROPERTIES = new Set<keyof StickinessFilter>([
@@ -1842,6 +1866,17 @@ export interface ExperimentTrendsQuery extends DataNode<ExperimentTrendsQueryRes
     exposure_query?: TrendsQuery
 }
 
+export interface ExperimentExposureCriteria {
+    filterTestAccounts?: boolean
+    exposure_config?: ExperimentEventExposureConfig
+}
+
+export interface ExperimentEventExposureConfig {
+    kind: NodeKind.ExperimentEventExposureConfig
+    event: string
+    properties: AnyPropertyFilter[]
+}
+
 export enum ExperimentMetricType {
     COUNT = 'count',
     CONTINUOUS = 'continuous',
@@ -1854,7 +1889,6 @@ export interface ExperimentMetric {
     kind: NodeKind.ExperimentMetric
     name?: string
     metric_type: ExperimentMetricType
-    filterTestAccounts?: boolean
     inverse?: boolean
     metric_config: ExperimentEventMetricConfig | ExperimentActionMetricConfig | ExperimentDataWarehouseMetricConfig
 }
@@ -1883,10 +1917,11 @@ export interface ExperimentActionMetricConfig {
 
 export interface ExperimentDataWarehouseMetricConfig {
     kind: NodeKind.ExperimentDataWarehouseMetricConfig
+    name?: string
     table_name: string
     timestamp_field: string
-    exposure_identifier_field: string
-    after_exposure_identifier_field: string
+    events_join_key: string
+    data_warehouse_join_key: string
     math?: ExperimentMetricMath
     math_hogql?: string
     math_property?: string

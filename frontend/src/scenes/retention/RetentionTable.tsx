@@ -9,11 +9,13 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { retentionModalLogic } from './retentionModalLogic'
 import { retentionTableLogic } from './retentionTableLogic'
+import { ProcessedRetentionValue } from './types'
 
 export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolean }): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { tableHeaders, tableRows, isLatestPeriod, hideSizeColumn, retentionVizOptions, theme, retentionFilter } =
-        useValues(retentionTableLogic(insightProps))
+    const { tableHeaders, tableRows, hideSizeColumn, retentionVizOptions, theme, retentionFilter } = useValues(
+        retentionTableLogic(insightProps)
+    )
     const { openModal } = useActions(retentionModalLogic(insightProps))
     const backgroundColor = theme?.['preset-1'] || '#000000' // Default to black if no color found
     const backgroundColorMean = theme?.['preset-2'] || '#000000' // Default to black if no color found
@@ -50,18 +52,24 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                                         percentage={
                                             mean(
                                                 tableRows.map((row) => {
+                                                    if (columnIndex >= row.length) {
+                                                        return null
+                                                    }
+
                                                     // Stop before the last item in a row, which is an incomplete time period
                                                     if (
-                                                        (columnIndex >= row.length - 1 && isLatestPeriod) ||
+                                                        (columnIndex >= row.length - 1 &&
+                                                            (row[columnIndex] as ProcessedRetentionValue)
+                                                                .isCurrentPeriod) ||
                                                         !row[columnIndex]
                                                     ) {
                                                         return null
                                                     }
-                                                    return row[columnIndex].percentage
+
+                                                    return (row[columnIndex] as ProcessedRetentionValue).percentage
                                                 })
                                             ) || 0
                                         }
-                                        latest={isLatestPeriod && columnIndex == tableRows[0].length - 1}
                                         clickable={false}
                                         backgroundColor={backgroundColorMean}
                                     />
@@ -85,12 +93,14 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                                 {columnIndex <= (hideSizeColumn ? 0 : 1) ? (
                                     <span className="RetentionTable__TextTab">{column}</span>
                                 ) : (
-                                    <CohortDay
-                                        percentage={column.percentage}
-                                        clickable={true}
-                                        latest={isLatestPeriod && columnIndex === row.length - 1}
-                                        backgroundColor={backgroundColor}
-                                    />
+                                    typeof column === 'object' && (
+                                        <CohortDay
+                                            percentage={column.percentage}
+                                            clickable={true}
+                                            isCurrentPeriod={column.isCurrentPeriod}
+                                            backgroundColor={backgroundColor}
+                                        />
+                                    )
                                 )}
                             </td>
                         ))}
@@ -103,12 +113,12 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
 
 function CohortDay({
     percentage,
-    latest,
+    isCurrentPeriod = false,
     clickable,
     backgroundColor,
 }: {
     percentage: number
-    latest: boolean
+    isCurrentPeriod?: boolean
     clickable: boolean
     backgroundColor: string
 }): JSX.Element {
@@ -120,13 +130,13 @@ function CohortDay({
         <div
             className={clsx('RetentionTable__Tab', {
                 'RetentionTable__Tab--clickable': clickable,
-                'RetentionTable__Tab--period': latest,
+                'RetentionTable__Tab--period': isCurrentPeriod,
             })}
             // eslint-disable-next-line react/forbid-dom-props
-            style={!latest ? { backgroundColor: saturatedBackgroundColor, color: textColor } : undefined}
+            style={!isCurrentPeriod ? { backgroundColor: saturatedBackgroundColor, color: textColor } : undefined}
         >
             {percentage.toFixed(1)}%
         </div>
     )
-    return latest ? <Tooltip title="Period in progress">{numberCell}</Tooltip> : numberCell
+    return isCurrentPeriod ? <Tooltip title="Period in progress">{numberCell}</Tooltip> : numberCell
 }

@@ -1,5 +1,6 @@
 import { LemonBanner, LemonLabel, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 import { id } from 'chartjs-plugin-trendline'
+import clsx from 'clsx'
 import { useValues } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -44,9 +45,9 @@ function sanitizeActionFilters(filters?: FilterType): Partial<HogFunctionFilters
     return sanitized
 }
 
-export function HogFunctionFilters(): JSX.Element {
+export function HogFunctionFilters({ embedded = false }: { embedded?: boolean }): JSX.Element {
     const { groupsTaxonomicTypes } = useValues(groupsModel)
-    const { configuration, type, useMapping } = useValues(hogFunctionConfigurationLogic)
+    const { configuration, type, useMapping, filtersContainPersonProperties } = useValues(hogFunctionConfigurationLogic)
 
     if (type === 'broadcast') {
         return (
@@ -76,7 +77,7 @@ export function HogFunctionFilters(): JSX.Element {
     }
 
     if (type === 'internal_destination') {
-        return <HogFunctionFiltersInternal templateId={configuration?.template?.id} />
+        return <HogFunctionFiltersInternal />
     }
 
     const isLegacyPlugin = configuration?.template?.id?.startsWith('plugin-')
@@ -85,7 +86,7 @@ export function HogFunctionFilters(): JSX.Element {
     const showDropEvents = type === 'transformation'
 
     return (
-        <div className="p-3 space-y-2 border rounded bg-surface-primary">
+        <div className={clsx('space-y-2 rounded bg-surface-primary', !embedded && 'border p-3', embedded && 'p-2')}>
             <LemonField
                 name="filters"
                 label={useMapping ? 'Global filters' : 'Filters'}
@@ -200,6 +201,14 @@ export function HogFunctionFilters(): JSX.Element {
                     )
                 }}
             </LemonField>
+
+            {filtersContainPersonProperties ? (
+                <LemonBanner type="warning">
+                    You are filtering on Person properties. Be aware that this filtering applies at the time the event
+                    is processed so if Person Profiles are not enabled or the person property has not been set by then
+                    then the filters may not work as expected.
+                </LemonBanner>
+            ) : null}
             {showMasking ? (
                 <LemonField name="masking" label="Trigger options">
                     {({ value, onChange }) => (

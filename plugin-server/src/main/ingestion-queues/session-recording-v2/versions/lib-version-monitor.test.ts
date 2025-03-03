@@ -1,3 +1,5 @@
+import { DateTime } from 'luxon'
+
 import { MessageWithTeam } from '../teams/types'
 import { LibVersionMonitor } from './lib-version-monitor'
 import { VersionMetrics } from './version-metrics'
@@ -28,7 +30,7 @@ describe('LibVersionMonitor', () => {
             distinct_id: 'distinct_id',
             session_id: 'session1',
             eventsByWindowId: { window1: [] },
-            eventsRange: { start: 0, end: 0 },
+            eventsRange: { start: DateTime.fromMillis(0), end: DateTime.fromMillis(0) },
         },
     })
 

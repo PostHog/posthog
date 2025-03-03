@@ -142,13 +142,13 @@ const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOpts): In
             toggledLifecycles: undefined,
             showLabelsOnSeries: undefined,
             showMean: undefined,
-            cumulative: undefined,
             yAxisScaleType: undefined,
             hiddenLegendIndexes: undefined,
             hiddenLegendBreakdowns: undefined,
             resultCustomizations: undefined,
             resultCustomizationBy: undefined,
             goalLines: undefined,
+            dashboardDisplay: undefined,
         }
 
         cleanedQuery.dataColorTheme = undefined

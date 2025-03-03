@@ -76,10 +76,11 @@ pnpm-error.log
 # pyright config (keep this until we have a standardized one)
 pyrightconfig.json
 settings.yml
-share/GeoLite2-City.mmdb
+share/GeoLite2-City.*
 staticfiles
 storybook-static
 frontend/storybook-static
+common/storybook/dist
 temp_test_run_data.json
 # ignore all dagster tmp directories that may be created
 tmp*/

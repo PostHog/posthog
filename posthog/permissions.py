@@ -229,9 +229,9 @@ class PremiumFeaturePermission(BasePermission):
     """
 
     def has_permission(self, request: Request, view: APIView) -> bool:
-        assert hasattr(
-            view, "premium_feature"
-        ), "this permission class requires the `premium_feature` attribute to be set in the view."
+        assert hasattr(view, "premium_feature"), (
+            "this permission class requires the `premium_feature` attribute to be set in the view."
+        )
 
         if not request.user or not request.user.organization:  # type: ignore
             return True
@@ -256,9 +256,9 @@ class SharingTokenPermission(BasePermission):
         return request.successful_authenticator.sharing_configuration.can_access_object(object)
 
     def has_permission(self, request, view) -> bool:
-        assert hasattr(
-            view, "sharing_enabled_actions"
-        ), "SharingTokenPermission requires the `sharing_enabled_actions` attribute to be set in the view"
+        assert hasattr(view, "sharing_enabled_actions"), (
+            "SharingTokenPermission requires the `sharing_enabled_actions` attribute to be set in the view"
+        )
 
         if isinstance(request.successful_authenticator, SharingAccessTokenAuthentication):
             try:
@@ -331,6 +331,13 @@ class ScopeBasePermission(BasePermission):
         # Otherwise use the scope_object and derive the required scope from the action
         if getattr(view, "required_scopes", None):
             return view.required_scopes
+
+        # If the view has a dangerously_get_required_scopes method then use that
+        # If it returns None then we will use the default behavior
+        if hasattr(view, "dangerously_get_required_scopes"):
+            required_scopes = view.dangerously_get_required_scopes(request, view)
+            if required_scopes:
+                return required_scopes
 
         scope_object = self._get_scope_object(request, view)
 

@@ -162,7 +162,7 @@ pub async fn handle_events(
             let m_context = context.clone();
             let handle = tokio::spawn(async move {
                 resolve_issue(
-                    &m_context.pool,
+                    &m_context,
                     team_id,
                     &m_fingerprint,
                     name,

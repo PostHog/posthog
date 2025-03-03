@@ -29,6 +29,8 @@ from posthog.temporal.common.schedule import describe_schedule
 from posthog.test.base import APIBaseTest
 from posthog.utils import get_instance_realm
 
+from ee.models.rbac.access_control import AccessControl
+
 
 def team_api_test_factory():
     class TestTeamAPI(APIBaseTest):
@@ -1471,3 +1473,183 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         response = self.client.post("/api/projects/@current/environments/", {"name": "New Project 2"})
         self.assertEqual(response.status_code, 201)
         self.assertEqual(Team.objects.count(), 3)
+
+    def test_team_member_can_write_to_team_config_with_member_access_control(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        self.organization.available_product_features = [
+            {
+                "key": AvailableFeature.ADVANCED_PERMISSIONS,
+                "name": AvailableFeature.ADVANCED_PERMISSIONS,
+            },
+        ]
+        self.organization.save()
+
+        # Default access control to member for team
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=self.team.id,
+            access_level="admin",
+        )
+
+        response = self.client.patch(
+            "/api/environments/@current/",
+            {"timezone": "Europe/Lisbon", "session_recording_opt_in": True},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_data = response.json()
+        self.assertEqual(response_data["timezone"], "Europe/Lisbon")
+        self.assertEqual(response_data["session_recording_opt_in"], True)
+
+        # Verify changes were made
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.timezone, "Europe/Lisbon")
+        self.assertEqual(self.team.session_recording_opt_in, True)
+
+    def test_team_member_cannot_write_to_team_config_with_no_access_access_control(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        self.organization.available_product_features = [
+            {
+                "key": AvailableFeature.ADVANCED_PERMISSIONS,
+                "name": AvailableFeature.ADVANCED_PERMISSIONS,
+            },
+        ]
+        self.organization.save()
+
+        # Default access control to member for team
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=self.team.id,
+            access_level="none",
+        )
+
+        response = self.client.patch(
+            "/api/environments/@current/",
+            {"timezone": "Europe/Lisbon", "session_recording_opt_in": True},
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        # Verify changes were made
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.timezone, "UTC")
+        self.assertEqual(self.team.session_recording_opt_in, False)
+
+    def test_team_member_can_write_to_team_config_without_access_control(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        self.organization.available_product_features = [
+            {
+                "key": AvailableFeature.ADVANCED_PERMISSIONS,
+                "name": AvailableFeature.ADVANCED_PERMISSIONS,
+            },
+        ]
+        self.organization.save()
+
+        response = self.client.patch(
+            "/api/environments/@current/",
+            {"timezone": "Europe/Lisbon", "session_recording_opt_in": True},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_data = response.json()
+        self.assertEqual(response_data["timezone"], "Europe/Lisbon")
+        self.assertEqual(response_data["session_recording_opt_in"], True)
+
+        # Verify changes were made
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.timezone, "Europe/Lisbon")
+        self.assertEqual(self.team.session_recording_opt_in, True)
+
+    def test_team_admin_can_write_to_team_patch_with_access_control(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        self.organization.available_product_features = [
+            {
+                "key": AvailableFeature.ADVANCED_PERMISSIONS,
+                "name": AvailableFeature.ADVANCED_PERMISSIONS,
+            },
+        ]
+        self.organization.save()
+
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=self.team.id,
+            access_level="none",
+        )
+
+        response = self.client.patch(
+            "/api/environments/@current/",
+            {"timezone": "Europe/Lisbon", "session_recording_opt_in": True},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_data = response.json()
+        self.assertEqual(response_data["timezone"], "Europe/Lisbon")
+        self.assertEqual(response_data["session_recording_opt_in"], True)
+
+        # Verify changes were made
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.timezone, "Europe/Lisbon")
+        self.assertEqual(self.team.session_recording_opt_in, True)
+
+    def test_team_member_cannot_write_to_team_patch_with_access_control(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        self.organization.available_product_features = [
+            {
+                "key": AvailableFeature.ADVANCED_PERMISSIONS,
+                "name": AvailableFeature.ADVANCED_PERMISSIONS,
+            },
+        ]
+        self.organization.save()
+
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=self.team.id,
+            access_level="none",
+        )
+
+        response = self.client.patch(
+            "/api/environments/@current/",
+            {"timezone": "Europe/Lisbon", "session_recording_opt_in": True},
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        # Verify no changes were made
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.timezone, "UTC")
+        self.assertEqual(self.team.session_recording_opt_in, False)
+
+    def test_team_member_can_write_to_team_patch_without_access_control(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        self.organization.available_product_features = [
+            {
+                "key": AvailableFeature.ADVANCED_PERMISSIONS,
+                "name": AvailableFeature.ADVANCED_PERMISSIONS,
+            },
+        ]
+        self.organization.save()
+
+        response = self.client.patch(
+            "/api/environments/@current/",
+            {"timezone": "Europe/Lisbon", "session_recording_opt_in": True},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Verify changes were made
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.timezone, "Europe/Lisbon")
+        self.assertEqual(self.team.session_recording_opt_in, True)

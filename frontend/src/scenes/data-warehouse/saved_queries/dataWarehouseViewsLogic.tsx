@@ -2,6 +2,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
+import posthog from 'posthog-js'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -58,7 +59,12 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                     return values.dataWarehouseSavedQueries.filter((view) => view.id !== viewId)
                 },
                 updateDataWarehouseSavedQuery: async (
-                    view: Partial<DatabaseSchemaViewTable> & { id: string; types: string[][]; sync_frequency?: string }
+                    view: Partial<DatabaseSchemaViewTable> & {
+                        id: string
+                        types: string[][]
+                        sync_frequency?: string
+                        lifecycle?: string
+                    }
                 ) => {
                     const newView = await api.dataWarehouseSavedQueries.update(view.id, view)
                     return values.dataWarehouseSavedQueries.map((savedQuery) => {
@@ -75,7 +81,14 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
         createDataWarehouseSavedQuerySuccess: () => {
             actions.loadDatabase()
         },
-        updateDataWarehouseSavedQuerySuccess: () => {
+        updateDataWarehouseSavedQuerySuccess: ({ payload }) => {
+            // in the case where we are scheduling a materialized view, send an event
+            if (payload && payload.lifecycle && payload.sync_frequency) {
+                // this function exists as an upsert, so we need to check if the view was created or updated
+                posthog.capture(`materialized view ${payload.lifecycle === 'update' ? 'updated' : 'created'}`, {
+                    sync_frequency: payload.sync_frequency,
+                })
+            }
             actions.loadDatabase()
             lemonToast.success('View updated')
         },

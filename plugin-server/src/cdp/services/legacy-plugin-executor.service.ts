@@ -160,8 +160,6 @@ export class LegacyPluginExecutorService {
                       | LegacyDestinationPlugin)
                 : null
 
-            addLog('debug', `Executing plugin ${pluginId}`)
-
             if (!pluginId || !plugin) {
                 throw new Error(`Plugin ${pluginId} not found`)
             }
@@ -178,18 +176,16 @@ export class LegacyPluginExecutorService {
             const legacyPluginConfigId = invocation.globals.inputs?.legacy_plugin_config_id
 
             if (!state) {
-                // TODO: Modify fetch to be a silent log if it is a test function...
+                const geoip = await this.hub.geoipService.get(this.hub)
+
                 const meta: LegacyTransformationPluginMeta = {
                     config: invocation.globals.inputs,
                     global: {},
                     logger: logger,
                     geoip: {
                         locate: (ipAddress: string): Record<string, any> | null => {
-                            if (!this.hub.mmdb) {
-                                return null
-                            }
                             try {
-                                return this.hub.mmdb.city(ipAddress)
+                                return geoip.city(ipAddress)
                             } catch {
                                 return null
                             }
@@ -292,7 +288,6 @@ export class LegacyPluginExecutorService {
                 }
             }
 
-            addLog('debug', `Execution successful`)
             pluginExecutionDuration.observe(performance.now() - start)
         } catch (e) {
             if (e instanceof RetryError) {

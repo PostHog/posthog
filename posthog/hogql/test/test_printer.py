@@ -5,6 +5,7 @@ from typing import Any, Literal, Optional, cast
 import pytest
 from django.test import override_settings
 
+from posthog import settings
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, HogQLQuerySettings, HogQLGlobalSettings
@@ -212,15 +213,7 @@ class TestPrinter(BaseTest):
         response = to_printed_hogql(expr, self.team)
         self.assertEqual(
             response,
-            "SELECT\n"
-            "    1 AS id\n"
-            "LIMIT 50000\n"
-            "INTERSECT\n"
-            "(SELECT\n"
-            "    2 AS id\n"
-            "UNION ALL\n"
-            "SELECT\n"
-            "    3 AS id)",
+            "SELECT\n    1 AS id\nLIMIT 50000\nINTERSECT\n(SELECT\n    2 AS id\nUNION ALL\nSELECT\n    3 AS id)",
         )
 
     # INTERSECT has higher priority than union
@@ -519,6 +512,26 @@ class TestPrinter(BaseTest):
                 self._expr("properties['foo']", context),
                 "nullIf(nullIf(events.mat_foo, ''), 'null')",
             )
+
+    def test_property_groups_person_properties(self):
+        # we can't use `override_settings` here, as the initial setting check is done at module initialize time
+        if not settings.USE_PERSON_PROPERTIES_MAP_CUSTOM:
+            pytest.xfail("person_properties_map_custom not enabled")
+
+        context = HogQLContext(
+            team_id=self.team.pk,
+            modifiers=HogQLQueryModifiers(
+                materializationMode=MaterializationMode.AUTO,
+                propertyGroupsMode=PropertyGroupsMode.ENABLED,
+                personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
+            ),
+        )
+
+        self.assertEqual(
+            self._expr("person.properties['foo']", context),
+            "has(events.person_properties_map_custom, %(hogql_val_0)s) ? events.person_properties_map_custom[%(hogql_val_0)s] : null",
+        )
+        self.assertEqual(context.values["hogql_val_0"], "foo")
 
     def _test_property_group_comparison(
         self,
@@ -871,6 +884,10 @@ class TestPrinter(BaseTest):
         self._assert_expr_error(
             "avg(avg(properties.bla))",
             "Aggregation 'avg' cannot be nested inside another aggregation 'avg'.",
+        )
+        self.assertEqual(  # does not error through subqueries
+            "avg((select avg(properties.bla) from events))",
+            "avg((select avg(properties.bla) from events))",
         )
         self._assert_expr_error("person.chipotle", "Field not found: chipotle")
         self._assert_expr_error("properties.0", "SQL indexes start from one, not from zero. E.g: array.1")
@@ -1366,10 +1383,10 @@ class TestPrinter(BaseTest):
 
         self.assertEqual(
             self._select(
-                "SELECT now(), toDateTime(timestamp), toDate(test_date), toDateTime('2020-02-02') FROM events",
+                "SELECT now(), toDateTime(timestamp), toDate(test_date), toDateTime('2020-02-02'), toDateTime('2020-02-02 12:25') FROM events",
                 context,
             ),
-            f"SELECT now64(6, %(hogql_val_0)s), toDateTime(toTimeZone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s), toDate(events.test_date), toDateTime64(%(hogql_val_3)s, 6, %(hogql_val_4)s) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+            f"SELECT now64(6, %(hogql_val_0)s), toDateTime(toTimeZone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s), toDate(events.test_date), toDateTime(%(hogql_val_3)s, %(hogql_val_4)s), parseDateTime64BestEffort(%(hogql_val_5)s, 6, %(hogql_val_6)s) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
         self.assertEqual(
             context.values,
@@ -1379,6 +1396,8 @@ class TestPrinter(BaseTest):
                 "hogql_val_2": "UTC",
                 "hogql_val_3": "2020-02-02",
                 "hogql_val_4": "UTC",
+                "hogql_val_5": "2020-02-02 12:25",
+                "hogql_val_6": "UTC",
             },
         )
 
@@ -1391,7 +1410,7 @@ class TestPrinter(BaseTest):
                 "SELECT now(), toDateTime(timestamp), toDateTime('2020-02-02') FROM events",
                 context,
             ),
-            f"SELECT now64(6, %(hogql_val_0)s), toDateTime(toTimeZone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s), toDateTime64(%(hogql_val_3)s, 6, %(hogql_val_4)s) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+            f"SELECT now64(6, %(hogql_val_0)s), toDateTime(toTimeZone(events.timestamp, %(hogql_val_1)s), %(hogql_val_2)s), toDateTime(%(hogql_val_3)s, %(hogql_val_4)s) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
         self.assertEqual(
             context.values,
@@ -1478,7 +1497,7 @@ class TestPrinter(BaseTest):
     def test_functions_expecting_datetime_arg(self):
         self.assertEqual(
             self._expr("tumble(toDateTime('2023-06-12'), toIntervalDay('1'))"),
-            f"tumble(assumeNotNull(toDateTime(toDateTime64(%(hogql_val_0)s, 6, %(hogql_val_1)s))), toIntervalDay(%(hogql_val_2)s))",
+            f"tumble(assumeNotNull(toDateTime(toDateTime(%(hogql_val_0)s, %(hogql_val_1)s))), toIntervalDay(%(hogql_val_2)s))",
         )
         self.assertEqual(
             self._expr("tumble(now(), toIntervalDay('1'))"),
@@ -1490,7 +1509,7 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(
             self._expr("tumble(parseDateTimeBestEffort('23/10/2020 12:12:57'), toIntervalDay('1'))"),
-            f"tumble(assumeNotNull(toDateTime(parseDateTime64BestEffortOrNull(%(hogql_val_0)s, 6, %(hogql_val_1)s))), toIntervalDay(%(hogql_val_2)s))",
+            f"tumble(assumeNotNull(toDateTime(parseDateTime64BestEffort(%(hogql_val_0)s, 6, %(hogql_val_1)s))), toIntervalDay(%(hogql_val_2)s))",
         )
         self.assertEqual(
             self._select("SELECT tumble(timestamp, toIntervalDay('1')) FROM events"),

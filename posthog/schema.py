@@ -985,6 +985,7 @@ class HogQLVariable(BaseModel):
         extra="forbid",
     )
     code_name: str
+    isNull: Optional[bool] = None
     value: Optional[Any] = None
     variableId: str
 
@@ -1134,6 +1135,7 @@ class NodeKind(StrEnum):
     EXPERIMENT_METRIC = "ExperimentMetric"
     EXPERIMENT_QUERY = "ExperimentQuery"
     EXPERIMENT_EXPOSURE_QUERY = "ExperimentExposureQuery"
+    EXPERIMENT_EVENT_EXPOSURE_CONFIG = "ExperimentEventExposureConfig"
     EXPERIMENT_EVENT_METRIC_CONFIG = "ExperimentEventMetricConfig"
     EXPERIMENT_ACTION_METRIC_CONFIG = "ExperimentActionMetricConfig"
     EXPERIMENT_DATA_WAREHOUSE_METRIC_CONFIG = "ExperimentDataWarehouseMetricConfig"
@@ -1259,6 +1261,13 @@ class PropertyOperator(StrEnum):
     IS_CLEANED_PATH_EXACT = "is_cleaned_path_exact"
 
 
+class QueryIndexUsage(StrEnum):
+    UNDECISIVE = "undecisive"
+    NO = "no"
+    PARTIAL = "partial"
+    YES = "yes"
+
+
 class QueryResponseAlternative5(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1356,6 +1365,12 @@ class ResultCustomizationByValue(BaseModel):
     color: DataColorToken
 
 
+class RetentionDashboardDisplayType(StrEnum):
+    TABLE_ONLY = "table_only"
+    GRAPH_ONLY = "graph_only"
+    ALL = "all"
+
+
 class RetentionEntityKind(StrEnum):
     ACTIONS_NODE = "ActionsNode"
     EVENTS_NODE = "EventsNode"
@@ -1425,6 +1440,11 @@ class StepOrderValue(StrEnum):
     STRICT = "strict"
     UNORDERED = "unordered"
     ORDERED = "ordered"
+
+
+class StickinessComputationMode(StrEnum):
+    NON_CUMULATIVE = "non_cumulative"
+    CUMULATIVE = "cumulative"
 
 
 class StickinessFilterLegacy(BaseModel):
@@ -2261,12 +2281,13 @@ class ExperimentDataWarehouseMetricConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    after_exposure_identifier_field: str
-    exposure_identifier_field: str
+    data_warehouse_join_key: str
+    events_join_key: str
     kind: Literal["ExperimentDataWarehouseMetricConfig"] = "ExperimentDataWarehouseMetricConfig"
     math: Optional[ExperimentMetricMath] = None
     math_hogql: Optional[str] = None
     math_property: Optional[str] = None
+    name: Optional[str] = None
     table_name: str
     timestamp_field: str
 
@@ -2530,6 +2551,7 @@ class QueryResponseAlternative7(BaseModel):
         extra="forbid",
     )
     errors: list[HogQLNotice]
+    isUsingIndices: Optional[QueryIndexUsage] = None
     isValid: Optional[bool] = None
     isValidView: Optional[bool] = None
     notices: list[HogQLNotice]
@@ -2736,7 +2758,8 @@ class SessionRecordingType(BaseModel):
     start_url: Optional[str] = None
     storage: Optional[Storage] = Field(default=None, description="Where this recording information was loaded from")
     summary: Optional[str] = None
-    viewed: bool = Field(..., description="Whether this recording has been viewed already.")
+    viewed: bool = Field(..., description="Whether this recording has been viewed by you already.")
+    viewers: list[str] = Field(..., description="user ids of other users who have viewed this recording")
 
 
 class SessionsTimelineQueryResponse(BaseModel):
@@ -2773,6 +2796,7 @@ class StickinessFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    computedAs: Optional[StickinessComputationMode] = None
     display: Optional[ChartDisplayType] = None
     hiddenLegendIndexes: Optional[list[int]] = None
     showLegend: Optional[bool] = None
@@ -4610,6 +4634,31 @@ class ExperimentActionMetricConfig(BaseModel):
     ] = Field(default=None, description="Properties configurable in the interface")
 
 
+class ExperimentEventExposureConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    event: str
+    kind: Literal["ExperimentEventExposureConfig"] = "ExperimentEventExposureConfig"
+    properties: list[
+        Union[
+            EventPropertyFilter,
+            PersonPropertyFilter,
+            ElementPropertyFilter,
+            SessionPropertyFilter,
+            CohortPropertyFilter,
+            RecordingPropertyFilter,
+            LogEntryPropertyFilter,
+            GroupPropertyFilter,
+            FeaturePropertyFilter,
+            HogQLPropertyFilter,
+            EmptyPropertyFilter,
+            DataWarehousePropertyFilter,
+            DataWarehousePersonPropertyFilter,
+        ]
+    ]
+
+
 class ExperimentEventMetricConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4641,6 +4690,14 @@ class ExperimentEventMetricConfig(BaseModel):
     ] = Field(default=None, description="Properties configurable in the interface")
 
 
+class ExperimentExposureCriteria(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    exposure_config: Optional[ExperimentEventExposureConfig] = None
+    filterTestAccounts: Optional[bool] = None
+
+
 class ExperimentExposureQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4657,7 +4714,6 @@ class ExperimentMetric(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    filterTestAccounts: Optional[bool] = None
     inverse: Optional[bool] = None
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     metric_config: Union[ExperimentEventMetricConfig, ExperimentActionMetricConfig, ExperimentDataWarehouseMetricConfig]
@@ -4914,6 +4970,7 @@ class HogQLMetadataResponse(BaseModel):
         extra="forbid",
     )
     errors: list[HogQLNotice]
+    isUsingIndices: Optional[QueryIndexUsage] = None
     isValid: Optional[bool] = None
     isValidView: Optional[bool] = None
     notices: list[HogQLNotice]
@@ -5830,6 +5887,8 @@ class RetentionFilter(BaseModel):
         extra="forbid",
     )
     cumulative: Optional[bool] = None
+    dashboardDisplay: Optional[RetentionDashboardDisplayType] = None
+    display: Optional[ChartDisplayType] = Field(default=None, description="controls the display of the retention graph")
     period: Optional[RetentionPeriod] = RetentionPeriod.DAY
     retentionReference: Optional[RetentionReference] = Field(
         default=None,
@@ -5839,7 +5898,7 @@ class RetentionFilter(BaseModel):
     returningEntity: Optional[RetentionEntity] = None
     showMean: Optional[bool] = None
     targetEntity: Optional[RetentionEntity] = None
-    totalIntervals: Optional[int] = 11
+    totalIntervals: Optional[int] = 8
 
 
 class RetentionFilterLegacy(BaseModel):
@@ -6877,6 +6936,7 @@ class VisualizationMessage(BaseModel):
     id: Optional[str] = None
     initiator: Optional[str] = None
     plan: Optional[str] = None
+    query: Optional[str] = ""
     type: Literal["ai/viz"] = "ai/viz"
 
 

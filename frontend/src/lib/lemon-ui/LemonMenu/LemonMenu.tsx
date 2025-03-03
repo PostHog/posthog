@@ -14,7 +14,7 @@ type KeyboardShortcut = Array<keyof KeyboardShortcutProps>
 export interface LemonMenuItemBase
     extends Pick<
         LemonButtonProps,
-        'icon' | 'sideIcon' | 'sideAction' | 'disabledReason' | 'tooltip' | 'active' | 'status' | 'data-attr'
+        'icon' | 'sideIcon' | 'sideAction' | 'disabledReason' | 'tooltip' | 'active' | 'status' | 'data-attr' | 'size'
     > {
     label: string | JSX.Element
     key?: React.Key

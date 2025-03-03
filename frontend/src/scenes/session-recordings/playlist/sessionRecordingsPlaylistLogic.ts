@@ -17,6 +17,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectClean, objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import posthog from 'posthog-js'
 
 import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { NodeKind, RecordingOrder, RecordingsQuery, RecordingsQueryResponse } from '~/queries/schema/schema-general'
@@ -318,6 +319,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             ['reportRecordingsListFetched', 'reportRecordingsListFilterAdded'],
             sessionRecordingsListPropertiesLogic,
             ['maybeLoadPropertiesForSessions'],
+            playerSettingsLogic,
+            ['setHideViewedRecordings'],
         ],
         values: [
             featureFlagLogic,
@@ -468,13 +471,20 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             { persist: true, prefix: `${getCurrentTeamId()}__${key}` },
             {
                 setFilters: (state, { filters }) => {
-                    if (!isValidRecordingFilters(filters)) {
-                        console.error('Invalid filters provided:', filters)
-                        return state
-                    }
-                    return {
-                        ...state,
-                        ...filters,
+                    try {
+                        if (!isValidRecordingFilters(filters)) {
+                            posthog.captureException(new Error('Invalid filters provided'), {
+                                filters,
+                            })
+                            return getDefaultFilters(props.personUUID)
+                        }
+                        return {
+                            ...state,
+                            ...filters,
+                        }
+                    } catch (e) {
+                        posthog.captureException(e)
+                        return getDefaultFilters(props.personUUID)
                     }
                 },
                 resetFilters: () => getDefaultFilters(props.personUUID),
@@ -589,6 +599,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
             activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.WatchSessionRecording)
         },
+
+        setHideViewedRecordings: () => {
+            actions.maybeLoadSessionRecordings('older')
+        },
     })),
     selectors({
         logicProps: [() => [(_, props) => props], (props): SessionRecordingPlaylistLogicProps => props],
@@ -698,7 +712,15 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         return false
                     }
 
-                    if (hideViewedRecordings && rec.viewed && rec.id !== selectedRecordingId) {
+                    if (hideViewedRecordings === 'current-user' && rec.viewed && rec.id !== selectedRecordingId) {
+                        return false
+                    }
+
+                    if (
+                        hideViewedRecordings === 'any-user' &&
+                        (rec.viewed || !!rec.viewers.length) &&
+                        rec.id !== selectedRecordingId
+                    ) {
                         return false
                     }
 

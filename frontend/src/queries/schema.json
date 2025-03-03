@@ -6917,10 +6917,10 @@
         "ExperimentDataWarehouseMetricConfig": {
             "additionalProperties": false,
             "properties": {
-                "after_exposure_identifier_field": {
+                "data_warehouse_join_key": {
                     "type": "string"
                 },
-                "exposure_identifier_field": {
+                "events_join_key": {
                     "type": "string"
                 },
                 "kind": {
@@ -6936,6 +6936,9 @@
                 "math_property": {
                     "type": "string"
                 },
+                "name": {
+                    "type": "string"
+                },
                 "table_name": {
                     "type": "string"
                 },
@@ -6943,13 +6946,27 @@
                     "type": "string"
                 }
             },
-            "required": [
-                "kind",
-                "table_name",
-                "timestamp_field",
-                "exposure_identifier_field",
-                "after_exposure_identifier_field"
-            ],
+            "required": ["kind", "table_name", "timestamp_field", "events_join_key", "data_warehouse_join_key"],
+            "type": "object"
+        },
+        "ExperimentEventExposureConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "event": {
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "ExperimentEventExposureConfig",
+                    "type": "string"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["kind", "event", "properties"],
             "type": "object"
         },
         "ExperimentEventMetricConfig": {
@@ -6983,6 +7000,18 @@
                 }
             },
             "required": ["kind", "event"],
+            "type": "object"
+        },
+        "ExperimentExposureCriteria": {
+            "additionalProperties": false,
+            "properties": {
+                "exposure_config": {
+                    "$ref": "#/definitions/ExperimentEventExposureConfig"
+                },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                }
+            },
             "type": "object"
         },
         "ExperimentExposureQuery": {
@@ -7151,9 +7180,6 @@
         "ExperimentMetric": {
             "additionalProperties": false,
             "properties": {
-                "filterTestAccounts": {
-                    "type": "boolean"
-                },
                 "inverse": {
                     "type": "boolean"
                 },
@@ -8581,6 +8607,9 @@
                     },
                     "type": "array"
                 },
+                "isUsingIndices": {
+                    "$ref": "#/definitions/QueryIndexUsage"
+                },
                 "isValid": {
                     "type": "boolean"
                 },
@@ -8842,6 +8871,9 @@
             "properties": {
                 "code_name": {
                     "type": "string"
+                },
+                "isNull": {
+                    "type": "boolean"
                 },
                 "value": {},
                 "variableId": {
@@ -9966,6 +9998,7 @@
                 "ExperimentMetric",
                 "ExperimentQuery",
                 "ExperimentExposureQuery",
+                "ExperimentEventExposureConfig",
                 "ExperimentEventMetricConfig",
                 "ExperimentActionMetricConfig",
                 "ExperimentDataWarehouseMetricConfig",
@@ -10478,6 +10511,10 @@
             ],
             "type": "string"
         },
+        "QueryIndexUsage": {
+            "enum": ["undecisive", "no", "partial", "yes"],
+            "type": "string"
+        },
         "QueryRequest": {
             "additionalProperties": false,
             "properties": {
@@ -10878,6 +10915,9 @@
                                 "$ref": "#/definitions/HogQLNotice"
                             },
                             "type": "array"
+                        },
+                        "isUsingIndices": {
+                            "$ref": "#/definitions/QueryIndexUsage"
                         },
                         "isValid": {
                             "type": "boolean"
@@ -13191,6 +13231,10 @@
             "required": ["assignmentBy", "color"],
             "type": "object"
         },
+        "RetentionDashboardDisplayType": {
+            "enum": ["table_only", "graph_only", "all"],
+            "type": "string"
+        },
         "RetentionEntity": {
             "additionalProperties": false,
             "properties": {
@@ -13235,6 +13279,13 @@
                 "cumulative": {
                     "type": "boolean"
                 },
+                "dashboardDisplay": {
+                    "$ref": "#/definitions/RetentionDashboardDisplayType"
+                },
+                "display": {
+                    "$ref": "#/definitions/ChartDisplayType",
+                    "description": "controls the display of the retention graph"
+                },
                 "period": {
                     "$ref": "#/definitions/RetentionPeriod",
                     "default": "Day"
@@ -13258,7 +13309,7 @@
                 },
                 "totalIntervals": {
                     "$ref": "#/definitions/integer",
-                    "default": 11
+                    "default": 8
                 }
             },
             "type": "object"
@@ -13834,11 +13885,18 @@
                     "type": "string"
                 },
                 "viewed": {
-                    "description": "Whether this recording has been viewed already.",
+                    "description": "Whether this recording has been viewed by you already.",
                     "type": "boolean"
+                },
+                "viewers": {
+                    "description": "user ids of other users who have viewed this recording",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 }
             },
-            "required": ["id", "viewed", "recording_duration", "start_time", "end_time", "snapshot_source"],
+            "required": ["id", "viewed", "viewers", "recording_duration", "start_time", "end_time", "snapshot_source"],
             "type": "object"
         },
         "SessionsTimelineQuery": {
@@ -13981,9 +14039,16 @@
             "required": ["kind", "source"],
             "type": "object"
         },
+        "StickinessComputationMode": {
+            "enum": ["non_cumulative", "cumulative"],
+            "type": "string"
+        },
         "StickinessFilter": {
             "additionalProperties": false,
             "properties": {
+                "computedAs": {
+                    "$ref": "#/definitions/StickinessComputationMode"
+                },
                 "display": {
                     "$ref": "#/definitions/ChartDisplayType"
                 },
@@ -14894,12 +14959,16 @@
                 "plan": {
                     "type": "string"
                 },
+                "query": {
+                    "default": "",
+                    "type": "string"
+                },
                 "type": {
                     "const": "ai/viz",
                     "type": "string"
                 }
             },
-            "required": ["type"],
+            "required": ["type", "query"],
             "type": "object"
         },
         "VizSpecificOptions": {

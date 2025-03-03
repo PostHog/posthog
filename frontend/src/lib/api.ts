@@ -100,6 +100,7 @@ import {
     PropertyDefinition,
     PropertyDefinitionType,
     QueryBasedInsightModel,
+    QueryTabState,
     RawAnnotationType,
     RawBatchExportBackfill,
     RawBatchExportRun,
@@ -807,6 +808,17 @@ class ApiRequest {
         return this.dataWarehouseViewLinks(teamId).addPathComponent(id)
     }
 
+    // # Query Tab State
+    public queryTabState(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('query_tab_state')
+    }
+    public queryTabStateDetail(id: QueryTabState['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.queryTabState(teamId).addPathComponent(id)
+    }
+    public queryTabStateUser(teamId?: TeamType['id']): ApiRequest {
+        return this.queryTabState(teamId).addPathComponent('user')
+    }
+
     // # Subscriptions
     public subscriptions(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('subscriptions')
@@ -818,7 +830,7 @@ class ApiRequest {
 
     // # Integrations
     public integrations(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('integrations')
+        return this.environmentsDetail(teamId).addPathComponent('integrations')
     }
 
     public integration(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
@@ -903,7 +915,7 @@ class ApiRequest {
     // Resource Access Permissions
 
     public featureFlagAccessPermissions(flagId: FeatureFlagType['id']): ApiRequest {
-        return this.featureFlag(flagId, ApiConfig.getCurrentTeamId()).addPathComponent('role_access')
+        return this.featureFlag(flagId).addPathComponent('role_access')
     }
 
     public featureFlagAccessPermissionsDetail(
@@ -933,6 +945,10 @@ class ApiRequest {
     // Conversations
     public conversations(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('conversations')
+    }
+
+    public conversation(id: string, teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('conversations').addPathComponent(id)
     }
 
     // Notebooks
@@ -1992,7 +2008,9 @@ const api = {
             data: {
                 configuration: Record<string, any>
                 mock_async_functions: boolean
-                globals: any
+                globals?: any
+                clickhouse_event?: any
+                invocation_id?: string
             }
         ): Promise<HogFunctionTestInvocationResult> {
             return await new ApiRequest().hogFunction(id).withAction('invocations').create({ data })
@@ -2039,7 +2057,7 @@ const api = {
 
         async updateIssue(
             id: ErrorTrackingIssue['id'],
-            data: Partial<Pick<ErrorTrackingIssue, 'assignee' | 'status'>>
+            data: Partial<Pick<ErrorTrackingIssue, 'status'>>
         ): Promise<ErrorTrackingRelationalIssue> {
             return await new ApiRequest().errorTrackingIssue(id).update({ data })
         },
@@ -2184,6 +2202,9 @@ const api = {
         },
         async getPlaylist(playlistId: SessionRecordingPlaylistType['short_id']): Promise<SessionRecordingPlaylistType> {
             return await new ApiRequest().recordingPlaylist(playlistId).get()
+        },
+        async playlistViewed(playlistId: SessionRecordingPlaylistType['short_id']): Promise<void> {
+            return await new ApiRequest().recordingPlaylist(playlistId).withAction('playlist_viewed').create()
         },
         async createPlaylist(playlist: Partial<SessionRecordingPlaylistType>): Promise<SessionRecordingPlaylistType> {
             return await new ApiRequest().recordingPlaylists().create({ data: playlist })
@@ -2596,6 +2617,24 @@ const api = {
         },
     },
 
+    queryTabState: {
+        async create(data: Partial<QueryTabState>): Promise<QueryTabState> {
+            return await new ApiRequest().queryTabState().create({ data })
+        },
+        async get(id: QueryTabState['id']): Promise<QueryTabState> {
+            return await new ApiRequest().queryTabStateDetail(id).get()
+        },
+        async update(id: QueryTabState['id'], data: Partial<QueryTabState>): Promise<QueryTabState> {
+            return await new ApiRequest().queryTabStateDetail(id).update({ data })
+        },
+        async delete(id: QueryTabState['id']): Promise<void> {
+            await new ApiRequest().queryTabStateDetail(id).delete()
+        },
+        async user(userId: UserType['uuid']): Promise<QueryTabState> {
+            return await new ApiRequest().queryTabStateUser().withQueryString({ user_id: userId }).get()
+        },
+    },
+
     insightVariables: {
         async list(options?: ApiMethodOptions | undefined): Promise<PaginatedResponse<Variable>> {
             return await new ApiRequest().insightVariables().get(options)
@@ -2605,6 +2644,9 @@ const api = {
         },
         async update(variableId: string, data: Partial<Variable>): Promise<Variable> {
             return await new ApiRequest().insightVariable(variableId).update({ data })
+        },
+        async delete(variableId: string): Promise<void> {
+            await new ApiRequest().insightVariable(variableId).delete()
         },
     },
 
@@ -2830,8 +2872,15 @@ const api = {
     },
 
     conversations: {
-        async create(data: { content: string; conversation?: string | null; trace_id: string }): Promise<Response> {
-            return api.createResponse(new ApiRequest().conversations().assembleFullUrl(), data)
+        async stream(
+            data: { content: string; conversation?: string | null; trace_id: string },
+            options?: ApiMethodOptions
+        ): Promise<Response> {
+            return api.createResponse(new ApiRequest().conversations().assembleFullUrl(), data, options)
+        },
+
+        cancel(conversationId: string): Promise<void> {
+            return new ApiRequest().conversation(conversationId).withAction('cancel').update()
         },
     },
 

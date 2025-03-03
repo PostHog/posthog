@@ -18,10 +18,12 @@ import { ActivityScope, PipelineNodeTab, PipelineStage, PipelineTab } from '~/ty
 
 import { BatchExportBackfills } from './BatchExportBackfills'
 import { BatchExportRuns } from './BatchExportRuns'
+import { HogFunctionLogs } from './hogfunctions/logs/HogFunctionLogs'
 import { AppMetricsV2 } from './metrics/AppMetricsV2'
 import { PipelineNodeConfiguration } from './PipelineNodeConfiguration'
 import { pipelineNodeLogic, PipelineNodeLogicProps } from './pipelineNodeLogic'
 import { PipelineNodeMetrics } from './PipelineNodeMetrics'
+import { TestingMenu } from './TestingMenu'
 import { PipelineBackend } from './types'
 
 export const PIPELINE_TAB_TO_NODE_STAGE: Partial<Record<PipelineTab, PipelineStage>> = {
@@ -80,7 +82,12 @@ export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.
                       ) : (
                           <PipelineNodeMetrics id={id} />
                       ),
-                  [PipelineNodeTab.Logs]: <PipelineNodeLogs id={id} stage={stage} />,
+                  [PipelineNodeTab.Logs]:
+                      node.backend === PipelineBackend.HogFunction ? (
+                          <HogFunctionLogs hogFunctionId={id.toString().substring(4)} />
+                      ) : (
+                          <PipelineNodeLogs id={id} stage={stage} />
+                      ),
               }
             : {}
 
@@ -98,6 +105,9 @@ export function PipelineNode(params: { stage?: string; id?: string } = {}): JSX.
     }
 
     if (node.backend === PipelineBackend.HogFunction) {
+        if (stage === PipelineStage.Destination) {
+            tabToContent[PipelineNodeTab.Testing] = <TestingMenu id={node.id} />
+        }
         tabToContent[PipelineNodeTab.History] = (
             <ActivityLog
                 id={String(id).startsWith('hog-') ? String(id).substring(4) : id}

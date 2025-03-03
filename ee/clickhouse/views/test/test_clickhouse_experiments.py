@@ -961,6 +961,59 @@ class TestExperimentCRUD(APILicensedTest):
         updated_ff = FeatureFlag.objects.get(key=ff_key)
         self.assertTrue(updated_ff.active)
 
+    def test_draft_experiment_update_doesnt_delete_ff_payloads(self):
+        # Draft experiment
+        ff_key = "a-b-tests-with-flag-payloads"
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "description": "",
+                "start_date": None,
+                "end_date": None,
+                "feature_flag_key": ff_key,
+                "parameters": {},
+                "filters": {"events": []},
+            },
+        )
+        id = create_response.json()["id"]
+
+        created_ff = FeatureFlag.objects.get(key=ff_key)
+        # Update feature flag payloads
+        created_ff.filters["payloads"] = {"test": '"test-payload"', "control": '"control-payload"'}
+        created_ff.save()
+
+        # Update parameters on experiment
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{id}",
+            {
+                "description": "Update parameters",
+                "parameters": {
+                    "feature_flag_variants": [
+                        {
+                            "key": "control",
+                            "name": "Control Group",
+                            "rollout_percentage": 33,
+                        },
+                        {
+                            "key": "test",
+                            "name": "Test Variant",
+                            "rollout_percentage": 33,
+                        },
+                        {
+                            "key": "special",
+                            "name": "Special Variant",
+                            "rollout_percentage": 34,
+                        },
+                    ]
+                },
+            },
+        )
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+
+        updated_ff = FeatureFlag.objects.get(key=ff_key)
+        self.assertEqual(updated_ff.filters["payloads"], {"test": '"test-payload"', "control": '"control-payload"'})
+
     def test_create_multivariate_experiment_can_update_variants_in_draft(self):
         ff_key = "a-b-test"
         response = self.client.post(
@@ -1267,48 +1320,6 @@ class TestExperimentCRUD(APILicensedTest):
             response.json()["detail"],
             "Feature flag variants must contain a control variant",
         )
-
-    def test_deleting_experiment_soft_deletes_feature_flag(self):
-        ff_key = "a-b-tests"
-        data = {
-            "name": "Test Experiment",
-            "description": "",
-            "start_date": "2021-12-01T10:23",
-            "end_date": None,
-            "feature_flag_key": ff_key,
-            "parameters": None,
-            "filters": {
-                "events": [
-                    {"order": 0, "id": "$pageview"},
-                    {"order": 1, "id": "$pageleave"},
-                ],
-                "properties": [],
-            },
-        }
-        response = self.client.post(f"/api/projects/{self.team.id}/experiments/", data)
-
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.json()["name"], "Test Experiment")
-        self.assertEqual(response.json()["feature_flag_key"], ff_key)
-
-        created_ff = FeatureFlag.objects.get(key=ff_key)
-
-        id = response.json()["id"]
-
-        # Now delete the experiment
-        response = self.client.delete(f"/api/projects/{self.team.id}/experiments/{id}")
-
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-
-        with self.assertRaises(Experiment.DoesNotExist):
-            Experiment.objects.get(pk=id)
-
-        # soft deleted
-        self.assertEqual(FeatureFlag.objects.get(pk=created_ff.id).deleted, True)
-
-        # can recreate new experiment with same FF key
-        response = self.client.post(f"/api/projects/{self.team.id}/experiments/", data)
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
     def test_soft_deleting_feature_flag_does_not_delete_experiment(self):
         ff_key = "a-b-tests"
@@ -2032,6 +2043,77 @@ class TestExperimentCRUD(APILicensedTest):
         # Verify that aggregation_group_type_index is removed from experiment parameters
         experiment = Experiment.objects.get(id=experiment_id)
         self.assertNotIn("aggregation_group_type_index", experiment.parameters)
+
+    def test_update_experiment_exposure_config_valid(self):
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team,
+            name="Test Feature Flag",
+            key="test-feature-flag",
+            filters={},
+        )
+
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name="Test Experiment",
+            description="My test experiment",
+            feature_flag=feature_flag,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment.id}",
+            {
+                "exposure_criteria": {
+                    "filterTestAccounts": True,
+                    "exposure_config": {
+                        "event": "$pageview",
+                        "properties": [
+                            {"key": "plan", "operator": "is_not", "value": "free", "type": "event"},
+                        ],
+                    },
+                }
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        experiment = Experiment.objects.get(id=experiment.id)
+        self.assertEqual(experiment.exposure_criteria["filterTestAccounts"], True)
+        self.assertEqual(experiment.exposure_criteria["exposure_config"]["event"], "$pageview")
+        self.assertEqual(
+            experiment.exposure_criteria["exposure_config"]["properties"],
+            [{"key": "plan", "operator": "is_not", "value": "free", "type": "event"}],
+        )
+
+    def test_update_experiment_exposure_config_invalid(self):
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team,
+            name="Test Feature Flag",
+            key="test-feature-flag",
+            filters={},
+        )
+
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name="Test Experiment",
+            description="My test experiment",
+            feature_flag=feature_flag,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment.id}",
+            {
+                "exposure_criteria": {
+                    "filterTestAccounts": True,
+                    "exposure_config": {
+                        # Invalid event and properties
+                        "event": "",
+                        "properties": [
+                            1,
+                        ],
+                    },
+                }
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
 class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
