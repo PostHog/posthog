@@ -82,11 +82,11 @@ describe('PersonsManagementScene', () => {
         userEvent.type(searchInput, 'test@example.com')
 
         const lemonTable = screen.getByTestId('persons-table')
-        const tableWithin = within(lemonTable)
+        const withinTable = within(lemonTable)
 
         await waitFor(() => {
-            expect(tableWithin.getByText('Test User')).toBeInTheDocument()
-            expect(tableWithin.getByText('test@example.com')).toBeInTheDocument()
+            expect(withinTable.getByText('Test User')).toBeInTheDocument()
+            expect(withinTable.getByText('test@example.com')).toBeInTheDocument()
         })
     })
 })
