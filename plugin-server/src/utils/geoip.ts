@@ -4,6 +4,7 @@ import * as schedule from 'node-schedule'
 import { Counter } from 'prom-client'
 
 import { Hub, PluginsServerConfig } from '../types'
+import { isTestEnv } from './env-utils'
 import { status } from './status'
 
 export type GeoIp = {
@@ -13,6 +14,18 @@ export type GeoIp = {
 export const geoipCompareCounter = new Counter({
     name: 'cdp_geoip_compare_count',
     help: 'Number of times we compare the MMDB file to the local file',
+    labelNames: ['result'],
+})
+
+export const geoipLoadCounter = new Counter({
+    name: 'cdp_geoip_load_count',
+    help: 'Number of times we load the MMDB file',
+    labelNames: ['reason'],
+})
+
+export const geoipBackgroundRefreshCounter = new Counter({
+    name: 'cdp_geoip_background_refresh_count',
+    help: 'Number of times we tried to refresh the MMDB file',
     labelNames: ['result'],
 })
 
@@ -30,13 +43,15 @@ export class GeoIPService {
         status.info('🌎', 'GeoIPService created')
         // NOTE: We typically clean these up in a shutdown task but this isn't necessary anymore as the server shutdown cancels all scheduled jobs
         // We should rely on that instead
-        schedule.scheduleJob('0 * * * *', () => this.backgroundRefreshMmdb())
+        if (!isTestEnv()) {
+            schedule.scheduleJob('0 * * * *', () => this.backgroundRefreshMmdb())
+        }
     }
 
     private ensureMmdbLoaded() {
         // This is a lazy getter. If we don't have mmdb or the loading promise then we need to load it
         if (!this._initialMmdbPromise) {
-            this._initialMmdbPromise = this.loadMmdb()
+            this._initialMmdbPromise = this.loadMmdb('initial')
                 .then((mmdb) => {
                     this._mmdb = mmdb
                     return this.loadMmdbMetadata()
@@ -49,12 +64,13 @@ export class GeoIPService {
         return this._initialMmdbPromise
     }
 
-    private async loadMmdb(): Promise<ReaderModel> {
+    private async loadMmdb(reason: string): Promise<ReaderModel> {
         status.info('🌎', 'Loading MMDB from disk...', {
             location: this.config.MMDB_FILE_LOCATION,
         })
 
         try {
+            geoipLoadCounter.inc({ reason })
             return await Reader.open(this.config.MMDB_FILE_LOCATION)
         } catch (e) {
             status.warn('🌎', 'Loading MMDB from disk failed!', {
@@ -85,6 +101,7 @@ export class GeoIPService {
     private async backgroundRefreshMmdb(): Promise<void> {
         status.debug('🌎', 'Checking if we need to refresh the MMDB')
         if (!this._mmdbMetadata) {
+            geoipBackgroundRefreshCounter.inc({ result: 'no_metadata' })
             status.info(
                 '🌎',
                 'No MMDB metadata found, skipping refresh as this indicates we are not using the S3 MMDB file'
@@ -95,13 +112,15 @@ export class GeoIPService {
         const metadata = await this.loadMmdbMetadata()
 
         if (metadata?.date === this._mmdbMetadata.date) {
+            geoipBackgroundRefreshCounter.inc({ result: 'up_to_date' })
             status.debug('🌎', 'MMDB metadata is up to date, skipping refresh')
             return
         }
 
         status.info('🌎', 'Refreshing MMDB from disk (s3)')
 
-        const mmdb = await this.loadMmdb()
+        geoipBackgroundRefreshCounter.inc({ result: 'refreshing' })
+        const mmdb = await this.loadMmdb('background refresh')
         this._mmdb = mmdb
         this._mmdbMetadata = metadata
     }

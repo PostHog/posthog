@@ -89,6 +89,7 @@ one
 true false
 true false
 true bcd
+bcdef
 firstNonNull notNull
 
 -- date --

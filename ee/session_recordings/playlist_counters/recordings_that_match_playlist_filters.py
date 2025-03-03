@@ -1,3 +1,4 @@
+from datetime import datetime
 import json
 from typing import Any
 import posthoganalytics
@@ -37,6 +38,11 @@ REPLAY_TEAM_PLAYLIST_COUNT_FAILED = Counter(
 REPLAY_TEAM_PLAYLIST_COUNT_UNKNOWN = Counter(
     "replay_playlist_count_unknown",
     "when a count task for a playlist is unknown",
+)
+
+REPLAY_TEAM_PLAYLIST_COUNT_SKIPPED = Counter(
+    "replay_playlist_count_skipped",
+    "when a count task for a playlist is skipped because the cooldown period has not passed",
 )
 
 REPLAY_PLAYLIST_COUNT_TIMER = Histogram(
@@ -138,17 +144,40 @@ def convert_universal_filters_to_recordings_query(universal_filters: dict[str, A
     expires=TASK_EXPIRATION_TIME,
 )
 def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
+    playlist: SessionRecordingPlaylist | None = None
+    query: RecordingsQuery | None = None
     try:
         with REPLAY_PLAYLIST_COUNT_TIMER.time():
             playlist = SessionRecordingPlaylist.objects.get(id=playlist_id)
+            redis_client = get_client()
+
+            existing_value = redis_client.get(f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist.short_id}")
+            if existing_value:
+                existing_value = json.loads(existing_value)
+            else:
+                existing_value = {}
+
+            # if we have results from the last hour we don't need to run the query
+            if existing_value.get("refreshed_at"):
+                last_refreshed_at = datetime.fromisoformat(existing_value["refreshed_at"])
+                seconds_since_refresh = int((datetime.now() - last_refreshed_at).total_seconds())
+
+                if seconds_since_refresh <= settings.PLAYLIST_COUNTER_PROCESSING_COOLDOWN_SECONDS:
+                    REPLAY_TEAM_PLAYLIST_COUNT_SKIPPED.inc()
+                    return
+
             query = convert_universal_filters_to_recordings_query(playlist.filters)
             (recordings, more_recordings_available, _) = list_recordings_from_query(
                 query, user=None, team=playlist.team
             )
 
-            redis_client = get_client()
             value_to_set = json.dumps(
-                {"session_ids": [r.session_id for r in recordings], "has_more": more_recordings_available}
+                {
+                    "session_ids": [r.session_id for r in recordings],
+                    "has_more": more_recordings_available,
+                    "previous_ids": existing_value.get("session_ids", None),
+                    "refreshed_at": datetime.now().isoformat(),
+                }
             )
             redis_client.setex(
                 f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist.short_id}", THIRTY_SIX_HOURS_IN_SECONDS, value_to_set
@@ -156,20 +185,48 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
 
             REPLAY_TEAM_PLAYLIST_COUNT_SUCCEEDED.inc()
     except SessionRecordingPlaylist.DoesNotExist:
-        logger.info("Playlist does not exist", playlist_id=playlist_id)
+        logger.info(
+            "Playlist does not exist",
+            playlist_id=playlist_id,
+            playlist_short_id=playlist.short_id if playlist else None,
+        )
         REPLAY_TEAM_PLAYLIST_COUNT_UNKNOWN.inc()
     except Exception as e:
-        posthoganalytics.capture_exception(e)
-        logger.exception("Failed to count recordings that match playlist filters", playlist_id=playlist_id, error=e)
+        posthoganalytics.capture_exception(
+            e,
+            properties={
+                "playlist_id": playlist_id,
+                "playlist_short_id": playlist.short_id if playlist else None,
+                "posthog_feature": "session_replay_playlist_counters",
+                "filters": playlist.filters if playlist else None,
+                "query": query,
+            },
+        )
+        logger.exception(
+            "Failed to count recordings that match playlist filters",
+            playlist_id=playlist_id,
+            playlist_short_id=playlist.short_id if playlist else None,
+            filters=playlist.filters if playlist else None,
+            query=query,
+            error=e,
+        )
         REPLAY_TEAM_PLAYLIST_COUNT_FAILED.inc()
 
 
 def enqueue_recordings_that_match_playlist_filters() -> None:
-    teams_with_counter_processing = settings.PLAYLIST_COUNTER_PROCESSING_ALLOWED_TEAMS
+    if not settings.PLAYLIST_COUNTER_PROCESSING_MAX_ALLOWED_TEAM_ID or not isinstance(
+        settings.PLAYLIST_COUNTER_PROCESSING_MAX_ALLOWED_TEAM_ID, int
+    ):
+        raise Exception("PLAYLIST_COUNTER_PROCESSING_MAX_ALLOWED_TEAM_ID is not set")
 
-    for team in teams_with_counter_processing:
-        all_playlists = SessionRecordingPlaylist.objects.filter(team_id=int(team), deleted=False, filters__isnull=False)
-        REPLAY_TEAM_PLAYLISTS_IN_TEAM_COUNT.inc(all_playlists.count())
+    if settings.PLAYLIST_COUNTER_PROCESSING_MAX_ALLOWED_TEAM_ID == 0:
+        # If we're not processing any teams, we don't need to enqueue anything
+        return
 
-        for playlist in all_playlists:
-            count_recordings_that_match_playlist_filters.delay(playlist.id)
+    all_playlists = SessionRecordingPlaylist.objects.filter(
+        team_id__lte=int(settings.PLAYLIST_COUNTER_PROCESSING_MAX_ALLOWED_TEAM_ID), deleted=False, filters__isnull=False
+    )
+    REPLAY_TEAM_PLAYLISTS_IN_TEAM_COUNT.inc(all_playlists.count())
+
+    for playlist in all_playlists:
+        count_recordings_that_match_playlist_filters.delay(playlist.id)

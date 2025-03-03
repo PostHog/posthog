@@ -4,7 +4,10 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
+from posthog.hogql_queries.experiments import (
+    CONTROL_VARIANT_KEY,
+    MULTIPLE_VARIANT_KEY,
+)
 from posthog.hogql_queries.experiments.trends_statistics_v2_count import (
     are_results_significant_v2_count,
     calculate_credible_intervals_v2_count,
@@ -195,7 +198,13 @@ class ExperimentQueryRunner(QueryRunner):
             ast.Alias(alias="entity_id", expr=ast.Field(chain=["person_id"])),
             ast.Alias(
                 alias="variant",
-                expr=ast.Field(chain=["properties", feature_flag_property]),
+                expr=parse_expr(
+                    "if(count(distinct {feature_flag_property}) > 1, {multiple_variant_key}, any({feature_flag_property}))",
+                    placeholders={
+                        "feature_flag_property": ast.Field(chain=["properties", feature_flag_property]),
+                        "multiple_variant_key": ast.Constant(value=MULTIPLE_VARIANT_KEY),
+                    },
+                ),
             ),
             ast.Alias(
                 alias="first_exposure_time",
@@ -205,7 +214,7 @@ class ExperimentQueryRunner(QueryRunner):
                 ),
             ),
         ]
-        exposure_query_group_by = [ast.Field(chain=["variant"]), ast.Field(chain=["entity_id"])]
+        exposure_query_group_by = [ast.Field(chain=["entity_id"])]
         if is_data_warehouse_query:
             exposure_metric_config = cast(ExperimentDataWarehouseMetricConfig, self.metric.metric_config)
             exposure_query_select = [
@@ -459,6 +468,9 @@ class ExperimentQueryRunner(QueryRunner):
             timings=self.timings,
             modifiers=create_default_modifiers_for_team(self.team),
         )
+
+        # NOTE: For now, remove the $multiple variant
+        response.results = [result for result in response.results if result[0] != MULTIPLE_VARIANT_KEY]
 
         sorted_results = sorted(response.results, key=lambda x: self.variants.index(x[0]))
 
