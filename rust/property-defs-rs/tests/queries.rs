@@ -5,7 +5,7 @@ use sqlx::{postgres::PgArguments, Arguments, Executor, PgPool, Row};
 use uuid::Uuid;
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
-async fn test_simple_events_query(test_pool: PgPool) {
+async fn test_property_definitions_queries(test_pool: PgPool) {
     // seed the test DB
     bootstrap_seed_data(test_pool.clone()).await.unwrap();
 
@@ -17,10 +17,14 @@ async fn test_simple_events_query(test_pool: PgPool) {
     // unit tests
     //
 
+    // PropertyParentType::Event scoped tests
     query_type_event_no_filters(&qmgr, project_id).await;
     query_type_event_properties_filter(&qmgr, project_id).await;
     query_type_event_excluded_props_filter(&qmgr, project_id).await;
     query_type_event_names_filter(&qmgr, project_id).await;
+    query_type_event_is_numerical_filter(&qmgr, project_id).await;
+    query_type_event_is_feature_flag_filter(&qmgr, project_id).await;
+    query_type_event_is_not_feature_flag_filter(&qmgr, project_id).await;
 }
 
 // fetch all PropertyParentType::Event records without filtering
@@ -136,6 +140,99 @@ async fn query_type_event_names_filter(qmgr: &Manager, project_id: i32) {
     let expected_props: Vec<&str> = expected_event_props_all()
         .into_iter()
         .filter(|prop_name| !["attempted_event", "$screen_width"].contains(prop_name))
+        .collect();
+    for row in results.unwrap() {
+        let prop_name: String = row.get("name");
+        assert!(expected_props.contains(&prop_name.as_str()))
+    }
+}
+
+// fetch only PropertyParentType::Event records of type "Numeric" (where is_numerical column == true)
+async fn query_type_event_is_numerical_filter(qmgr: &Manager, project_id: i32) {
+    let mut qb = sqlx::QueryBuilder::new("");
+
+    let params = Params {
+        is_numerical: true,
+        ..Default::default()
+    };
+
+    let count_events_ex_props_filter = qmgr.count_query(&mut qb, project_id, &params);
+    let result = qmgr.pool.fetch_one(count_events_ex_props_filter).await;
+    assert!(result.is_ok());
+
+    let total_count: i64 = result.unwrap().get(0);
+    let expected_event_rows: i64 = 2;
+    assert_eq!(expected_event_rows, total_count);
+
+    let mut qb = sqlx::QueryBuilder::new("");
+    let fetch_events_ex_props_filter =
+        qmgr.property_definitions_query(&mut qb, project_id, &params);
+    let results = qmgr.pool.fetch_all(fetch_events_ex_props_filter).await;
+    assert!(results.is_ok());
+
+    // should only return PropertyParentType::Event records of property_type="Numeric"
+    for row in results.unwrap() {
+        let prop_type: String = row.get("property_type");
+        assert!(prop_type == "Numeric");
+    }
+}
+
+// fetch only PropertyParentType::Event records where the property is a feature flag
+async fn query_type_event_is_feature_flag_filter(qmgr: &Manager, project_id: i32) {
+    let mut qb = sqlx::QueryBuilder::new("");
+
+    let params = Params {
+        is_feature_flag: Some(true),
+        ..Default::default()
+    };
+
+    let count_events_ex_props_filter = qmgr.count_query(&mut qb, project_id, &params);
+    let result = qmgr.pool.fetch_one(count_events_ex_props_filter).await;
+    assert!(result.is_ok());
+
+    let total_count: i64 = result.unwrap().get(0);
+    let expected_event_rows: i64 = 1;
+    assert_eq!(expected_event_rows, total_count);
+
+    let mut qb = sqlx::QueryBuilder::new("");
+    let fetch_events_ex_props_filter =
+        qmgr.property_definitions_query(&mut qb, project_id, &params);
+    let results = qmgr.pool.fetch_all(fetch_events_ex_props_filter).await;
+    assert!(results.is_ok());
+
+    // should only return PropertyParentType::Event records of property_type="Numeric"
+    for row in results.unwrap() {
+        let prop_type: String = row.get("name");
+        assert!(prop_type == "$feature/foo-bar-baz");
+    }
+}
+
+// fetch all PropertyParentType::Event records that are *not* feature flag props
+async fn query_type_event_is_not_feature_flag_filter(qmgr: &Manager, project_id: i32) {
+    let mut qb = sqlx::QueryBuilder::new("");
+
+    let params = Params {
+        is_feature_flag: Some(false),
+        ..Default::default()
+    };
+
+    let count_events_names_filter = qmgr.count_query(&mut qb, project_id, &params);
+    let result = qmgr.pool.fetch_one(count_events_names_filter).await;
+    assert!(result.is_ok());
+
+    let total_count: i64 = result.unwrap().get(0);
+    let expected_event_rows: i64 = 8;
+    assert_eq!(expected_event_rows, total_count);
+
+    let mut qb = sqlx::QueryBuilder::new("");
+    let fetch_events_names_filter = qmgr.property_definitions_query(&mut qb, project_id, &params);
+    let results = qmgr.pool.fetch_all(fetch_events_names_filter).await;
+    assert!(results.is_ok());
+
+    // all seed events *except* the two filtered by parent event name != "$pageview" should be present
+    let expected_props: Vec<&str> = expected_event_props_all()
+        .into_iter()
+        .filter(|prop_name| !["$feature/foo-bar-baz"].contains(prop_name))
         .collect();
     for row in results.unwrap() {
         let prop_name: String = row.get("name");
