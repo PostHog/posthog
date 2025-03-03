@@ -26,6 +26,7 @@ describe('e2e ingestion timeout', () => {
     })
 
     beforeEach(async () => {
+        jest.spyOn(process, 'exit').mockImplementation(() => {})
         await resetTestDatabase(`
             async function processEvent (event) {
                 await new Promise(resolve => __jestSetTimeout(() => resolve(), 800))
