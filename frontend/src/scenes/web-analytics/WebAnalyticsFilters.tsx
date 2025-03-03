@@ -168,11 +168,11 @@ const WebAnalyticsDomainSelector = (): JSX.Element => {
                         },
                         ...(hasHostFilter
                             ? [
-                                {
-                                    label: 'All domains (host filter active)',
-                                    value: 'host',
-                                },
-                            ]
+                                  {
+                                      label: 'All domains (host filter active)',
+                                      value: 'host',
+                                  },
+                              ]
                             : []),
                         ...authorizedDomains.map((domain) => ({ label: domain, value: domain })),
                     ],
