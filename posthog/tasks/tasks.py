@@ -13,7 +13,7 @@ from prometheus_client import Gauge
 from redis import Redis
 from structlog import get_logger
 
-from posthog.clickhouse.client.limit import CeleryConcurrencyLimitExceeded, limit_concurrency
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, limit_concurrency
 from posthog.cloud_utils import is_cloud
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.hogql.constants import LimitContext
@@ -45,7 +45,7 @@ def redis_heartbeat() -> None:
     autoretry_for=(
         # Important: Only retry for things that might be okay on the next try
         CHQueryErrorTooManySimultaneousQueries,
-        CeleryConcurrencyLimitExceeded,
+        ConcurrencyLimitExceeded,
     ),
     retry_backoff=1,
     retry_backoff_max=10,

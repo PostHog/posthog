@@ -58,9 +58,9 @@ class RateLimit:
     limit_name: str
     get_task_name: Callable
     get_task_id: Callable
-    get_task_key: Callable = None
+    get_task_key: Optional[Callable] = None
     get_time: Callable[[], int] = lambda: int(time.time())
-    applicable: Optional[Callable] = None
+    applicable: Optional[Callable] = None  # allows to put a constraint on when rate limiting is used
     ttl: int = 60
 
     @property
@@ -82,7 +82,7 @@ class RateLimit:
 
     def run(self, *args, **kwargs):
         if self.applicable and not self.applicable(*args, **kwargs):
-            return self.Run()
+            return self.Run(None, None, None)
         running_tasks_key, task_id = self.use(*args, **kwargs)
         return self.Run(self, running_tasks_key, task_id)
 
@@ -108,7 +108,7 @@ class RateLimit:
                 task_name=task_name, limit=self.max_concurrent_tasks, limit_name=self.limit_name
             ).inc()
 
-            raise CeleryConcurrencyLimitExceeded(
+            raise ConcurrencyLimitExceeded(
                 f"Exceeded maximum concurrent tasks limit: {self.max_concurrent_tasks} for key: {task_name} and task: {task_id}"
             )
 
@@ -123,7 +123,7 @@ class RateLimit:
     def wrap(self, task_func):
         @wraps(task_func)
         def wrapper(*args, **kwargs):
-            applicable = self.applicable(*args, **kwargs)
+            applicable = self.applicable(*args, **kwargs) if self.applicable else True
             if applicable:
                 running_tasks_key, task_id = self.use(*args, **kwargs)
             try:
@@ -137,7 +137,7 @@ class RateLimit:
         return wrapper
 
 
-class CeleryConcurrencyLimitExceeded(Exception):
+class ConcurrencyLimitExceeded(Exception):
     pass
 
 
@@ -167,7 +167,7 @@ def limit_concurrency(
                     task_name=task_name, limit=max_concurrent_tasks, limit_name=limit_name
                 ).inc()
 
-                raise CeleryConcurrencyLimitExceeded(
+                raise ConcurrencyLimitExceeded(
                     f"Exceeded maximum concurrent tasks limit: {max_concurrent_tasks} for key: {dynamic_key}"
                 )
 

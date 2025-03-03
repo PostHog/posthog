@@ -1,4 +1,4 @@
-from posthog.clickhouse.client.limit import RateLimit, CeleryConcurrencyLimitExceeded
+from posthog.clickhouse.client.limit import RateLimit, ConcurrencyLimitExceeded
 from posthog.test.base import BaseTest
 from posthog.redis import get_client
 
@@ -16,7 +16,7 @@ class TestRateLimit(BaseTest):
             get_task_id=lambda *args, **kwargs: f"{kwargs.get('task_id') or args[2]}",
             ttl=10,
         )
-        self.cancels = []
+        self.cancels: list[tuple[str, str]] = []
 
     def tearDown(self) -> None:
         for a, b in self.cancels:
@@ -29,7 +29,7 @@ class TestRateLimit(BaseTest):
 
     def test_rate_limit_fail(self):
         self.cancels.append(self.limit.use(is_api=True, team_id=8, task_id=17))
-        with self.assertRaises(CeleryConcurrencyLimitExceeded):
+        with self.assertRaises(ConcurrencyLimitExceeded):
             self.cancels.append(self.limit.use(True, 8, 18))
 
     def test_rate_limits_no_inference(self):
@@ -78,10 +78,20 @@ class TestRateLimit(BaseTest):
         result = 0
         with self.limit.run(is_api=True, team_id=9, task_id=17):
             result += 1
-            with self.assertRaises(CeleryConcurrencyLimitExceeded):
+            with self.assertRaises(ConcurrencyLimitExceeded):
                 with self.limit.run(is_api=True, team_id=9, task_id=18):
                     result += 2
                 result += 4
             result += 8
 
         assert result == 9
+
+    def test_run_applicable(self):
+        result = 0
+        with self.limit.run(is_api=True, team_id=9, task_id=17):
+            result += 1
+            with self.limit.run(is_api=False, team_id=9, task_id=18):
+                result += 2
+            result += 4
+
+        assert result == 7
