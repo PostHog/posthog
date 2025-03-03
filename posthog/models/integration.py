@@ -391,23 +391,28 @@ class SlackIntegration:
     def client(self) -> WebClient:
         return WebClient(self.integration.sensitive_config["access_token"])
 
-    def list_channels(self) -> list[dict]:
+    def list_channels(self, authed_user) -> list[dict]:
         # NOTE: Annoyingly the Slack API has no search so we have to load all channels...
         # We load public and private channels separately as when mixed, the Slack API pagination is buggy
-        public_channels = self._list_channels_by_type("public_channel")
-        private_channels = self._list_channels_by_type("private_channel")
+        public_channels = self._list_channels_by_type("public_channel", authed_user)
+        private_channels = self._list_channels_by_type("private_channel", authed_user)
         channels = public_channels + private_channels
 
         return sorted(channels, key=lambda x: x["name"])
 
-    def _list_channels_by_type(self, type: Literal["public_channel", "private_channel"]) -> list[dict]:
+    def _list_channels_by_type(self, type: Literal["public_channel", "private_channel"], authed_user) -> list[dict]:
         max_page = 20
         channels = []
         cursor = None
 
         while max_page > 0:
             max_page -= 1
-            res = self.client.conversations_list(exclude_archived=True, types=type, limit=200, cursor=cursor)
+            if type == "public_channel":
+                res = self.client.conversations_list(exclude_archived=True, types=type, limit=200, cursor=cursor)
+            else:
+                res = self.client.users_conversations(
+                    exclude_archived=True, types=type, limit=200, cursor=cursor, user=authed_user
+                )
 
             channels.extend(res["channels"])
             cursor = res["response_metadata"]["next_cursor"]
