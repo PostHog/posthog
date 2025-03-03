@@ -64,24 +64,35 @@ class S3SessionBatchFileWriter implements SessionBatchFileWriter {
         }
     }
 
-    private async withErrorHandling<T>(operation: () => Promise<T>): Promise<T> {
-        if (this.error) {
-            throw this.error
-        }
+    private async withErrorBarrier<T>(operation: () => Promise<T>): Promise<T> {
+        return new Promise<T>((resolve, reject) => {
+            if (this.error) {
+                reject(this.error)
+                return
+            }
 
-        const errorPromise = new Promise<T>((_, reject) => {
             this.rejectCallbacks.push(reject)
-        })
 
-        try {
-            return await Promise.race([operation(), errorPromise])
-        } finally {
-            this.rejectCallbacks = this.rejectCallbacks.filter((cb) => !this.rejectCallbacks.includes(cb))
-        }
+            operation()
+                .then((result) => {
+                    // If the error was set, it means that the reject has already been called
+                    // and collected from the list. See handleError for more details.
+                    if (!this.error) {
+                        // Cleanup is not strictly necessary, as calling reject after resolve has no effect,
+                        // but it's better to keep the list clean.
+                        this.rejectCallbacks = this.rejectCallbacks.filter((cb) => cb !== reject)
+                        resolve(result)
+                    }
+                })
+                .catch((error) => {
+                    // Defer to the common error handling code, it will call reject if necessary.
+                    this.handleError(error)
+                })
+        })
     }
 
     public async writeSession(buffer: Buffer): Promise<WriteSessionResult> {
-        return await this.withErrorHandling(async () => {
+        return await this.withErrorBarrier(async () => {
             const startOffset = this.currentOffset
 
             // Write and handle backpressure
@@ -102,7 +113,7 @@ class S3SessionBatchFileWriter implements SessionBatchFileWriter {
     }
 
     public async finish(): Promise<void> {
-        return await this.withErrorHandling(async () => {
+        return await this.withErrorBarrier(async () => {
             try {
                 this.stream.end()
                 await this.uploadPromise
