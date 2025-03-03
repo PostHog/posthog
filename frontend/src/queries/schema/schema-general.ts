@@ -1187,7 +1187,7 @@ export type CachedPathsV2QueryResponse = CachedQueryResponse<PathsV2QueryRespons
 export type PathsV2Filter = {}
 export interface PathsV2Query extends InsightsQueryBase<PathsV2QueryResponse> {
     kind: NodeKind.PathsV2Query
-    pathsV2Filter: PathsV2Filter
+    pathsV2Filter?: PathsV2Filter
 }
 
 /** `StickinessFilterType` minus everything inherited from `FilterType` and persons modal related params  */

@@ -10503,7 +10503,7 @@
                     "type": ["number", "null"]
                 }
             },
-            "required": ["kind", "pathsV2Filter"],
+            "required": ["kind"],
             "type": "object"
         },
         "PathsV2QueryResponse": {

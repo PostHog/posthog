@@ -7587,7 +7587,7 @@ class PathsV2Query(BaseModel):
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    pathsV2Filter: PathsV2Filter
+    pathsV2Filter: Optional[PathsV2Filter] = None
     properties: Optional[
         Union[
             list[
