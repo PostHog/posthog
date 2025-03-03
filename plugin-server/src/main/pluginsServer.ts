@@ -43,10 +43,6 @@ import { RustyHook } from '../worker/rusty-hook'
 import { initPlugins as _initPlugins, reloadPlugins } from '../worker/tasks'
 import { syncInlinePlugins } from '../worker/vm/inline/inline'
 import { populatePluginCapabilities } from '../worker/vm/lazy'
-import { startAnalyticsEventsIngestionConsumer } from './ingestion-queues/analytics-events-ingestion-consumer'
-import { startAnalyticsEventsIngestionHistoricalConsumer } from './ingestion-queues/analytics-events-ingestion-historical-consumer'
-import { startAnalyticsEventsIngestionOverflowConsumer } from './ingestion-queues/analytics-events-ingestion-overflow-consumer'
-import { PIPELINES, startEventsIngestionPipelineConsumer } from './ingestion-queues/events-ingestion-consumer'
 import {
     startAsyncOnEventHandlerConsumer,
     startAsyncWebhooksHandlerConsumer,
@@ -239,71 +235,18 @@ export async function startPluginsServer(
             for (const consumerOption of consumersOptions) {
                 await initPlugins()
 
-                const consumer = new IngestionConsumer({
-                    ...hub,
+                const consumer = new IngestionConsumer(hub, {
                     INGESTION_CONSUMER_CONSUME_TOPIC: consumerOption.topic,
                     INGESTION_CONSUMER_GROUP_ID: consumerOption.group_id,
                 })
                 await consumer.start()
                 services.push(consumer.service)
             }
-        } else {
-            if (capabilities.ingestionV2) {
-                await initPlugins()
-                const consumer = new IngestionConsumer(hub)
-                await consumer.start()
-                services.push(consumer.service)
-            }
-
-            // Below are all legacy consumers that will be replaced by the new ingestion consumer that covers all cases
-
-            if (capabilities.ingestion) {
-                await initPlugins()
-                services.push(
-                    await startAnalyticsEventsIngestionConsumer({
-                        hub: hub,
-                    })
-                )
-            }
-
-            if (capabilities.ingestionHistorical) {
-                await initPlugins()
-                services.push(
-                    await startAnalyticsEventsIngestionHistoricalConsumer({
-                        hub: hub,
-                    })
-                )
-            }
-
-            if (capabilities.eventsIngestionPipelines) {
-                const pipelinesToRun =
-                    serverConfig.PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE === null
-                        ? Object.keys(PIPELINES)
-                        : [serverConfig.PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE]
-
-                for (const pipelineKey of pipelinesToRun) {
-                    if (pipelineKey === null || !PIPELINES[pipelineKey]) {
-                        throw new Error(`Invalid events ingestion pipeline: ${pipelineKey}`)
-                    }
-
-                    await initPlugins()
-                    services.push(
-                        await startEventsIngestionPipelineConsumer({
-                            hub: hub,
-                            pipelineKey: pipelineKey,
-                        })
-                    )
-                }
-            }
-
-            if (capabilities.ingestionOverflow) {
-                await initPlugins()
-                services.push(
-                    await startAnalyticsEventsIngestionOverflowConsumer({
-                        hub: hub,
-                    })
-                )
-            }
+        } else if (capabilities.ingestionV2) {
+            await initPlugins()
+            const consumer = new IngestionConsumer(hub)
+            await consumer.start()
+            services.push(consumer.service)
         }
 
         if (capabilities.processAsyncOnEventHandlers) {

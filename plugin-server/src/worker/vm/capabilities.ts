@@ -1,13 +1,7 @@
 import { PluginCapabilities, PluginMethods } from '../../types'
 import { PluginServerCapabilities } from './../../types'
 
-const PROCESS_EVENT_CAPABILITIES = new Set<keyof PluginServerCapabilities>([
-    'ingestion',
-    'ingestionOverflow',
-    'ingestionHistorical',
-    'ingestionV2',
-    'ingestionV2Combined',
-])
+const PROCESS_EVENT_CAPABILITIES = new Set<keyof PluginServerCapabilities>(['ingestionV2', 'ingestionV2Combined'])
 
 export function getVMPluginCapabilities(methods: PluginMethods): PluginCapabilities {
     const capabilities: Required<PluginCapabilities> = { methods: [] }
