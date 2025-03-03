@@ -1,4 +1,5 @@
 import { DataWarehousePopoverField } from 'lib/components/TaxonomicFilter/types'
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
@@ -147,6 +148,51 @@ export function ExperimentMetricForm({
                     readOnly
                 />
             )}
+            <div>
+                <LemonLabel
+                    className="mb-1"
+                    info="Controls how metric values are attributed to experiment exposures. 'Experiment duration' counts all relevant data from when a user is first exposed until the experiment ends. 'Conversion window' only includes data that occurs within the specified number of hours after a user's first exposure, and ignores the experiment end date."
+                >
+                    Time window
+                </LemonLabel>
+                <div className="flex items-center gap-2">
+                    <LemonRadio
+                        className="my-1.5"
+                        value={metric.time_window_hours === undefined ? 'full' : 'conversion'}
+                        orientation="horizontal"
+                        onChange={(value) =>
+                            handleSetMetric({
+                                newMetric: {
+                                    ...metric,
+                                    time_window_hours: value === 'full' ? undefined : 72,
+                                },
+                            })
+                        }
+                        options={[
+                            {
+                                value: 'full',
+                                label: 'Experiment duration',
+                            },
+                            {
+                                value: 'conversion',
+                                label: 'Conversion window',
+                            },
+                        ]}
+                    />
+                    {metric.time_window_hours !== undefined && (
+                        <LemonInput
+                            value={metric.time_window_hours}
+                            onChange={(value) =>
+                                handleSetMetric({ newMetric: { ...metric, time_window_hours: value || undefined } })
+                            }
+                            type="number"
+                            step={1}
+                            suffix={<span className="text-sm">hours</span>}
+                            size="small"
+                        />
+                    )}
+                </div>
+            </div>
         </div>
     )
 }
