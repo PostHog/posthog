@@ -1,7 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import bigDecimal from 'js-big-decimal'
 
-import { costs } from './providers'
+import { costsByModel } from './providers'
 import { ModelRow } from './providers/types'
 
 export const processAiEvent = (event: PluginEvent): PluginEvent => {
@@ -100,14 +100,14 @@ export const extractCoreModelParams = (event: PluginEvent): PluginEvent => {
 
 const findCostFromModel = (aiModel: string): ModelRow | undefined => {
     // Check if the model is an exact match
-    let cost = costs.find((cost) => cost.model.toLowerCase() === aiModel.toLowerCase())
+    let cost: ModelRow | undefined = costsByModel[aiModel.toLowerCase()]
     // Check if the model is a variant of a known model
     if (!cost) {
-        cost = costs.find((cost) => aiModel.toLowerCase().includes(cost.model.toLowerCase()))
+        cost = Object.values(costsByModel).find((cost) => aiModel.toLowerCase().includes(cost.model.toLowerCase()))
     }
     // Check if the model is a variant of a known model
     if (!cost) {
-        cost = costs.find((cost) => cost.model.toLowerCase().includes(aiModel.toLowerCase()))
+        cost = Object.values(costsByModel).find((cost) => aiModel.toLowerCase().includes(cost.model.toLowerCase()))
     }
     if (!cost) {
         console.warn(`No cost found for model: ${aiModel}`)
