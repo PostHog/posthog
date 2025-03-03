@@ -4572,12 +4572,12 @@ export enum SDKKey {
 }
 
 export enum SDKTag {
+    RECOMMENDED = 'Recommended',
     WEB = 'Web',
     MOBILE = 'Mobile',
     SERVER = 'Server',
-    INTEGRATION = 'Integration',
-    RECOMMENDED = 'Recommended',
     LLM = 'LLM',
+    INTEGRATION = 'Integration',
     OTHER = 'Other',
 }
 

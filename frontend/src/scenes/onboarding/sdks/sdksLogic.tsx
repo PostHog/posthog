@@ -11,7 +11,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
-import { ProductKey, SDK, SDKInstructionsMap, SDKKey } from '~/types'
+import { ProductKey, SDK, SDKInstructionsMap, SDKKey, SDKTag } from '~/types'
 
 import { onboardingLogic } from '../onboardingLogic'
 import { allSDKs } from './allSDKs'
@@ -165,6 +165,15 @@ export const sdksLogic = kea<sdksLogicType>([
                     featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_MODIFIED_SDK_LIST] === 'test' &&
                     isUserNonTechnical
                 )
+            },
+        ],
+        tags: [
+            (s) => [s.sdks],
+            (sdks: SDK[]): string[] => {
+                const tagsWithSDKs = Object.values(SDKTag).filter((tag: SDKTag) =>
+                    sdks.some((sdk) => sdk.tags.includes(tag))
+                )
+                return ['All', ...tagsWithSDKs]
             },
         ],
     }),

@@ -1,10 +1,7 @@
-import { IconArrowLeft, IconArrowRight, IconChatHelp, IconCopy } from '@posthog/icons'
+import { IconArrowLeft, IconArrowRight, IconChatHelp } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonInput, LemonModal, LemonTabs, SpinnerOverlay } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { SurprisedHog } from 'lib/components/hedgehogs'
-import { useInterval } from 'lib/hooks/useInterval'
 import { useEffect, useState } from 'react'
-import { teamLogic } from 'scenes/teamLogic'
 
 import { InviteMembersButton } from '~/layout/navigation/TopBar/AccountPopover'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -13,6 +10,7 @@ import { type SDK, SDKInstructionsMap, SDKTag, SidePanelTab } from '~/types'
 import { OnboardingStepKey } from '../onboardingLogic'
 import { onboardingLogic } from '../onboardingLogic'
 import { OnboardingStep } from '../OnboardingStep'
+import { useInstallationComplete } from './hooks/useInstallationComplete'
 import { RealtimeCheckIndicator } from './RealtimeCheckIndicator'
 import type { SDKsProps } from './SDKs'
 import { sdksLogic } from './sdksLogic'
@@ -43,33 +41,6 @@ const NextButton = ({ installationComplete }: { installationComplete: boolean })
     )
 }
 
-const LLMCallout = (): JSX.Element => {
-    const prompt =
-        'Prompt: Install PostHog using the provided instructions. Let your LLM configure the setup automatically.'
-    const handleCopy = () => {
-        navigator.clipboard.writeText(prompt)
-    }
-
-    return (
-        <div className="flex items-center gap-4 p-4 bg-bg-light dark:bg-bg-depth rounded-lg border border-dashed border-gray-accent">
-            <div className="flex-shrink-0">
-                <SurprisedHog className="w-16 h-16 object-contain" />
-            </div>
-            <div className="flex-grow">
-                <h4 className="text-lg font-bold text-gray-800 dark:text-gray-100">Prompt an LLM to setup PostHog</h4>
-                <p className="text-sm text-gray-600 dark:text-gray-300">
-                    Get setup faster - let your LLM install PostHog for you.
-                </p>
-            </div>
-            <div>
-                <LemonButton type="primary" size="small" icon={<IconCopy />} onClick={handleCopy}>
-                    Copy prompt
-                </LemonButton>
-            </div>
-        </div>
-    )
-}
-
 export function SDKInstructionsModal({
     isOpen,
     onClose,
@@ -84,32 +55,16 @@ export function SDKInstructionsModal({
     sdkInstructionMap: SDKInstructionsMap
     verifyingProperty?: string
     verifyingName?: string
-}) {
-    const snippet = sdkInstructionMap[sdk?.key || '']?.snippet || '<script>/* default snippet */</script>'
-    const { currentTeam } = useValues(teamLogic)
-    const { loadCurrentTeam } = useActions(teamLogic)
-    const [checking, setChecking] = useState(false)
-    const [hasChecked, setHasChecked] = useState(false)
-    const installationComplete = Boolean(currentTeam?.[verifyingProperty])
-    const { hasNextStep } = useValues(onboardingLogic)
-    const { completeOnboarding, goToNextStep } = useActions(onboardingLogic)
+}): JSX.Element {
+    const installationComplete = useInstallationComplete(verifyingProperty)
 
-    useInterval(() => {
-        if (!installationComplete) {
-            loadCurrentTeam()
-        }
-    }, 2000)
-
-    useEffect(() => {
-        if (checking && !installationComplete) {
-            setHasChecked(true)
-            setTimeout(() => setChecking(false), 5000)
-        }
-    }, [checking, installationComplete])
+    const sdkInstructions = sdkInstructionMap[sdk?.key as keyof typeof sdkInstructionMap] as
+        | (() => JSX.Element)
+        | undefined
 
     return (
         <LemonModal isOpen={isOpen} onClose={onClose} simple title="">
-            {!sdk?.key || !sdkInstructionMap[sdk.key] ? (
+            {!sdk?.key || !sdkInstructions ? (
                 <SpinnerOverlay />
             ) : (
                 <>
@@ -120,10 +75,7 @@ export function SDKInstructionsModal({
                     </header>
                     <section className="p-4 flex flex-col h-full">
                         <div className="flex-grow overflow-y-auto pb-24">
-                            <div className="my-4">
-                                <LLMCallout />
-                            </div>
-                            <SDKSnippet sdk={sdk} sdkInstructions={sdkInstructionMap[sdk.key]} />
+                            <SDKSnippet sdk={sdk} sdkInstructions={sdkInstructions} />
                         </div>
                         <div className="sticky bottom-0 w-full bg-bg-light dark:bg-bg-depth p-2 flex justify-between items-center gap-2">
                             <RealtimeCheckIndicator
@@ -143,7 +95,7 @@ export function AlternativeSDKs({
     stepKey = OnboardingStepKey.INSTALL,
     listeningForName = 'event',
     teamPropertyToVerify = 'ingested_event',
-}: SDKsProps) {
+}: SDKsProps): JSX.Element {
     const { setAvailableSDKInstructionsMap, selectSDK } = useActions(sdksLogic)
     const { sdks, selectedSDK } = useValues(sdksLogic)
     const [searchTerm, setSearchTerm] = useState('')
@@ -152,11 +104,11 @@ export function AlternativeSDKs({
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
     const { selectedTab, sidePanelOpen } = useValues(sidePanelStateLogic)
 
-    const installationComplete = false
+    const installationComplete = useInstallationComplete(teamPropertyToVerify)
 
     useEffect(() => {
         setAvailableSDKInstructionsMap(sdkInstructionMap)
-    }, [])
+    }, [sdkInstructionMap, setAvailableSDKInstructionsMap])
 
     const filteredSDKs = sdks
         ?.filter((sdk) => (searchTerm ? sdk.name.toLowerCase().includes(searchTerm.toLowerCase()) : true))
@@ -165,7 +117,17 @@ export function AlternativeSDKs({
     const tags: string[] = ['All', ...Object.values(SDKTag)]
 
     return (
-        <OnboardingStep title="Install" stepKey={stepKey} continueOverride={<></>}>
+        <OnboardingStep
+            title="Install"
+            stepKey={stepKey}
+            continueOverride={<NextButton installationComplete={installationComplete} />}
+            actions={
+                <RealtimeCheckIndicator
+                    teamPropertyToVerify={teamPropertyToVerify}
+                    listeningForName={listeningForName}
+                />
+            }
+        >
             <div className="flex flex-col gap-y-4 mt-6">
                 <div className="flex flex-col gap-y-2">
                     <div className="flex flex-row justify-between gap-4">

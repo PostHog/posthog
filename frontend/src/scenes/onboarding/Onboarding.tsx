@@ -29,7 +29,6 @@ import { ExperimentsSDKInstructions } from './sdks/experiments/ExperimentsSDKIns
 import { FeatureFlagsSDKInstructions } from './sdks/feature-flags/FeatureFlagsSDKInstructions'
 import { OnboardingInstallStep } from './sdks/OnboardingInstallStep'
 import { ProductAnalyticsSDKInstructions } from './sdks/product-analytics/ProductAnalyticsSDKInstructions'
-import { SDKs } from './sdks/SDKs'
 import { sdksLogic } from './sdks/sdksLogic'
 import { SessionReplaySDKInstructions } from './sdks/session-replay/SessionReplaySDKInstructions'
 import { SurveysSDKInstructions } from './sdks/surveys/SurveysSDKInstructions'
@@ -283,7 +282,7 @@ const WebAnalyticsOnboarding = (): JSX.Element => {
 
     return (
         <OnboardingWrapper>
-            <SDKs
+            <OnboardingInstallStep
                 usersAction="collecting events"
                 sdkInstructionMap={WebAnalyticsSDKInstructions}
                 stepKey={OnboardingStepKey.INSTALL}
@@ -345,7 +344,7 @@ const SessionReplayOnboarding = (): JSX.Element => {
 
     return (
         <OnboardingWrapper>
-            <SDKs
+            <OnboardingInstallStep
                 usersAction="recording sessions"
                 sdkInstructionMap={SessionReplaySDKInstructions}
                 subtitle="Choose the framework your frontend is built on, or use our all-purpose JavaScript library. If you already have the snippet installed, you can skip this step!"
@@ -363,7 +362,7 @@ const SessionReplayOnboarding = (): JSX.Element => {
 const FeatureFlagsOnboarding = (): JSX.Element => {
     return (
         <OnboardingWrapper>
-            <SDKs
+            <OnboardingInstallStep
                 usersAction="loading flags"
                 sdkInstructionMap={FeatureFlagsSDKInstructions}
                 subtitle="Choose the framework where you want to use feature flags, or use our all-purpose JavaScript library. If you already have the snippet installed, you can skip this step!"
@@ -376,7 +375,7 @@ const FeatureFlagsOnboarding = (): JSX.Element => {
 const ExperimentsOnboarding = (): JSX.Element => {
     return (
         <OnboardingWrapper>
-            <SDKs
+            <OnboardingInstallStep
                 usersAction="loading experiments"
                 sdkInstructionMap={ExperimentsSDKInstructions}
                 subtitle="Choose the framework where you want to run experiments, or use our all-purpose JavaScript library. If you already have the snippet installed, you can skip this step!"
@@ -389,7 +388,7 @@ const ExperimentsOnboarding = (): JSX.Element => {
 const SurveysOnboarding = (): JSX.Element => {
     return (
         <OnboardingWrapper>
-            <SDKs
+            <OnboardingInstallStep
                 usersAction="taking surveys"
                 sdkInstructionMap={SurveysSDKInstructions}
                 subtitle="Choose the framework your frontend is built on, or use our all-purpose JavaScript library. If you already have the snippet installed, you can skip this step!"
