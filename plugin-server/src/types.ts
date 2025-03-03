@@ -315,6 +315,10 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     CYCLOTRON_DATABASE_URL: string
     CYCLOTRON_SHARD_DEPTH_LIMIT: number
 
+    // posthog
+    POSTHOG_API_KEY: string
+    POSTHOG_HOST_URL: string
+
     // cookieless
     COOKIELESS_DISABLED: boolean
     COOKIELESS_FORCE_STATELESS_MODE: boolean

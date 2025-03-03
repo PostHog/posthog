@@ -139,6 +139,7 @@ export const surveysLogic = kea<surveysLogicType>([
                 if (searchTerm) {
                     searchedSurveys = new Fuse(searchedSurveys, {
                         keys: ['key', 'name'],
+                        ignoreLocation: true,
                         threshold: 0.3,
                     })
                         .search(searchTerm)

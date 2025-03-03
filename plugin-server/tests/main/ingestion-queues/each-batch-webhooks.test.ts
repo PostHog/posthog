@@ -84,7 +84,7 @@ describe('eachMessageWebhooksHandlers', () => {
 
     it('calls runWebhooksHandlersEventPipeline', async () => {
         const actionManager = new ActionManager(hub.postgres, hub)
-        const actionMatcher = new ActionMatcher(hub.postgres, actionManager, hub.teamManager)
+        const actionMatcher = new ActionMatcher(hub.postgres, actionManager)
         const hookCannon = new HookCommander(
             hub.postgres,
             hub.teamManager,

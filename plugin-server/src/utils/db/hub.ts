@@ -126,14 +126,14 @@ export async function createHub(
         serverConfig.PLUGINS_DEFAULT_LOG_LEVEL,
         serverConfig.PERSON_INFO_CACHE_TTL
     )
-    const teamManager = new TeamManager(postgres, serverConfig)
+    const teamManager = new TeamManager(postgres)
     const organizationManager = new OrganizationManager(postgres, teamManager)
     const pluginsApiKeyManager = new PluginsApiKeyManager(db)
     const rootAccessManager = new RootAccessManager(db)
     const rustyHook = new RustyHook(serverConfig)
 
     const actionManager = new ActionManager(postgres, serverConfig)
-    const actionMatcher = new ActionMatcher(postgres, actionManager, teamManager)
+    const actionMatcher = new ActionMatcher(postgres, actionManager)
     const groupTypeManager = new GroupTypeManager(postgres, teamManager)
 
     const cookielessManager = new CookielessManager(serverConfig, redisPool, teamManager)
