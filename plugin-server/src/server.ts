@@ -17,6 +17,10 @@ import {
 } from './config/kafka-topics'
 import { IngestionConsumer } from './ingestion/ingestion-consumer'
 import { KafkaProducerWrapper } from './kafka/producer'
+import {
+    startAsyncOnEventHandlerConsumer,
+    startAsyncWebhooksHandlerConsumer,
+} from './main/ingestion-queues/on-event-handler-consumer'
 import { SessionRecordingIngester } from './main/ingestion-queues/session-recording/session-recordings-consumer'
 import { DefaultBatchConsumerFactory } from './main/ingestion-queues/session-recording-v2/batch-consumer-factory'
 import { SessionRecordingIngester as SessionRecordingIngesterV2 } from './main/ingestion-queues/session-recording-v2/consumer'
@@ -127,6 +131,19 @@ export class PluginServer {
                 }
             }
 
+            if (capabilities.processAsyncOnEventHandlers) {
+                await initPlugins()
+                serviceLoaders.push(() =>
+                    startAsyncOnEventHandlerConsumer({
+                        hub: hub,
+                    })
+                )
+            }
+
+            if (capabilities.processAsyncWebhooksHandlers) {
+                serviceLoaders.push(() => startAsyncWebhooksHandlerConsumer(hub))
+            }
+
             if (capabilities.sessionRecordingBlobIngestion) {
                 serviceLoaders.push(async () => {
                     const postgres = hub?.postgres ?? new PostgresRouter(this.config)
@@ -218,6 +235,7 @@ export class PluginServer {
 
             if (capabilities.cdpApi) {
                 serviceLoaders.push(async () => {
+                    await initPlugins()
                     const api = new CdpApi(hub)
                     await api.start()
                     expressApp.use('/', api.router())
@@ -246,6 +264,7 @@ export class PluginServer {
             }
 
             if (capabilities.cdpCyclotronWorkerPlugins) {
+                await initPlugins()
                 if (!hub.CYCLOTRON_DATABASE_URL) {
                     status.error('💥', 'Cyclotron database URL not set.')
                 } else {
