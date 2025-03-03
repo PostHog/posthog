@@ -3722,6 +3722,11 @@ export enum GroupMathType {
     UniqueGroup = 'unique_group',
 }
 
+export enum ExperimentMetricMathType {
+    TotalCount = BaseMathType.TotalCount,
+    Sum = PropertyMathType.Sum,
+}
+
 export enum ActorGroupType {
     Person = 'person',
     GroupPrefix = 'group',

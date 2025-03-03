@@ -850,7 +850,7 @@ describe('metricToQuery', () => {
     it('returns the correct query for a count metric', () => {
         const metric: ExperimentMetric = {
             kind: NodeKind.ExperimentMetric,
-            metric_type: ExperimentMetricType.COUNT,
+            metric_type: ExperimentMetricType.MEAN,
             metric_config: {
                 kind: NodeKind.ExperimentEventMetricConfig,
                 event: '$pageview',
@@ -884,7 +884,7 @@ describe('metricToQuery', () => {
     it('returns the correct query for a continuous metric', () => {
         const metric: ExperimentMetric = {
             kind: NodeKind.ExperimentMetric,
-            metric_type: ExperimentMetricType.CONTINUOUS,
+            metric_type: ExperimentMetricType.MEAN,
             metric_config: {
                 kind: NodeKind.ExperimentEventMetricConfig,
                 event: '$pageview',

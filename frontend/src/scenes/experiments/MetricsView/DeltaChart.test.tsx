@@ -165,7 +165,7 @@ describe('getDefaultMetricTitle', () => {
     it('handles ExperimentEventMetricConfig with math and math_property', () => {
         const metric: ExperimentMetric = {
             kind: NodeKind.ExperimentMetric,
-            metric_type: ExperimentMetricType.COUNT,
+            metric_type: ExperimentMetricType.MEAN,
             metric_config: {
                 kind: NodeKind.ExperimentEventMetricConfig,
                 event: 'purchase completed',
@@ -177,7 +177,7 @@ describe('getDefaultMetricTitle', () => {
     it('returns action name for ExperimentActionMetricConfig', () => {
         const metric: ExperimentMetric = {
             kind: NodeKind.ExperimentMetric,
-            metric_type: ExperimentMetricType.COUNT,
+            metric_type: ExperimentMetricType.MEAN,
             metric_config: {
                 kind: NodeKind.ExperimentActionMetricConfig,
                 action: 1,
@@ -193,7 +193,7 @@ describe('getMetricTag', () => {
     it('handles different metric types correctly', () => {
         const experimentMetric: ExperimentMetric = {
             kind: NodeKind.ExperimentMetric,
-            metric_type: ExperimentMetricType.COUNT,
+            metric_type: ExperimentMetricType.MEAN,
             metric_config: {
                 kind: NodeKind.ExperimentEventMetricConfig,
                 math: 'total',

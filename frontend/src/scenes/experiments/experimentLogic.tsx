@@ -1430,8 +1430,8 @@ export const experimentLogic = kea<experimentLogicType>([
                 ): InsightType => {
                     return metric &&
                         ((metric?.kind === NodeKind.ExperimentMetric &&
-                            (metric.metric_type === ExperimentMetricType.COUNT ||
-                                metric.metric_type === ExperimentMetricType.CONTINUOUS)) ||
+                            (metric.metric_type === ExperimentMetricType.MEAN ||
+                                metric.metric_type === ExperimentMetricType.MEAN)) ||
                             metric?.kind === NodeKind.ExperimentTrendsQuery)
                         ? InsightType.TRENDS
                         : InsightType.FUNNELS
@@ -1441,7 +1441,7 @@ export const experimentLogic = kea<experimentLogicType>([
             () => [],
             () =>
                 (metric: ExperimentMetric | undefined): ExperimentMetricType => {
-                    return metric?.metric_type || ExperimentMetricType.COUNT
+                    return metric?.metric_type || ExperimentMetricType.MEAN
                 },
         ],
         isExperimentRunning: [

@@ -13,6 +13,7 @@ import {
     CountPerActorMathType,
     EventPropertyFilter,
     EventType,
+    ExperimentMetricMathType,
     FilterLogicalOperator,
     FilterType,
     FunnelMathType,
@@ -533,6 +534,7 @@ export type MathType =
     | CountPerActorMathType
     | GroupMathType
     | HogQLMathType
+    | ExperimentMetricMathType
 
 export interface EntityNode extends Node {
     name?: string
@@ -1899,12 +1901,9 @@ export interface ExperimentEventExposureConfig {
 }
 
 export enum ExperimentMetricType {
-    COUNT = 'count',
-    CONTINUOUS = 'continuous',
     FUNNEL = 'funnel',
+    MEAN = 'mean',
 }
-
-export type ExperimentMetricMath = 'total' | 'sum' | 'avg' | 'median' | 'min' | 'max'
 
 export interface ExperimentMetric {
     kind: NodeKind.ExperimentMetric
@@ -1918,7 +1917,7 @@ export interface ExperimentEventMetricConfig {
     kind: NodeKind.ExperimentEventMetricConfig
     event: string
     name?: string
-    math?: ExperimentMetricMath
+    math?: ExperimentMetricMathType
     math_hogql?: string
     math_property?: string
     /** Properties configurable in the interface */
@@ -1929,7 +1928,7 @@ export interface ExperimentActionMetricConfig {
     kind: NodeKind.ExperimentActionMetricConfig
     action: number
     name?: string
-    math?: ExperimentMetricMath
+    math?: ExperimentMetricMathType
     math_hogql?: string
     math_property?: string
     /** Properties configurable in the interface */
@@ -1943,7 +1942,7 @@ export interface ExperimentDataWarehouseMetricConfig {
     timestamp_field: string
     events_join_key: string
     data_warehouse_join_key: string
-    math?: ExperimentMetricMath
+    math?: ExperimentMetricMathType
     math_hogql?: string
     math_property?: string
 }

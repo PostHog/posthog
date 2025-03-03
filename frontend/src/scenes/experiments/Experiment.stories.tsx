@@ -2222,7 +2222,7 @@ const EXPERIMENT_QUERY_RESULT_WITH_ASYMMETRIC_INTERVALS: CachedExperimentQueryRe
             name: 'experiment created',
             properties: undefined,
         },
-        metric_type: ExperimentMetricType.COUNT,
+        metric_type: ExperimentMetricType.MEAN,
         name: 'Experiments created',
     },
     next_allowed_client_refresh: '2025-02-18T09:14:37.273511Z',

@@ -14,6 +14,7 @@ from posthog.settings import (
     XDIST_SUFFIX,
 )
 from posthog.schema import (
+    ExperimentMetricMathType,
     EventPropertyFilter,
     ExperimentActionMetricConfig,
     ExperimentDataWarehouseMetricConfig,
@@ -420,8 +421,10 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         experiment.save()
 
         metric = ExperimentMetric(
-            metric_type=ExperimentMetricType.CONTINUOUS,
-            metric_config=ExperimentEventMetricConfig(event="purchase", math="sum", math_property="amount"),
+            metric_type=ExperimentMetricType.MEAN,
+            metric_config=ExperimentEventMetricConfig(
+                event="purchase", math=ExperimentMetricMathType.SUM, math_property="amount"
+            ),
         )
 
         experiment_query = ExperimentQuery(
@@ -465,7 +468,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         feature_flag_property = f"$feature/{feature_flag.key}"
 
         metric = ExperimentMetric(
-            metric_type=ExperimentMetricType.COUNT,
+            metric_type=ExperimentMetricType.MEAN,
             metric_config=ExperimentEventMetricConfig(event="purchase"),
         )
 
@@ -575,7 +578,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         feature_flag_property = f"$feature/{feature_flag.key}"
 
         metric = ExperimentMetric(
-            metric_type=ExperimentMetricType.COUNT,
+            metric_type=ExperimentMetricType.MEAN,
             metric_config=ExperimentEventMetricConfig(
                 event="purchase",
                 properties=[
@@ -658,7 +661,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         action.save()
 
         metric = ExperimentMetric(
-            metric_type=ExperimentMetricType.COUNT,
+            metric_type=ExperimentMetricType.MEAN,
             metric_config=ExperimentActionMetricConfig(action=action.id),
         )
 
@@ -979,7 +982,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ff_property = f"$feature/{feature_flag.key}"
 
         metric = ExperimentMetric(
-            metric_type=ExperimentMetricType.COUNT,
+            metric_type=ExperimentMetricType.MEAN,
             metric_config=ExperimentEventMetricConfig(event="$pageview"),
         )
 
@@ -1166,13 +1169,13 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         feature_flag_property = f"$feature/{feature_flag.key}"
 
         metric = ExperimentMetric(
-            metric_type=ExperimentMetricType.COUNT,
+            metric_type=ExperimentMetricType.MEAN,
             metric_config=ExperimentDataWarehouseMetricConfig(
                 table_name=table_name,
                 events_join_key="properties.$user_id",
                 data_warehouse_join_key="userid",
                 timestamp_field="ds",
-                math="total",
+                math=ExperimentMetricMathType.TOTAL,
                 math_property=None,
             ),
         )
@@ -1236,13 +1239,13 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         feature_flag_property = f"$feature/{feature_flag.key}"
 
         metric = ExperimentMetric(
-            metric_type=ExperimentMetricType.CONTINUOUS,
+            metric_type=ExperimentMetricType.MEAN,
             metric_config=ExperimentDataWarehouseMetricConfig(
                 table_name=table_name,
                 events_join_key="properties.$user_id",
                 data_warehouse_join_key="userid",
                 timestamp_field="ds",
-                math="sum",
+                math=ExperimentMetricMathType.SUM,
                 math_property="usage",
             ),
         )
@@ -1347,7 +1350,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             experiment_id=experiment.id,
             kind="ExperimentQuery",
             metric=ExperimentMetric(
-                metric_type=ExperimentMetricType.COUNT,
+                metric_type=ExperimentMetricType.MEAN,
                 metric_config=ExperimentEventMetricConfig(event="purchase"),
             ),
         )
@@ -1380,7 +1383,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         feature_flag_property = f"$feature/{feature_flag.key}"
 
         metric = ExperimentMetric(
-            metric_type=ExperimentMetricType.COUNT,
+            metric_type=ExperimentMetricType.MEAN,
             metric_config=ExperimentEventMetricConfig(event="purchase"),
         )
 
@@ -1571,7 +1574,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         feature_flag_property = f"$feature/{feature_flag.key}"
 
         metric = ExperimentMetric(
-            metric_type=ExperimentMetricType.COUNT,
+            metric_type=ExperimentMetricType.MEAN,
             metric_config=ExperimentEventMetricConfig(event="$pageview"),
         )
 
@@ -1673,7 +1676,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         ## Run again with filterTestAccounts=False
         metric = ExperimentMetric(
-            metric_type=ExperimentMetricType.COUNT,
+            metric_type=ExperimentMetricType.MEAN,
             metric_config=ExperimentEventMetricConfig(event="$pageview"),
         )
         experiment_query = ExperimentQuery(
@@ -1847,13 +1850,13 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.team.save()
 
         metric = ExperimentMetric(
-            metric_type=ExperimentMetricType.CONTINUOUS,
+            metric_type=ExperimentMetricType.MEAN,
             metric_config=ExperimentDataWarehouseMetricConfig(
                 table_name=table_name,
                 events_join_key="properties.$user_id",
                 data_warehouse_join_key="userid",
                 timestamp_field="ds",
-                math="avg",
+                math=ExperimentMetricMathType.SUM,
                 math_property="usage",
             ),
         )
@@ -1949,13 +1952,13 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         # Run the query again without filtering
         metric = ExperimentMetric(
-            metric_type=ExperimentMetricType.CONTINUOUS,
+            metric_type=ExperimentMetricType.MEAN,
             metric_config=ExperimentDataWarehouseMetricConfig(
                 table_name=table_name,
                 events_join_key="properties.$user_id",
                 data_warehouse_join_key="userid",
                 timestamp_field="ds",
-                math="sum",
+                math=ExperimentMetricMathType.SUM,
                 math_property="usage",
             ),
         )
@@ -1998,7 +2001,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         feature_flag_property = f"$feature/{feature_flag.key}"
 
         metric = ExperimentMetric(
-            metric_type=ExperimentMetricType.COUNT,
+            metric_type=ExperimentMetricType.MEAN,
             metric_config=ExperimentDataWarehouseMetricConfig(
                 table_name=table_name,
                 events_join_key="person.properties.email",
@@ -2087,7 +2090,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         feature_flag_property = f"$feature/{feature_flag.key}"
 
         metric = ExperimentMetric(
-            metric_type=ExperimentMetricType.COUNT,
+            metric_type=ExperimentMetricType.MEAN,
             metric_config=ExperimentEventMetricConfig(event="$pageview"),
         )
 
