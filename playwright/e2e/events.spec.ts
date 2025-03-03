@@ -84,6 +84,8 @@ test.describe('Events', () => {
     test('Use before and after with a DateTime property', async ({ page }) => {
         await page.locator('[data-attr="new-prop-filter-EventPropertyFilters.0"]').click()
         await page.locator('[data-attr=taxonomic-filter-searchfield]').type('$time')
+        // we require that this is an event property match
+        await expect(page.locator('[data-attr="taxonomic-tab-event_properties"]')).toHaveClass(/LemonTag--primary/)
         await expect(page.locator('.taxonomic-list-row')).toHaveCount(2)
         await page.locator('[data-attr=prop-filter-event_properties-0]').click({ force: true })
 
@@ -95,6 +97,9 @@ test.describe('Events', () => {
     test('Use less than and greater than with a numeric property', async ({ page }) => {
         await page.locator('[data-attr="new-prop-filter-EventPropertyFilters.0"]').click()
         await page.locator('[data-attr=taxonomic-filter-searchfield]').type('$browser_version')
+        // we require that this is an event property match
+        await expect(page.locator('[data-attr="taxonomic-tab-event_properties"]')).toHaveClass(/LemonTag--primary/)
+
         await expect(page.locator('.taxonomic-list-row')).toHaveCount(1)
         await page.locator('.taxonomic-list-row').click()
 
@@ -107,6 +112,9 @@ test.describe('Events', () => {
     test('Adds and removes an additional column', async ({ page }) => {
         await page.locator('[data-attr=events-table-column-selector]').click()
         await page.locator('[data-attr=taxonomic-filter-searchfield]').type('$browser_version')
+        // we require that this is an event property match
+        await expect(page.locator('[data-attr="taxonomic-tab-event_properties"]')).toHaveClass(/LemonTag--primary/)
+
         await expect(page.locator('.taxonomic-list-row')).toHaveCount(1)
         await page.locator('.taxonomic-list-row').click()
         await expect(page.locator('.SelectedColumn')).toHaveCount(7)
@@ -117,6 +125,10 @@ test.describe('Events', () => {
     test('Keeps the popup open after selecting an option', async ({ page }) => {
         await page.locator('[data-attr="new-prop-filter-EventPropertyFilters.0"]').click()
         await page.locator('[data-attr=taxonomic-filter-searchfield]').type('$browser_version')
+
+        // we require that this is an event property match
+        await expect(page.locator('[data-attr="taxonomic-tab-event_properties"]')).toHaveClass(/LemonTag--primary/)
+
         await expect(page.locator('.taxonomic-list-row')).toHaveCount(1)
         await page.locator('.taxonomic-list-row').click()
 
