@@ -67,7 +67,7 @@ test.describe('Events', () => {
     test('Apply 1 overall filter', async ({ page }) => {
         await page.locator('[data-attr="new-prop-filter-EventPropertyFilters.0"]').click()
         await page.locator('[data-attr=taxonomic-filter-searchfield]').click()
-        await page.locator('[data-attr=prop-filter-event_properties-0]').click()
+        await page.locator('.taxonomic-list-row').getByText('Browser').first().click()
         await page.locator('[data-attr=prop-val]').click({ force: true })
         await page.waitForResponse('/api/event/values?key=%24browser')
         await page.locator('[data-attr=prop-val-0]').click()
@@ -84,7 +84,7 @@ test.describe('Events', () => {
     test('Use before and after with a DateTime property', async ({ page }) => {
         await page.locator('[data-attr="new-prop-filter-EventPropertyFilters.0"]').click()
         await page.locator('[data-attr=taxonomic-filter-searchfield]').type('$time')
-        await expect(page.locator('.taxonomic-list-row')).toHaveCount(1)
+        await expect(page.locator('.taxonomic-list-row')).toHaveCount(2)
         await page.locator('[data-attr=prop-filter-event_properties-0]').click({ force: true })
 
         await page.locator('[data-attr="taxonomic-operator"]').click()
@@ -99,7 +99,7 @@ test.describe('Events', () => {
         await page.locator('.taxonomic-list-row').click()
 
         await page.locator('[data-attr="taxonomic-operator"]').click()
-        await expect(page.locator('.operator-value-option')).toHaveCount(11) // 10 + 1 for the label in the LemonSelect button
+        await expect(page.locator('.operator-value-option')).toHaveCount(9) // 8 + 1 for the label in the LemonSelect button
         await expect(page.getByRole('menuitem', { name: '< less than' })).toBeVisible()
         await expect(page.getByRole('menuitem', { name: '> greater than' })).toBeVisible()
     })
