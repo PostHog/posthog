@@ -137,22 +137,28 @@ const PathCleaningToggle = (): JSX.Element | null => {
     )
 }
 
-const WebAnalyticsDomainSelector = (): JSX.Element => {
-    const { domainFilter, hasHostFilter } = useValues(webAnalyticsLogic)
-    const { setDomainFilter } = useActions(webAnalyticsLogic)
+const DomainSettingsLink = (): JSX.Element => (
+    <Link to={urls.settings('environment', 'web-analytics-authorized-urls')}>settings</Link>
+)
 
-    const { authorizedUrls } = useValues(
-        authorizedUrlListLogic({ type: AuthorizedUrlListType.WEB_ANALYTICS, actionId: null, experimentId: null })
-    )
+const WebAnalyticsDomainSelector = (): JSX.Element => {
+    const { domainFilter, hasHostFilter, authorizedDomains } = useValues(webAnalyticsLogic)
+    const { setDomainFilter } = useActions(webAnalyticsLogic)
 
     return (
         <LemonSelect
             className="grow md:grow-0"
             size="small"
-            value={domainFilter ?? (hasHostFilter ? 'host' : 'all')}
+            value={hasHostFilter ? 'host' : domainFilter ?? 'all'}
             icon={<IconGlobe />}
             onChange={(value) => setDomainFilter(value)}
-            disabled={authorizedUrls.length === 0}
+            disabledReason={
+                authorizedDomains.length === 0 ? (
+                    <span>
+                        No authorized domains, authorize them on <DomainSettingsLink />
+                    </span>
+                ) : undefined
+            }
             options={[
                 {
                     options: [
@@ -168,12 +174,11 @@ const WebAnalyticsDomainSelector = (): JSX.Element => {
                                 },
                             ]
                             : []),
-                        ...authorizedUrls.map((url) => ({ label: url, value: url })),
+                        ...authorizedDomains.map((domain) => ({ label: domain, value: domain })),
                     ],
                     footer: (
                         <span className="text-xs px-2">
-                            Have more domains? Go to{' '}
-                            <Link to={urls.settings('environment', 'web-analytics-authorized-urls')}>settings</Link>
+                            Have more domains? Go to <DomainSettingsLink />
                         </span>
                     ),
                 },
