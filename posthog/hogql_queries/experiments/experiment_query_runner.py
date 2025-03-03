@@ -96,7 +96,7 @@ class ExperimentQueryRunner(QueryRunner):
             explicitDate=True,
         )
 
-    def _get_metric_time_window(self, left: ast.Expr) -> ast.Expr:
+    def _get_metric_time_window(self, left: ast.Expr) -> list[ast.CompareOperation]:
         if self.metric.time_window_hours:
             # Define conversion window as hours after exposure
             time_window_clause = ast.CompareOperation(
