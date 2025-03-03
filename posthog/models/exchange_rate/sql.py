@@ -162,7 +162,8 @@ CREATE DICTIONARY IF NOT EXISTS {exchange_rate_dictionary_name} {on_cluster_clau
 PRIMARY KEY currency
 SOURCE(CLICKHOUSE(QUERY 'SELECT currency, anyLast(rate) AS rate, date AS start_date, NULL AS end_date FROM {exchange_rate_table_name} GROUP BY date, currency' PASSWORD '{clickhouse_password}'))
 LIFETIME(MIN 3000 MAX 3600)
-LAYOUT(RANGE_HASHED(range_lookup_strategy 'max'))""".format(
+LAYOUT(RANGE_HASHED(range_lookup_strategy 'max'))
+RANGE(MIN start_date MAX end_date)""".format(
         exchange_rate_dictionary_name=EXCHANGE_RATE_DICTIONARY_NAME,
         exchange_rate_table_name=EXCHANGE_RATE_TABLE_NAME,
         clickhouse_password=CLICKHOUSE_PASSWORD,
