@@ -7,18 +7,18 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, InsightLogicProps } from '~/types'
 
-import { pathsDataLogic } from './pathsDataLogic'
+import { pathsV2DataLogic } from './pathsV2DataLogic'
 import { pageUrl, PathNodeData } from './pathUtils'
-import { NODE_LABEL_HEIGHT, NODE_LABEL_LEFT_OFFSET, NODE_LABEL_TOP_OFFSET, NODE_LABEL_WIDTH } from './renderPaths'
+import { NODE_LABEL_HEIGHT, NODE_LABEL_LEFT_OFFSET, NODE_LABEL_TOP_OFFSET, NODE_LABEL_WIDTH } from './renderPathsV2'
 
-export type PathNodeLabelProps = {
+export type PathV2NodeLabelProps = {
     insightProps: InsightLogicProps
     node: PathNodeData
 }
 
-export function PathNodeLabel({ insightProps, node }: PathNodeLabelProps): JSX.Element | null {
-    const { pathsFilter } = useValues(pathsDataLogic(insightProps))
-    const { updateInsightFilter, openPersonsModal, viewPathToFunnel } = useActions(pathsDataLogic(insightProps))
+export function PathV2NodeLabel({ insightProps, node }: PathV2NodeLabelProps): JSX.Element | null {
+    const { pathsFilter } = useValues(pathsV2DataLogic(insightProps))
+    const { updateInsightFilter, openPersonsModal, viewPathToFunnel } = useActions(pathsV2DataLogic(insightProps))
 
     const { hasAvailableFeature } = useValues(userLogic)
     const hasAdvancedPaths = hasAvailableFeature(AvailableFeature.PATHS_ADVANCED)

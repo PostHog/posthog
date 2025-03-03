@@ -9,10 +9,10 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { FunnelPathsFilter } from '~/queries/schema/schema-general'
 
-import { PathNodeLabel } from './PathNodeLabel'
-import { pathsDataLogic } from './pathsDataLogic'
+import { PathV2NodeLabel } from './PathNodeLabel'
+import { pathsV2DataLogic } from './pathsV2DataLogic'
 import type { PathNodeData } from './pathUtils'
-import { renderPaths } from './renderPaths'
+import { renderPathsV2 } from './renderPathsV2'
 
 export function PathsV2(): JSX.Element {
     const canvasRef = useRef<HTMLDivElement>(null)
@@ -22,8 +22,8 @@ export function PathsV2(): JSX.Element {
 
     const { insightProps } = useValues(insightLogic)
     const { insightQuery, paths, pathsFilter, funnelPathsFilter, insightDataLoading, insightDataError, theme } =
-        useValues(pathsDataLogic(insightProps))
-    const { openPersonsModal } = useActions(pathsDataLogic(insightProps))
+        useValues(pathsV2DataLogic(insightProps))
+    const { openPersonsModal } = useActions(pathsV2DataLogic(insightProps))
 
     useEffect(() => {
         setNodes([])
@@ -34,7 +34,7 @@ export function PathsV2(): JSX.Element {
         const elements = canvasContainerRef.current?.querySelectorAll(`.Paths__canvas`)
         elements?.forEach((node) => node?.parentNode?.removeChild(node))
 
-        renderPaths(
+        renderPathsV2(
             canvasRef,
             canvasWidth,
             canvasHeight,
@@ -78,7 +78,7 @@ export function PathsV2(): JSX.Element {
                 {!insightDataLoading && paths && paths.nodes.length === 0 && !insightDataError && <InsightEmptyState />}
                 {!insightDataError &&
                     nodes &&
-                    nodes.map((node, idx) => <PathNodeLabel key={idx} node={node} insightProps={insightProps} />)}
+                    nodes.map((node, idx) => <PathV2NodeLabel key={idx} node={node} insightProps={insightProps} />)}
             </div>
         </div>
     )

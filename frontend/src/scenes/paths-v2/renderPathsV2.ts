@@ -182,7 +182,7 @@ const appendLinks = (svg: any, links: PathNodeData[]): void => {
         })
 }
 
-export function renderPaths(
+export function renderPathsV2(
     canvasRef: RefObject<HTMLDivElement>,
     _canvasWidth: number | undefined,
     _canvasHeight: number | undefined,
