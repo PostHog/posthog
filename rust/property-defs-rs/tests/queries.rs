@@ -9,19 +9,153 @@ async fn test_simple_events_query(test_pool: PgPool) {
     // seed the test DB
     bootstrap_seed_data(test_pool.clone()).await.unwrap();
 
+    // plumbing that won't change during the test suite exec
     let qmgr = Manager::new(test_pool.clone()).await.unwrap();
     let project_id = 1;
+
+    //
+    // unit tests
+    //
+
+    query_type_event_no_filters(&qmgr, project_id).await;
+    query_type_event_properties_filter(&qmgr, project_id).await;
+    query_type_event_excluded_props_filter(&qmgr, project_id).await;
+    query_type_event_names_filter(&qmgr, project_id).await;
+}
+
+// fetch all PropertyParentType::Event records without filtering
+async fn query_type_event_no_filters(qmgr: &Manager, project_id: i32) {
     let mut qb = sqlx::QueryBuilder::new("");
     let params = Params::default();
 
     // sanity check query with default arguments; TODO: exercise filter params, corner cases, etc.
-    let default_all_q = qmgr.count_query(&mut qb, project_id, &params);
-    let result = qmgr.pool.fetch_one(default_all_q).await;
+    let count_events_unfiltered = qmgr.count_query(&mut qb, project_id, &params);
+    let result = qmgr.pool.fetch_one(count_events_unfiltered).await;
     assert!(result.is_ok());
 
     let total_count: i64 = result.unwrap().get(0);
     let expected_event_rows: i64 = 9;
     assert_eq!(expected_event_rows, total_count);
+
+    let mut qb = sqlx::QueryBuilder::new("");
+    let fetch_events_unfiltered = qmgr.property_definitions_query(&mut qb, project_id, &params);
+    let results = qmgr.pool.fetch_all(fetch_events_unfiltered).await;
+    assert!(results.is_ok());
+    for row in results.unwrap() {
+        let prop_name: String = row.get("name");
+        assert!(expected_event_props_all().contains(&prop_name.as_str()))
+    }
+}
+
+// fetch all PropertyParentType::Event records with a "properties" (prop name) filter
+async fn query_type_event_properties_filter(qmgr: &Manager, project_id: i32) {
+    let mut qb = sqlx::QueryBuilder::new("");
+
+    let mut params = Params::default();
+    let expected_props = vec!["$time".to_string(), "user_email".to_string()];
+    params.properties = expected_props.clone();
+
+    let count_events_props_filter = qmgr.count_query(&mut qb, project_id, &params);
+    let result = qmgr.pool.fetch_one(count_events_props_filter).await;
+    assert!(result.is_ok());
+
+    let total_count: i64 = result.unwrap().get(0);
+    let expected_event_rows: i64 = 2;
+    assert_eq!(expected_event_rows, total_count);
+
+    // should only return type "event" records matching the prop names in the "properties" filter
+    let mut qb = sqlx::QueryBuilder::new("");
+    let fetch_events_props_filter = qmgr.property_definitions_query(&mut qb, project_id, &params);
+    let results = qmgr.pool.fetch_all(fetch_events_props_filter).await;
+    assert!(results.is_ok());
+
+    for row in results.unwrap() {
+        let prop_name: String = row.get("name");
+        assert!(expected_props.contains(&prop_name))
+    }
+}
+
+// fetch all PropertyParentType::Event records with a "excluded_properties" (prop name) filter
+async fn query_type_event_excluded_props_filter(qmgr: &Manager, project_id: i32) {
+    let mut qb = sqlx::QueryBuilder::new("");
+
+    let params = Params {
+        excluded_properties: vec!["$time".to_string(), "user_email".to_string()],
+        ..Default::default()
+    };
+
+    let count_events_ex_props_filter = qmgr.count_query(&mut qb, project_id, &params);
+    let result = qmgr.pool.fetch_one(count_events_ex_props_filter).await;
+    assert!(result.is_ok());
+
+    let total_count: i64 = result.unwrap().get(0);
+    let expected_event_rows: i64 = 7;
+    assert_eq!(expected_event_rows, total_count);
+
+    let mut qb = sqlx::QueryBuilder::new("");
+    let fetch_events_ex_props_filter =
+        qmgr.property_definitions_query(&mut qb, project_id, &params);
+    let results = qmgr.pool.fetch_all(fetch_events_ex_props_filter).await;
+    assert!(results.is_ok());
+
+    // all seed events *except* the two filtered by "excluded_properties" should be present
+    let expected_props: Vec<&str> = expected_event_props_all()
+        .into_iter()
+        .filter(|prop_name| !["$time", "user_email"].contains(prop_name))
+        .collect();
+    for row in results.unwrap() {
+        let prop_name: String = row.get("name");
+        assert!(expected_props.contains(&prop_name.as_str()))
+    }
+}
+
+// fetch all PropertyParentType::Event records (properties) matching the "event_names"
+// (particular event) filter. This is determined by a JOIN on the posthog_eventproperty table
+async fn query_type_event_names_filter(qmgr: &Manager, project_id: i32) {
+    let mut qb = sqlx::QueryBuilder::new("");
+
+    let params = Params {
+        event_names: vec!["$pageview".to_string()],
+        ..Default::default()
+    };
+
+    let count_events_names_filter = qmgr.count_query(&mut qb, project_id, &params);
+    let result = qmgr.pool.fetch_one(count_events_names_filter).await;
+    assert!(result.is_ok());
+
+    let total_count: i64 = result.unwrap().get(0);
+    let expected_event_rows: i64 = 7;
+    assert_eq!(expected_event_rows, total_count);
+
+    let mut qb = sqlx::QueryBuilder::new("");
+    let fetch_events_names_filter = qmgr.property_definitions_query(&mut qb, project_id, &params);
+    let results = qmgr.pool.fetch_all(fetch_events_names_filter).await;
+    assert!(results.is_ok());
+
+    // all seed events *except* the two filtered by parent event name != "$pageview" should be present
+    let expected_props: Vec<&str> = expected_event_props_all()
+        .into_iter()
+        .filter(|prop_name| !["attempted_event", "$screen_width"].contains(prop_name))
+        .collect();
+    for row in results.unwrap() {
+        let prop_name: String = row.get("name");
+        assert!(expected_props.contains(&prop_name.as_str()))
+    }
+}
+
+// the property names of all PropertyParentType::Event rows
+fn expected_event_props_all() -> [&'static str; 9] {
+    [
+        "user_email",
+        "utm_source",
+        "$time",
+        "$sent_at",
+        "attempted_event_type",
+        "$screen_width",
+        "session_timeout_ms",
+        "$dead_clicks_enabled_server_side",
+        "$feature/foo-bar-baz",
+    ]
 }
 
 async fn bootstrap_seed_data(test_pool: PgPool) -> Result<(), sqlx::Error> {
@@ -303,8 +437,8 @@ async fn bootstrap_seed_data(test_pool: PgPool) -> Result<(), sqlx::Error> {
         (102, "$pageview", "utm_source", 1, 1),
         (103, "$pageview", "$time", 1, 1),
         (104, "$pageview", "$sent_at", 1, 1),
-        (105, "$pageview", "attempted_event_type", 1, 1),
-        (106, "$pageview", "$screen_width", 1, 1),
+        (105, "$other_event", "attempted_event_type", 1, 1), // won't be returned in event_names=$pageview filtered queries
+        (106, "$other_event", "$screen_width", 1, 1), // won't be returned in event_names=$pageview filtered queries
         (107, "$pageview", "session_timeout_ms", 1, 1),
         (108, "$pageview", "$dead_clicks_enabled_server_side", 1, 1),
         (109, "$pageview", "$feature/foo-bar-baz", 1, 1),
