@@ -4,6 +4,7 @@ import {
     LemonButton,
     LemonDialog,
     LemonDivider,
+    LemonSelect,
     LemonSwitch,
     LemonTag,
     Link,
@@ -499,6 +500,57 @@ export function ReplayAISettings(): JSX.Element | null {
                     </div>
                 </>
             )}
+        </div>
+    )
+}
+
+enum MaskingLevel {
+    TotalPrivacy = 'Total privacy',
+    Normal = 'Normal',
+    FreeLove = 'Free love',
+}
+
+export function ReplayMaskingSettings(): JSX.Element {
+    const { updateCurrentTeam } = useActions(teamLogic)
+    const { currentTeam } = useValues(teamLogic)
+
+    const handleMaskingChange = (level: string): void => {
+        updateCurrentTeam({
+            session_recording_masking_config: {
+                ...currentTeam?.session_recording_masking_config,
+                maskAllInputs: level === MaskingLevel.FreeLove ? false : true,
+                maskTextSelector: level === MaskingLevel.TotalPrivacy ? '*' : undefined,
+            },
+        })
+    }
+
+    const maskingLevel =
+        currentTeam?.session_recording_masking_config?.maskTextSelector === '*'
+            ? MaskingLevel.TotalPrivacy
+            : currentTeam?.session_recording_masking_config?.maskAllInputs
+            ? MaskingLevel.Normal
+            : MaskingLevel.FreeLove
+
+    return (
+        <div>
+            <SupportedPlatforms web={true} />
+            <p>This controls how much data is masked during session recordings.</p>
+            <p>
+                You can configure more advanced settings or change masking for other platforms directly in code.{' '}
+                <Link to="https://posthog.com/docs/session-replay/privacy" target="_blank">
+                    Learn more
+                </Link>
+            </p>
+            <p>If you specify this in code, it will take precedence over the setting here.</p>
+            <LemonSelect
+                value={maskingLevel}
+                onChange={(val) => val && handleMaskingChange(val)}
+                options={[
+                    { value: MaskingLevel.TotalPrivacy, label: 'Total privacy (mask all text/images)' },
+                    { value: MaskingLevel.Normal, label: 'Normal (mask inputs but not text/images)' },
+                    { value: MaskingLevel.FreeLove, label: 'Free love (mask only passwords)' },
+                ]}
+            />
         </div>
     )
 }
