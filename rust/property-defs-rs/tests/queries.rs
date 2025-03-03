@@ -1,8 +1,8 @@
-use property_defs_rs::api::v1::query::Manager;
+use property_defs_rs::api::v1::{query::Manager, routing::Params};
 
 use chrono::{DateTime, Utc};
 use serde_json::json;
-use sqlx::{postgres::PgArguments, Arguments, PgPool};
+use sqlx::{postgres::PgArguments, Arguments, Executor, PgPool, Row};
 use uuid::Uuid;
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
@@ -10,11 +10,16 @@ async fn test_simple_events_query(test_pool: PgPool) {
     // seed the test DB
     bootstrap_seed_data(test_pool.clone()).await.unwrap();
 
-    // run some raw prop defs queries with various parameters
-    // and assert expected rows are returned
-    let _qmgr = Manager::new(test_pool.clone());
+    let qmgr = Manager::new(test_pool.clone()).await.unwrap();
+    let project_id = 1;
+    let mut qb = sqlx::QueryBuilder::new("");
+    let params = Params::default();
 
-    // TODO: sanity check count and props queries; explore corner cases in other tests later :)
+    // sanity check query with default arguments; TODO: exercise filter params, corner cases, etc.
+    let default_all_q = qmgr.count_query(&mut qb, project_id, &params);
+    let result = qmgr.pool.fetch_one(default_all_q).await;
+    assert!(result.is_ok());
+    assert!(result.unwrap().get::<i64, _>(0) == 37);
 }
 
 async fn bootstrap_seed_data(test_pool: PgPool) -> Result<(), sqlx::Error> {
