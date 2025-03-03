@@ -225,11 +225,6 @@ export class LegacyPluginExecutorService {
 
             const start = performance.now()
 
-            status.info('⚡️', 'Executing plugin', {
-                pluginId,
-                invocationId: invocation.id,
-            })
-
             const person: ProcessedPluginEvent['person'] = invocation.globals.person
                 ? {
                       uuid: invocation.globals.person.id,
