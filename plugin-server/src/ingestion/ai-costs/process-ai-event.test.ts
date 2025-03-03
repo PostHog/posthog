@@ -1,6 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { processAiEvent } from './process-ai-event'
+import { costsByModel } from './providers'
 
 describe('processAiEvent()', () => {
     let event: PluginEvent
@@ -144,6 +145,18 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_total_cost_usd).toBeUndefined()
             expect(result.properties!.$ai_input_cost_usd).toBeUndefined()
             expect(result.properties!.$ai_output_cost_usd).toBeUndefined()
+        })
+    })
+
+    describe('smoke test every model', () => {
+        it.each(Object.keys(costsByModel))('processes %s', (model) => {
+            event.properties!.$ai_model = model
+            const result = processAiEvent(event)
+            expect({
+                $ai_total_cost_usd: result.properties!.$ai_total_cost_usd,
+                $ai_input_cost_usd: result.properties!.$ai_input_cost_usd,
+                $ai_output_cost_usd: result.properties!.$ai_output_cost_usd,
+            }).toMatchSnapshot()
         })
     })
 })
