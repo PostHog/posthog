@@ -11,29 +11,52 @@ export const ErrorTrackingListOptions = (): JSX.Element => {
     const { setAssignee } = useActions(errorTrackingLogic)
     const { orderBy, status } = useValues(errorTrackingSceneLogic)
     const { setOrderBy, setStatus } = useActions(errorTrackingSceneLogic)
+    const { results } = useValues(errorTrackingDataNodeLogic)
 
     const { selectedIssueIds } = useValues(errorTrackingSceneLogic)
     const { setSelectedIssueIds } = useActions(errorTrackingSceneLogic)
-    const { mergeIssues } = useActions(errorTrackingDataNodeLogic)
+    const { mergeIssues, resolveIssues } = useActions(errorTrackingDataNodeLogic)
 
     return (
         <>
             <div className="sticky top-[var(--breadcrumbs-height-compact)] z-20 py-2 bg-primary flex justify-between">
                 <div className="flex space-x-2">
-                    <LemonButton
-                        disabledReason={selectedIssueIds.length < 2 ? 'Select at least two issues to merge' : null}
-                        type="secondary"
-                        size="small"
-                        onClick={() => {
-                            mergeIssues(selectedIssueIds)
-                            setSelectedIssueIds([])
-                        }}
-                    >
-                        Merge Issues
-                    </LemonButton>
-                    {selectedIssueIds.length > 0 && (
-                        <LemonButton type="secondary" size="small" onClick={() => setSelectedIssueIds([])}>
-                            Unselect all
+                    {selectedIssueIds.length > 0 ? (
+                        <>
+                            <LemonButton type="secondary" size="small" onClick={() => setSelectedIssueIds([])}>
+                                Unselect all
+                            </LemonButton>
+                            <LemonButton
+                                disabledReason={
+                                    selectedIssueIds.length < 2 ? 'Select at least two issues to merge' : null
+                                }
+                                type="secondary"
+                                size="small"
+                                onClick={() => {
+                                    mergeIssues(selectedIssueIds)
+                                    setSelectedIssueIds([])
+                                }}
+                            >
+                                Merge
+                            </LemonButton>
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                onClick={() => {
+                                    resolveIssues(selectedIssueIds)
+                                    setSelectedIssueIds([])
+                                }}
+                            >
+                                Resolve
+                            </LemonButton>
+                        </>
+                    ) : (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            onClick={() => setSelectedIssueIds(results.map((issue) => issue.id))}
+                        >
+                            Select all
                         </LemonButton>
                     )}
                 </div>

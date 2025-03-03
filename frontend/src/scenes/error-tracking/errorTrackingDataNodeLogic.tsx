@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, props } from 'kea'
+import { actions, connect, kea, listeners, path, props, selectors } from 'kea'
 import api from 'lib/api'
 import posthog from 'posthog-js'
 
@@ -24,12 +24,22 @@ export const errorTrackingDataNodeLogic = kea<errorTrackingDataNodeLogicType>([
 
     actions({
         mergeIssues: (ids: string[]) => ({ ids }),
+        resolveIssues: (ids: string[]) => ({ ids }),
         assignIssue: (id: string, assignee: ErrorTrackingIssue['assignee']) => ({ id, assignee }),
+    }),
+
+    selectors({
+        results: [
+            (s) => [s.response],
+            (response): ErrorTrackingIssue[] => {
+                return response ? response.results : []
+            },
+        ],
     }),
 
     listeners(({ values, actions }) => ({
         mergeIssues: async ({ ids }) => {
-            const results = values.response?.results as ErrorTrackingIssue[]
+            const { results } = values
 
             const issues = results.filter(({ id }) => ids.includes(id))
             const primaryIssue = issues.shift()
@@ -53,6 +63,19 @@ export const errorTrackingDataNodeLogic = kea<errorTrackingDataNodeLogicType>([
                 await api.errorTracking.mergeInto(primaryIssue.id, mergingIds)
                 actions.loadData(true)
             }
+        },
+        resolveIssues: async ({ ids }) => {
+            const { results } = values
+
+            // optimistically update local results
+            actions.setResponse({
+                ...values.response,
+                // remove resolved issues
+                results: results.filter(({ id }) => !ids.includes(id)),
+            })
+            posthog.capture('error_tracking_issue_bulk_resolve')
+            await api.errorTracking.bulkResolve(ids)
+            actions.loadData(true)
         },
         assignIssue: async ({ id, assignee }) => {
             const response = values.response
