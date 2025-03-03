@@ -188,6 +188,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             source_id=str(inputs.external_data_source_id),
         )
 
+        source_type = None
         try:
             # create external data job and trigger activity
             create_external_data_job_inputs = CreateExternalDataJobModelActivityInputs(
