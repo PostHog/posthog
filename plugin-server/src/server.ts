@@ -1,5 +1,8 @@
 import * as Sentry from '@sentry/node'
 import { Server } from 'http'
+import { CompressionCodecs, CompressionTypes } from 'kafkajs'
+import SnappyCodec from 'kafkajs-snappy'
+import LZ4 from 'lz4-kafkajs'
 import * as schedule from 'node-schedule'
 import { Counter } from 'prom-client'
 
@@ -38,6 +41,9 @@ import { delay } from './utils/utils'
 import { teardownPlugins } from './worker/plugins/teardown'
 import { initPlugins as _initPlugins, reloadPlugins } from './worker/tasks'
 import { populatePluginCapabilities } from './worker/vm/lazy'
+
+CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
+CompressionCodecs[CompressionTypes.LZ4] = new LZ4().codec
 
 const pluginServerStartupTimeMs = new Counter({
     name: 'plugin_server_startup_time_ms',
@@ -339,7 +345,7 @@ export class PluginServer {
         }
 
         process.on('unhandledRejection', (error: Error | any, promise: Promise<any>) => {
-            status.error('🤮', `Unhandled Promise Rejection`, { error, promise })
+            status.error('🤮', `Unhandled Promise Rejection`, { error: String(error), promise })
 
             Sentry.captureException(error, {
                 extra: { detected_at: `pluginServer.ts on unhandledRejection` },
