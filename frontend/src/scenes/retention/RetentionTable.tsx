@@ -41,7 +41,7 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
 
                 {showMean && tableRows.length > 0 ? (
                     <tr className="border-b" key={-1}>
-                        {range(0, tableRows[0].length).map((columnIndex) => (
+                        {range(0, tableRows[0].values.length).map((columnIndex) => (
                             <td key={columnIndex} className="pb-2">
                                 {columnIndex <= (hideSizeColumn ? 0 : 1) ? (
                                     columnIndex == 0 ? (

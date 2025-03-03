@@ -22,7 +22,7 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
             insightVizDataLogic(props),
             ['querySource', 'dateRange', 'retentionFilter'],
             retentionLogic(props),
-            ['results'],
+            ['results', 'selectedBreakdownValue'],
         ],
     })),
     selectors({
@@ -33,6 +33,7 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
 
                 return results.map((cohortRetention: ProcessedRetentionPayload, datasetIndex) => {
                     return {
+                        ...cohortRetention,
                         id: datasetIndex,
                         days: cohortRetention.values.map((_, index) => `${period} ${index}`),
                         labels: cohortRetention.values.map((_, index) => `${period} ${index}`),
@@ -83,6 +84,21 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
                         ? null
                         : querySource?.aggregation_group_type_index) ?? 'people'
                 )
+            },
+        ],
+
+        filteredTrendSeries: [
+            (s) => [s.trendSeries, s.selectedBreakdownValue],
+            (trendSeries, selectedBreakdownValue) => {
+                if (!trendSeries || trendSeries.length === 0) {
+                    return trendSeries
+                }
+                if (selectedBreakdownValue === null) {
+                    // Return series that don't have breakdown_value
+                    return trendSeries.filter((series) => !series.breakdown_value)
+                }
+                // Return series with matching breakdown value
+                return trendSeries.filter((series) => series.breakdown_value === selectedBreakdownValue)
             },
         ],
     }),

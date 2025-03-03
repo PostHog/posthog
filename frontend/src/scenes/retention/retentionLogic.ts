@@ -1,4 +1,4 @@
-import { connect, kea, key, path, props, selectors } from 'kea'
+import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { dayjs } from 'lib/dayjs'
 import { formatDateRange } from 'lib/utils'
@@ -21,10 +21,21 @@ export const retentionLogic = kea<retentionLogicType>([
     connect((props: InsightLogicProps) => ({
         values: [
             insightVizDataLogic(props),
-            ['insightQuery', 'insightData', 'querySource', 'dateRange', 'retentionFilter'],
+            ['breakdownFilter', 'dateRange', 'insightQuery', 'insightData', 'querySource', 'retentionFilter'],
         ],
         actions: [insightVizDataLogic(props), ['updateInsightFilter', 'updateDateRange']],
     })),
+    actions({
+        setSelectedBreakdownValue: (value: string | number | boolean | null) => ({ value }),
+    }),
+    reducers({
+        selectedBreakdownValue: [
+            null as string | number | boolean | null,
+            {
+                setSelectedBreakdownValue: (_, { value }) => value,
+            },
+        ],
+    }),
     selectors({
         results: [
             (s) => [s.insightQuery, s.insightData, s.retentionFilter],
@@ -100,6 +111,19 @@ export const retentionLogic = kea<retentionLogicType>([
                         defaultInterval: 'month',
                     },
                 ]
+            },
+        ],
+        breakdownValues: [
+            (s) => [s.results],
+            (results) => {
+                if (!results || results.length === 0) {
+                    return []
+                }
+                // Extract unique breakdown values from results
+                const valueSet = new Set(
+                    results.filter((result) => 'breakdown_value' in result).map((result) => result.breakdown_value)
+                )
+                return Array.from(valueSet)
             },
         ],
     }),

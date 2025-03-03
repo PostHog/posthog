@@ -15,6 +15,7 @@ export interface ProcessedRetentionPayload {
     label: string
     people_url: string
     values: ProcessedRetentionValue[]
+    breakdown_value?: string | number | null
 }
 
 export interface RetentionTrendPayload {
@@ -23,6 +24,7 @@ export interface RetentionTrendPayload {
     days: string[]
     labels: string[]
     index: number
+    breakdown_value?: string | number | null
 }
 
 export interface RetentionTablePeoplePayload {

@@ -3,8 +3,7 @@ from posthog.hogql.property import property_to_expr
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.constants import HogQLGlobalSettings, MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY
 from math import ceil
-from typing import Any
-from typing import Optional
+from typing import Any, Optional
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
 from posthog.constants import (
@@ -223,6 +222,7 @@ class RetentionQueryRunner(QueryRunner):
         if cumulative:
             intervals_from_base_array_aggregator = "arrayMax"
 
+        # Build the base inner query WITHOUT breakdown fields yet
         inner_query = ast.SelectQuery(
             select=[
                 ast.Alias(alias="actor_id", expr=ast.Field(chain=["events", target_field])),
@@ -347,7 +347,122 @@ class RetentionQueryRunner(QueryRunner):
                 sample_value=ast.RatioExpr(left=ast.Constant(value=self.query.samplingFactor))
             )
 
+        # Add breakdown fields to the inner query where events table is accessible
+        breakdown_props = []
+        if self.query.breakdownFilter:
+            if self.query.breakdownFilter.breakdowns and len(self.query.breakdownFilter.breakdowns) > 0:
+                for i, breakdown in enumerate(self.query.breakdownFilter.breakdowns):
+                    prop_expr = self._create_breakdown_expr(
+                        breakdown.property, breakdown.type, breakdown.group_type_index
+                    )
+                    inner_query.select.append(ast.Alias(alias=f"breakdown_prop_{i}", expr=prop_expr))
+                    breakdown_props.append(f"breakdown_prop_{i}")
+            elif self.query.breakdownFilter.breakdown is not None:
+                prop_expr = self._create_breakdown_expr(
+                    self.query.breakdownFilter.breakdown,
+                    self.query.breakdownFilter.breakdown_type,
+                    getattr(self.query.breakdownFilter, "breakdown_group_type_index", None),
+                )
+                inner_query.select.append(ast.Alias(alias="breakdown_prop_0", expr=prop_expr))
+                breakdown_props.append("breakdown_prop_0")
+
+            # Make sure these fields are included in any GROUP BY clauses
+            if "group_by" in inner_query.__dict__ and inner_query.group_by:
+                for prop in breakdown_props:
+                    inner_query.group_by.append(ast.Field(chain=[prop]))
+
+        # Create the final breakdown value field (concatenation for multiple props)
+        if breakdown_props:
+            final_query = ast.SelectQuery(
+                select=[
+                    # Copy existing fields
+                    *[ast.Alias(alias=col.alias, expr=ast.Field(chain=[col.alias])) for col in inner_query.select],
+                ],
+                select_from=ast.JoinExpr(table=inner_query),
+            )
+
+            # Add the breakdown_value - either direct reference or concatenation
+            if len(breakdown_props) > 1:
+                # Build concatenation for multiple breakdowns
+                concat_expr = self._build_concat_expr([ast.Field(chain=[prop]) for prop in breakdown_props])
+                final_query.select.append(ast.Alias(alias="breakdown_value", expr=concat_expr))
+            else:
+                # Use the single breakdown directly
+                final_query.select.append(
+                    ast.Alias(alias="breakdown_value", expr=ast.Field(chain=[breakdown_props[0]]))
+                )
+
+            return final_query
+
         return inner_query
+
+    def _create_breakdown_expr(self, property_name, breakdown_type, group_type_index=None):
+        """Create a breakdown expression that works in the innermost query level"""
+        if breakdown_type == "person":
+            return ast.Call(
+                name="toString",
+                args=[
+                    ast.Call(
+                        name="JSONExtractRaw",
+                        args=[
+                            ast.Field(chain=["person", "properties"]),
+                            ast.Constant(value=property_name),
+                        ],
+                    )
+                ],
+            )
+        elif breakdown_type == "group":
+            return ast.Call(
+                name="toString",
+                args=[
+                    ast.Call(
+                        name="JSONExtractRaw",
+                        args=[
+                            ast.Field(chain=[f"groups_{group_type_index}", "properties"]),
+                            ast.Constant(value=property_name),
+                        ],
+                    )
+                ],
+            )
+        else:  # Default to event properties
+            return ast.Call(
+                name="toString",
+                args=[
+                    ast.Call(
+                        name="JSONExtractRaw",
+                        args=[
+                            ast.Field(chain=["events", "properties"]),
+                            ast.Constant(value=property_name),
+                        ],
+                    )
+                ],
+            )
+
+    def _build_concat_expr(self, fields):
+        """Build a concatenation expression with separators between fields"""
+        if not fields:
+            return ast.Constant(value="")
+
+        components = []
+        for i, field in enumerate(fields):
+            components.append(field)
+            if i < len(fields) - 1:
+                components.append(ast.Constant(value="::"))
+
+        # Build the expression with proper concatenation
+        expr = components[0]
+        for i in range(1, len(components), 2):
+            expr = ast.BinaryOperation(
+                left=expr,
+                op=ast.BinaryOperationOp.Concat,
+                right=ast.BinaryOperation(
+                    left=components[i],
+                    op=ast.BinaryOperationOp.Concat,
+                    right=components[i + 1] if i + 1 < len(components) else ast.Constant(value=""),
+                ),
+            )
+
+        return expr
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         with self.timings.measure("retention_query"):
@@ -365,25 +480,57 @@ class RetentionQueryRunner(QueryRunner):
             else:
                 actor_query = self.actor_query()
 
-            retention_query = parse_select(
-                """
-                    SELECT actor_activity.start_interval_index     AS start_event_matching_interval,  -- index of interval in which 'valid' start event happened
-                           actor_activity.intervals_from_base      AS intervals_from_base,  -- how many intervals after start_event_matching_interval, entity returned
-                           COUNT(DISTINCT actor_activity.actor_id) AS count  -- how many entities performed activity in same start/return interval
+            # Add breakdown if needed
+            if self.query.breakdownFilter:
+                actor_query = self._add_breakdown_to_query(actor_query)
+
+                # Build retention query with breakdown
+                retention_query = parse_select(
+                    """
+                    SELECT
+                        actor_activity.start_interval_index AS start_event_matching_interval,
+                        actor_activity.intervals_from_base AS intervals_from_base,
+                        actor_activity.breakdown_value AS breakdown_value,
+                        COUNT(DISTINCT actor_activity.actor_id) AS count
 
                     FROM {actor_query} AS actor_activity
 
-                    GROUP BY start_event_matching_interval,
-                             intervals_from_base
+                    GROUP BY
+                        start_event_matching_interval,
+                        intervals_from_base,
+                        breakdown_value
 
-                    ORDER BY start_event_matching_interval,
-                             intervals_from_base
+                    ORDER BY
+                        breakdown_value,
+                        start_event_matching_interval,
+                        intervals_from_base
 
                     LIMIT 10000
-                """,
-                {"actor_query": actor_query},
-                timings=self.timings,
-            )
+                    """,
+                    {"actor_query": actor_query},
+                    timings=self.timings,
+                )
+            else:
+                # Original retention query without breakdowns
+                retention_query = parse_select(
+                    """
+                        SELECT actor_activity.start_interval_index     AS start_event_matching_interval,
+                               actor_activity.intervals_from_base      AS intervals_from_base,
+                               COUNT(DISTINCT actor_activity.actor_id) AS count
+
+                        FROM {actor_query} AS actor_activity
+
+                        GROUP BY start_event_matching_interval,
+                                 intervals_from_base
+
+                        ORDER BY start_event_matching_interval,
+                                 intervals_from_base
+
+                        LIMIT 10000
+                    """,
+                    {"actor_query": actor_query},
+                    timings=self.timings,
+                )
         return retention_query
 
     @cached_property
@@ -446,28 +593,122 @@ class RetentionQueryRunner(QueryRunner):
             settings=HogQLGlobalSettings(max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY),
         )
 
-        result_dict = {
-            (start_event_matching_interval, intervals_from_base): {
-                "count": correct_result_for_sampling(count, self.query.samplingFactor),
+        # Process results based on whether we have breakdowns
+        if self.query.breakdownFilter:
+            # Group results by breakdown_value
+            breakdown_results = {}
+            for row in response.results:
+                if len(row) == 4:  # With breakdown: start_interval, intervals_from_base, breakdown_value, count
+                    start_interval, intervals_from_base, breakdown_value, count = row
+
+                    if breakdown_value not in breakdown_results:
+                        breakdown_results[breakdown_value] = []
+
+                    breakdown_results[breakdown_value].append((start_interval, intervals_from_base, count))
+
+            # Format results for each breakdown
+            results = []
+            for breakdown_value, intervals in breakdown_results.items():
+                # Create result dict for this breakdown
+                result_dict = {
+                    (start_interval, intervals_from_base): {
+                        "count": correct_result_for_sampling(count, self.query.samplingFactor),
+                    }
+                    for (start_interval, intervals_from_base, count) in intervals
+                }
+
+                # Format results for this breakdown
+                breakdown_results = [
+                    {
+                        "values": [
+                            result_dict.get((start_interval, return_interval), {"count": 0})
+                            for return_interval in range(self.query_date_range.lookahead)
+                        ],
+                        "label": f"{self.query_date_range.interval_name.title()} {start_interval}",
+                        "date": self.get_date(start_interval),
+                        "breakdown_value": breakdown_value,
+                    }
+                    for start_interval in range(self.query_date_range.intervals_between)
+                ]
+
+                results.extend(breakdown_results)
+        else:
+            # Standard non-breakdown results processing
+            result_dict = {
+                (start_event_matching_interval, intervals_from_base): {
+                    "count": correct_result_for_sampling(count, self.query.samplingFactor),
+                }
+                for (start_event_matching_interval, intervals_from_base, count) in response.results
             }
-            for (start_event_matching_interval, intervals_from_base, count) in response.results
-        }
-        results = [
-            {
-                "values": [
-                    result_dict.get((start_interval, return_interval), {"count": 0})
-                    for return_interval in range(self.query_date_range.lookahead)
-                ],
-                "label": f"{self.query_date_range.interval_name.title()} {start_interval}",
-                "date": self.get_date(start_interval),
-            }
-            for start_interval in range(self.query_date_range.intervals_between)
-        ]
+            results = [
+                {
+                    "values": [
+                        result_dict.get((start_interval, return_interval), {"count": 0})
+                        for return_interval in range(self.query_date_range.lookahead)
+                    ],
+                    "label": f"{self.query_date_range.interval_name.title()} {start_interval}",
+                    "date": self.get_date(start_interval),
+                }
+                for start_interval in range(self.query_date_range.intervals_between)
+            ]
 
         return RetentionQueryResponse(results=results, timings=response.timings, hogql=hogql, modifiers=self.modifiers)
 
-    def to_actors_query(self, interval: Optional[int] = None) -> ast.SelectQuery:
+    def to_actors_query(self, interval: Optional[int] = None, breakdown_value: Optional[str] = None) -> ast.SelectQuery:
         with self.timings.measure("retention_query"):
+            # Get base actor query
+            actor_query = self.actor_query(start_interval_index_filter=interval)
+
+            # Add breakdown filtering if needed
+            if breakdown_value is not None and self.query.breakdownFilter:
+                # Always treat breakdowns as multiple breakdowns
+                breakdown_fields = []
+
+                if self.query.breakdownFilter.breakdowns and len(self.query.breakdownFilter.breakdowns) > 0:
+                    for breakdown in self.query.breakdownFilter.breakdowns:
+                        field = self._get_breakdown_expr(breakdown.property, breakdown.type, breakdown.group_type_index)
+                        breakdown_fields.append(field)
+                elif self.query.breakdownFilter.breakdown is not None:
+                    field = self._get_breakdown_expr(
+                        self.query.breakdownFilter.breakdown, self.query.breakdownFilter.breakdown_type
+                    )
+                    breakdown_fields.append(field)
+
+                # Create breakdown expression
+                if len(breakdown_fields) > 1:
+                    # Build concatenation expression with || operators
+                    expr = ast.Call(name="toString", args=[breakdown_fields[0]])
+                    for field in breakdown_fields[1:]:
+                        separator = ast.Constant(value="::")
+                        field_str = ast.Call(name="toString", args=[field])
+                        # Create chained concatenation: expr || '::' || toString(field)
+                        expr = ast.BinaryOperation(
+                            left=expr,
+                            op=ast.BinaryOperationOp.Concat,
+                            right=ast.BinaryOperation(left=separator, op=ast.BinaryOperationOp.Concat, right=field_str),
+                        )
+                    breakdown_expr = expr
+                else:
+                    breakdown_expr = breakdown_fields[0]
+
+                # Add breakdown to query and filter by value
+                actor_query = parse_select(
+                    """
+                    SELECT * FROM (
+                        SELECT
+                            *,
+                            {breakdown_expr} AS breakdown_value
+                        FROM {actor_query}
+                    ) WHERE breakdown_value = {breakdown_value}
+                    """,
+                    {
+                        "actor_query": actor_query,
+                        "breakdown_expr": breakdown_expr,
+                        "breakdown_value": ast.Constant(value=breakdown_value),
+                    },
+                )
+
+            # Build the retention actors query
             retention_query = parse_select(
                 """
                     SELECT
@@ -480,11 +721,12 @@ class RetentionQueryRunner(QueryRunner):
                     GROUP BY actor_id
                 """,
                 placeholders={
-                    "actor_query": self.actor_query(start_interval_index_filter=interval),
+                    "actor_query": actor_query,
                 },
                 timings=self.timings,
             )
-            # We want to expose each interval as a separate column
+
+            # Add interval columns
             for i in range(self.query_date_range.lookahead):
                 retention_query.select.append(
                     ast.Alias(
@@ -506,3 +748,66 @@ class RetentionQueryRunner(QueryRunner):
                     )
                 )
         return retention_query
+
+    def _add_breakdown_to_query(self, actor_query: ast.SelectQuery) -> ast.SelectQuery:
+        """
+        Adds breakdown fields to the actor query.
+        This method is called in to_query() and needs proper implementation.
+        """
+        # If there are no breakdown filters, return the original query
+        if not self.query.breakdownFilter:
+            return actor_query
+
+        # At this level we can't access the raw events table anymore
+        # We need to reference fields that were already selected in actor_query
+
+        # Build the breakdown expression based on what's already in the query
+        if hasattr(actor_query, "breakdown_value"):
+            # If the actor query already has a breakdown value, just return it
+            return actor_query
+
+        # We'll need to modify our actor_query at this point to include the breakdown value
+        # Since we've already added breakdown fields in actor_query() method at the inner level,
+        # we can just reference those fields directly
+
+        # Create a new query that selects from actor_query
+        new_query = ast.SelectQuery(
+            select=[
+                # Include all existing columns
+                ast.Alias(alias=col.alias, expr=col.expr)
+                for col in actor_query.select
+            ],
+            select_from=ast.JoinExpr(table=actor_query),
+        )
+
+        # The breakdown_value field should already be part of the actor_query columns
+        # We don't need to add it again
+
+        return new_query
+
+    def _get_breakdown_expr(self, property_name, breakdown_type, group_type_index=None):
+        """Similar to _create_breakdown_expr but for actors query"""
+        if breakdown_type == "person":
+            return ast.Call(
+                name="JSONExtractRaw",
+                args=[
+                    ast.Field(chain=["person", "properties"]),
+                    ast.Constant(value=property_name),
+                ],
+            )
+        elif breakdown_type == "group":
+            return ast.Call(
+                name="JSONExtractRaw",
+                args=[
+                    ast.Field(chain=[f"groups_{group_type_index}", "properties"]),
+                    ast.Constant(value=property_name),
+                ],
+            )
+        else:  # Default to event properties
+            return ast.Call(
+                name="JSONExtractRaw",
+                args=[
+                    ast.Field(chain=["events", "properties"]),
+                    ast.Constant(value=property_name),
+                ],
+            )

@@ -26,21 +26,21 @@ function displayTypeToGraphType(displayType: ChartDisplayType): GraphType {
 
 export function RetentionGraph({ inSharedMode = false }: RetentionGraphProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { retentionFilter, trendSeries, incompletenessOffsetFromEnd, aggregationGroupTypeIndex } = useValues(
+    const { retentionFilter, filteredTrendSeries, incompletenessOffsetFromEnd, aggregationGroupTypeIndex } = useValues(
         retentionGraphLogic(insightProps)
     )
     const { openModal } = useActions(retentionModalLogic(insightProps))
 
-    if (trendSeries.length === 0) {
+    if (filteredTrendSeries.length === 0) {
         return null
     }
 
-    return trendSeries ? (
+    return filteredTrendSeries ? (
         <LineGraph
             data-attr="trend-line-graph"
             type={displayTypeToGraphType(retentionFilter?.display || ChartDisplayType.ActionsLineGraph)}
-            datasets={trendSeries as GraphDataset[]}
-            labels={(trendSeries[0] && trendSeries[0].labels) || []}
+            datasets={filteredTrendSeries as GraphDataset[]}
+            labels={(filteredTrendSeries[0] && filteredTrendSeries[0].labels) || []}
             isInProgress={incompletenessOffsetFromEnd < 0}
             inSharedMode={!!inSharedMode}
             showPersonsModal={false}
