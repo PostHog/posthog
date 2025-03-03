@@ -306,9 +306,6 @@ export class PluginServer {
                 })
             }
 
-            pluginServerStartupTimeMs.inc(Date.now() - startupTimer.valueOf())
-            status.info('🚀', `All systems go in ${Date.now() - startupTimer.valueOf()}ms`)
-
             // If join rejects or throws, then the consumer is unhealthy and we should shut down the process.
             // Ideally we would also join all the other background tasks as well to ensure we stop the
             // server if we hit any errors and don't end up with zombie instances, but I'll leave that
@@ -321,6 +318,8 @@ export class PluginServer {
                     await this.stop(error)
                 })
             })
+            pluginServerStartupTimeMs.inc(Date.now() - startupTimer.valueOf())
+            status.info('🚀', `All systems go in ${Date.now() - startupTimer.valueOf()}ms`)
         } catch (error) {
             Sentry.captureException(error)
             status.error('💥', 'Launchpad failure!', { error: error.stack ?? error })
