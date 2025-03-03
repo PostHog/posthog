@@ -18,18 +18,14 @@ from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 
-from posthog.cdp.filters import compile_filters_bytecode, compile_filters_expr
 from posthog.cdp.services.icons import CDPIconsService
 from posthog.cdp.validation import compile_hog, generate_template_bytecode, validate_inputs, validate_inputs_schema
 from posthog.cdp.site_functions import get_transpiled_function
 from posthog.constants import AvailableFeature
-from posthog.hogql.compiler.javascript import JavaScriptCompiler
 from posthog.models.activity_logging.activity_log import log_activity, changes_between, Detail, Change
 from posthog.models.hog_functions.hog_function import (
     HogFunction,
     HogFunctionState,
-    TYPES_WITH_COMPILED_FILTERS,
-    TYPES_WITH_TRANSPILED_FILTERS,
     TYPES_WITH_JAVASCRIPT_SOURCE,
     HogFunctionType,
 )
@@ -217,16 +213,6 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 attrs["inputs_schema"] = attrs.get("inputs_schema", instance.inputs_schema if instance else [])
                 attrs["inputs"] = validate_inputs(attrs["inputs_schema"], inputs, existing_encrypted_inputs, hog_type)
 
-            if "filters" in attrs:
-                if hog_type in TYPES_WITH_COMPILED_FILTERS:
-                    attrs["filters"] = compile_filters_bytecode(attrs["filters"], team)
-                elif hog_type in TYPES_WITH_TRANSPILED_FILTERS:
-                    compiler = JavaScriptCompiler()
-                    code = compiler.visit(compile_filters_expr(attrs["filters"], team))
-                    attrs["filters"]["transpiled"] = {"lang": "ts", "code": code, "stl": list(compiler.stl_functions)}
-                    if "bytecode" in attrs["filters"]:
-                        del attrs["filters"]["bytecode"]
-
         validate_input_and_filters(attrs)
 
         if attrs.get("mappings", None) is not None:
@@ -326,7 +312,6 @@ class HogFunctionListQuerySerializer(serializers.Serializer):
         required=False,
         help_text="Filter by multiple function types (comma-separated). Example: 'destination,transformation'",
     )
-    filters = serializers.JSONField(required=False, help_text="Additional filters in JSON format")
 
     def validate(self, data):
         # If neither type nor types is provided, default to destination
@@ -380,23 +365,6 @@ class HogFunctionViewSet(
 
             queryset = queryset.filter(type__in=types)
             queryset = queryset.order_by("execution_order", "created_at")
-
-            if validated_data.get("filters"):
-                filters = validated_data["filters"]
-                if "actions" in filters:
-                    action_ids = [str(action.get("id")) for action in filters.get("actions", []) if action.get("id")]
-                    del filters["actions"]
-                    query = """
-                        EXISTS (
-                            SELECT 1
-                            FROM jsonb_array_elements(filters->'actions') AS elem
-                            WHERE elem->>'id' = ANY(%s)
-                        )
-                    """
-                    queryset = queryset.extra(where=[query], params=[action_ids])
-
-                if filters:
-                    queryset = queryset.filter(filters__contains=filters)
 
         return queryset
 
