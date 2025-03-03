@@ -178,6 +178,7 @@ class SyncVectorsWorkflow(PostHogWorkflow):
             get_approximate_actions_count,
             GetApproximateActionsCountInputs(start_dt_str),
             start_to_close_timeout=timedelta(seconds=15),
+            retry_policy=temporalio.common.RetryPolicy(initial_interval=timedelta(seconds=30), maximum_attempts=3),
         )
         if not approximate_count:
             return
@@ -189,6 +190,9 @@ class SyncVectorsWorkflow(PostHogWorkflow):
                     batch_summarize_and_embed_actions,
                     RetrieveActionsInputs(i, inputs.batch_size, start_dt_str),
                     start_to_close_timeout=timedelta(minutes=5),
+                    retry_policy=temporalio.common.RetryPolicy(
+                        initial_interval=timedelta(seconds=30), maximum_attempts=3
+                    ),
                 )
             )
 
@@ -212,6 +216,9 @@ class SyncVectorsWorkflow(PostHogWorkflow):
                         sync_action_vectors_for_team,
                         SyncActionVectorsForTeamInputs(team_id, batch_action_ids),
                         start_to_close_timeout=timedelta(minutes=1),
+                        retry_policy=temporalio.common.RetryPolicy(
+                            initial_interval=timedelta(seconds=30), maximum_attempts=3
+                        ),
                     )
                 )
 
