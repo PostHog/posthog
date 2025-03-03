@@ -15,13 +15,13 @@ export default defineConfig({
         Maximum time one test can run for. 
         Shorter timeout in local dev since it's annoying to wait 90 seconds for a test to run.
     */
-    timeout: process.env.CI ? 90 * 1000 : 30 * 1000,
+    timeout: process.env.CI ? 60 * 1000 : 30 * 1000,
     expect: {
         /**
          * Maximum time expect() should wait for the condition to be met.
          * For example in `await expect(locator).toHaveText();`
          */
-        timeout: process.env.CI ? 45 * 1000 : 10 * 1000,
+        timeout: process.env.CI ? 20 * 1000 : 10 * 1000,
     },
     /* Run tests in files in parallel */
     fullyParallel: true,
