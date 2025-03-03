@@ -67,25 +67,23 @@ export function SDKInstructionsModal({
             {!sdk?.key || !sdkInstructions ? (
                 <SpinnerOverlay />
             ) : (
-                <>
+                <div className="flex flex-col h-full">
                     <header className="p-4 flex items-center gap-2">
                         <LemonButton icon={<IconArrowLeft />} onClick={onClose} size="xsmall">
                             All SDKs
                         </LemonButton>
                     </header>
-                    <section className="p-4 flex flex-col h-full">
-                        <div className="flex-grow overflow-y-auto pb-24">
-                            <SDKSnippet sdk={sdk} sdkInstructions={sdkInstructions} />
-                        </div>
-                        <div className="sticky bottom-0 w-full bg-bg-light dark:bg-bg-depth p-2 flex justify-between items-center gap-2">
-                            <RealtimeCheckIndicator
-                                teamPropertyToVerify={verifyingProperty}
-                                listeningForName={verifyingName}
-                            />
-                            <NextButton installationComplete={installationComplete} />
-                        </div>
-                    </section>
-                </>
+                    <div className="flex-grow overflow-y-auto px-4 py-2">
+                        <SDKSnippet sdk={sdk} sdkInstructions={sdkInstructions} />
+                    </div>
+                    <footer className="sticky bottom-0 w-full bg-bg-light dark:bg-bg-depth rounded-b-sm p-2 flex justify-between items-center gap-2 px-4">
+                        <RealtimeCheckIndicator
+                            teamPropertyToVerify={verifyingProperty}
+                            listeningForName={verifyingName}
+                        />
+                        <NextButton installationComplete={installationComplete} />
+                    </footer>
+                </div>
             )}
         </LemonModal>
     )
@@ -97,7 +95,7 @@ export function AlternativeSDKs({
     teamPropertyToVerify = 'ingested_event',
 }: SDKsProps): JSX.Element {
     const { setAvailableSDKInstructionsMap, selectSDK } = useActions(sdksLogic)
-    const { sdks, selectedSDK } = useValues(sdksLogic)
+    const { sdks, tags, selectedSDK } = useValues(sdksLogic)
     const [searchTerm, setSearchTerm] = useState('')
     const [selectedTag, setSelectedTag] = useState<SDKTag | null>(null)
     const [instructionsModalOpen, setInstructionsModalOpen] = useState(false)
@@ -114,23 +112,23 @@ export function AlternativeSDKs({
         ?.filter((sdk) => (searchTerm ? sdk.name.toLowerCase().includes(searchTerm.toLowerCase()) : true))
         .filter((sdk) => (selectedTag === null ? true : sdk.tags?.includes(selectedTag)))
 
-    const tags: string[] = ['All', ...Object.values(SDKTag)]
-
     return (
         <OnboardingStep
             title="Install"
             stepKey={stepKey}
             continueOverride={<NextButton installationComplete={installationComplete} />}
             actions={
-                <RealtimeCheckIndicator
-                    teamPropertyToVerify={teamPropertyToVerify}
-                    listeningForName={listeningForName}
-                />
+                <div className="pr-2">
+                    <RealtimeCheckIndicator
+                        teamPropertyToVerify={teamPropertyToVerify}
+                        listeningForName={listeningForName}
+                    />
+                </div>
             }
         >
             <div className="flex flex-col gap-y-4 mt-6">
                 <div className="flex flex-col gap-y-2">
-                    <div className="flex flex-row justify-between gap-4">
+                    <div className="flex flex-row justify-between gap-4 flex-wrap">
                         <LemonInput
                             value={searchTerm}
                             onChange={setSearchTerm}
