@@ -1246,6 +1246,44 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "name": "TypeScript Destination Function",
             "hog": "export function onLoad() { console.log(inputs.message); }",
             "type": "site_destination",
+            "inputs_schema": [
+                {"key": "message", "type": "string", "label": "Message", "required": True},
+            ],
+            "inputs": {
+                "message": {
+                    "value": "Hello, TypeScript {arrayMap(a -> a, [1, 2, 3])}!",
+                },
+            },
+        }
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data=payload,
+        )
+        result = response.json()
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert result["bytecode"] is None
+        assert "Hello, TypeScript" in result["transpiled"]
+        inputs = result["inputs"]
+        inputs["message"]["transpiled"]["stl"].sort()
+        assert result["inputs"] == {
+            "message": {
+                "order": 0,
+                "transpiled": {
+                    "code": 'concat("Hello, TypeScript ", arrayMap(__lambda((a) => a), [1, 2, 3]), "!")',
+                    "lang": "ts",
+                    "stl": sorted(["__lambda", "concat", "arrayMap"]),
+                },
+                "value": "Hello, TypeScript {arrayMap(a -> a, [1, 2, 3])}!",
+            }
+        }
+
+    def test_create_typescript_destination_with_inputs_validation(self):
+        payload = {
+            "name": "TypeScript Destination Function",
+            "hog": "export function onLoad() { console.log(inputs.message); }",
+            "type": "site_destination",
             "mappings": [
                 {
                     "inputs": {"message": {"value": "Hello, TypeScript {arrayMap(a -> a, [1, 2, 3])}!"}},
