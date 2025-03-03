@@ -45,10 +45,10 @@ export class PluginServer {
     stopping = false
     hub?: Hub
 
-    constructor(config: PluginsServerConfig) {
+    constructor(config: Partial<PluginsServerConfig>) {
         this.config = {
-            ...config,
             ...defaultConfig,
+            ...config,
         }
 
         status.updatePrompt(this.config.PLUGIN_SERVER_MODE)

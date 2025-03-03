@@ -1,6 +1,6 @@
 import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../src/config/kafka-topics'
-import { startPluginsServer } from '../src/server'
-import { Hub, LogLevel, PluginsServerConfig } from '../src/types'
+import { PluginServer } from '../src/server'
+import { LogLevel, PluginServerMode, PluginsServerConfig } from '../src/types'
 import { delay, UUIDT } from '../src/utils/utils'
 import { createPosthog, DummyPostHog } from '../src/worker/vm/extensions/posthog'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from './helpers/clickhouse'
@@ -14,11 +14,11 @@ const extraServerConfig: Partial<PluginsServerConfig> = {
     TASK_TIMEOUT: 2,
     KAFKA_CONSUMPTION_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
     LOG_LEVEL: LogLevel.Log,
+    PLUGIN_SERVER_MODE: PluginServerMode.ingestion_v2,
 }
 
 describe('e2e ingestion timeout', () => {
-    let hub: Hub
-    let stopServer: () => Promise<void>
+    let server: PluginServer
     let posthog: DummyPostHog
 
     beforeAll(async () => {
@@ -38,24 +38,24 @@ describe('e2e ingestion timeout', () => {
             }
         `)
         await resetTestDatabaseClickhouse(extraServerConfig)
-        const startResponse = await startPluginsServer(extraServerConfig, { ingestionV2: true })
-        hub = startResponse.hub!
-        stopServer = startResponse.stop
-        posthog = createPosthog(hub, pluginConfig39)
+        server = new PluginServer(extraServerConfig)
+        await server.start()
+
+        posthog = createPosthog(server.hub!, pluginConfig39)
     })
 
     afterEach(async () => {
-        await stopServer()
+        await server.stop()
     })
 
     test('event captured, processed, ingested', async () => {
-        expect((await hub.db.fetchEvents()).length).toBe(0)
+        expect((await server.hub!.db.fetchEvents()).length).toBe(0)
         const uuid = new UUIDT().toString()
         await posthog.capture('custom event', { name: 'haha', uuid, randomProperty: 'lololo' })
-        await delayUntilEventIngested(() => hub.db.fetchEvents())
+        await delayUntilEventIngested(() => server.hub!.db.fetchEvents())
 
-        await hub.kafkaProducer.flush()
-        const events = await hub.db.fetchEvents()
+        await server.hub!.kafkaProducer.flush()
+        const events = await server.hub!.db.fetchEvents()
         await delay(1000)
 
         expect(events.length).toBe(1)
