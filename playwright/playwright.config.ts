@@ -30,11 +30,11 @@ export default defineConfig({
     /* Retry on CI only */
     retries: process.env.CI ? 8 : 2,
     /* 
-        GitHub Actions has 4 cores so run 3 workers 
+        GitHub Actions has 8 cores so run 7 workers 
         and leave one core for all the rest
         For local running, our machines are all M3 or M4 by now so we can afford to run more workers
     */
-    workers: process.env.CI ? 3 : 6,
+    workers: process.env.CI ? 7 : 6,
     /* Reporter to use. See https://playwright.dev/docs/test-reporters */
     reporter: [['html', { open: 'never' }]],
     /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
