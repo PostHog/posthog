@@ -1,5 +1,4 @@
-import { HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS } from '..'
-import { HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS_DEPRECATED } from '..'
+import { HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS, HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS_DEPRECATED } from '../index'
 import { HogFunctionTemplate } from '../types'
 
 describe('Transformation templates', () => {
