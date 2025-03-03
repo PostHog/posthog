@@ -66,7 +66,7 @@ const ContextMenuContent = React.forwardRef<
             <ContextMenuPrimitive.Content
                 ref={ref}
                 className={cn(
-                    `z-top relativemin-w-[8rem] max-w-50 overflow-hidden rounded-md border bg-surface-tooltip p-1 text-primary-inverse shadow-md`,
+                    `z-top relative min-w-[8rem] max-w-50 overflow-hidden rounded-md border bg-surface-tooltip p-1 text-primary-inverse shadow-md`,
                     className
                 )}
                 {...props}
