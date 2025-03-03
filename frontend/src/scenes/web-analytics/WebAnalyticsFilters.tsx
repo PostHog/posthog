@@ -2,7 +2,6 @@ import { IconFilter, IconGear, IconGlobe } from '@posthog/icons'
 import { LemonButton, LemonSelect, LemonSwitch, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -22,13 +21,14 @@ import { ProductTab, webAnalyticsLogic } from './webAnalyticsLogic'
 import { WebConversionGoal } from './WebConversionGoal'
 import { WebPropertyFilters } from './WebPropertyFilters'
 
+const SettingsLink = (): JSX.Element => (
+    <Link to={urls.settings('environment', 'web-analytics-authorized-urls')}>settings</Link>
+)
+
 export const WebAnalyticsFilters = (): JSX.Element => {
     const [expanded, setExpanded] = useState(false)
 
-    const { authorizedUrls } = useValues(
-        authorizedUrlListLogic({ type: AuthorizedUrlListType.WEB_ANALYTICS, actionId: null, experimentId: null })
-    )
-    const { domainFilter, hasHostFilter } = useValues(webAnalyticsLogic)
+    const { domainFilter, hasHostFilter, authorizedDomains } = useValues(webAnalyticsLogic)
     const { setDomainFilter } = useActions(webAnalyticsLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
@@ -48,14 +48,17 @@ export const WebAnalyticsFilters = (): JSX.Element => {
                                     value={domainFilter ?? (hasHostFilter ? 'host' : 'all')}
                                     icon={<IconGlobe />}
                                     onChange={(value) => setDomainFilter(value)}
-                                    disabled={authorizedUrls.length === 0}
+                                    disabledReason={
+                                        authorizedDomains.length === 0 ? (
+                                            <span>
+                                                No authorized domains, authorize them on <SettingsLink />
+                                            </span>
+                                        ) : undefined
+                                    }
                                     options={[
                                         {
                                             options: [
-                                                {
-                                                    label: 'All domains',
-                                                    value: 'all',
-                                                },
+                                                { label: 'All domains', value: 'all' },
                                                 ...(hasHostFilter
                                                     ? [
                                                           {
@@ -64,19 +67,14 @@ export const WebAnalyticsFilters = (): JSX.Element => {
                                                           },
                                                       ]
                                                     : []),
-                                                ...authorizedUrls.map((url) => ({ label: url, value: url })),
+                                                ...authorizedDomains.map((domain) => ({
+                                                    label: domain,
+                                                    value: domain,
+                                                })),
                                             ],
                                             footer: (
                                                 <span className="text-xs px-2">
-                                                    Have more domains? Go to{' '}
-                                                    <Link
-                                                        to={urls.settings(
-                                                            'environment',
-                                                            'web-analytics-authorized-urls'
-                                                        )}
-                                                    >
-                                                        settings
-                                                    </Link>
+                                                    Have more domains? Go to <SettingsLink />
                                                 </span>
                                             ),
                                         },

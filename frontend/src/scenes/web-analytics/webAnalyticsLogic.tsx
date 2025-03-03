@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, urlToAction } from 'kea-router'
 import { windowValues } from 'kea-window-values'
 import api from 'lib/api'
+import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { FEATURE_FLAGS, RETENTION_FIRST_TIME } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link, PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
@@ -263,6 +264,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             ['hasAvailableFeature'],
             preflightLogic,
             ['isDev'],
+            authorizedUrlListLogic({ type: AuthorizedUrlListType.WEB_ANALYTICS, actionId: null, experimentId: null }),
+            ['authorizedUrls'],
         ],
     })),
     actions({
@@ -1959,6 +1962,37 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         return urls.replay()
                     }
                 }
+            },
+        ],
+        authorizedDomains: [
+            (s) => [s.authorizedUrls],
+            (authorizedUrls) => {
+                // There are a couple problems with the raw `authorizedUrls` which we need to fix here:
+                // - They are URLs, we want domains
+                // - There might be duplicates, so clean them up
+                // - There might be duplicates across http/https, so clean them up
+
+                // First create URL objects and group them by hostname+port
+                const urlsByDomain = new Map<string, URL[]>()
+
+                for (const urlStr of authorizedUrls) {
+                    try {
+                        const url = new URL(urlStr)
+                        const key = url.host // hostname + port if present
+                        if (!urlsByDomain.has(key)) {
+                            urlsByDomain.set(key, [])
+                        }
+                        urlsByDomain.get(key)!.push(url)
+                    } catch (e) {
+                        // Silently skip URLs that can't be parsed
+                    }
+                }
+
+                // For each domain, prefer https over http
+                return Array.from(urlsByDomain.values()).map((urls) => {
+                    const preferredUrl = urls.find((url) => url.protocol === 'https:') ?? urls[0]
+                    return preferredUrl.origin
+                })
             },
         ],
     })),
