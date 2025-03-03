@@ -3,7 +3,7 @@ from ipaddress import IPv4Address, IPv6Address
 import json
 import math
 import uuid
-from collections.abc import Hashable, Iterator, Sequence
+from collections.abc import Iterator, Sequence
 from typing import Any, Optional
 
 import deltalake as deltalake
@@ -421,7 +421,7 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
     else:
         arrow_schema = schema
 
-    drop_column_names: list[Hashable] = []
+    drop_column_names: list[str] = []
 
     column_names = set(table_data[0].keys())
     columnar_table_data: dict[str, pa.Array | np.ndarray[Any, np.dtype[Any]]] = {}
