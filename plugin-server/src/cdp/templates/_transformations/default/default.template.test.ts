@@ -1,4 +1,4 @@
-import { HogFunctionInvocationGlobals } from '../../../types'
+import { HogFunctionInvocationGlobals } from '../../../../types'
 import { TemplateTester } from '../../test/test-helpers'
 import { template } from './default.template'
 
