@@ -233,16 +233,9 @@ export async function startPluginsServer(
             ]
 
             for (const consumerOption of consumersOptions) {
-<<<<<<< HEAD
-                piscina = piscina ?? (await makePiscina(serverConfig, hub))
-
-                const consumer = new IngestionConsumer(hub, {
-=======
                 await initPlugins()
 
-                const consumer = new IngestionConsumer({
-                    ...hub,
->>>>>>> master
+                const consumer = new IngestionConsumer(hub, {
                     INGESTION_CONSUMER_CONSUME_TOPIC: consumerOption.topic,
                     INGESTION_CONSUMER_GROUP_ID: consumerOption.group_id,
                 })
@@ -258,57 +251,6 @@ export async function startPluginsServer(
             }
 
             // Below are all legacy consumers that will be replaced by the new ingestion consumer that covers all cases
-<<<<<<< HEAD
-=======
-
-            if (capabilities.ingestion) {
-                await initPlugins()
-                services.push(
-                    await startAnalyticsEventsIngestionConsumer({
-                        hub: hub,
-                    })
-                )
-            }
-
-            if (capabilities.ingestionHistorical) {
-                await initPlugins()
-                services.push(
-                    await startAnalyticsEventsIngestionHistoricalConsumer({
-                        hub: hub,
-                    })
-                )
-            }
-
-            if (capabilities.eventsIngestionPipelines) {
-                const pipelinesToRun =
-                    serverConfig.PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE === null
-                        ? Object.keys(PIPELINES)
-                        : [serverConfig.PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE]
-
-                for (const pipelineKey of pipelinesToRun) {
-                    if (pipelineKey === null || !PIPELINES[pipelineKey]) {
-                        throw new Error(`Invalid events ingestion pipeline: ${pipelineKey}`)
-                    }
-
-                    await initPlugins()
-                    services.push(
-                        await startEventsIngestionPipelineConsumer({
-                            hub: hub,
-                            pipelineKey: pipelineKey,
-                        })
-                    )
-                }
-            }
-
-            if (capabilities.ingestionOverflow) {
-                await initPlugins()
-                services.push(
-                    await startAnalyticsEventsIngestionOverflowConsumer({
-                        hub: hub,
-                    })
-                )
-            }
->>>>>>> master
         }
 
         if (capabilities.processAsyncOnEventHandlers) {
