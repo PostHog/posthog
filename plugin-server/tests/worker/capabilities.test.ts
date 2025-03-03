@@ -65,7 +65,7 @@ describe('capabilities', () => {
             it('returns false if the plugin has no capabilities', () => {
                 const shouldSetupPlugin = shouldSetupPluginInServer(
                     {
-                        ingestion: true,
+                        ingestionV2: true,
                         processAsyncOnEventHandlers: true,
                     },
                     {}
@@ -76,53 +76,16 @@ describe('capabilities', () => {
 
         describe('ingestion', () => {
             it('returns true if plugin has processEvent method and server has ingestion capability', () => {
-                const shouldSetupPlugin = shouldSetupPluginInServer({ ingestion: true }, { methods: ['processEvent'] })
+                const shouldSetupPlugin = shouldSetupPluginInServer(
+                    { ingestionV2: true },
+                    { methods: ['processEvent'] }
+                )
                 expect(shouldSetupPlugin).toEqual(true)
             })
 
             it('returns false if plugin does not have processEvent method and server only has ingestion capability', () => {
                 const shouldSetupPlugin = shouldSetupPluginInServer(
-                    { ingestion: true },
-                    {
-                        methods: ['onEvent'],
-                    }
-                )
-                expect(shouldSetupPlugin).toEqual(false)
-            })
-        })
-
-        describe('ingestionOverflow', () => {
-            it('returns true if plugin has processEvent method and server has ingestionOverflow capability', () => {
-                const shouldSetupPlugin = shouldSetupPluginInServer(
-                    { ingestionOverflow: true },
-                    { methods: ['processEvent'] }
-                )
-                expect(shouldSetupPlugin).toEqual(true)
-            })
-
-            it('returns false if plugin does not have processEvent method and server only has ingestionOverflow capability', () => {
-                const shouldSetupPlugin = shouldSetupPluginInServer(
-                    { ingestionOverflow: true },
-                    {
-                        methods: ['onEvent'],
-                    }
-                )
-                expect(shouldSetupPlugin).toEqual(false)
-            })
-        })
-
-        describe('ingestionHistorical', () => {
-            it('returns true if plugin has processEvent method and server has ingestionHistorical capability', () => {
-                const shouldSetupPlugin = shouldSetupPluginInServer(
-                    { ingestionHistorical: true },
-                    { methods: ['processEvent'] }
-                )
-                expect(shouldSetupPlugin).toEqual(true)
-            })
-
-            it('returns false if plugin does not have processEvent method and server only has ingestionHistorical capability', () => {
-                const shouldSetupPlugin = shouldSetupPluginInServer(
-                    { ingestionHistorical: true },
+                    { ingestionV2: true },
                     {
                         methods: ['onEvent'],
                     }

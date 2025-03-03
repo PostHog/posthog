@@ -52,7 +52,7 @@ describe('http server', () => {
 
             await resetTestDatabase(testCode)
 
-            const pluginsServer = await startPluginsServer({}, { http: true, ingestion: true })
+            const pluginsServer = await startPluginsServer({}, { http: true, ingestionV2: true })
 
             await new Promise((resolve) =>
                 http.get(`http://localhost:${DEFAULT_HTTP_SERVER_PORT}/_ready`, (res) => {
