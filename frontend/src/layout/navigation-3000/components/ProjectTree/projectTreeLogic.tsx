@@ -278,9 +278,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             () => [],
             (): TreeDataItem[] => [
                 {
-                    id: 'top-seperator',
+                    id: 'top-separator',
                     name: '',
-                    type: 'seperator',
+                    type: 'separator',
                 },
                 {
                     id: 'project',

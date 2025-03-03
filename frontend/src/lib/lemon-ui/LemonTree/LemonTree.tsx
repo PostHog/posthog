@@ -26,7 +26,7 @@ export type TreeDataItem = {
     /** Disabled: The reason the item is disabled. */
     disabledReason?: string
 
-    type?: 'node' | 'seperator'
+    type?: 'node' | 'separator'
     /**
      * Handle a click on the item.
      * @param open - boolean to indicate if it's a folder and it's open state
@@ -136,7 +136,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
         return (
             <ul className={cn('list-none m-0 p-0', className)} role="group">
                 {data.map((item) => {
-                    if (item.type === 'seperator') {
+                    if (item.type === 'separator') {
                         return (
                             <div key={item.id} className="h-1 -mx-2 flex items-center">
                                 <div className="border-b border-primary h-px my-2 flex-1" />
