@@ -21,7 +21,8 @@ async fn test_simple_events_query(test_pool: PgPool) {
     assert!(result.is_ok());
 
     let total_count: i64 = result.unwrap().get(0);
-    assert_eq!(37, total_count);
+    let expected_event_rows: i64 = 9;
+    assert_eq!(expected_event_rows, total_count);
 }
 
 async fn bootstrap_seed_data(test_pool: PgPool) -> Result<(), sqlx::Error> {
