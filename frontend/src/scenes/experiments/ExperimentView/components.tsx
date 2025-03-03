@@ -43,6 +43,7 @@ import {
     InsightShortId,
 } from '~/types'
 
+import { EXPERIMENT_VARIANT_MULTIPLE } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import { getExperimentStatus, getExperimentStatusColor } from '../experimentsLogic'
 import { getExperimentInsightColour } from '../utils'
@@ -61,6 +62,14 @@ export function VariantTag({
     className?: string
 }): JSX.Element {
     const { experiment, getIndexForVariant, metricResults } = useValues(experimentLogic({ experimentId }))
+
+    if (variantKey === EXPERIMENT_VARIANT_MULTIPLE) {
+        return (
+            <Tooltip title="This indicates a potential implementation issue where users are seeing multiple variants instead of a single consistent variant.">
+                <LemonTag type="danger">{variantKey}</LemonTag>
+            </Tooltip>
+        )
+    }
 
     if (!metricResults) {
         return <></>
