@@ -24,6 +24,8 @@ export type LemonPureFieldProps = {
     inline?: boolean
     /** The id of the input this field is for */
     htmlFor?: string
+    /** The class name override for the label */
+    labelClassName?: string
 }
 
 const LemonFieldError = ({ error }: { error: string }): JSX.Element => {
@@ -47,6 +49,7 @@ const LemonPureField = ({
     inline,
     onClick,
     renderError,
+    labelClassName,
 }: LemonPureFieldProps): JSX.Element => {
     return (
         <div
@@ -64,7 +67,7 @@ const LemonPureField = ({
                     info={info}
                     showOptional={showOptional}
                     onExplanationClick={onExplanationClick}
-                    className={clsx({
+                    className={clsx(labelClassName, {
                         'cursor-pointer': !!onClick,
                     })}
                     htmlFor={htmlFor}

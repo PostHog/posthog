@@ -16,6 +16,8 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     _append_debug_column_to_pyarrows_table,
     _update_job_row_count,
     _update_last_synced_at_sync,
+    append_partition_key_to_table,
+    should_partition_table,
     table_from_py_list,
 )
 from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
@@ -23,6 +25,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLS
 from posthog.temporal.data_imports.pipelines.pipeline_sync import validate_schema_and_update_table_sync
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 from posthog.warehouse.models import DataWarehouseTable, ExternalDataJob, ExternalDataSchema
+from posthog.warehouse.types import IncrementalFieldType
 
 
 class PipelineNonDLT:
@@ -165,6 +168,23 @@ class PipelineNonDLT:
         delta_table = self._delta_table_helper.get_delta_table()
 
         pa_table = _append_debug_column_to_pyarrows_table(pa_table, self._load_id)
+
+        if should_partition_table(delta_table, self._schema):
+            incremental_field = self._schema.sync_type_config.get("incremental_field")
+            incremental_field_type_str = self._schema.sync_type_config.get("incremental_field_type")
+            if incremental_field and incremental_field_type_str:
+                incremental_field_type = IncrementalFieldType(incremental_field_type_str)
+
+                # This needs to happen before _evolve_pyarrow_schema
+                pa_table = append_partition_key_to_table(
+                    table=pa_table,
+                    incremental_field=str(incremental_field),
+                    incremental_field_type=incremental_field_type,
+                    logger=self._logger,
+                )
+            else:
+                self._logger.debug("incremental_field or incremental_field_type missing: skipping partition key")
+
         pa_table = _evolve_pyarrow_schema(pa_table, delta_table.schema() if delta_table is not None else None)
         pa_table = _handle_null_columns_with_definitions(pa_table, self._resource)
 

@@ -9,7 +9,6 @@ import {
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { FeedbackNotice } from 'lib/components/FeedbackNotice'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -45,7 +44,7 @@ export const scene: SceneExport = {
 
 export function ErrorTrackingScene(): JSX.Element {
     const { hasSentExceptionEvent, hasSentExceptionEventLoading } = useValues(errorTrackingLogic)
-    const { query, selectedIssueIds } = useValues(errorTrackingSceneLogic)
+    const { query } = useValues(errorTrackingSceneLogic)
 
     const insightProps: InsightLogicProps = {
         dashboardItemId: 'new-ErrorTrackingQuery',
@@ -73,45 +72,17 @@ export function ErrorTrackingScene(): JSX.Element {
         <ErrorTrackingSetupPrompt>
             <BindLogic logic={errorTrackingDataNodeLogic} props={{ query, key: insightVizDataNodeKey(insightProps) }}>
                 <Header />
-
                 {hasSentExceptionEventLoading ? null : hasSentExceptionEvent ? (
                     <FeedbackNotice text="Error tracking is currently in beta. Thanks for taking part! We'd love to hear what you think." />
                 ) : (
                     <IngestionStatusCheck />
                 )}
-
                 <ErrorTrackingFilters />
                 <LemonDivider className="mt-2" />
-                {selectedIssueIds.length === 0 ? <ErrorTrackingListOptions /> : <ErrorTrackingListActions />}
+                <ErrorTrackingListOptions />
                 <Query query={query} context={context} />
             </BindLogic>
         </ErrorTrackingSetupPrompt>
-    )
-}
-
-const ErrorTrackingListActions = (): JSX.Element => {
-    const { selectedIssueIds } = useValues(errorTrackingSceneLogic)
-    const { setSelectedIssueIds } = useActions(errorTrackingSceneLogic)
-    const { mergeIssues } = useActions(errorTrackingDataNodeLogic)
-
-    return (
-        <div className="sticky top-[var(--breadcrumbs-height-compact)] z-20 py-2 bg-primary flex space-x-1">
-            <LemonButton type="secondary" size="small" onClick={() => setSelectedIssueIds([])}>
-                Unselect all
-            </LemonButton>
-            {selectedIssueIds.length > 1 && (
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    onClick={() => {
-                        mergeIssues(selectedIssueIds)
-                        setSelectedIssueIds([])
-                    }}
-                >
-                    Merge
-                </LemonButton>
-            )}
-        </div>
     )
 }
 
@@ -163,7 +134,7 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
     return (
         <div className="flex items-start space-x-1.5 group">
             <LemonCheckbox
-                className={clsx('pt-1 group-hover:visible', !checked && 'invisible')}
+                className="pt-1"
                 checked={checked}
                 onChange={(newValue) => {
                     setSelectedIssueIds(
