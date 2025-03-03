@@ -22,7 +22,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-02-01',
-        featureFlags: [FEATURE_FLAGS.WEB_VITALS, FEATURE_FLAGS.WEB_ANALYTICS_DOMAIN_DROPDOWN],
+        featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_DOMAIN_DROPDOWN],
         testOptions: {
             includeNavigationInSnapshot: true,
             waitForLoadersToDisappear: true,
