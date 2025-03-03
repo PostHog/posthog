@@ -196,7 +196,7 @@ class DecideRateThrottle(BaseThrottle):
     However, note that this throttle is per process, and not global.
     """
 
-    def __init__(self, replenish_rate: float = 5, bucket_capacity=100) -> None:
+    def __init__(self, replenish_rate: float = 5, bucket_capacity=10) -> None:
         self.limiter = Limiter(
             rate=replenish_rate,
             capacity=bucket_capacity,
