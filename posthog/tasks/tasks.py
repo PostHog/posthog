@@ -70,7 +70,7 @@ def process_query_task(
     Kick off query
     Once complete save results to redis
     """
-    from posthog.client import execute_process_query
+    from posthog.clickhouse.client import execute_process_query
 
     execute_process_query(
         team_id=team_id,
@@ -193,7 +193,7 @@ HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC = {"$heartbeat": "ingestion_api"}
 def ingestion_lag() -> None:
     from statshog.defaults.django import statsd
 
-    from posthog.client import sync_execute
+    from posthog.clickhouse.client import sync_execute
     from posthog.models.team.team import Team
 
     query = """
@@ -246,7 +246,7 @@ def replay_count_metrics() -> None:
     try:
         logger.info("[replay_count_metrics] running task")
 
-        from posthog.client import sync_execute
+        from posthog.clickhouse.client import sync_execute
 
         # ultimately I want to observe values by team id, but at the moment that would be lots of series, let's reduce the value first
         query = """
@@ -370,7 +370,7 @@ def graphile_worker_queue_size() -> None:
 def clickhouse_row_count() -> None:
     from statshog.defaults.django import statsd
 
-    from posthog.client import sync_execute
+    from posthog.clickhouse.client import sync_execute
 
     with pushed_metrics_registry("celery_clickhouse_row_count") as registry:
         row_count_gauge = Gauge(
@@ -404,7 +404,7 @@ def clickhouse_errors_count() -> None:
     225 - NO_ZOOKEEPER
     242 - TABLE_IS_READ_ONLY
     """
-    from posthog.client import sync_execute
+    from posthog.clickhouse.client import sync_execute
 
     QUERY = """
         select
@@ -437,7 +437,7 @@ def clickhouse_errors_count() -> None:
 def clickhouse_part_count() -> None:
     from statshog.defaults.django import statsd
 
-    from posthog.client import sync_execute
+    from posthog.clickhouse.client import sync_execute
 
     QUERY = """
         SELECT table, count(1) freq
@@ -468,7 +468,7 @@ def clickhouse_part_count() -> None:
 def clickhouse_mutation_count() -> None:
     from statshog.defaults.django import statsd
 
-    from posthog.client import sync_execute
+    from posthog.clickhouse.client import sync_execute
 
     QUERY = """
         SELECT

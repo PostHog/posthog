@@ -19,7 +19,7 @@ from posthog.exceptions_capture import capture_exception
 
 from posthog import version_requirement
 from posthog.clickhouse.client.connection import Workload
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.constants import FlagRequestType
 from posthog.logging.timing import timed_log
