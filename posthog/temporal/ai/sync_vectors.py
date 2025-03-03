@@ -16,11 +16,44 @@ import turbopuffer as tpuf
 from django.db.models import F, Q
 
 from ee.hogai.summarizers.chains import abatch_summarize_actions
-from posthog.models import Action, Team
+from posthog.models import Action, FeatureFlag, Team
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.utils import get_scheduled_start_time
 
 cohere_client = cohere.ClientV2()
+
+
+async def _get_orgs_from_the_feature_flag() -> list[str]:
+    feature_flag = await FeatureFlag.objects.filter(key="max-rag", team_id=2).afirst()
+    if not feature_flag:
+        return []
+    payload = feature_flag.get_payload("organizations")
+    if not isinstance(payload, list):
+        return []
+    return payload
+
+
+async def get_actions_qs(start_dt: datetime, offset: int | None = None, batch_size: int | None = None):
+    orgs = await _get_orgs_from_the_feature_flag()
+    actions_to_summarize = Action.objects.filter(
+        (Q(updated_at__gte=F("last_summarized_at")) | Q(last_summarized_at__isnull=True))
+        & Q(updated_at__lte=start_dt)
+        & Q(team__organization__in=orgs)
+    ).order_by("id", "team_id", "updated_at")
+    if offset is None or batch_size is None:
+        return actions_to_summarize
+    return actions_to_summarize[offset : offset + batch_size]
+
+
+@dataclass
+class GetApproximateActionsCountInputs:
+    start_dt: str
+
+
+@temporalio.activity.defn
+async def get_approximate_actions_count(inputs: GetApproximateActionsCountInputs) -> int:
+    qs = await get_actions_qs(datetime.fromisoformat(inputs.start_dt))
+    return await qs.acount()
 
 
 @dataclass
@@ -36,29 +69,10 @@ class UpdatedAction:
     action_id: int
 
 
-def get_actions_qs(start_dt: datetime, offset: int | None = None, batch_size: int | None = None):
-    actions_to_summarize = Action.objects.filter(
-        (Q(updated_at__gte=F("last_summarized_at")) | Q(last_summarized_at__isnull=True)) & Q(updated_at__lte=start_dt)
-    ).order_by("id", "team_id", "updated_at")
-    if offset is None or batch_size is None:
-        return actions_to_summarize
-    return actions_to_summarize[offset : offset + batch_size]
-
-
-@dataclass
-class GetApproximateActionsCountInputs:
-    start_dt: str
-
-
-@temporalio.activity.defn
-async def get_approximate_actions_count(inputs: GetApproximateActionsCountInputs) -> int:
-    return await get_actions_qs(datetime.fromisoformat(inputs.start_dt)).acount()
-
-
 @temporalio.activity.defn
 async def batch_summarize_and_embed_actions(inputs: RetrieveActionsInputs) -> list[UpdatedAction]:
     workflow_start_dt = datetime.fromisoformat(inputs.start_dt)
-    actions_to_summarize = get_actions_qs(workflow_start_dt, inputs.offset, inputs.batch_size)
+    actions_to_summarize = await get_actions_qs(workflow_start_dt, inputs.offset, inputs.batch_size)
     actions = [action async for action in actions_to_summarize]
 
     summaries = await abatch_summarize_actions(actions)
