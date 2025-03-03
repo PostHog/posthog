@@ -1038,6 +1038,7 @@ export enum SessionRecordingSidebarTab {
     OVERVIEW = 'overview',
     INSPECTOR = 'inspector',
     DEBUGGER = 'debugger',
+    NETWORK_WATERFALL = 'network-waterfall',
 }
 
 export enum SessionRecordingSidebarStacking {
@@ -2457,6 +2458,12 @@ export interface RetentionEntity {
     properties?: AnyPropertyFilter[]
 }
 
+export enum RetentionDashboardDisplayType {
+    TableOnly = 'table_only',
+    GraphOnly = 'graph_only',
+    All = 'all',
+}
+
 export interface RetentionFilterType extends FilterType {
     retention_type?: RetentionType
     /** Whether retention is with regard to initial cohort size, or that of the previous period. */
@@ -3299,6 +3306,7 @@ export interface EventDefinition {
     verified_at?: string
     verified_by?: string
     is_action?: boolean
+    hidden?: boolean
 }
 
 // TODO duplicated from plugin server. Follow-up to de-duplicate
@@ -3339,6 +3347,7 @@ export interface PropertyDefinition {
     verified?: boolean
     verified_at?: string
     verified_by?: string
+    hidden?: boolean
 }
 
 export enum PropertyDefinitionState {
@@ -3348,6 +3357,7 @@ export enum PropertyDefinitionState {
     Error = 'error',
 }
 
+export type PropertyDefinitionVerificationStatus = 'verified' | 'hidden' | 'visible'
 export type Definition = EventDefinition | PropertyDefinition
 
 export interface PersonProperty {

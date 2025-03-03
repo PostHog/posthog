@@ -11,7 +11,6 @@ import {
 } from '../../../src/types'
 import { PostgresUse } from '../../../src/utils/db/postgres'
 import { castTimestampOrNow, UUIDT } from '../../../src/utils/utils'
-import { makePiscina } from '../../../src/worker/piscina'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../helpers/clickhouse'
 import { resetKafka } from '../../helpers/kafka'
 import { createUserTeamAndOrganization, resetTestDatabase } from '../../helpers/sql'
@@ -44,7 +43,7 @@ describe('postgres parity', () => {
         `)
         await resetTestDatabaseClickhouse(extraServerConfig)
         console.log('[TEST] Starting plugins server')
-        const startResponse = await startPluginsServer(extraServerConfig, makePiscina, { ingestionV2: true })
+        const startResponse = await startPluginsServer(extraServerConfig, { ingestionV2: true })
         hub = startResponse.hub!
         stopServer = startResponse.stop
         teamId++

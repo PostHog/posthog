@@ -27,7 +27,8 @@ import { closeHub, createHub, createKafkaClient } from '../utils/db/hub'
 import { PostgresRouter } from '../utils/db/postgres'
 import { createRedisClient } from '../utils/db/redis'
 import { cancelAllScheduledJobs } from '../utils/node-schedule'
-import { captureException, posthog } from '../utils/posthog'
+import { captureException } from '../utils/posthog'
+import { flush as posthogFlush, shutdown as posthogShutdown } from '../utils/posthog'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
 import { delay } from '../utils/utils'
@@ -37,22 +38,15 @@ import { AppMetrics } from '../worker/ingestion/app-metrics'
 import { GroupTypeManager } from '../worker/ingestion/group-type-manager'
 import { OrganizationManager } from '../worker/ingestion/organization-manager'
 import { TeamManager } from '../worker/ingestion/team-manager'
-import Piscina, { makePiscina as defaultMakePiscina } from '../worker/piscina'
-import { loadSchedule } from '../worker/plugins/loadSchedule'
 import { teardownPlugins } from '../worker/plugins/teardown'
 import { RustyHook } from '../worker/rusty-hook'
-import { reloadPlugins } from '../worker/tasks'
+import { initPlugins as _initPlugins, reloadPlugins } from '../worker/tasks'
 import { syncInlinePlugins } from '../worker/vm/inline/inline'
 import { populatePluginCapabilities } from '../worker/vm/lazy'
-import { GraphileWorker } from './graphile-worker/graphile-worker'
-import { loadPluginSchedule } from './graphile-worker/schedule'
-import { startGraphileWorker } from './graphile-worker/worker-setup'
-import { startJobsConsumer } from './ingestion-queues/jobs-consumer'
 import {
     startAsyncOnEventHandlerConsumer,
     startAsyncWebhooksHandlerConsumer,
 } from './ingestion-queues/on-event-handler-consumer'
-import { startScheduledTasksConsumer } from './ingestion-queues/scheduled-tasks-consumer'
 import { SessionRecordingIngester } from './ingestion-queues/session-recording/session-recordings-consumer'
 import { DefaultBatchConsumerFactory } from './ingestion-queues/session-recording-v2/batch-consumer-factory'
 import { SessionRecordingIngester as SessionRecordingIngesterV2 } from './ingestion-queues/session-recording-v2/consumer'
@@ -76,7 +70,6 @@ const pluginServerStartupTimeMs = new Counter({
 
 export async function startPluginsServer(
     config: Partial<PluginsServerConfig>,
-    makePiscina: (serverConfig: PluginsServerConfig, hub: Hub) => Promise<Piscina> = defaultMakePiscina,
     capabilities?: PluginServerCapabilities
 ): Promise<ServerInstance> {
     const timer = new Date()
@@ -93,9 +86,6 @@ export async function startPluginsServer(
     // Used to trigger reloads of plugin code/config
     let pubSub: PubSub | undefined
 
-    // A Node Worker Thread pool
-    let piscina: Piscina | undefined
-
     const services: PluginServerService[] = []
 
     // Kafka consumer. Handles events that we couldn't find an existing person
@@ -103,7 +93,6 @@ export async function startPluginsServer(
     // (default 60 seconds) to allow for the person to be created in the
     // meantime.
     let httpServer: Server | undefined // server
-    let graphileWorker: GraphileWorker | undefined
     let lastActivityCheck: NodeJS.Timeout | undefined
     let stopEventLoopMetrics: (() => void) | undefined
 
@@ -126,9 +115,8 @@ export async function startPluginsServer(
         stopEventLoopMetrics?.()
         await Promise.allSettled([
             pubSub?.stop(),
-            graphileWorker?.stop(),
             ...services.map((service) => service.onShutdown()),
-            posthog.shutdown(),
+            posthogShutdown(),
         ])
 
         if (serverInstance.hub) {
@@ -205,12 +193,17 @@ export async function startPluginsServer(
         stop: closeJobs,
     }
 
-    const setupHub = async (): Promise<Hub> => {
-        if (!serverInstance.hub) {
-            serverInstance.hub = await createHub(serverConfig, capabilities)
+    const hub = await createHub(serverConfig, capabilities)
+    serverInstance.hub = hub
+
+    let _initPluginsPromise: Promise<void> | undefined
+
+    const initPlugins = () => {
+        if (!_initPluginsPromise) {
+            _initPluginsPromise = _initPlugins(hub)
         }
 
-        return serverInstance.hub
+        return _initPluginsPromise
     }
 
     // Creating a dedicated single-connection redis client to this Redis, as it's not relevant for hobby
@@ -220,62 +213,9 @@ export async function startPluginsServer(
         : undefined
 
     try {
-        // Based on the mode the plugin server was started, we start a number of
-        // different services. Mostly this is reasonably obvious from the name.
-        // There is however the `queue` which is a little more complicated.
-        // Depending on the capabilities we start with, it will either consume
-        // from:
-        //
-        // 1. plugin_events_ingestion
-        // 2. clickhouse_events_json
-        // 3. clickhouse_events_json and plugin_events_ingestion
-        // 4. conversion_events_buffer
-        //
-        if (capabilities.processPluginJobs || capabilities.pluginScheduledTasks) {
-            const hub = await setupHub()
-
-            graphileWorker = new GraphileWorker(hub)
-            // `connectProducer` just runs the PostgreSQL migrations. Ideally it
-            // would be great to move the migration to bin/migrate and ensure we
-            // have a way for the pods to wait for the migrations to complete as
-            // we do with other migrations. However, I couldn't find a
-            // `graphile-worker` supported way to do this, and I don't think
-            // it's that heavy so it may be fine, but something to watch out
-            // for.
-            await graphileWorker.connectProducer()
-            piscina = piscina ?? (await makePiscina(serverConfig, hub))
-            status.info('👷', 'Starting graphile worker...')
-            await startGraphileWorker(hub, graphileWorker, piscina)
-            status.info('👷', 'Graphile worker is ready!')
-
-            if (capabilities.pluginScheduledTasks) {
-                services.push(
-                    await startScheduledTasksConsumer({
-                        piscina: piscina,
-                        producer: hub.kafkaProducer,
-                        kafka: hub.kafka,
-                        serverConfig,
-                        partitionConcurrency: serverConfig.KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY,
-                    })
-                )
-            }
-
-            if (capabilities.processPluginJobs) {
-                services.push(
-                    await startJobsConsumer({
-                        kafka: hub.kafka,
-                        producer: hub.kafkaProducer,
-                        graphileWorker: graphileWorker,
-                        serverConfig,
-                    })
-                )
-            }
-        }
-
         if (capabilities.ingestionV2Combined) {
             // NOTE: This is for single process deployments like local dev and hobby - it runs all possible consumers
             // in a single process. In production these are each separate Deployments of the standard ingestion consumer
-            const hub = await setupHub()
 
             const consumersOptions = [
                 {
@@ -293,9 +233,16 @@ export async function startPluginsServer(
             ]
 
             for (const consumerOption of consumersOptions) {
+<<<<<<< HEAD
                 piscina = piscina ?? (await makePiscina(serverConfig, hub))
 
                 const consumer = new IngestionConsumer(hub, {
+=======
+                await initPlugins()
+
+                const consumer = new IngestionConsumer({
+                    ...hub,
+>>>>>>> master
                     INGESTION_CONSUMER_CONSUME_TOPIC: consumerOption.topic,
                     INGESTION_CONSUMER_GROUP_ID: consumerOption.group_id,
                 })
@@ -304,21 +251,68 @@ export async function startPluginsServer(
             }
         } else {
             if (capabilities.ingestionV2) {
-                const hub = await setupHub()
-                // NOTE: Piscina is only needed whilst we have legacy plugins running. Once we have all
-                // moved to hog functions we can remove this.
-                piscina = piscina ?? (await makePiscina(serverConfig, hub))
+                await initPlugins()
                 const consumer = new IngestionConsumer(hub)
                 await consumer.start()
                 services.push(consumer.service)
             }
 
             // Below are all legacy consumers that will be replaced by the new ingestion consumer that covers all cases
+<<<<<<< HEAD
+=======
+
+            if (capabilities.ingestion) {
+                await initPlugins()
+                services.push(
+                    await startAnalyticsEventsIngestionConsumer({
+                        hub: hub,
+                    })
+                )
+            }
+
+            if (capabilities.ingestionHistorical) {
+                await initPlugins()
+                services.push(
+                    await startAnalyticsEventsIngestionHistoricalConsumer({
+                        hub: hub,
+                    })
+                )
+            }
+
+            if (capabilities.eventsIngestionPipelines) {
+                const pipelinesToRun =
+                    serverConfig.PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE === null
+                        ? Object.keys(PIPELINES)
+                        : [serverConfig.PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE]
+
+                for (const pipelineKey of pipelinesToRun) {
+                    if (pipelineKey === null || !PIPELINES[pipelineKey]) {
+                        throw new Error(`Invalid events ingestion pipeline: ${pipelineKey}`)
+                    }
+
+                    await initPlugins()
+                    services.push(
+                        await startEventsIngestionPipelineConsumer({
+                            hub: hub,
+                            pipelineKey: pipelineKey,
+                        })
+                    )
+                }
+            }
+
+            if (capabilities.ingestionOverflow) {
+                await initPlugins()
+                services.push(
+                    await startAnalyticsEventsIngestionOverflowConsumer({
+                        hub: hub,
+                    })
+                )
+            }
+>>>>>>> master
         }
 
         if (capabilities.processAsyncOnEventHandlers) {
-            const hub = await setupHub()
-            piscina = piscina ?? (await makePiscina(serverConfig, hub))
+            await initPlugins()
             services.push(
                 await startAsyncOnEventHandlerConsumer({
                     hub: hub,
@@ -332,7 +326,7 @@ export async function startPluginsServer(
             // we need to create them. We only initialize the ones we need.
             const postgres = hub?.postgres ?? new PostgresRouter(serverConfig)
             const kafka = hub?.kafka ?? createKafkaClient(serverConfig)
-            const teamManager = hub?.teamManager ?? new TeamManager(postgres, serverConfig)
+            const teamManager = hub?.teamManager ?? new TeamManager(postgres)
             const organizationManager = hub?.organizationManager ?? new OrganizationManager(postgres, teamManager)
             const kafkaProducerWrapper = hub?.kafkaProducer ?? (await KafkaProducerWrapper.create(serverConfig))
             const rustyHook = hub?.rustyHook ?? new RustyHook(serverConfig)
@@ -345,7 +339,7 @@ export async function startPluginsServer(
                 )
 
             const actionManager = hub?.actionManager ?? new ActionManager(postgres, serverConfig)
-            const actionMatcher = hub?.actionMatcher ?? new ActionMatcher(postgres, actionManager, teamManager)
+            const actionMatcher = hub?.actionMatcher ?? new ActionMatcher(postgres, actionManager)
             const groupTypeManager = new GroupTypeManager(postgres, teamManager, serverConfig.SITE_URL)
 
             services.push(
@@ -365,8 +359,7 @@ export async function startPluginsServer(
         }
 
         if (capabilities.syncInlinePlugins) {
-            const hub = await setupHub()
-
+            await initPlugins()
             await syncInlinePlugins(hub)
         }
 
@@ -376,11 +369,6 @@ export async function startPluginsServer(
                 [hub.PLUGINS_RELOAD_PUBSUB_CHANNEL]: async () => {
                     status.info('⚡', 'Reloading plugins!')
                     await reloadPlugins(hub)
-
-                    if (hub?.capabilities.pluginScheduledTasks && piscina) {
-                        await loadSchedule(hub)
-                        hub.pluginSchedule = await loadPluginSchedule(piscina)
-                    }
                 },
                 'reset-available-product-features-cache': (message) => {
                     hub.organizationManager.resetAvailableProductFeaturesCache(JSON.parse(message).organization_id)
@@ -441,7 +429,6 @@ export async function startPluginsServer(
         }
 
         if (capabilities.sessionRecordingBlobIngestionV2) {
-            const hub = await setupHub()
             const postgres = hub?.postgres ?? new PostgresRouter(serverConfig)
             const batchConsumerFactory = new DefaultBatchConsumerFactory(serverConfig)
             const producer = hub?.kafkaProducer ?? (await KafkaProducerWrapper.create(serverConfig))
@@ -457,7 +444,6 @@ export async function startPluginsServer(
         }
 
         if (capabilities.sessionRecordingBlobIngestionV2Overflow) {
-            const hub = await setupHub()
             const postgres = hub?.postgres ?? new PostgresRouter(serverConfig)
             const batchConsumerFactory = new DefaultBatchConsumerFactory(serverConfig)
             const producer = hub?.kafkaProducer ?? (await KafkaProducerWrapper.create(serverConfig))
@@ -473,23 +459,19 @@ export async function startPluginsServer(
         }
 
         if (capabilities.cdpProcessedEvents) {
-            const hub = await setupHub()
             const consumer = new CdpProcessedEventsConsumer(hub)
             await consumer.start()
             services.push(consumer.service)
         }
 
         if (capabilities.cdpInternalEvents) {
-            const hub = await setupHub()
             const consumer = new CdpInternalEventsConsumer(hub)
             await consumer.start()
             services.push(consumer.service)
         }
 
         if (capabilities.cdpApi) {
-            const hub = await setupHub()
-            // NOTE: For silly reasons piscina is where the mmdb server is loaded which we need...
-            piscina = piscina ?? (await makePiscina(serverConfig, hub))
+            await initPlugins()
             const api = new CdpApi(hub)
             await api.start()
             services.push(api.service)
@@ -497,8 +479,6 @@ export async function startPluginsServer(
         }
 
         if (capabilities.cdpCyclotronWorker) {
-            const hub = await setupHub()
-
             if (!hub.CYCLOTRON_DATABASE_URL) {
                 status.error('💥', 'Cyclotron database URL not set.')
             } else {
@@ -515,7 +495,6 @@ export async function startPluginsServer(
         }
 
         if (capabilities.cdpCyclotronWorkerPlugins) {
-            const hub = await setupHub()
             if (!hub.CYCLOTRON_DATABASE_URL) {
                 status.error('💥', 'Cyclotron database URL not set.')
             } else {
@@ -552,7 +531,7 @@ export async function startPluginsServer(
         captureException(error)
         status.error('💥', 'Launchpad failure!', { error: error.stack ?? error })
         void Sentry.flush().catch(() => null) // Flush Sentry in the background
-        void posthog.flush().catch(() => null)
+        posthogFlush()
         status.error('💥', 'Exception while starting server, shutting down!', { error })
         await closeJobs()
         process.exit(1)

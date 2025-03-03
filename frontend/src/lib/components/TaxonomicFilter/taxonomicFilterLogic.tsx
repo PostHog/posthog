@@ -212,6 +212,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         ),
                         endpoint: combineUrl(`api/projects/${projectId}/event_definitions`, {
                             event_type: EventDefinitionType.Event,
+                            exclude_hidden: true,
                         }).url,
                         getName: (eventDefinition: Record<string, any>) => eventDefinition.name,
                         getValue: (eventDefinition: Record<string, any>) =>
@@ -292,6 +293,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             properties: propertyAllowList?.[TaxonomicFilterGroupType.EventProperties]
                                 ? propertyAllowList[TaxonomicFilterGroupType.EventProperties].join(',')
                                 : undefined,
+                            exclude_hidden: true,
                         }).url,
                         scopedEndpoint:
                             eventNames.length > 0
@@ -302,6 +304,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                                       properties: propertyAllowList?.[TaxonomicFilterGroupType.EventProperties]
                                           ? propertyAllowList[TaxonomicFilterGroupType.EventProperties].join(',')
                                           : undefined,
+                                      exclude_hidden: true,
                                   }).url
                                 : undefined,
                         expandLabel: ({ count, expandedCount }: { count: number; expandedCount: number }) =>
@@ -366,6 +369,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             properties: propertyAllowList?.[TaxonomicFilterGroupType.PersonProperties]
                                 ? propertyAllowList[TaxonomicFilterGroupType.PersonProperties].join(',')
                                 : undefined,
+                            exclude_hidden: true,
                         }).url,
                         getName: (personProperty: PersonProperty) => personProperty.name,
                         getValue: (personProperty: PersonProperty) => personProperty.name,
@@ -424,6 +428,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         type: TaxonomicFilterGroupType.CustomEvents,
                         endpoint: combineUrl(`api/projects/${projectId}/event_definitions`, {
                             event_type: EventDefinitionType.EventCustom,
+                            exclude_hidden: true,
                         }).url,
                         getName: (eventDefinition: EventDefinition) => eventDefinition.name,
                         getValue: (eventDefinition: EventDefinition) => eventDefinition.name,
@@ -576,6 +581,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     endpoint: combineUrl(`api/projects/${projectId}/property_definitions`, {
                         type: 'group',
                         group_type_index: type.group_type_index,
+                        exclude_hidden: true,
                     }).url,
                     valuesEndpoint: (key) =>
                         `api/projects/${projectId}/groups/property_values?${toParams({

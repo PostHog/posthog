@@ -4,7 +4,7 @@ from typing import Optional, Union
 
 from django.utils.timezone import now
 
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.models import Team
 from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.group_type_mapping import GroupTypeMapping
