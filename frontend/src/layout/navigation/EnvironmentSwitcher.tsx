@@ -1,4 +1,4 @@
-import { IconChevronRight, IconGear, IconPlus } from '@posthog/icons'
+import { IconChevronDown, IconGear, IconPlus } from '@posthog/icons'
 import { LemonInput, LemonTag, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -57,26 +57,27 @@ export function EnvironmentSwitcherOverlay({ onClickInside }: { onClickInside?: 
                         size="small"
                     />
                 ),
-                disabledReason: 'Select an environment of this project below',
+                disabledReason: 'Select or create an environment of this project below',
                 sideAction: {
                     icon: <IconGear />,
                     tooltip: "Go to this project's settings",
                     onClick: onClickInside,
                     to: urls.project(currentTeam.project_id, urls.settings('project')),
                 },
-                onClick: () => {},
-                className: 'opacity-100',
+                className: 'opacity-100', // This button is not disabled in a traditional sense here
             })
             for (const team of projectTeams) {
-                currentProjectItems.push(convertTeamToMenuItem(team, currentTeam, onClickInside, true))
+                currentProjectItems.push(convertTeamToMenuItem(team, currentTeam, onClickInside))
             }
             currentProjectItems.push({
                 icon: <IconPlus />,
                 label: 'New environment in project',
                 onClick: () => {
                     onClickInside?.()
-                    guardAvailableFeature(AvailableFeature.ORGANIZATIONS_PROJECTS, showCreateEnvironmentModal, {
-                        currentUsage: currentOrganization?.teams?.length,
+                    guardAvailableFeature(AvailableFeature.MULTIPLE_ENVIRONMENTS, showCreateEnvironmentModal, {
+                        currentUsage: currentOrganization?.teams?.filter(
+                            (team) => team.project_id === currentTeam.project_id
+                        ).length,
                     })
                 },
                 disabledReason: projectCreationForbiddenReason?.replace('project', 'environment'),
@@ -111,11 +112,12 @@ export function EnvironmentSwitcherOverlay({ onClickInside }: { onClickInside?: 
                 ),
                 to: determineProjectSwitchUrl(location.pathname, projectTeams[0].id),
                 onClick: onClickInside,
-                tooltip: `Switch to this project (& its ${projectTeams.length > 1 ? 'first' : 'only'} environment)`,
+                tooltip: `Switch to this project & its ${projectTeams.length > 1 ? 'first' : 'only'} environment`,
                 sideAction:
                     projectTeams.length > 1
                         ? {
-                              icon: <IconChevronRight />,
+                              icon: <IconChevronDown />,
+                              divider: true,
                               dropdown: {
                                   overlay: (
                                       <LemonMenuOverlay
@@ -124,7 +126,7 @@ export function EnvironmentSwitcherOverlay({ onClickInside }: { onClickInside?: 
                                           )}
                                       />
                                   ),
-                                  placement: 'right-start',
+                                  placement: 'bottom-start',
                               },
                           }
                         : null,
@@ -164,7 +166,7 @@ export function EnvironmentSwitcherOverlay({ onClickInside }: { onClickInside?: 
                     onClick: () => {
                         onClickInside?.()
                         guardAvailableFeature(AvailableFeature.ORGANIZATIONS_PROJECTS, showCreateProjectModal, {
-                            currentUsage: currentOrganization?.teams?.length,
+                            currentUsage: currentOrganization?.projects?.length,
                         })
                     },
                     'data-attr': 'new-project-button',
@@ -185,7 +187,6 @@ function convertTeamToMenuItem(
                 {team.project_id !== currentTeam.project_id && <span className="mr-1.5">{team.project_name}</span>}
                 <LemonTag size="small" className="border-text-3000 uppercase">
                     {team.name}
-                    {team.is_demo && ' • Demo'}
                 </LemonTag>
             </>
         ),
@@ -198,7 +199,7 @@ function convertTeamToMenuItem(
                 ? 'Currently active environment'
                 : team.project_id === currentTeam.project_id
                 ? 'Switch to this environment'
-                : 'Switch to this project & this environment',
+                : 'Switch to this environment of the project',
         onClick: onClickInside,
         sideAction: {
             icon: <IconGear />,
