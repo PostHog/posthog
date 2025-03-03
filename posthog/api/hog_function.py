@@ -1,4 +1,3 @@
-import json
 from typing import Optional, cast
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
@@ -319,10 +318,37 @@ class HogFunctionInvocationSerializer(serializers.Serializer):
     invocation_id = serializers.CharField(required=False, allow_null=True)
 
 
+class HogFunctionListQuerySerializer(serializers.Serializer):
+    type = serializers.ChoiceField(
+        choices=HogFunctionType.choices, required=False, help_text="Filter by a single function type"
+    )
+    types = serializers.CharField(
+        required=False,
+        help_text="Filter by multiple function types (comma-separated). Example: 'destination,transformation'",
+    )
+    filters = serializers.JSONField(required=False, help_text="Additional filters in JSON format")
+
+    def validate(self, data):
+        # If neither type nor types is provided, default to destination
+        if not data.get("type") and not data.get("types"):
+            data["type"] = "destination"
+        return data
+
+    def validate_types(self, value: str) -> list[str]:
+        if not value:
+            return []
+        types = value.split(",")
+        valid_types = set(dict(HogFunctionType.choices).keys())
+        invalid_types = set(types) - valid_types
+        if invalid_types:
+            raise serializers.ValidationError(f"Invalid function types: {', '.join(invalid_types)}")
+        return types
+
+
 class HogFunctionViewSet(
     TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, ForbidDestroyModel, viewsets.ModelViewSet
 ):
-    scope_object = "INTERNAL"  # Keep internal until we are happy to release this GA
+    scope_object = "hog_function"
     queryset = HogFunction.objects.all()
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["id", "team", "created_by", "enabled"]
@@ -331,7 +357,9 @@ class HogFunctionViewSet(
     app_source = "hog_function"
 
     def get_serializer_class(self) -> type[BaseSerializer]:
-        return HogFunctionMinimalSerializer if self.action == "list" else HogFunctionSerializer
+        if self.action == "list":
+            return HogFunctionMinimalSerializer
+        return HogFunctionSerializer
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         if not (self.action == "partial_update" and self.request.data.get("deleted") is False):
@@ -339,19 +367,22 @@ class HogFunctionViewSet(
             queryset = queryset.filter(deleted=False)
 
         if self.action == "list":
-            if "type" in self.request.GET:
-                types = [self.request.GET.get("type", "destination")]
-            elif "types" in self.request.GET:
-                types = self.request.GET.get("types", "destination").split(",")
+            query_serializer = HogFunctionListQuerySerializer(data=self.request.GET)
+            query_serializer.is_valid(raise_exception=True)
+            validated_data = query_serializer.validated_data
+
+            if validated_data.get("type"):
+                types = [validated_data["type"]]
+            elif validated_data.get("types"):
+                types = validated_data["types"]
             else:
                 types = ["destination"]
+
             queryset = queryset.filter(type__in=types)
-            # Add ordering by execution_order and created_at
             queryset = queryset.order_by("execution_order", "created_at")
 
-        if self.request.GET.get("filters"):
-            try:
-                filters = json.loads(self.request.GET["filters"])
+            if validated_data.get("filters"):
+                filters = validated_data["filters"]
                 if "actions" in filters:
                     action_ids = [str(action.get("id")) for action in filters.get("actions", []) if action.get("id")]
                     del filters["actions"]
@@ -366,8 +397,6 @@ class HogFunctionViewSet(
 
                 if filters:
                     queryset = queryset.filter(filters__contains=filters)
-            except (ValueError, KeyError, TypeError):
-                raise exceptions.ValidationError({"filter": f"Invalid filter"})
 
         return queryset
 
