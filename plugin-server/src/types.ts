@@ -323,6 +323,10 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     CYCLOTRON_DATABASE_URL: string
     CYCLOTRON_SHARD_DEPTH_LIMIT: number
 
+    // posthog
+    POSTHOG_API_KEY: string
+    POSTHOG_HOST_URL: string
+
     // cookieless
     COOKIELESS_DISABLED: boolean
     COOKIELESS_FORCE_STATELESS_MODE: boolean
@@ -340,6 +344,9 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     SESSION_RECORDING_V2_S3_REGION: string
     SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: string
     SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: string
+
+    // Destination Migration Diffing
+    DESTINATION_MIGRATION_DIFFING_ENABLED: boolean
 }
 
 export interface Hub extends PluginsServerConfig {

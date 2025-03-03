@@ -142,6 +142,10 @@ export function getDefaultConfig(): PluginsServerConfig {
         HOG_HOOK_URL: '',
         CAPTURE_CONFIG_REDIS_HOST: null,
 
+        // posthog
+        POSTHOG_API_KEY: '',
+        POSTHOG_HOST_URL: 'http://localhost:8010',
+
         STARTUP_PROFILE_DURATION_SECONDS: 300, // 5 minutes
         STARTUP_PROFILE_CPU: false,
         STARTUP_PROFILE_HEAP: false,
@@ -201,6 +205,9 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_CYCLOTRON_BATCH_SIZE: 300,
 
         CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: '',
+
+        // Destination Migration Diffing
+        DESTINATION_MIGRATION_DIFFING_ENABLED: false,
 
         // Cyclotron
         CYCLOTRON_DATABASE_URL: isTestEnv()

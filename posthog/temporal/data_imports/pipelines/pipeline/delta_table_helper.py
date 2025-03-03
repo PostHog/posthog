@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+import json
 from conditional_cache import lru_cache
 from typing import Any
 import deltalake.exceptions
@@ -124,12 +125,19 @@ class DeltaTableHelper:
                 normalize_column_name(x) for x in primary_keys if normalize_column_name(x) in py_table_column_names
             ]
 
-            delta_table.merge(
-                source=data,
-                source_alias="source",
-                target_alias="target",
-                predicate=" AND ".join([f"source.{c} = target.{c}" for c in normalized_primary_keys]),
-            ).when_matched_update_all().when_not_matched_insert_all().execute()
+            merge_stats = (
+                delta_table.merge(
+                    source=data,
+                    source_alias="source",
+                    target_alias="target",
+                    predicate=" AND ".join([f"source.{c} = target.{c}" for c in normalized_primary_keys]),
+                )
+                .when_matched_update_all()
+                .when_not_matched_insert_all()
+                .execute()
+            )
+
+            self._logger.debug(f"Delta Merge Stats: {json.dumps(merge_stats)}")
         else:
             mode = "append"
             schema_mode = "merge"
@@ -177,9 +185,11 @@ class DeltaTableHelper:
             raise Exception("Deltatable not found")
 
         self._logger.debug("Compacting table...")
-        table.optimize.compact()
+        compact_stats = table.optimize.compact()
+        self._logger.debug(json.dumps(compact_stats))
 
         self._logger.debug("Vacuuming table...")
-        table.vacuum(retention_hours=24, enforce_retention_duration=False, dry_run=False)
+        vacuum_stats = table.vacuum(retention_hours=24, enforce_retention_duration=False, dry_run=False)
+        self._logger.debug(json.dumps(vacuum_stats))
 
         self._logger.debug("Compacting and vacuuming complete")
