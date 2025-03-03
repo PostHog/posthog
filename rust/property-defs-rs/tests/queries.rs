@@ -410,7 +410,7 @@ async fn bootstrap_seed_data(test_pool: PgPool) -> Result<(), sqlx::Error> {
         } else {
             args.add(false).unwrap();
             args.add(None::<DateTime<Utc>>).unwrap();
-            args.add(None::<String>).unwrap();
+            args.add(None::<i32>).unwrap();
             args.add(None::<Vec<&str>>).unwrap();
         }
 
