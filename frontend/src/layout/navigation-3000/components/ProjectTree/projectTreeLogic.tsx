@@ -11,7 +11,7 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
-import { FileSystemEntry, FileSystemType } from '~/queries/schema/schema-general'
+import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 import { getDefaultTree } from './defaultTree'
 import type { projectTreeLogicType } from './projectTreeLogicType'
@@ -29,7 +29,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         ],
     }),
     actions({
-        loadUnfiledItems: (type?: FileSystemType) => ({ type }),
+        loadUnfiledItems: true,
         addFolder: (folder: string) => ({ folder }),
         deleteItem: (item: FileSystemEntry) => ({ item }),
         moveItem: (oldPath: string, newPath: string) => ({ oldPath, newPath }),
@@ -54,8 +54,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         allUnfiledItems: [
             [] as FileSystemEntry[],
             {
-                loadUnfiledItems: async ({ type }) => {
-                    const response = await api.fileSystem.unfiled(type)
+                loadUnfiledItems: async () => {
+                    const response = await api.fileSystem.unfiled()
                     return [...values.allUnfiledItems, ...response.results]
                 },
             },
@@ -392,10 +392,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
     })),
     afterMount(({ actions }) => {
         actions.loadFolder('')
-        actions.loadUnfiledItems('feature_flag')
-        actions.loadUnfiledItems('experiment')
-        actions.loadUnfiledItems('insight')
-        actions.loadUnfiledItems('dashboard')
-        actions.loadUnfiledItems('notebook')
+        actions.loadUnfiledItems()
     }),
 ])
