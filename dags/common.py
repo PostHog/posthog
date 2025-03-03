@@ -31,7 +31,8 @@ class ClickhouseClusterResource(dagster.ConfigurableResource):
                 delay=ExponentialBackoff(20),
                 exceptions=lambda e: (
                     isinstance(e, Error)
-                    and e.code in (ErrorCodes.NETWORK_ERROR, ErrorCodes.TOO_MANY_SIMULTANEOUS_QUERIES)
+                    and e.code
+                    in (ErrorCodes.NETWORK_ERROR, ErrorCodes.TOO_MANY_SIMULTANEOUS_QUERIES, ErrorCodes.NOT_ENOUGH_SPACE)
                 ),
             ),
         )
