@@ -87,10 +87,10 @@ def _get_table_chunk_size(cursor: psycopg.Cursor, schema: str, table_name: str, 
     try:
         query = sql.SQL("""
             SELECT SUM(pg_column_size(t.*)) / COUNT(t.*) FROM (
-                SELECT * FROM {schema}.{table}
+                SELECT * FROM {}
                 LIMIT 100
             ) as t
-        """).format(schema=sql.Literal(schema), table=sql.Literal(table_name))
+        """).format(sql.Identifier(schema, table_name))
 
         cursor.execute(query)
         row = cursor.fetchone()
