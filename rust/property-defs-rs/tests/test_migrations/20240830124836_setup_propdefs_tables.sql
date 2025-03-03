@@ -94,3 +94,19 @@ CREATE UNIQUE INDEX IF NOT EXISTS posthog_user_email_uniq ON posthog_user USING 
 CREATE UNIQUE INDEX IF NOT EXISTS posthog_user_tmp_token ON posthog_user USING btree (temporary_token);
 CREATE UNIQUE INDEX IF NOT EXISTS posthog_user_uuid ON posthog_user USING btree (uuid);
 -- NOTE: for now, I left off some indices that aren't relevant to property defs query testing
+
+CREATE TABLE ee_enterprisepropertydefinition (
+    propertydefinition_ptr_id UUID PRIMARY KEY,
+    description text,
+    deprecated_tags character varying(32)[],
+    updated_at timestamp with time zone NOT NULL,
+    updated_by_id integer,
+    tags character varying(32)[],
+    verified boolean NOT NULL,
+    verified_at timestamp with time zone,
+    verified_by_id integer
+);
+
+CREATE INDEX ee_enterprisepropertydefinition_updated_by_id ON ee_enterprisepropertydefinition USING btree (updated_by_id);
+CREATE INDEX ee_enterprisepropertydefinition_verified_by_id ON ee_enterprisepropertydefinition USING btree (verified_by_id);
+-- NOTE: for now, I left off some indices that aren't relevant to property defs query testing
