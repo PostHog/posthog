@@ -72,13 +72,26 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     pagination_class = FileSystemsLimitOffsetPagination
     search_fields = ["path"]
 
-    def safely_get_queryset(self, queryset) -> QuerySet:
+    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
+        queryset = queryset.filter(team=self.team)
+
+        depth_param = self.request.query_params.get("depth")
+        parent_param = self.request.query_params.get("parent")
+
+        if depth_param is not None:
+            try:
+                depth_value = int(depth_param)
+                queryset = queryset.filter(depth=depth_value)
+            except ValueError:
+                pass
+
+        if parent_param:
+            queryset = queryset.filter(path__startswith=f"{parent_param}/")
+
         if self.action == "list":
             queryset = queryset.order_by("path")
-        return queryset
 
-    def _filter_queryset_by_parents_lookups(self, queryset):
-        return queryset.filter(team=self.team)
+        return queryset
 
     @action(methods=["GET"], detail=False)
     def unfiled(self, request: Request, *args: Any, **kwargs: Any) -> Response:

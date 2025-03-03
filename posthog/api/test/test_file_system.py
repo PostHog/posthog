@@ -295,3 +295,70 @@ class TestFileSystemAPI(APIBaseTest):
 
         item = data["results"][0]
         self.assertEqual(item["depth"], 3)  # "Unfiled" / "Feature Flags" / "Flag \/ With Slash"
+
+    def test_list_by_depth(self):
+        """
+        Verify that passing ?depth=N returns only items with that depth.
+        """
+        # Create some FileSystem objects with various depths
+        FileSystem.objects.create(team=self.team, path="OneSegment", depth=1, created_by=self.user)
+        FileSystem.objects.create(team=self.team, path="Folder/Sub", depth=2, created_by=self.user)
+        FileSystem.objects.create(team=self.team, path="Deep/Nested/Path", depth=3, created_by=self.user)
+
+        # depth=2
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/?depth=2")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["count"], 1)
+        self.assertEqual(data["results"][0]["path"], "Folder/Sub")
+
+        # depth=3
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/?depth=3")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["count"], 1)
+        self.assertEqual(data["results"][0]["path"], "Deep/Nested/Path")
+
+    def test_list_by_parent(self):
+        """
+        Verify that passing ?parent=SomeFolder returns only items whose path starts with "SomeFolder/".
+        """
+        FileSystem.objects.create(team=self.team, path="RootItem", depth=1, created_by=self.user)
+        FileSystem.objects.create(team=self.team, path="SomeFolder/File1", depth=2, created_by=self.user)
+        FileSystem.objects.create(team=self.team, path="SomeFolder/SubFolder/File2", depth=3, created_by=self.user)
+        FileSystem.objects.create(team=self.team, path="AnotherFolder/File3", depth=2, created_by=self.user)
+
+        # Filter by ?parent=SomeFolder
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/?parent=SomeFolder")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["count"], 2, data["results"])
+        paths = {obj["path"] for obj in data["results"]}
+        # Should only include items that start with "SomeFolder/"
+        self.assertIn("SomeFolder/File1", paths)
+        self.assertIn("SomeFolder/SubFolder/File2", paths)
+        self.assertNotIn("RootItem", paths)
+        self.assertNotIn("AnotherFolder/File3", paths)
+
+    def test_list_by_parent_and_depth(self):
+        """
+        If ?parent=SomeFolder and ?depth=2, we only want items that start with 'SomeFolder/'
+        AND have depth=2.
+        """
+        FileSystem.objects.create(team=self.team, path="RootItem", depth=1, created_by=self.user)
+        fs1 = FileSystem.objects.create(team=self.team, path="SomeFolder/File1", depth=2, created_by=self.user)
+        fs2 = FileSystem.objects.create(
+            team=self.team, path="SomeFolder/SubFolder/File2", depth=3, created_by=self.user
+        )
+
+        url = f"/api/projects/{self.team.id}/file_system/?parent=SomeFolder&depth=2"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+
+        # Only 'File1' matches that filter
+        self.assertEqual(data["count"], 1)
+        self.assertEqual(data["results"][0]["id"], str(fs1.id))
+
+        # Double-check that 'File2' (depth=3) is excluded
+        self.assertNotEqual(data["results"][0]["id"], str(fs2.id))
