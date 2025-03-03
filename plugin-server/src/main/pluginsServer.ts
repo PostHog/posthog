@@ -27,7 +27,8 @@ import { closeHub, createHub, createKafkaClient } from '../utils/db/hub'
 import { PostgresRouter } from '../utils/db/postgres'
 import { createRedisClient } from '../utils/db/redis'
 import { cancelAllScheduledJobs } from '../utils/node-schedule'
-import { captureException, posthog } from '../utils/posthog'
+import { captureException } from '../utils/posthog'
+import { flush as posthogFlush, shutdown as posthogShutdown } from '../utils/posthog'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
 import { delay } from '../utils/utils'
@@ -132,7 +133,7 @@ export async function startPluginsServer(
             pubSub?.stop(),
             graphileWorker?.stop(),
             ...services.map((service) => service.onShutdown()),
-            posthog.shutdown(),
+            posthogShutdown(),
         ])
 
         if (serverInstance.hub) {
@@ -390,7 +391,7 @@ export async function startPluginsServer(
             // we need to create them. We only initialize the ones we need.
             const postgres = hub?.postgres ?? new PostgresRouter(serverConfig)
             const kafka = hub?.kafka ?? createKafkaClient(serverConfig)
-            const teamManager = hub?.teamManager ?? new TeamManager(postgres, serverConfig)
+            const teamManager = hub?.teamManager ?? new TeamManager(postgres)
             const organizationManager = hub?.organizationManager ?? new OrganizationManager(postgres, teamManager)
             const kafkaProducerWrapper = hub?.kafkaProducer ?? (await KafkaProducerWrapper.create(serverConfig))
             const rustyHook = hub?.rustyHook ?? new RustyHook(serverConfig)
@@ -403,7 +404,7 @@ export async function startPluginsServer(
                 )
 
             const actionManager = hub?.actionManager ?? new ActionManager(postgres, serverConfig)
-            const actionMatcher = hub?.actionMatcher ?? new ActionMatcher(postgres, actionManager, teamManager)
+            const actionMatcher = hub?.actionMatcher ?? new ActionMatcher(postgres, actionManager)
             const groupTypeManager = new GroupTypeManager(postgres, teamManager, serverConfig.SITE_URL)
 
             services.push(
@@ -610,7 +611,7 @@ export async function startPluginsServer(
         captureException(error)
         status.error('💥', 'Launchpad failure!', { error: error.stack ?? error })
         void Sentry.flush().catch(() => null) // Flush Sentry in the background
-        void posthog.flush().catch(() => null)
+        posthogFlush()
         status.error('💥', 'Exception while starting server, shutting down!', { error })
         await closeJobs()
         process.exit(1)
