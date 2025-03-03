@@ -10440,6 +10440,18 @@
         },
         "PathsV2Item": {
             "additionalProperties": false,
+            "properties": {
+                "event_count": {
+                    "type": ["number", "null"]
+                },
+                "source_step": {
+                    "type": ["string", "null"]
+                },
+                "target_step": {
+                    "type": ["string", "null"]
+                }
+            },
+            "required": ["source_step", "target_step", "event_count"],
             "type": "object"
         },
         "PathsV2Query": {

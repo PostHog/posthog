@@ -1206,10 +1206,12 @@ class PathsV2Filter(BaseModel):
 
 
 class PathsV2Item(BaseModel):
-    pass
     model_config = ConfigDict(
         extra="forbid",
     )
+    event_count: Optional[float] = None
+    source_step: Optional[str] = None
+    target_step: Optional[str] = None
 
 
 class PersonType(BaseModel):

@@ -1178,7 +1178,11 @@ export interface PathsQuery extends InsightsQueryBase<PathsQueryResponse> {
     funnelPathsFilter?: FunnelPathsFilter
 }
 
-export type PathsV2Item = {}
+export type PathsV2Item = {
+    source_step: string | null
+    target_step: string | null
+    event_count: number | null
+}
 
 export interface PathsV2QueryResponse extends AnalyticsQueryResponseBase<PathsV2Item[]> {}
 
