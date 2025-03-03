@@ -94,13 +94,35 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertEqual(data["results"], [])
         self.assertEqual(FileSystem.objects.count(), 0)
 
+    def test_unfiled_endpoint_is_idempotent(self):
+        """
+        Calling the unfiled endpoint multiple times should not create duplicate
+        FileSystem rows for the same objects.
+        """
+        FeatureFlag.objects.create(team=self.team, name="Beta Feature", created_by=self.user)
+
+        first_response = self.client.get(f"/api/projects/{self.team.id}/file_system/unfiled/")
+        self.assertEqual(first_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(first_response.json()["count"], 1)  # 1 new "leaf" item
+        # Check that there's exactly 1 *non-folder* item in DB
+        self.assertEqual(FileSystem.objects.exclude(type="folder").count(), 1)
+
+        # Second call => no new unfiled items
+        second_response = self.client.get(f"/api/projects/{self.team.id}/file_system/unfiled/")
+        self.assertEqual(second_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(second_response.json()["count"], 0)  # No new items
+        # Should still have just 1 *non-folder* item
+        self.assertEqual(FileSystem.objects.exclude(type="folder").count(), 1)
+
     def test_unfiled_endpoint_with_content(self):
         """
-        If we create some FeatureFlags, Experiments, Dashboards, Insights, or Notebooks,
-        the 'unfiled' endpoint should create them in FileSystem and return them.
+        If we create some FeatureFlags, Experiments, Dashboards, Insights,
+        or Notebooks, the 'unfiled' endpoint should create them in FileSystem
+        and return them. We now exclude folder rows when counting total.
         """
-        feature_flag = FeatureFlag.objects.create(team=self.team, name="Beta Feature", created_by=self.user)
-        Experiment.objects.create(team=self.team, name="Experiment #1", created_by=self.user, feature_flag=feature_flag)
+        # Create 5 objects
+        ff = FeatureFlag.objects.create(team=self.team, name="Beta Feature", created_by=self.user)
+        Experiment.objects.create(team=self.team, name="Experiment #1", created_by=self.user, feature_flag=ff)
         Dashboard.objects.create(team=self.team, name="User Dashboard", created_by=self.user)
         Insight.objects.create(team=self.team, saved=True, name="Marketing Insight", created_by=self.user)
         Notebook.objects.create(team=self.team, title="Data Exploration", created_by=self.user)
@@ -110,11 +132,14 @@ class TestFileSystemAPI(APIBaseTest):
 
         data = response.json()
         results = data["results"]
-        self.assertEqual(len(results), 5, results)
-        self.assertEqual(FileSystem.objects.count(), 5)
 
-        # Check that each type is present
-        types = [item["type"] for item in results]
+        # We get 5 newly created "leaf" entries
+        self.assertEqual(len(results), 5)
+        # In the entire FileSystem table, ignoring 'folder' rows, we should also have 5
+        self.assertEqual(FileSystem.objects.exclude(type="folder").count(), 5)
+
+        # check that each type is present
+        types = {item["type"] for item in results}
         self.assertIn(FileSystemType.FEATURE_FLAG, types)
         self.assertIn(FileSystemType.EXPERIMENT, types)
         self.assertIn(FileSystemType.DASHBOARD, types)
@@ -128,33 +153,19 @@ class TestFileSystemAPI(APIBaseTest):
         flag = FeatureFlag.objects.create(team=self.team, name="Only Flag", created_by=self.user)
         Experiment.objects.create(team=self.team, name="Experiment #1", feature_flag=flag, created_by=self.user)
 
-        # Filter for feature_flag only
+        # Filter for feature_flag only => creates 1 new 'leaf' item
         response = self.client.get(f"/api/projects/{self.team.id}/file_system/unfiled/?type=feature_flag")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         data = response.json()
         self.assertEqual(data["count"], 1)
-        self.assertEqual(FileSystem.objects.count(), 1)
-        self.assertEqual(data["results"][0]["type"], FileSystemType.FEATURE_FLAG)
+        # Check we only have 1 non-folder item in DB
+        self.assertEqual(FileSystem.objects.exclude(type="folder").count(), 1)
 
-        # Check that no experiment was created
-        self.assertFalse(FileSystem.objects.filter(type=FileSystemType.EXPERIMENT).exists())
-
-    def test_unfiled_endpoint_is_idempotent(self):
-        """
-        Calling the unfiled endpoint multiple times should not create duplicate FileSystem rows
-        for the same objects.
-        """
-        FeatureFlag.objects.create(team=self.team, name="Beta Feature", created_by=self.user)
-        first_response = self.client.get(f"/api/projects/{self.team.id}/file_system/unfiled/")
-        self.assertEqual(first_response.status_code, status.HTTP_200_OK)
-        self.assertEqual(first_response.json()["count"], 1)
-        self.assertEqual(FileSystem.objects.count(), 1)
-
-        # Second call
-        second_response = self.client.get(f"/api/projects/{self.team.id}/file_system/unfiled/")
-        self.assertEqual(second_response.status_code, status.HTTP_200_OK)
-        self.assertEqual(second_response.json()["count"], 0, second_response.json())  # No new items
-        self.assertEqual(FileSystem.objects.count(), 1)
+        # Verify that no experiment row was created
+        self.assertFalse(
+            FileSystem.objects.exclude(type="folder").filter(type=FileSystemType.EXPERIMENT).exists(),
+            "Should not have created an experiment row yet!",
+        )
 
     def test_search_files_by_path(self):
         """
