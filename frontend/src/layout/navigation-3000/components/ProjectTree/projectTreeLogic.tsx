@@ -103,13 +103,15 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     if (oldFolder === folder) {
                         return {
                             ...state,
-                            [folder]: state[folder].map((item) => (item.id === savedItem.id ? savedItem : item)),
+                            [folder]: (state[folder] ?? []).map((item) =>
+                                item.id === savedItem.id ? savedItem : item
+                            ),
                         }
                     }
                     return {
                         ...state,
-                        [oldFolder]: state[oldFolder].filter((item) => item.id !== savedItem.id),
-                        [folder]: [...(state[folder] || []), savedItem],
+                        [oldFolder]: (state[oldFolder] ?? []).filter((item) => item.id !== savedItem.id),
+                        [folder]: [...(state[folder] ?? []), savedItem],
                     }
                 },
                 deleteSavedItem: (state, { savedItem }) => {

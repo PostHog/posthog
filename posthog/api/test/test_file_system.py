@@ -399,4 +399,4 @@ class TestFileSystemAPI(APIBaseTest):
         for depth_index, folder_path in enumerate(folder_paths, start=1):
             folder = FileSystem.objects.get(path=folder_path, team=self.team)
             self.assertEqual(folder.depth, depth_index)
-            self.assertEqual(folder.type, "folder")  # or whatever default you used
+            self.assertEqual(folder.type, "folder")
