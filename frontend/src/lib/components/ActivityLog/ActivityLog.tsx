@@ -69,7 +69,7 @@ const Loading = (): JSX.Element => {
 export type ActivityLogTabs = 'extended description' | 'diff' | 'raw'
 
 const ActivityLogDiff = ({ logItem }: { logItem: HumanizedActivityLogItem }): JSX.Element => {
-    const changes = logItem.unprocessed.detail.changes
+    const changes = logItem.unprocessed?.detail.changes
 
     return (
         <div className="flex flex-col space-y-2 px-2 py-1">
