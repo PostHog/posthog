@@ -96,6 +96,11 @@ export function calculateNpsScore(npsBreakdown: NPSBreakdown): number {
     return ((npsBreakdown.promoters - npsBreakdown.detractors) / npsBreakdown.total) * 100
 }
 
+// Helper to escape special characters in SQL strings
+function escapeSqlString(value: string): string {
+    return value.replace(/['\\]/g, '\\$&')
+}
+
 /**
  * Creates a HogQL expression for survey answer filters that handles both index-based and ID-based property keys
  * using OR logic between the alternative formats for each question.
@@ -151,6 +156,10 @@ export function createAnswerFilterHogQLExpression(filters: EventPropertyFilter[]
             questionIndex = parseInt(questionIndexMatch[1])
         }
 
+        // Check if question index is valid before accessing
+        if (questionIndex >= survey.questions.length) {
+            continue // Skip if question index is out of bounds
+        }
         const questionId = survey.questions[questionIndex]?.id
 
         // Get both key formats
@@ -158,64 +167,64 @@ export function createAnswerFilterHogQLExpression(filters: EventPropertyFilter[]
 
         // Create the condition for this filter
         let condition = ''
+        let escapedValue: string
+        let valueList: string
 
         // Handle different operators
         switch (filter.operator) {
             case 'exact':
                 if (Array.isArray(filter.value)) {
-                    // Handle array values with IN operator
-                    const valueList = filter.value.map((v) => `'${v}'`).join(', ')
+                    valueList = filter.value.map((v) => `'${escapeSqlString(String(v))}'`).join(', ')
                     condition = `(properties['${indexBasedKey}'] IN (${valueList})`
                     if (idBasedKey) {
                         condition += ` OR properties['${idBasedKey}'] IN (${valueList})`
                     }
                 } else {
-                    // Handle single value
-                    condition = `(properties['${indexBasedKey}'] = '${filter.value}'`
+                    escapedValue = escapeSqlString(String(filter.value))
+                    condition = `(properties['${indexBasedKey}'] = '${escapedValue}'`
                     if (idBasedKey) {
-                        condition += ` OR properties['${idBasedKey}'] = '${filter.value}'`
+                        condition += ` OR properties['${idBasedKey}'] = '${escapedValue}'`
                     }
                 }
                 condition += ')'
                 break
             case 'is_not':
                 if (Array.isArray(filter.value)) {
-                    // Handle array values with NOT IN operator
-                    const valueList = filter.value.map((v) => `'${v}'`).join(', ')
+                    valueList = filter.value.map((v) => `'${escapeSqlString(String(v))}'`).join(', ')
                     condition = `(properties['${indexBasedKey}'] NOT IN (${valueList})`
                     if (idBasedKey) {
                         condition += ` OR properties['${idBasedKey}'] NOT IN (${valueList})`
                     }
                 } else {
-                    // Handle single value
-                    condition = `(properties['${indexBasedKey}'] != '${filter.value}'`
+                    escapedValue = escapeSqlString(String(filter.value))
+                    condition = `(properties['${indexBasedKey}'] != '${escapedValue}'`
                     if (idBasedKey) {
-                        condition += ` OR properties['${idBasedKey}'] != '${filter.value}'`
+                        condition += ` OR properties['${idBasedKey}'] != '${escapedValue}'`
                     }
                 }
                 condition += ')'
                 break
             case 'icontains':
-                // For ILIKE, we typically don't use arrays, but handle it just in case
-                condition = `(properties['${indexBasedKey}'] ILIKE '%${filter.value}%'`
+                escapedValue = escapeSqlString(String(filter.value))
+                condition = `(properties['${indexBasedKey}'] ILIKE '%${escapedValue}%'`
                 if (idBasedKey) {
-                    condition += ` OR properties['${idBasedKey}'] ILIKE '%${filter.value}%'`
+                    condition += ` OR properties['${idBasedKey}'] ILIKE '%${escapedValue}%'`
                 }
                 condition += ')'
                 break
             case 'regex':
-                // Use match() function for regex
-                condition = `(match(properties['${indexBasedKey}'], '${filter.value}')`
+                escapedValue = escapeSqlString(String(filter.value))
+                condition = `(match(properties['${indexBasedKey}'], '${escapedValue}')`
                 if (idBasedKey) {
-                    condition += ` OR match(properties['${idBasedKey}'], '${filter.value}')`
+                    condition += ` OR match(properties['${idBasedKey}'], '${escapedValue}')`
                 }
                 condition += ')'
                 break
             case 'not_regex':
-                // Use NOT match() function for negative regex
-                condition = `(NOT match(properties['${indexBasedKey}'], '${filter.value}')`
+                escapedValue = escapeSqlString(String(filter.value))
+                condition = `(NOT match(properties['${indexBasedKey}'], '${escapedValue}')`
                 if (idBasedKey) {
-                    condition += ` OR NOT match(properties['${idBasedKey}'], '${filter.value}')`
+                    condition += ` OR NOT match(properties['${idBasedKey}'], '${escapedValue}')`
                 }
                 condition += ')'
                 break

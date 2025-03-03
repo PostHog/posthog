@@ -575,7 +575,7 @@ describe('createAnswerFilterHogQLExpression', () => {
         )
     })
 
-    it('skips unsupported operators', () => {
+    it('handles unsupported operators', () => {
         const filters = [
             {
                 key: '$survey_response',
@@ -586,5 +586,87 @@ describe('createAnswerFilterHogQLExpression', () => {
         ] as EventPropertyFilter[]
 
         expect(createAnswerFilterHogQLExpression(filters, mockSurvey)).toBe('')
+    })
+
+    describe('SQL injection prevention', () => {
+        it('escapes single quotes in values', () => {
+            const filters = [
+                {
+                    key: '$survey_response',
+                    value: "O'Reilly",
+                    operator: 'exact',
+                    type: PropertyFilterType.Event,
+                },
+            ] as EventPropertyFilter[]
+
+            const result = createAnswerFilterHogQLExpression(filters, mockSurvey)
+            expect(result).toBe(
+                `AND (properties['$survey_response'] = 'O\\'Reilly' OR properties['$survey_response_q1'] = 'O\\'Reilly')`
+            )
+        })
+
+        it('escapes backslashes in values', () => {
+            const filters = [
+                {
+                    key: '$survey_response',
+                    value: 'C:\\path\\to\\file',
+                    operator: 'exact',
+                    type: PropertyFilterType.Event,
+                },
+            ] as EventPropertyFilter[]
+
+            const result = createAnswerFilterHogQLExpression(filters, mockSurvey)
+            expect(result).toBe(
+                `AND (properties['$survey_response'] = 'C:\\\\path\\\\to\\\\file' OR properties['$survey_response_q1'] = 'C:\\\\path\\\\to\\\\file')`
+            )
+        })
+
+        it('escapes SQL injection attempts in array values', () => {
+            const filters = [
+                {
+                    key: '$survey_response',
+                    value: ['normal', "'; DROP TABLE users; --", "Robert'); DROP TABLE students; --"],
+                    operator: 'exact',
+                    type: PropertyFilterType.Event,
+                },
+            ] as EventPropertyFilter[]
+
+            const result = createAnswerFilterHogQLExpression(filters, mockSurvey)
+            expect(result).toBe(
+                `AND (properties['$survey_response'] IN ('normal', '\\'; DROP TABLE users; --', 'Robert\\'); DROP TABLE students; --') OR properties['$survey_response_q1'] IN ('normal', '\\'; DROP TABLE users; --', 'Robert\\'); DROP TABLE students; --'))`
+            )
+        })
+
+        it('escapes complex SQL injection patterns', () => {
+            const filters = [
+                {
+                    key: '$survey_response',
+                    value: "' UNION SELECT * FROM users; --",
+                    operator: 'exact',
+                    type: PropertyFilterType.Event,
+                },
+            ] as EventPropertyFilter[]
+
+            const result = createAnswerFilterHogQLExpression(filters, mockSurvey)
+            expect(result).toBe(
+                `AND (properties['$survey_response'] = '\\' UNION SELECT * FROM users; --' OR properties['$survey_response_q1'] = '\\' UNION SELECT * FROM users; --')`
+            )
+        })
+
+        it('handles regex patterns with special characters', () => {
+            const filters = [
+                {
+                    key: '$survey_response',
+                    value: ".*'; DROP TABLE.*",
+                    operator: 'regex',
+                    type: PropertyFilterType.Event,
+                },
+            ] as EventPropertyFilter[]
+
+            const result = createAnswerFilterHogQLExpression(filters, mockSurvey)
+            expect(result).toBe(
+                `AND (match(properties['$survey_response'], '.*\\'; DROP TABLE.*') OR match(properties['$survey_response_q1'], '.*\\'; DROP TABLE.*'))`
+            )
+        })
     })
 })
