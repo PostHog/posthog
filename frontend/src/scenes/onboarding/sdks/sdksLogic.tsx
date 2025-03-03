@@ -71,6 +71,8 @@ export const sdksLogic = kea<sdksLogicType>([
         filterSDKs: true,
         setSDKs: (sdks: SDK[]) => ({ sdks }),
         setSelectedSDK: (sdk: SDK | null) => ({ sdk }),
+        setSearchTerm: (searchTerm: string) => ({ searchTerm }),
+        setSelectedTag: (selectedTag: SDKTag | null) => ({ selectedTag }),
         setSourceOptions: (sourceOptions: LemonSelectOptions<string>) => ({ sourceOptions }),
         resetSDKs: true,
         setAvailableSDKInstructionsMap: (sdkInstructionMap: SDKInstructionsMap) => ({ sdkInstructionMap }),
@@ -130,6 +132,18 @@ export const sdksLogic = kea<sdksLogicType>([
             [] as string[],
             {
                 setSnippetHosts: (_, { snippetHosts }) => snippetHosts,
+            },
+        ],
+        searchTerm: [
+            '' as string,
+            {
+                setSearchTerm: (_, { searchTerm }) => searchTerm,
+            },
+        ],
+        selectedTag: [
+            null as SDKTag | null,
+            {
+                setSelectedTag: (_, { selectedTag }) => selectedTag,
             },
         ],
     }),
@@ -214,6 +228,22 @@ export const sdksLogic = kea<sdksLogicType>([
             },
         ],
     })),
+    selectors({
+        filteredSDKs: [
+            (s) => [s.sdks, s.searchTerm, s.selectedTag],
+            (sdks: SDK[], searchTerm: string, selectedTag: SDKTag | null): SDK[] => {
+                return sdks.filter((sdk) => {
+                    if (selectedTag && !sdk.tags.includes(selectedTag)) {
+                        return false
+                    }
+                    if (searchTerm && !sdk.name.toLowerCase().includes(searchTerm.toLowerCase())) {
+                        return false
+                    }
+                    return true
+                })
+            },
+        ],
+    }),
     listeners(({ actions, values }) => ({
         filterSDKs: () => {
             let filteredSDks: SDK[] = allSDKs

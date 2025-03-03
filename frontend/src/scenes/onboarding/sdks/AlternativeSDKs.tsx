@@ -94,10 +94,8 @@ export function AlternativeSDKs({
     listeningForName = 'event',
     teamPropertyToVerify = 'ingested_event',
 }: SDKsProps): JSX.Element {
-    const { setAvailableSDKInstructionsMap, selectSDK } = useActions(sdksLogic)
-    const { sdks, tags, selectedSDK } = useValues(sdksLogic)
-    const [searchTerm, setSearchTerm] = useState('')
-    const [selectedTag, setSelectedTag] = useState<SDKTag | null>(null)
+    const { setAvailableSDKInstructionsMap, selectSDK, setSearchTerm, setSelectedTag } = useActions(sdksLogic)
+    const { filteredSDKs, selectedSDK, tags, searchTerm, selectedTag } = useValues(sdksLogic)
     const [instructionsModalOpen, setInstructionsModalOpen] = useState(false)
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
     const { selectedTab, sidePanelOpen } = useValues(sidePanelStateLogic)
@@ -107,10 +105,6 @@ export function AlternativeSDKs({
     useEffect(() => {
         setAvailableSDKInstructionsMap(sdkInstructionMap)
     }, [sdkInstructionMap, setAvailableSDKInstructionsMap])
-
-    const filteredSDKs = sdks
-        ?.filter((sdk) => (searchTerm ? sdk.name.toLowerCase().includes(searchTerm.toLowerCase()) : true))
-        .filter((sdk) => (selectedTag === null ? true : sdk.tags?.includes(selectedTag)))
 
     return (
         <OnboardingStep
