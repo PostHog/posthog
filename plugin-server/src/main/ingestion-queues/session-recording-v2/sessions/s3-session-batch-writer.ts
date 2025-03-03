@@ -119,6 +119,7 @@ class S3SessionBatchFileWriter implements SessionBatchFileWriter {
                 await this.uploadPromise
                 if (this.timeoutId) {
                     clearTimeout(this.timeoutId)
+                    this.timeoutId = null
                 }
             } catch (error) {
                 status.error('🔄', 's3_session_batch_writer_upload_error', { key: this.key, error })
