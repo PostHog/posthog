@@ -54,6 +54,18 @@ const playlist = (playlistId: string): SessionRecordingPlaylistType => {
             email: 'paul@posthog.com',
             is_email_verified: true,
         },
+        recordings_counts: {
+            saved_filters: {
+                count: 10,
+                watched_count: 4,
+                has_more: true,
+                increased: true,
+            },
+            collection: {
+                count: 10,
+                watched_count: 5,
+            },
+        },
     }
 }
 
