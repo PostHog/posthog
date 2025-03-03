@@ -24,6 +24,7 @@ import {
     isFunnelsQuery,
     isLifecycleQuery,
     isPathsQuery,
+    isPathsV2Query,
     isRetentionQuery,
     isStickinessQuery,
     isTrendsQuery,
@@ -110,6 +111,7 @@ export const nodeKindToInsightType: Record<InsightNodeKind, InsightType> = {
     [NodeKind.FunnelsQuery]: InsightType.FUNNELS,
     [NodeKind.RetentionQuery]: InsightType.RETENTION,
     [NodeKind.PathsQuery]: InsightType.PATHS,
+    [NodeKind.PathsV2Query]: InsightType.PATHS_V2,
     [NodeKind.StickinessQuery]: InsightType.STICKINESS,
     [NodeKind.LifecycleQuery]: InsightType.LIFECYCLE,
 }
@@ -119,6 +121,7 @@ const nodeKindToFilterKey: Record<InsightNodeKind, string> = {
     [NodeKind.FunnelsQuery]: 'funnelsFilter',
     [NodeKind.RetentionQuery]: 'retentionFilter',
     [NodeKind.PathsQuery]: 'pathsFilter',
+    [NodeKind.PathsV2Query]: 'pathsV2Filter',
     [NodeKind.StickinessQuery]: 'stickinessFilter',
     [NodeKind.LifecycleQuery]: 'lifecycleFilter',
 }
@@ -136,7 +139,7 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         sampling_factor: query.samplingFactor,
     })
 
-    if (!isRetentionQuery(query) && !isPathsQuery(query)) {
+    if (!isRetentionQuery(query) && !isPathsQuery(query) && !isPathsV2Query(query)) {
         const { actions, events, data_warehouse, new_entity } = seriesToActionsAndEvents(query.series)
         if (actions.length > 0) {
             filters.actions = actions
