@@ -59,8 +59,9 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             "columns",
             "status",
             "last_run_at",
+            "latest_error",
         ]
-        read_only_fields = ["id", "created_by", "created_at", "columns", "status", "last_run_at"]
+        read_only_fields = ["id", "created_by", "created_at", "columns", "status", "last_run_at", "latest_error"]
 
     def get_columns(self, view: DataWarehouseSavedQuery) -> list[SerializedField]:
         team_id = self.context["team_id"]

@@ -125,6 +125,7 @@ class QueueMessage:
 
     status: ModelStatus
     label: str
+    error: str | None = None
 
 
 Results = collections.namedtuple("Results", ("completed", "failed", "ancestor_failed"))
@@ -247,6 +248,18 @@ async def put_models_in_queue(models: collections.abc.Iterable[ModelNode], queue
             tg.create_task(queue.put(QueueMessage(status=ModelStatus.READY, label=model.label)))
 
 
+class CHQueryErrorMemoryLimitExceeded(Exception):
+    """Exception raised when a ClickHouse query exceeds memory limits."""
+
+    pass
+
+
+class CannotCoerceColumnException(Exception):
+    """Exception raised when column types cannot be coerced."""
+
+    pass
+
+
 async def handle_model_ready(model: ModelNode, team_id: int, queue: asyncio.Queue[QueueMessage]) -> None:
     """Handle a model that is ready to run by materializing.
 
@@ -263,9 +276,15 @@ async def handle_model_ready(model: ModelNode, team_id: int, queue: asyncio.Queu
         if model.selected is True:
             team = await database_sync_to_async(Team.objects.get)(id=team_id)
             await materialize_model(model.label, team)
+    except CHQueryErrorMemoryLimitExceeded as err:
+        await logger.aexception("Memory limit exceeded for model %s: %s", model.label, str(err))
+        await queue.put(QueueMessage(status=ModelStatus.FAILED, label=model.label, error=str(err)))
+    except CannotCoerceColumnException as err:
+        await logger.aexception("Type coercion error for model %s: %s", model.label, str(err))
+        await queue.put(QueueMessage(status=ModelStatus.FAILED, label=model.label, error=str(err)))
     except Exception as err:
         await logger.aexception("Failed to materialize model %s due to error: %s", model.label, str(err))
-        await queue.put(QueueMessage(status=ModelStatus.FAILED, label=model.label))
+        await queue.put(QueueMessage(status=ModelStatus.FAILED, label=model.label, error=str(err)))
     else:
         await logger.ainfo("Materialized model %s", model.label)
         await queue.put(QueueMessage(status=ModelStatus.COMPLETED, label=model.label))
@@ -327,7 +346,22 @@ async def materialize_model(model_label: str, team: Team) -> tuple[str, DeltaTab
         destination=destination,
         dataset_name=f"team_{team.pk}_model_{model_label}",
     )
-    _ = await asyncio.to_thread(pipeline.run, hogql_table(hogql_query, team, saved_query.name, table_columns))
+
+    try:
+        _ = await asyncio.to_thread(pipeline.run, hogql_table(hogql_query, team, saved_query.name, table_columns))
+    except Exception as e:
+        error_message = str(e)
+        if "Query exceeds memory limits" in error_message:
+            saved_query.latest_error = error_message
+            await database_sync_to_async(saved_query.save)()
+            raise CHQueryErrorMemoryLimitExceeded(
+                f"Query for model {model_label} exceeds memory limits. Try reducing its scope by changing the time range."
+            ) from e
+
+        elif "Cannot coerce type" in error_message:
+            saved_query.latest_error = error_message
+            await database_sync_to_async(saved_query.save)()
+            raise CannotCoerceColumnException(f"Type coercion error in model {model_label}: {error_message}") from e
 
     tables = get_delta_tables(pipeline)
 
@@ -604,7 +638,11 @@ async def create_table_activity(inputs: CreateTableActivityInputs) -> None:
 
 
 async def update_saved_query_status(
-    label: str, status: DataWarehouseSavedQuery.Status, run_at: typing.Optional[dt.datetime], team_id: int
+    label: str,
+    status: DataWarehouseSavedQuery.Status,
+    run_at: typing.Optional[dt.datetime],
+    team_id: int,
+    error: typing.Optional[str] = None,
 ):
     filter_params: dict[str, int | str | uuid.UUID] = {"team_id": team_id}
 
@@ -621,6 +659,9 @@ async def update_saved_query_status(
     if run_at:
         saved_query.last_run_at = run_at
     saved_query.status = status
+
+    if error:
+        saved_query.latest_error = error
 
     await database_sync_to_async(saved_query.save)()
 
