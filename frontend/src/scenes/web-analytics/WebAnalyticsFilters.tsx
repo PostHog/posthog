@@ -45,7 +45,7 @@ export const WebAnalyticsFilters = (): JSX.Element => {
                                 <LemonSelect
                                     className="grow md:grow-0"
                                     size="small"
-                                    value={domainFilter || 'all'}
+                                    value={domainFilter ?? (hasHostFilter ? 'host' : 'all')}
                                     icon={<IconGlobe />}
                                     onChange={(value) => setDomainFilter(value)}
                                     disabled={authorizedUrls.length === 0}
@@ -53,9 +53,17 @@ export const WebAnalyticsFilters = (): JSX.Element => {
                                         {
                                             options: [
                                                 {
-                                                    label: hasHostFilter ? 'Filtering by host' : 'All domains',
+                                                    label: 'All domains',
                                                     value: 'all',
                                                 },
+                                                ...(hasHostFilter
+                                                    ? [
+                                                          {
+                                                              label: 'All domains (host filter active)',
+                                                              value: 'host',
+                                                          },
+                                                      ]
+                                                    : []),
                                                 ...authorizedUrls.map((url) => ({ label: url, value: url })),
                                             ],
                                             footer: (

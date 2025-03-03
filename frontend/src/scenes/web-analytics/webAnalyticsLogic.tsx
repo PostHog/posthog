@@ -405,7 +405,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 },
                 setWebAnalyticsFilters: (state, { webAnalyticsFilters }) => {
                     // the domain and host filters don't interact well, so remove the domain filter when the host filter is set
-
                     if (webAnalyticsFilters.some((f) => f.key === '$host')) {
                         return null
                     }
