@@ -10,11 +10,11 @@ import { openPersonsModal, OpenPersonsModalProps } from 'scenes/trends/persons-m
 import { urls } from 'scenes/urls'
 
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
-import { InsightActorsQuery, InsightVizNode, NodeKind, PathsLink, PathsQuery } from '~/queries/schema/schema-general'
-import { isPathsQuery } from '~/queries/utils'
+import { InsightActorsQuery, InsightVizNode, NodeKind, PathsQuery, PathsV2Item } from '~/queries/schema/schema-general'
+import { isPathsV2Query } from '~/queries/utils'
 import { ActionFilter, InsightLogicProps, PathType, PropertyFilterType, PropertyOperator } from '~/types'
 
-import type { pathsDataLogicType } from './pathsDataLogicType'
+import type { pathsV2DataLogicType } from './pathsV2DataLogicType'
 import { PathNodeData } from './pathUtils'
 import { Paths, PathsNode } from './types'
 
@@ -22,7 +22,7 @@ export const DEFAULT_STEP_LIMIT = 5
 
 const DEFAULT_PATH_LOGIC_KEY = 'default_path_key'
 
-export const pathsV2DataLogic = kea<pathsDataLogicType>([
+export const pathsV2DataLogic = kea<pathsV2DataLogicType>([
     path((key) => ['scenes', 'paths', 'pathsV2DataLogic', key]),
     props({} as InsightLogicProps),
     key(keyForInsightLogicProps(DEFAULT_PATH_LOGIC_KEY)),
@@ -56,21 +56,28 @@ export const pathsV2DataLogic = kea<pathsDataLogicType>([
     selectors({
         results: [
             (s) => [s.insightQuery, s.insightData],
-            (insightQuery, insightData): PathsLink[] => {
-                return isPathsQuery(insightQuery) ? insightData?.result ?? [] : []
+            (insightQuery, insightData): PathsV2Item[] => {
+                return isPathsV2Query(insightQuery) ? insightData?.result ?? [] : []
             },
         ],
         paths: [
             (s) => [s.results],
             (results): Paths => {
                 const nodes: Record<string, PathsNode> = {}
-                for (const path of results) {
-                    if (!nodes[path.source]) {
-                        nodes[path.source] = { name: path.source }
+                for (const result of results) {
+                    const sourceIndex = result.step_index
+                    const sourceId = sourceIndex + '_' + result.source_step
+                    const targetIndex = result.step_index + 11
+                    const targetId = targetIndex + '_' + result.target_step
+
+                    if (!nodes[sourceId]) {
+                        nodes[sourceId] = { name: sourceId, stepIndex: sourceIndex }
                     }
-                    if (!nodes[path.target]) {
-                        nodes[path.target] = { name: path.target }
+                    if (!nodes[targetId]) {
+                        nodes[targetId] = { name: targetId, stepIndex: targetIndex }
                     }
+                    result.source = sourceId
+                    result.target = targetId
                 }
 
                 return {

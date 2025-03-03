@@ -1179,9 +1179,10 @@ export interface PathsQuery extends InsightsQueryBase<PathsQueryResponse> {
 }
 
 export type PathsV2Item = {
+    step_index: number
     source_step: string | null
     target_step: string | null
-    event_count: number | null
+    event_count: number
 }
 
 export interface PathsV2QueryResponse extends AnalyticsQueryResponseBase<PathsV2Item[]> {}

@@ -10442,16 +10442,19 @@
             "additionalProperties": false,
             "properties": {
                 "event_count": {
-                    "type": ["number", "null"]
+                    "type": "number"
                 },
                 "source_step": {
                     "type": ["string", "null"]
+                },
+                "step_index": {
+                    "type": "number"
                 },
                 "target_step": {
                     "type": ["string", "null"]
                 }
             },
-            "required": ["source_step", "target_step", "event_count"],
+            "required": ["step_index", "source_step", "target_step", "event_count"],
             "type": "object"
         },
         "PathsV2Query": {

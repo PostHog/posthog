@@ -1209,8 +1209,9 @@ class PathsV2Item(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    event_count: Optional[float] = None
+    event_count: float
     source_step: Optional[str] = None
+    step_index: float
     target_step: Optional[str] = None
 
 

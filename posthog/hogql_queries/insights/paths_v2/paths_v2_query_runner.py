@@ -41,8 +41,8 @@ class PathsV2QueryRunner(QueryRunner):
         )
 
         results = [
-            PathsV2Item(source_step=source, target_step=target, event_count=count)
-            for source, target, count in response.results
+            PathsV2Item(step_index=step_index, source_step=source, target_step=target, event_count=count)
+            for step_index, source, target, count in response.results
         ]
 
         return PathsV2QueryResponse(
@@ -142,19 +142,19 @@ class PathsV2QueryRunner(QueryRunner):
             """
             SELECT actor_id,
                 session_index,
-                event_in_session_index,
+                step_in_session_index,
                 path_tuple.1 AS timestamp,
                 path_tuple.2 AS path_item,
 
                 /* Add the previous path item. */
                 arrayElement(
                     limited_paths_array_per_session,
-                    event_in_session_index - 1
+                    step_in_session_index - 1
                 ).2 as previous_path_item,
                 path_tuple.3 AS duration
             FROM {paths_per_actor_and_session_as_tuple_query}
             ARRAY JOIN limited_paths_array_per_session AS path_tuple,
-                arrayEnumerate(limited_paths_array_per_session) AS event_in_session_index
+                arrayEnumerate(limited_paths_array_per_session) AS step_in_session_index
         """,
             placeholders={
                 "paths_per_actor_and_session_as_tuple_query": self._paths_per_actor_and_session_as_tuple_query(),
@@ -167,12 +167,15 @@ class PathsV2QueryRunner(QueryRunner):
         """
         return parse_select(
             """
-            SELECT previous_path_item as source_step,
+            SELECT
+                step_in_session_index as step_index,
+                previous_path_item as source_step,
                 path_item as target_step,
                 COUNT(*) AS event_count
             FROM {paths_flattened_with_previous_item}
             WHERE source_step IS NOT NULL
-            GROUP BY source_step,
+            GROUP BY step_index,
+                source_step,
                 target_step
             ORDER BY event_count DESC,
                 source_step,

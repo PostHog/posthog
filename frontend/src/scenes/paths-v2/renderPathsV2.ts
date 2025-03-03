@@ -137,7 +137,7 @@ const appendNodes = (
                 const _node = sourceNodes.pop()
                 _node?.targetLinks.forEach((link: PathTargetLink) => {
                     svg.select(`#link-${link.index}`).attr('opacity', LINK_OPACITY_EMPHASIZED)
-                    sourceNodes.push(link.source) // add source node to recursion
+                    sourceNodes.push(link.source_step) // add source node to recursion
                 })
             }
 
@@ -147,7 +147,7 @@ const appendNodes = (
                 const node = targetNodes.pop()
                 node?.sourceLinks.forEach((link: PathTargetLink) => {
                     svg.select(`#link-${link.index}`).attr('opacity', LINK_OPACITY_EMPHASIZED)
-                    targetNodes.push(link.target) // add target node to recursion
+                    targetNodes.push(link.target_step) // add target node to recursion
                 })
             }
         })
@@ -200,7 +200,7 @@ export function renderPathsV2(
     }
 
     const maxLayer = paths.links.reduce((prev, curr) => {
-        return Math.max(prev, Number(curr.target.match(/[^_]*/)))
+        return Math.max(prev, Number(curr.step_index + 1))
     }, 0)
 
     const minWidth = canvasWidth > FALLBACK_CANVAS_WIDTH || maxLayer < 3 ? canvasWidth : FALLBACK_CANVAS_WIDTH
