@@ -115,7 +115,7 @@ export function InviteMembersButton({
     center = false,
     type = 'tertiary',
     ...props
-}: LemonButtonPropsBase): JSX.Element {
+}: LemonButtonPropsBase & { text?: string }): JSX.Element {
     const { closeAccountPopover } = useActions(navigationLogic)
     const { showInviteModal } = useActions(inviteLogic)
     const { reportInviteMembersButtonClicked } = useActions(eventUsageLogic)

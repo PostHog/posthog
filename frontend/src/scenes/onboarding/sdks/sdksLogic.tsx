@@ -251,7 +251,7 @@ export const sdksLogic = kea<sdksLogicType>([
                     if (!values.sourceFilter || !sdk) {
                         return true
                     }
-                    return sdk.tags.includes(values.sourceFilter)
+                    return sdk.tags.includes(values.sourceFilter as SDKTag)
                 })
                 .filter((sdk) => Object.keys(values.availableSDKInstructionsMap).includes(sdk.key))
             if (values.isUserInNonTechnicalTest) {

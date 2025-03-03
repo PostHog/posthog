@@ -8,7 +8,7 @@ import type { TeamType } from '~/types'
 export const useInstallationComplete = (teamPropertyToVerify: string): boolean => {
     const { currentTeam } = useValues(teamLogic)
     const { loadCurrentTeam } = useActions(teamLogic)
-    const [checking, setChecking] = useState(false)
+    const [checking, setChecking] = useState(true)
     const installationComplete = Boolean(currentTeam?.[teamPropertyToVerify as keyof TeamType])
 
     useInterval(() => {

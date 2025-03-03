@@ -127,7 +127,7 @@ export function AlternativeSDKs({
                             value={searchTerm}
                             onChange={setSearchTerm}
                             placeholder="Search"
-                            className="w-full max-w-sm"
+                            className="w-full max-w-xs"
                         />
                         <div className="flex flex-row gap-2">
                             <InviteMembersButton
@@ -159,7 +159,7 @@ export function AlternativeSDKs({
                         }))}
                     />
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-                        {filteredSDKs?.map((sdk) => (
+                        {(filteredSDKs ?? []).map((sdk) => (
                             <LemonCard
                                 key={sdk.key}
                                 className="p-4 cursor-pointer flex flex-col items-start justify-center"
@@ -169,9 +169,9 @@ export function AlternativeSDKs({
                                 }}
                             >
                                 {typeof sdk.image === 'string' ? (
-                                    <img src={sdk.image} className="w-8 h-8 mb-2" />
+                                    <img src={sdk.image} className="w-8 h-8 mb-2" alt={`${sdk.name} logo`} />
                                 ) : typeof sdk.image === 'object' && 'default' in sdk.image ? (
-                                    <img src={sdk.image.default} className="w-8 h-8 mb-2" />
+                                    <img src={sdk.image.default} className="w-8 h-8 mb-2" alt={`${sdk.name} logo`} />
                                 ) : (
                                     sdk.image
                                 )}
