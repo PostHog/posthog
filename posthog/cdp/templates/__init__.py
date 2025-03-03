@@ -57,7 +57,7 @@ from ._internal.template_blank import blank_site_destination, blank_site_app
 from .snapchat_ads.template_snapchat_ads import template as snapchat_ads
 from .snapchat_ads.template_pixel import template_snapchat_pixel as snapchat_pixel
 from .reddit.template_reddit_pixel import template_reddit_pixel as reddit_pixel
-
+from .reddit.template_reddit_conversions_api import template_reddit_conversions_api as reddit_conversions_api
 
 HOG_FUNCTION_TEMPLATES = [
     _broadcast,
@@ -102,6 +102,7 @@ HOG_FUNCTION_TEMPLATES = [
     meta_ads,
     microsoft_teams,
     posthog,
+    reddit_conversions_api,
     reddit_pixel,
     rudderstack,
     salesforce_create,

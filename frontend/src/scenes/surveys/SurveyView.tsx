@@ -1,7 +1,7 @@
 import './SurveyView.scss'
 
-import { IconGraph } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonDivider, Link } from '@posthog/lemon-ui'
+import { IconGraph, IconInfo } from '@posthog/icons'
+import { LemonButton, LemonDialog, LemonDivider, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
@@ -9,7 +9,6 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { IntervalFilterStandalone } from 'lib/components/IntervalFilter'
 import { PageHeader } from 'lib/components/PageHeader'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -19,13 +18,22 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils'
 import { useEffect, useState } from 'react'
 import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
+import { SurveyResponseFilters } from 'scenes/surveys/SurveyResponseFilters'
 import { getSurveyResponseKey } from 'scenes/surveys/utils'
 
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { ActivityScope, PropertyFilterType, PropertyOperator, Survey, SurveyQuestionType, SurveyType } from '~/types'
+import {
+    ActivityScope,
+    PropertyFilterType,
+    PropertyOperator,
+    Survey,
+    SurveyQuestionType,
+    SurveySchedule as SurveyScheduleEnum,
+    SurveyType,
+} from '~/types'
 
-import { SURVEY_EVENT_NAME, SurveyQuestionLabel } from './constants'
+import { NPS_DETRACTOR_LABEL, NPS_PASSIVE_LABEL, SURVEY_EVENT_NAME, SurveyQuestionLabel } from './constants'
 import { SurveyDisplaySummary } from './Survey'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { SurveyFormAppearance } from './SurveyFormAppearance'
@@ -33,6 +41,7 @@ import { surveyLogic } from './surveyLogic'
 import { surveysLogic } from './surveysLogic'
 import {
     MultipleChoiceQuestionBarChart,
+    NPSStackedBar,
     NPSSurveyResultsBarChart,
     OpenTextViz,
     RatingQuestionBarChart,
@@ -40,25 +49,38 @@ import {
     Summary,
 } from './surveyViewViz'
 
-function SurveyResultsFilters(): JSX.Element {
-    const { propertyFilters } = useValues(surveyLogic)
-    const { setPropertyFilters } = useActions(surveyLogic)
+function SurveySchedule(): JSX.Element {
+    const { survey } = useValues(surveyLogic)
+    if (survey.schedule === SurveyScheduleEnum.Recurring && survey.iteration_count && survey.iteration_frequency_days) {
+        return (
+            <>
+                <span className="card-secondary">Schedule</span>
+                <span>
+                    Repeats every {survey.iteration_frequency_days}{' '}
+                    {pluralize(survey.iteration_frequency_days, 'day', 'days', false)}, {survey.iteration_count}{' '}
+                    {pluralize(survey.iteration_count, 'time', 'times', false)}
+                </span>
+            </>
+        )
+    }
 
+    if (survey.schedule === SurveyScheduleEnum.Always) {
+        return (
+            <>
+                <span className="card-secondary">Schedule</span>
+                <span>Always</span>
+            </>
+        )
+    }
+
+    // Default case: survey is scheduled to run once
     return (
-        <div className="space-y-2">
-            <h4 className="text-base font-semibold mb-2">Filter results</h4>
-            <div className="w-fit">
-                <PropertyFilters
-                    propertyFilters={propertyFilters}
-                    onChange={setPropertyFilters}
-                    pageKey="survey-results"
-                    buttonText="Add filter to survey results"
-                />
-            </div>
-        </div>
+        <>
+            <span className="card-secondary">Schedule</span>
+            <span>Once</span>
+        </>
     )
 }
-
 export function SurveyView({ id }: { id: string }): JSX.Element {
     const { survey, surveyLoading, selectedPageIndex, targetingFlagFilters } = useValues(surveyLogic)
     const {
@@ -322,7 +344,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                         )}
                                                     </span>
                                                     {survey.questions.map((q, idx) => (
-                                                        <li key={idx}>{q.question}</li>
+                                                        <li key={q.id ?? idx}>{q.question}</li>
                                                     ))}
                                                 </>
                                             )}
@@ -347,25 +369,9 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                 )}
                                             </div>
                                             <div className="flex flex-row gap-8">
-                                                {survey.iteration_count &&
-                                                survey.iteration_frequency_days &&
-                                                survey.iteration_count > 0 &&
-                                                survey.iteration_frequency_days > 0 ? (
-                                                    <div className="flex flex-col">
-                                                        <span className="mt-4 card-secondary">Schedule</span>
-                                                        <span>
-                                                            Repeats every {survey.iteration_frequency_days}{' '}
-                                                            {pluralize(
-                                                                survey.iteration_frequency_days,
-                                                                'day',
-                                                                'days',
-                                                                false
-                                                            )}
-                                                            , {survey.iteration_count}{' '}
-                                                            {pluralize(survey.iteration_count, 'time', 'times', false)}
-                                                        </span>
-                                                    </div>
-                                                ) : null}
+                                                <div className="flex flex-col mt-4">
+                                                    <SurveySchedule />
+                                                </div>
                                             </div>
                                             {surveyUsesLimit && (
                                                 <>
@@ -439,6 +445,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                           <div>
                                               <p>Get notified whenever a survey result is submitted</p>
                                               <LinkedHogFunctions
+                                                  logicKey="survey"
                                                   type="destination"
                                                   subTemplateId="survey-response"
                                                   filters={{
@@ -495,11 +502,18 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
         surveyOpenTextResultsReady,
         surveyNPSScore,
         surveyAsInsightURL,
+        isAnyResultsLoading,
     } = useValues(surveyLogic)
 
     return (
         <div className="space-y-4">
-            <SurveyResultsFilters />
+            <SurveyResponseFilters />
+            {isAnyResultsLoading && (
+                <div className="flex gap-1">
+                    <span className="text-sm text-secondary">Loading results...</span>
+                    <Spinner />
+                </div>
+            )}
             <Summary surveyUserStatsLoading={surveyUserStatsLoading} surveyUserStats={surveyUserStats} />
             {survey.questions.map((question, i) => {
                 if (question.type === SurveyQuestionType.Rating) {
@@ -586,16 +600,35 @@ function SurveyNPSResults({
     questionIndex,
 }: {
     survey: Survey
-    surveyNPSScore?: string
+    surveyNPSScore?: string | null
     questionIndex: number
 }): JSX.Element {
-    const { dateRange, interval, compareFilter, defaultInterval } = useValues(surveyLogic)
+    const { dateRange, interval, compareFilter, defaultInterval, npsBreakdown } = useValues(surveyLogic)
     const { setDateRange, setInterval, setCompareFilter } = useActions(surveyLogic)
 
     return (
         <div>
-            <div className="text-4xl font-bold">{surveyNPSScore}</div>
-            <div className="mb-2 font-semibold text-secondary">Latest NPS Score</div>
+            {surveyNPSScore && (
+                <>
+                    <div className="flex items-center gap-2">
+                        <div className="text-4xl font-bold">{surveyNPSScore}</div>
+                    </div>
+                    <div className="mb-2 font-semibold text-secondary">
+                        <Tooltip
+                            placement="bottom"
+                            title="NPS Score is calculated by subtracting the percentage of detractors (0-6) from the percentage of promoters (9-10). Passives (7-8) are not included in the calculation. It can range from -100 to 100."
+                        >
+                            <IconInfo className="text-muted" />
+                        </Tooltip>{' '}
+                        Latest NPS Score
+                    </div>
+                    {npsBreakdown && (
+                        <div className="space-y-2 mt-2 mb-4">
+                            <NPSStackedBar npsBreakdown={npsBreakdown} />
+                        </div>
+                    )}
+                </>
+            )}
             <div className="space-y-2 bg-surface-primary p-2 rounded">
                 <div className="flex items-center justify-between gap-2">
                     <h4 className="text-lg font-semibold">NPS Trend</h4>
@@ -644,7 +677,7 @@ function SurveyNPSResults({
                                 {
                                     event: SURVEY_EVENT_NAME,
                                     kind: NodeKind.EventsNode,
-                                    custom_name: 'Promoters',
+                                    custom_name: NPS_PASSIVE_LABEL,
                                     properties: [
                                         {
                                             type: PropertyFilterType.Event,
@@ -657,7 +690,7 @@ function SurveyNPSResults({
                                 {
                                     event: SURVEY_EVENT_NAME,
                                     kind: NodeKind.EventsNode,
-                                    custom_name: 'Passives',
+                                    custom_name: NPS_PASSIVE_LABEL,
                                     properties: [
                                         {
                                             type: PropertyFilterType.Event,
@@ -670,7 +703,7 @@ function SurveyNPSResults({
                                 {
                                     event: SURVEY_EVENT_NAME,
                                     kind: NodeKind.EventsNode,
-                                    custom_name: 'Detractors',
+                                    custom_name: NPS_DETRACTOR_LABEL,
                                     properties: [
                                         {
                                             type: PropertyFilterType.Event,

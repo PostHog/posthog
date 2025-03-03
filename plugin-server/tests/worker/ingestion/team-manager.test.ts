@@ -6,12 +6,6 @@ import { TeamManager } from '../../../src/worker/ingestion/team-manager'
 import { resetTestDatabase } from '../../helpers/sql'
 
 jest.mock('../../../src/utils/status')
-jest.mock('../../../src/utils/posthog', () => ({
-    posthog: {
-        identify: jest.fn(),
-        capture: jest.fn(),
-    },
-}))
 
 describe('TeamManager()', () => {
     let teamManager: TeamManager
@@ -19,8 +13,10 @@ describe('TeamManager()', () => {
 
     beforeEach(async () => {
         await resetTestDatabase()
-        postgres = new PostgresRouter(defaultConfig, undefined)
-        teamManager = new TeamManager(postgres, defaultConfig)
+        postgres = new PostgresRouter(defaultConfig)
+        teamManager = new TeamManager(postgres)
+
+        // @ts-expect-error TODO: Fix underlying settings, is this really working?
         Settings.defaultZoneName = 'utc'
     })
 

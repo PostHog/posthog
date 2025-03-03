@@ -107,6 +107,8 @@ const NEW_FLAG: FeatureFlagType = {
     is_remote_configuration: false,
     has_encrypted_payloads: false,
     status: 'ACTIVE',
+    version: 0,
+    last_modified_by: null,
 }
 const NEW_VARIANT = {
     key: '',
@@ -591,6 +593,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 }
             },
             saveFeatureFlag: async (updatedFlag: Partial<FeatureFlagType>) => {
+                // Destructure all fields we want to exclude or handle specially
                 const { created_at, id, ...flag } = updatedFlag
 
                 const preparedFlag = indexToVariantKeyFeatureFlagPayloads(flag)
@@ -598,6 +601,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 try {
                     let savedFlag: FeatureFlagType
                     if (!updatedFlag.id) {
+                        // Creating a new flag
                         savedFlag = await api.create(
                             `api/projects/${values.currentProjectId}/feature_flags`,
                             preparedFlag
@@ -610,6 +614,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             intent_context: ProductIntentContext.FEATURE_FLAG_CREATED,
                         })
                     } else {
+                        // Updating an existing flag - include version in preparedFlag
                         const cachedFlag = featureFlagsLogic
                             .findMounted()
                             ?.values.featureFlags.results.find((flag) => flag.id === props.id)
@@ -646,6 +651,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 try {
                     let savedFlag: FeatureFlagType
                     if (!updatedFlag.id) {
+                        // Creating a new flag
                         savedFlag = await api.create(
                             `api/projects/${values.currentProjectId}/feature_flags`,
                             preparedFlag
@@ -744,28 +750,35 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 const orgId = values.currentOrganization?.id
                 const flagKey = values.featureFlag.key
 
-                const projects = await api.organizationFeatureFlags.get(orgId, flagKey)
+                const organizationFeatureFlags = await api.organizationFeatureFlags.get(orgId, flagKey)
+                const teamIdsInCurrentProject =
+                    values.currentOrganization?.teams
+                        .filter((t) => t.project_id === values.currentProjectId)
+                        .map((t) => t.id) || []
 
-                // Put current project first
-                const currentProjectIdx = projects.findIndex((p) => p.team_id === values.currentTeamId)
-                if (currentProjectIdx) {
-                    const [currentProject] = projects.splice(currentProjectIdx, 1)
-                    const sortedProjects = [currentProject, ...projects]
-                    return sortedProjects
-                }
-                return projects
+                // Put current project first. We need teamIdsInCurrentProject here, because as of Feb 2025,
+                // FeatureFlag only has `team_id`, but not `project_id`
+                return organizationFeatureFlags.sort((a, b) => {
+                    if (teamIdsInCurrentProject.includes(a.team_id)) {
+                        return -1
+                    }
+                    if (teamIdsInCurrentProject.includes(b.team_id)) {
+                        return 1
+                    }
+                    return 0
+                })
             },
         },
         featureFlagCopy: {
             copyFlag: async () => {
                 const orgId = values.currentOrganization?.id
                 const featureFlagKey = values.featureFlag.key
-                const { copyDestinationProject, currentTeamId } = values
+                const { copyDestinationProject, currentProjectId } = values
 
-                if (currentTeamId && copyDestinationProject) {
+                if (currentProjectId && copyDestinationProject) {
                     return await api.organizationFeatureFlags.copy(orgId, {
                         feature_flag_key: featureFlagKey,
-                        from_project: currentTeamId,
+                        from_project: currentProjectId,
                         target_project_ids: [copyDestinationProject],
                     })
                 }
@@ -774,9 +787,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         scheduledChanges: {
             __default: [] as ScheduledChangeType[],
             loadScheduledChanges: async () => {
-                const { currentTeamId } = values
-                if (currentTeamId) {
-                    const response = await api.featureFlags.getScheduledChanges(currentTeamId, values.featureFlag.id)
+                const { currentProjectId } = values
+                if (currentProjectId) {
+                    const response = await api.featureFlags.getScheduledChanges(currentProjectId, values.featureFlag.id)
                     return response.results || []
                 }
             },
@@ -784,14 +797,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         scheduledChange: {
             __default: {} as ScheduledChangeType,
             createScheduledChange: async () => {
-                const { scheduledChangeOperation, scheduleDateMarker, currentTeamId, schedulePayload } = values
+                const { scheduledChangeOperation, scheduleDateMarker, currentProjectId, schedulePayload } = values
 
                 const fields: Record<ScheduledChangeOperationType, keyof ScheduleFlagPayload> = {
                     [ScheduledChangeOperationType.UpdateStatus]: 'active',
                     [ScheduledChangeOperationType.AddReleaseCondition]: 'filters',
                 }
 
-                if (currentTeamId && scheduledChangeOperation) {
+                if (currentProjectId && scheduledChangeOperation) {
                     const data = {
                         record_id: values.featureFlag.id,
                         model_name: 'FeatureFlag',
@@ -802,13 +815,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         scheduled_at: scheduleDateMarker.toISOString(),
                     }
 
-                    return await api.featureFlags.createScheduledChange(currentTeamId, data)
+                    return await api.featureFlags.createScheduledChange(currentProjectId, data)
                 }
             },
             deleteScheduledChange: async (scheduledChangeId) => {
-                const { currentTeamId } = values
-                if (currentTeamId) {
-                    return await api.featureFlags.deleteScheduledChange(currentTeamId, scheduledChangeId)
+                const { currentProjectId } = values
+                if (currentProjectId) {
+                    return await api.featureFlags.deleteScheduledChange(currentProjectId, scheduledChangeId)
                 }
             },
         },
@@ -816,9 +829,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             null as FeatureFlagStatusResponse | null,
             {
                 loadFeatureFlagStatus: () => {
-                    const { currentTeamId } = values
-                    if (currentTeamId && props.id && props.id !== 'new' && props.id !== 'link') {
-                        return api.featureFlags.getStatus(currentTeamId, props.id)
+                    const { currentProjectId } = values
+                    if (currentProjectId && props.id && props.id !== 'new' && props.id !== 'link') {
+                        return api.featureFlags.getStatus(currentProjectId, props.id)
                     }
                     return null
                 },
@@ -1011,6 +1024,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     },
                     {}
                 )
+            }
+        },
+        editFeatureFlag: async ({ editing }) => {
+            if (editing) {
+                actions.loadFeatureFlag()
             }
         },
     })),

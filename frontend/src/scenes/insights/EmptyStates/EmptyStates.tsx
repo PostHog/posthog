@@ -1,16 +1,27 @@
 import './EmptyStates.scss'
 
-import { IconArchive, IconPieChart, IconPlus, IconPlusSmall, IconPlusSquare, IconWarning } from '@posthog/icons'
+import {
+    IconArchive,
+    IconHourglass,
+    IconInfo,
+    IconPieChart,
+    IconPlus,
+    IconPlusSmall,
+    IconPlusSquare,
+    IconWarning,
+} from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { BuilderHog3 } from 'lib/components/hedgehogs'
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { IconErrorOutline, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyNumber, humanizeBytes, inStorybook, inStorybookTestRunner } from 'lib/utils'
 import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
@@ -19,6 +30,7 @@ import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFi
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -42,7 +54,7 @@ export function InsightEmptyState({
     return (
         <div
             data-attr="insight-empty-state"
-            className="flex flex-col flex-1 rounded p-4 m-2 w-full items-center justify-center"
+            className="flex flex-col flex-1 rounded p-4 w-full items-center justify-center"
         >
             <IconArchive className="text-5xl mb-2 text-tertiary" />
             <h2 className="text-xl leading-tight">{heading}</h2>
@@ -54,6 +66,7 @@ export function InsightEmptyState({
 function SamplingLink({ insightProps }: { insightProps: InsightLogicProps }): JSX.Element {
     const { setSamplingPercentage } = useActions(samplingFilterLogic(insightProps))
     const { suggestedSamplingPercentage } = useValues(samplingFilterLogic(insightProps))
+
     return (
         <Tooltip
             title={`Calculate results from ${suggestedSamplingPercentage}% of the total dataset for this insight, speeding up the calculation of results.`}
@@ -74,19 +87,13 @@ function SamplingLink({ insightProps }: { insightProps: InsightLogicProps }): JS
     )
 }
 
-function QueryIdDisplay({
-    queryId,
-    compact = false,
-}: {
-    queryId?: string | null
-    compact?: boolean
-}): JSX.Element | null {
+function QueryIdDisplay({ queryId }: { queryId?: string | null }): JSX.Element | null {
     if (queryId == null) {
         return null
     }
 
     return (
-        <div className={clsx('text-muted text-xs', { 'mt-20': !compact })}>
+        <div className="text-muted text-xs">
             Query ID: <span className="font-mono">{queryId}</span>
         </div>
     )
@@ -119,18 +126,74 @@ export const LOADING_MESSAGES = [
     'Polishing graphs with tiny hedgehog paws…',
     'Rolling through data like a spiky ball of insights…',
     'Gathering nuts and numbers from the data forest…',
+    <>
+        Reticulating <s>splines</s> spines…
+    </>,
 ]
+
+export const DELAYED_LOADING_MESSAGE = 'Waiting for changes...'
+
+function LoadingDetails({
+    pollResponse,
+    queryId,
+    rowsRead,
+    bytesRead,
+    secondsElapsed,
+}: {
+    pollResponse?: Record<string, QueryStatus | null> | null
+    queryId?: string | null
+    rowsRead: number
+    bytesRead: number
+    secondsElapsed: number
+}): JSX.Element {
+    const bytesPerSecond = (bytesRead / (secondsElapsed || 1)) * 1000
+    const estimatedRows = pollResponse?.status?.query_progress?.estimated_rows_total
+    const cpuUtilization =
+        (pollResponse?.status?.query_progress?.active_cpu_time || 0) /
+        (pollResponse?.status?.query_progress?.time_elapsed || 1) /
+        10000
+
+    return (
+        <>
+            <p className="mx-auto text-center text-xs">
+                {rowsRead > 0 && bytesRead > 0 && (
+                    <>
+                        <span>{humanFriendlyNumber(rowsRead || 0, 0)} </span>
+                        <span>
+                            {estimatedRows && estimatedRows >= rowsRead ? (
+                                <span>/ {humanFriendlyNumber(estimatedRows)} </span>
+                            ) : null}
+                        </span>
+                        <span>rows</span>
+                        <br />
+                        <span>{humanizeBytes(bytesRead || 0)} </span>
+                        <span>({humanizeBytes(bytesPerSecond || 0)}/s)</span>
+                        <br />
+                        <span>CPU {humanFriendlyNumber(cpuUtilization, 0)}%</span>
+                    </>
+                )}
+            </p>
+            <QueryIdDisplay queryId={queryId} />
+        </>
+    )
+}
+
+const LOADING_ANIMATION_DELAY_SECONDS = 4
 
 export function StatelessInsightLoadingState({
     queryId,
     pollResponse,
     suggestion,
-    compact = false,
+    delayLoadingAnimation = false,
+    loadingTimeSeconds = 0,
+    renderEmptyStateAsSkeleton = false,
 }: {
     queryId?: string | null
     pollResponse?: Record<string, QueryStatus | null> | null
     suggestion?: JSX.Element
-    compact?: boolean
+    delayLoadingAnimation?: boolean
+    loadingTimeSeconds?: number
+    renderEmptyStateAsSkeleton?: boolean
 }): JSX.Element {
     const [rowsRead, setRowsRead] = useState(0)
     const [bytesRead, setBytesRead] = useState(0)
@@ -141,28 +204,32 @@ export function StatelessInsightLoadingState({
     )
     const [isLoadingMessageVisible, setIsLoadingMessageVisible] = useState(true)
 
+    const showLoadingDetails = !delayLoadingAnimation || loadingTimeSeconds >= LOADING_ANIMATION_DELAY_SECONDS
+
     useEffect(() => {
-        const status = pollResponse?.status?.query_progress
-        const previousStatus = pollResponse?.previousStatus?.query_progress
-        setRowsRead(previousStatus?.rows_read || 0)
-        setBytesRead(previousStatus?.bytes_read || 0)
+        if (showLoadingDetails) {
+            const status = pollResponse?.status?.query_progress
+            const previousStatus = pollResponse?.previousStatus?.query_progress
+            setRowsRead(previousStatus?.rows_read || 0)
+            setBytesRead(previousStatus?.bytes_read || 0)
 
-        const interval = setInterval(() => {
-            setRowsRead((rowsRead) => {
-                const diff = (status?.rows_read || 0) - (previousStatus?.rows_read || 0)
-                return Math.min(rowsRead + diff / 30, status?.rows_read || 0)
-            })
-            setBytesRead((bytesRead) => {
-                const diff = (status?.bytes_read || 0) - (previousStatus?.bytes_read || 0)
-                return Math.min(bytesRead + diff / 30, status?.bytes_read || 0)
-            })
-            setSecondsElapsed(() => {
-                return dayjs().diff(dayjs(pollResponse?.status?.start_time), 'milliseconds')
-            })
-        }, 100)
+            const interval = setInterval(() => {
+                setRowsRead((rowsRead) => {
+                    const diff = (status?.rows_read || 0) - (previousStatus?.rows_read || 0)
+                    return Math.min(rowsRead + diff / 30, status?.rows_read || 0)
+                })
+                setBytesRead((bytesRead) => {
+                    const diff = (status?.bytes_read || 0) - (previousStatus?.bytes_read || 0)
+                    return Math.min(bytesRead + diff / 30, status?.bytes_read || 0)
+                })
+                setSecondsElapsed(() => {
+                    return dayjs().diff(dayjs(pollResponse?.status?.start_time), 'milliseconds')
+                })
+            }, 100)
 
-        return () => clearInterval(interval)
-    }, [pollResponse])
+            return () => clearInterval(interval)
+        }
+    }, [pollResponse, showLoadingDetails])
 
     // Toggle between loading messages every 3 seconds, with 300ms fade out, then change text, keep in sync with the transition duration below
     useEffect(() => {
@@ -183,7 +250,6 @@ export function StatelessInsightLoadingState({
                     if (newIndex === current) {
                         newIndex = (newIndex + 1) % LOADING_MESSAGES.length
                     }
-
                     return newIndex
                 })
                 setIsLoadingMessageVisible(true)
@@ -193,58 +259,67 @@ export function StatelessInsightLoadingState({
         return () => clearInterval(interval)
     }, [])
 
-    const bytesPerSecond = (bytesRead / (secondsElapsed || 1)) * 1000
-    const estimatedRows = pollResponse?.status?.query_progress?.estimated_rows_total
-
-    const cpuUtilization =
-        (pollResponse?.status?.query_progress?.active_cpu_time || 0) /
-        (pollResponse?.status?.query_progress?.time_elapsed || 1) /
-        10000
+    const suggestions = suggestion ? (
+        suggestion
+    ) : showLoadingDetails ? (
+        <div className="flex gap-3">
+            <p className="text-xs m-0">Need to speed things up? Try reducing the date range.</p>
+        </div>
+    ) : null
 
     return (
-        <div data-attr="insight-empty-state" className="insights-loading-state rounded p-4 m-2 h-full">
-            <div className="flex flex-col gap-1">
-                <span
+        <div
+            data-attr="insight-empty-state"
+            className={clsx('flex flex-col gap-1 rounded p-4 w-full h-full', {
+                'justify-center items-center': !renderEmptyStateAsSkeleton,
+                'insights-loading-state justify-start': renderEmptyStateAsSkeleton,
+            })}
+        >
+            <span
+                className={clsx(
+                    'font-semibold transition-opacity duration-300 mb-1',
+                    renderEmptyStateAsSkeleton ? 'text-start' : 'text-center',
+                    isLoadingMessageVisible ? 'opacity-100' : 'opacity-0'
+                )}
+            >
+                {!showLoadingDetails ? (
+                    <>
+                        <IconHourglass className="mr-2 inline-block brief-spin" />
+                        {DELAYED_LOADING_MESSAGE}
+                    </>
+                ) : (
+                    LOADING_MESSAGES[loadingMessageIndex]
+                )}
+            </span>
+
+            {showLoadingDetails && (
+                <div
                     className={clsx(
-                        'font-bold transition-opacity duration-300',
-                        isLoadingMessageVisible ? 'opacity-100' : 'opacity-0'
+                        'flex flex-col gap-2 justify-center max-w-120',
+                        renderEmptyStateAsSkeleton ? 'items-start' : 'items-center'
                     )}
                 >
-                    {LOADING_MESSAGES[loadingMessageIndex]}
-                </span>
-                {suggestion ? (
-                    suggestion
-                ) : (
-                    <div className="flex gap-3">
-                        <p className="text-xs m-0">Need to speed things up? Try reducing the date range.</p>
-                    </div>
-                )}
-            </div>
-
-            <LoadingBar />
-            <p className="mx-auto text-center text-xs">
-                {rowsRead > 0 && bytesRead > 0 && (
-                    <>
-                        <span>{humanFriendlyNumber(rowsRead || 0, 0)} </span>
-                        <span>
-                            {estimatedRows && estimatedRows >= rowsRead ? (
-                                <span>/ {humanFriendlyNumber(estimatedRows)} </span>
-                            ) : null}
-                        </span>
-                        <span>rows</span>
-                        <br />
-                        <span>{humanizeBytes(bytesRead || 0)} </span>
-                        <span>({humanizeBytes(bytesPerSecond || 0)}/s)</span>
-                        <br />
-                        <span>CPU {humanFriendlyNumber(cpuUtilization, 0)}%</span>
-                    </>
-                )}
-            </p>
-
-            <QueryIdDisplay queryId={queryId} compact={compact} />
+                    <LoadingBar />
+                    {suggestions}
+                    <LoadingDetails
+                        pollResponse={pollResponse}
+                        queryId={queryId}
+                        rowsRead={rowsRead}
+                        bytesRead={bytesRead}
+                        secondsElapsed={secondsElapsed}
+                    />
+                </div>
+            )}
         </div>
     )
 }
+
+const CodeWrapper = (props: { children: React.ReactNode }): JSX.Element => (
+    <code className="border border-1 border-border-bold rounded-sm text-xs px-1 py-0.5">{props.children}</code>
+)
+
+const SLOW_LOADING_TIME = 15
+const EVEN_SLOWER_LOADING_TIME = 25
 
 export function SlowQuerySuggestions({
     insightProps,
@@ -255,65 +330,79 @@ export function SlowQuerySuggestions({
     insightProps: InsightLogicProps
     suggestedSamplingPercentage?: number | null
     samplingPercentage?: number | null
-    loadingTimeSeconds?: number | null
+    loadingTimeSeconds?: number
 }): JSX.Element | null {
     const { slowQueryPossibilities } = useValues(insightVizDataLogic(insightProps))
 
-    const paragraphText = 'Need to speed things up? Steps to optimize this query:'
-    const codeClassName = 'border border-1 border-border-bold rounded-sm text-xs px-1 py-0.5'
+    if (loadingTimeSeconds < SLOW_LOADING_TIME) {
+        return null
+    }
 
-    return loadingTimeSeconds && loadingTimeSeconds > 7 ? (
-        <div>
-            <p data-attr="insight-loading-waiting-message" className="mb-2">
-                {paragraphText}
-            </p>
-            <ul className="mb-4 list-disc list-inside ml-4">
-                {slowQueryPossibilities.includes('all_events') ? (
-                    <li>
-                        Don't use the <code className={codeClassName}>All events</code> event type. Use a specific event
-                        instead.
-                    </li>
-                ) : null}
-                {slowQueryPossibilities.includes('first_time_for_user') ? (
-                    <li>
-                        When possible, avoid <code className={codeClassName}>First time for user</code> metric types.
-                    </li>
-                ) : null}
-                {slowQueryPossibilities.includes('strict_funnel') ? (
-                    <li>
-                        When possible, use <code className={codeClassName}>Sequential</code> step order rather than{' '}
-                        <code className={codeClassName}>Strict</code>.
-                    </li>
-                ) : null}
-                <li>Reduce the date range.</li>
-                {loadingTimeSeconds && loadingTimeSeconds > 12 && suggestedSamplingPercentage ? (
-                    <li>
-                        {samplingPercentage ? (
-                            <>
-                                Reduce volume further with <SamplingLink insightProps={insightProps} />.
-                            </>
-                        ) : (
-                            <>
-                                Turn on <SamplingLink insightProps={insightProps} />.
-                            </>
-                        )}
-                    </li>
-                ) : null}
-            </ul>
+    const steps = [
+        slowQueryPossibilities.includes('all_events') ? (
+            <li key="all_events">
+                Don't use the <CodeWrapper>All events</CodeWrapper> event type. Use a specific event instead.
+            </li>
+        ) : null,
+        slowQueryPossibilities.includes('first_time_for_user') ? (
+            <li key="first_time_for_user">
+                When possible, avoid <CodeWrapper>First time for user</CodeWrapper> metric types.
+            </li>
+        ) : null,
+        slowQueryPossibilities.includes('strict_funnel') ? (
+            <li key="strict_funnel">
+                When possible, use <CodeWrapper>Sequential</CodeWrapper> step order rather than{' '}
+                <CodeWrapper>Strict</CodeWrapper>.
+            </li>
+        ) : null,
+        <li key="reduce_date_range">Reduce the date range.</li>,
+        loadingTimeSeconds >= EVEN_SLOWER_LOADING_TIME && suggestedSamplingPercentage ? (
+            <li key="sampling">
+                {samplingPercentage ? (
+                    <>
+                        Reduce volume further with <SamplingLink insightProps={insightProps} />.
+                    </>
+                ) : (
+                    <>
+                        Turn on <SamplingLink insightProps={insightProps} />.
+                    </>
+                )}
+            </li>
+        ) : null,
+    ].filter((x) => x !== null)
+
+    if (steps.length === 0) {
+        return null
+    }
+
+    return (
+        <div className="flex items-center p-4 rounded bg-primary gap-x-3">
+            <IconInfo className="text-xl shrink-0" />
+            <div className="text-xs">
+                <p data-attr="insight-loading-waiting-message" className="m-0 mb-1">
+                    Need to speed things up? Some steps to optimize this query:
+                </p>
+                <ul className="mb-0 list-disc list-inside ml-2">{steps}</ul>
+            </div>
         </div>
-    ) : null
+    )
 }
 
 export function InsightLoadingState({
     queryId,
     insightProps,
+    renderEmptyStateAsSkeleton = false,
 }: {
     queryId?: string | null
     insightProps: InsightLogicProps
+    renderEmptyStateAsSkeleton?: boolean
 }): JSX.Element {
     const { suggestedSamplingPercentage, samplingPercentage } = useValues(samplingFilterLogic(insightProps))
-    const { insightPollResponse, insightLoadingTimeSeconds } = useValues(insightDataLogic(insightProps))
+    const { insightPollResponse, insightLoadingTimeSeconds, queryChanged, activeScene } = useValues(
+        insightDataLogic(insightProps)
+    )
     const { currentTeam } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const personsOnEventsMode =
         currentTeam?.modifiers?.personsOnEventsMode ?? currentTeam?.default_modifiers?.personsOnEventsMode ?? 'disabled'
@@ -322,24 +411,27 @@ export function InsightLoadingState({
         <StatelessInsightLoadingState
             queryId={queryId}
             pollResponse={insightPollResponse}
+            delayLoadingAnimation={
+                featureFlags[FEATURE_FLAGS.DELAYED_LOADING_ANIMATION] === 'test' &&
+                activeScene == Scene.Insight &&
+                queryChanged
+            }
+            loadingTimeSeconds={insightLoadingTimeSeconds}
+            renderEmptyStateAsSkeleton={renderEmptyStateAsSkeleton}
             suggestion={
-                <div className="flex items-center rounded gap-x-3 max-w-120">
-                    {personsOnEventsMode === 'person_id_override_properties_joined' ? (
-                        <>
-                            <p className="text-xs m-0">
-                                You can speed this query up by changing the{' '}
-                                <Link to="/settings/project#persons-on-events">person properties mode</Link> setting.
-                            </p>
-                        </>
-                    ) : (
-                        <SlowQuerySuggestions
-                            insightProps={insightProps}
-                            suggestedSamplingPercentage={suggestedSamplingPercentage}
-                            samplingPercentage={samplingPercentage}
-                            loadingTimeSeconds={insightLoadingTimeSeconds}
-                        />
-                    )}
-                </div>
+                personsOnEventsMode === 'person_id_override_properties_joined' ? (
+                    <div className="text-xs">
+                        You can speed this query up by changing the{' '}
+                        <Link to="/settings/project#persons-on-events">person properties mode</Link> setting.
+                    </div>
+                ) : (
+                    <SlowQuerySuggestions
+                        insightProps={insightProps}
+                        suggestedSamplingPercentage={suggestedSamplingPercentage}
+                        samplingPercentage={samplingPercentage}
+                        loadingTimeSeconds={insightLoadingTimeSeconds}
+                    />
+                )
             }
         />
     )
@@ -349,7 +441,7 @@ export function InsightTimeoutState({ queryId }: { queryId?: string | null }): J
     const { openSupportForm } = useActions(supportLogic)
 
     return (
-        <div data-attr="insight-empty-state" className="rounded p-4 m-2 h-full w-full">
+        <div data-attr="insight-empty-state" className="rounded p-4 h-full w-full">
             <h2 className="text-xl leading-tight mb-6">
                 <IconWarning className="text-xl shrink-0 mr-2" />
                 Your query took too long to complete
@@ -383,7 +475,7 @@ export function InsightValidationError({
     return (
         <div
             data-attr="insight-empty-state"
-            className="flex flex-col items-center justify-center gap-2 rounded p-4 m-2 h-full w-full"
+            className="flex flex-col items-center justify-center gap-2 rounded p-4 h-full w-full"
         >
             <IconWarning className="text-4xl shrink-0 text-muted" />
 
@@ -436,7 +528,7 @@ export function InsightErrorState({ excludeDetail, title, query, queryId }: Insi
     return (
         <div
             data-attr="insight-empty-state"
-            className="flex flex-col items-center gap-2 justify-center rounded p-4 m-2 h-full w-full"
+            className="flex flex-col items-center gap-2 justify-center rounded p-4 h-full w-full"
         >
             <IconErrorOutline className="text-5xl shrink-0" />
 
@@ -496,7 +588,7 @@ export function FunnelSingleStepState({ actionable = true }: FunnelSingleStepSta
     const { addFilter } = useActions(entityFilterLogic({ setFilters, filters, typeKey: 'EditFunnel-action' }))
 
     return (
-        <div data-attr="insight-empty-state" className="flex flex-col flex-1 items-center justify-center m-2">
+        <div data-attr="insight-empty-state" className="flex flex-col flex-1 items-center justify-center">
             <div className="text-5xl text-muted mb-2">
                 <IconPlusSquare />
             </div>

@@ -67,16 +67,21 @@ impl Emitter for KafkaEmitter {
 #[async_trait]
 impl<'a> Transaction<'a> for KafkaEmitterTransaction<'a> {
     async fn emit(&self, data: &[InternallyCapturedEvent]) -> Result<(), Error> {
-        self.inner
+        let res: Result<Vec<_>, _> = self
+            .inner
             .send_keyed_iter_to_kafka(self.topic, |e| Some(e.inner.key()), data.iter())
-            .await?;
+            .await
+            .into_iter()
+            .collect();
+
+        res?;
 
         self.count.fetch_add(data.len(), Ordering::SeqCst);
 
         Ok(())
     }
 
-    async fn commit_write(self: Box<Self>) -> Result<(), Error> {
+    async fn commit_write(self: Box<Self>) -> Result<Duration, Error> {
         let unboxed = *self;
         let count = unboxed.count.load(Ordering::SeqCst);
         let min_duration = unboxed.get_min_txn_duration(count);
@@ -86,9 +91,9 @@ impl<'a> Transaction<'a> for KafkaEmitterTransaction<'a> {
             "sent {} messages in {:?}, minimum send duration is {:?}, sleeping for {:?}",
             count, txn_elapsed, min_duration, to_sleep
         );
-        tokio::time::sleep(to_sleep).await;
         unboxed.inner.commit()?;
-        Ok(())
+        info!("committed transaction");
+        Ok(to_sleep)
     }
 }
 

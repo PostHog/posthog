@@ -1,13 +1,14 @@
 import { IconGear } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonCheckbox,
     LemonDivider,
     LemonSegmentedButton,
     LemonSkeleton,
+    Link,
     Tooltip,
 } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { FeedbackNotice } from 'lib/components/FeedbackNotice'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -26,7 +27,6 @@ import { ErrorTrackingIssue, ErrorTrackingIssueAggregations } from '~/queries/sc
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
 import { InsightLogicProps } from '~/types'
 
-import { AlphaAccessScenePrompt } from './AlphaAccessScenePrompt'
 import { AssigneeSelect } from './AssigneeSelect'
 import { errorTrackingDataNodeLogic } from './errorTrackingDataNodeLogic'
 import { ErrorTrackingFilters } from './ErrorTrackingFilters'
@@ -34,6 +34,7 @@ import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 import { ErrorTrackingListOptions } from './ErrorTrackingListOptions'
 import { errorTrackingLogic } from './errorTrackingLogic'
 import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
+import { ErrorTrackingSetupPrompt } from './ErrorTrackingSetupPrompt'
 import { sparklineLabels, sparklineLabelsDay, sparklineLabelsMonth } from './utils'
 
 export const scene: SceneExport = {
@@ -42,7 +43,8 @@ export const scene: SceneExport = {
 }
 
 export function ErrorTrackingScene(): JSX.Element {
-    const { query, selectedIssueIds } = useValues(errorTrackingSceneLogic)
+    const { hasSentExceptionEvent, hasSentExceptionEventLoading } = useValues(errorTrackingLogic)
+    const { query } = useValues(errorTrackingSceneLogic)
 
     const insightProps: InsightLogicProps = {
         dashboardItemId: 'new-ErrorTrackingQuery',
@@ -67,42 +69,20 @@ export function ErrorTrackingScene(): JSX.Element {
     }
 
     return (
-        <AlphaAccessScenePrompt>
+        <ErrorTrackingSetupPrompt>
             <BindLogic logic={errorTrackingDataNodeLogic} props={{ query, key: insightVizDataNodeKey(insightProps) }}>
                 <Header />
-                <FeedbackNotice text="Error tracking is currently in beta. Thanks for taking part! We'd love to hear what you think." />
+                {hasSentExceptionEventLoading ? null : hasSentExceptionEvent ? (
+                    <FeedbackNotice text="Error tracking is currently in beta. Thanks for taking part! We'd love to hear what you think." />
+                ) : (
+                    <IngestionStatusCheck />
+                )}
                 <ErrorTrackingFilters />
                 <LemonDivider className="mt-2" />
-                {selectedIssueIds.length === 0 ? <ErrorTrackingListOptions /> : <ErrorTrackingListActions />}
+                <ErrorTrackingListOptions />
                 <Query query={query} context={context} />
             </BindLogic>
-        </AlphaAccessScenePrompt>
-    )
-}
-
-const ErrorTrackingListActions = (): JSX.Element => {
-    const { selectedIssueIds } = useValues(errorTrackingSceneLogic)
-    const { setSelectedIssueIds } = useActions(errorTrackingSceneLogic)
-    const { mergeIssues } = useActions(errorTrackingDataNodeLogic)
-
-    return (
-        <div className="sticky top-[var(--breadcrumbs-height-compact)] z-20 py-2 bg-primary flex space-x-1">
-            <LemonButton type="secondary" size="small" onClick={() => setSelectedIssueIds([])}>
-                Unselect all
-            </LemonButton>
-            {selectedIssueIds.length > 1 && (
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    onClick={() => {
-                        mergeIssues(selectedIssueIds)
-                        setSelectedIssueIds([])
-                    }}
-                >
-                    Merge
-                </LemonButton>
-            )}
-        </div>
+        </ErrorTrackingSetupPrompt>
     )
 }
 
@@ -117,7 +97,7 @@ const VolumeColumn: QueryContextColumnComponent = (props) => {
     const [data, labels] =
         sparklineSelectedPeriod === '24h'
             ? [record.aggregations.volumeDay, sparklineLabelsDay]
-            : sparklineSelectedPeriod === '1m'
+            : sparklineSelectedPeriod === '30d'
             ? [record.aggregations.volumeMonth, sparklineLabelsMonth]
             : customSparklineConfig
             ? [record.aggregations.customVolume, sparklineLabels(customSparklineConfig)]
@@ -127,13 +107,18 @@ const VolumeColumn: QueryContextColumnComponent = (props) => {
 }
 
 const VolumeColumnHeader: QueryContextColumnTitleComponent = ({ columnName }) => {
-    const { sparklineSelectedPeriod: period, sparklineOptions: options } = useValues(errorTrackingLogic)
+    const { sparklineSelectedPeriod, sparklineOptions } = useValues(errorTrackingLogic)
     const { setSparklineSelectedPeriod: onChange } = useActions(errorTrackingLogic)
 
-    return period ? (
+    return sparklineSelectedPeriod && sparklineOptions ? (
         <div className="flex justify-between items-center min-w-64">
             <div>{columnName}</div>
-            <LemonSegmentedButton size="xsmall" value={period} options={options} onChange={onChange} />
+            <LemonSegmentedButton
+                size="xsmall"
+                value={sparklineSelectedPeriod}
+                options={Object.values(sparklineOptions)}
+                onChange={onChange}
+            />
         </div>
     ) : null
 }
@@ -149,7 +134,7 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
     return (
         <div className="flex items-start space-x-1.5 group">
             <LemonCheckbox
-                className={clsx('pt-1 group-hover:visible', !checked && 'invisible')}
+                className="pt-1"
                 checked={checked}
                 onChange={(newValue) => {
                     setSelectedIssueIds(
@@ -165,10 +150,10 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                     <div className="space-y-1">
                         <div className="line-clamp-1">{record.description}</div>
                         <div className="space-x-1">
-                            <TZLabel time={record.first_seen} className="border-dotted border-b" />
+                            <TZLabel time={record.first_seen} className="border-dotted border-b" delayMs={750} />
                             <span>|</span>
                             {record.last_seen ? (
-                                <TZLabel time={record.last_seen} className="border-dotted border-b" />
+                                <TZLabel time={record.last_seen} className="border-dotted border-b" delayMs={750} />
                             ) : (
                                 <LemonSkeleton />
                             )}
@@ -237,5 +222,22 @@ const Header = (): JSX.Element => {
                 </>
             }
         />
+    )
+}
+
+const IngestionStatusCheck = (): JSX.Element | null => {
+    return (
+        <LemonBanner type="warning" className="my-4">
+            <p>
+                <strong>No Exception events have been detected!</strong>
+            </p>
+            <p>
+                To use the Error tracking product, please{' '}
+                <Link to="https://posthog.com/docs/error-tracking/installation">
+                    enable exception capture within the PostHog SDK
+                </Link>{' '}
+                (otherwise it'll be a little empty!)
+            </p>
+        </LemonBanner>
     )
 }

@@ -66,7 +66,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
     key(({ alert }) => alert?.id ?? 'new'),
 
     connect((props: AlertFormLogicProps) => ({
-        values: [trendsDataLogic(props.insightVizDataLogicProps ?? { dashboardId: undefined }), ['goalLines']],
+        values: [trendsDataLogic({ dashboardId: undefined, ...props.insightVizDataLogicProps }), ['goalLines']],
     })),
 
     actions({

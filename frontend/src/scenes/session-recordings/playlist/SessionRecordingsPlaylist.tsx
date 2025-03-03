@@ -1,7 +1,6 @@
 import { LemonBadge, LemonButton, Link, Spinner } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -12,7 +11,6 @@ import { urls } from 'scenes/urls'
 
 import { ReplayTabs } from '~/types'
 
-import { AiFilter } from '../components/AiFilter/AiFilter'
 import { RecordingsUniversalFilters } from '../filters/RecordingsUniversalFilters'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { SessionRecordingPreview } from './SessionRecordingPreview'
@@ -21,10 +19,7 @@ import {
     SessionRecordingPlaylistLogicProps,
     sessionRecordingsPlaylistLogic,
 } from './sessionRecordingsPlaylistLogic'
-import {
-    SessionRecordingPlaylistBottomSettings,
-    SessionRecordingsPlaylistTopSettings,
-} from './SessionRecordingsPlaylistSettings'
+import { SessionRecordingsPlaylistTopSettings } from './SessionRecordingsPlaylistSettings'
 import { SessionRecordingsPlaylistTroubleshooting } from './SessionRecordingsPlaylistTroubleshooting'
 
 export function SessionRecordingsPlaylist({
@@ -106,9 +101,6 @@ export function SessionRecordingsPlaylist({
 
     return (
         <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
-            <FlaggedFeature flag={FEATURE_FLAGS.RECORDINGS_AI_FILTER}>
-                <AiFilter />
-            </FlaggedFeature>
             <div className="h-full space-y-2">
                 <Playlist
                     data-attr="session-recordings-playlist"
@@ -116,7 +108,6 @@ export function SessionRecordingsPlaylist({
                     embedded={!!notebookNode}
                     sections={sections}
                     headerActions={<SessionRecordingsPlaylistTopSettings filters={filters} setFilters={setFilters} />}
-                    footerActions={<SessionRecordingPlaylistBottomSettings />}
                     filterActions={
                         notebookNode ? null : (
                             <RecordingsUniversalFilters

@@ -2034,6 +2034,8 @@
       initial_mc_cid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_igshid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial__kx AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_irclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
   
       -- Count pageview, autocapture, and screen events for providing totals.
       -- It's unclear if we can use the counts as they are not idempotent, and we had a bug on EU where events were
@@ -2118,6 +2120,8 @@
       argMinState(JSONExtractString(properties, 'mc_cid'), timestamp) as initial_mc_cid,
       argMinState(JSONExtractString(properties, 'igshid'), timestamp) as initial_igshid,
       argMinState(JSONExtractString(properties, 'ttclid'), timestamp) as initial_ttclid,
+      argMinState(JSONExtractString(properties, '_kx'), timestamp) as initial__kx,
+      argMinState(JSONExtractString(properties, 'irclid'), timestamp) as initial_irclid,
   
       -- count
       sumIf(1, event='$pageview') as pageview_count,
@@ -2770,6 +2774,8 @@
       initial_mc_cid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_igshid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial__kx AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_irclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
   
       -- Count pageview, autocapture, and screen events for providing totals.
       -- It's unclear if we can use the counts as they are not idempotent, and we had a bug on EU where events were
@@ -3102,6 +3108,8 @@
       initial_mc_cid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_igshid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial__kx AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_irclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
   
       -- Count pageview, autocapture, and screen events for providing totals.
       -- It's unclear if we can use the counts as they are not idempotent, and we had a bug on EU where events were
@@ -3983,6 +3991,8 @@
       initial_mc_cid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_igshid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial__kx AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_irclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
   
       -- Count pageview, autocapture, and screen events for providing totals.
       -- It's unclear if we can use the counts as they are not idempotent, and we had a bug on EU where events were

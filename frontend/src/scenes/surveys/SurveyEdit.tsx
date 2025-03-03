@@ -45,6 +45,7 @@ import {
     SurveyMatchType,
     SurveyQuestion,
     SurveyQuestionType,
+    SurveySchedule,
     SurveyType,
 } from '~/types'
 
@@ -93,9 +94,9 @@ function SurveyCompletionConditions(): JSX.Element {
     }
 
     return (
-        <>
-            <div className="mt-2">
-                <h3> How long would you like to collect survey responses? </h3>
+        <div className="space-y-4">
+            <div>
+                <h3>How long would you like to collect survey responses? </h3>
                 <LemonField.Pure>
                     <LemonRadio
                         value={dataCollectionType}
@@ -126,7 +127,7 @@ function SurveyCompletionConditions(): JSX.Element {
                 </LemonField.Pure>
             </div>
             {dataCollectionType == 'until_adaptive_limit' && (
-                <LemonField.Pure className="mt-4">
+                <LemonField.Pure>
                     <div className="flex flex-row gap-2 items-center ml-5">
                         Starting on{' '}
                         <Popover
@@ -188,7 +189,7 @@ function SurveyCompletionConditions(): JSX.Element {
                 </LemonField.Pure>
             )}
             {dataCollectionType == 'until_limit' && (
-                <LemonField name="responses_limit" className="mt-4 ml-5">
+                <LemonField name="responses_limit" className="ml-5">
                     {({ onChange, value }) => {
                         return (
                             <div className="flex flex-row gap-2 items-center">
@@ -218,7 +219,7 @@ function SurveyCompletionConditions(): JSX.Element {
                 </LemonField>
             )}
             <SurveyRepeatSchedule />
-        </>
+        </div>
     )
 }
 
@@ -234,6 +235,7 @@ export default function SurveyEdit(): JSX.Element {
         hasBranchingLogic,
         surveyRepeatedActivationAvailable,
         surveyErrors,
+        deviceTypesMatchTypeValidationError,
     } = useValues(surveyLogic)
     const {
         setSurveyValue,
@@ -241,7 +243,6 @@ export default function SurveyEdit(): JSX.Element {
         setSelectedPageIndex,
         setSelectedSection,
         setFlagPropertyErrors,
-        setSchedule,
         deleteBranchingLogic,
     } = useActions(surveyLogic)
     const { surveysMultipleQuestionsAvailable, surveysEventsAvailable, surveysActionsAvailable } =
@@ -249,10 +250,6 @@ export default function SurveyEdit(): JSX.Element {
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const sortedItemIds = survey.questions.map((_, idx) => idx.toString())
     const { thankYouMessageDescriptionContentType = null } = survey.appearance ?? {}
-
-    if (survey.iteration_count && survey.iteration_count > 0) {
-        setSchedule('recurring')
-    }
 
     function onSortEnd({ oldIndex, newIndex }: { oldIndex: number; newIndex: number }): void {
         function move(arr: SurveyQuestion[], from: number, to: number): SurveyQuestion[] {
@@ -300,7 +297,12 @@ export default function SurveyEdit(): JSX.Element {
                                             <div className="flex gap-4">
                                                 <PresentationTypeCard
                                                     active={value === SurveyType.Popover}
-                                                    onClick={() => onChange(SurveyType.Popover)}
+                                                    onClick={() => {
+                                                        onChange(SurveyType.Popover)
+                                                        if (survey.schedule === SurveySchedule.Always) {
+                                                            setSurveyValue('schedule', SurveySchedule.Once)
+                                                        }
+                                                    }}
                                                     title="Popover"
                                                     description="Automatically appears when PostHog JS is installed"
                                                     value={SurveyType.Popover}
@@ -311,7 +313,12 @@ export default function SurveyEdit(): JSX.Element {
                                                 </PresentationTypeCard>
                                                 <PresentationTypeCard
                                                     active={value === SurveyType.API}
-                                                    onClick={() => onChange(SurveyType.API)}
+                                                    onClick={() => {
+                                                        onChange(SurveyType.API)
+                                                        if (survey.schedule === SurveySchedule.Always) {
+                                                            setSurveyValue('schedule', SurveySchedule.Once)
+                                                        }
+                                                    }}
                                                     title="API"
                                                     description="Use the PostHog API to show/hide your survey programmatically"
                                                     value={SurveyType.API}
@@ -653,6 +660,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                   onAppearanceChange={(appearance) => {
                                                                       onChange(appearance)
                                                                   }}
+                                                                  validationErrors={surveyErrors?.appearance}
                                                               />
                                                               <LemonDivider className="mt-4" />
                                                               <div className="font-bold">Survey customization</div>
@@ -785,6 +793,7 @@ export default function SurveyEdit(): JSX.Element {
                                                         </LemonField.Pure>
                                                         <LemonField.Pure
                                                             label="Device Types"
+                                                            error={deviceTypesMatchTypeValidationError}
                                                             info={
                                                                 <>
                                                                     Add the device types to show the survey on. Possible
@@ -818,22 +827,45 @@ export default function SurveyEdit(): JSX.Element {
                                                                         })
                                                                     )}
                                                                 />
-                                                                <PropertyValue
-                                                                    propertyKey={getPropertyKey(
-                                                                        'Device Type',
-                                                                        TaxonomicFilterGroupType.EventProperties
-                                                                    )}
-                                                                    type={PropertyFilterType.Event}
-                                                                    onSet={(deviceTypes: string[]) =>
-                                                                        onChange({
-                                                                            ...value,
-                                                                            deviceTypes: deviceTypes,
-                                                                        })
-                                                                    }
-                                                                    operator={PropertyOperator.Exact}
-                                                                    value={value?.deviceTypes}
-                                                                    inputClassName="flex-1"
-                                                                />
+                                                                {[
+                                                                    SurveyMatchType.Regex,
+                                                                    SurveyMatchType.NotRegex,
+                                                                ].includes(
+                                                                    value?.deviceTypesMatchType ||
+                                                                        SurveyMatchType.Contains
+                                                                ) ? (
+                                                                    <LemonInput
+                                                                        value={value?.deviceTypes?.join('|')}
+                                                                        onChange={(deviceTypesVal) =>
+                                                                            onChange({
+                                                                                ...value,
+                                                                                deviceTypes: [deviceTypesVal],
+                                                                            })
+                                                                        }
+                                                                        // regex placeholder for device type
+                                                                        className="flex-1"
+                                                                        placeholder="ex: Desktop|Mobile"
+                                                                    />
+                                                                ) : (
+                                                                    <PropertyValue
+                                                                        propertyKey={getPropertyKey(
+                                                                            'Device Type',
+                                                                            TaxonomicFilterGroupType.EventProperties
+                                                                        )}
+                                                                        type={PropertyFilterType.Event}
+                                                                        onSet={(deviceTypes: string | string[]) => {
+                                                                            onChange({
+                                                                                ...value,
+                                                                                deviceTypes: Array.isArray(deviceTypes)
+                                                                                    ? deviceTypes
+                                                                                    : [deviceTypes],
+                                                                            })
+                                                                        }}
+                                                                        operator={PropertyOperator.Exact}
+                                                                        value={value?.deviceTypes}
+                                                                        inputClassName="flex-1"
+                                                                    />
+                                                                )}
                                                             </div>
                                                         </LemonField.Pure>
                                                         <LemonField.Pure label="CSS selector matches:">
@@ -961,7 +993,7 @@ export default function SurveyEdit(): JSX.Element {
                                             {surveysEventsAvailable && (
                                                 <LemonField.Pure
                                                     label="User sends events"
-                                                    info="Note that these events are only observed, and activate this survey, in the current user session."
+                                                    info="Note that these events are only observed and can trigger this survey within the current user session, but only for events captured using the PostHog SDK."
                                                 >
                                                     <>
                                                         <EventSelect

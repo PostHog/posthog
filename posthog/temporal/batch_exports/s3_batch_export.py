@@ -759,7 +759,6 @@ async def insert_into_s3_activity(inputs: S3InsertInputs) -> RecordsCompleted:
             include_events=inputs.include_events,
             extra_query_parameters=extra_query_parameters,
             max_record_batch_size_bytes=1024 * 1024 * 10,  # 10MB
-            use_latest_schema=True,
         )
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)

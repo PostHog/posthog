@@ -325,7 +325,7 @@ export function SummaryTable({
 
             return (
                 <>
-                    {percentage && hasValidConversionRate ? (
+                    {percentage && (metricType === InsightType.FUNNELS ? hasValidConversionRate : true) ? (
                         <span className="inline-flex items-center w-52 space-x-4">
                             <LemonProgress className="inline-flex w-3/4" percent={percentage} />
                             <span className={`w-1/4 font-semibold ${isWinning && 'text-success'}`}>

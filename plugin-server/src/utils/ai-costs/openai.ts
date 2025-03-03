@@ -2,6 +2,13 @@ import type { ModelRow } from './types'
 
 export const costs: ModelRow[] = [
     {
+        model: 'o3-mini-high',
+        cost: {
+            prompt_token: 0.0000011,
+            completion_token: 0.0000044,
+        },
+    },
+    {
         model: 'o3-mini',
         cost: {
             prompt_token: 0.0000011,
@@ -23,7 +30,7 @@ export const costs: ModelRow[] = [
         },
     },
     {
-        model: 'o1-mini-2024-09-12',
+        model: 'o1-mini',
         cost: {
             prompt_token: 0.0000011,
             completion_token: 0.0000044,
@@ -44,7 +51,7 @@ export const costs: ModelRow[] = [
         },
     },
     {
-        model: 'o1-mini',
+        model: 'o1-mini-2024-09-12',
         cost: {
             prompt_token: 0.0000011,
             completion_token: 0.0000044,
@@ -65,14 +72,14 @@ export const costs: ModelRow[] = [
         },
     },
     {
-        model: 'gpt-4o-mini',
+        model: 'gpt-4o-mini-2024-07-18',
         cost: {
             prompt_token: 0.00000015,
             completion_token: 0.0000006,
         },
     },
     {
-        model: 'gpt-4o-mini-2024-07-18',
+        model: 'gpt-4o-mini',
         cost: {
             prompt_token: 0.00000015,
             completion_token: 0.0000006,
@@ -121,17 +128,17 @@ export const costs: ModelRow[] = [
         },
     },
     {
-        model: 'gpt-3.5-turbo-1106',
-        cost: {
-            prompt_token: 0.000001,
-            completion_token: 0.000002,
-        },
-    },
-    {
         model: 'gpt-4-1106-preview',
         cost: {
             prompt_token: 0.00001,
             completion_token: 0.00003,
+        },
+    },
+    {
+        model: 'gpt-3.5-turbo-1106',
+        cost: {
+            prompt_token: 0.000001,
+            completion_token: 0.000002,
         },
     },
     {
@@ -163,20 +170,6 @@ export const costs: ModelRow[] = [
         },
     },
     {
-        model: 'gpt-3.5-turbo',
-        cost: {
-            prompt_token: 0.0000005,
-            completion_token: 0.0000015,
-        },
-    },
-    {
-        model: 'gpt-3.5-turbo-0125',
-        cost: {
-            prompt_token: 0.0000005,
-            completion_token: 0.0000015,
-        },
-    },
-    {
         model: 'gpt-4',
         cost: {
             prompt_token: 0.00003,
@@ -188,6 +181,20 @@ export const costs: ModelRow[] = [
         cost: {
             prompt_token: 0.00003,
             completion_token: 0.00006,
+        },
+    },
+    {
+        model: 'gpt-3.5-turbo-0125',
+        cost: {
+            prompt_token: 0.0000005,
+            completion_token: 0.0000015,
+        },
+    },
+    {
+        model: 'gpt-3.5-turbo',
+        cost: {
+            prompt_token: 0.0000005,
+            completion_token: 0.0000015,
         },
     },
 ]

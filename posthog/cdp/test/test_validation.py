@@ -53,8 +53,22 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         inputs_schema = create_example_inputs_schema()
         assert validate_inputs_schema(inputs_schema) == snapshot(
             [
-                {"type": "string", "key": "url", "label": "Webhook URL", "required": True, "secret": False},
-                {"type": "json", "key": "payload", "label": "JSON Payload", "required": True, "secret": False},
+                {
+                    "type": "string",
+                    "key": "url",
+                    "label": "Webhook URL",
+                    "required": True,
+                    "secret": False,
+                    "hidden": False,
+                },
+                {
+                    "type": "json",
+                    "key": "payload",
+                    "label": "JSON Payload",
+                    "required": True,
+                    "secret": False,
+                    "hidden": False,
+                },
                 {
                     "type": "choice",
                     "key": "method",
@@ -67,8 +81,16 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
                     ],
                     "required": True,
                     "secret": False,
+                    "hidden": False,
                 },
-                {"type": "dictionary", "key": "headers", "label": "Headers", "required": False, "secret": False},
+                {
+                    "type": "dictionary",
+                    "key": "headers",
+                    "label": "Headers",
+                    "required": False,
+                    "secret": False,
+                    "hidden": False,
+                },
             ]
         )
 

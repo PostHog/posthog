@@ -18,7 +18,6 @@ from posthog.batch_exports.service import (
     BatchExportModel,
     RedshiftBatchExportInputs,
 )
-from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.batch_exports.batch_exports import (
     FinishBatchExportRunInputs,
     RecordsCompleted,
@@ -52,6 +51,7 @@ from posthog.temporal.batch_exports.temporary_file import (
     WriterFormat,
 )
 from posthog.temporal.batch_exports.utils import JsonType, set_status_to_running_task
+from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import configure_temporal_worker_logger
 
@@ -398,7 +398,6 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
             include_events=inputs.include_events,
             extra_query_parameters=extra_query_parameters,
             max_record_batch_size_bytes=1024 * 1024 * 2,  # 2MB
-            use_latest_schema=True,
         )
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
@@ -500,32 +499,34 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> Records
                     redshift_client=redshift_client,
                     redshift_table=redshift_stage_table if requires_merge else redshift_table,
                 )
-                await run_consumer(
-                    consumer=consumer,
-                    queue=queue,
-                    producer_task=producer_task,
-                    schema=record_batch_schema,
-                    max_bytes=settings.BATCH_EXPORT_REDSHIFT_UPLOAD_CHUNK_SIZE_BYTES,
-                    json_columns=known_super_columns,
-                    writer_file_kwargs={
-                        "redshift_table": redshift_stage_table if requires_merge else redshift_table,
-                        "redshift_schema": inputs.schema,
-                        "table_columns": schema_columns,
-                        "known_json_columns": set(known_super_columns),
-                        "use_super": properties_type == "SUPER",
-                        "redshift_client": redshift_client,
-                    },
-                    multiple_files=True,
-                )
-
-                if requires_merge:
-                    await redshift_client.amerge_mutable_tables(
-                        final_table_name=redshift_table,
-                        stage_table_name=redshift_stage_table,
-                        schema=inputs.schema,
-                        merge_key=merge_key,
-                        update_key=update_key,
+                try:
+                    _ = await run_consumer(
+                        consumer=consumer,
+                        queue=queue,
+                        producer_task=producer_task,
+                        schema=record_batch_schema,
+                        max_bytes=settings.BATCH_EXPORT_REDSHIFT_UPLOAD_CHUNK_SIZE_BYTES,
+                        json_columns=known_super_columns,
+                        writer_file_kwargs={
+                            "redshift_table": redshift_stage_table if requires_merge else redshift_table,
+                            "redshift_schema": inputs.schema,
+                            "table_columns": schema_columns,
+                            "known_json_columns": set(known_super_columns),
+                            "use_super": properties_type == "SUPER",
+                            "redshift_client": redshift_client,
+                        },
+                        multiple_files=True,
                     )
+
+                finally:
+                    if requires_merge:
+                        await redshift_client.amerge_mutable_tables(
+                            final_table_name=redshift_table,
+                            stage_table_name=redshift_stage_table,
+                            schema=inputs.schema,
+                            merge_key=merge_key,
+                            update_key=update_key,
+                        )
 
                 return details.records_completed
 

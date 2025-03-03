@@ -8,5 +8,5 @@ set -e
 # In particular, DEBUG=1 enables a lot of Tailwind logging we don't need, so let's set 0 instead
 export DEBUG=0
 
-pnpm install
-pnpm start
+pnpm --filter=@posthog/frontend... install
+bin/turbo --filter=@posthog/frontend start

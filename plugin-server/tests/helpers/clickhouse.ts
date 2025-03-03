@@ -39,8 +39,9 @@ export async function delayUntilEventIngested<T extends any[] | number>(
     maxDelayCount = 100
 ): Promise<T> {
     const timer = performance.now()
-    let data: T
+    let data: T | null = null
     let dataLength = 0
+
     for (let i = 0; i < maxDelayCount; i++) {
         data = await fetchData()
         dataLength = typeof data === 'number' ? data : data.length
@@ -54,5 +55,6 @@ export async function delayUntilEventIngested<T extends any[] | number>(
         }
         await delay(delayMs)
     }
+
     throw Error(`Failed to get data in time, got ${JSON.stringify(data)}`)
 }

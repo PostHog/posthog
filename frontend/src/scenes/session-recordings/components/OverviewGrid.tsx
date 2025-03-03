@@ -5,7 +5,8 @@ import { ReactNode } from 'react'
 interface OverviewItemBase {
     icon?: ReactNode
     label: string
-    tooltipTitle?: string
+    valueTooltip?: ReactNode
+    keyTooltip?: ReactNode
 }
 
 type TextOverviewItem = OverviewItemBase & {
@@ -37,20 +38,24 @@ export function OverviewGridItem({
     label,
     icon,
     fadeLabel,
+    itemKeyTooltip,
 }: {
     children?: ReactNode
     description: ReactNode
     label: ReactNode
     icon?: ReactNode
     fadeLabel?: boolean
+    itemKeyTooltip?: ReactNode
 }): JSX.Element {
     return (
-        <div className="flex flex-1 w-full justify-between items-center ">
+        <div className="flex flex-1 w-full justify-between items-center space-x-4">
             <div className={clsx('text-sm', fadeLabel && 'font-light')}>
-                {icon} {label}
+                <Tooltip title={itemKeyTooltip}>
+                    {icon} {label}
+                </Tooltip>
             </div>
             <Tooltip title={description}>
-                <div>{children}</div>
+                <div className="overflow-x-scroll">{children}</div>
             </Tooltip>
         </div>
     )

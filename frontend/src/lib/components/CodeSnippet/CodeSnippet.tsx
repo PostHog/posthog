@@ -25,6 +25,7 @@ import python from 'react-syntax-highlighter/dist/esm/languages/prism/python'
 import ruby from 'react-syntax-highlighter/dist/esm/languages/prism/ruby'
 import sql from 'react-syntax-highlighter/dist/esm/languages/prism/sql'
 import swift from 'react-syntax-highlighter/dist/esm/languages/prism/swift'
+import typescript from 'react-syntax-highlighter/dist/esm/languages/prism/typescript'
 import yaml from 'react-syntax-highlighter/dist/esm/languages/prism/yaml'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -54,6 +55,7 @@ export enum Language {
     SQL = 'sql',
     Kotlin = 'kotlin',
     CSharp = 'csharp',
+    TypeScript = 'typescript',
 }
 
 export const getLanguage = (lang: string): Language => {
@@ -66,6 +68,8 @@ export const getLanguage = (lang: string): Language => {
             return Language.JSX
         case 'javascript':
             return Language.JavaScript
+        case 'typescript':
+            return Language.TypeScript
         case 'java':
             return Language.Java
         case 'ruby':
@@ -126,7 +130,7 @@ SyntaxHighlighter.registerLanguage(Language.Markup, markup)
 SyntaxHighlighter.registerLanguage(Language.HTTP, http)
 SyntaxHighlighter.registerLanguage(Language.SQL, sql)
 SyntaxHighlighter.registerLanguage(Language.Kotlin, kotlin)
-
+SyntaxHighlighter.registerLanguage(Language.TypeScript, typescript)
 export interface CodeSnippetProps {
     children: string | undefined | null
     language?: Language

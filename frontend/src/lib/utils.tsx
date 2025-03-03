@@ -118,6 +118,14 @@ export function fromParams(): Record<string, any> {
     return fromParamsGivenUrl(window.location.search)
 }
 
+export function tryDecodeURIComponent(value: string): string {
+    try {
+        return decodeURIComponent(value)
+    } catch {
+        return value
+    }
+}
+
 /** Return percentage from number, e.g. 0.234 is 23.4%. */
 export function percentage(
     division: number,
@@ -161,6 +169,10 @@ export const selectStyle: Record<string, (base: Partial<CSSProperties>) => Parti
         ...base,
         padding: '2px 15px',
     }),
+}
+
+export function splitKebabCase(string: string): string {
+    return string.replace(/-/g, ' ')
 }
 
 export function capitalizeFirstLetter(string: string): string {

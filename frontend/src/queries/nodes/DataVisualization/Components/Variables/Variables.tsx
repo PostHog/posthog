@@ -1,7 +1,15 @@
 import './Variables.scss'
 
 import { IconCopy, IconGear, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonInput, LemonSegmentedButton, LemonSelect, Popover } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonDivider,
+    LemonInput,
+    LemonSegmentedButton,
+    LemonSelect,
+    LemonSwitch,
+    Popover,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -82,7 +90,7 @@ interface VariableInputProps {
     variable: Variable
     showEditingUI: boolean
     closePopover: () => void
-    onChange: (variableId: string, value: any) => void
+    onChange: (variableId: string, value: any, isNull: boolean) => void
     onRemove?: (variableId: string) => void
     variableSettingsOnClick?: () => void
 }
@@ -112,6 +120,7 @@ const VariableInput = ({
 
         return String(val ?? '')
     })
+    const [isNull, setIsNull] = useState<boolean>(variable.isNull ?? false)
 
     const inputRef = useRef<HTMLInputElement>(null)
     const codeRef = useRef<HTMLElement>(null)
@@ -123,8 +132,8 @@ const VariableInput = ({
     const variableAsHogQL = `{variables.${variable.code_name}}`
 
     return (
-        <div>
-            <div className="flex gap-1 p-1">
+        <div className="min-w-80">
+            <div className={`flex gap-1 p-1 ${isNull ? 'opacity-50 pointer-events-none' : ''}`}>
                 {variable.type === 'String' && (
                     <LemonInput
                         inputRef={inputRef}
@@ -133,7 +142,7 @@ const VariableInput = ({
                         value={localInputValue}
                         onChange={(value) => setLocalInputValue(value)}
                         onPressEnter={() => {
-                            onChange(variable.id, localInputValue)
+                            onChange(variable.id, localInputValue, isNull)
                             closePopover()
                         }}
                     />
@@ -147,7 +156,7 @@ const VariableInput = ({
                         value={Number(localInputValue)}
                         onChange={(value) => setLocalInputValue(String(value ?? 0))}
                         onPressEnter={() => {
-                            onChange(variable.id, Number(localInputValue))
+                            onChange(variable.id, Number(localInputValue), isNull)
                             closePopover()
                         }}
                     />
@@ -179,9 +188,9 @@ const VariableInput = ({
                 )}
                 {variable.type === 'Date' && (
                     <VariableCalendar
-                        variable={variable}
+                        value={dayjs(localInputValue)}
                         updateVariable={(date) => {
-                            onChange(variable.id, date)
+                            onChange(variable.id, date, isNull)
                             closePopover()
                         }}
                     />
@@ -192,7 +201,8 @@ const VariableInput = ({
                         onClick={() => {
                             onChange(
                                 variable.id,
-                                variable.type === 'Number' ? Number(localInputValue) : localInputValue
+                                variable.type === 'Number' ? Number(localInputValue) : localInputValue,
+                                isNull
                             )
                             closePopover()
                         }}
@@ -224,6 +234,16 @@ const VariableInput = ({
                         >
                             {variableAsHogQL}
                         </code>
+                        <LemonSwitch
+                            size="xsmall"
+                            label="Set to null"
+                            checked={isNull}
+                            onChange={(value) => {
+                                setIsNull(value)
+                                onChange(variable.id, null, value)
+                            }}
+                            bordered
+                        />
                         <LemonButton
                             icon={<IconCopy />}
                             size="xsmall"
@@ -256,7 +276,7 @@ const VariableInput = ({
 interface VariableComponentProps {
     variable: Variable
     showEditingUI: boolean
-    onChange: (variableId: string, value: any) => void
+    onChange: (variableId: string, value: any, isNull: boolean) => void
     variableOverridesAreSet: boolean
     onRemove?: (variableId: string) => void
     variableSettingsOnClick?: () => void
@@ -282,7 +302,7 @@ const VariableComponent = ({
             >
                 <LemonSelect
                     value={variable.value ?? variable.default_value}
-                    onChange={(value) => onChange(variable.id, value)}
+                    onChange={(value) => onChange(variable.id, value, variable.isNull ?? false)}
                     options={variable.values.map((n) => ({ label: n, value: n }))}
                 />
             </LemonField.Pure>
@@ -324,7 +344,9 @@ const VariableComponent = ({
                         onClick={() => setPopoverOpen(!isPopoverOpen)}
                         disabledReason={variableOverridesAreSet && 'Discard dashboard variables to change'}
                     >
-                        {variable.value?.toString() ?? variable.default_value?.toString()}
+                        {variable.isNull
+                            ? 'Set to null'
+                            : variable.value?.toString() ?? variable.default_value?.toString()}
                     </LemonButton>
                 </LemonField.Pure>
             </div>

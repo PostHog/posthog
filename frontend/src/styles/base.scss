@@ -1,6 +1,6 @@
 // Global components
 @import 'vars';
-@import '../../../node_modules/react-toastify/dist/ReactToastify';
+@import '../../node_modules/react-toastify/dist/ReactToastify';
 @import 'functions';
 @import 'mixins';
 @import 'tailwindcss/base';
@@ -477,6 +477,17 @@
     --color-graph-axis: var(--text-secondary); /* Line around a graph */
     --color-graph-crosshair: var(--primitive-neutral-cool-450); /* Crosshair line, horizontal or vertical */
 
+    // Skeleton colors
+    // //////////////////////////////////////////////////////////
+    --color-skeleton-light: rgb(
+        190 190 190 / 20%
+    ); // Equivalent to --primitive-neutral-200 but with transparency, improve browser compatibility
+
+    --color-skeleton-dark: rgb(
+        129 129 129 / 24%
+    ); // Equivalent to --primitive-neutral-400 but with transparency, improve browser compatibility
+
+    // Breakpoint variables
     // Breakpoint variables
     // //////////////////////////////////////////////////////////
     --breakpoint-sm: 576px;
@@ -1327,7 +1338,7 @@ html {
 input::placeholder,
 textarea::placeholder {
     // Overrides Tailwind's default
-    color: var(--text-secondary);
+    color: var(--text-tertiary);
 }
 
 a {
@@ -1441,6 +1452,10 @@ img {
 
 .system-ui {
     font-family: system-ui;
+}
+
+.inherit {
+    font-family: inherit;
 }
 
 // Highlight background blink

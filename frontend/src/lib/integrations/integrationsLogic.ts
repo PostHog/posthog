@@ -2,7 +2,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
-import api from 'lib/api'
+import api, { getCookie } from 'lib/api'
 import { fromParamsGivenUrl } from 'lib/utils'
 import IconGoogleAds from 'public/services/google-ads.png'
 import IconGoogleCloud from 'public/services/google-cloud.png'
@@ -99,7 +99,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
     listeners(({ actions }) => ({
         handleOauthCallback: async ({ kind, searchParams }) => {
             const { state, code, error } = searchParams
-            const { next } = fromParamsGivenUrl(state)
+            const { next, token } = fromParamsGivenUrl(state)
             let replaceUrl: string = next || urls.settings('project-integrations')
 
             if (error) {
@@ -109,6 +109,10 @@ export const integrationsLogic = kea<integrationsLogicType>([
             }
 
             try {
+                if (token !== getCookie('ph_oauth_state')) {
+                    throw new Error('Invalid state token')
+                }
+
                 const integration = await api.integrations.create({
                     kind,
                     config: { state, code },

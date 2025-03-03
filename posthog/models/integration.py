@@ -7,6 +7,7 @@ from typing import Any, Literal, Optional
 from urllib.parse import urlencode
 
 from django.db import models
+from prometheus_client import Counter
 import requests
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
@@ -26,6 +27,10 @@ from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 from posthog.warehouse.util import database_sync_to_async
 
 logger = structlog.get_logger(__name__)
+
+oauth_refresh_counter = Counter(
+    "integration_oauth_refresh", "Number of times an oauth refresh has been attempted", labelnames=["kind", "result"]
+)
 
 
 def dot_get(d: Any, path: str, default: Any = None) -> Any:
@@ -120,6 +125,9 @@ class OauthConfig:
 class OauthIntegration:
     supported_kinds = ["slack", "salesforce", "hubspot", "google-ads", "snapchat", "linkedin-ads", "intercom"]
     integration: Integration
+
+    def __str__(self) -> str:
+        return f"OauthIntegration(integration={self.integration.id}, kind={self.integration.kind}, team={self.integration.team_id})"
 
     def __init__(self, integration: Integration) -> None:
         self.integration = integration
@@ -251,7 +259,7 @@ class OauthIntegration:
         return f"{settings.SITE_URL.replace('http://', 'https://')}/integrations/{kind}/callback"
 
     @classmethod
-    def authorize_url(cls, kind: str, next="") -> str:
+    def authorize_url(cls, kind: str, token: str, next="") -> str:
         oauth_config = cls.oauth_config_for_kind(kind)
 
         query_params = {
@@ -259,7 +267,7 @@ class OauthIntegration:
             "scope": oauth_config.scope,
             "redirect_uri": cls.redirect_uri(kind),
             "response_type": "code",
-            "state": urlencode({"next": next}),
+            "state": urlencode({"next": next, "token": token}),
             **(oauth_config.additional_authorize_params or {}),
         }
 
@@ -371,12 +379,14 @@ class OauthIntegration:
         if res.status_code != 200 or not config.get("access_token"):
             logger.warning(f"Failed to refresh token for {self}", response=res.text)
             self.integration.errors = ERROR_TOKEN_REFRESH_FAILED
+            oauth_refresh_counter.labels(self.integration.kind, "failed").inc()
         else:
             logger.info(f"Refreshed access token for {self}")
             self.integration.sensitive_config["access_token"] = config["access_token"]
             self.integration.config["expires_in"] = config.get("expires_in")
             self.integration.config["refreshed_at"] = int(time.time())
             reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
+            oauth_refresh_counter.labels(self.integration.kind, "success").inc()
         self.integration.save()
 
 
@@ -397,23 +407,28 @@ class SlackIntegration:
     def client(self) -> WebClient:
         return WebClient(self.integration.sensitive_config["access_token"])
 
-    def list_channels(self) -> list[dict]:
+    def list_channels(self, authed_user) -> list[dict]:
         # NOTE: Annoyingly the Slack API has no search so we have to load all channels...
         # We load public and private channels separately as when mixed, the Slack API pagination is buggy
-        public_channels = self._list_channels_by_type("public_channel")
-        private_channels = self._list_channels_by_type("private_channel")
+        public_channels = self._list_channels_by_type("public_channel", authed_user)
+        private_channels = self._list_channels_by_type("private_channel", authed_user)
         channels = public_channels + private_channels
 
         return sorted(channels, key=lambda x: x["name"])
 
-    def _list_channels_by_type(self, type: Literal["public_channel", "private_channel"]) -> list[dict]:
+    def _list_channels_by_type(self, type: Literal["public_channel", "private_channel"], authed_user) -> list[dict]:
         max_page = 20
         channels = []
         cursor = None
 
         while max_page > 0:
             max_page -= 1
-            res = self.client.conversations_list(exclude_archived=True, types=type, limit=200, cursor=cursor)
+            if type == "public_channel":
+                res = self.client.conversations_list(exclude_archived=True, types=type, limit=200, cursor=cursor)
+            else:
+                res = self.client.users_conversations(
+                    exclude_archived=True, types=type, limit=200, cursor=cursor, user=authed_user
+                )
 
             channels.extend(res["channels"])
             cursor = res["response_metadata"]["next_cursor"]

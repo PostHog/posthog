@@ -207,7 +207,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                     </LemonField>
                 )}
                 {question.type === SurveyQuestionType.Link && (
-                    <LemonField name="link" label="Link" info="Make sure to include https:// in the url.">
+                    <LemonField name="link" label="Link" info="Only https:// or mailto: links are supported.">
                         <LemonInput value={question.link || ''} placeholder="https://posthog.com" />
                     </LemonField>
                 )}

@@ -128,20 +128,18 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
     def update(self, instance: Any, validated_data: Any) -> Any:
         sync_frequency = self.context["request"].data.get("sync_frequency", None)
         was_sync_frequency_updated = False
-        if sync_frequency == "never":
-            delete_saved_query_schedule(str(instance.id))
-            instance.sync_frequency_interval = None
-        else:
-            if sync_frequency:
+
+        with transaction.atomic():
+            if sync_frequency == "never":
+                delete_saved_query_schedule(str(instance.id))
+                instance.sync_frequency_interval = None
+                validated_data["sync_frequency_interval"] = None
+            elif sync_frequency:
                 sync_frequency_interval = sync_frequency_to_sync_frequency_interval(sync_frequency)
                 validated_data["sync_frequency_interval"] = sync_frequency_interval
                 was_sync_frequency_updated = True
                 instance.sync_frequency_interval = sync_frequency_interval
-            schedule_exists = saved_query_workflow_exists(str(instance.id))
-            if was_sync_frequency_updated:
-                sync_saved_query_workflow(instance, create=not schedule_exists)
 
-        with transaction.atomic():
             view: DataWarehouseSavedQuery = super().update(instance, validated_data)
 
             try:
@@ -150,7 +148,6 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
                 view.status = DataWarehouseSavedQuery.Status.MODIFIED
             except RecursionError:
                 raise serializers.ValidationError("Model contains a cycle")
-
             except Exception as err:
                 raise serializers.ValidationError(str(err))
 
@@ -160,6 +157,10 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
                 DataWarehouseModelPath.objects.update_from_saved_query(view)
             except Exception:
                 logger.exception("Failed to update model path when updating view %s", view.name)
+
+        if was_sync_frequency_updated:
+            schedule_exists = saved_query_workflow_exists(str(instance.id))
+            sync_saved_query_workflow(view, create=not schedule_exists)
 
         return view
 
@@ -224,7 +225,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         if instance.table is not None:
             instance.table.soft_delete()
 
-        self.perform_destroy(instance)
+        instance.soft_delete()
 
         return response.Response(status=status.HTTP_204_NO_CONTENT)
 

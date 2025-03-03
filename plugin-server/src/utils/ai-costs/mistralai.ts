@@ -2,6 +2,20 @@ import type { ModelRow } from './types'
 
 export const costs: ModelRow[] = [
     {
+        model: 'mistral-saba',
+        cost: {
+            prompt_token: 0.0000002,
+            completion_token: 0.0000006,
+        },
+    },
+    {
+        model: 'mistral-small-24b-instruct-2501:free',
+        cost: {
+            prompt_token: 0,
+            completion_token: 0,
+        },
+    },
+    {
         model: 'mistral-small-24b-instruct-2501',
         cost: {
             prompt_token: 0.00000007,
@@ -58,6 +72,20 @@ export const costs: ModelRow[] = [
         },
     },
     {
+        model: 'codestral-mamba',
+        cost: {
+            prompt_token: 0.00000025,
+            completion_token: 0.00000025,
+        },
+    },
+    {
+        model: 'mistral-nemo:free',
+        cost: {
+            prompt_token: 0,
+            completion_token: 0,
+        },
+    },
+    {
         model: 'mistral-nemo',
         cost: {
             prompt_token: 0.000000035,
@@ -65,10 +93,10 @@ export const costs: ModelRow[] = [
         },
     },
     {
-        model: 'codestral-mamba',
+        model: 'mistral-7b-instruct-v0.3',
         cost: {
-            prompt_token: 0.00000025,
-            completion_token: 0.00000025,
+            prompt_token: 0.00000003,
+            completion_token: 0.000000055,
         },
     },
     {
@@ -80,20 +108,6 @@ export const costs: ModelRow[] = [
     },
     {
         model: 'mistral-7b-instruct',
-        cost: {
-            prompt_token: 0.00000003,
-            completion_token: 0.000000055,
-        },
-    },
-    {
-        model: 'mistral-7b-instruct:nitro',
-        cost: {
-            prompt_token: 0.00000007,
-            completion_token: 0.00000007,
-        },
-    },
-    {
-        model: 'mistral-7b-instruct-v0.3',
         cost: {
             prompt_token: 0.00000003,
             completion_token: 0.000000055,
@@ -114,17 +128,17 @@ export const costs: ModelRow[] = [
         },
     },
     {
-        model: 'mistral-small',
-        cost: {
-            prompt_token: 0.0000002,
-            completion_token: 0.0000006,
-        },
-    },
-    {
         model: 'mistral-tiny',
         cost: {
             prompt_token: 0.00000025,
             completion_token: 0.00000025,
+        },
+    },
+    {
+        model: 'mistral-small',
+        cost: {
+            prompt_token: 0.0000002,
+            completion_token: 0.0000006,
         },
     },
     {
@@ -146,13 +160,6 @@ export const costs: ModelRow[] = [
         cost: {
             prompt_token: 0.00000024,
             completion_token: 0.00000024,
-        },
-    },
-    {
-        model: 'mixtral-8x7b-instruct:nitro',
-        cost: {
-            prompt_token: 0.0000005,
-            completion_token: 0.0000005,
         },
     },
     {
