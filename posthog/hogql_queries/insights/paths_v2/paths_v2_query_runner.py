@@ -177,9 +177,11 @@ class PathsV2QueryRunner(QueryRunner):
             GROUP BY step_index,
                 source_step,
                 target_step
-            ORDER BY event_count DESC,
+            ORDER BY step_index ASC,
+                event_count DESC,
                 source_step,
                 target_step
+            LIMIT 5 BY step_index
         """,
             placeholders={
                 "paths_flattened_with_previous_item": self._paths_flattened_with_previous_item(),
