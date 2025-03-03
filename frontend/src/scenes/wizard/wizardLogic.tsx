@@ -33,9 +33,13 @@ export const wizardLogic = kea<wizardLogicType>([
                         })
                         actions.setView('success')
                         return response
-                    } catch (e: any) {
+                    } catch (e: unknown) {
                         actions.setView('invalid')
-                        return { success: false, errorCode: e.code, errorDetail: e.detail }
+                        if (e instanceof Error && 'code' in e && 'detail' in e) {
+                            return { success: false, errorCode: e.code, errorDetail: e.detail }
+                        }
+
+                        return { success: false, errorCode: 'unknown', errorDetail: 'Unknown error' }
                     }
                 },
             },

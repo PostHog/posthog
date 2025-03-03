@@ -35,7 +35,7 @@ class SetupWizardSerializer(serializers.Serializer):
         return {"hash": instance}
 
     def create(self) -> dict[str, str]:
-        hash = get_random_string(64, allowed_chars="abcdefghijklmnopqrstuvwxyz012345679")
+        hash = get_random_string(64, allowed_chars="abcdefghijklmnopqrstuvwxyz0123456789")
         key = f"{SETUP_WIZARD_CACHE_PREFIX}{hash}"
 
         cache.set(key, {"project_api_key": None, "host": None}, SETUP_WIZARD_CACHE_TIMEOUT)
@@ -74,10 +74,10 @@ class SetupWizardViewSet(viewsets.ViewSet):
         wizard_data = cache.get(key)
 
         if wizard_data is None:
-            return Response(status=404)
+            return Response(status=404, data={"error": "Invalid hash."})
 
         if not wizard_data.get("project_api_key") or not wizard_data.get("host"):
-            return Response({"error": "Setup wizard not authenticated. Please login first"}, status=400)
+            return Response(status=400, data={"error": "Setup wizard not authenticated. Please login first"})
 
         return Response(wizard_data)
 

@@ -31,6 +31,7 @@ class SetupWizardTests(APITestCase):
         response = self.client.get(self.data_url, HTTP_X_POSTHOG_WIZARD_HASH=self.hash)
         assert response.status_code == status.HTTP_200_OK
         assert response.data["project_api_key"] == "test-key"
+        assert response.data["host"] == "http://localhost:8010"
 
     @patch("posthog.api.wizard.OpenAI")
     def test_query_endpoint_requires_hash_header(self, mock_openai):
@@ -52,7 +53,7 @@ class SetupWizardTests(APITestCase):
             choices=[MagicMock(message=MagicMock(content=json.dumps({"foo": "bar"})))]
         )
 
-        for _ in range(20):
+        for _ in range(20):  # Limit taken from rate_limit.py
             response = self.client.post(
                 self.query_url,
                 data=json.dumps(
