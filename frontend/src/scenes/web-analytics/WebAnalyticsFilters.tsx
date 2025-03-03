@@ -28,7 +28,7 @@ export const WebAnalyticsFilters = (): JSX.Element => {
     const { authorizedUrls } = useValues(
         authorizedUrlListLogic({ type: AuthorizedUrlListType.WEB_ANALYTICS, actionId: null, experimentId: null })
     )
-    const { domainFilter } = useValues(webAnalyticsLogic)
+    const { domainFilter, hasHostFilter } = useValues(webAnalyticsLogic)
     const { setDomainFilter } = useActions(webAnalyticsLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
@@ -45,14 +45,25 @@ export const WebAnalyticsFilters = (): JSX.Element => {
                                 <LemonSelect
                                     className="grow md:grow-0"
                                     size="small"
-                                    value={domainFilter || 'all'}
+                                    value={domainFilter ?? (hasHostFilter ? 'host' : 'all')}
                                     icon={<IconGlobe />}
                                     onChange={(value) => setDomainFilter(value)}
                                     disabled={authorizedUrls.length === 0}
                                     options={[
                                         {
                                             options: [
-                                                { label: 'All domains', value: 'all' },
+                                                {
+                                                    label: 'All domains',
+                                                    value: 'all',
+                                                },
+                                                ...(hasHostFilter
+                                                    ? [
+                                                          {
+                                                              label: 'All domains (host filter active)',
+                                                              value: 'host',
+                                                          },
+                                                      ]
+                                                    : []),
                                                 ...authorizedUrls.map((url) => ({ label: url, value: url })),
                                             ],
                                             footer: (
