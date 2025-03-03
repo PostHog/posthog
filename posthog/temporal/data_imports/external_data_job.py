@@ -11,6 +11,7 @@ from temporalio.common import RetryPolicy
 # TODO: remove dependency
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
+from posthog.temporal.data_imports.metrics import get_data_import_finished_metric
 from posthog.temporal.data_imports.workflow_activities.check_billing_limits import (
     CheckBillingLimitsActivityInputs,
     check_billing_limits_activity,
@@ -29,14 +30,11 @@ from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import (
 )
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 from posthog.utils import get_machine_id
-from posthog.warehouse.data_load.source_templates import create_warehouse_templates_for_source
-from posthog.warehouse.external_data_source.jobs import (
-    update_external_job_status,
+from posthog.warehouse.data_load.source_templates import (
+    create_warehouse_templates_for_source,
 )
-from posthog.warehouse.models import (
-    ExternalDataJob,
-    ExternalDataSource,
-)
+from posthog.warehouse.external_data_source.jobs import update_external_job_status
+from posthog.warehouse.models import ExternalDataJob, ExternalDataSource
 from posthog.warehouse.models.external_data_schema import update_should_sync
 
 Any_Source_Errors: list[str] = ["Could not establish session to SSH gateway"]
@@ -280,6 +278,8 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             update_inputs.status = ExternalDataJob.Status.FAILED
             raise
         finally:
+            get_data_import_finished_metric(source_type=source_type, status=update_inputs.status.lower()).add(1)
+
             await workflow.execute_activity(
                 update_external_data_job_model,
                 update_inputs,
