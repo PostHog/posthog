@@ -101,16 +101,22 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
     )
     name = serializers.CharField(required=True, max_length=400, help_text="A descriptive name for the function")
     description = serializers.CharField(
-        required=False, allow_blank=True, help_text="Optional description of what the function does"
+        required=False, allow_blank=True, allow_null=True, help_text="Optional description of what the function does"
     )
     enabled = serializers.BooleanField(default=False, help_text="Whether the function is enabled and actively running")
     hog = serializers.CharField(required=True, help_text="The function code.")
     inputs_schema = serializers.JSONField(
-        required=False, help_text="JSON schema defining the expected inputs for this function"
+        required=False, allow_null=True, help_text="JSON schema defining the expected inputs for this function"
     )
-    inputs = serializers.JSONField(required=False, help_text="Input values that match the inputs_schema")
-    filters = serializers.JSONField(required=False, help_text="Optional filters to determine when this function runs")
-    mappings = serializers.JSONField(required=False, help_text="Optional field mappings for destination functions")
+    inputs = serializers.JSONField(
+        required=False, allow_null=True, help_text="Input values that match the inputs_schema"
+    )
+    filters = serializers.JSONField(
+        required=False, allow_null=True, help_text="Optional filters to determine when this function runs"
+    )
+    mappings = serializers.JSONField(
+        required=False, allow_null=True, help_text="Optional field mappings for destination functions"
+    )
     icon_url = serializers.CharField(required=False, allow_null=True, help_text="Optional URL for the function's icon")
     template_id = serializers.CharField(
         required=False, write_only=True, allow_null=True, help_text="ID of the template to create this function from"
@@ -154,7 +160,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "execution_order",
         ]
         extra_kwargs = {
-            "hog": {"required": False},
+            "hog": {"required": True},
             "inputs_schema": {"required": False},
             "template_id": {"write_only": True},
             "deleted": {"write_only": True},
