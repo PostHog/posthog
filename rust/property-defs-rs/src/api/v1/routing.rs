@@ -337,6 +337,25 @@ impl Params {
     }
 }
 
+impl Default for Params {
+    fn default() -> Self {
+        Params {
+            search_terms: vec![],
+            search_fields: HashSet::from(["name".to_string()]),
+            parent_type: PropertyParentType::Event,
+            group_type_index: -1,
+            properties: vec![],
+            excluded_properties: vec![],
+            event_names: vec![],
+            is_feature_flag: None,
+            is_numerical: false,
+            use_enterprise_taxonomy: true,
+            limit: 100,
+            offset: 0,
+        }
+    }
+}
+
 #[derive(Deserialize, Serialize, FromRow)]
 struct PropDefRow {
     id: uuid::Uuid,
