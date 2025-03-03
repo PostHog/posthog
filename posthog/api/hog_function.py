@@ -87,10 +87,34 @@ class HogFunctionMaskingSerializer(serializers.Serializer):
 
 
 class HogFunctionSerializer(HogFunctionMinimalSerializer):
-    template = HogFunctionTemplateSerializer(read_only=True)
-    masking = HogFunctionMaskingSerializer(required=False, allow_null=True)
+    template = HogFunctionTemplateSerializer(
+        read_only=True, help_text="Template details if this function was created from a template"
+    )
+    masking = HogFunctionMaskingSerializer(
+        required=False, allow_null=True, help_text="Optional masking configuration for sensitive data"
+    )
 
-    type = serializers.ChoiceField(choices=HogFunctionType.choices, required=False, allow_null=True)
+    type = serializers.ChoiceField(
+        choices=HogFunctionType.choices,
+        required=True,
+        help_text="The type of HogFunction. This cannot be changed after creation.",
+    )
+    name = serializers.CharField(required=True, max_length=400, help_text="A descriptive name for the function")
+    description = serializers.CharField(
+        required=False, allow_blank=True, help_text="Optional description of what the function does"
+    )
+    enabled = serializers.BooleanField(default=False, help_text="Whether the function is enabled and actively running")
+    hog = serializers.CharField(required=True, help_text="The function code.")
+    inputs_schema = serializers.JSONField(
+        required=False, help_text="JSON schema defining the expected inputs for this function"
+    )
+    inputs = serializers.JSONField(required=False, help_text="Input values that match the inputs_schema")
+    filters = serializers.JSONField(required=False, help_text="Optional filters to determine when this function runs")
+    mappings = serializers.JSONField(required=False, help_text="Optional field mappings for destination functions")
+    icon_url = serializers.CharField(required=False, allow_null=True, help_text="Optional URL for the function's icon")
+    template_id = serializers.CharField(
+        required=False, write_only=True, allow_null=True, help_text="ID of the template to create this function from"
+    )
 
     class Meta:
         model = HogFunction
@@ -127,6 +151,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "transpiled",
             "template",
             "status",
+            "execution_order",
         ]
         extra_kwargs = {
             "hog": {"required": False},
@@ -162,29 +187,44 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         template_id = attrs.get("template_id", instance.template_id if instance else None)
         template = HogFunctionTemplates.template(template_id) if template_id else None
 
+        # Validate required fields for creation
+        if is_create:
+            required_fields = ["type", "name", "hog"]
+            missing_fields = [field for field in required_fields if field not in attrs]
+            if missing_fields:
+                raise serializers.ValidationError(
+                    {field: "This field is required when creating a new function." for field in missing_fields}
+                )
+
+        # Validate transformation type restrictions
         if hog_type == "transformation":
             allowed_teams = [int(team_id) for team_id in settings.HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS]
             if team.id not in allowed_teams:
                 if not template:
                     raise serializers.ValidationError(
-                        {"template_id": "Transformation functions must be created from a template."}
+                        {
+                            "template_id": "Transformation functions must be created from a template. Your team is not authorized to create custom transformations."
+                        }
                     )
                 # Currently we do not allow modifying the core transformation templates when transformations are disabled
                 attrs["hog"] = template.hog
                 attrs["inputs_schema"] = template.inputs_schema
 
-        if not has_addon:
-            if not bypass_addon_check:
-                # If they don't have the addon, they can only use free templates and can't modify them
-                if not template:
-                    raise serializers.ValidationError(
-                        {"template_id": "The Data Pipelines addon is required to create custom functions."}
-                    )
+        # Validate addon requirements
+        if not has_addon and not bypass_addon_check:
+            if not template:
+                raise serializers.ValidationError(
+                    {
+                        "template_id": "The Data Pipelines addon is required to create custom functions. Please use a template or upgrade your plan."
+                    }
+                )
 
-                if not template.free and not instance:
-                    raise serializers.ValidationError(
-                        {"template_id": "The Data Pipelines addon is required for this template."}
-                    )
+            if not template.free and not instance:
+                raise serializers.ValidationError(
+                    {
+                        "template_id": "The Data Pipelines addon is required for this template. Please upgrade your plan to use this template."
+                    }
+                )
 
             # Without the addon you can't deviate from the template
             attrs["hog"] = template.hog
@@ -206,7 +246,10 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         # Used for both top level input validation, and mappings input validation
         def validate_input_and_filters(attrs: dict):
             if "inputs_schema" in attrs:
-                attrs["inputs_schema"] = validate_inputs_schema(attrs["inputs_schema"])
+                try:
+                    attrs["inputs_schema"] = validate_inputs_schema(attrs["inputs_schema"])
+                except Exception as e:
+                    raise serializers.ValidationError({"inputs_schema": f"Invalid inputs schema: {str(e)}"})
 
             if "inputs" in attrs:
                 inputs = attrs["inputs"] or {}
@@ -216,29 +259,41 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                     existing_encrypted_inputs = instance.encrypted_inputs
 
                 attrs["inputs_schema"] = attrs.get("inputs_schema", instance.inputs_schema if instance else [])
-                attrs["inputs"] = validate_inputs(attrs["inputs_schema"], inputs, existing_encrypted_inputs, hog_type)
+                try:
+                    attrs["inputs"] = validate_inputs(
+                        attrs["inputs_schema"], inputs, existing_encrypted_inputs, hog_type
+                    )
+                except Exception as e:
+                    raise serializers.ValidationError({"inputs": f"Invalid inputs: {str(e)}"})
 
             if "filters" in attrs:
-                if hog_type in TYPES_WITH_COMPILED_FILTERS:
-                    attrs["filters"] = compile_filters_bytecode(attrs["filters"], team)
-                elif hog_type in TYPES_WITH_TRANSPILED_FILTERS:
-                    compiler = JavaScriptCompiler()
-                    code = compiler.visit(compile_filters_expr(attrs["filters"], team))
-                    attrs["filters"]["transpiled"] = {"lang": "ts", "code": code, "stl": list(compiler.stl_functions)}
-                    if "bytecode" in attrs["filters"]:
-                        del attrs["filters"]["bytecode"]
+                try:
+                    if hog_type in TYPES_WITH_COMPILED_FILTERS:
+                        attrs["filters"] = compile_filters_bytecode(attrs["filters"], team)
+                    elif hog_type in TYPES_WITH_TRANSPILED_FILTERS:
+                        compiler = JavaScriptCompiler()
+                        code = compiler.visit(compile_filters_expr(attrs["filters"], team))
+                        attrs["filters"]["transpiled"] = {
+                            "lang": "ts",
+                            "code": code,
+                            "stl": list(compiler.stl_functions),
+                        }
+                        if "bytecode" in attrs["filters"]:
+                            del attrs["filters"]["bytecode"]
+                except Exception as e:
+                    raise serializers.ValidationError({"filters": f"Invalid filters: {str(e)}"})
 
         validate_input_and_filters(attrs)
 
         if attrs.get("mappings", None) is not None:
             if hog_type not in ["site_destination", "destination"]:
-                raise serializers.ValidationError({"mappings": "Mappings are only allowed for destinations."})
+                raise serializers.ValidationError({"mappings": "Mappings are only allowed for destination functions."})
             for mapping in attrs["mappings"]:
                 validate_input_and_filters(mapping)
 
         if "hog" in attrs:
-            if hog_type in TYPES_WITH_JAVASCRIPT_SOURCE:
-                try:
+            try:
+                if hog_type in TYPES_WITH_JAVASCRIPT_SOURCE:
                     # Validate transpilation using the model instance
                     attrs["transpiled"] = get_transpiled_function(
                         HogFunction(
@@ -248,16 +303,14 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                             inputs=attrs["inputs"],
                         )
                     )
-                except TranspilerError:
-                    raise serializers.ValidationError({"hog": "Error in TypeScript code"})
-                attrs["bytecode"] = None
-            else:
-                attrs["bytecode"] = compile_hog(attrs["hog"], hog_type)
-                attrs["transpiled"] = None
-
-        if is_create:
-            if not attrs.get("hog"):
-                raise serializers.ValidationError({"hog": "Required."})
+                    attrs["bytecode"] = None
+                else:
+                    attrs["bytecode"] = compile_hog(attrs["hog"], hog_type)
+                    attrs["transpiled"] = None
+            except TranspilerError:
+                raise serializers.ValidationError({"hog": "Invalid TypeScript code. Please check for syntax errors."})
+            except Exception as e:
+                raise serializers.ValidationError({"hog": f"Invalid function code: {str(e)}"})
 
         return super().validate(attrs)
 
@@ -322,7 +375,7 @@ class HogFunctionInvocationSerializer(serializers.Serializer):
 class HogFunctionViewSet(
     TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, ForbidDestroyModel, viewsets.ModelViewSet
 ):
-    scope_object = "INTERNAL"  # Keep internal until we are happy to release this GA
+    scope_object = "hog_function"
     queryset = HogFunction.objects.all()
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["id", "team", "created_by", "enabled"]

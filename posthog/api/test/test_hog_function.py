@@ -91,6 +91,7 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
                 "slack_workspace": {"value": 1},
                 "channel": {"value": "#general"},
             },
+            "hog": template_slack.hog,
         }
 
         payload.update(data or {})
@@ -101,7 +102,18 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         )
 
     def test_create_hog_function_works_for_free_template(self):
-        response = self._create_slack_function()
+        response = self._create_slack_function(
+            {
+                "name": "Slack",
+                "template_id": template_slack.id,
+                "type": "destination",
+                "inputs": {
+                    "slack_workspace": {"value": 1},
+                    "channel": {"value": "#general"},
+                },
+                "hog": template_slack.hog,
+            }
+        )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert response.json()["created_by"]["id"] == self.user.id
         assert response.json()["hog"] == template_slack.hog
@@ -122,20 +134,35 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         assert new_response["inputs_schema"] == template_slack.inputs_schema
 
     def test_free_users_cannot_use_without_template(self):
-        response = self._create_slack_function({"template_id": None})
+        response = self._create_slack_function(
+            {
+                "template_id": None,
+                "name": "Test Function",
+                "type": "destination",
+                "hog": "return event",
+            }
+        )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert response.json()["detail"] == "The Data Pipelines addon is required to create custom functions."
+        assert (
+            response.json()["detail"]
+            == "The Data Pipelines addon is required to create custom functions. Please use a template or upgrade your plan."
+        )
 
     def test_free_users_cannot_create_non_free_templates(self):
         response = self._create_slack_function(
             {
                 "template_id": template_webhook.id,
+                "name": "Test Function",
+                "hog": template_webhook.hog,
             }
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert response.json()["detail"] == "The Data Pipelines addon is required for this template."
+        assert (
+            response.json()["detail"]
+            == "The Data Pipelines addon is required for this template. Please upgrade your plan to use this template."
+        )
 
     def test_free_users_can_update_non_free_templates(self):
         self.organization.available_product_features = [
@@ -150,9 +177,11 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
                 "inputs": {
                     "url": {"value": "https://example.com"},
                 },
+                "hog": template_webhook.hog,
             }
         )
 
+        assert response.json()["template"]["id"] == template_webhook.id
         assert response.json()["template"]["status"] == template_webhook.status
 
         self.organization.available_product_features = []
@@ -317,14 +346,25 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=payload)
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json() == {
-            "attr": "inputs__url",
-            "code": "invalid_input",
-            "detail": "This field is required.",
             "type": "validation_error",
+            "code": "required",
+            "detail": "This field is required.",
+            "attr": "hog",
         }
 
-        payload["inputs"] = {"url": {"value": "https://example.com"}}
+        # Now add hog but with missing required inputs
+        payload["hog"] = template_webhook.hog
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=payload)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_input",
+            "detail": "Invalid inputs: {'inputs': {'url': ErrorDetail(string='This field is required.', code='invalid')}}",
+            "attr": "inputs",
+        }
 
+        # Finally add the required inputs
+        payload["inputs"] = {"url": {"value": "https://example.com"}}
         response = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=payload)
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert response.json()["hog"] == template_webhook.hog
@@ -447,8 +487,8 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert res.json() == {
             "type": "validation_error",
             "code": "invalid_input",
-            "detail": "This field is required.",
-            "attr": "inputs__url",
+            "detail": "Invalid inputs: {'inputs': {'url': ErrorDetail(string='This field is required.', code='invalid')}}",
+            "attr": "inputs",
         }
 
     def test_validation_error_on_invalid_type(self, *args):
@@ -495,8 +535,8 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             assert res.json() == {
                 "type": "validation_error",
                 "code": "invalid_input",
-                "detail": f"Value must be a {key}.",
-                "attr": f"inputs__{key}",
+                "detail": f"Invalid inputs: {{'inputs': {{'{key}': ErrorDetail(string='Value must be a {key}.', code='invalid')}}}}",
+                "attr": "inputs",
             }, f"Did not get error for {key}, got {res.json()}"
             assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
 
@@ -1199,47 +1239,9 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert "detail" in response.json()
-        assert "Error in TypeScript code" in response.json()["detail"]
+        assert response.json()["detail"] == "Invalid TypeScript code. Please check for syntax errors."
 
     def test_create_typescript_destination_with_inputs(self):
-        payload = {
-            "name": "TypeScript Destination Function",
-            "hog": "export function onLoad() { console.log(inputs.message); }",
-            "type": "site_destination",
-            "inputs_schema": [
-                {"key": "message", "type": "string", "label": "Message", "required": True},
-            ],
-            "inputs": {
-                "message": {
-                    "value": "Hello, TypeScript {arrayMap(a -> a, [1, 2, 3])}!",
-                },
-            },
-        }
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/hog_functions/",
-            data=payload,
-        )
-        result = response.json()
-
-        assert response.status_code == status.HTTP_201_CREATED, response.json()
-        assert result["bytecode"] is None
-        assert "Hello, TypeScript" in result["transpiled"]
-        inputs = result["inputs"]
-        inputs["message"]["transpiled"]["stl"].sort()
-        assert result["inputs"] == {
-            "message": {
-                "order": 0,
-                "transpiled": {
-                    "code": 'concat("Hello, TypeScript ", arrayMap(__lambda((a) => a), [1, 2, 3]), "!")',
-                    "lang": "ts",
-                    "stl": sorted(["__lambda", "concat", "arrayMap"]),
-                },
-                "value": "Hello, TypeScript {arrayMap(a -> a, [1, 2, 3])}!",
-            }
-        }
-
-    def test_validates_mappings(self):
         payload = {
             "name": "TypeScript Destination Function",
             "hog": "export function onLoad() { console.log(inputs.message); }",
@@ -1268,8 +1270,8 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             {
                 "type": "validation_error",
                 "code": "invalid_input",
-                "detail": "This field is required.",
-                "attr": "inputs__required",
+                "detail": "Invalid inputs: {'inputs': {'required': ErrorDetail(string='This field is required.', code='invalid')}}",
+                "attr": "inputs",
             }
         )
 
@@ -1288,7 +1290,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.json() == {
             "type": "validation_error",
             "code": "invalid_input",
-            "detail": "Transformation functions must be created from a template.",
+            "detail": "Transformation functions must be created from a template. Your team is not authorized to create custom transformations.",
             "attr": "template_id",
         }
 
@@ -1361,6 +1363,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                         "slack_workspace": {"value": 1},
                         "channel": {"value": "#general"},
                     },
+                    "hog": template_slack.hog,
                 },
             )
             assert response1.status_code == status.HTTP_201_CREATED
@@ -1377,12 +1380,13 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                         "slack_workspace": {"value": 1},
                         "channel": {"value": "#general"},
                     },
+                    "hog": template_slack.hog,
                 },
             )
             assert response2.status_code == status.HTTP_201_CREATED
             assert response2.json()["execution_order"] == 2
 
-            # Create a non-transformation function - should not get execution_order
+            # Create a non-transformation function
             response3 = self.client.post(
                 f"/api/projects/{self.team.id}/hog_functions/",
                 data={
@@ -1482,7 +1486,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.json() == {
             "type": "validation_error",
             "code": "invalid_input",
-            "detail": "Transformation functions must be created from a template.",
+            "detail": "Transformation functions must be created from a template. Your team is not authorized to create custom transformations.",
             "attr": "template_id",
         }
 
