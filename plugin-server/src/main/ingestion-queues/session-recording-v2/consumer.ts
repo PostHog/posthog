@@ -117,8 +117,9 @@ export class SessionRecordingIngester {
         this.fileStorage = s3Client
             ? new S3SessionBatchFileStorage(
                   s3Client,
-                  this.config.SESSION_RECORDING_V2_S3_BUCKET!,
-                  this.config.SESSION_RECORDING_V2_S3_PREFIX!
+                  this.config.SESSION_RECORDING_V2_S3_BUCKET,
+                  this.config.SESSION_RECORDING_V2_S3_PREFIX,
+                  this.config.SESSION_RECORDING_V2_S3_TIMEOUT_MS
               )
             : new BlackholeSessionBatchFileStorage()
 
