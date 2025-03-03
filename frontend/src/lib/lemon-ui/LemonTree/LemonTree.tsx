@@ -280,7 +280,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                             <TreeNodeDroppable id={path} isDroppable={isItemDroppable?.(item) && path}>
                                 <TreeNodeDraggable
                                     id={path}
-                                    enableDragging={isItemDraggable?.(item) && enableDragAndDrop}
+                                    enableDragging={isItemDraggable(item) && enableDragAndDrop}
                                 >
                                     {wrappedContent}
                                 </TreeNodeDraggable>

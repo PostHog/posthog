@@ -1,3 +1,4 @@
+import { IconPlusSmall } from '@posthog/icons'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -47,14 +48,8 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
 
     // Items that should not be draggable or droppable, or have a side action
     // TODO: sync with projectTreeLogic
-    const specialItemsIds: string[] = [
-        'project',
-        'project/Explore',
-        'project/Create new',
-        'project/Unfiled',
-        '__separator__',
-        '__apply_pending_actions__',
-    ]
+    const notDraggableIds: string[] = ['project', 'project/Explore', 'project/Create new', 'project/Unfiled']
+    const notDroppableIds: string[] = ['project', 'project/Explore', 'project/Create new']
 
     return (
         <>
@@ -105,6 +100,18 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                             >
                                 Save
                             </LemonButton>
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                tooltip="Create new root folder"
+                                onClick={() => {
+                                    const folder = prompt('Create a new folder:')
+                                    if (folder) {
+                                        addFolder(folder)
+                                    }
+                                }}
+                                icon={<IconPlusSmall />}
+                            />
                         </div>
                     </div>
 
@@ -133,6 +140,10 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                             const oldPath = dragEvent.active.id as string
                             const folder = dragEvent.over?.id
 
+                            if (oldPath === folder) {
+                                return false
+                            }
+
                             if (folder === '') {
                                 const oldSplit = splitPath(oldPath)
                                 const oldFile = oldSplit.pop()
@@ -157,15 +168,15 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                             return (
                                 item.record?.type !== 'project' &&
                                 item.record?.path &&
-                                !specialItemsIds.includes(item.id || '') &&
+                                !notDraggableIds.includes(item.id || '') &&
                                 dragAndDropEnabled
                             )
                         }}
                         isItemDroppable={(item) => {
                             const path = item.record?.path || ''
 
-                            // disable dropping for special items
-                            if (specialItemsIds.includes(item.id || '')) {
+                            // disable dropping for these IDS
+                            if (notDroppableIds.includes(item.id || '')) {
                                 return false
                             }
 
@@ -180,7 +191,7 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                             return false
                         }}
                         itemContextMenu={(item) => {
-                            if (specialItemsIds.includes(item.id || '')) {
+                            if (notDraggableIds.includes(item.id || '')) {
                                 return undefined
                             }
                             return (
@@ -197,9 +208,7 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                                                 )
                                                 if (folder) {
                                                     addFolder(
-                                                        item.record?.path
-                                                            ? joinPath([item.record?.path, folder])
-                                                            : folder
+                                                        item.record?.path ? `${item.record?.path}/${folder}` : folder
                                                     )
                                                 }
                                             }}
@@ -250,7 +259,7 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                             )
                         }}
                         itemSideAction={(item) => {
-                            if (specialItemsIds.includes(item.id || '')) {
+                            if (notDraggableIds.includes(item.id || '')) {
                                 return undefined
                             }
                             return {
@@ -273,7 +282,7 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                                                             if (folder) {
                                                                 addFolder(
                                                                     item.record?.path
-                                                                        ? joinPath([item.record?.path, folder])
+                                                                        ? `${item.record?.path}/${folder}`
                                                                         : folder
                                                                 )
                                                             }
