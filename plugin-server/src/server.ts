@@ -297,7 +297,7 @@ export class PluginServer {
 
             await this.pubsub.start()
 
-            if (!isTestEnv()) {
+            if (!isTestEnv() || process.env.TEST_ENABLE_HTTP === 'true') {
                 // We don't run http server in test env currently
                 const app = setupCommonRoutes(this.services)
 
