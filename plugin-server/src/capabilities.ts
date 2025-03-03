@@ -23,7 +23,6 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 cdpCyclotronWorker: true,
                 cdpCyclotronWorkerPlugins: true,
                 cdpApi: true,
-                syncInlinePlugins: true,
             }
 
         case PluginServerMode.ingestion_v2:
@@ -92,7 +91,6 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 sessionRecordingBlobIngestion: true,
                 appManagementSingleton: true,
                 preflightSchedules: true,
-                syncInlinePlugins: true,
             }
     }
 }

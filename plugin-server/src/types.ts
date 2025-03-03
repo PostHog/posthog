@@ -405,7 +405,6 @@ export interface PluginServerCapabilities {
     appManagementSingleton?: boolean
     preflightSchedules?: boolean // Used for instance health checks on hobby deploy, not useful on cloud
     mmdb?: boolean
-    syncInlinePlugins?: boolean
 }
 
 export interface EnqueuedPluginJob {
