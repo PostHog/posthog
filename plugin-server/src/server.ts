@@ -45,7 +45,7 @@ export class PluginServer {
     stopping = false
     hub?: Hub
 
-    constructor(config: Partial<PluginsServerConfig>) {
+    constructor(config: Partial<PluginsServerConfig> = {}) {
         this.config = {
             ...defaultConfig,
             ...config,

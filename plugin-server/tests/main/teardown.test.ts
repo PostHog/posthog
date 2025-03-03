@@ -1,8 +1,15 @@
 import ClickHouse from '@posthog/clickhouse'
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { startPluginsServer } from '../../src/main/pluginsServer'
-import { Hub, LogLevel, PluginLogEntry, PluginLogEntrySource, PluginLogEntryType } from '../../src/types'
+import { PluginServer } from '../../src/server'
+import {
+    Hub,
+    LogLevel,
+    PluginLogEntry,
+    PluginLogEntrySource,
+    PluginLogEntryType,
+    PluginServerMode,
+} from '../../src/types'
 import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
 import { waitForExpect } from '../helpers/expectations'
 import { pluginConfig39 } from '../helpers/plugins'
@@ -33,6 +40,10 @@ async function getLogEntriesForPluginConfig(hub: Hub, pluginConfigId: number) {
 }
 
 describe('teardown', () => {
+    beforeEach(() => {
+        jest.spyOn(process, 'exit').mockImplementation()
+    })
+
     const processEvent = async (hub: Hub, event: PluginEvent) => {
         const result = await new EventPipelineRunner(hub, event).runEventPipeline(event)
         const resultEvent = result.args[0]
@@ -51,22 +62,21 @@ describe('teardown', () => {
             }
         `)
 
-        const { hub, stop } = await startPluginsServer(
-            {
-                LOG_LEVEL: LogLevel.Log,
-            },
-            { ingestionV2: true }
-        )
+        const server = new PluginServer({
+            PLUGIN_SERVER_MODE: PluginServerMode.ingestion_v2,
+            LOG_LEVEL: LogLevel.Log,
+        })
+        await server.start()
 
-        await processEvent(hub!, defaultEvent)
+        await processEvent(server.hub!, defaultEvent)
 
-        await stop!()
+        await server.stop()
 
         // verify the teardownPlugin code runs -- since we're reading from
         // ClickHouse, we need to give it a bit of time to have consumed from
         // the topic and written everything we're looking for to the table
         await waitForExpect(async () => {
-            const logEntries = await getLogEntriesForPluginConfig(hub!, pluginConfig39.id)
+            const logEntries = await getLogEntriesForPluginConfig(server.hub!, pluginConfig39.id)
 
             const systemErrors = logEntries.filter(
                 (logEntry) =>
@@ -95,14 +105,14 @@ describe('teardown', () => {
                 throw new Error('This Happened In The Teardown Palace')
             }
         `)
-        const { hub, stop } = await startPluginsServer(
-            {
-                LOG_LEVEL: LogLevel.Log,
-            },
-            { ingestionV2: true }
-        )
+        const server = new PluginServer({
+            PLUGIN_SERVER_MODE: PluginServerMode.ingestion_v2,
+            LOG_LEVEL: LogLevel.Log,
+        })
+        await server.start()
+        const hub = server.hub!
 
-        await stop!()
+        await server.stop()
 
         // verify the teardownPlugin code runs -- since we're reading from
         // ClickHouse, we need to give it a bit of time to have consumed from
