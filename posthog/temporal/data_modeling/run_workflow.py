@@ -642,7 +642,6 @@ async def update_saved_query_status(
     status: DataWarehouseSavedQuery.Status,
     run_at: typing.Optional[dt.datetime],
     team_id: int,
-    error: typing.Optional[str] = None,
 ):
     filter_params: dict[str, int | str | uuid.UUID] = {"team_id": team_id}
 
@@ -659,9 +658,6 @@ async def update_saved_query_status(
     if run_at:
         saved_query.last_run_at = run_at
     saved_query.status = status
-
-    if error:
-        saved_query.latest_error = error
 
     await database_sync_to_async(saved_query.save)()
 
