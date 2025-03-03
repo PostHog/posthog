@@ -35,7 +35,7 @@ describe('S3SessionBatchFileStorage', () => {
         })
         jest.mocked(Upload).mockImplementation(mockUpload)
 
-        storage = new S3SessionBatchFileStorage(mockS3Client, 'test-bucket', 'test-prefix')
+        storage = new S3SessionBatchFileStorage(mockS3Client, 'test-bucket', 'test-prefix', 5000)
     })
 
     afterEach(() => {

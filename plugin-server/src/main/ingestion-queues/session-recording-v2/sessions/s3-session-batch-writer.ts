@@ -19,7 +19,7 @@ class S3SessionBatchFileWriter implements SessionBatchFileWriter {
         private readonly s3: S3Client,
         private readonly bucket: string,
         private readonly prefix: string,
-        private readonly timeout: number = 5000
+        private readonly timeout: number
     ) {
         this.stream = new PassThrough()
         this.key = this.generateKey()
