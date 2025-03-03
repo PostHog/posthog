@@ -242,15 +242,11 @@ export async function startPluginsServer(
                 await consumer.start()
                 services.push(consumer.service)
             }
-        } else {
-            if (capabilities.ingestionV2) {
-                await initPlugins()
-                const consumer = new IngestionConsumer(hub)
-                await consumer.start()
-                services.push(consumer.service)
-            }
-
-            // Below are all legacy consumers that will be replaced by the new ingestion consumer that covers all cases
+        } else if (capabilities.ingestionV2) {
+            await initPlugins()
+            const consumer = new IngestionConsumer(hub)
+            await consumer.start()
+            services.push(consumer.service)
         }
 
         if (capabilities.processAsyncOnEventHandlers) {
