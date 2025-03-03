@@ -138,15 +138,11 @@ def retroactively_fix_folders_and_depth(team: Team, user: User) -> None:
 
     # TODO: this needs some concurrency controls or a unique index
 
-    # Gather all existing paths so we can check quickly without repeated queries
     existing_paths = set(FileSystem.objects.filter(team=team).values_list("path", flat=True))
 
-    # We'll also accumulate a list of newly needed folder entries
     folders_to_create = []
-    # For items that need a depth update, we'll store them to update
     items_to_update = []
 
-    # Go through each existing item
     all_files = FileSystem.objects.filter(team=team).select_related("created_by")
     for file_obj in all_files:
         segments = split_path(file_obj.path)
@@ -175,15 +171,9 @@ def retroactively_fix_folders_and_depth(team: Team, user: User) -> None:
                     )
                 )
 
-    # Bulk-create missing folders
     if folders_to_create:
         FileSystem.objects.bulk_create(folders_to_create)
 
-    # Update items with correct depth if needed
-    # We can do this in bulk or one by one
     if items_to_update:
-        # If you need signals or overridden save() logic, update individually
-        # Otherwise, you can do FileSystem.objects.bulk_update(items_to_update, ["depth"])
-        # For simplicity, let's do them individually so the normal save() method is triggered.
         for item in items_to_update:
             item.save()

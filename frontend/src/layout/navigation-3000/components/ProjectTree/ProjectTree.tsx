@@ -69,7 +69,7 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                             if (folder) {
                                 updateSelectedFolder(folder.record?.path || '')
                                 toggleFolder(folder.record?.path || '', isExpanded)
-                                if (isExpanded && (folder.record?.id ?? '')) {
+                                if (isExpanded && folder.record?.id) {
                                     loadFolder(folder.record?.path || '')
                                 }
                             }
