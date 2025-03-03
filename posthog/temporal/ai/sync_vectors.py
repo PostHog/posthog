@@ -20,8 +20,6 @@ from posthog.models import Action, FeatureFlag, Team
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.utils import get_scheduled_start_time
 
-cohere_client = cohere.ClientV2()
-
 
 async def _get_orgs_from_the_feature_flag() -> list[str]:
     feature_flag = await FeatureFlag.objects.filter(key="max-rag", team_id=2).afirst()
@@ -85,7 +83,8 @@ async def batch_summarize_and_embed_actions(inputs: RetrieveActionsInputs) -> li
         action.summary = maybe_summary
         models_to_update.append(action)
 
-    embeddings_response = cohere_client.embed(
+    cohere_client = cohere.AsyncClientV2()
+    embeddings_response = await cohere_client.embed(
         texts=[action.summary for action in models_to_update],
         model="embed-english-v3.0",
         input_type="search_document",
