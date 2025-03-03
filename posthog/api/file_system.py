@@ -10,6 +10,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.file_system import FileSystem, save_unfiled_files, split_path
 from posthog.models.user import User
+from posthog.models.team import Team
 from posthog.schema import FileSystemType
 
 
@@ -45,12 +46,30 @@ class FileSystemSerializer(serializers.ModelSerializer):
     def create(self, validated_data: dict[str, Any], *args: Any, **kwargs: Any) -> FileSystem:
         request = self.context["request"]
         team = self.context["get_team"]()
+
+        full_path = validated_data["path"]
+        segments = split_path(full_path)
+
+        for depth_index in range(1, len(segments)):
+            parent_path = "/".join(segments[:depth_index])
+            folder_exists = FileSystem.objects.filter(team=team, path=parent_path).exists()
+            if not folder_exists:
+                FileSystem.objects.create(
+                    team=team,
+                    path=parent_path,
+                    depth=depth_index,
+                    type="folder",
+                    created_by=request.user,
+                )
+
+        depth = len(segments)
         file_system = FileSystem.objects.create(
-            team_id=team.id,
+            team=team,
             created_by=request.user,
-            depth=len(split_path(validated_data["path"])),
+            depth=depth,
             **validated_data,
         )
+
         return file_system
 
 
@@ -100,11 +119,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         file_type = query_serializer.validated_data.get("type")
         files = save_unfiled_files(self.team, cast(User, request.user), file_type)
 
-        # Also add "depth" to all files that don't have it
-        # This is a "quick hack" while we're developing as the "depth" field got added at a later date.
-        for file in FileSystem.objects.filter(team=self.team, depth=None):
-            file.depth = len(split_path(file.path))
-            file.save()
+        retroactively_fix_folders_and_depth(self.team, cast(User, request.user))
 
         return Response(
             {
@@ -113,3 +128,62 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             },
             status=status.HTTP_200_OK,
         )
+
+
+def retroactively_fix_folders_and_depth(team: Team, user: User) -> None:
+    """
+    For all existing FileSystem rows in `team`, ensure that any missing parent
+    folders are created. Also ensure `depth` is correct.
+    """
+
+    # TODO: this needs some concurrency controls or a unique index
+
+    # Gather all existing paths so we can check quickly without repeated queries
+    existing_paths = set(FileSystem.objects.filter(team=team).values_list("path", flat=True))
+
+    # We'll also accumulate a list of newly needed folder entries
+    folders_to_create = []
+    # For items that need a depth update, we'll store them to update
+    items_to_update = []
+
+    # Go through each existing item
+    all_files = FileSystem.objects.filter(team=team).select_related("created_by")
+    for file_obj in all_files:
+        segments = split_path(file_obj.path)
+        correct_depth = len(segments)
+
+        # If depth is missing or incorrect, fix it
+        if file_obj.depth != correct_depth:
+            file_obj.depth = correct_depth
+            items_to_update.append(file_obj)
+
+        # Create missing parent folders
+        # e.g. for path "a/b/c/d/e", the parent folders are:
+        #  "a" (depth=1), "a/b" (depth=2), "a/b/c" (depth=3), "a/b/c/d" (depth=4)
+        for depth_index in range(1, len(segments)):
+            parent_path = "/".join(segments[:depth_index])
+            if parent_path not in existing_paths:
+                # Mark that we have it now (so we don't create duplicates)
+                existing_paths.add(parent_path)
+                folders_to_create.append(
+                    FileSystem(
+                        team=team,
+                        path=parent_path,
+                        depth=depth_index,
+                        type="folder",
+                        created_by=user,
+                    )
+                )
+
+    # Bulk-create missing folders
+    if folders_to_create:
+        FileSystem.objects.bulk_create(folders_to_create)
+
+    # Update items with correct depth if needed
+    # We can do this in bulk or one by one
+    if items_to_update:
+        # If you need signals or overridden save() logic, update individually
+        # Otherwise, you can do FileSystem.objects.bulk_update(items_to_update, ["depth"])
+        # For simplicity, let's do them individually so the normal save() method is triggered.
+        for item in items_to_update:
+            item.save()

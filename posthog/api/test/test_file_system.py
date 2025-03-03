@@ -362,3 +362,30 @@ class TestFileSystemAPI(APIBaseTest):
 
         # Double-check that 'File2' (depth=3) is excluded
         self.assertNotEqual(data["results"][0]["id"], str(fs2.id))
+
+    def test_create_file_with_auto_folders(self):
+        """
+        Creating a deep path 'a/b/c/d/e' should auto-create folder entries for
+        'a', 'a/b', 'a/b/c', 'a/b/c/d', if they don't already exist.
+        """
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/file_system/",
+            {
+                "path": "a/b/c/d/e",
+                "type": "doc-file",
+                "meta": {"description": "Deep file"},
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+
+        # Final item:
+        leaf = FileSystem.objects.get(path="a/b/c/d/e", team=self.team)
+        self.assertEqual(leaf.depth, 5)
+        self.assertEqual(leaf.type, "doc-file")
+
+        # Check that folders exist
+        folder_paths = ["a", "a/b", "a/b/c", "a/b/c/d"]
+        for depth_index, folder_path in enumerate(folder_paths, start=1):
+            folder = FileSystem.objects.get(path=folder_path, team=self.team)
+            self.assertEqual(folder.depth, depth_index)
+            self.assertEqual(folder.type, "folder")  # or whatever default you used
