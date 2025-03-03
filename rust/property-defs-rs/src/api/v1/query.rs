@@ -4,8 +4,7 @@ use crate::{
             extract_aliases, ENTERPRISE_PROP_DEFS_TABLE, ENTERPRISE_PROP_DEFS_TABLE_COLUMNS,
             EVENTS_HIDDEN_PROPERTY_DEFINITIONS, EVENT_PROPERTY_TABLE, EVENT_PROPERTY_TABLE_ALIAS,
             PROPERTY_DEFS_TABLE, PROPERTY_DEFS_TABLE_COLUMNS, SEARCH_SCREEN_WORD,
-            SEARCH_TRIGGER_WORD, USER_TABLE, USER_TABLE_COLUMNS, USER_TABLE_UPDATED_ALIAS,
-            USER_TABLE_VERIFIED_ALIAS,
+            SEARCH_TRIGGER_WORD,
         },
         routing::Params,
     },
@@ -153,21 +152,6 @@ impl Manager {
             &params.event_names,
         );
 
-        // DIVERGES FROM DJANGO: we need to manually perform this JOIN when
-        // use_enterprise_taxonomy is set to optimistically attempt to pick
-        // up the posthog_user metadata associated with each enterprise prop
-        // defs row's "updated_by_id" and "verified_by_id"
-        if params.use_enterprise_taxonomy {
-            qb.push(format!(
-                " LEFT JOIN {0} AS {1} ON {1}.\"id\" = {2}.\"updated_by_id\" ",
-                USER_TABLE, USER_TABLE_UPDATED_ALIAS, ENTERPRISE_PROP_DEFS_TABLE,
-            ));
-            qb.push(format!(
-                " LEFT JOIN {0} AS {1} ON {1}.\"id\" = {2}.\"verified_by_id\" ",
-                USER_TABLE, USER_TABLE_VERIFIED_ALIAS, ENTERPRISE_PROP_DEFS_TABLE,
-            ));
-        }
-
         // begin the WHERE clause
         self.init_where_clause(qb, project_id);
         self.where_property_type(qb, params.parent_type);
@@ -227,23 +211,6 @@ impl Manager {
         if use_enterprise_taxonomy {
             for col_name in ENTERPRISE_PROP_DEFS_TABLE_COLUMNS {
                 selections.push(format!("{}.\"{}\"", ENTERPRISE_PROP_DEFS_TABLE, col_name));
-            }
-
-            // also rope in posthog_user cols that we'll JOIN in due to availability of
-            // enterprise "updated_by_id" and "verified_by_id" cols. Since each must
-            // JOIN the row on a potentially different user, two User table name
-            // aliases must be applied to the fully-qualified selections
-            for col_name in USER_TABLE_COLUMNS {
-                selections.push(format!(
-                    "{0}.\"{1}\" AS ub_{1}",
-                    USER_TABLE_UPDATED_ALIAS, col_name
-                ));
-            }
-            for col_name in USER_TABLE_COLUMNS {
-                selections.push(format!(
-                    "{0}.\"{1}\" AS vb_{1}",
-                    USER_TABLE_VERIFIED_ALIAS, col_name
-                ));
             }
         }
 

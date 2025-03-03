@@ -58,43 +58,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS posthog_grouptypemapping_pkey ON posthog_group
 CREATE UNIQUE INDEX IF NOT EXISTS "unique group types for project" ON posthog_grouptypemapping USING btree (project_id, group_type);
 CREATE UNIQUE INDEX IF NOT EXISTS "unique event column indexes for project" ON posthog_grouptypemapping USING btree (project_id, group_type_index);
 
-CREATE TABLE IF NOT EXISTS posthog_user (
-    id SERIAL PRIMARY KEY,
-    password character varying(128) NOT NULL,
-    last_login timestamp with time zone,
-    first_name character varying(150) NOT NULL,
-    last_name character varying(150) NOT NULL,
-    is_staff boolean NOT NULL,
-    is_active boolean NOT NULL,
-    date_joined timestamp with time zone NOT NULL,
-    uuid uuid NOT NULL,
-    email character varying(254) NOT NULL,
-    temporary_token character varying(200),
-    distinct_id character varying(200),
-    email_opt_in boolean,
-    partial_notification_settings jsonb,
-    anonymize_data boolean,
-    toolbar_mode character varying(200),
-    events_column_config jsonb NOT NULL,
-    current_organization_id uuid,
-    current_team_id integer,
-    is_email_verified boolean,
-    pending_email character varying(254),
-    requested_password_reset_at timestamp with time zone,
-    has_seen_product_intro_for jsonb,
-    theme_mode character varying(20),
-    strapi_id smallint,
-    hedgehog_config jsonb,
-    role_at_organization character varying(64),
-    CONSTRAINT posthog_user_strapi_id_check CHECK ((strapi_id >= 0))
-);
-
-CREATE UNIQUE INDEX IF NOT EXISTS posthog_user_distinct_id_uniq ON posthog_user USING btree (distinct_id);
-CREATE UNIQUE INDEX IF NOT EXISTS posthog_user_email_uniq ON posthog_user USING btree (email);
-CREATE UNIQUE INDEX IF NOT EXISTS posthog_user_tmp_token ON posthog_user USING btree (temporary_token);
-CREATE UNIQUE INDEX IF NOT EXISTS posthog_user_uuid ON posthog_user USING btree (uuid);
--- NOTE: for now, I left off some indices that aren't relevant to property defs query testing
-
 CREATE TABLE ee_enterprisepropertydefinition (
     propertydefinition_ptr_id UUID PRIMARY KEY,
     description text,

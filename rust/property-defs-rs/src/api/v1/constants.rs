@@ -12,9 +12,6 @@ pub const SEARCH_SCREEN_WORD: &str = "initial";
 pub const ENTERPRISE_PROP_DEFS_TABLE: &str = "ee_enterprisepropertydefinition";
 pub const PROPERTY_DEFS_TABLE: &str = "posthog_propertydefinition";
 pub const EVENT_PROPERTY_TABLE: &str = "posthog_eventproperty";
-pub const USER_TABLE: &str = "posthog_user";
-pub const USER_TABLE_UPDATED_ALIAS: &str = "posthog_user_updated";
-pub const USER_TABLE_VERIFIED_ALIAS: &str = "posthog_user_verified";
 pub const EVENT_PROPERTY_TABLE_ALIAS: &str = "check_for_matching_event_property";
 
 pub const PARENT_PROPERTY_TYPES: [&str; 4] = ["event", "person", "group", "session"];
@@ -29,28 +26,15 @@ pub const PROPERTY_DEFS_TABLE_COLUMNS: [&str; 6] = [
     // "type", "property_type_format", "volume_30_day", "query_usage_30_day"
 ];
 
-pub const ENTERPRISE_PROP_DEFS_TABLE_COLUMNS: [&str; 5] = [
+pub const ENTERPRISE_PROP_DEFS_TABLE_COLUMNS: [&str; 7] = [
     "description",
     "verified",
     "verified_at",
+    "verified_by_id",
     "updated_at",
+    "updated_by_id",
     "tags",
     // "deprecated_tags",
-];
-
-pub const USER_TABLE_COLUMNS: [&str; 9] = [
-    "id",
-    "uuid",
-    "first_name",
-    "last_name",
-    "email",
-    "is_email_verified",
-    "distinct_id",
-    "hedgehog_config",
-    "role_at_organization",
-    // "password", "is_staff", "is_active", "date_joined", "temporary_token",
-    // "anonymize_data", "toolbar_mode", "current_team_id", "current_organization_id",
-    // "pending_email", "requested_password_reset_at", "theme_mode", "strapi_id"
 ];
 
 // property definitions we don't want customers querying
