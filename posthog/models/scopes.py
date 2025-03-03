@@ -22,6 +22,7 @@ APIScopeObject = Literal[
     "feature_flag",
     "file_system",
     "group",
+    "hog_function",
     "insight",
     "query",  # Covers query and events endpoints
     "notebook",
@@ -38,7 +39,6 @@ APIScopeObject = Literal[
     "survey",
     "user",
     "webhook",
-    "hog_function",
 ]
 
 APIScopeActions = Literal[

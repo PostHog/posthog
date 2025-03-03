@@ -3940,6 +3940,7 @@ export type APIScopeObject =
     | 'export'
     | 'feature_flag'
     | 'group'
+    | 'hog_function'
     | 'insight'
     | 'query'
     | 'notebook'
