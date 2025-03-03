@@ -43,7 +43,7 @@ describe('postgres parity', () => {
         `)
         await resetTestDatabaseClickhouse(extraServerConfig)
         console.log('[TEST] Starting plugins server')
-        const startResponse = await startPluginsServer(extraServerConfig, { ingestion: true })
+        const startResponse = await startPluginsServer(extraServerConfig, { ingestionV2: true })
         hub = startResponse.hub!
         stopServer = startResponse.stop
         teamId++
