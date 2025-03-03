@@ -379,6 +379,12 @@ class FloatType(ConstantType):
     def print_type(self) -> str:
         return "Float"
 
+@dataclass(kw_only=True)
+class DecimalType(ConstantType):
+    data_type: ConstantDataType = field(default="decimal", init=False)
+
+    def print_type(self) -> str:
+        return "Decimal"
 
 @dataclass(kw_only=True)
 class StringType(ConstantType):
@@ -441,7 +447,6 @@ class ArrayType(ConstantType):
 class TupleType(ConstantType):
     data_type: ConstantDataType = field(default="tuple", init=False)
     item_types: list[ConstantType]
-    repeat: bool = False
 
     def print_type(self) -> str:
         return "Tuple"

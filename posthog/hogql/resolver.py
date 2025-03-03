@@ -20,11 +20,9 @@ from posthog.hogql.errors import ImpossibleASTError, QueryError, ResolutionError
 from posthog.hogql.functions import find_hogql_posthog_function
 from posthog.hogql.functions.action import matches_action
 from posthog.hogql.functions.cohort import cohort_query_node
-from posthog.hogql.functions.mapping import (
-    HOGQL_CLICKHOUSE_FUNCTIONS,
-    compare_types,
-    validate_function_args,
-)
+from posthog.hogql.functions.mapping import find_hogql_function
+from posthog.hogql.functions.signature import find_return_type, get_expr_types
+
 from posthog.hogql.functions.recording_button import recording_button
 from posthog.hogql.functions.sparkline import sparkline
 from posthog.hogql.hogqlx import HOGQLX_COMPONENTS, convert_to_hx
@@ -473,7 +471,6 @@ class Resolver(CloningVisitor):
         """Visit function calls."""
 
         if func_meta := find_hogql_posthog_function(node.name):
-            validate_function_args(node.args, func_meta.min_args, func_meta.max_args, node.name)
             if node.name == "sparkline":
                 return self.visit(sparkline(node=node, args=node.args))
             if node.name == "recording_button":
@@ -482,12 +479,6 @@ class Resolver(CloningVisitor):
                 return self.visit(matches_action(node=node, args=node.args, context=self.context))
 
         node = super().visit_call(node)
-        arg_types: list[ast.ConstantType] = []
-        for arg in node.args:
-            if arg.type:
-                arg_types.append(arg.type.resolve_constant_type(self.context))
-            else:
-                arg_types.append(ast.UnknownType())
         param_types: Optional[list[ast.ConstantType]] = None
         if node.params is not None:
             param_types = []
@@ -497,20 +488,17 @@ class Resolver(CloningVisitor):
                 else:
                     raise ResolutionError(f"Unknown type for function '{node.name}', parameter {i}")
 
-        return_type = None
+        arg_types = get_expr_types(node.args, self.context)
 
-        if node.name in HOGQL_CLICKHOUSE_FUNCTIONS:
-            signatures = HOGQL_CLICKHOUSE_FUNCTIONS[node.name].signatures
-            if signatures:
-                for sig_arg_types, sig_return_type in signatures:
-                    if sig_arg_types is None or compare_types(arg_types, sig_arg_types):
-                        return_type = dataclasses.replace(sig_return_type)
-                        break
+        return_type = None
+        if func_meta := find_hogql_function(node.name):
+            # TODO - once all hogql functions are complete with signatures, we can raise on no match here
+            return_type = find_return_type(arg_types, func_meta, permissive_match=False, raise_on_no_match=False)
 
         if return_type is None:
             return_type = ast.UnknownType()
-
-            # Uncomment once all hogql mappings are complete with signatures
+            # TODO - we don't resolve the return type for aggregations yet, and not all functions have signatures or return types.
+            #        Once we do, we should uncomment this in order to raise
             # arg_type_classes = [arg_type.__class__.__name__ for arg_type in arg_types]
             # raise ResolutionError(
             #     f"Can't call function '{node.name}' with arguments of type: {', '.join(arg_type_classes)}"

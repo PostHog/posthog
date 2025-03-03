@@ -38,7 +38,8 @@ from posthog.hogql.functions import (
     find_hogql_function,
     find_hogql_posthog_function,
 )
-from posthog.hogql.functions.mapping import ALL_EXPOSED_FUNCTION_NAMES, HOGQL_COMPARISON_MAPPING, validate_function_args
+from posthog.hogql.functions.mapping import ALL_EXPOSED_FUNCTION_NAMES, HOGQL_COMPARISON_MAPPING
+from posthog.hogql.functions.signature import assert_param_arg_length, find_return_type, get_expr_types
 from posthog.hogql.modifiers import create_default_modifiers_for_team, set_default_in_cohort_via
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.resolver_utils import lookup_field_by_name
@@ -94,7 +95,11 @@ def print_ast(
     settings: Optional[HogQLGlobalSettings] = None,
     pretty: bool = False,
 ) -> str:
+    print("5: preparing ast")
     prepared_ast = prepare_ast_for_printing(node=node, context=context, dialect=dialect, stack=stack, settings=settings)
+
+    print(context.errors)
+
     if prepared_ast is None:
         return ""
     return print_prepared_ast(
@@ -1034,25 +1039,15 @@ class _Printer(Visitor):
                 )
             )
         elif func_meta := find_hogql_aggregation(node.name):
-            validate_function_args(
-                node.args,
-                func_meta.min_args,
-                func_meta.max_args,
-                node.name,
+            clickhouse_name = func_meta.clickhouse_name(
+                get_expr_types(node.args, self.context),
+                permissive_matching=True,
                 function_term="aggregation",
             )
             if func_meta.min_params:
                 if node.params is None:
                     raise QueryError(f"Aggregation '{node.name}' requires parameters in addition to arguments")
-                validate_function_args(
-                    node.params,
-                    func_meta.min_params,
-                    func_meta.max_params,
-                    node.name,
-                    function_term="aggregation",
-                    argument_term="parameter",
-                )
-
+                assert_param_arg_length(get_expr_types(node.params, self.context), func_meta, node.name)
             # check that we're not running inside another aggregate
             for stack_node in reversed(self.stack):
                 if isinstance(stack_node, ast.SelectQuery):
@@ -1067,20 +1062,13 @@ class _Printer(Visitor):
 
             params_part = f"({', '.join(params)})" if params is not None else ""
             args_part = f"({f'DISTINCT ' if node.distinct else ''}{', '.join(args)})"
-            return f"{func_meta.clickhouse_name}{params_part}{args_part}"
+            return f"{clickhouse_name}{params_part}{args_part}"
 
         elif func_meta := find_hogql_function(node.name):
-            validate_function_args(node.args, func_meta.min_args, func_meta.max_args, node.name)
             if func_meta.min_params:
                 if node.params is None:
                     raise QueryError(f"Function '{node.name}' requires parameters in addition to arguments")
-                validate_function_args(
-                    node.params,
-                    func_meta.min_params,
-                    func_meta.max_params,
-                    node.name,
-                    argument_term="parameter",
-                )
+                assert_param_arg_length(get_expr_types(node.params, self.context), func_meta, node.name)
 
             if self.dialect == "clickhouse":
                 if node.name in FIRST_ARG_DATETIME_FUNCTIONS:
@@ -1119,22 +1107,9 @@ class _Printer(Visitor):
                 if func_meta.suffix_args:
                     args += [self.visit(arg) for arg in func_meta.suffix_args]
 
-                relevant_clickhouse_name = func_meta.clickhouse_name
-                if func_meta.overloads:
-                    first_arg_constant_type = (
-                        node.args[0].type.resolve_constant_type(self.context)
-                        if len(node.args) > 0 and node.args[0].type is not None
-                        else None
-                    )
 
-                    if first_arg_constant_type is not None:
-                        for (
-                            overload_types,
-                            overload_clickhouse_name,
-                        ) in func_meta.overloads:
-                            if isinstance(first_arg_constant_type, overload_types):
-                                relevant_clickhouse_name = overload_clickhouse_name
-                                break  # Found an overload matching the first function org
+                # TODO - turn permissive_matching to false once we're confident in our types/sigs.
+                relevant_clickhouse_name = func_meta.clickhouse_name(get_expr_types(node.args, self.context), permissive_matching=True)
 
                 if func_meta.tz_aware:
                     has_tz_override = len(node.args) == func_meta.max_args
@@ -1175,21 +1150,14 @@ class _Printer(Visitor):
                     # For Monday-based weeks mode 3 is used (which is ISO 8601), for Sunday-based mode 0 (CH default)
                     args.insert(1, WeekStartDay(self._get_week_start_day()).clickhouse_mode)
 
-                if node.name == "trimLeft" and len(args) == 2:
-                    return f"trim(LEADING {args[1]} FROM {args[0]})"
-                elif node.name == "trimRight" and len(args) == 2:
-                    return f"trim(TRAILING {args[1]} FROM {args[0]})"
-                elif node.name == "trim" and len(args) == 2:
-                    return f"trim(BOTH {args[1]} FROM {args[0]})"
-
-                params = [self.visit(param) for param in node.params] if node.params is not None else None
-                params_part = f"({', '.join(params)})" if params is not None else ""
+                params_part = f"({', '.join([self.visit(param) for param in node.params])})" if node.params is not None else ""
                 args_part = f"({', '.join(args)})"
-                return f"{relevant_clickhouse_name}{params_part}{args_part}"
+                print(f"PRODUCING INVOCATION: {relevant_clickhouse_name}{params_part}{args_part}")
+                return f" {relevant_clickhouse_name}{params_part}{args_part}"
             else:
                 return f"{node.name}({', '.join([self.visit(arg) for arg in node.args])})"
         elif func_meta := find_hogql_posthog_function(node.name):
-            validate_function_args(node.args, func_meta.min_args, func_meta.max_args, node.name)
+            find_return_type(get_expr_types(node.args, self.context), func_meta, permissive_match=True, raise_on_no_match=True)
             args = [self.visit(arg) for arg in node.args]
 
             if self.dialect in ("hogql", "clickhouse"):

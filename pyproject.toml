@@ -75,26 +75,21 @@ combine-as-imports = true
 "./posthog/management/commands/migrate_elementgroup.py" = ["T201"]
 "./posthog/models/plugin.py" = ["T201"]
 "./docker-compose-config.py" = ["T201"]
-"./posthog/management/commands/backfill_persons_and_groups_on_events.py" = ["T201"]
+"./posthog/management/commands/backfill_persons_and_groups_on_events.py" = [
+    "T201",
+]
 "./posthog/management/commands/generate_demo_data.py" = ["T201"]
 "./posthog/apps.py" = ["T201"]
 "./posthog/management/commands/partition.py" = ["T201"]
 "./posthog/management/commands/migrate_clickhouse.py" = ["T201"]
 "./posthog/email.py" = ["T201"]
-"./posthog/hogql/grammar/HogQLParser.py" = [
-    "F401",
-    "F841",
-    "E711",
-]
+"./posthog/hogql/grammar/HogQLParser.py" = ["F401", "F841", "E711"]
 "./posthog/celery.py" = ["T201"]
 "./posthog/hogql/grammar/HogQLLexer.py" = ["F401"]
 "./posthog/utils.py" = ["T201"]
 "./posthog/management/commands/sync_feature_flags.py" = ["T201"]
 "./cypress/wait.py" = ["T201"]
-"./posthog/management/commands/notify_helm_install.py" = [
-    "T201",
-    "T203",
-]
+"./posthog/management/commands/notify_helm_install.py" = ["T201", "T203"]
 "./gunicorn.config.py" = ["T201"]
 "./posthog/management/commands/run_async_migrations.py" = ["T201"]
 "./posthog/management/commands/test_migrations_are_safe.py" = ["T201"]
