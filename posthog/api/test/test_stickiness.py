@@ -9,7 +9,7 @@ from django.test.client import Client
 from django.utils import timezone
 from freezegun import freeze_time
 
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.constants import ENTITY_ID, ENTITY_TYPE
 from posthog.models.team import Team
 from posthog.test.base import (

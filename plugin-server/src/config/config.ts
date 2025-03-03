@@ -128,7 +128,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         PLUGIN_LOAD_SEQUENTIALLY: false,
         KAFKAJS_LOG_LEVEL: 'WARN',
         MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: 0,
-        USE_KAFKA_FOR_SCHEDULED_TASKS: true,
         CLOUD_DEPLOYMENT: null,
         EXTERNAL_REQUEST_TIMEOUT_MS: 10 * 1000, // 10 seconds
         DROP_EVENTS_BY_TOKEN_DISTINCT_ID: '',
@@ -141,6 +140,10 @@ export function getDefaultConfig(): PluginsServerConfig {
         RUSTY_HOOK_URL: '',
         HOG_HOOK_URL: '',
         CAPTURE_CONFIG_REDIS_HOST: null,
+
+        // posthog
+        POSTHOG_API_KEY: '',
+        POSTHOG_HOST_URL: 'http://localhost:8010',
 
         STARTUP_PROFILE_DURATION_SECONDS: 300, // 5 minutes
         STARTUP_PROFILE_CPU: false,
@@ -201,6 +204,9 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_CYCLOTRON_BATCH_SIZE: 300,
 
         CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: '',
+
+        // Destination Migration Diffing
+        DESTINATION_MIGRATION_DIFFING_ENABLED: false,
 
         // Cyclotron
         CYCLOTRON_DATABASE_URL: isTestEnv()

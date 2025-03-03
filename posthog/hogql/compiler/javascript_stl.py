@@ -1295,9 +1295,10 @@ function __setProperty(objectOrArray, key, value) {
         [],
     ],
     "substring": [
-        """function substring(s, start, length) {
+        """function substring(s, start, optionalLength) {
     if (typeof s !== 'string') return '';
     const startIdx = start - 1;
+    const length = typeof optionalLength === 'number' ? optionalLength : s.length - startIdx;
     if (startIdx < 0 || length < 0) return '';
     const endIdx = startIdx + length;
     return startIdx < s.length ? s.slice(startIdx, endIdx) : '';

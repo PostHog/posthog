@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+import json
 from conditional_cache import lru_cache
 from typing import Any
 import deltalake.exceptions
@@ -27,6 +28,11 @@ class DeltaTableHelper:
         self._logger = logger
 
     def _get_credentials(self):
+        if not settings.AIRBYTE_BUCKET_KEY or not settings.AIRBYTE_BUCKET_SECRET or not settings.AIRBYTE_BUCKET_REGION:
+            raise KeyError(
+                "Missing env vars for data warehouse. Required vars: AIRBYTE_BUCKET_KEY, AIRBYTE_BUCKET_SECRET, AIRBYTE_BUCKET_REGION"
+            )
+
         if TEST:
             return {
                 "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
@@ -110,9 +116,13 @@ class DeltaTableHelper:
         if delta_table:
             delta_table = self._evolve_delta_schema(data.schema)
 
+        self._logger.debug(f"write_to_deltalake: _is_first_sync = {self._is_first_sync}")
+
         if is_incremental and delta_table is not None and not self._is_first_sync:
             if not primary_keys or len(primary_keys) == 0:
                 raise Exception("Primary key required for incremental syncs")
+
+            self._logger.debug(f"write_to_deltalake: merging...")
 
             # Normalize keys and check the keys actually exist in the dataset
             py_table_column_names = data.column_names
@@ -120,18 +130,27 @@ class DeltaTableHelper:
                 normalize_column_name(x) for x in primary_keys if normalize_column_name(x) in py_table_column_names
             ]
 
-            delta_table.merge(
-                source=data,
-                source_alias="source",
-                target_alias="target",
-                predicate=" AND ".join([f"source.{c} = target.{c}" for c in normalized_primary_keys]),
-            ).when_matched_update_all().when_not_matched_insert_all().execute()
+            merge_stats = (
+                delta_table.merge(
+                    source=data,
+                    source_alias="source",
+                    target_alias="target",
+                    predicate=" AND ".join([f"source.{c} = target.{c}" for c in normalized_primary_keys]),
+                )
+                .when_matched_update_all()
+                .when_not_matched_insert_all()
+                .execute()
+            )
+
+            self._logger.debug(f"Delta Merge Stats: {json.dumps(merge_stats)}")
         else:
             mode = "append"
             schema_mode = "merge"
             if chunk_index == 0 or delta_table is None:
                 mode = "overwrite"
                 schema_mode = "overwrite"
+
+            self._logger.debug(f"write_to_deltalake: mode = {mode}")
 
             if delta_table is None:
                 storage_options = self._get_credentials()
@@ -171,9 +190,11 @@ class DeltaTableHelper:
             raise Exception("Deltatable not found")
 
         self._logger.debug("Compacting table...")
-        table.optimize.compact()
+        compact_stats = table.optimize.compact()
+        self._logger.debug(json.dumps(compact_stats))
 
         self._logger.debug("Vacuuming table...")
-        table.vacuum(retention_hours=24, enforce_retention_duration=False, dry_run=False)
+        vacuum_stats = table.vacuum(retention_hours=24, enforce_retention_duration=False, dry_run=False)
+        self._logger.debug(json.dumps(vacuum_stats))
 
         self._logger.debug("Compacting and vacuuming complete")

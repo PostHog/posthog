@@ -6,6 +6,7 @@ import json
 from django.db import close_old_connections
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
+from posthog.settings import TEST, DEBUG
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.client import sync_connect
@@ -21,7 +22,7 @@ def trigger_compaction_job(job: ExternalDataJob, schema: ExternalDataSchema) -> 
     workflow_id = f"{schema.id}-compaction"
 
     try:
-        asyncio.run(
+        handle = asyncio.run(
             temporal.start_workflow(
                 workflow="deltalake-compaction-job",
                 arg=dataclasses.asdict(
@@ -35,6 +36,10 @@ def trigger_compaction_job(job: ExternalDataJob, schema: ExternalDataSchema) -> 
                 ),
             )
         )
+
+        if not DEBUG and not TEST:
+            # Wait for the compaction to complete before continuing
+            asyncio.run(handle.result())
     except WorkflowAlreadyStartedError:
         pass
 

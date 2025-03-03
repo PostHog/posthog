@@ -33,7 +33,7 @@ def hog_function_from_plugin_config(plugin_config: dict, serializer_context: dic
         "filters": template.filters,
         "hog": template.hog,
         "inputs": inputs,
-        "enabled": True,
+        "enabled": plugin_config.get("enabled", True),
         "icon_url": template.icon_url,
         "inputs_schema": template.inputs_schema,
         "execution_order": plugin_config["order"],
