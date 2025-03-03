@@ -151,7 +151,22 @@ export function ExperimentMetricForm({
             <div>
                 <LemonLabel
                     className="mb-1"
-                    info="Controls how metric values are attributed to experiment exposures. 'Experiment duration' counts all relevant data from when a user is first exposed until the experiment ends. 'Conversion window' only includes data that occurs within the specified number of hours after a user's first exposure, and ignores the experiment end date."
+                    info={
+                        <>
+                            Controls how long a metric value is considered relevant to an experiment exposure:
+                            <ul className="list-disc pl-4">
+                                <li>
+                                    <strong>Experiment duration</strong> considers any data from when a user is first
+                                    exposed until the experiment ends.
+                                </li>
+                                <li>
+                                    <strong>Conversion window</strong> only includes data that occurs within the
+                                    specified number of hours after a user's first exposure (also ignoring the
+                                    experiment end date).
+                                </li>
+                            </ul>
+                        </>
+                    }
                 >
                     Time window
                 </LemonLabel>
