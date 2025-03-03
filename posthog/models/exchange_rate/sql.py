@@ -157,7 +157,7 @@ CREATE DICTIONARY IF NOT EXISTS {exchange_rate_dictionary_name} {on_cluster_clau
     currency String,
     rate Decimal64(10),
     start_date Date,
-    end_date Nullable(Date),
+    end_date Nullable(Date)
 )
 PRIMARY KEY currency
 SOURCE(CLICKHOUSE(QUERY 'SELECT currency, anyLast(rate) AS rate, date AS start_date, NULL AS end_date FROM {exchange_rate_table_name} GROUP BY date, currency' PASSWORD '{clickhouse_password}'))
