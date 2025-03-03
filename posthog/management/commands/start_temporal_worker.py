@@ -4,8 +4,6 @@ import logging
 import structlog
 from temporalio import workflow
 
-from posthog.temporal.schedule import init_general_queue_schedules
-
 with workflow.unsafe.imports_passed_through():
     from django.conf import settings
     from django.core.management.base import BaseCommand
@@ -112,9 +110,6 @@ class Command(BaseCommand):
         client_key = options.get("client_key", None)
         max_concurrent_workflow_tasks = options.get("max_concurrent_workflow_tasks", None)
         max_concurrent_activities = options.get("max_concurrent_activities", None)
-
-        if task_queue == GENERAL_PURPOSE_TASK_QUEUE:
-            init_general_queue_schedules()
 
         try:
             workflows = WORKFLOWS_DICT[task_queue]

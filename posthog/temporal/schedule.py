@@ -54,5 +54,5 @@ async def a_init_general_queue_schedules():
 
 
 @async_to_sync
-async def init_general_queue_schedules():
+async def init_schedules():
     await a_init_general_queue_schedules()
