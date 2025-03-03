@@ -638,10 +638,7 @@ async def create_table_activity(inputs: CreateTableActivityInputs) -> None:
 
 
 async def update_saved_query_status(
-    label: str,
-    status: DataWarehouseSavedQuery.Status,
-    run_at: typing.Optional[dt.datetime],
-    team_id: int,
+    label: str, status: DataWarehouseSavedQuery.Status, run_at: typing.Optional[dt.datetime], team_id: int
 ):
     filter_params: dict[str, int | str | uuid.UUID] = {"team_id": team_id}
 
