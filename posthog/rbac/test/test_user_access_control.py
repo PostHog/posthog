@@ -260,8 +260,10 @@ class TestUserAccessControl(BaseUserAccessControlTest):
         )
 
         # NOTE: This is different to the API queries as the TeamAndOrgViewsetMixing takes care of filtering out based on the parent org
-        filtered_teams = list(self.user_access_control.filter_queryset_by_access_level(Team.objects.all()))
-        self.assertListEqual([self.team, team3], filtered_teams)
+        filtered_teams = list(
+            self.user_access_control.filter_queryset_by_access_level(Team.objects.all()).order_by("id")
+        )
+        assert [self.team, team3] == filtered_teams
 
         other_user_filtered_teams = list(
             self.other_user_access_control.filter_queryset_by_access_level(Team.objects.all())
@@ -279,7 +281,9 @@ class TestUserAccessControl(BaseUserAccessControlTest):
         self.organization_membership.save()
 
         filtered_teams = list(
-            self.user_access_control.filter_queryset_by_access_level(Team.objects.all(), include_all_if_admin=True)
+            self.user_access_control.filter_queryset_by_access_level(
+                Team.objects.all(), include_all_if_admin=True
+            ).order_by("id")
         )
         self.assertListEqual([self.team, team2, team3], filtered_teams)
 

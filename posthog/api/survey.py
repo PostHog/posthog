@@ -28,7 +28,7 @@ from posthog.api.feature_flag import (
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action, get_token
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
