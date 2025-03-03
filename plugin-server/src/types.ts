@@ -74,14 +74,9 @@ export enum KafkaSaslMechanism {
 }
 
 export enum PluginServerMode {
-    ingestion = 'ingestion',
     ingestion_v2 = 'ingestion-v2',
-    ingestion_overflow = 'ingestion-overflow',
-    ingestion_historical = 'ingestion-historical',
-    events_ingestion = 'events-ingestion',
     async_onevent = 'async-onevent',
     async_webhooks = 'async-webhooks',
-    analytics_ingestion = 'analytics-ingestion',
     recordings_blob_ingestion = 'recordings-blob-ingestion',
     recordings_blob_ingestion_overflow = 'recordings-blob-ingestion-overflow',
     recordings_blob_ingestion_v2 = 'recordings-blob-ingestion-v2',
@@ -394,10 +389,6 @@ export interface Hub extends PluginsServerConfig {
 export interface PluginServerCapabilities {
     // Warning: when adding more entries, make sure to update worker/vm/capabilities.ts
     // and the shouldSetupPluginInServer() test accordingly.
-    ingestion?: boolean
-    ingestionOverflow?: boolean
-    ingestionHistorical?: boolean
-    eventsIngestionPipelines?: boolean
     ingestionV2Combined?: boolean
     ingestionV2?: boolean
     processAsyncOnEventHandlers?: boolean

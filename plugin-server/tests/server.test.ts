@@ -42,27 +42,9 @@ describe('server', () => {
             {
                 http: true,
                 mmdb: true,
-                ingestion: true,
-                ingestionOverflow: true,
-                ingestionHistorical: true,
+                ingestionV2: true,
                 appManagementSingleton: true,
                 preflightSchedules: true,
-                syncInlinePlugins: true,
-            }
-        )
-    })
-    test('startPluginsServer does not error - pipelines', async () => {
-        const testCode = `
-        async function processEvent (event) {
-            return event
-        }
-    `
-        await resetTestDatabase(testCode)
-        pluginsServer = await createPluginServer(
-            {},
-            {
-                http: true,
-                eventsIngestionPipelines: true,
                 syncInlinePlugins: true,
             }
         )

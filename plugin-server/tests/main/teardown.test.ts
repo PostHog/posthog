@@ -8,7 +8,6 @@ import { waitForExpect } from '../helpers/expectations'
 import { pluginConfig39 } from '../helpers/plugins'
 import { resetTestDatabase } from '../helpers/sql'
 
-jest.mock('../../src/utils/status')
 jest.setTimeout(60000) // 60 sec timeout
 
 const defaultEvent: PluginEvent = {
@@ -56,7 +55,7 @@ describe('teardown', () => {
             {
                 LOG_LEVEL: LogLevel.Log,
             },
-            undefined
+            { ingestionV2: true }
         )
 
         await processEvent(hub!, defaultEvent)
@@ -100,7 +99,7 @@ describe('teardown', () => {
             {
                 LOG_LEVEL: LogLevel.Log,
             },
-            undefined
+            { ingestionV2: true }
         )
 
         await stop!()
