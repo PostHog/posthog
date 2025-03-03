@@ -1,0 +1,21 @@
+[package]
+name = "posthog-cli"
+version = "0.0.1"
+authors = [
+    "David <david@posthog.com>",
+    "Olly <oliver@posthog.com>",
+    "Hugues <hugues@posthog.com>",
+]
+description = "THE command line interface for PostHog"
+homepage = "posthog.com"
+license = "MIT"
+edition = "2021"
+
+[[bin]]
+name = "posthog-cli"
+path = "src/main.rs"
+
+[dependencies]
+
+[lints]
+workspace = true
