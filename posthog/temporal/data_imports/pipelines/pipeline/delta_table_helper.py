@@ -29,6 +29,11 @@ class DeltaTableHelper:
         self._logger = logger
 
     def _get_credentials(self):
+        if not settings.AIRBYTE_BUCKET_KEY or not settings.AIRBYTE_BUCKET_SECRET or not settings.AIRBYTE_BUCKET_REGION:
+            raise KeyError(
+                "Missing env vars for data warehouse. Required vars: AIRBYTE_BUCKET_KEY, AIRBYTE_BUCKET_SECRET, AIRBYTE_BUCKET_REGION"
+            )
+
         if TEST:
             return {
                 "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
