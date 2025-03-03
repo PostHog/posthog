@@ -177,3 +177,121 @@ class TestFileSystemAPI(APIBaseTest):
         data2 = response2.json()
         self.assertEqual(data2["count"], 1)
         self.assertEqual(data2["results"][0]["path"], "Random/Other File")
+
+    def test_depth_on_create_single_segment(self):
+        """
+        Creating a FileSystem with a single-segment path (like "Documents") should have depth=1.
+        """
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/file_system/",
+            {"path": "Documents", "type": "doc"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        created = response.json()
+        self.assertEqual(created["path"], "Documents")
+        self.assertEqual(created["depth"], 1)  # Single segment => depth=1
+
+        # Double-check via DB
+        file_obj = FileSystem.objects.get(id=created["id"])
+        self.assertEqual(file_obj.depth, 1)
+
+    def test_depth_on_create_multiple_segments(self):
+        """
+        Creating a FileSystem with multiple path segments should have depth equal to the number of segments.
+        E.g. "Folder/Subfolder/File" => depth=3
+        """
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/file_system/",
+            {"path": "Folder/Subfolder/File", "type": "doc"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        created = response.json()
+        self.assertEqual(created["path"], "Folder/Subfolder/File")
+        self.assertEqual(created["depth"], 3)  # 3 segments
+
+        # Verify in DB
+        file_obj = FileSystem.objects.get(id=created["id"])
+        self.assertEqual(file_obj.depth, 3)
+
+    def test_depth_on_partial_update(self):
+        """
+        Updating an existing FileSystem object's path should recalculate depth.
+        """
+        file_obj = FileSystem.objects.create(
+            team=self.team, path="OldPath/file.txt", type="test", created_by=self.user, depth=2
+        )
+        # Verify original depth in DB
+        self.assertEqual(file_obj.depth, 2)
+
+        # Now update the path to add or remove segments
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/file_system/{file_obj.pk}/",
+            {"path": "NewPath/Subfolder/file.txt"},
+        )
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+        updated_data = update_response.json()
+        self.assertEqual(updated_data["path"], "NewPath/Subfolder/file.txt")
+        self.assertEqual(updated_data["depth"], 3)  # Now 3 segments
+
+        file_obj.refresh_from_db()
+        self.assertEqual(file_obj.depth, 3)
+
+    def test_depth_on_partial_update_reduced_segments(self):
+        """
+        If we reduce the number of segments via a partial update, depth should decrease.
+        """
+        file_obj = FileSystem.objects.create(team=self.team, path="A/B/C", type="test", created_by=self.user, depth=3)
+        self.assertEqual(file_obj.depth, 3)
+
+        # Update path to fewer segments
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/file_system/{file_obj.pk}/",
+            {"path": "SingleSegment"},
+        )
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+        updated_data = update_response.json()
+        self.assertEqual(updated_data["path"], "SingleSegment")
+        self.assertEqual(updated_data["depth"], 1)  # Single segment
+
+        file_obj.refresh_from_db()
+        self.assertEqual(file_obj.depth, 1)
+
+    def test_depth_for_unfiled_items(self):
+        """
+        When unfiled items are created by the 'unfiled' endpoint, verify their depth is correct.
+        By default, an unfiled FeatureFlag ends up with something like "Unfiled/Feature Flags/Flag Name" => depth=3
+        """
+        # Create a FeatureFlag
+        FeatureFlag.objects.create(team=self.team, name="Beta Feature", created_by=self.user)
+
+        # Call unfiled - that should create the new FileSystem item
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/unfiled/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        data = response.json()
+        self.assertEqual(data["count"], 1)
+
+        # Check the resulting item
+        item = data["results"][0]
+        self.assertEqual(item["path"], "Unfiled/Feature Flags/Beta Feature")
+        self.assertEqual(item["depth"], 3)  # e.g. ["Unfiled", "Feature Flags", "Beta Feature"]
+
+        # Double-check in DB
+        fs_obj = FileSystem.objects.get(id=item["id"])
+        self.assertEqual(fs_obj.depth, 3)
+
+    def test_depth_for_unfiled_items_multiple_segments(self):
+        """
+        If an object name contains a slash, it should be escaped in the path, but still count as a single path segment.
+        """
+        # If a user enters something with a slash in the name...
+        FeatureFlag.objects.create(team=self.team, name="Flag / With Slash", created_by=self.user)
+
+        # This becomes "Unfiled/Feature Flags/Flag \/ With Slash"
+        # but that is still 3 path segments from the perspective of split_path()
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/unfiled/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        data = response.json()
+        self.assertEqual(data["count"], 1)
+
+        item = data["results"][0]
+        self.assertEqual(item["depth"], 3)  # "Unfiled" / "Feature Flags" / "Flag \/ With Slash"

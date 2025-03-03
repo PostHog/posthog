@@ -8,7 +8,7 @@ from rest_framework.response import Response
 from posthog.api.utils import action
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.models.file_system import FileSystem, save_unfiled_files
+from posthog.models.file_system import FileSystem, save_unfiled_files, split_path
 from posthog.models.user import User
 from posthog.schema import FileSystemType
 
@@ -21,6 +21,7 @@ class FileSystemSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "path",
+            "depth",
             "type",
             "ref",
             "href",
@@ -30,12 +31,15 @@ class FileSystemSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             "id",
+            "depth",
             "created_at",
             "created_by",
         ]
 
     def update(self, instance: FileSystem, validated_data: dict[str, Any]) -> FileSystem:
         instance.team_id = self.context["team_id"]
+        if "path" in validated_data:
+            instance.depth = len(split_path(validated_data["path"]))
         return super().update(instance, validated_data)
 
     def create(self, validated_data: dict[str, Any], *args: Any, **kwargs: Any) -> FileSystem:
@@ -44,6 +48,7 @@ class FileSystemSerializer(serializers.ModelSerializer):
         file_system = FileSystem.objects.create(
             team_id=team.id,
             created_by=request.user,
+            depth=len(split_path(validated_data["path"])),
             **validated_data,
         )
         return file_system
@@ -81,6 +86,12 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         query_serializer.is_valid(raise_exception=True)
         file_type = query_serializer.validated_data.get("type")
         files = save_unfiled_files(self.team, cast(User, request.user), file_type)
+
+        # Also add "depth" to all files that don't have it
+        # This is a "quick hack" while we're developing as the "depth" field got added at a later date.
+        for file in FileSystem.objects.filter(team=self.team, depth=None):
+            file.depth = len(split_path(file.path))
+            file.save()
 
         return Response(
             {
