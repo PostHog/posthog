@@ -6,7 +6,7 @@ import api from 'lib/api'
 import { GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { capitalizeFirstLetter, shouldIgnoreInput } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -339,24 +339,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             }
         },
     })),
-    afterMount(({ actions, cache }) => {
+    afterMount(({ actions }) => {
         actions.loadSavedItems()
         actions.loadUnfiledItems('feature_flag')
         actions.loadUnfiledItems('experiment')
         actions.loadUnfiledItems('insight')
         actions.loadUnfiledItems('dashboard')
         actions.loadUnfiledItems('notebook')
-
-        // register keyboard shortcuts
-        cache.onKeyDown = (event: KeyboardEvent) => {
-            if (shouldIgnoreInput(event)) {
-                return
-            }
-            if (event.key === 'Escape') {
-                event.preventDefault()
-                actions.toggleDragAndDrop(false)
-            }
-        }
-        window.addEventListener('keydown', cache.onKeyDown)
     }),
 ])

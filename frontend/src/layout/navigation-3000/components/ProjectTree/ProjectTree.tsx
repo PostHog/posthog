@@ -74,13 +74,9 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                                 }}
                                 type="secondary"
                                 size="small"
-                                tooltip={
-                                    dragAndDropEnabled
-                                        ? 'Click to cancel changes'
-                                        : 'Click to edit or move items'
-                                }
+                                tooltip={dragAndDropEnabled ? 'Click to cancel changes' : 'Click to edit or move items'}
                             >
-                                {dragAndDropEnabled ? `Cancel` : 'Edit'}
+                                {pendingActionsCount > 1 || dragAndDropEnabled ? `Cancel` : 'Edit'}
                             </LemonButton>
                             <LemonButton
                                 size="small"
