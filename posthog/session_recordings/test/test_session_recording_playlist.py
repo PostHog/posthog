@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, UTC
+import json
 from unittest import mock
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
@@ -10,8 +11,10 @@ from django.test import override_settings
 from freezegun import freeze_time
 from rest_framework import status
 
+from posthog import redis
 from posthog.models import SessionRecording, SessionRecordingPlaylistItem, Team
 from posthog.models.user import User
+from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.models.session_recording_playlist import (
     SessionRecordingPlaylist,
     SessionRecordingPlaylistViewed,
@@ -19,6 +22,7 @@ from posthog.session_recordings.models.session_recording_playlist import (
 from posthog.session_recordings.queries.test.session_replay_sql import (
     produce_replay_summary,
 )
+from posthog.session_recordings.session_recording_playlist_api import PLAYLIST_COUNT_REDIS_PREFIX
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
     OBJECT_STORAGE_BUCKET,
@@ -55,7 +59,7 @@ class TestSessionRecordingPlaylist(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED
         return response
 
-    def test_list_playlists(self):
+    def test_list_playlists_when_there_are_no_playlists(self):
         response = self.client.get(f"/api/projects/{self.team.id}/session_recording_playlists")
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {
@@ -63,6 +67,124 @@ class TestSessionRecordingPlaylist(APIBaseTest):
             "next": None,
             "previous": None,
             "results": [],
+        }
+
+    def test_list_playlists_when_there_are_some_playlists(self):
+        playlist_one = self._create_playlist({"name": "test"})
+        playlist_two = self._create_playlist({"name": "test2"})
+
+        # set some saved filter counts up
+        SessionRecordingViewed.objects.create(
+            team=self.team,
+            user=self.user,
+            session_id="a",
+        )
+        redis.get_client().set(
+            f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist_two.json()['short_id']}",
+            json.dumps({"session_ids": ["a", "b"], "has_more": False, "previous_ids": ["b"]}),
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recording_playlists")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {
+            "count": 2,
+            "next": None,
+            "previous": None,
+            "results": [
+                {
+                    "created_at": mock.ANY,
+                    "created_by": {
+                        "distinct_id": self.user.distinct_id,
+                        "email": self.user.email,
+                        "first_name": "",
+                        "hedgehog_config": None,
+                        "id": self.user.id,
+                        "is_email_verified": None,
+                        "last_name": "",
+                        "role_at_organization": None,
+                        "uuid": mock.ANY,
+                    },
+                    "deleted": False,
+                    "derived_name": None,
+                    "description": "",
+                    "filters": {},
+                    "id": playlist_two.json()["id"],
+                    "last_modified_at": mock.ANY,
+                    "last_modified_by": {
+                        "distinct_id": self.user.distinct_id,
+                        "email": self.user.email,
+                        "first_name": "",
+                        "hedgehog_config": None,
+                        "id": self.user.id,
+                        "is_email_verified": None,
+                        "last_name": "",
+                        "role_at_organization": None,
+                        "uuid": mock.ANY,
+                    },
+                    "name": "test2",
+                    "pinned": False,
+                    "recordings_counts": {
+                        "collection": {
+                            "count": None,
+                            "watched_count": None,
+                        },
+                        "saved_filters": {
+                            "count": 2,
+                            "has_more": False,
+                            "watched_count": 1,
+                            "increased": True,
+                        },
+                    },
+                    "short_id": playlist_two.json()["short_id"],
+                },
+                {
+                    "created_at": mock.ANY,
+                    "created_by": {
+                        "distinct_id": self.user.distinct_id,
+                        "email": self.user.email,
+                        "first_name": "",
+                        "hedgehog_config": None,
+                        "id": self.user.id,
+                        "is_email_verified": None,
+                        "last_name": "",
+                        "role_at_organization": None,
+                        "uuid": mock.ANY,
+                    },
+                    "deleted": False,
+                    "derived_name": None,
+                    "description": "",
+                    "filters": {},
+                    "id": playlist_one.json()["id"],
+                    "last_modified_at": mock.ANY,
+                    "last_modified_by": {
+                        "distinct_id": self.user.distinct_id,
+                        "email": self.user.email,
+                        "first_name": "",
+                        "hedgehog_config": None,
+                        "id": self.user.id,
+                        "is_email_verified": None,
+                        "last_name": "",
+                        "role_at_organization": None,
+                        "uuid": mock.ANY,
+                    },
+                    "name": "test",
+                    "pinned": False,
+                    "recordings_counts": {
+                        "collection": {
+                            "count": None,
+                            "watched_count": None,
+                        },
+                        "saved_filters": {
+                            "count": None,
+                            "has_more": None,
+                            "watched_count": None,
+                            "increased": None,
+                        },
+                    },
+                    "short_id": playlist_one.json()["short_id"],
+                },
+            ],
         }
 
     def test_creates_playlist(self):
@@ -81,6 +203,18 @@ class TestSessionRecordingPlaylist(APIBaseTest):
             "filters": {},
             "last_modified_at": mock.ANY,
             "last_modified_by": response.json()["last_modified_by"],
+            "recordings_counts": {
+                "collection": {
+                    "count": None,
+                    "watched_count": None,
+                },
+                "saved_filters": {
+                    "count": None,
+                    "has_more": None,
+                    "watched_count": None,
+                    "increased": None,
+                },
+            },
         }
 
     def test_can_create_many_playlists(self):

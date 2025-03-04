@@ -33,6 +33,7 @@ from posthog.temporal.batch_exports.batch_exports import (
 from posthog.temporal.batch_exports.heartbeat import (
     BatchExportRangeHeartbeatDetails,
     DateRange,
+    should_resume_from_activity_heartbeat,
 )
 from posthog.temporal.batch_exports.spmc import (
     Consumer,
@@ -635,9 +636,9 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
         Heartbeater() as heartbeater,
         set_status_to_running_task(run_id=inputs.run_id, logger=logger),
     ):
-        # For now we don't resume from a heartbeat as this is causing events to be missed due to the way we're merging
-        # data into the destination table
-        details = BigQueryHeartbeatDetails()
+        _, details = await should_resume_from_activity_heartbeat(activity, BigQueryHeartbeatDetails)
+        if details is None:
+            details = BigQueryHeartbeatDetails()
 
         done_ranges: list[DateRange] = details.done_ranges
 
@@ -768,26 +769,30 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs) -> Records
                         bigquery_table=bigquery_stage_table if can_perform_merge else bigquery_table,
                         table_schema=stage_schema if can_perform_merge else schema,
                     )
-                    await run_consumer(
-                        consumer=consumer,
-                        queue=queue,
-                        producer_task=producer_task,
-                        schema=record_batch_schema,
-                        max_bytes=settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES,
-                        json_columns=() if can_perform_merge else json_columns,
-                        writer_file_kwargs={"compression": "zstd"} if can_perform_merge else {},
-                        multiple_files=True,
-                    )
-
-                    if can_perform_merge:
-                        await bq_client.amerge_tables(
-                            final_table=bigquery_table,
-                            stage_table=bigquery_stage_table,
-                            mutable=mutable,
-                            merge_key=merge_key,
-                            update_key=update_key,
-                            stage_fields_cast_to_json=json_columns,
+                    try:
+                        await run_consumer(
+                            consumer=consumer,
+                            queue=queue,
+                            producer_task=producer_task,
+                            schema=record_batch_schema,
+                            max_bytes=settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES,
+                            json_columns=() if can_perform_merge else json_columns,
+                            writer_file_kwargs={"compression": "zstd"} if can_perform_merge else {},
+                            multiple_files=True,
                         )
+
+                    # ensure we always write data to final table, even if we fail halfway through, as if we resume from
+                    # a heartbeat, we can continue without losing data
+                    finally:
+                        if can_perform_merge:
+                            await bq_client.amerge_tables(
+                                final_table=bigquery_table,
+                                stage_table=bigquery_stage_table,
+                                mutable=mutable,
+                                merge_key=merge_key,
+                                update_key=update_key,
+                                stage_fields_cast_to_json=json_columns,
+                            )
 
         return details.records_completed
 

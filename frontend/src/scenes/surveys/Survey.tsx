@@ -117,7 +117,10 @@ export function SurveyDisplaySummary({
     targetingFlagFilters?: FeatureFlagFilters
 }): JSX.Element {
     const hasConditions =
-        survey.conditions?.url || survey.conditions?.selector || survey.conditions?.seenSurveyWaitPeriodInDays
+        survey.conditions?.url ||
+        survey.conditions?.selector ||
+        survey.conditions?.seenSurveyWaitPeriodInDays ||
+        (survey.conditions?.events?.values.length ?? 0) > 0
     const hasFeatureFlags = survey.linked_flag_id || targetingFlagFilters
 
     return (
@@ -192,6 +195,24 @@ export function SurveyDisplaySummary({
                         <span className="font-medium">User properties:</span>{' '}
                         <FeatureFlagReleaseConditions readOnly excludeTitle filters={targetingFlagFilters} />
                     </BindLogic>
+                </div>
+            )}
+            {(survey.conditions?.events?.values.length ?? 0) > 0 && (
+                <div className="flex flex-col font-medium gap-1">
+                    <div className="flex-row">
+                        <span>
+                            When the user sends the following events (
+                            <span>
+                                {survey.conditions?.events?.repeatedActivation
+                                    ? 'every time they occur'
+                                    : 'once per user'}
+                            </span>
+                            ):
+                        </span>
+                        {survey.conditions?.events?.values.map((event) => (
+                            <LemonTag key={event.name}>{event.name}</LemonTag>
+                        ))}
+                    </div>
                 </div>
             )}
         </div>

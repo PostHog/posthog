@@ -170,7 +170,7 @@ export function PlayerMetaBottomSettings({ size }: { size: PlayerMetaBreakpoints
 
     return (
         <SettingsBar border="top">
-            <div className="no-flex sm:flex w-full justify-between items-center gap-0.5">
+            <div className="flex w-full justify-between items-center gap-0.5">
                 <div className="flex flex-row gap-0.5 h-full items-center">
                     <SetPlaybackSpeed />
                     {!isSmall && <SetTimeFormat />}

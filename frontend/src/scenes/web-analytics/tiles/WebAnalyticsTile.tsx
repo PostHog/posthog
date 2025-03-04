@@ -7,11 +7,9 @@ import { IntervalFilterStandalone } from 'lib/components/IntervalFilter'
 import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { IconOpenInNew, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { percentage, tryDecodeURIComponent, UnexpectedNeverError } from 'lib/utils'
 import { useCallback, useMemo } from 'react'
 import { NewActionButton } from 'scenes/actions/NewActionButton'
@@ -290,7 +288,6 @@ const SortableCell = (name: string, orderByField: WebAnalyticsOrderByFields): Qu
     function SortableCell() {
         const { tablesOrderBy } = useValues(webAnalyticsLogic)
         const { setTablesOrderBy } = useActions(webAnalyticsLogic)
-        const { featureFlags } = useValues(featureFlagLogic)
 
         const isSortedByMyField = tablesOrderBy?.[0] === orderByField
         const isAscending = tablesOrderBy?.[1] === 'ASC'
@@ -303,10 +300,6 @@ const SortableCell = (name: string, orderByField: WebAnalyticsOrderByFields): Qu
                 setTablesOrderBy(orderByField, 'ASC')
             }
         }, [isAscending, isSortedByMyField, setTablesOrderBy])
-
-        if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TABLE_SORTING]) {
-            return <span className="pr-5">{name}</span>
-        }
 
         return (
             <span onClick={onClick} className="group cursor-pointer inline-flex items-center">
@@ -483,7 +476,7 @@ export const WebStatsTrendTile = ({
                 geographyTab: hasCountryFilter ? undefined : GeographyTab.REGIONS,
             })
         },
-        [togglePropertyFilter, worldMapPropertyName]
+        [togglePropertyFilter, worldMapPropertyName, hasCountryFilter]
     )
 
     const context = useMemo((): QueryContext => {

@@ -37,14 +37,14 @@ export const costs: ModelRow[] = [
         },
     },
     {
-        model: 'llama-3.1-sonar-large-128k-chat',
+        model: 'llama-3.1-sonar-large-128k-online',
         cost: {
             prompt_token: 0.000001,
             completion_token: 0.000001,
         },
     },
     {
-        model: 'llama-3.1-sonar-large-128k-online',
+        model: 'llama-3.1-sonar-large-128k-chat',
         cost: {
             prompt_token: 0.000001,
             completion_token: 0.000001,
