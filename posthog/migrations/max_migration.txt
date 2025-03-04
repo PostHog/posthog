@@ -1,1 +1,1 @@
-0681_update_intercom_template_id
+0680_alter_integration_kind
