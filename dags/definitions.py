@@ -33,6 +33,7 @@ resources_by_env = {
             {"s3_bucket": settings.DAGSTER_S3_BUCKET, "s3_prefix": "dag-storage"}
         ),
         "s3": s3_resource,
+        # Using EnvVar instead of the Django setting to ensure that the token is not leaked anywhere in the Dagster UI
         "slack": SlackResource(token=EnvVar("SLACK_TOKEN")),
     },
     "local": {
