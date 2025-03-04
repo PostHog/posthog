@@ -1,1 +1,1 @@
-0677_action_embedding
+0678_action_embedding_last_synced_at

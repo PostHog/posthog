@@ -1,9 +1,7 @@
 import asyncio
 import json
-from collections.abc import Coroutine
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any
 
 import cohere
 import posthoganalytics
@@ -22,21 +20,25 @@ from posthog.temporal.common.utils import get_scheduled_start_time
 
 
 async def _get_orgs_from_the_feature_flag() -> list[str]:
-    feature_flag = await FeatureFlag.objects.filter(key="max-rag", team_id=2).afirst()
+    feature_flag = await FeatureFlag.objects.filter(key="max-rag", team_id=1).afirst()
     if not feature_flag:
         return []
-    payload = feature_flag.get_payload("organizations")
-    if not isinstance(payload, list):
-        return []
-    return payload
+    payload = feature_flag.get_payload("true")
+    try:
+        orgs = json.loads(payload)["organizations"]
+        if isinstance(orgs, list):
+            return orgs
+    except:
+        pass
+    return []
 
 
 async def get_actions_qs(start_dt: datetime, offset: int | None = None, batch_size: int | None = None):
     orgs = await _get_orgs_from_the_feature_flag()
     actions_to_summarize = Action.objects.filter(
-        (Q(updated_at__gte=F("last_summarized_at")) | Q(last_summarized_at__isnull=True))
-        & Q(updated_at__lte=start_dt)
+        Q(updated_at__lte=start_dt)
         & Q(team__organization__in=orgs)
+        & (Q(updated_at__gte=F("last_summarized_at")) | Q(last_summarized_at__isnull=True))
     ).order_by("id", "team_id", "updated_at")
     if offset is None or batch_size is None:
         return actions_to_summarize
@@ -61,13 +63,8 @@ class RetrieveActionsInputs:
     start_dt: str
 
 
-@dataclass
-class UpdatedAction:
-    action_id: int
-
-
 @temporalio.activity.defn
-async def batch_summarize_and_embed_actions(inputs: RetrieveActionsInputs) -> list[UpdatedAction]:
+async def batch_summarize_and_embed_actions(inputs: RetrieveActionsInputs):
     workflow_start_dt = datetime.fromisoformat(inputs.start_dt)
     actions_to_summarize = await get_actions_qs(workflow_start_dt, inputs.offset, inputs.batch_size)
     actions = [action async for action in actions_to_summarize]
@@ -96,35 +93,60 @@ async def batch_summarize_and_embed_actions(inputs: RetrieveActionsInputs) -> li
         action.embedding = embedding
 
     await Action.objects.abulk_update(models_to_update, ["embedding", "last_summarized_at", "summary"])
-    return [UpdatedAction(action_id=action.id) for action in models_to_update]
 
 
 @dataclass
 class SyncActionVectorsForTeamInputs:
-    action_ids: list[int]
+    batch_size: int
+    start_dt: str
+
+
+@dataclass
+class SyncActionVectorsForTeamOutputs:
+    has_more: bool
 
 
 @temporalio.activity.defn
-async def sync_action_vectors_for_team(inputs: SyncActionVectorsForTeamInputs):
-    models_to_update = [action async for action in Action.objects.filter(id__in=inputs.action_ids)]
-    if not models_to_update:
-        return
-    async with get_client() as client:
-        await client.apost_query(
-            INSERT_BULK_PG_EMBEDDINGS_SQL,
-            [
-                (
-                    "action",
-                    action.team_id,
-                    action.id,
-                    action.embedding,
-                    action.summary,
-                    {"name": action.name, "description": action.description},
-                    1 if action.deleted else 0,
-                )
-                for action in models_to_update
-            ],
+async def sync_action_vectors_for_team(inputs: SyncActionVectorsForTeamInputs) -> SyncActionVectorsForTeamOutputs:
+    workflow_start_dt = datetime.fromisoformat(inputs.start_dt)
+    actions_to_sync = (
+        Action.objects.filter(
+            Q(last_summarized_at__lte=workflow_start_dt)
+            & (
+                Q(last_summarized_at__gte=F("embedding_last_synced_at"))
+                | (Q(embedding_last_synced_at__isnull=True) & Q(last_summarized_at__isnull=False))
+            )
         )
+        .order_by("id", "team_id", "updated_at")
+        .values("team_id", "id", "embedding", "summary", "name", "description", "deleted")
+    )
+
+    batch = [
+        (
+            "action",
+            action["team_id"],
+            action["id"],
+            action["embedding"],
+            action["summary"],
+            json.dumps({"name": action["name"], "description": action["description"]}),
+            1 if action["deleted"] else 0,
+        )
+        async for action in actions_to_sync
+    ]
+
+    if not batch:
+        return SyncActionVectorsForTeamOutputs(has_more=False)
+
+    async with get_client() as client:
+        await client.execute_query(
+            INSERT_BULK_PG_EMBEDDINGS_SQL,
+            *batch,
+        )
+
+    bulk_update = [Action(id=action["id"], embedding_last_synced_at=workflow_start_dt) for action in batch]
+    await Action.objects.abulk_update(bulk_update, ["embedding_last_synced_at"])
+
+    return SyncActionVectorsForTeamOutputs(has_more=len(batch) == inputs.batch_size)
 
 
 @dataclass
@@ -133,15 +155,11 @@ class SyncVectorsInputs:
     batch_size: int = 96
     max_parallel_requests: int = 4
     sync_batch_size: int = 50000
-    max_parallel_sync_requests: int = 5
 
 
 @temporalio.workflow.defn(name="ai-sync-vectors")
 class SyncVectorsWorkflow(PostHogWorkflow):
     _updated_actions: set[int]
-
-    def __init__(self):
-        self._updated_actions = set()
 
     @staticmethod
     def parse_inputs(inputs: list[str]) -> SyncVectorsInputs:
@@ -160,10 +178,8 @@ class SyncVectorsWorkflow(PostHogWorkflow):
             start_to_close_timeout=timedelta(seconds=15),
             retry_policy=temporalio.common.RetryPolicy(initial_interval=timedelta(seconds=30), maximum_attempts=3),
         )
-        if not approximate_count:
-            return
 
-        tasks: list[Coroutine[Any, Any, list[UpdatedAction]]] = []
+        tasks = []
         for i in range(0, approximate_count, inputs.batch_size):
             tasks.append(
                 temporalio.workflow.execute_activity(
@@ -178,37 +194,18 @@ class SyncVectorsWorkflow(PostHogWorkflow):
 
             # Maximum alllowed parallel request count to LLMs is 384 (96 * 4).
             if len(tasks) == inputs.max_parallel_requests:
-                batches = await asyncio.gather(*tasks)
-                tasks = []
-                self._update_actions(batches)
-
-        if tasks:
-            batches = await asyncio.gather(*tasks)
-            self._update_actions(batches)
-
-        tasks: list[Coroutine[Any, Any, None]] = []
-        sorted_action_ids = sorted(self._updated_actions)
-        for batch in range(0, len(sorted_action_ids), inputs.sync_batch_size):
-            batch_action_ids = sorted_action_ids[batch : batch + inputs.sync_batch_size]
-            tasks.append(
-                temporalio.workflow.execute_activity(
-                    sync_action_vectors_for_team,
-                    SyncActionVectorsForTeamInputs(batch_action_ids),
-                    start_to_close_timeout=timedelta(minutes=1),
-                    retry_policy=temporalio.common.RetryPolicy(
-                        initial_interval=timedelta(seconds=30), maximum_attempts=3
-                    ),
-                )
-            )
-
-            if len(tasks) == inputs.max_parallel_sync_requests:
                 await asyncio.gather(*tasks)
                 tasks = []
 
         if tasks:
             await asyncio.gather(*tasks)
 
-    def _update_actions(self, batches: list[list[UpdatedAction]]):
-        for actions in batches:
-            for action in actions:
-                self._updated_actions.add(action.action_id)
+        while True:
+            res = await temporalio.workflow.execute_activity(
+                sync_action_vectors_for_team,
+                SyncActionVectorsForTeamInputs(inputs.batch_size, start_dt_str),
+                start_to_close_timeout=timedelta(minutes=1),
+                retry_policy=temporalio.common.RetryPolicy(initial_interval=timedelta(seconds=30), maximum_attempts=3),
+            )
+            if not res.has_more:
+                break
