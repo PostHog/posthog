@@ -6,7 +6,7 @@ import pydantic
 from clickhouse_driver import Client
 
 from posthog.clickhouse.cluster import ClickhouseCluster
-from posthog.settings.dagster import DAGSTER_S3_BUCKET
+from posthog.settings.dagster import DAGSTER_DATA_EXPORT_S3_BUCKET
 from posthog.settings.base_variables import DEBUG
 from posthog.settings.object_storage import (
     OBJECT_STORAGE_ENDPOINT,
@@ -64,139 +64,140 @@ def export_query_logs(
         date_from = DateRange.parse_date(config.date_range.date_from)
         date_to = DateRange.parse_date(config.date_range.date_to)
 
-    # Format dates for the S3 path
-    date_from_str = date_from.strftime("%Y%m%d")
-    date_to_str = date_to.strftime("%Y%m%d")
-
     # We'll create a function that generates the query for each host
     # This allows us to include the hostname in the filename to avoid conflicts
     def generate_export_query(client: Client):
         # Get the hostname from the client
         [[hostname]] = client.execute("SELECT hostName()")
 
-        # Create a unique filename based on the date range and hostname
-        s3_filename = f"{config.s3_path}/query_logs_{hostname}_{date_from_str}_to_{date_to_str}.parquet"
-
-        if DEBUG:
-            context.log.info(f"Using MinIO for local development on host {hostname}")
-            # For MinIO, we need to use the HTTP endpoint directly
-            # Format: http://endpoint/bucket/path
-            s3_path = f"{OBJECT_STORAGE_ENDPOINT}/{DAGSTER_S3_BUCKET}/{s3_filename}"
-
-            # Build the function call with credentials
-            s3_function_args = (
-                f"'{s3_path}', "
-                f"'{OBJECT_STORAGE_ACCESS_KEY_ID}', "
-                f"'{OBJECT_STORAGE_SECRET_ACCESS_KEY}', "
-                f"'Parquet'"
-            )
-        else:
-            # In production, use the standard S3 URL format with AWS
-            s3_path = f"https://{DAGSTER_S3_BUCKET}.s3.amazonaws.com/{s3_filename}"
-            # AWS credentials are handled by the instance profile
-            s3_function_args = f"'{s3_path}', 'Parquet'"
-
-        # Construct the export query
-        # Explicitly select all columns except transaction_id which contains a UUID that Parquet doesn't support
-        query = f"""
-        INSERT INTO FUNCTION s3({s3_function_args})
-        SELECT
-            hostname,
-            type,
-            event_date,
-            event_time,
-            event_time_microseconds,
-            query_start_time,
-            query_start_time_microseconds,
-            query_duration_ms,
-            read_rows,
-            read_bytes,
-            written_rows,
-            written_bytes,
-            result_rows,
-            result_bytes,
-            memory_usage,
-            current_database,
-            query,
-            formatted_query,
-            normalized_query_hash,
-            query_kind,
-            databases,
-            tables,
-            columns,
-            partitions,
-            projections,
-            views,
-            exception_code,
-            exception,
-            stack_trace,
-            is_initial_query,
-            user,
-            query_id,
-            address,
-            port,
-            initial_user,
-            initial_query_id,
-            initial_address,
-            initial_port,
-            initial_query_start_time,
-            initial_query_start_time_microseconds,
-            interface,
-            is_secure,
-            os_user,
-            client_hostname,
-            client_name,
-            client_revision,
-            client_version_major,
-            client_version_minor,
-            client_version_patch,
-            http_method,
-            http_user_agent,
-            http_referer,
-            forwarded_for,
-            quota_key,
-            distributed_depth,
-            revision,
-            log_comment,
-            thread_ids,
-            peak_threads_usage,
-            ProfileEvents,
-            Settings,
-            used_aggregate_functions,
-            used_aggregate_function_combinators,
-            used_database_engines,
-            used_data_type_families,
-            used_dictionaries,
-            used_formats,
-            used_functions,
-            used_storages,
-            used_table_functions,
-            used_row_policies,
-            used_privileges,
-            missing_privileges,
-            -- transaction_id is excluded because it contains a UUID which Parquet doesn't support
-            query_cache_usage,
-            asynchronous_read_counters,
-            ProfileEvents.Names,
-            ProfileEvents.Values,
-            Settings.Names,
-            Settings.Values
-        FROM system.query_log
-        WHERE event_date >= toDate(%(date_from)s)
-          AND event_date <= toDate(%(date_to)s)
-        SETTINGS s3_truncate_on_insert=1
-        """
-
-        context.log.info(f"Exporting query logs from {date_from} to {date_to} to {s3_path} on host {hostname}")
-
-        # Execute the query
-        return client.execute(
-            query,
-            {
-                "date_from": date_from.strftime(DateRange.FORMAT),
-                "date_to": date_to.strftime(DateRange.FORMAT),
-            },
+        context.log.info(
+            f"Starting export of query logs from {date_from} to {date_to} on host {hostname} with run ID {context.run.run_id}"
         )
+
+        # For each date in the range, create a separate export
+        # This ensures proper Hive partitioning by date
+        current_date = date_from
+        while current_date <= date_to:
+            # Create the date-specific filename
+            date_s3_filename = f"{config.s3_path}/event_date={current_date.strftime('%Y-%m-%d')}/{hostname}_{context.run.run_id}.parquet"
+
+            if DEBUG:
+                date_s3_path = f"{OBJECT_STORAGE_ENDPOINT}/{DAGSTER_DATA_EXPORT_S3_BUCKET}/{date_s3_filename}"
+                date_s3_function_args = (
+                    f"'{date_s3_path}', "
+                    f"'{OBJECT_STORAGE_ACCESS_KEY_ID}', "
+                    f"'{OBJECT_STORAGE_SECRET_ACCESS_KEY}', "
+                    f"'Parquet'"
+                )
+            else:
+                date_s3_path = f"https://{DAGSTER_DATA_EXPORT_S3_BUCKET}.s3.amazonaws.com/{date_s3_filename}"
+                date_s3_function_args = f"'{date_s3_path}', 'Parquet'"
+
+            # Construct the export query for this specific date
+            # Explicitly select all columns except transaction_id which contains a UUID that Parquet doesn't support
+            query = f"""
+            INSERT INTO FUNCTION s3({date_s3_function_args})
+            SELECT
+                hostname,
+                type,
+                event_date,
+                event_time,
+                event_time_microseconds,
+                query_start_time,
+                query_start_time_microseconds,
+                query_duration_ms,
+                read_rows,
+                read_bytes,
+                written_rows,
+                written_bytes,
+                result_rows,
+                result_bytes,
+                memory_usage,
+                current_database,
+                query,
+                formatted_query,
+                normalized_query_hash,
+                query_kind,
+                databases,
+                tables,
+                columns,
+                partitions,
+                projections,
+                views,
+                exception_code,
+                exception,
+                stack_trace,
+                is_initial_query,
+                user,
+                query_id,
+                address,
+                port,
+                initial_user,
+                initial_query_id,
+                initial_address,
+                initial_port,
+                initial_query_start_time,
+                initial_query_start_time_microseconds,
+                interface,
+                is_secure,
+                os_user,
+                client_hostname,
+                client_name,
+                client_revision,
+                client_version_major,
+                client_version_minor,
+                client_version_patch,
+                http_method,
+                http_user_agent,
+                http_referer,
+                forwarded_for,
+                quota_key,
+                distributed_depth,
+                revision,
+                log_comment,
+                thread_ids,
+                peak_threads_usage,
+                ProfileEvents,
+                Settings,
+                used_aggregate_functions,
+                used_aggregate_function_combinators,
+                used_database_engines,
+                used_data_type_families,
+                used_dictionaries,
+                used_formats,
+                used_functions,
+                used_storages,
+                used_table_functions,
+                used_row_policies,
+                used_privileges,
+                missing_privileges,
+                -- transaction_id is excluded because it contains a UUID which Parquet doesn't support
+                query_cache_usage,
+                asynchronous_read_counters,
+                ProfileEvents.Names,
+                ProfileEvents.Values,
+                Settings.Names,
+                Settings.Values
+            FROM system.query_log
+            WHERE event_date = toDate(%(current_date)s)
+            SETTINGS s3_truncate_on_insert=1
+            """
+
+            context.log.info(f"Exporting query logs for {current_date} to {date_s3_path} on host {hostname}")
+
+            # Execute the query for this date
+            client.execute(
+                query,
+                {
+                    "current_date": current_date.strftime(DateRange.FORMAT),
+                },
+            )
+
+            # Move to the next date
+            current_date += datetime.timedelta(days=1)
+
+        # Return a summary of the export
+        return f"Exported query logs from {date_from} to {date_to}"
 
     # Execute the query on all hosts in the cluster
     context.log.info(f"Starting export of query logs from {date_from} to {date_to} on all hosts")
