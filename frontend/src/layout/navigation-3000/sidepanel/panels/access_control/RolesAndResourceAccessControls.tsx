@@ -21,15 +21,17 @@ import { fullName } from 'lib/utils'
 import { useMemo, useState } from 'react'
 import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature } from '~/types'
+import { AccessControlLevel, AvailableFeature } from '~/types'
 
 import { roleBasedAccessControlLogic, RoleWithResourceAccessControls } from './roleBasedAccessControlLogic'
 
 export type RolesAndResourceAccessControlsProps = {
-    noAccessControls?: boolean
+    showAccessControls?: boolean
 }
 
-export function RolesAndResourceAccessControls({ noAccessControls }: RolesAndResourceAccessControlsProps): JSX.Element {
+export function RolesAndResourceAccessControls({
+    showAccessControls = false,
+}: RolesAndResourceAccessControlsProps): JSX.Element {
     const {
         rolesWithResourceAccessControls,
         rolesLoading,
@@ -42,38 +44,38 @@ export function RolesAndResourceAccessControls({ noAccessControls }: RolesAndRes
 
     const { updateRoleBasedAccessControls, selectRoleId, setEditingRoleId } = useActions(roleBasedAccessControlLogic)
 
-    const roleColumns = noAccessControls
-        ? []
-        : resources.map((resource) => ({
-              title: resource.replace(/_/g, ' ') + 's',
-              key: resource,
-              width: 0,
-              render: (_: any, { accessControlByResource, role }: RoleWithResourceAccessControls) => {
-                  const ac = accessControlByResource[resource]
+    const roleColumns = showAccessControls
+        ? resources.map((resource) => ({
+            title: resource.replace(/_/g, ' ') + 's',
+            key: resource,
+            width: 0,
+            render: (_: any, { accessControlByResource, role }: RoleWithResourceAccessControls) => {
+                const ac = accessControlByResource[resource]
 
-                  return (
-                      <LemonSelect
-                          size="small"
-                          placeholder="No override"
-                          className="my-1 whitespace-nowrap"
-                          value={role ? ac?.access_level : ac?.access_level ?? defaultAccessLevel}
-                          onChange={(newValue) =>
-                              updateRoleBasedAccessControls([
-                                  {
-                                      resource,
-                                      role: role?.id ?? null,
-                                      access_level: newValue,
-                                  },
-                              ])
-                          }
-                          options={availableLevels.map((level) => ({
-                              value: level,
-                              label: capitalizeFirstLetter(level ?? ''),
-                          }))}
-                      />
-                  )
-              },
-          }))
+                return (
+                    <LemonSelect
+                        size="small"
+                        placeholder="No override"
+                        className="my-1 whitespace-nowrap"
+                        value={role ? ac?.access_level : ac?.access_level ?? defaultAccessLevel}
+                        onChange={(newValue) =>
+                            updateRoleBasedAccessControls([
+                                {
+                                    resource,
+                                    role: role?.id ?? null,
+                                    access_level: newValue as AccessControlLevel | null,
+                                },
+                            ])
+                        }
+                        options={availableLevels.map((level) => ({
+                            value: level,
+                            label: capitalizeFirstLetter(level ?? ''),
+                        }))}
+                    />
+                )
+            },
+        }))
+        : []
 
     const columns: LemonTableColumns<RoleWithResourceAccessControls> = [
         {
@@ -84,7 +86,7 @@ export function RolesAndResourceAccessControls({ noAccessControls }: RolesAndRes
                 <span className="whitespace-nowrap">
                     <LemonTableLink
                         onClick={
-                            role
+                            role && !showAccessControls
                                 ? () => (role.id === selectedRoleId ? selectRoleId(null) : selectRoleId(role.id))
                                 : undefined
                         }
@@ -130,17 +132,20 @@ export function RolesAndResourceAccessControls({ noAccessControls }: RolesAndRes
                         dataSource={rolesWithResourceAccessControls}
                         loading={rolesLoading || roleBasedAccessControlsLoading}
                         expandable={{
-                            isRowExpanded: ({ role }) => !!selectedRoleId && role?.id === selectedRoleId,
+                            isRowExpanded: ({ role }) =>
+                                !!selectedRoleId && role?.id === selectedRoleId && !showAccessControls,
                             onRowExpand: ({ role }) => (role ? selectRoleId(role.id) : undefined),
                             onRowCollapse: () => selectRoleId(null),
                             expandedRowRender: ({ role }) => (role ? <RoleDetails roleId={role?.id} /> : null),
-                            rowExpandable: ({ role }) => !!role,
+                            rowExpandable: ({ role }) => !!role && !showAccessControls,
                         }}
                     />
 
-                    <LemonButton type="primary" onClick={() => setEditingRoleId('new')} icon={<IconPlus />}>
-                        Add a role
-                    </LemonButton>
+                    {!showAccessControls && (
+                        <LemonButton type="primary" onClick={() => setEditingRoleId('new')} icon={<IconPlus />}>
+                            Add a role
+                        </LemonButton>
+                    )}
                     <RoleModal />
                 </div>
             </PayGateMini>

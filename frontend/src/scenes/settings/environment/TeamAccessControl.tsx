@@ -30,7 +30,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AccessControlObject } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlObject'
 import { AvailableFeature, FusedTeamMemberType } from '~/types'
-
+import { RolesAndResourceAccessControls } from '~/layout/navigation-3000/sidepanel/panels/access_control/RolesAndResourceAccessControls'
 import { AddMembersModalWithButton } from './AddMembersModal'
 import { MINIMUM_IMPLICIT_ACCESS_LEVEL, teamMembersLogic } from './teamMembersLogic'
 
@@ -230,7 +230,15 @@ export function TeamAccessControl(): JSX.Element {
 
     // Only render the new access control if they have been migrated and have the feature flag enabled
     if (newAccessControl && currentTeam?.access_control_version === 'v2') {
-        return <AccessControlObject resource="project" resource_id={`${currentTeam?.id}`} />
+        return (
+            <div className="space-y-6">
+                <AccessControlObject resource="project" resource_id={`${currentTeam?.id}`} />
+                <div className="space-y-2">
+                    <h3>Role permissions</h3>
+                    <RolesAndResourceAccessControls showAccessControls />
+                </div>
+            </div>
+        )
     }
 
     return (
