@@ -20,6 +20,7 @@ members = [
     "cyclotron-janitor",
     "cyclotron-fetch",
     "cymbal",
+    "posthog-cli",
 ]
 
 [workspace.lints.rust]
