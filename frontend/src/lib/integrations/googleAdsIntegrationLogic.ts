@@ -25,7 +25,10 @@ export const googleAdsIntegrationLogic = kea<googleAdsIntegrationLogicType>([
                     customerId: string
                     parentId: string
                 }) => {
-                    const res = await api.integrations.googleAdsConversionActions(props.id, customerId, parentId)
+                    const res = await api.integrations.googleAdsConversionActions(props.id, {
+                        customerId,
+                        parentId,
+                    })
                     return res.conversionActions
                 },
             },
