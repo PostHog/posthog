@@ -24,6 +24,7 @@ import {
     ActionConversionGoal,
     ActionsNode,
     AnyEntityNode,
+    BreakdownFilter,
     CompareFilter,
     CustomEventConversionGoal,
     EventsNode,
@@ -234,6 +235,106 @@ export interface WebAnalyticsStatusCheck {
     isSendingPageLeaves: boolean
     isSendingPageLeavesScroll: boolean
     hasAuthorizedUrls: boolean
+}
+
+// Maps WebStatsBreakdown enum values to BreakdownFilter objects
+export const webAnalyticsBreakdownFilters: Record<WebStatsBreakdown, BreakdownFilter> = {
+    [WebStatsBreakdown.Page]: {
+        breakdown_type: 'event',
+        breakdown: '$pathname',
+    },
+    [WebStatsBreakdown.InitialPage]: {
+        breakdown_type: 'session',
+        breakdown: '$entry_pathname',
+    },
+    [WebStatsBreakdown.ExitPage]: {
+        breakdown_type: 'session',
+        breakdown: '$end_pathname',
+    },
+    [WebStatsBreakdown.ExitClick]: {
+        breakdown_type: 'session',
+        breakdown: '$last_external_click_url',
+    },
+    [WebStatsBreakdown.ScreenName]: {
+        breakdown_type: 'event',
+        breakdown: '$screen_name',
+    },
+    [WebStatsBreakdown.InitialReferringDomain]: {
+        breakdown_type: 'session',
+        breakdown: '$entry_referring_domain',
+    },
+    [WebStatsBreakdown.InitialUTMSource]: {
+        breakdown_type: 'session',
+        breakdown: '$entry_utm_source',
+    },
+    [WebStatsBreakdown.InitialUTMCampaign]: {
+        breakdown_type: 'session',
+        breakdown: '$entry_utm_campaign',
+    },
+    [WebStatsBreakdown.InitialUTMMedium]: {
+        breakdown_type: 'session',
+        breakdown: '$entry_utm_medium',
+    },
+    [WebStatsBreakdown.InitialUTMTerm]: {
+        breakdown_type: 'session',
+        breakdown: '$entry_utm_term',
+    },
+    [WebStatsBreakdown.InitialUTMContent]: {
+        breakdown_type: 'session',
+        breakdown: '$entry_utm_content',
+    },
+    [WebStatsBreakdown.InitialChannelType]: {
+        breakdown_type: 'session',
+        breakdown: '$channel_type',
+    },
+    [WebStatsBreakdown.InitialUTMSourceMediumCampaign]: {
+        breakdown_type: 'session',
+        // This is a special case that might need custom handling in the backend
+        // as it combines multiple fields
+        breakdown: ['$entry_utm_source', '$entry_utm_medium', '$entry_utm_campaign'],
+    },
+    [WebStatsBreakdown.Browser]: {
+        breakdown_type: 'event',
+        breakdown: '$browser',
+    },
+    [WebStatsBreakdown.OS]: {
+        breakdown_type: 'event',
+        breakdown: '$os',
+    },
+    [WebStatsBreakdown.Viewport]: {
+        breakdown_type: 'event',
+        // This is a special case that might need custom handling
+        breakdown: ['$viewport_width', '$viewport_height'],
+    },
+    [WebStatsBreakdown.DeviceType]: {
+        breakdown_type: 'event',
+        breakdown: '$device_type',
+    },
+    [WebStatsBreakdown.Country]: {
+        breakdown_type: 'event',
+        breakdown: '$geoip_country_code',
+    },
+    [WebStatsBreakdown.Region]: {
+        breakdown_type: 'event',
+        // This is a special case that might need custom handling
+        breakdown: ['$geoip_country_code', '$geoip_subdivision_1_code', '$geoip_subdivision_1_name'],
+    },
+    [WebStatsBreakdown.City]: {
+        breakdown_type: 'event',
+        breakdown: ['$geoip_country_code', '$geoip_city_name'],
+    },
+    [WebStatsBreakdown.Language]: {
+        breakdown_type: 'event',
+        breakdown: '$browser_language',
+    },
+    [WebStatsBreakdown.Timezone]: {
+        breakdown_type: 'event',
+        breakdown: '$timezone',
+    },
+}
+
+export const getWebAnalyticsDateBreakdownFilter = (breakdown: WebStatsBreakdown): BreakdownFilter | undefined => {
+    return webAnalyticsBreakdownFilters[breakdown]
 }
 
 const GEOIP_TEMPLATE_IDS = ['template-geoip', 'plugin-posthog-plugin-geoip']
@@ -917,6 +1018,36 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
                     // If visualization is 'graph', we need to include the date
                     const includeDateBreakdown = visualization === 'graph'
+
+                    if (includeDateBreakdown) {
+                        return {
+                            id: tabId,
+                            title,
+                            linkText,
+                            query: {
+                                kind: NodeKind.InsightVizNode,
+                                source: {
+                                    kind: NodeKind.TrendsQuery,
+                                    dateRange,
+                                    interval,
+                                    series: [uniqueUserSeries],
+                                    trendsFilter: {
+                                        display: ChartDisplayType.ActionsLineGraph,
+                                    },
+                                    breakdownFilter: getWebAnalyticsDateBreakdownFilter(breakdownBy),
+                                    compareFilter,
+                                    filterTestAccounts,
+                                    conversionGoal,
+                                    properties: webAnalyticsFilters,
+                                },
+                                hidePersonsModal: true,
+                                embedded: true,
+                            },
+                            insightProps: createInsightProps(tileId, tabId),
+                            canOpenModal: true,
+                            ...(tab || {}),
+                        }
+                    }
 
                     return {
                         id: tabId,
