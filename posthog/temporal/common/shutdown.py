@@ -1,4 +1,5 @@
 import asyncio
+import contextvars
 import threading
 import typing
 
@@ -69,25 +70,40 @@ class ShutdownMonitor:
         """Start an `asyncio.Task` to monitor for worker shutdown."""
 
         async def monitor() -> None:
-            await activity.wait_for_worker_shutdown()
+            try:
+                await activity.wait_for_worker_shutdown()
+            except RuntimeError:
+                # Not running in an activity context.
+                return
+
             self._is_shutdown_event.set()
 
         self._monitor_shutdown_task = asyncio.create_task(monitor())
 
     def start_sync(self):
-        """Start a `threading.Thread` to monitor for worker shutdown."""
+        """Start a `threading.Thread` to monitor for worker shutdown.
+
+        Notice we must copy the context to preserve the activity context for the
+        monitoring thread.
+        """
+        context = contextvars.copy_context()
 
         def monitor() -> None:
             while not self._stop_event_sync.is_set():
                 try:
-                    activity.wait_for_worker_shutdown_sync(timeout=1.0)
-                except TimeoutError:
-                    continue
-                else:
+                    activity.wait_for_worker_shutdown_sync(timeout=0.1)
+                except RuntimeError:
+                    # Not running in an activity context.
+                    return
+
+                # Temporal does not return anything from previous call, despite claiming
+                # it's a wrapper on `threading.Event.wait`, which does return a `bool`
+                # indicating the reason. So we must also check if the event was set.
+                if activity.is_worker_shutdown():
                     self._is_shutdown_event_sync.set()
                     break
 
-        self._monitor_shutdown_thread = threading.Thread(target=monitor, daemon=True)
+        self._monitor_shutdown_thread = threading.Thread(target=context.run, args=(monitor,), daemon=True)
         self._monitor_shutdown_thread.start()
 
     def stop(self):
@@ -120,6 +136,14 @@ class ShutdownMonitor:
     def __exit__(self, *args, **kwargs):
         """Stop pending any pending monitoring threads on context manager exit."""
         self.stop_sync()
+
+    async def wait_for_worker_shutdown(self) -> None:
+        """Asynchronously wait for worker shutdown event."""
+        _ = await self._is_shutdown_event.wait()
+
+    def wait_for_worker_shutdown_sync(self, timeout: float | None = None) -> bool:
+        """Synchronously wait for worker shutdown event."""
+        return self._is_shutdown_event_sync.wait(timeout)
 
     def is_worker_shutdown(self) -> bool:
         """Check if worker is shutting down."""
