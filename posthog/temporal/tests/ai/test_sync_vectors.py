@@ -1,3 +1,4 @@
+import json
 from datetime import timedelta
 from unittest.mock import patch
 
@@ -7,19 +8,22 @@ import pytest_asyncio
 from cohere import EmbeddingsByTypeEmbedResponse
 from django.utils import timezone
 
+from posthog.clickhouse.client import sync_execute
 from posthog.models import Action
 from posthog.temporal.ai.sync_vectors import (
     GetApproximateActionsCountInputs,
     RetrieveActionsInputs,
+    SyncActionVectorsForTeamInputs,
     batch_summarize_and_embed_actions,
     get_actions_qs,
     get_approximate_actions_count,
+    sync_action_vectors_for_team,
 )
 
 
-@pytest_asyncio.fixture
-async def actions(ateam):
-    actions = (
+@pytest.fixture
+def action_models(ateam):
+    return (
         Action(
             team=ateam,
             name="Completed onboarding",
@@ -39,10 +43,28 @@ async def actions(ateam):
             steps_json=[{"event": "message sent"}, {"url": "/chat", "event": "$pageview"}],
         ),
     )
+
+
+@pytest_asyncio.fixture
+async def actions(action_models, ateam):
     await Action.objects.abulk_create(actions)
 
     yield actions
 
+    await Action.objects.filter(team=ateam).adelete()
+
+
+@pytest_asyncio.fixture
+async def summarized_actions(action_models, ateam):
+    dt = timezone.now()
+    embeddings = [[0.12, 0.054], [0.1, 0.7], [0.8, 0.6663]]
+    summaries = ["Test summary 1", "Test summary 2", "Test summary 3"]
+    for action, embedding, summary in zip(action_models, embeddings, summaries):
+        action.last_summarized_at = dt
+        action.summary = summary
+        action.embedding = embedding
+    await Action.objects.abulk_create(action_models)
+    yield action_models
     await Action.objects.filter(team=ateam).adelete()
 
 
@@ -228,3 +250,32 @@ async def test_batch_summarize_with_errors(mock_flag, actions: tuple[Action]):
         assert ("Test1", "Test2", "Test3") == tuple(action.summary for action in updated_actions)
         assert embeddings == [action.embedding for action in updated_actions]
         assert [start_dt, start_dt, new_start_dt] == [action.last_summarized_at for action in updated_actions]
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_sync_action_vectors_for_team_valid_inputs(mock_flag, summarized_actions, ateam):
+    """Test that sync_action_vectors_for_team handles valid inputs correctly."""
+    start_dt = timezone.now()
+    result = await sync_action_vectors_for_team(
+        SyncActionVectorsForTeamInputs(batch_size=10, start_dt=start_dt.isoformat())
+    )
+    assert result.has_more is False
+
+    embeddings = sync_execute("SELECT * FROM pg_embeddings ORDER BY id")
+    assert len(embeddings) == 3
+
+    expected_result = [
+        (
+            "action",
+            ateam.id,
+            str(action.id),
+            action.embedding,
+            action.summary,
+            json.dumps({"name": action.name, "description": action.description}),
+            start_dt.replace(microsecond=0),
+            0,
+        )
+        for action in summarized_actions
+    ]
+    assert expected_result == embeddings

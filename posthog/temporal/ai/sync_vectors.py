@@ -126,7 +126,6 @@ async def sync_action_vectors_for_team(inputs: SyncActionVectorsForTeamInputs) -
             & (
                 Q(last_summarized_at__gte=F("embedding_last_synced_at"))
                 | (Q(embedding_last_synced_at__isnull=True) & Q(last_summarized_at__isnull=False))
-                | Q(embedding_last_synced_at=workflow_start_dt)
             )
         )
         .order_by("id", "team_id", "updated_at")
@@ -155,7 +154,9 @@ async def sync_action_vectors_for_team(inputs: SyncActionVectorsForTeamInputs) -
             *batch,
         )
 
-    bulk_update = [Action(id=action["id"], embedding_last_synced_at=workflow_start_dt) for action in batch]
+    bulk_update = [
+        Action(id=action["id"], embedding_last_synced_at=workflow_start_dt) async for action in actions_to_sync
+    ]
     await Action.objects.abulk_update(bulk_update, ["embedding_last_synced_at"])
 
     return SyncActionVectorsForTeamOutputs(has_more=len(batch) == inputs.batch_size)
