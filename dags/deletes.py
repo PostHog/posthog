@@ -16,6 +16,7 @@ from functools import partial
 import uuid
 from django.utils import timezone
 
+from dags.common import JobOwners
 from posthog.clickhouse.cluster import (
     ClickhouseCluster,
     Mutation,
@@ -526,7 +527,7 @@ def cleanup_delete_assets(
     return True
 
 
-@job
+@job(tags={"owner": JobOwners.TEAM_CLICKHOUSE.value})
 def deletes_job():
     """Job that handles deletion of person events."""
     oldest_override_timestamp = get_oldest_person_override_timestamp()

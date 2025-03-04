@@ -9,6 +9,7 @@ import pydantic
 from clickhouse_driver import Client
 from dateutil.relativedelta import relativedelta
 
+from dags.common import JobOwners
 from posthog import settings
 from posthog.clickhouse.cluster import ClickhouseCluster, MutationRunner
 
@@ -137,6 +138,6 @@ def run_materialize_mutations(
         )
 
 
-@dagster.job
+@dagster.job(tags={"owner": JobOwners.TEAM_CLICKHOUSE.value})
 def materialize_column():
     run_materialize_mutations()

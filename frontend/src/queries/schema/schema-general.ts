@@ -1912,6 +1912,7 @@ export interface ExperimentMetric {
     metric_type: ExperimentMetricType
     inverse?: boolean
     metric_config: ExperimentEventMetricConfig | ExperimentActionMetricConfig | ExperimentDataWarehouseMetricConfig
+    time_window_hours?: number
 }
 
 export interface ExperimentEventMetricConfig {
