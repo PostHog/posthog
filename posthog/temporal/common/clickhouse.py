@@ -34,7 +34,7 @@ def encode_clickhouse_data(data: typing.Any, quote_char="'") -> bytes:
             return f"{quote_char}{data}{quote_char}".encode()
 
         case int() | float():
-            return b"%d" % data
+            return f"{data}".encode()
 
         case dt.datetime():
             timezone_arg = ""
