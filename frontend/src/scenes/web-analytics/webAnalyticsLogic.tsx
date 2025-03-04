@@ -238,7 +238,7 @@ export interface WebAnalyticsStatusCheck {
 }
 
 // Maps WebStatsBreakdown enum values to BreakdownFilter objects
-export const webAnalyticsBreakdownFilters: Record<WebStatsBreakdown, BreakdownFilter> = {
+const webAnalyticsBreakdownFilters: Record<WebStatsBreakdown, BreakdownFilter> = {
     [WebStatsBreakdown.Page]: {
         breakdown_type: 'event',
         breakdown: '$pathname',
@@ -1016,14 +1016,18 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     // Check if this tile has a visualization preference
                     const visualization = tileVisualizations[tileId]
 
-                    // If visualization is 'graph', we need to include the date
-                    const includeDateBreakdown = visualization === 'graph'
+                    const baseTabProps = {
+                        id: tabId,
+                        title,
+                        linkText,
+                        insightProps: createInsightProps(tileId, tabId),
+                        canOpenModal: true,
+                        ...(tab || {}),
+                    }
 
-                    if (includeDateBreakdown) {
+                    if (visualization === 'graph') {
                         return {
-                            id: tabId,
-                            title,
-                            linkText,
+                            ...baseTabProps,
                             query: {
                                 kind: NodeKind.InsightVizNode,
                                 source: {
@@ -1043,16 +1047,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 hidePersonsModal: true,
                                 embedded: true,
                             },
-                            insightProps: createInsightProps(tileId, tabId),
-                            canOpenModal: true,
-                            ...(tab || {}),
+                            canOpenInsight: true,
                         }
                     }
 
                     return {
-                        id: tabId,
-                        title,
-                        linkText,
+                        ...baseTabProps,
                         query: {
                             full: true,
                             kind: NodeKind.DataTableNode,
@@ -1067,16 +1067,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 filterTestAccounts,
                                 conversionGoal,
                                 orderBy: tablesOrderBy ?? undefined,
-                                includeDateBreakdown,
                                 ...(source || {}),
                             },
                             embedded: false,
                             showActions: true,
                             columns,
                         },
-                        insightProps: createInsightProps(tileId, tabId),
-                        canOpenModal: true,
-                        ...(tab || {}),
                     }
                 }
 
