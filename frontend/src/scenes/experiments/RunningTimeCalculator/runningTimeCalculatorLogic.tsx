@@ -165,18 +165,59 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                 return null
             },
         ],
+        standardDeviation: [(s) => [s.variance], (variance: number) => Math.sqrt(variance)],
+        numberOfVariants: [
+            (s) => [s.experiment],
+            (experiment: Experiment) => experiment.feature_flag?.filters.multivariate?.variants.length,
+        ],
         recommendedSampleSize: [
-            (s) => [s.metric, s.minimumDetectableEffect, s.variance],
-            (metric: ExperimentMetric, minimumDetectableEffect: number, variance: number): number | null => {
+            (s) => [
+                s.metric,
+                s.minimumDetectableEffect,
+                s.variance,
+                s.averageEventsPerUser,
+                s.averagePropertyValuePerUser,
+                s.numberOfVariants,
+            ],
+            (
+                metric: ExperimentMetric,
+                minimumDetectableEffect: number,
+                variance: number,
+                averageEventsPerUser: number,
+                averagePropertyValuePerUser: number,
+                numberOfVariants: number
+            ): number | null => {
                 if (!metric) {
                     return null
                 }
 
-                const numberOfVariants = 2
-                const standardDeviation = Math.sqrt(variance)
                 const minimumDetectableEffectDecimal = minimumDetectableEffect / 100
 
-                return ((16 * variance) / (minimumDetectableEffectDecimal * standardDeviation) ** 2) * numberOfVariants
+                let d // Represents the absolute effect size (difference we want to detect)
+
+                if (metric.metric_type === ExperimentMetricType.COUNT) {
+                    d = minimumDetectableEffectDecimal * averageEventsPerUser
+                } else if (metric.metric_type === ExperimentMetricType.CONTINUOUS) {
+                    d = minimumDetectableEffectDecimal * averagePropertyValuePerUser
+                }
+
+                if (!d) {
+                    return null
+                }
+
+                /*
+                N = (16 * variance) / d^2
+
+                Where:
+                - `16` comes from statistical power analysis:
+                    - Based on a 95% confidence level (Z_alpha/2 = 1.96) and 80% power (Z_beta = 0.84),
+                    the combined squared Z-scores yield approximately 16.
+                - `variance` is the estimated variance of the metric being measured.
+                - `d` is the absolute effect size (MDE * mean).
+                - The formula ensures that larger variance increases required sample size,
+                and smaller detectable effects (MDE) also require more samples.
+                */
+                return ((16 * variance) / (d * d)) * numberOfVariants
             },
         ],
         recommendedRunningTime: [

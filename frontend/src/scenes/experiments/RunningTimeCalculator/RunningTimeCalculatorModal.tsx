@@ -12,11 +12,11 @@ export function RunningTimeCalculatorModal(): JSX.Element {
     const { closeCalculateRunningTimeModal, updateExperiment } = useActions(experimentLogic)
 
     const {
+        experiment,
         minimumDetectableEffect,
         recommendedSampleSize,
         recommendedRunningTime,
-        variance,
-        experiment,
+        standardDeviation,
         metricIndex,
         uniqueUsers,
         averageEventsPerUser,
@@ -102,7 +102,7 @@ export function RunningTimeCalculatorModal(): JSX.Element {
                                     <Spinner className="text-3xl transform -translate-y-[-10px]" />
                                 </div>
                             </div>
-                        ) : uniqueUsers !== null && variance !== null ? (
+                        ) : uniqueUsers !== null && standardDeviation !== null ? (
                             <div className="border-t pt-2">
                                 <div className="grid grid-cols-3 gap-4">
                                     <div>
@@ -131,8 +131,10 @@ export function RunningTimeCalculatorModal(): JSX.Element {
                                         </div>
                                     )}
                                     <div>
-                                        <div className="card-secondary">Estimated variance</div>
-                                        <div className="font-semibold">~{humanFriendlyNumber(variance, 0)}</div>
+                                        <div className="card-secondary">Estimated standard deviation</div>
+                                        <div className="font-semibold">
+                                            ~{humanFriendlyNumber(standardDeviation, 0)}
+                                        </div>
                                     </div>
                                 </div>
                             </div>

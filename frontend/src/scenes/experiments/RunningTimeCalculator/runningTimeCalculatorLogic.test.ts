@@ -3,6 +3,7 @@ import { experimentLogic } from 'scenes/experiments/experimentLogic'
 
 import { ExperimentMetric, ExperimentMetricType } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
+import { FeatureFlagBasicType } from '~/types'
 
 import { runningTimeCalculatorLogic } from './runningTimeCalculatorLogic'
 
@@ -26,6 +27,22 @@ describe('runningTimeCalculatorLogic', () => {
                         metric_type: ExperimentMetricType.COUNT,
                     } as ExperimentMetric,
                 ],
+                feature_flag: {
+                    filters: {
+                        multivariate: {
+                            variants: [
+                                {
+                                    key: 'control',
+                                    rollout_percentage: 50,
+                                },
+                                {
+                                    key: 'test',
+                                    rollout_percentage: 50,
+                                },
+                            ],
+                        },
+                    },
+                } as unknown as FeatureFlagBasicType,
             })
 
             logic.actions.setMetricIndex(0)
@@ -34,7 +51,7 @@ describe('runningTimeCalculatorLogic', () => {
         it('calculates recommended sample size and running time correctly for COUNT', async () => {
             logic.actions.setMinimumDetectableEffect(5)
             logic.actions.setMetricResult({
-                uniqueUsers: 28000,
+                uniqueUsers: 14000,
                 averageEventsPerUser: 4,
             })
 
@@ -43,7 +60,7 @@ describe('runningTimeCalculatorLogic', () => {
             await expectLogic(logic).toMatchValues({
                 minimumDetectableEffect: 5,
                 variance: 8,
-                recommendedSampleSize: expect.closeTo(12800, 0),
+                recommendedSampleSize: expect.closeTo(6400, 0),
                 recommendedRunningTime: expect.closeTo(6.4, 1),
             })
         })
@@ -58,6 +75,22 @@ describe('runningTimeCalculatorLogic', () => {
                         metric_type: ExperimentMetricType.CONTINUOUS,
                     } as ExperimentMetric,
                 ],
+                feature_flag: {
+                    filters: {
+                        multivariate: {
+                            variants: [
+                                {
+                                    key: 'control',
+                                    rollout_percentage: 50,
+                                },
+                                {
+                                    key: 'test',
+                                    rollout_percentage: 50,
+                                },
+                            ],
+                        },
+                    },
+                } as unknown as FeatureFlagBasicType,
             })
 
             logic.actions.setMetricIndex(0)
@@ -75,8 +108,8 @@ describe('runningTimeCalculatorLogic', () => {
             await expectLogic(logic).toMatchValues({
                 minimumDetectableEffect: 5,
                 variance: expect.closeTo(625, 0),
-                recommendedSampleSize: expect.closeTo(12800, 0),
-                recommendedRunningTime: expect.closeTo(12.8, 1),
+                recommendedSampleSize: expect.closeTo(3200, 0),
+                recommendedRunningTime: expect.closeTo(3.2, 1),
             })
         })
     })
