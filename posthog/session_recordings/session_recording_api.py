@@ -914,12 +914,20 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             start_byte, end_byte = map(int, byte_range.split("-")) if "-" in byte_range else (None, None)
 
             # Read and return the specific byte range from the object
-            content = object_storage.read_bytes(key)
-            if not content or start_byte is None or end_byte is None:
+            if start_byte is None or end_byte is None:
+                raise exceptions.NotFound("Invalid byte range")
+
+            expected_length = end_byte - start_byte + 1
+            compressed_block = object_storage.read_bytes(key, first_byte=start_byte, last_byte=end_byte)
+
+            if not compressed_block:
                 raise exceptions.NotFound("Block content not found")
 
-            # Extract the byte range and return it directly
-            compressed_block = content[start_byte : end_byte + 1]
+            if len(compressed_block) != expected_length:
+                raise exceptions.APIException(
+                    f"Unexpected data length. Expected {expected_length} bytes, got {len(compressed_block)} bytes."
+                )
+
             decompressed_block = snappy.decompress(compressed_block).decode("utf-8")
 
             response = HttpResponse(

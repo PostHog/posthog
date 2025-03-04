@@ -1,5 +1,6 @@
 import uuid
 from unittest.mock import patch
+from unittest.mock import MagicMock
 
 from boto3 import resource
 from botocore.client import Config
@@ -17,6 +18,7 @@ from posthog.storage.object_storage import (
     get_presigned_url,
     list_objects,
     copy_objects,
+    ObjectStorage,
 )
 from posthog.test.base import APIBaseTest
 
@@ -157,3 +159,53 @@ class TestStorage(APIBaseTest):
                 "test_storage_bucket/a_shared_prefix/b",
                 "test_storage_bucket/a_shared_prefix/c",
             ]
+
+    def test_read_bytes_with_byte_range(self):
+        # Setup
+        mock_client = MagicMock()
+        mock_body = MagicMock()
+
+        # For the first test, return a specific content
+        mock_body.read.return_value = b"test content"
+        mock_client.get_object.return_value = {"Body": mock_body}
+        storage = ObjectStorage(mock_client)
+
+        # Test with both first_byte and last_byte
+        result = storage.read_bytes("test-bucket", "test-key", first_byte=5, last_byte=10)
+
+        # Assert
+        mock_client.get_object.assert_called_with(Bucket="test-bucket", Key="test-key", Range="bytes=5-10")
+        self.assertEqual(result, b"test content")
+
+        # Test with only first_byte
+        result = storage.read_bytes("test-bucket", "test-key", first_byte=5)
+
+        # Assert
+        mock_client.get_object.assert_called_with(Bucket="test-bucket", Key="test-key", Range="bytes=5-")
+        self.assertEqual(result, b"test content")
+
+        # Test without byte range
+        result = storage.read_bytes("test-bucket", "test-key")
+
+        # Assert
+        mock_client.get_object.assert_called_with(Bucket="test-bucket", Key="test-key")
+        self.assertEqual(result, b"test content")
+
+        # Test that the correct byte range is returned from S3
+        # Setup a new mock that returns exactly the requested bytes
+        mock_client2 = MagicMock()
+        mock_body2 = MagicMock()
+
+        # Full content would be "abcdefghijklmnopqrstuvwxyz"
+        # We're requesting bytes 5-10, which should be "fghijk"
+        mock_body2.read.return_value = b"fghijk"
+        mock_client2.get_object.return_value = {"Body": mock_body2}
+        storage2 = ObjectStorage(mock_client2)
+
+        # Request bytes 5-10
+        result = storage2.read_bytes("test-bucket", "test-key", first_byte=5, last_byte=10)
+
+        # Assert
+        mock_client2.get_object.assert_called_with(Bucket="test-bucket", Key="test-key", Range="bytes=5-10")
+        self.assertEqual(result, b"fghijk")
+        self.assertEqual(len(result), 6)  # Bytes 5-10 inclusive should be 6 bytes
