@@ -10,6 +10,7 @@ import {
     PreIngestionEvent,
     ProjectId,
     RawKafkaEvent,
+    Team,
 } from '../../../../src/types'
 import { createEventsToDropByToken } from '../../../../src/utils/db/hub'
 import { cookielessServerHashStep } from '../../../../src/worker/ingestion/event-pipeline/cookielessServerHashStep'
@@ -49,10 +50,10 @@ class TestEventPipelineRunner extends EventPipelineRunner {
     }
 }
 
-const team: Team = {
+const team = {
     id: 2,
     person_processing_opt_out: false,
-}
+} as Team
 
 const pipelineEvent: PipelineEvent = {
     distinct_id: 'my_id',
