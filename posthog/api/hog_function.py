@@ -147,17 +147,18 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         team = self.context["get_team"]()
         has_addon = team.organization.is_feature_available(AvailableFeature.DATA_PIPELINES)
         bypass_addon_check = self.context.get("bypass_addon_check", False)
-
-        # Check if this is a create operation
         is_create = self.context.get("is_create") or (
             self.context.get("view") and self.context["view"].action == "create"
         )
         instance = cast(Optional[HogFunction], self.context.get("instance", self.instance))
+
+        # Override some default values from the instance that should always be set
         data["type"] = data.get("type", instance.type if instance else "destination")
         data["template_id"] = instance.template_id if instance else data.get("template_id")
         data["inputs_schema"] = data.get("inputs_schema", instance.inputs_schema if instance else [])
         data["inputs"] = data.get("inputs", instance.inputs if instance else {})
 
+        # Set some context variables that are used in the sub validators
         self.context["function_type"] = data["type"]
         self.context["encrypted_inputs"] = instance.encrypted_inputs if instance else {}
 
