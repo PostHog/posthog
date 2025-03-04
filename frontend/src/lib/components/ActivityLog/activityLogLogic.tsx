@@ -1,7 +1,7 @@
 import { actions, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
-import api, { ActivityLogPaginatedResponse } from 'lib/api'
+import api, { CountedPaginatedResponse } from 'lib/api'
 import {
     ActivityLogItem,
     defaultDescriber,
@@ -79,7 +79,7 @@ export const activityLogLogic = kea<activityLogLogicType>([
     }),
     loaders(({ values, props }) => ({
         activity: [
-            { results: [], count: 0 } as ActivityLogPaginatedResponse<ActivityLogItem>,
+            { results: [], count: 0 } as CountedPaginatedResponse<ActivityLogItem>,
             {
                 fetchActivity: async () => {
                     const response = await api.activity.listLegacy(props, values.page)

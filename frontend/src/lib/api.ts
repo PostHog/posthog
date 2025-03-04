@@ -160,10 +160,6 @@ export interface CountedPaginatedResponse<T> extends PaginatedResponse<T> {
     count: number
 }
 
-export interface ActivityLogPaginatedResponse<T> extends PaginatedResponse<T> {
-    count: number
-}
-
 export interface ApiMethodOptions {
     signal?: AbortSignal
     headers?: Record<string, any>
@@ -1300,7 +1296,7 @@ const api = {
             props: ActivityLogProps,
             page: number = 1,
             projectId: ProjectType['id'] = ApiConfig.getCurrentProjectId()
-        ): Promise<ActivityLogPaginatedResponse<ActivityLogItem>> {
+        ): Promise<CountedPaginatedResponse<ActivityLogItem>> {
             const scopes = Array.isArray(props.scope) ? [...props.scope] : [props.scope]
 
             // Opt into the new /activity_log API
@@ -2412,8 +2408,11 @@ const api = {
     },
 
     surveys: {
-        async list(): Promise<PaginatedResponse<Survey>> {
-            return await new ApiRequest().surveys().get()
+        async list(params?: { limit?: number; offset?: number }): Promise<CountedPaginatedResponse<Survey>> {
+            return await new ApiRequest().surveys().withQueryString({
+                limit: params?.limit,
+                offset: params?.offset,
+            }).get()
         },
         async get(surveyId: Survey['id']): Promise<Survey> {
             return await new ApiRequest().survey(surveyId).get()

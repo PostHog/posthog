@@ -48,12 +48,14 @@ export const surveysLogic = kea<surveysLogicType>([
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setSurveysFilters: (filters: Partial<SurveysFilters>, replace?: boolean) => ({ filters, replace }),
         setTab: (tab: SurveysTabs) => ({ tab }),
+        setNext: (next: string | null) => ({ next }),
     }),
     loaders(({ values }) => ({
         surveys: {
             __default: [] as Survey[],
             loadSurveys: async () => {
                 const responseSurveys = await api.surveys.list()
+                actions.setNext(responseSurveys.next || null)
                 return responseSurveys.results
             },
             deleteSurvey: async (id) => {
@@ -96,6 +98,12 @@ export const surveysLogic = kea<surveysLogicType>([
                 },
             },
         ],
+        next: [
+            null as string | null,
+            {
+                setNext: (_, { next }) => next,
+            },
+        ],
     }),
     listeners(({ actions, values }) => ({
         deleteSurveySuccess: () => {
@@ -124,6 +132,15 @@ export const surveysLogic = kea<surveysLogicType>([
         },
         setTab: ({ tab }) => {
             actions.setSurveysFilters({ ...values.filters, archived: tab === SurveysTabs.Archived })
+        },
+        loadSurveysNext: async () => {
+            let results: Survey[] = []
+            if (values.next) {
+                const responseSurveys = await api.surveys.list()
+                actions.setNext(responseSurveys.next || null)
+                results = responseSurveys.results
+            }
+            actions.appendSurveys(results)
         },
     })),
     selectors({
