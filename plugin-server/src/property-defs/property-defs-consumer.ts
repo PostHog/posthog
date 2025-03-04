@@ -1,5 +1,6 @@
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
+import { Counter } from 'prom-client'
 
 import { BatchConsumer, startBatchConsumer } from '../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../kafka/config'
@@ -21,6 +22,12 @@ import { status } from '../utils/status'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
+
+export const propertyDefTypesCounter = new Counter({
+    name: 'property_defs_types_total',
+    help: 'Count of derived property types.',
+    labelNames: ['type'],
+})
 
 export type CollectedPropertyDefinitions = {
     propertyDefinitionsById: Record<string, PropertyDefinitionType>
@@ -186,9 +193,14 @@ export class PropertyDefsConsumer {
 
     public async handleKafkaBatch(messages: Message[]) {
         const parsedMessages = await this.runInstrumented('parseKafkaMessages', () => this.parseKafkaBatch(messages))
-        const derivePropDefs = await this.runInstrumented('derivePropDefs', () =>
+        const collected = await this.runInstrumented('derivePropDefs', () =>
             Promise.resolve(this.derivePropDefs(parsedMessages))
         )
+
+        for (const propDef of Object.values(collected.propertyDefinitionsById)) {
+            propertyDefTypesCounter.inc({ type: propDef.property_type ?? 'null' })
+        }
+
         // TODO: Write prop defs to DB
 
         status.debug('🔁', `Waiting for promises`, { promises: this.promises.size })
@@ -211,7 +223,34 @@ export class PropertyDefsConsumer {
         }
 
         for (const event of events) {
-            for (const property of Object.keys(event.properties)) {
+            if (event.event === '$groupidentify') {
+                const groupType = event.properties['$group_type']
+                const groupProperties = event.properties['$group_set']
+
+                for (const [property, value] of Object.entries(groupProperties)) {
+                    const propDefId = `${event.team_id}:${groupType}:${property}`
+
+                    if (collected.propertyDefinitionsById[propDefId]) {
+                        continue
+                    }
+
+                    const propType = getPropertyType(property, value)
+                    if (propType) {
+                        collected.propertyDefinitionsById[propDefId] = {
+                            id: propDefId,
+                            name: property,
+                            is_numerical: propType === PropertyType.Numeric,
+                            team_id: event.team_id,
+                            project_id: event.team_id, // TODO: Add project_id
+                            property_type: propType,
+                            type: PropertyDefinitionTypeEnum.Event,
+                            group_type_index: 0, // TODO: This!
+                        }
+                    }
+                }
+            }
+
+            for (const [property, value] of Object.entries(event.properties)) {
                 if (SKIP_PROPERTIES.includes(property)) {
                     continue
                 }
@@ -219,14 +258,17 @@ export class PropertyDefsConsumer {
                 const propDefId = `${event.team_id}:${property}`
 
                 if (!collected.propertyDefinitionsById[propDefId]) {
-                    collected.propertyDefinitionsById[propDefId] = {
-                        id: propDefId,
-                        name: property,
-                        is_numerical: typeof event.properties[property] === 'number',
-                        team_id: event.team_id,
-                        project_id: event.team_id, // TODO: Add project_id
-                        property_type: getPropertyType(property, event.properties[property]),
-                        type: PropertyDefinitionTypeEnum.Event,
+                    const propType = getPropertyType(property, value)
+                    if (propType) {
+                        collected.propertyDefinitionsById[propDefId] = {
+                            id: propDefId,
+                            name: property,
+                            is_numerical: propType === PropertyType.Numeric,
+                            team_id: event.team_id,
+                            project_id: event.team_id, // TODO: Add project_id
+                            property_type: propType,
+                            type: PropertyDefinitionTypeEnum.Event,
+                        }
                     }
                 }
 
@@ -242,6 +284,8 @@ export class PropertyDefsConsumer {
                     }
                 }
             }
+
+            // TODO: Iterate over group properties
         }
 
         return collected

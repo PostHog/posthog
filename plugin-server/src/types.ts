@@ -76,6 +76,7 @@ export enum KafkaSaslMechanism {
 
 export enum PluginServerMode {
     ingestion_v2 = 'ingestion-v2',
+    property_defs = 'property-defs',
     async_onevent = 'async-onevent',
     async_webhooks = 'async-webhooks',
     recordings_blob_ingestion = 'recordings-blob-ingestion',
@@ -339,6 +340,9 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
 
     // Destination Migration Diffing
     DESTINATION_MIGRATION_DIFFING_ENABLED: boolean
+
+    PROPERTY_DEFS_CONSUMER_GROUP_ID: string
+    PROPERTY_DEFS_CONSUMER_CONSUME_TOPIC: string
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -391,6 +395,7 @@ export interface PluginServerCapabilities {
     // and the shouldSetupPluginInServer() test accordingly.
     ingestionV2Combined?: boolean
     ingestionV2?: boolean
+    propertyDefs?: boolean
     processAsyncOnEventHandlers?: boolean
     processAsyncWebhooksHandlers?: boolean
     sessionRecordingBlobIngestion?: boolean
