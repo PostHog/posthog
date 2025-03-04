@@ -144,6 +144,12 @@ class AssistantMessageType(StrEnum):
     AI_FAILURE = "ai/failure"
 
 
+class MeanRetentionCalculation(StrEnum):
+    SIMPLE = "simple"
+    WEIGHTED = "weighted"
+    NONE = "none"
+
+
 class RetentionReference(StrEnum):
     TOTAL = "total"
     PREVIOUS = "previous"
@@ -5953,6 +5959,7 @@ class RetentionFilter(BaseModel):
     cumulative: Optional[bool] = None
     dashboardDisplay: Optional[RetentionDashboardDisplayType] = None
     display: Optional[ChartDisplayType] = Field(default=None, description="controls the display of the retention graph")
+    meanRetentionCalculation: Optional[MeanRetentionCalculation] = None
     period: Optional[RetentionPeriod] = RetentionPeriod.DAY
     retentionReference: Optional[RetentionReference] = Field(
         default=None,
@@ -5970,6 +5977,7 @@ class RetentionFilterLegacy(BaseModel):
         extra="forbid",
     )
     cumulative: Optional[bool] = None
+    mean_retention_calculation: Optional[MeanRetentionCalculation] = None
     period: Optional[RetentionPeriod] = None
     retention_reference: Optional[RetentionReference] = Field(
         default=None,
@@ -6354,6 +6362,12 @@ class AssistantRetentionFilter(BaseModel):
             " coming back in period 5 makes them count towards all the previous periods."
         ),
     )
+    meanRetentionCalculation: Optional[MeanRetentionCalculation] = Field(
+        default=None,
+        description=(
+            "Whether an additional series should be shown, showing the mean conversion for each period across cohorts."
+        ),
+    )
     period: Optional[RetentionPeriod] = Field(
         default=RetentionPeriod.DAY, description="Retention period, the interval to track cohorts by."
     )
@@ -6376,7 +6390,8 @@ class AssistantRetentionFilter(BaseModel):
     showMean: Optional[bool] = Field(
         default=None,
         description=(
-            "Whether an additional series should be shown, showing the mean conversion for each period across cohorts."
+            "DEPRECATED: Whether an additional series should be shown, showing the mean conversion for each period"
+            " across cohorts."
         ),
     )
     targetEntity: Optional[RetentionEntity] = Field(

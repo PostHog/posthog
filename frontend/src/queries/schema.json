@@ -1247,6 +1247,11 @@
                     "description": "Whether retention should be rolling (aka unbounded, cumulative). Rolling retention means that a user coming back in period 5 makes them count towards all the previous periods.",
                     "type": "boolean"
                 },
+                "meanRetentionCalculation": {
+                    "description": "Whether an additional series should be shown, showing the mean conversion for each period across cohorts.",
+                    "enum": ["simple", "weighted", "none"],
+                    "type": "string"
+                },
                 "period": {
                     "$ref": "#/definitions/RetentionPeriod",
                     "default": "Day",
@@ -1266,7 +1271,7 @@
                     "description": "Retention event (event marking the user coming back)."
                 },
                 "showMean": {
-                    "description": "Whether an additional series should be shown, showing the mean conversion for each period across cohorts.",
+                    "description": "DEPRECATED: Whether an additional series should be shown, showing the mean conversion for each period across cohorts.",
                     "type": "boolean"
                 },
                 "targetEntity": {
@@ -13526,6 +13531,10 @@
                     "$ref": "#/definitions/ChartDisplayType",
                     "description": "controls the display of the retention graph"
                 },
+                "meanRetentionCalculation": {
+                    "enum": ["simple", "weighted", "none"],
+                    "type": "string"
+                },
                 "period": {
                     "$ref": "#/definitions/RetentionPeriod",
                     "default": "Day"
@@ -13560,6 +13569,10 @@
             "properties": {
                 "cumulative": {
                     "type": "boolean"
+                },
+                "mean_retention_calculation": {
+                    "enum": ["simple", "weighted", "none"],
+                    "type": "string"
                 },
                 "period": {
                     "$ref": "#/definitions/RetentionPeriod"
