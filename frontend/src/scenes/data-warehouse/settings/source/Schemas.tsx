@@ -309,7 +309,7 @@ const SyncMethodModal = ({ schema }: { schema: ExternalDataSourceSchema }): JSX.
         <LemonModal
             title={
                 <>
-                    Sync method for <span className="font-mono">{currentSyncMethodModalSchema.table}</span>
+                    Sync method for <span className="font-mono">{currentSyncMethodModalSchema.table?.name}</span>
                 </>
             }
             isOpen={syncMethodModalIsOpen}
