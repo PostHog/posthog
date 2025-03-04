@@ -2702,7 +2702,7 @@ const api = {
         },
         async googleAdsAccounts(
             id: IntegrationType['id']
-        ): Promise<{ accessibleAccounts: { id: string; name: string }[] }> {
+        ): Promise<{ accessibleAccounts: { id: string; name: string; level: string; parent_id: string }[] }> {
             return await new ApiRequest().integrationGoogleAdsAccounts(id).get()
         },
         async googleAdsConversionActions(
