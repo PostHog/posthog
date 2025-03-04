@@ -324,22 +324,18 @@ def load_pending_person_deletions(
 ) -> PendingPersonEventDeletesTable:
     """Query postgres using django ORM to get pending person deletions and insert directly into ClickHouse."""
 
-    if create_pending_person_deletions_table.is_reporting:
-        pending_deletions = AsyncDeletion.objects.all().iterator()
-    else:
-        if not create_pending_person_deletions_table.team_id:
-            pending_deletions = AsyncDeletion.objects.filter(
-                deletion_type=DeletionType.Person,
-                delete_verified_at__isnull=True,
-                created_at__lte=create_pending_person_deletions_table.timestamp,
-            ).iterator()
-        else:
-            pending_deletions = AsyncDeletion.objects.filter(
-                deletion_type=DeletionType.Person,
+    pending_deletions = AsyncDeletion.objects.all()
+
+    if not create_pending_person_deletions_table.is_reporting:
+        pending_deletions = pending_deletions.filter(
+            deletion_type=DeletionType.Person,
+            delete_verified_at__isnull=True,
+            created_at__lte=create_pending_person_deletions_table.timestamp,
+        )
+        if create_pending_person_deletions_table.team_id:
+            pending_deletions = pending_deletions.filter(
                 team_id=create_pending_person_deletions_table.team_id,
-                delete_verified_at__isnull=True,
-                created_at__lte=create_pending_person_deletions_table.timestamp,
-            ).iterator()
+            )
 
     # Process and insert in chunks
     chunk_size = 10000
@@ -354,7 +350,7 @@ def load_pending_person_deletions(
         verify=settings.CLICKHOUSE_VERIFY,
     )
 
-    for deletion in pending_deletions:
+    for deletion in pending_deletions.iterator():
         current_chunk.append(
             {
                 "id": deletion.id,
