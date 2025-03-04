@@ -429,11 +429,11 @@ class MutationRunner(abc.ABC):
     settings: Mapping[str, Any] = field(default_factory=dict, kw_only=True)
 
     @abc.abstractmethod
-    def get_command(self) -> str:
+    def get_statement(self) -> str:
         raise NotImplementedError
 
     @abc.abstractmethod
-    def get_statement(self) -> str:
+    def get_command(self) -> str:
         raise NotImplementedError
 
     def __post_init__(self) -> None:
@@ -525,11 +525,11 @@ class MutationRunner(abc.ABC):
 class AlterTableMutationRunner(MutationRunner):
     command: str  # the part after ALTER TABLE prefix, i.e. UPDATE, DELETE, MATERIALIZE, etc.
 
-    def get_command(self) -> str:
-        return self.command
-
     def get_statement(self) -> str:
         return f"ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{self.table} {self.command}"
+
+    def get_command(self) -> str:
+        return self.command
 
 
 @dataclass
