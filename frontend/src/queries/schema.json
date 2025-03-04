@@ -7031,7 +7031,7 @@
                     "type": "string"
                 },
                 "math": {
-                    "$ref": "#/definitions/ExperimentMetricMath"
+                    "$ref": "#/definitions/ExperimentMetricMathType"
                 },
                 "math_hogql": {
                     "type": "string"
@@ -7067,7 +7067,7 @@
                     "type": "string"
                 },
                 "math": {
-                    "$ref": "#/definitions/ExperimentMetricMath"
+                    "$ref": "#/definitions/ExperimentMetricMathType"
                 },
                 "math_hogql": {
                     "type": "string"
@@ -7119,7 +7119,7 @@
                     "type": "string"
                 },
                 "math": {
-                    "$ref": "#/definitions/ExperimentMetricMath"
+                    "$ref": "#/definitions/ExperimentMetricMathType"
                 },
                 "math_hogql": {
                     "type": "string"
@@ -7352,12 +7352,12 @@
             "required": ["kind", "metric_type", "metric_config"],
             "type": "object"
         },
-        "ExperimentMetricMath": {
-            "enum": ["total", "sum", "avg", "median", "min", "max"],
+        "ExperimentMetricMathType": {
+            "enum": ["total", "sum"],
             "type": "string"
         },
         "ExperimentMetricType": {
-            "enum": ["count", "continuous", "funnel"],
+            "enum": ["funnel", "mean"],
             "type": "string"
         },
         "ExperimentQuery": {
@@ -10078,6 +10078,9 @@
                 },
                 {
                     "$ref": "#/definitions/HogQLMathType"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentMetricMathType"
                 }
             ]
         },

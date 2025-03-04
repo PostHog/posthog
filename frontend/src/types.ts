@@ -3724,6 +3724,11 @@ export enum GroupMathType {
     UniqueGroup = 'unique_group',
 }
 
+export enum ExperimentMetricMathType {
+    TotalCount = 'total',
+    Sum = 'sum',
+}
+
 export enum ActorGroupType {
     Person = 'person',
     GroupPrefix = 'group',
