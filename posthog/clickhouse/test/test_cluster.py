@@ -1,3 +1,4 @@
+import json
 import re
 import uuid
 from collections import defaultdict
@@ -128,12 +129,14 @@ def test_mutations(cluster: ClickhouseCluster) -> None:
     sentinel_uuid = uuid.uuid1()  # unique to this test run to ensure we have a clean slate
     runner = AlterTableMutationRunner(
         table,
-        f"""
-        UPDATE person_id = %(uuid)s
+        """
+        UPDATE
+            person_id = %(uuid)s,
+            properties = %(properties)s
         -- this is a comment that will not appear in system.mutations
         WHERE 1 = /* this will also be stripped out during formatting */ 01
         """,
-        parameters={"uuid": sentinel_uuid},
+        parameters={"uuid": sentinel_uuid, "properties": json.dumps({"uuid": sentinel_uuid.hex})},
     )
 
     # nothing should be running yet
