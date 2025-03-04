@@ -41,8 +41,6 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
                 'dateRange',
                 'theme',
             ],
-            featureFlagLogic,
-            ['featureFlags'],
         ],
         actions: [insightVizDataLogic(props), ['updateInsightFilter', 'updateQuerySource']],
     })),

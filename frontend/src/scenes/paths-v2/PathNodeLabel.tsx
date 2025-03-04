@@ -18,7 +18,7 @@ export type PathV2NodeLabelProps = {
 
 export function PathV2NodeLabel({ insightProps, node }: PathV2NodeLabelProps): JSX.Element | null {
     const { pathsFilter } = useValues(pathsV2DataLogic(insightProps))
-    const { updateInsightFilter, openPersonsModal, viewPathToFunnel } = useActions(pathsV2DataLogic(insightProps))
+    const { updateInsightFilter } = useActions(pathsV2DataLogic(insightProps))
 
     const { hasAvailableFeature } = useValues(userLogic)
     const hasAdvancedPaths = hasAvailableFeature(AvailableFeature.PATHS_ADVANCED)
@@ -31,13 +31,11 @@ export function PathV2NodeLabel({ insightProps, node }: PathV2NodeLabelProps): J
     const excludePathItem = (): void => {
         updateInsightFilter({ excludeEvents: [...(pathsFilter?.excludeEvents || []), pageUrl(node, false)] })
     }
-    const viewFunnel = (): void => {
-        viewPathToFunnel(node)
-    }
+    const viewFunnel = (): void => {}
     const copyName = (): void => {
         void copyToClipboard(nodeName).catch(captureException)
     }
-    const openModal = (): void => openPersonsModal({ path_end_key: node.name })
+    const openModal = (): void => {}
 
     const isTruncatedPath = node.name.slice(1) === '_...'
 

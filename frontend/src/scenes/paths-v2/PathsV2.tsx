@@ -1,6 +1,6 @@
 import './Paths.scss'
 
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { lightenDarkenColor } from 'lib/utils'
 import { useEffect, useRef, useState } from 'react'
@@ -21,9 +21,9 @@ export function PathsV2(): JSX.Element {
     const [nodes, setNodes] = useState<PathNodeData[]>([])
 
     const { insightProps } = useValues(insightLogic)
-    const { insightQuery, paths, pathsFilter, funnelPathsFilter, insightDataLoading, insightDataError, theme } =
-        useValues(pathsV2DataLogic(insightProps))
-    const { openPersonsModal } = useActions(pathsV2DataLogic(insightProps))
+    const { insightQuery, paths, pathsFilter, insightDataLoading, insightDataError, theme } = useValues(
+        pathsV2DataLogic(insightProps)
+    )
 
     useEffect(() => {
         setNodes([])
@@ -34,23 +34,14 @@ export function PathsV2(): JSX.Element {
         const elements = canvasContainerRef.current?.querySelectorAll(`.Paths__canvas`)
         elements?.forEach((node) => node?.parentNode?.removeChild(node))
 
-        renderPathsV2(
-            canvasRef,
-            canvasWidth,
-            canvasHeight,
-            paths,
-            pathsFilter || {},
-            funnelPathsFilter || ({} as FunnelPathsFilter),
-            setNodes,
-            openPersonsModal
-        )
+        renderPathsV2(canvasRef, canvasWidth, canvasHeight, paths, pathsFilter || {}, setNodes)
 
         // Proper cleanup
         return () => {
             const elements = canvasContainerRef.current?.querySelectorAll(`.Paths__canvas`)
             elements?.forEach((node) => node?.parentNode?.removeChild(node))
         }
-    }, [paths, insightDataLoading, canvasWidth, canvasHeight, theme, pathsFilter, funnelPathsFilter])
+    }, [paths, insightDataLoading, canvasWidth, canvasHeight, theme, pathsFilter])
 
     if (insightDataError) {
         return <InsightErrorState query={insightQuery} excludeDetail />

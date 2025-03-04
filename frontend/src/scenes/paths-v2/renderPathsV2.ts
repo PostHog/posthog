@@ -3,7 +3,7 @@ import * as Sankey from 'd3-sankey'
 import { D3Selector } from 'lib/hooks/useD3'
 import { Dispatch, RefObject, SetStateAction } from 'react'
 
-import { FunnelPathsFilter, PathsFilter } from '~/queries/schema/schema-general'
+import { PathsFilter } from '~/queries/schema/schema-general'
 
 import { isSelectedPathStartOrEnd, PathNodeData, PathTargetLink } from './pathUtils'
 import { Paths } from './types'
@@ -96,13 +96,7 @@ const createSankeyGenerator = (width: number, height: number): Sankey.SankeyLayo
         ])
 }
 
-const appendNodes = (
-    svg: any,
-    nodes: PathNodeData[],
-    pathsFilter: PathsFilter,
-    funnelPathsFilter: FunnelPathsFilter,
-    openPersonsModal: (props: { path_dropoff_key?: string; path_end_key?: string; path_start_key?: string }) => void
-): void => {
+const appendNodes = (svg: any, nodes: PathNodeData[], pathsFilter: PathsFilter): void => {
     svg.append('g')
         .selectAll('rect')
         .data(nodes)
@@ -113,21 +107,18 @@ const appendNodes = (
         .attr('height', (node: PathNodeData) => Math.max(node.y1 - node.y0, NODE_MIN_HEIGHT))
         .attr('width', (node: PathNodeData) => node.x1 - node.x0 + 2 * NODE_BORDER_RADIUS)
         .attr('fill', (node: PathNodeData) => {
-            if (isSelectedPathStartOrEnd(pathsFilter, funnelPathsFilter, node)) {
+            if (isSelectedPathStartOrEnd(pathsFilter, {}, node)) {
                 return 'var(--paths-node-start-or-end)'
             }
             return 'var(--paths-node)'
         })
         .attr('id', (node: PathNodeData) => `node-${node.index}`)
-        .on('click', (_event: MouseEvent, node: PathNodeData) => {
-            openPersonsModal({ path_end_key: node.name })
-        })
         .style('cursor', 'pointer')
         .on('mouseover', (_event: MouseEvent, node: PathNodeData) => {
             svg.selectAll('path').attr('opacity', LINK_OPACITY_DEEMPHASIZED)
 
             // apply effect to hovered node
-            const isStartOrEndNode = isSelectedPathStartOrEnd(pathsFilter, funnelPathsFilter, node)
+            const isStartOrEndNode = isSelectedPathStartOrEnd(pathsFilter, {}, node)
             const nodeColor = isStartOrEndNode ? 'var(--paths-node-start-or-end-hover)' : 'var(--paths-node-hover)'
             svg.select(`#node-${node.index}`).attr('fill', nodeColor)
 
@@ -153,7 +144,7 @@ const appendNodes = (
         })
         .on('mouseleave', (_event: MouseEvent, node: PathNodeData) => {
             // reset hovered node
-            const isStartOrEndNode = isSelectedPathStartOrEnd(pathsFilter, funnelPathsFilter, node)
+            const isStartOrEndNode = isSelectedPathStartOrEnd(pathsFilter, {}, node)
             const nodeColor = isStartOrEndNode ? 'var(--paths-node-start-or-end)' : 'var(--paths-node)'
             svg.select(`#node-${node.index}`).attr('fill', nodeColor)
 
@@ -188,9 +179,7 @@ export function renderPathsV2(
     _canvasHeight: number | undefined,
     paths: Paths,
     pathsFilter: PathsFilter,
-    funnelPathsFilter: FunnelPathsFilter,
-    setNodes: Dispatch<SetStateAction<PathNodeData[]>>,
-    openPersonsModal: (props: { path_dropoff_key?: string; path_end_key?: string; path_start_key?: string }) => void
+    setNodes: Dispatch<SetStateAction<PathNodeData[]>>
 ): void {
     const canvasWidth = _canvasWidth || FALLBACK_CANVAS_WIDTH
     const canvasHeight = _canvasHeight || FALLBACK_CANVAS_HEIGHT
@@ -216,7 +205,7 @@ export function renderPathsV2(
     const { nodes, links } = sankey(clonedPaths)
 
     appendLinks(svg, links)
-    appendNodes(svg, nodes, pathsFilter, funnelPathsFilter, openPersonsModal)
+    appendNodes(svg, nodes, pathsFilter)
 
     // :TRICKY: this needs to come last, as d3 mutates data in place and otherwise
     // we won't have node positions.

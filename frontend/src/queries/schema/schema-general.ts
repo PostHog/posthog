@@ -1191,6 +1191,7 @@ export interface PathsV2QueryResponse extends AnalyticsQueryResponseBase<PathsV2
 export type CachedPathsV2QueryResponse = CachedQueryResponse<PathsV2QueryResponse>
 
 export type PathsV2Filter = {
+    // keep defaults in sync with constants in filter components
     /** @default 5 */
     maxSteps?: integer
     /** @default 3 */
