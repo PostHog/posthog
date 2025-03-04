@@ -14,6 +14,7 @@ from posthog.models.team.team import Team
 from posthog.schema import (
     CachedPathsV2QueryResponse,
     HogQLQueryModifiers,
+    PathsV2Filter,
     PathsV2Item,
     PathsV2Query,
     PathsV2QueryResponse,
@@ -34,6 +35,14 @@ class PathsV2QueryRunner(QueryRunner):
         limit_context: LimitContext | None = None,
     ):
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
+
+        if not self.query.pathsV2Filter:
+            self.query.pathsV2Filter = PathsV2Filter()
+
+        self.max_steps: int = self.query.pathsV2Filter.maxSteps or PathsV2Filter.model_fields["maxSteps"].default
+        self.max_rows_per_step: int = (
+            self.query.pathsV2Filter.maxRowsPerStep or PathsV2Filter.model_fields["maxRowsPerStep"].default
+        )
 
     @cached_property
     def query_date_range(self) -> QueryDateRange:
@@ -166,13 +175,14 @@ class PathsV2QueryRunner(QueryRunner):
                 arraySplit(x->if(x.3 < (1800), 0, 1), paths_array) as paths_array_session_split,
 
                 /* Returns the first n events per session. */
-                arraySlice(paths_array_per_session, 1, 5) as limited_paths_array_per_session
+                arraySlice(paths_array_per_session, 1, {max_steps}) as limited_paths_array_per_session
             FROM {paths_per_actor_as_array_query}
             ARRAY JOIN paths_array_session_split AS paths_array_per_session,
                 arrayEnumerate(paths_array_session_split) AS session_index
         """,
             placeholders={
                 "paths_per_actor_as_array_query": self._paths_per_actor_as_array_query(),
+                "max_steps": ast.Constant(value=self.max_steps),
             },
         )
 
