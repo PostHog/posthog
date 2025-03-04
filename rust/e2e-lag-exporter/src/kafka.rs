@@ -6,7 +6,6 @@ use rdkafka::util::Timeout;
 use rdkafka::admin::AdminClient;
 use rdkafka::message::Message;
 use std::time::Duration;
-use std::sync::Arc;
 use futures::future::join_all;
 use tracing::{debug, error, info};
 
@@ -17,7 +16,7 @@ pub struct KafkaMonitor {
     admin_client: AdminClient<rdkafka::client::DefaultClientContext>,
     consumer: StreamConsumer,
     config: Config, // Used for consumer group name and other config
-    message_consumer: Arc<StreamConsumer>,
+    message_consumer: StreamConsumer,
 }
 
 impl KafkaMonitor {
@@ -75,7 +74,7 @@ impl KafkaMonitor {
             admin_client,
             consumer,
             config,
-            message_consumer: Arc::new(message_consumer),
+            message_consumer,
         })
     }
 
