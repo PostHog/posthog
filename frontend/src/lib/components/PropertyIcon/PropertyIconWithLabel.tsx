@@ -8,7 +8,7 @@ export const PropertyIconWithLabel = forwardRef(function PropertyIconWithLabel(
     ref: Ref<HTMLDivElement>
 ): JSX.Element {
     return (
-        <div className="inline-flex items-center gap-2">
+        <div className="flex items-center gap-2">
             <PropertyIconStandalone property={property} value={value} ref={ref} className={className} />
             <span>{value}</span>
         </div>
