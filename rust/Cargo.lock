@@ -1359,6 +1359,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-symbol-data"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "symbolic",
+ "thiserror",
+]
+
+[[package]]
 name = "common-types"
 version = "0.1.0"
 dependencies = [
@@ -1633,6 +1642,7 @@ dependencies = [
  "common-dns",
  "common-kafka",
  "common-metrics",
+ "common-symbol-data",
  "common-types",
  "envconfig",
  "health",
