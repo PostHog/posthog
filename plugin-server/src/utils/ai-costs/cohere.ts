@@ -9,17 +9,17 @@ export const costs: ModelRow[] = [
         },
     },
     {
-        model: 'command-r-08-2024',
-        cost: {
-            prompt_token: 0.0000001425,
-            completion_token: 0.00000057,
-        },
-    },
-    {
         model: 'command-r-plus-08-2024',
         cost: {
             prompt_token: 0.000002375,
             completion_token: 0.0000095,
+        },
+    },
+    {
+        model: 'command-r-08-2024',
+        cost: {
+            prompt_token: 0.0000001425,
+            completion_token: 0.00000057,
         },
     },
     {

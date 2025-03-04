@@ -39,6 +39,7 @@ export type LemonInputSelectProps = Pick<
     disableFiltering?: boolean
     mode: 'multiple' | 'single'
     allowCustomValues?: boolean
+    emptyStateComponent?: React.ReactNode
     onChange?: (newValue: string[]) => void
     onBlur?: () => void
     onFocus?: () => void
@@ -56,6 +57,7 @@ export function LemonInputSelect({
     options = [],
     value,
     loading,
+    emptyStateComponent,
     onChange,
     onInputChange,
     onFocus,
@@ -436,11 +438,17 @@ export function LemonInputSelect({
                             ))}
                         </>
                     ) : (
-                        <p className="text-secondary italic p-1">
-                            {allowCustomValues
-                                ? 'Start typing and press Enter to add options'
-                                : `No options matching "${inputValue}"`}
-                        </p>
+                        <>
+                            {emptyStateComponent ? (
+                                emptyStateComponent
+                            ) : (
+                                <p className="text-secondary italic p-1">
+                                    {allowCustomValues
+                                        ? 'Start typing and press Enter to add options'
+                                        : `No options matching "${inputValue}"`}
+                                </p>
+                            )}
+                        </>
                     )}
                 </div>
             }

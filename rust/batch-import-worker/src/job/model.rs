@@ -151,8 +151,9 @@ impl JobModel {
         }
 
         if extend_lease {
-            self.leased_until =
-                Some(self.leased_until.unwrap_or_else(Utc::now) + chrono::Duration::minutes(5));
+            // We only allow the lease to be set to 5 minutes from now, except in the initial claim
+            // case, where we allow it to be set to 30 minutes from now, because job init can be slow
+            self.leased_until = Some(Utc::now() + chrono::Duration::minutes(5));
         } else {
             self.leased_until = None;
         };

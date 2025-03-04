@@ -5,6 +5,7 @@ use time::Duration;
 use tracing::warn;
 
 use crate::{
+    api::v1::query::Manager,
     config::Config,
     metrics_consts::{
         CACHE_WARMING_STATE, GROUP_TYPE_READS, GROUP_TYPE_RESOLVE_TIME, SINGLE_UPDATE_ISSUE_TIME,
@@ -15,6 +16,7 @@ use crate::{
 
 pub struct AppContext {
     pub pool: PgPool,
+    pub query_manager: Manager,
     pub liveness: HealthRegistry,
     pub worker_liveness: HealthHandle,
     pub cache_warming_delay: Duration,
@@ -25,7 +27,7 @@ pub struct AppContext {
 }
 
 impl AppContext {
-    pub async fn new(config: &Config) -> Result<Self, sqlx::Error> {
+    pub async fn new(config: &Config, qmgr: Manager) -> Result<Self, sqlx::Error> {
         let options = PgPoolOptions::new().max_connections(config.max_pg_connections);
         let pool = options.connect(&config.database_url).await?;
 
@@ -38,6 +40,7 @@ impl AppContext {
 
         Ok(Self {
             pool,
+            query_manager: qmgr,
             liveness,
             worker_liveness,
             cache_warming_delay: Duration::milliseconds(config.cache_warming_delay_ms as i64),
