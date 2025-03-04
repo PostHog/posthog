@@ -1,6 +1,8 @@
 from dagster import (
     DagsterRunStatus,
     Definitions,
+    EnvVar,
+    ResourceDefinition,
     RunRequest,
     ScheduleDefinition,
     fs_io_manager,
@@ -9,8 +11,10 @@ from dagster import (
 )
 from dagster_aws.s3.io_manager import s3_pickle_io_manager
 from dagster_aws.s3.resources import s3_resource
-from dagster_slack import slack_resource
+from dagster_slack import SlackResource
 from django.conf import settings
+
+from dags.slack_alerts import notify_slack_on_failure
 
 from . import ch_examples, deletes, materialized_columns, orm_examples, person_overrides
 from .common import ClickhouseClusterResource
@@ -29,13 +33,12 @@ resources_by_env = {
             {"s3_bucket": settings.DAGSTER_S3_BUCKET, "s3_prefix": "dag-storage"}
         ),
         "s3": s3_resource,
-        "slack": slack_resource.configured(
-            {"token": settings.SLACK_BOT_TOKEN, "default_channel": "#alerts-clickhouse"}
-        ),
+        "slack": SlackResource(token=EnvVar("SLACK_TOKEN")),
     },
     "local": {
         "cluster": ClickhouseClusterResource.configure_at_launch(),
         "io_manager": fs_io_manager,
+        "slack": ResourceDefinition.none_resource(description="Dummy Slack resource for local development"),
     },
 }
 
@@ -60,53 +63,6 @@ squash_schedule = ScheduleDefinition(
 )
 def run_deletes_after_squash(context):
     return RunRequest(run_key=None)
-
-
-@run_status_sensor(run_status=DagsterRunStatus.FAILURE)
-def notify_slack_on_failure(context):
-    """Send a notification to Slack when any job fails."""
-    # Get the failed run
-    failed_run = context.dagster_run
-    job_name = failed_run.job_name
-    run_id = failed_run.run_id
-    error = failed_run.failure_data.error.message if failed_run.failure_data else "Unknown error"
-
-    # Only send notifications in prod environment
-    if env != "prod":
-        context.log.info("Skipping Slack notification in non-prod environment")
-        return
-
-    # Construct Dagster URL based on environment
-    dagster_domain = (
-        f"dagster.prod-{settings.CLOUD_DEPLOYMENT.lower()}.posthog.dev"
-        if settings.CLOUD_DEPLOYMENT
-        else "dagster.localhost"
-    )
-    run_url = f"https://{dagster_domain}/runs/{run_id}"
-
-    blocks = [
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": f"❌ *DAG Failure Alert*\n*Job*: `{job_name}`\n*Run ID*: `{run_id}`\n*Run URL*: <{run_url}|View in Dagster>",
-            },
-        },
-        {"type": "section", "text": {"type": "mrkdwn", "text": f"*Error*:\n```{error}```"}},
-        {
-            "type": "context",
-            "elements": [{"type": "mrkdwn", "text": f"Environment: {settings.CLOUD_DEPLOYMENT or 'unknown'}"}],
-        },
-    ]
-
-    try:
-        # Use Dagster's slack resource
-        context.resources.slack.get_client().chat_postMessage(
-            channel=context.resources.slack.default_channel, blocks=blocks, text=f"DAG Failure Alert: {job_name} failed"
-        )
-        context.log.info(f"Sent Slack notification for failed job {job_name}")
-    except Exception as e:
-        context.log.exception(f"Failed to send Slack notification: {str(e)}")
 
 
 defs = Definitions(
