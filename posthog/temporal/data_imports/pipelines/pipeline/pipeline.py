@@ -204,10 +204,8 @@ class PipelineNonDLT:
             self._logger.debug("No deltalake table, not continuing with post-run ops")
             return
 
-        self._logger.debug("SKIPPING deltatable compact and vacuuming")
-
         self._logger.debug("Triggering workflow to compact and vacuum")
-        compaction_job_id = trigger_compaction_job(self._job, self._schema)
+        compaction_job_id = trigger_compaction_job(self._job, self._schema, self._logger)
         self._logger.debug(f"Compaction workflow id: {compaction_job_id}")
 
         file_uris = delta_table.file_uris()

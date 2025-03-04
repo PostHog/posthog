@@ -71,8 +71,8 @@ export function ExperimentMetricForm({
                     }}
                     options={[
                         {
-                            value: ExperimentMetricType.BINOMIAL,
-                            label: 'Binomial',
+                            value: ExperimentMetricType.FUNNEL,
+                            label: 'Funnel',
                             description:
                                 'Calculates the percentage of users for whom the metric occurred at least once, useful for measuring conversion rates.',
                         },
@@ -135,7 +135,7 @@ export function ExperimentMetricForm({
                         readOnly
                     />
                 )}
-            {metric.metric_type === ExperimentMetricType.BINOMIAL && !isDataWarehouseMetric && (
+            {metric.metric_type === ExperimentMetricType.FUNNEL && !isDataWarehouseMetric && (
                 <Query
                     query={{
                         kind: NodeKind.InsightVizNode,
