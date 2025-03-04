@@ -649,9 +649,10 @@ class FeatureFlagMatcher:
                                 condition_eval(key, condition)
 
                     if len(person_fields) > 0:
-                        person_query = person_query.values(*person_fields)
-                        if len(person_query) > 0:
-                            all_conditions = {**all_conditions, **person_query[0]}
+                        with start_span(op="execute_person_query"):
+                            person_query = person_query.values(*person_fields)
+                            if len(person_query) > 0:
+                                all_conditions = {**all_conditions, **person_query[0]}
 
                     for (
                         group_query,
@@ -659,10 +660,13 @@ class FeatureFlagMatcher:
                     ) in group_query_per_group_type_mapping.values():
                         # Only query the group if there's a field to query
                         if len(group_fields) > 0:
-                            group_query = group_query.values(*group_fields)
-                            if len(group_query) > 0:
-                                assert len(group_query) == 1, f"Expected 1 group query result, got {len(group_query)}"
-                                all_conditions = {**all_conditions, **group_query[0]}
+                            with start_span(op="execute_group_query"):
+                                group_query = group_query.values(*group_fields)
+                                if len(group_query) > 0:
+                                    assert (
+                                        len(group_query) == 1
+                                    ), f"Expected 1 group query result, got {len(group_query)}"
+                                    all_conditions = {**all_conditions, **group_query[0]}
                     return all_conditions
         except DatabaseError:
             self.failed_to_fetch_conditions = True
