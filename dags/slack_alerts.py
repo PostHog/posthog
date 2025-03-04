@@ -1,9 +1,6 @@
-from dagster import (
-    DefaultSensorStatus,
-    RunFailureSensorContext,
-    run_failure_sensor,
-)
-from dagster_slack import SlackResource
+import dagster
+import dagster_slack
+
 from django.conf import settings
 
 from dags.common import JobOwners
@@ -13,8 +10,8 @@ notification_channel_per_team = {
 }
 
 
-@run_failure_sensor(default_status=DefaultSensorStatus.RUNNING)
-def notify_slack_on_failure(context: RunFailureSensorContext, slack: SlackResource):
+@dagster.run_failure_sensor(default_status=dagster.DefaultSensorStatus.RUNNING)
+def notify_slack_on_failure(context: dagster.RunFailureSensorContext, slack: dagster_slack.SlackResource):
     """Send a notification to Slack when any job fails."""
     # Get the failed run
     failed_run = context.dagster_run
