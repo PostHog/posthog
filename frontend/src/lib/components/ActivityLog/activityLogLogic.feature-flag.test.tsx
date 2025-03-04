@@ -661,7 +661,20 @@ describe('the activity log logic', () => {
             )
         })
 
-        it('can handle removing all variants from a multivariate flag', async () => {
+        it.each([
+            {
+                name: 'null multivariate',
+                after: { multivariate: null },
+            },
+            {
+                name: 'empty variants array',
+                after: { multivariate: { variants: [] } },
+            },
+            {
+                name: 'undefined multivariate',
+                after: { multivariate: undefined },
+            },
+        ])('can handle removing all variants when $name', async ({ after }) => {
             const logic = await featureFlagsTestSetup('test flag', 'updated', [
                 {
                     type: ActivityScope.FEATURE_FLAG,
@@ -678,8 +691,6 @@ describe('the activity log logic', () => {
                             variants: [
                                 { key: 'control', rollout_percentage: 33 },
                                 { key: 'test-1', rollout_percentage: 33 },
-                                { key: 'test-2', rollout_percentage: 34 },
-                                { key: 'test-3', rollout_percentage: 34 },
                             ],
                         },
                     },
@@ -690,7 +701,7 @@ describe('the activity log logic', () => {
                                 rollout_percentage: 75,
                             },
                         ],
-                        multivariate: null,
+                        ...after,
                     },
                 },
             ])

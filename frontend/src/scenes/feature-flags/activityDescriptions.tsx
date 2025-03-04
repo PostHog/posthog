@@ -142,7 +142,7 @@ const featureFlagActionsMapping: Record<
             }
         }
 
-        if (filtersBefore?.multivariate?.variants?.length && filtersAfter.multivariate === null) {
+        if (filtersBefore?.multivariate?.variants?.length && !filtersAfter?.multivariate?.variants?.length) {
             changes.push(
                 <SentenceList
                     key="remove-variants-list"
