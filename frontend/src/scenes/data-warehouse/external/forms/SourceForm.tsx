@@ -227,7 +227,7 @@ export function SourceFormComponent({
                 )}
             </Group>
             {showPrefix && (
-                <LemonField name="prefix" label="Table Prefix (optional)">
+                <LemonField name="prefix" label="Table prefix (optional)">
                     {({ value, onChange }) => (
                         <>
                             <LemonInput

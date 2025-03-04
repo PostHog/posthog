@@ -42,7 +42,7 @@ export function SummaryTable({
         metricResults,
         secondaryMetricResults,
         tabularExperimentResults,
-        getMetricType,
+        getInsightType,
         exposureCountDataForVariant,
         conversionRateForVariant,
         experimentMathAggregationForTrends,
@@ -51,7 +51,7 @@ export function SummaryTable({
         credibleIntervalForVariant,
         featureFlags,
     } = useValues(experimentLogic)
-    const metricType = getMetricType(metric)
+    const insightType = getInsightType(metric)
     const result = isSecondary ? secondaryMetricResults?.[metricIndex] : metricResults?.[metricIndex]
     if (!result) {
         return <></>
@@ -73,7 +73,7 @@ export function SummaryTable({
         },
     ]
 
-    if (metricType === InsightType.TRENDS) {
+    if (insightType === InsightType.TRENDS) {
         columns.push({
             key: 'counts',
             title: (
@@ -190,7 +190,7 @@ export function SummaryTable({
                     return <em>Baseline</em>
                 }
 
-                const credibleInterval = credibleIntervalForVariant(result || null, variant.key, metricType)
+                const credibleInterval = credibleIntervalForVariant(result || null, variant.key, insightType)
                 if (!credibleInterval) {
                     return <>—</>
                 }
@@ -205,7 +205,7 @@ export function SummaryTable({
         })
     }
 
-    if (metricType === InsightType.FUNNELS) {
+    if (insightType === InsightType.FUNNELS) {
         columns.push({
             key: 'conversionRate',
             title: 'Conversion rate',
@@ -264,7 +264,7 @@ export function SummaryTable({
                         return <em>Baseline</em>
                     }
 
-                    const credibleInterval = credibleIntervalForVariant(result || null, item.key, metricType)
+                    const credibleInterval = credibleIntervalForVariant(result || null, item.key, insightType)
                     if (!credibleInterval) {
                         return <>—</>
                     }
@@ -325,7 +325,7 @@ export function SummaryTable({
 
             return (
                 <>
-                    {percentage && (metricType === InsightType.FUNNELS ? hasValidConversionRate : true) ? (
+                    {percentage && (insightType === InsightType.FUNNELS ? hasValidConversionRate : true) ? (
                         <span className="inline-flex items-center w-52 space-x-4">
                             <LemonProgress className="inline-flex w-3/4" percent={percentage} />
                             <span className={`w-1/4 font-semibold ${isWinning && 'text-success'}`}>
