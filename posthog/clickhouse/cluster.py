@@ -443,8 +443,8 @@ class MutationRunner(abc.ABC):
     def find(self, client: Client) -> Mutation | None:
         """Find the running mutation task, if one exists."""
 
-        command = self.get_command()
-        if (command_kind_match := re.match(r"^(\w+) ", command.lstrip())) is None:
+        command = self.get_command().strip()
+        if (command_kind_match := re.match(r"^(\w+)\s*", command)) is None:
             raise ValueError(f"could not determine command kind from {command!r}")
 
         results = client.execute(
