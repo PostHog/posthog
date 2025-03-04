@@ -78,15 +78,10 @@ export function ExperimentMetricForm({
                                 'Calculates the percentage of users for whom the metric occurred at least once, useful for measuring conversion rates.',
                         },
                         {
-                            value: ExperimentMetricType.COUNT,
-                            label: 'Count',
+                            value: ExperimentMetricType.MEAN,
+                            label: 'Mean',
                             description:
-                                'Tracks how many times the metric occurs per user, useful for measuring click counts or page views.',
-                        },
-                        {
-                            value: ExperimentMetricType.CONTINUOUS,
-                            label: 'Continuous',
-                            description: 'Measures numerical values of the metric, such as revenue or session length.',
+                                'Tracks the value of the metric per user, useful for measuring count of clicks, revenue, or other numeric metrics such as session length.',
                         },
                     ]}
                 />
@@ -122,20 +117,18 @@ export function ExperimentMetricForm({
                 />
             </div>
             {/* :KLUDGE: Query chart type is inferred from the initial state, so need to render Trends and Funnels separately */}
-            {(metric.metric_type === ExperimentMetricType.COUNT ||
-                metric.metric_type === ExperimentMetricType.CONTINUOUS) &&
-                !isDataWarehouseMetric && (
-                    <Query
-                        query={{
-                            kind: NodeKind.InsightVizNode,
-                            source: metricToQuery(metric, filterTestAccounts),
-                            showTable: false,
-                            showLastComputation: true,
-                            showLastComputationRefresh: false,
-                        }}
-                        readOnly
-                    />
-                )}
+            {metric.metric_type === ExperimentMetricType.MEAN && !isDataWarehouseMetric && (
+                <Query
+                    query={{
+                        kind: NodeKind.InsightVizNode,
+                        source: metricToQuery(metric, filterTestAccounts),
+                        showTable: false,
+                        showLastComputation: true,
+                        showLastComputationRefresh: false,
+                    }}
+                    readOnly
+                />
+            )}
             {metric.metric_type === ExperimentMetricType.FUNNEL && !isDataWarehouseMetric && (
                 <Query
                     query={{
