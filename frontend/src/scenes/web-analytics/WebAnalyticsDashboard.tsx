@@ -113,6 +113,7 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
                 insightProps={insightProps}
                 control={control}
                 showIntervalSelect={showIntervalSelect}
+                tileId={tile.tileId}
             />
 
             {buttonsRow.length > 0 ? <div className="flex justify-end my-2 space-x-2">{buttonsRow}</div> : null}
@@ -146,6 +147,7 @@ const TabsTileItem = ({ tile }: { tile: TabsTile }): JSX.Element => {
                         showIntervalSelect={tab.showIntervalSelect}
                         control={tab.control}
                         insightProps={tab.insightProps}
+                        tileId={tile.tileId}
                     />
                 ),
                 linkText: tab.linkText,

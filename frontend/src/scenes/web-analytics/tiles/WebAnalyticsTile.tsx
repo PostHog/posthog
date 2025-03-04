@@ -1,5 +1,5 @@
-import { IconChevronDown, IconTrending, IconWarning } from '@posthog/icons'
-import { Link, Tooltip } from '@posthog/lemon-ui'
+import { IconChevronDown, IconLineGraph, IconTrending, IconWarning } from '@posthog/icons'
+import { LemonSegmentedButton, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { getColorVar } from 'lib/colors'
@@ -8,7 +8,7 @@ import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanF
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { PropertyIcon } from 'lib/components/PropertyIcon'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconOpenInNew, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
+import { IconOpenInNew, IconTableChart, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -19,7 +19,7 @@ import { countryCodeToFlag, countryCodeToName } from 'scenes/insights/views/Worl
 import { languageCodeToFlag, languageCodeToName } from 'scenes/insights/views/WorldMap/countryCodes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
-import { GeographyTab, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
+import { GeographyTab, TileId, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
 import { Query } from '~/queries/Query/Query'
@@ -545,11 +545,14 @@ export const WebStatsTableTile = ({
     breakdownBy,
     insightProps,
     control,
+    tileId,
 }: QueryWithInsightProps<DataTableNode> & {
     breakdownBy: WebStatsBreakdown
     control?: JSX.Element
+    tileId: TileId
 }): JSX.Element => {
-    const { togglePropertyFilter } = useActions(webAnalyticsLogic)
+    const { togglePropertyFilter, setTileVisualization } = useActions(webAnalyticsLogic)
+    const { tileVisualizations } = useValues(webAnalyticsLogic)
 
     const { key, type } = webStatsBreakdownToPropertyName(breakdownBy) || {}
 
@@ -592,9 +595,28 @@ export const WebStatsTableTile = ({
         }
     }, [onClick, insightProps])
 
+    const visualization = tileVisualizations[tileId]
     return (
         <div className="border rounded bg-surface-primary flex-1 flex flex-col">
-            {control != null && <div className="flex flex-row items-center justify-end m-2 mr-4">{control}</div>}
+            <div className="flex flex-row items-center justify-between m-2 mr-4">
+                <LemonSegmentedButton
+                    value={visualization || 'table'}
+                    onChange={(value) => setTileVisualization(tileId, value as 'table' | 'graph')}
+                    options={[
+                        {
+                            value: 'table',
+                            label: 'Table',
+                            icon: <IconTableChart />,
+                        },
+                        {
+                            value: 'graph',
+                            label: 'Graph',
+                            icon: <IconLineGraph />,
+                        },
+                    ]}
+                />
+                {control != null && control}
+            </div>
             <Query query={query} readOnly={true} context={context} />
         </div>
     )
@@ -733,9 +755,11 @@ export const WebQuery = ({
     showIntervalSelect,
     control,
     insightProps,
+    tileId,
 }: QueryWithInsightProps<QuerySchema> & {
     showIntervalSelect?: boolean
     control?: JSX.Element
+    tileId: TileId
 }): JSX.Element => {
     if (query.kind === NodeKind.DataTableNode && query.source.kind === NodeKind.WebStatsTableQuery) {
         return (
@@ -744,6 +768,7 @@ export const WebQuery = ({
                 breakdownBy={query.source.breakdownBy}
                 insightProps={insightProps}
                 control={control}
+                tileId={tileId}
             />
         )
     }

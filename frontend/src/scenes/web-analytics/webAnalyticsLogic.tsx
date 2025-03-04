@@ -310,6 +310,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         setProductTab: (tab: ProductTab) => ({ tab }),
         setWebVitalsPercentile: (percentile: WebVitalsPercentile) => ({ percentile }),
         setWebVitalsTab: (tab: WebVitalsMetric) => ({ tab }),
+        setTileVisualization: (tileId: TileId, visualization: 'table' | 'graph') => ({ tileId, visualization }),
     }),
     reducers({
         rawWebAnalyticsFilters: [
@@ -583,6 +584,15 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 setWebVitalsTab: (_, { tab }) => tab,
             },
         ],
+        tileVisualizations: [
+            {} as Record<TileId, 'table' | 'graph'>,
+            {
+                setTileVisualization: (state, { tileId, visualization }) => ({
+                    ...state,
+                    [tileId]: visualization,
+                }),
+            },
+        ],
     }),
     selectors(({ actions, values }) => ({
         breadcrumbs: [
@@ -750,6 +760,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 () => values.featureFlags,
                 () => values.isGreaterThanMd,
                 () => values.currentTeam,
+                () => values.tileVisualizations,
             ],
             (
                 productTab,
@@ -767,7 +778,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 },
                 featureFlags,
                 isGreaterThanMd,
-                currentTeam
+                currentTeam,
+                tileVisualizations
             ): WebAnalyticsTile[] => {
                 const dateRange = { date_from: dateFrom, date_to: dateTo }
                 const sampling = { enabled: false, forceSamplingRate: { numerator: 1, denominator: 10 } }
@@ -901,6 +913,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         'cross_sell',
                     ].filter(isNotNil)
 
+                    // Check if this tile has a visualization preference
+                    const visualization = tileVisualizations[tileId]
+
+                    // If visualization is 'graph', we need to include the date
+                    const includeDateBreakdown = visualization === 'graph'
+
                     return {
                         id: tabId,
                         title,
@@ -919,6 +937,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 filterTestAccounts,
                                 conversionGoal,
                                 orderBy: tablesOrderBy ?? undefined,
+                                includeDateBreakdown,
                                 ...(source || {}),
                             },
                             embedded: false,

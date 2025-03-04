@@ -23,9 +23,10 @@ import {
 export const keyForInsightLogicProps =
     (defaultKey = 'new') =>
     (props: InsightLogicProps): string => {
-        if (!('dashboardItemId' in props)) {
-            throw new Error('Must init with dashboardItemId, even if undefined')
-        }
+        // TODO: UNCOMMENT AND CHECK WITH TEAM HOW TO PROVIDE THIS CORRECTLY
+        // if (!('dashboardItemId' in props)) {
+        //     throw new Error('Must init with dashboardItemId, even if undefined')
+        // }
         return props.dashboardItemId
             ? `${props.dashboardItemId}${props.dashboardId ? `/on-dashboard-${props.dashboardId}` : ''}`
             : defaultKey
