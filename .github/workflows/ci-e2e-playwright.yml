@@ -7,9 +7,6 @@ name: E2E CI Playwright
 
 on:
     pull_request:
-    push:
-        branches:
-            - master
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
