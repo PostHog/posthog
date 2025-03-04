@@ -6,6 +6,8 @@ use rdkafka::util::Timeout;
 use rdkafka::admin::AdminClient;
 use rdkafka::message::Message;
 use std::time::Duration;
+use std::sync::Arc;
+use futures::future::join_all;
 use tracing::{debug, error, info};
 
 use crate::config::Config;
@@ -15,7 +17,7 @@ pub struct KafkaMonitor {
     admin_client: AdminClient<rdkafka::client::DefaultClientContext>,
     consumer: StreamConsumer,
     config: Config, // Used for consumer group name and other config
-    message_consumer: StreamConsumer,
+    message_consumer: Arc<StreamConsumer>,
 }
 
 impl KafkaMonitor {
@@ -44,7 +46,7 @@ impl KafkaMonitor {
 
         // Create a consumer to get the message at the offset
         let message_consumer: StreamConsumer = common_config.clone()
-            .set("group.id", &format!("{}-lag-checker", &config.kafka_consumer_group))
+            .set("group.id", format!("{}-lag-checker", &config.kafka_consumer_group))
             .set("enable.auto.commit", "false")
             .create()
             .context("Failed to create message fetcher consumer")?;
@@ -55,8 +57,7 @@ impl KafkaMonitor {
         ).context("Failed to fetch Kafka metadata")?;
 
         let topic = metadata.topics().iter()
-                .filter(|t| t.name() == config.kafka_topic.as_str())
-                .next().unwrap();
+                .find(|t| t.name() == config.kafka_topic.as_str()).unwrap();
 
         let topic_name = topic.name();
         debug!("Checking lag for topic: {}", topic_name);
@@ -74,7 +75,7 @@ impl KafkaMonitor {
             admin_client,
             consumer,
             config,
-            message_consumer,
+            message_consumer: Arc::new(message_consumer),
         })
     }
 
@@ -85,8 +86,7 @@ impl KafkaMonitor {
         ).context("Failed to fetch Kafka metadata")?;
 
         let topic = metadata.topics().iter()
-                .filter(|t| t.name() == self.config.kafka_topic)
-                .next().unwrap();
+                .find(|t| t.name() == self.config.kafka_topic).unwrap();
 
         let topic_name = topic.name();
         debug!("Checking lag for topic: {}", topic_name);
@@ -99,6 +99,7 @@ impl KafkaMonitor {
         // Get consumer group offsets
         match self.consumer.committed_offsets(tpl.clone(), Timeout::from(Duration::from_secs(10))) {
             Ok(committed_tpl) => {
+                let mut futes: Vec<_> = vec![];
                 // Process each partition
                 for tpl_elem in committed_tpl.elements() {
                     let partition_id = tpl_elem.partition();
@@ -126,32 +127,37 @@ impl KafkaMonitor {
                                 // Record message count lag metric
                                 metrics::record_lag_count(topic_name, partition_id, &self.config.kafka_consumer_group, lag);
 
-                                // Fetch the message at consumer offset to get timestamp
-                                match self.fetch_message_at_offset(
-                                    topic_name,
-                                    partition_id,
-                                    consumer_offset
-                                ).await {
-                                    Ok(Some((_, Some(timestamp)))) => {
-                                        metrics::record_timestamp(
-                                            topic_name,
-                                            partition_id,
-                                            &self.config.kafka_consumer_group,
-                                            timestamp
-                                        );
+                                let topic_name_owned = topic_name.to_owned();
+
+                                // concurrently fetch messages, there is one per partition so e.g. 128 fetches
+                                futes.push(async move {
+                                    // Fetch the message at consumer offset to get timestamp
+                                    match self.fetch_message_at_offset(
+                                        &topic_name_owned,
+                                        partition_id,
+                                        consumer_offset
+                                    ).await {
+                                        Ok(Some((_, Some(timestamp)))) => {
+                                            metrics::record_timestamp(
+                                                &topic_name_owned,
+                                                partition_id,
+                                                &self.config.kafka_consumer_group,
+                                                timestamp
+                                            );
+                                        }
+                                        Ok(_) => {
+                                            debug!(
+                                                "Could not determine timestamp for offset {} in {}/{}",
+                                                consumer_offset, topic_name_owned, partition_id
+                                            );
+                                        }
+                                        Err(e) => {
+                                            error!(
+                                                "Error fetching message: {:?}", e
+                                            );
+                                        }
                                     }
-                                    Ok(_) => {
-                                        debug!(
-                                            "Could not determine timestamp for offset {} in {}/{}",
-                                            consumer_offset, topic_name, partition_id
-                                        );
-                                    }
-                                    Err(e) => {
-                                        error!(
-                                            "Error fetching message: {:?}", e
-                                        );
-                                    }
-                                }
+                                })
                             }
                             Err(e) => {
                                 error!("Failed to fetch watermarks for {}/{}: {:?}",
@@ -163,6 +169,8 @@ impl KafkaMonitor {
                         debug!("No offset for {}/{}", topic_name, partition_id);
                     }
                 }
+
+                join_all(futes).await;
             }
             Err(e) => {
                 error!("Error fetching committed offsets: {:?}", e);
@@ -171,7 +179,7 @@ impl KafkaMonitor {
 
         Ok(())
     }
-    
+
     async fn fetch_message_at_offset(
         &self,
         topic: &str,

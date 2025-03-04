@@ -1857,6 +1857,7 @@ dependencies = [
  "chrono",
  "envconfig",
  "eyre",
+ "futures",
  "metrics",
  "metrics-exporter-prometheus",
  "rdkafka",
