@@ -135,6 +135,17 @@ class AssistantGenericPropertyFilter3(BaseModel):
     value: str = Field(..., description="Value must be a date in ISO 8601 format.")
 
 
+class AssistantHogQLQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kind: Literal["HogQLQuery"] = "HogQLQuery"
+    query: str = Field(
+        ...,
+        description="SQL SELECT statement to execute. Mostly standard ClickHouse SQL with PostHog-specific additions.",
+    )
+
+
 class AssistantMessageType(StrEnum):
     HUMAN = "human"
     TOOL = "tool"
@@ -7008,7 +7019,9 @@ class VisualizationMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    answer: Optional[Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery]] = None
+    answer: Optional[
+        Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery]
+    ] = None
     id: Optional[str] = None
     initiator: Optional[str] = None
     plan: Optional[str] = None

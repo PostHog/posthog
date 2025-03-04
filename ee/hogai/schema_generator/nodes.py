@@ -12,7 +12,7 @@ from langchain_core.messages import (
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 
 from ee.hogai.schema_generator.parsers import (
     PydanticOutputParserException,
@@ -58,11 +58,8 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
         )
 
     @classmethod
-    def parse_output(cls, output: dict) -> Optional[SchemaGeneratorOutput[Q]]:
-        try:
-            return cls.OUTPUT_MODEL.model_validate(output)
-        except ValidationError:
-            return None
+    def _parse_output(cls, output: dict) -> SchemaGeneratorOutput[Q]:
+        return parse_pydantic_structured_output(cls.OUTPUT_MODEL)(output)
 
     def _run_with_prompt(
         self,
@@ -77,9 +74,8 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
 
         generation_prompt = prompt + self._construct_messages(state, validation_error_message=validation_error_message)
         merger = merge_message_runs()
-        parser = parse_pydantic_structured_output(self.OUTPUT_MODEL)
 
-        chain = generation_prompt | merger | self._model | parser
+        chain = generation_prompt | merger | self._model | self._parse_output
 
         try:
             message: SchemaGeneratorOutput[Q] = chain.invoke(

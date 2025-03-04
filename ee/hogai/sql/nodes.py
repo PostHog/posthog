@@ -1,0 +1,83 @@
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.runnables import RunnableConfig
+
+from ee.hogai.schema_generator.nodes import SchemaGeneratorNode, SchemaGeneratorToolsNode
+from ee.hogai.schema_generator.parsers import PydanticOutputParserException
+from ee.hogai.schema_generator.utils import SchemaGeneratorOutput
+from ee.hogai.taxonomy_agent.nodes import TaxonomyAgentPlannerNode, TaxonomyAgentPlannerToolsNode
+from ee.hogai.sql.prompts import SQL_REACT_SYSTEM_PROMPT
+from ee.hogai.sql.toolkit import SQL_SCHEMA, SQLTaxonomyAgentToolkit
+from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from posthog.hogql.ai import HOGQL_EXAMPLE_MESSAGE, IDENTITY_MESSAGE, SCHEMA_MESSAGE
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import create_hogql_database, serialize_database
+from posthog.hogql.errors import ExposedHogQLError, ResolutionError
+from posthog.hogql.parser import parse_select
+from posthog.hogql.printer import print_ast
+from posthog.schema import AssistantHogQLQuery
+
+
+class SQLPlannerNode(TaxonomyAgentPlannerNode):
+    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+        toolkit = SQLTaxonomyAgentToolkit(self._team)
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", SQL_REACT_SYSTEM_PROMPT),
+            ],
+            template_format="mustache",
+        )
+        return super()._run_with_prompt_and_toolkit(state, prompt, toolkit, config=config)
+
+
+class SQLPlannerToolsNode(TaxonomyAgentPlannerToolsNode):
+    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+        toolkit = SQLTaxonomyAgentToolkit(self._team)
+        return super()._run_with_toolkit(state, toolkit, config=config)
+
+
+SQLSchemaGeneratorOutput = SchemaGeneratorOutput[str]
+
+
+class SQLGeneratorNode(SchemaGeneratorNode[AssistantHogQLQuery]):
+    INSIGHT_NAME = "SQL"
+    OUTPUT_MODEL = SQLSchemaGeneratorOutput
+    OUTPUT_SCHEMA = SQL_SCHEMA
+
+    hogql_context: HogQLContext
+
+    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+        self.hogql_context = HogQLContext(
+            team_id=self._team.pk, enable_select_queries=True, database=create_hogql_database(self._team.pk)
+        )
+
+        serialized_database = serialize_database(self.hogql_context)
+        schema_description = "\n\n".join(
+            (
+                f"Table {table_name} with fields:\n"
+                + "\n".join(f"- {field.name} ({field.type})" for field in table.fields.values())
+                for table_name, table in serialized_database.items()
+            )
+        )
+
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", IDENTITY_MESSAGE),
+                ("system", HOGQL_EXAMPLE_MESSAGE),
+                ("system", SCHEMA_MESSAGE.format(schema_description=schema_description)),
+            ],
+            template_format="mustache",
+        )
+        return super()._run_with_prompt(state, prompt, config=config)
+
+    def _parse_output(self, output: dict):
+        result = super()._parse_output(output)
+        # We also ensure the generated SQL is valid
+        try:
+            print_ast(parse_select(result.query), context=self.hogql_context, dialect="clickhouse")
+        except (ExposedHogQLError, ResolutionError) as e:
+            raise PydanticOutputParserException(llm_output=result.query, validation_message=str(e))
+        return SchemaGeneratorOutput(query=AssistantHogQLQuery(query=result.query))
+
+
+class SQLGeneratorToolsNode(SchemaGeneratorToolsNode):
+    pass

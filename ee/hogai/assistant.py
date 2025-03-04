@@ -18,6 +18,7 @@ from ee.hogai.graph import AssistantGraph
 from ee.hogai.memory.nodes import MemoryInitializerNode
 from ee.hogai.retention.nodes import RetentionGeneratorNode
 from ee.hogai.schema_generator.nodes import SchemaGeneratorNode
+from ee.hogai.sql.nodes import SQLGeneratorNode
 from ee.hogai.trends.nodes import TrendsGeneratorNode
 from ee.hogai.utils.asgi import SyncIterableToAsync
 from ee.hogai.utils.exceptions import GenerationCanceled
@@ -53,6 +54,7 @@ VISUALIZATION_NODES: dict[AssistantNodeName, type[SchemaGeneratorNode]] = {
     AssistantNodeName.TRENDS_GENERATOR: TrendsGeneratorNode,
     AssistantNodeName.FUNNEL_GENERATOR: FunnelGeneratorNode,
     AssistantNodeName.RETENTION_GENERATOR: RetentionGeneratorNode,
+    AssistantNodeName.SQL_GENERATOR: SQLGeneratorNode,
 }
 
 STREAMING_NODES: set[AssistantNodeName] = {
@@ -220,6 +222,8 @@ class Assistant:
                 | AssistantNodeName.FUNNEL_PLANNER_TOOLS
                 | AssistantNodeName.RETENTION_PLANNER
                 | AssistantNodeName.RETENTION_PLANNER_TOOLS
+                | AssistantNodeName.SQL_PLANNER
+                | AssistantNodeName.SQL_PLANNER_TOOLS
             ):
                 substeps: list[str] = []
                 if input:
@@ -247,6 +251,8 @@ class Assistant:
                 return ReasoningMessage(content="Creating funnel query")
             case AssistantNodeName.RETENTION_GENERATOR:
                 return ReasoningMessage(content="Creating retention query")
+            case AssistantNodeName.SQL_GENERATOR:
+                return ReasoningMessage(content="Creating SQL query")
             case AssistantNodeName.INKEEP_DOCS:
                 return ReasoningMessage(content="Checking PostHog docs")
             case _:

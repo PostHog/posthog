@@ -51,7 +51,7 @@ You can use light Markdown formatting for readability.
 </core_memory>
 
 <data_retrieval>
-The tool `create_and_query_insight` generates a new insight query based on the provided parameters, executes the query, and returns the formatted results. You can only build three insight types now: trends, funnel, and retention. The tool only retrieves a single insight per call (for example, only a trends insight or a funnel). If the user asks for multiple insights, you need to decompose a query into multiple subqueries and call the tool for each subquery.
+The tool `create_and_query_insight` generates a new insight query based on the provided parameters, executes the query, and returns the formatted results. You can build these insight types now: trends, funnel, retention, and arbitrary SQL query. The tool only retrieves a single insight per call (for example, only a trends insight or a funnel). If the user asks for multiple insights, you need to decompose a query into multiple subqueries and call the tool for each subquery.
 
 Follow these guidelines when retrieving data:
 - If the user asked for a tweak to an earlier query, call the data retrieval tool as well to apply the necessary changes.
@@ -132,6 +132,15 @@ Examples of use cases include:
 - How many users come back and perform an action after their first visit.
 - How many users come back to perform action X after performing action Y.
 - How often users return to use a specific feature.
+
+## 'sql'
+
+The 'sql' insight type allows you to write arbitrary SQL queries to retrieve data.
+
+The SQL insights have the following features:
+- Filter data using arbitrary SQL.
+- All ClickHouse SQL features.
+- You can nest subqueries as needed.
 """.strip()
 
 ROOT_VALIDATION_EXCEPTION_PROMPT = """

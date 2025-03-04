@@ -26,6 +26,7 @@ from ee.models.assistant import Conversation, CoreMemory
 from posthog.schema import (
     AssistantFunnelsEventsNode,
     AssistantFunnelsQuery,
+    AssistantHogQLQuery,
     AssistantMessage,
     AssistantRetentionFilter,
     AssistantRetentionQuery,
@@ -40,6 +41,9 @@ from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_ev
 
 from ..assistant import Assistant
 from ..graph import AssistantGraph, AssistantNodeName
+from ..sql.nodes import (
+    SQLSchemaGeneratorOutput,
+)
 
 
 class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
@@ -609,6 +613,59 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         actual_output = self._run_assistant_graph(is_new_conversation=False)
         self.assertConversationEqual(actual_output, expected_output[1:])
         self.assertEqual(actual_output[0][1]["id"], actual_output[4][1]["initiator"])
+
+    @patch("ee.hogai.schema_generator.nodes.SchemaGeneratorNode._model")
+    @patch("ee.hogai.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model")
+    @patch("ee.hogai.root.nodes.RootNode._get_model")
+    @patch("ee.hogai.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]"))
+    def test_full_sql_flow(self, memory_collector_mock, root_mock, planner_mock, generator_mock):
+        res1 = FakeRunnableLambdaWithTokenCounter(
+            lambda _: messages.AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "id": "xyz",
+                        "name": "create_and_query_insight",
+                        "args": {"query_description": "Foobar", "query_kind": "sql"},
+                    }
+                ],
+            )
+        )
+        res2 = FakeRunnableLambdaWithTokenCounter(
+            lambda _: messages.AIMessage(content="The results indicate a great future for you.")
+        )
+        root_mock.side_effect = cycle([res1, res2])
+
+        planner_mock.return_value = RunnableLambda(
+            lambda _: messages.AIMessage(
+                content="""
+                Thought: Done.
+                Action:
+                ```
+                {
+                    "action": "final_answer",
+                    "action_input": "Plan"
+                }
+                ```
+                """
+            )
+        )
+        query = AssistantHogQLQuery(query="SELECT 1")
+        generator_mock.return_value = RunnableLambda(lambda _: SQLSchemaGeneratorOutput(query=query))
+
+        # First run
+        actual_output = self._run_assistant_graph(is_new_conversation=True)
+        expected_output = [
+            ("conversation", {"id": str(self.conversation.id)}),
+            ("message", HumanMessage(content="Hello")),
+            ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
+            ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
+            ("message", ReasoningMessage(content="Creating SQL query")),
+            ("message", VisualizationMessage(query="Foobar", answer=query, plan="Plan")),
+            ("message", AssistantMessage(content="The results indicate a great future for you.")),
+        ]
+        self.assertConversationEqual(actual_output, expected_output)
+        self.assertEqual(actual_output[1][1]["id"], actual_output[5][1]["initiator"])  # viz message must have this id
 
     @patch("ee.hogai.memory.nodes.MemoryInitializerInterruptNode._model")
     @patch("ee.hogai.memory.nodes.MemoryInitializerNode._model")

@@ -27,7 +27,7 @@ from ee.hogai.utils.nodes import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.schema import AssistantMessage, AssistantToolCall, AssistantToolCallMessage, HumanMessage
 
-RouteName = Literal["trends", "funnel", "retention", "root", "end", "docs"]
+RouteName = Literal["root", "trends", "funnel", "retention", "sql", "docs", "end"]
 
 
 # Lower casing matters here. Do not change it.
@@ -40,7 +40,7 @@ class create_and_query_insight(BaseModel):
     """
 
     query_description: str = Field(description="The description of the query being asked.")
-    query_kind: Literal["trends", "funnel", "retention"] = Field(description=ROOT_INSIGHT_DESCRIPTION_PROMPT)
+    query_kind: Literal["trends", "funnel", "retention", "sql"] = Field(description=ROOT_INSIGHT_DESCRIPTION_PROMPT)
 
 
 class search_documentation(BaseModel):
@@ -114,7 +114,7 @@ class RootNode(AssistantNode):
     def _get_model(self, state: AssistantState):
         # Research suggests temperature is not _massively_ correlated with creativity, hence even in this very
         # conversational context we're using a temperature of 0, for near determinism (https://arxiv.org/html/2405.00492v1)
-        base_model = ChatOpenAI(model="gpt-4", temperature=0.0, streaming=True, stream_usage=True)
+        base_model = ChatOpenAI(model="gpt-4o", temperature=0.0, streaming=True, stream_usage=True)
 
         # The agent can now be in loops. Since insight building is an expensive operation, we want to limit a recursion depth.
         # This will remove the functions, so the agent doesn't have any other option but to exit.
