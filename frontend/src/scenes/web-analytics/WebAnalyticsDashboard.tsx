@@ -1,8 +1,9 @@
-import { IconExpand45, IconInfo, IconOpenSidebar, IconX } from '@posthog/icons'
+import { IconExpand45, IconInfo, IconLineGraph, IconOpenSidebar, IconX } from '@posthog/icons'
+import { LemonSegmentedButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { IconOpenInNew, IconTableChart } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect/LemonSegmentedSelect'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -113,6 +114,7 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
                 insightProps={insightProps}
                 control={control}
                 showIntervalSelect={showIntervalSelect}
+                tileId={tile.tileId}
             />
 
             {buttonsRow.length > 0 ? <div className="flex justify-end my-2 space-x-2">{buttonsRow}</div> : null}
@@ -146,6 +148,7 @@ const TabsTileItem = ({ tile }: { tile: TabsTile }): JSX.Element => {
                         showIntervalSelect={tab.showIntervalSelect}
                         control={tab.control}
                         insightProps={tab.insightProps}
+                        tileId={tile.tileId}
                     />
                 ),
                 linkText: tab.linkText,
@@ -191,6 +194,10 @@ export const WebTabs = ({
     const activeTab = tabs.find((t) => t.id === activeTabId)
     const newInsightUrl = getNewInsightUrl(tileId, activeTabId)
 
+    const { setTileVisualization } = useActions(webAnalyticsLogic)
+    const { tileVisualizations } = useValues(webAnalyticsLogic)
+    const visualization = tileVisualizations[tileId]
+
     const buttonsRow = [
         activeTab?.canOpenInsight && newInsightUrl ? (
             <LemonButton
@@ -223,6 +230,8 @@ export const WebTabs = ({
         ) : null,
     ].filter(isNotNil)
 
+    const isVisualizationToggleEnabled = [TileId.SOURCES, TileId.DEVICES, TileId.PATHS].includes(tileId)
+
     return (
         <div className={clsx(className, 'flex flex-col')}>
             <div className="flex flex-row items-center self-stretch mb-3">
@@ -236,6 +245,27 @@ export const WebTabs = ({
                         />
                     )}
                 </h2>
+
+                {isVisualizationToggleEnabled && (
+                    <LemonSegmentedButton
+                        value={visualization || 'table'}
+                        onChange={(value) => setTileVisualization(tileId, value as 'table' | 'graph')}
+                        options={[
+                            {
+                                value: 'table',
+                                label: '',
+                                icon: <IconTableChart />,
+                            },
+                            {
+                                value: 'graph',
+                                label: '',
+                                icon: <IconLineGraph />,
+                            },
+                        ]}
+                        size="small"
+                        className="mr-2"
+                    />
+                )}
 
                 <LemonSegmentedSelect
                     shrinkOn={7}
