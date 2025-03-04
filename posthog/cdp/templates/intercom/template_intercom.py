@@ -100,7 +100,6 @@ if (res.status >= 400) {
             "type": "integration",
             "integration": "intercom",
             "label": "Intercom account",
-            "requiredScopes": "placeholder",  # intercom scopes are only configurable in the oauth app settings
             "secret": False,
             "required": True,
         },
@@ -238,7 +237,6 @@ if (res.status >= 400) {
             "type": "integration",
             "integration": "intercom",
             "label": "Intercom account",
-            "requiredScopes": "placeholder",  # intercom scopes are only configurable in the oauth app settings
             "secret": False,
             "required": True,
         },
