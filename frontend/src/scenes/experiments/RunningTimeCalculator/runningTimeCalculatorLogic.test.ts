@@ -113,4 +113,51 @@ describe('runningTimeCalculatorLogic', () => {
             })
         })
     })
+
+    // Should match https://docs.google.com/spreadsheets/d/11alyC8n7uqewZFLKfV4UAbW-0zH__EdV_Hrk2OQ4140/edit?gid=0#gid=0
+    describe('calculations for FUNNEL', () => {
+        beforeEach(() => {
+            experimentLogic.actions.setExperiment({
+                metrics: [
+                    {
+                        metric_type: ExperimentMetricType.FUNNEL,
+                    } as ExperimentMetric,
+                ],
+                feature_flag: {
+                    filters: {
+                        multivariate: {
+                            variants: [
+                                {
+                                    key: 'control',
+                                    rollout_percentage: 50,
+                                },
+                                {
+                                    key: 'test',
+                                    rollout_percentage: 50,
+                                },
+                            ],
+                        },
+                    },
+                } as unknown as FeatureFlagBasicType,
+            })
+
+            logic.actions.setMetricIndex(0)
+        })
+
+        it('calculates recommended sample size and running time correctly for FUNNEL', async () => {
+            logic.actions.setMinimumDetectableEffect(5)
+            logic.actions.setMetricResult({
+                uniqueUsers: 1000,
+                conversionRate: 0.1,
+            })
+
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic).toMatchValues({
+                minimumDetectableEffect: 5,
+                recommendedSampleSize: expect.closeTo(1152, 0),
+                recommendedRunningTime: expect.closeTo(16.1, 1),
+            })
+        })
+    })
 })
