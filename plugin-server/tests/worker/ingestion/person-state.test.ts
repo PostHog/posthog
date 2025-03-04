@@ -46,7 +46,7 @@ describe('PersonState.update()', () => {
 
     beforeEach(async () => {
         teamId = await createTeam(hub.db.postgres, organizationId)
-        team = await fetchTeam(hub.db.postgres, teamId)
+        team = (await fetchTeam(hub.db.postgres, teamId))!
 
         newUserUuid = uuidFromDistinctId(teamId, newUserDistinctId)
         oldUserUuid = uuidFromDistinctId(teamId, oldUserDistinctId)

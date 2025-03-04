@@ -142,7 +142,10 @@ describe('EventPipelineRunner', () => {
 
         runner = new TestEventPipelineRunner(hub, pluginEvent)
 
-        jest.mocked(populateTeamDataStep).mockResolvedValue(pluginEvent)
+        jest.mocked(populateTeamDataStep).mockResolvedValue({
+            eventWithTeam: pluginEvent,
+            team: { id: 2, person_processing_opt_out: false } as any,
+        })
         jest.mocked(cookielessServerHashStep).mockResolvedValue([pluginEvent])
         jest.mocked(pluginsProcessEventStep).mockResolvedValue(pluginEvent)
 
@@ -329,7 +332,10 @@ describe('EventPipelineRunner', () => {
                     team_id: 9,
                 }
 
-                jest.mocked(populateTeamDataStep).mockResolvedValue(event)
+                jest.mocked(populateTeamDataStep).mockResolvedValue({
+                    eventWithTeam: event,
+                    team: { id: 9, person_processing_opt_out: true } as any,
+                })
 
                 await runner.runEventPipeline(event)
                 expect(runner.steps).toEqual(['populateTeamDataStep'])
@@ -454,7 +460,10 @@ describe('EventPipelineRunner', () => {
                     event: eventName,
                     team_id: 9,
                 }
-                jest.mocked(populateTeamDataStep).mockResolvedValue(event)
+                jest.mocked(populateTeamDataStep).mockResolvedValue({
+                    eventWithTeam: event,
+                    team: { id: 9, person_processing_opt_out: true } as any,
+                })
 
                 await runner.runEventPipeline(event)
                 expect(runner.steps).toEqual(['populateTeamDataStep'])

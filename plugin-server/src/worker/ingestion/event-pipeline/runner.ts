@@ -124,7 +124,7 @@ export class EventPipelineRunner {
             let result: EventPipelineResult
             const { eventWithTeam, team } =
                 (await this.runStep(populateTeamDataStep, [this, event], event.team_id || -1)) ?? {}
-            if (eventWithTeam != null) {
+            if (eventWithTeam != null && team != null) {
                 result = await this.runEventPipelineSteps(eventWithTeam, team)
             } else {
                 result = this.registerLastStep('populateTeamDataStep', [event])
