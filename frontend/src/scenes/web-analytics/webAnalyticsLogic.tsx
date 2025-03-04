@@ -994,7 +994,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     }
 
                     // In case of a graph, we need to use the breakdownFilter and a InsightsVizNode,
-                    // which will actually handled by a WebStatsTrendTile instead of a WebStatsTableTile
+                    // which will actually be handled by a WebStatsTrendTile instead of a WebStatsTableTile
                     if (visualization === 'graph') {
                         return {
                             ...baseTabProps,

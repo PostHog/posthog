@@ -487,6 +487,7 @@ export const WebStatsTableTile = ({
     query,
     breakdownBy,
     insightProps,
+    control,
 }: QueryWithInsightProps<DataTableNode> & {
     breakdownBy: WebStatsBreakdown
     control?: JSX.Element
@@ -535,7 +536,12 @@ export const WebStatsTableTile = ({
         }
     }, [onClick, insightProps])
 
-    return <Query query={query} readOnly={true} context={context} />
+    return (
+        <div className="border rounded bg-surface-primary flex-1 flex flex-col">
+            {control != null && <div className="flex flex-row items-center justify-end m-2 mr-4">{control}</div>}
+            <Query query={query} readOnly={true} context={context} />
+        </div>
+    )
 }
 
 const getBreakdownValue = (record: unknown, breakdownBy: WebStatsBreakdown): string | null | undefined => {
