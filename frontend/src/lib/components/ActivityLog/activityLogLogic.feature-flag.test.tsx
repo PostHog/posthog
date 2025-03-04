@@ -612,7 +612,7 @@ describe('the activity log logic', () => {
 
             const actual = logic.values.humanizedActivity
             expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
-                'peter changed the rollout percentage for the variants to control: 50%, and test-1: 50%, and removed variant(s) test-2 on test flag'
+                'peter changed the rollout percentage for the variants to control: 50%, and test-1: 50%, and removed variant test-2 on test flag'
             )
         })
 
@@ -657,7 +657,7 @@ describe('the activity log logic', () => {
 
             const actual = logic.values.humanizedActivity
             expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
-                'peter changed the rollout percentage for the variants to control: 50%, and test-1: 50%, and removed variant(s) test-2, and test-3 on test flag'
+                'peter changed the rollout percentage for the variants to control: 50%, and test-1: 50%, and removed variants test-2, and test-3 on test flag'
             )
         })
 
@@ -698,6 +698,41 @@ describe('the activity log logic', () => {
             const actual = logic.values.humanizedActivity
             expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
                 'peter removed all variants on test flag'
+            )
+        })
+
+        it('can handle removing the last variant from a multivariate flag', async () => {
+            const logic = await featureFlagsTestSetup('test flag', 'updated', [
+                {
+                    type: ActivityScope.FEATURE_FLAG,
+                    action: 'changed',
+                    field: 'filters',
+                    before: {
+                        groups: [
+                            {
+                                properties: [],
+                                rollout_percentage: 75,
+                            },
+                        ],
+                        multivariate: {
+                            variants: [{ key: 'control', rollout_percentage: 100 }],
+                        },
+                    },
+                    after: {
+                        groups: [
+                            {
+                                properties: [],
+                                rollout_percentage: 75,
+                            },
+                        ],
+                        multivariate: null,
+                    },
+                },
+            ])
+
+            const actual = logic.values.humanizedActivity
+            expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
+                'peter removed the last variant on test flag'
             )
         })
     })

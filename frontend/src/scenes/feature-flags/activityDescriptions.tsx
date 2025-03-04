@@ -146,7 +146,12 @@ const featureFlagActionsMapping: Record<
             changes.push(
                 <SentenceList
                     key="remove-variants-list"
-                    listParts={[<span key="remove-variants">removed all variants</span>]}
+                    listParts={[
+                        <span key="remove-variants">
+                            removed{' '}
+                            {filtersBefore.multivariate.variants.length === 1 ? 'the last variant' : 'all variants'}
+                        </span>,
+                    ]}
                 />
             )
         } else if (isMultivariateFlag) {
@@ -195,7 +200,12 @@ const featureFlagActionsMapping: Record<
                                 <strong>{key}</strong>
                             </span>
                         ))}
-                        prefix="removed variant(s)"
+                        prefix={`removed ${pluralize(
+                            removedVariants.length,
+                            'variant',
+                            undefined,
+                            /* includeNumber: */ false
+                        )}`}
                     />
                 )
             }
