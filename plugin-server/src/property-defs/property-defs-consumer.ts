@@ -196,8 +196,8 @@ export class PropertyDefsConsumer {
         for (const event of events) {
             // Detect group identify events
             if (event.event === '$groupidentify') {
-                const groupType = event.properties['$group_type'] // e.g. "organization"
-                const groupProperties = event.properties['$group_set'] // { name: 'value', id: 'id', foo: "bar" }
+                const groupType: string | undefined = event.properties['$group_type'] // e.g. "organization"
+                const groupProperties: Record<string, any> | undefined = event.properties['$group_set'] // { name: 'value', id: 'id', foo: "bar" }
 
                 for (const [property, value] of Object.entries(groupProperties ?? {})) {
                     const propDefId = `${event.team_id}:${groupType}:${property}`
