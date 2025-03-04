@@ -1,3 +1,5 @@
+import '@testing-library/jest-dom'
+
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
@@ -11,20 +13,22 @@ import { initKeaTests } from '~/test/init'
 describe('PersonsManagementScene', () => {
     beforeEach(() => {
         useMocks({
-            get: {
-                '/api/projects/:team_id/query': (_req, res, ctx) => {
+            post: {
+                '/api/environments/:team_id/query': (_req, res, ctx) => {
                     return res(
                         ctx.json({
                             results: [
-                                {
-                                    id: 1,
-                                    name: 'Test User',
-                                    distinct_ids: ['test_id'],
-                                    properties: {
-                                        email: 'test@example.com',
+                                [
+                                    {
+                                        id: 1,
+                                        name: 'Test User',
+                                        distinct_ids: ['test_id'],
+                                        properties: {
+                                            email: 'test@example.com',
+                                        },
+                                        created_at: '2021-01-01T00:00:00Z',
                                     },
-                                    created_at: '2021-01-01T00:00:00Z',
-                                },
+                                ],
                             ],
                             count: 1,
                             complete: true,
@@ -34,74 +38,6 @@ describe('PersonsManagementScene', () => {
             },
         })
         initKeaTests()
-        // mswServer.use(
-        //     rest.get(`/api/projects/:team_id/persons`, (req, res, ctx) => {
-        //         const searchQuery = req.url.searchParams.get('search')
-        //         if (searchQuery === 'test@example.com') {
-        //             return res(
-        //                 ctx.json({
-        //                     results: [
-        //                         {
-        //                             id: 1,
-        //                             name: 'Test User',
-        //                             distinct_ids: ['test_id'],
-        //                             properties: {
-        //                                 email: 'test@example.com',
-        //                             },
-        //                             created_at: '2021-01-01T00:00:00Z',
-        //                         },
-        //                     ],
-        //                     count: 1,
-        //                 })
-        //             )
-        //         }
-        //         return res(ctx.json({ results: [], count: 0 }))
-        //     }),
-        //     rest.get(`/api/projects/:team_id/groups`, (_req, res, ctx) => {
-        //         return res(ctx.json({ results: [], count: 0 }))
-        //     }),
-        //     rest.get(`/api/projects/:team_id/property_definitions`, (_req, res, ctx) => {
-        //         return res(ctx.json({ results: [], count: 0 }))
-        //     }),
-        //     rest.get('/api/projects/:team_id/query', (_req, res, ctx) => {
-        //         return res(
-        //             ctx.json({
-        //                 results: [
-        //                     {
-        //                         id: 1,
-        //                         name: 'Test User',
-        //                         distinct_ids: ['test_id'],
-        //                         properties: {
-        //                             email: 'test@example.com',
-        //                         },
-        //                         created_at: '2021-01-01T00:00:00Z',
-        //                     },
-        //                 ],
-        //                 count: 1,
-        //                 complete: true,
-        //             })
-        //         )
-        //     }),
-        //     rest.post(`/api/environments/:team_id/query_awaited/`, (_req, res, ctx) => {
-        //         return res(
-        //             ctx.json({
-        //                 results: [
-        //                     {
-        //                         id: 1,
-        //                         name: 'Test User',
-        //                         distinct_ids: ['test_id'],
-        //                         properties: {
-        //                             email: 'test@example.com',
-        //                         },
-        //                         created_at: '2021-01-01T00:00:00Z',
-        //                     },
-        //                 ],
-        //                 count: 1,
-        //                 complete: true,
-        //             })
-        //         )
-        //     })
-        // )
         router.actions.push(urls.persons())
     })
 
@@ -119,8 +55,10 @@ describe('PersonsManagementScene', () => {
         const withinTable = within(lemonTable)
 
         await waitFor(() => {
-            expect(withinTable.getByText('Test User')).toBeInTheDocument()
-            expect(withinTable.getByText('test@example.com')).toBeInTheDocument()
+            expect(
+                withinTable.getByTitle('This is the Gravatar for test@example.com <test@example.com>')
+            ).toBeInTheDocument()
+            expect(withinTable.getByText('T', { selector: '.Lettermark' })).toBeInTheDocument()
         })
     })
 })
