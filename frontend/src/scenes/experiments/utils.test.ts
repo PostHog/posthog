@@ -882,7 +882,7 @@ describe('metricToQuery', () => {
         })
     })
 
-    it('returns the correct query for a continuous metric', () => {
+    it('returns the correct query for a mean metric with sum math type', () => {
         const metric: ExperimentMetric = {
             kind: NodeKind.ExperimentMetric,
             metric_type: ExperimentMetricType.MEAN,
