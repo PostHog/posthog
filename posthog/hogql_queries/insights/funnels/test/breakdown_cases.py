@@ -1827,6 +1827,10 @@ def funnel_breakdown_test_factory(
             self.assertCountEqual(self._get_actor_ids_at_step(filters, 1, "Mac"), [people["person3"].uuid])
 
         def test_funnel_step_breakdown_with_step_one_attribution(self):
+            # Unordered funnels do not support step 1 attribution
+            if funnel_order_type == FunnelOrderType.UNORDERED:
+                return
+
             filters = {
                 "insight": INSIGHT_FUNNELS,
                 "funnel_order_type": funnel_order_type,
@@ -2254,6 +2258,10 @@ def funnel_breakdown_test_factory(
             )
 
         def test_funnel_step_breakdown_with_step_one_attribution_incomplete_funnel(self):
+            # Unordered funnels do not support step 1 attribution
+            if funnel_order_type == FunnelOrderType.UNORDERED:
+                return
+
             filters = {
                 "insight": INSIGHT_FUNNELS,
                 "funnel_order_type": funnel_order_type,
@@ -2349,6 +2357,10 @@ def funnel_breakdown_test_factory(
             )
 
         def test_funnel_step_non_array_breakdown_with_step_one_attribution_incomplete_funnel(self):
+            # Unordered funnels do not support step 1 attribution
+            if funnel_order_type == FunnelOrderType.UNORDERED:
+                return
+
             filters = {
                 "insight": INSIGHT_FUNNELS,
                 "funnel_order_type": funnel_order_type,
@@ -2594,6 +2606,9 @@ def funnel_breakdown_test_factory(
 
         @snapshot_clickhouse_queries
         def test_funnel_breakdown_correct_breakdown_props_are_chosen_for_step(self):
+            # Unordered funnels do not support step 1 attribution
+            if funnel_order_type == FunnelOrderType.UNORDERED:
+                return
             # No person querying here, so snapshots are more legible
 
             filters = {

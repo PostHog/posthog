@@ -122,11 +122,11 @@ impl AggregateFunnelRowUnordered {
             })
             .unwrap() as usize;
 
-        if vars.num_steps_completed == 0
-            && self.breakdown_step.is_some()
+        if self.breakdown_step.is_some()
+            && vars.num_steps_completed == self.breakdown_step.unwrap()
             && *prop_val != event.breakdown
         {
-            // This means it is the first step with first step attribution, so we have to check
+            // If this step doesn't match the requested attribution, it's not valid
             return;
         }
 
