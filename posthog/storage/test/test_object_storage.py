@@ -208,4 +208,5 @@ class TestStorage(APIBaseTest):
         # Assert
         mock_client2.get_object.assert_called_with(Bucket="test-bucket", Key="test-key", Range="bytes=5-10")
         self.assertEqual(result, b"fghijk")
+        self.assertIsNotNone(result)  # Ensure result is not None before calling len()
         self.assertEqual(len(result), 6)  # Bytes 5-10 inclusive should be 6 bytes
