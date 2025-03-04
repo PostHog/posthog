@@ -596,6 +596,13 @@ async fn query_with_illegal_group_type_index_fails() {
         )),
         params_invalid_group_2.valid()
     );
+
+    let params_valid_group_3 = Params {
+        parent_type: PropertyParentType::Group,
+        group_type_index: 0,
+        ..Default::default()
+    };
+    assert_eq!(Ok(()), params_valid_group_3.valid());
 }
 
 async fn bootstrap_seed_data(test_pool: PgPool) -> Result<(), sqlx::Error> {
