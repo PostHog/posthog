@@ -3,12 +3,14 @@ import { LemonSegmentedButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconOpenInNew, IconTableChart } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect/LemonSegmentedSelect'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNotNil } from 'lib/utils'
 import { addProductIntentForCrossSell, ProductIntentContext } from 'lib/utils/product-intents'
 import React, { useState } from 'react'
@@ -196,6 +198,7 @@ export const WebTabs = ({
 
     const { setTileVisualization } = useActions(webAnalyticsLogic)
     const { tileVisualizations } = useValues(webAnalyticsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const visualization = tileVisualizations[tileId]
 
     const buttonsRow = [
@@ -230,6 +233,10 @@ export const WebTabs = ({
         ) : null,
     ].filter(isNotNil)
 
+    const isVisualizationToggleEnabled =
+        featureFlags[FEATURE_FLAGS.WEB_TRENDS_BREAKDOWN] &&
+        [TileId.SOURCES, TileId.DEVICES, TileId.PATHS].includes(tileId)
+
     return (
         <div className={clsx(className, 'flex flex-col')}>
             <div className="flex flex-row items-center self-stretch mb-3">
@@ -244,7 +251,7 @@ export const WebTabs = ({
                     )}
                 </h2>
 
-                {[TileId.SOURCES, TileId.DEVICES, TileId.PATHS].includes(tileId) && (
+                {isVisualizationToggleEnabled && (
                     <LemonSegmentedButton
                         value={visualization || 'table'}
                         onChange={(value) => setTileVisualization(tileId, value as 'table' | 'graph')}
