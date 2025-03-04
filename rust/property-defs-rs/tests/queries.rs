@@ -233,7 +233,7 @@ async fn query_type_event_is_feature_flag_filter(qmgr: &Manager, project_id: i32
     let results = qmgr.pool.fetch_all(fetch_events_ex_props_filter).await;
     assert!(results.is_ok());
 
-    // should only return PropertyParentType::Event records of property_type="Numeric"
+    // should only return feature flag properties
     for row in results.unwrap() {
         let prop_type: String = row.get("name");
         assert!(prop_type == "$feature/foo-bar-baz");
