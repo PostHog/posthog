@@ -3768,7 +3768,11 @@ class TestDecide(BaseTest, QueryMatchingTest):
         # Make a decide request with only flag-1 and flag-3 keys
         response = self._post_decide(
             api_version=3,
-            data={"token": self.team.api_token, "distinct_id": "example_id", "flag_keys": ["flag-1", "flag-3"]},
+            data={
+                "token": self.team.api_token,
+                "distinct_id": "example_id",
+                "flag_keys_to_evaluate": ["flag-1", "flag-3"],
+            },
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
