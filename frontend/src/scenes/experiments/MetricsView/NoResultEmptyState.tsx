@@ -17,7 +17,7 @@ export enum ResultErrorCode {
 }
 
 export function NoResultEmptyState({ error, metric }: { error: any; metric: any }): JSX.Element {
-    const { experiment, variants, getMetricType } = useValues(experimentLogic)
+    const { experiment, variants, getInsightType } = useValues(experimentLogic)
 
     if (!error) {
         return <></>
@@ -38,11 +38,11 @@ export function NoResultEmptyState({ error, metric }: { error: any; metric: any 
             [ResultErrorCode.NO_EXPOSURES]: 'Exposure events have been received',
         }
 
-        const metricType = getMetricType(metric)
+        const insightType = getInsightType(metric)
         const hasMissingExposure = errorCode === ResultErrorCode.NO_EXPOSURES
 
         const requiredEvent =
-            metricType === InsightType.TRENDS
+            insightType === InsightType.TRENDS
                 ? hasMissingExposure
                     ? metric.exposure_query?.series[0]?.event || '$feature_flag_called'
                     : metric.count_query?.series[0]?.event
