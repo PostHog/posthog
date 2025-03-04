@@ -212,6 +212,11 @@ export function InsightVizDisplay({
                         isLegend
                         filterKey={keyForInsightLogicProps('new')(insightProps)}
                         canEditSeriesNameInline={!hasFormula && insightMode === ItemMode.Edit}
+                        seriesNameTooltip={
+                            hasFormula && insightMode === ItemMode.Edit
+                                ? 'Formula series names are not editable'
+                                : undefined
+                        }
                         canCheckUncheckSeries={canEditInsight}
                     />
                 </>
