@@ -214,7 +214,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
             feature_flag_serializer = FeatureFlagSerializer(
                 data={
                     "key": feature_flag_key,
-                    "name": f'Feature Flag for Experiment {validated_data["name"]}',
+                    "name": f"Feature Flag for Experiment {validated_data['name']}",
                     "filters": feature_flag_filters,
                     "active": not is_draft,
                     "creation_context": "experiments",

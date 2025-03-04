@@ -5,6 +5,7 @@ aioboto3==12.0.0
 aiobotocore==2.7.0
     # via
     #   aioboto3
+    #   aiobotocore
     #   s3fs
 aiohappyeyeballs==2.4.4
     # via aiohttp
@@ -154,25 +155,28 @@ cssselect==1.1.0
     # via toronado
 cssutils==1.0.2
     # via toronado
-dagster==1.9.9
+dagster==1.10.1
     # via
     #   -r requirements.in
     #   dagster-aws
     #   dagster-celery
     #   dagster-graphql
     #   dagster-postgres
+    #   dagster-slack
     #   dagster-webserver
-dagster-aws==0.25.9
+dagster-aws==0.26.1
     # via -r requirements.in
-dagster-celery==0.25.9
+dagster-celery==0.26.1
     # via -r requirements.in
-dagster-graphql==1.9.9
+dagster-graphql==1.10.1
     # via dagster-webserver
-dagster-pipes==1.9.9
+dagster-pipes==1.10.1
     # via dagster
-dagster-postgres==0.25.9
+dagster-postgres==0.26.1
     # via -r requirements.in
-dagster-webserver==1.9.9
+dagster-slack==0.26.1
+    # via -r requirements.in
+dagster-webserver==1.10.1
     # via -r requirements.in
 dataclasses-json==0.6.7
     # via langchain-community
@@ -294,6 +298,7 @@ giturlparse==0.12.0
     # via dlt
 google-api-core==2.11.1
     # via
+    #   google-api-core
     #   google-cloud-bigquery
     #   google-cloud-bigquery-storage
     #   google-cloud-core
@@ -788,7 +793,9 @@ six==1.16.0
     #   posthoganalytics
     #   python-dateutil
 slack-sdk==3.17.1
-    # via -r requirements.in
+    # via
+    #   -r requirements.in
+    #   dagster-slack
 smmap==5.0.1
     # via gitdb
 sniffio==1.3.1
