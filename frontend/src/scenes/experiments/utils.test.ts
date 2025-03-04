@@ -812,10 +812,10 @@ describe('filterToMetricConfig', () => {
 })
 
 describe('metricToQuery', () => {
-    it('returns the correct query for a binomial metric', () => {
+    it('returns the correct query for a funnel metric', () => {
         const metric: ExperimentMetric = {
             kind: NodeKind.ExperimentMetric,
-            metric_type: ExperimentMetricType.BINOMIAL,
+            metric_type: ExperimentMetricType.FUNNEL,
             metric_config: {
                 kind: NodeKind.ExperimentEventMetricConfig,
                 event: 'purchase',

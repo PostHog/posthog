@@ -7,7 +7,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 
 
 class IngestionWarningsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):

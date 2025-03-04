@@ -237,7 +237,7 @@ export function InsightVizDisplay({
             {/* These are filters that are reused between insight features. They each have generic logic that updates the url */}
             <div
                 className={clsx(
-                    `InsightVizDisplay InsightVizDisplay--type-${activeView.toLowerCase()} ph-no-capture`,
+                    `InsightVizDisplay InsightVizDisplay--type-${activeView.toLowerCase()}`,
                     !embedded && 'border rounded bg-surface-primary'
                 )}
                 data-attr="insights-graph"

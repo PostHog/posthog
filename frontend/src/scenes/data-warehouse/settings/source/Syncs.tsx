@@ -77,7 +77,7 @@ export const Syncs = ({ id }: SyncsProps): JSX.Element => {
             footer={
                 <LemonButton
                     onClick={loadMoreJobs}
-                    type="secondary"
+                    type="tertiary"
                     fullWidth
                     center
                     disabledReason={!canLoadMoreJobs ? "There's nothing more to load" : undefined}

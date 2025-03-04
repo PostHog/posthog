@@ -10,6 +10,8 @@ import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 import * as IORedis from 'ioredis'
 import { DateTime } from 'luxon'
 
+import { captureTeamEvent } from '~/src/utils/posthog'
+
 import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../src/config/kafka-topics'
 import {
     ClickHouseEvent,
@@ -24,7 +26,6 @@ import {
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { PostgresUse } from '../../src/utils/db/postgres'
 import { personInitialAndUTMProperties } from '../../src/utils/db/utils'
-import { posthog } from '../../src/utils/posthog'
 import { UUIDT } from '../../src/utils/utils'
 import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
 import { EventsProcessor } from '../../src/worker/ingestion/process-event'
@@ -34,6 +35,10 @@ import { createUserTeamAndOrganization, getFirstTeam, getTeams, resetTestDatabas
 
 jest.mock('../../src/utils/status')
 jest.setTimeout(600000) // 600 sec timeout.
+jest.mock('../../src/utils/posthog', () => ({
+    ...jest.requireActual('../../src/utils/posthog'),
+    captureTeamEvent: jest.fn(),
+}))
 
 export async function createPerson(
     server: Hub,
@@ -880,9 +885,6 @@ test('capture first team event', async () => {
         'testTag'
     )
 
-    posthog.capture = jest.fn() as any
-    posthog.identify = jest.fn() as any
-
     await processEvent(
         '2',
         '',
@@ -900,18 +902,12 @@ test('capture first team event', async () => {
         new UUIDT().toString()
     )
 
-    expect(posthog.capture).toHaveBeenCalledWith({
-        distinctId: 'plugin_test_user_distinct_id_1001',
-        event: 'first team event ingested',
-        properties: {
-            team: team.uuid,
-        },
-        groups: {
-            project: team.uuid,
-            organization: team.organization_id,
-            instance: 'unknown',
-        },
-    })
+    expect(captureTeamEvent).toHaveBeenCalledWith(
+        expect.objectContaining({ uuid: team.uuid, organization_id: team.organization_id }),
+        'first team event ingested',
+        { host: undefined, realm: undefined, sdk: undefined },
+        'plugin_test_user_distinct_id_1001'
+    )
 
     team = await getFirstTeam(hub)
     expect(team.ingested_event).toEqual(true)

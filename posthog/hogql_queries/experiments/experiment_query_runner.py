@@ -4,7 +4,10 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
+from posthog.hogql_queries.experiments import (
+    CONTROL_VARIANT_KEY,
+    MULTIPLE_VARIANT_KEY,
+)
 from posthog.hogql_queries.experiments.trends_statistics_v2_count import (
     are_results_significant_v2_count,
     calculate_credible_intervals_v2_count,
@@ -94,7 +97,7 @@ class ExperimentQueryRunner(QueryRunner):
         feature_flag_property = f"$feature/{feature_flag_key}"
 
         is_data_warehouse_query = isinstance(self.metric.metric_config, ExperimentDataWarehouseMetricConfig)
-        is_binomial_metric = self.metric.metric_type == ExperimentMetricType.BINOMIAL
+        is_funnel_metric = self.metric.metric_type == ExperimentMetricType.FUNNEL
 
         # Pick the correct value for the aggregation chosen
         match self.metric.metric_type:
@@ -195,7 +198,13 @@ class ExperimentQueryRunner(QueryRunner):
             ast.Alias(alias="entity_id", expr=ast.Field(chain=["person_id"])),
             ast.Alias(
                 alias="variant",
-                expr=ast.Field(chain=["properties", feature_flag_property]),
+                expr=parse_expr(
+                    "if(count(distinct {feature_flag_property}) > 1, {multiple_variant_key}, any({feature_flag_property}))",
+                    placeholders={
+                        "feature_flag_property": ast.Field(chain=["properties", feature_flag_property]),
+                        "multiple_variant_key": ast.Constant(value=MULTIPLE_VARIANT_KEY),
+                    },
+                ),
             ),
             ast.Alias(
                 alias="first_exposure_time",
@@ -205,7 +214,7 @@ class ExperimentQueryRunner(QueryRunner):
                 ),
             ),
         ]
-        exposure_query_group_by = [ast.Field(chain=["variant"]), ast.Field(chain=["entity_id"])]
+        exposure_query_group_by = [ast.Field(chain=["entity_id"])]
         if is_data_warehouse_query:
             exposure_metric_config = cast(ExperimentDataWarehouseMetricConfig, self.metric.metric_config)
             exposure_query_select = [
@@ -393,7 +402,7 @@ class ExperimentQueryRunner(QueryRunner):
                 ast.Field(chain=["exposure_data", "variant"]),
                 ast.Field(chain=["exposure_data", "entity_id"]),
                 parse_expr("coalesce(argMax(events_after_exposure.value, events_after_exposure.timestamp), 0) as value")
-                if is_binomial_metric
+                if is_funnel_metric
                 else parse_expr("sum(coalesce(events_after_exposure.value, 0)) as value"),
             ],
             select_from=ast.JoinExpr(
@@ -460,9 +469,12 @@ class ExperimentQueryRunner(QueryRunner):
             modifiers=create_default_modifiers_for_team(self.team),
         )
 
+        # NOTE: For now, remove the $multiple variant
+        response.results = [result for result in response.results if result[0] != MULTIPLE_VARIANT_KEY]
+
         sorted_results = sorted(response.results, key=lambda x: self.variants.index(x[0]))
 
-        if self.metric.metric_type == ExperimentMetricType.BINOMIAL:
+        if self.metric.metric_type == ExperimentMetricType.FUNNEL:
             return [
                 ExperimentVariantFunnelsBaseStats(
                     failure_count=result[1] - result[2],
@@ -517,7 +529,7 @@ class ExperimentQueryRunner(QueryRunner):
                     probabilities,
                 )
                 credible_intervals = calculate_credible_intervals_v2_count([control_variant, *test_variants])
-            case ExperimentMetricType.BINOMIAL:
+            case ExperimentMetricType.FUNNEL:
                 probabilities = calculate_probabilities_v2_funnel(
                     cast(ExperimentVariantFunnelsBaseStats, control_variant),
                     cast(list[ExperimentVariantFunnelsBaseStats], test_variants),
