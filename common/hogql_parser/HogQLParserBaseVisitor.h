@@ -163,6 +163,10 @@ public:
     return visitChildren(ctx);
   }
 
+  virtual std::any visitLimitByClause(HogQLParser::LimitByClauseContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
   virtual std::any visitLimitAndOffsetClause(HogQLParser::LimitAndOffsetClauseContext *ctx) override {
     return visitChildren(ctx);
   }
@@ -212,6 +216,10 @@ public:
   }
 
   virtual std::any visitSampleClause(HogQLParser::SampleClauseContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitLimitExpr(HogQLParser::LimitExprContext *ctx) override {
     return visitChildren(ctx);
   }
 
