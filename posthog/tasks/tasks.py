@@ -67,11 +67,11 @@ def process_query_task(
     is_api: bool,
     limit_context: Optional[LimitContext] = None,
 ) -> None:
+    """
+    Kick off query
+    Once complete save results to redis
+    """
     with get_api_personal_rate_limiter().run(is_api=is_api, team_id=team_id, task_id=query_id):
-        """
-        Kick off query
-        Once complete save results to redis
-        """
         from posthog.clickhouse.client import execute_process_query
 
         execute_process_query(

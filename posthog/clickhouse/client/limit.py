@@ -1,5 +1,6 @@
 import dataclasses
 import time
+from contextlib import contextmanager
 from functools import wraps
 from typing import Optional
 from collections.abc import Callable
@@ -64,29 +65,19 @@ class RateLimit:
     get_time: Callable[[], int] = lambda: int(time.time())
     applicable: Optional[Callable] = None  # allows to put a constraint on when rate limiting is used
     ttl: int = 60
+    redis_client = redis.get_client()
 
-    @property
-    def redis_client(self):
-        return redis.get_client()
-
-    class Run:
-        def __init__(self, limit, running_task_key, task_id):
-            self.limit = limit
-            self.running_task_key = running_task_key
-            self.task_id = task_id
-
-        def __enter__(self):
-            pass
-
-        def __exit__(self, applicable, running_task_key, task_id):
-            if self.limit:
-                self.limit.release(self.running_task_key, self.task_id)
-
+    @contextmanager
     def run(self, *args, **kwargs):
-        if self.applicable and not self.applicable(*args, **kwargs):
-            return self.Run(None, None, None)
-        running_tasks_key, task_id = self.use(*args, **kwargs)
-        return self.Run(self, running_tasks_key, task_id)
+        cleanup = None
+        if not self.applicable or self.applicable(*args, **kwargs):
+            running_task_key, task_id = self.use(*args, **kwargs)
+            cleanup = True
+        try:
+            yield
+        finally:
+            if cleanup:
+                self.release(running_task_key, task_id)
 
     def use(self, *args, **kwargs):
         """

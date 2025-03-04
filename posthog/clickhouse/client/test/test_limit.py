@@ -95,3 +95,17 @@ class TestRateLimit(BaseTest):
             result += 4
 
         assert result == 7
+
+    def test_exception(self):
+        result = 0
+        with self.assertRaises(Exception):
+            result += 1
+            with self.limit.run(is_api=True, team_id=9, task_id=17):
+                result += 2
+                raise Exception()
+            result += 4
+
+        with self.limit.run(is_api=True, team_id=9, task_id=17):
+            result += 8
+
+        assert result == 11
