@@ -2,7 +2,7 @@ import json
 import logging
 from typing import Any, Optional
 from rest_framework import serializers
-
+from rest_framework.exceptions import ValidationError
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.compiler.javascript import JavaScriptCompiler
 from posthog.hogql.parser import parse_program, parse_string_template
@@ -109,19 +109,21 @@ class AnyInputField(serializers.Field):
 class InputsItemSerializer(serializers.Serializer):
     value = AnyInputField(required=False)
     bytecode = serializers.ListField(required=False, read_only=True)
-    order = serializers.IntegerField(required=False)
-    transpiled = serializers.JSONField(required=False)
+    order = serializers.IntegerField(required=False, read_only=True)
+    transpiled = serializers.JSONField(required=False, read_only=True)
+
+    def to_representation(self, value):
+        # We want to override the way this gets rendered as the underlying serializer is a DictField which does weird things
+        return {k: v for k, v in value.items() if v is not None}
 
     def validate(self, attrs):
         schema = self.context["schema"]
         function_type = self.context["function_type"]
         value = attrs.get("value")
-
-        name: str = schema["key"]
         item_type = schema["type"]
 
         if schema.get("required") and (value is None or value == ""):
-            raise serializers.ValidationError({"inputs": {name: f"This field is required."}})
+            raise serializers.ValidationError({"input": f"This field is required."})
 
         if not value:
             return attrs
@@ -129,25 +131,25 @@ class InputsItemSerializer(serializers.Serializer):
         # Validate each type
         if item_type == "string":
             if not isinstance(value, str):
-                raise serializers.ValidationError({"inputs": {name: f"Value must be a string."}})
+                raise serializers.ValidationError({"input": f"Value must be a string."})
         elif item_type == "boolean":
             if not isinstance(value, bool):
-                raise serializers.ValidationError({"inputs": {name: f"Value must be a boolean."}})
+                raise serializers.ValidationError({"input": f"Value must be a boolean."})
         elif item_type == "dictionary":
             if not isinstance(value, dict):
-                raise serializers.ValidationError({"inputs": {name: f"Value must be a dictionary."}})
+                raise serializers.ValidationError({"input": f"Value must be a dictionary."})
         elif item_type == "integration":
             if not isinstance(value, int):
-                raise serializers.ValidationError({"inputs": {name: f"Value must be an Integration ID."}})
+                raise serializers.ValidationError({"input": f"Value must be an Integration ID."})
         elif item_type == "email":
             if not isinstance(value, dict):
-                raise serializers.ValidationError({"inputs": {name: f"Value must be an Integration ID."}})
+                raise serializers.ValidationError({"input": f"Value must be an Integration ID."})
             for key_ in ["from", "to", "subject"]:
                 if not value.get(key_):
-                    raise serializers.ValidationError({"inputs": {name: f"Missing value for '{key_}'."}})
+                    raise serializers.ValidationError({"input": f"Missing value for '{key_}'."})
 
             if not value.get("text") and not value.get("html"):
-                raise serializers.ValidationError({"inputs": {name: f"Either 'text' or 'html' is required."}})
+                raise serializers.ValidationError({"input": f"Either 'text' or 'html' is required."})
 
         try:
             if value and schema.get("templating", True):
@@ -170,21 +172,91 @@ class InputsItemSerializer(serializers.Serializer):
                         if "transpiled" in attrs:
                             del attrs["transpiled"]
         except Exception as e:
-            raise serializers.ValidationError({"inputs": {name: f"Invalid template: {str(e)}"}})
+            raise serializers.ValidationError({"input": f"Invalid template: {str(e)}"})
 
         return attrs
 
 
-def validate_inputs_schema(value: list) -> list:
-    if not isinstance(value, list):
-        raise serializers.ValidationError("inputs_schema must be a list of objects.")
+class InputsSerializer(serializers.DictField):
+    """
+    Provides the same typing as the DictField but with custom validation to only include the inputs that are in the schema
+    """
 
-    serializer = InputsSchemaItemSerializer(data=value, many=True)
+    child = InputsItemSerializer()
 
-    if not serializer.is_valid():
-        raise serializers.ValidationError(serializer.errors)
+    def run_child_validation(self, data):
+        result = {}
+        errors = {}
 
-    return serializer.validated_data or []
+        # Note this should always be the child of a dict serializer with a sibling 'inputs_schema' field so we can validate against the relevant schema
+        parent_serializer = self.parent
+        try:
+            inputs_schema = parent_serializer.initial_data["inputs_schema"]
+        except:
+            raise serializers.ValidationError("Missing inputs_schema.")
+
+        # Validate each input against the schema
+        for schema in inputs_schema:
+            key = str(schema["key"])
+            value = data.get(key) or {}
+
+            # TODO: How to load secrets?
+            # # We only load the existing secret if the schema is secret and the given value has "secret" set
+            # if schema.get("secret") and existing_secret_inputs and value and value.get("secret"):
+            #     value = existing_secret_inputs.get(schema["key"]) or {}
+
+            self.context["schema"] = schema
+
+            try:
+                result[key] = self.child.run_validation(value)
+            except ValidationError as e:
+                # TRICKY: Need to get the nested error message to ensure the structure is correct
+                if "input" in e.detail and isinstance(e.detail, dict):
+                    errors[key] = e.detail.get("input")
+                else:
+                    errors[key] = e.detail
+
+        # # If it's a secret input, not required, and no value was provided, don't add it
+        # if schema.get("secret", False) and not schema.get("required", False) and "value" not in validated_data:
+        #     # Skip adding this input entirely
+        #     continue
+
+        if errors:
+            raise ValidationError(errors)
+
+        # We'll topologically sort keys based on their input_deps.
+        edges = {}
+        all_keys = list(result.keys())
+        for k, v in result.items():
+            deps = v.get("input_deps", [])
+            deps = [d for d in deps if d in result]
+            edges[k] = deps
+
+        sorted_keys = topological_sort(all_keys, edges)
+
+        # Assign order according to topological sort
+        for i, key in enumerate(sorted_keys):
+            result[key]["order"] = i
+            result[key]["order"] = i
+            if "input_deps" in result[key]:
+                del result[key]["input_deps"]
+
+        # Rebuild in sorted order
+        result = {key: result[key] for key in sorted_keys}
+
+        return result
+        # Unlike standard dict validation we are iterating the schema - not the inputs
+
+
+class MappingsSerializer(serializers.Serializer):
+    inputs_schema = serializers.ListField(child=InputsSchemaItemSerializer(), required=False)
+    inputs = InputsSerializer(required=False)
+    filters = serializers.DictField(required=False)
+
+    def to_internal_value(self, data):
+        # Weirdly nested serializers don't get this set...
+        self.initial_data = data
+        return super().to_internal_value(data)
 
 
 def topological_sort(nodes: list[str], edges: dict[str, list[str]]) -> list[str]:
@@ -220,66 +292,6 @@ def topological_sort(nodes: list[str], edges: dict[str, list[str]]) -> list[str]
         raise serializers.ValidationError("Circular dependency detected in input_deps.")
 
     return sorted_list
-
-
-def validate_inputs(
-    inputs_schema: list,
-    inputs: dict,
-    existing_secret_inputs: Optional[dict] = None,
-    function_type: Optional[str] = None,
-) -> dict:
-    """
-    Tricky: We want to allow overriding the secret inputs, but not return them.
-    If we have a given input then we use it, otherwise we pull it from the existing secrets.
-    Then we do topological sorting based on input_deps to assign order.
-    """
-
-    validated_inputs = {}
-
-    # Validate each input against the schema
-    for schema in inputs_schema:
-        value = inputs.get(schema["key"]) or {}
-
-        # We only load the existing secret if the schema is secret and the given value has "secret" set
-        if schema.get("secret") and existing_secret_inputs and value and value.get("secret"):
-            value = existing_secret_inputs.get(schema["key"]) or {}
-
-        serializer = InputsItemSerializer(
-            data=value, context={"schema": schema, "function_type": function_type or "destination"}
-        )
-
-        if not serializer.is_valid():
-            raise serializers.ValidationError(serializer.errors)
-
-        validated_data = serializer.validated_data
-
-        # If it's a secret input, not required, and no value was provided, don't add it
-        if schema.get("secret", False) and not schema.get("required", False) and "value" not in validated_data:
-            # Skip adding this input entirely
-            continue
-
-        validated_inputs[schema["key"]] = validated_data
-
-    # We'll topologically sort keys based on their input_deps.
-    edges = {}
-    all_keys = list(validated_inputs.keys())
-    for k, v in validated_inputs.items():
-        deps = v.get("input_deps", [])
-        deps = [d for d in deps if d in validated_inputs]
-        edges[k] = deps
-
-    sorted_keys = topological_sort(all_keys, edges)
-
-    # Assign order according to topological sort
-    for i, key in enumerate(sorted_keys):
-        validated_inputs[key]["order"] = i
-        if "input_deps" in validated_inputs[key]:
-            del validated_inputs[key]["input_deps"]
-
-    # Rebuild in sorted order
-    sorted_validated_inputs = {key: validated_inputs[key] for key in sorted_keys}
-
-    return sorted_validated_inputs
 
 
 def compile_hog(hog: str, hog_type: str, in_repl: Optional[bool] = False) -> list[Any]:

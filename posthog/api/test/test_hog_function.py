@@ -500,6 +500,26 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             }, f"Did not get error for {key}, got {res.json()}"
             assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
 
+    def test_validates_input_schema(self, *args):
+        payload = {
+            "name": "Fetch URL",
+            "hog": "fetch(inputs.url);",
+            "inputs_schema": [
+                {"key": "not-a-key", "type": "not-valid", "label": "Webhook URL"},
+            ],
+            "type": "destination",
+        }
+        # Check required
+        res = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data={**payload})
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+
+        assert res.json() == {
+            "type": "validation_error",
+            "code": "invalid_choice",
+            "detail": '"not-valid" is not a valid choice.',
+            "attr": "inputs_schema__0__type",
+        }
+
     def test_secret_inputs_not_returned(self, *args):
         payload = {
             "name": "Fetch URL",
@@ -1236,7 +1256,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "inputs": {"message": {"value": "Hello, TypeScript {arrayMap(a -> a, [1, 2, 3])}!"}},
                     "inputs_schema": [
                         {"key": "message", "type": "string", "label": "Message", "required": True},
-                        {"key": "required", "type": "string", "label": "Required", "required": True},
+                        {"key": "required_field", "type": "string", "label": "Required", "required": True},
                     ],
                 },
             ],
@@ -1256,7 +1276,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "type": "validation_error",
                 "code": "invalid_input",
                 "detail": "This field is required.",
-                "attr": "inputs__required",
+                "attr": "mappings__0__inputs__required_field",
             }
         )
 
