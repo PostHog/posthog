@@ -142,17 +142,13 @@ INSERT INTO exchange_rate (currency, rate, date) VALUES
 # There's some magic here to get the end date for each rate
 #
 # The `leadInFrame` function is used to get the next date for each currency
+# defaulting to NULL if there's no next date - if not added, will default to 1970-01-01 which is wrong
 # The `PARTITION BY currency ORDER BY date ASC` is used to ensure the dates are sorted
 # The `ROWS BETWEEN 1 FOLLOWING AND 1 FOLLOWING` is used to get the next date for each currency
 #
 # The `argMax` function is used to get the latest rate for a given date and currency
 # which is necessary because we're using the `ReplacingMergeTree` engine which will keep
 # multiple versions of the same rate for the same date and currency until we eventually merge all rows.
-#
-# We use `0::Date` to represent the date `1970-01-01` because that's the first date in the CSV file.
-# If we don't do that the last returned end_date will be `1970-01-01` and that's not what we want.
-# If we keep that, then we'll never match it because `end_date` < `start_date`, so we edge-case it
-# to return NULL which implies it's an open-ended range - because it is.
 #
 # All the extra `strip` and `replace`, and `re.sub` are used to make the query
 # more readable when running/debugging it.
@@ -162,21 +158,22 @@ INSERT INTO exchange_rate (currency, rate, date) VALUES
 # This is for legacy reasons - from the time when Clickhouse
 # config was based on an XML file.
 EXCHANGE_RATE_DICTIONARY_QUERY = f"""
-    SELECT
-        currency,
-        date AS start_date,
-        IF(next_date = 0::Date, NULL, next_date) AS end_date,
-        rate
-    FROM (
-        SELECT
-            currency,
-            date,
-            leadInFrame(date) OVER w AS next_date,
-            argMax(rate, version) AS rate
-        FROM exchange_rate
-        GROUP BY date, currency
-        WINDOW w AS (PARTITION BY currency ORDER BY date ASC ROWS BETWEEN 1 FOLLOWING AND 1 FOLLOWING)
-    )
+SELECT
+    currency,
+    date AS start_date,
+    leadInFrame(date::Nullable(Date), 1, NULL::Nullable(Date)) OVER w AS end_date,
+    argMax(rate, version) AS rate
+FROM
+    exchange_rate
+GROUP BY
+    date,
+    currency
+WINDOW w AS (
+    PARTITION
+        BY currency
+        ORDER BY date ASC
+        ROWS BETWEEN 1 FOLLOWING AND 1 FOLLOWING
+)
 """.replace("\n", " ").strip()
 EXCHANGE_RATE_DICTIONARY_QUERY = re.sub(r"\s\s+", " ", EXCHANGE_RATE_DICTIONARY_QUERY)
 
