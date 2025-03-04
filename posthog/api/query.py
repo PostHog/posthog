@@ -140,8 +140,8 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             return Response(result, status=response_status)
         except (ExposedHogQLError, ExposedCHQueryError) as e:
             raise ValidationError(str(e), getattr(e, "code_name", None))
-        except ConcurrencyLimitExceeded:
-            raise Throttled()
+        except ConcurrencyLimitExceeded as c:
+            raise Throttled(detail=str(c))
         except Exception as e:
             self.handle_column_ch_error(e)
             capture_exception(e)

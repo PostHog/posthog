@@ -69,14 +69,13 @@ class RateLimit:
 
     @contextmanager
     def run(self, *args, **kwargs):
-        cleanup = None
-        if not self.applicable or self.applicable(*args, **kwargs):
+        applicable = not self.applicable or self.applicable(*args, **kwargs)
+        if applicable:
             running_task_key, task_id = self.use(*args, **kwargs)
-            cleanup = True
         try:
             yield
         finally:
-            if cleanup:
+            if applicable:
                 self.release(running_task_key, task_id)
 
     def use(self, *args, **kwargs):
@@ -102,7 +101,7 @@ class RateLimit:
             ).inc()
 
             raise ConcurrencyLimitExceeded(
-                f"Exceeded maximum concurrent tasks limit: {self.max_concurrent_tasks} for key: {task_name} and task: {task_id}"
+                f"Exceeded maximum concurrency limit: {self.max_concurrent_tasks} for key: {task_name} and task: {task_id}"
             )
 
         return running_tasks_key, task_id
