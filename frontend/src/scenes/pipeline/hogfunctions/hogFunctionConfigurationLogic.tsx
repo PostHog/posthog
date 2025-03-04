@@ -4,6 +4,7 @@ import { actions, afterMount, connect, isBreakpoint, kea, key, listeners, path, 
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router } from 'kea-router'
+import { CombinedLocation } from 'kea-router/lib/utils'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
@@ -46,6 +47,7 @@ import {
     HogFunctionType,
     HogFunctionTypeType,
     PersonType,
+    PipelineNodeTab,
     PipelineStage,
     PropertyFilterType,
     PropertyGroupFilter,
@@ -1135,7 +1137,37 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
     })),
 
     beforeUnload(({ values, cache }) => ({
-        enabled: () => !cache.disabledBeforeUnload && !values.unsavedConfiguration && values.configurationChanged,
+        enabled: (newLocation?: CombinedLocation) => {
+            if (cache.disabledBeforeUnload || values.unsavedConfiguration || !values.configurationChanged) {
+                return false
+            }
+
+            // the oldRoute includes the project id, so we remove it for comparison
+            const oldRoute = router.values.location.pathname.replace(/\/project\/\d+/, '').split('/')
+            const newRoute = newLocation?.pathname.replace(/\/project\/\d+/, '').split('/')
+
+            if (!newRoute || newRoute.length !== oldRoute.length) {
+                return true
+            }
+
+            for (let i = 0; i < oldRoute.length - 1; i++) {
+                if (oldRoute[i] !== newRoute[i]) {
+                    return true
+                }
+            }
+
+            const possibleMenuIds: string[] = [PipelineNodeTab.Configuration, PipelineNodeTab.Testing]
+            if (
+                !(
+                    possibleMenuIds.includes(newRoute[newRoute.length - 1]) &&
+                    possibleMenuIds.includes(oldRoute[newRoute.length - 1])
+                )
+            ) {
+                return true
+            }
+
+            return false
+        },
         message: 'Changes you made will be discarded.',
         onConfirm: () => {
             cache.disabledBeforeUnload = true

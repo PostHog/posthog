@@ -496,7 +496,7 @@ class MutationRunner:
                 return task
             time.sleep(1.0)
 
-        raise Exception(f"unable to find mutation after {time.time()-start:0.2f}s!")
+        raise Exception(f"unable to find mutation after {time.time() - start:0.2f}s!")
 
     @property
     def is_lightweight_delete(self) -> bool:

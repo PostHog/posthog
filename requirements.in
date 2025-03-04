@@ -93,7 +93,7 @@ semantic_version==2.8.5
 simple-salesforce>=1.12.6
 scikit-learn==1.5.0
 slack_sdk==3.17.1
-snowflake-connector-python==3.6.0
+snowflake-connector-python==3.13.2
 snowflake-sqlalchemy==1.7.3
 social-auth-app-django==5.0.0
 social-auth-core==4.3.0
@@ -113,7 +113,7 @@ more-itertools==9.0.0
 django-two-factor-auth==1.14.0
 phonenumberslite==8.13.6
 openai==1.56.2
-tiktoken==0.8.0
+tiktoken==0.9.*
 nh3==0.2.14
 hogql-parser==1.0.460
 zxcvbn==4.4.28

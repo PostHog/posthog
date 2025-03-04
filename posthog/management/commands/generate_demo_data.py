@@ -71,7 +71,6 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             "--staff",
-            type=bool,
             action="store_true",
             default=False,
             help="Create a staff user",

@@ -474,7 +474,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
         recording.load_person()
         if not request.user.is_anonymous:
-            viewed = _current_user_viewed([str(recording.session_id)], cast(User, request.user), self.team)
+            viewed = current_user_viewed([str(recording.session_id)], cast(User, request.user), self.team)
             other_viewers = _other_users_viewed([str(recording.session_id)], cast(User, request.user), self.team)
 
             recording.viewed = str(recording.session_id) in viewed
@@ -732,7 +732,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
         user = cast(User, request.user)
 
-        cache_key = f'summarize_recording_{self.team.pk}_{self.kwargs["pk"]}'
+        cache_key = f"summarize_recording_{self.team.pk}_{self.kwargs['pk']}"
         # Check if the response is cached
         cached_response = cache.get(cache_key)
         if cached_response is not None:
@@ -1041,7 +1041,7 @@ def list_recordings_from_query(
     recording_ids_in_list: list[str] = [str(r.session_id) for r in recordings]
     # Update the viewed status for all loaded recordings
     with timer("load_viewed_recordings"):
-        viewed_session_recordings = _current_user_viewed(recording_ids_in_list, user, team)
+        viewed_session_recordings = current_user_viewed(recording_ids_in_list, user, team)
 
     with timer("load_other_viewers_by_recording"):
         other_viewers = _other_users_viewed(recording_ids_in_list, user, team)
@@ -1090,7 +1090,7 @@ def _other_users_viewed(recording_ids_in_list: list[str], user: User | None, tea
     return other_viewers
 
 
-def _current_user_viewed(recording_ids_in_list: list[str], user: User | None, team: Team) -> set[str]:
+def current_user_viewed(recording_ids_in_list: list[str], user: User | None, team: Team) -> set[str]:
     if not user:
         return set()
 
