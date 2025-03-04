@@ -2275,6 +2275,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 webVitalsPercentile,
                 domainFilter,
                 deviceTypeFilter,
+                tileVisualizations,
             } = values
 
             // Make sure we're storing the raw filters only, or else we'll have issues with the domain/device type filters
@@ -2330,6 +2331,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             if (deviceTypeFilter) {
                 urlParams.set('device_type', deviceTypeFilter)
             }
+            if (tileVisualizations) {
+                urlParams.set('tile_visualizations', JSON.stringify(tileVisualizations))
+            }
 
             const basePath = productTab === ProductTab.WEB_VITALS ? '/web/web-vitals' : '/web'
             return `${basePath}${urlParams.toString() ? '?' + urlParams.toString() : ''}`
@@ -2352,6 +2356,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             setIsPathCleaningEnabled: stateToUrl,
             setDomainFilter: stateToUrl,
             setDeviceTypeFilter: stateToUrl,
+            setTileVisualization: stateToUrl,
         }
     }),
 
@@ -2376,6 +2381,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 percentile,
                 domain,
                 device_type,
+                tile_visualizations,
             }: Record<string, any>
         ): void => {
             if (![ProductTab.ANALYTICS, ProductTab.WEB_VITALS].includes(productTab)) {
@@ -2440,6 +2446,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             }
             if (device_type && device_type !== values.deviceTypeFilter) {
                 actions.setDeviceTypeFilter(device_type)
+            }
+            if (tile_visualizations && !objectsEqual(tile_visualizations, values.tileVisualizations)) {
+                for (const [tileId, visualization] of Object.entries(tile_visualizations)) {
+                    // we only save graph visualizations since they are not the default option
+                    actions.setTileVisualization(tileId as TileId, visualization as 'graph')
+                }
             }
         }
 
