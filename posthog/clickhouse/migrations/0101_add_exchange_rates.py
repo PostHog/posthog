@@ -3,7 +3,7 @@
 # If we create these and shortly after run 0102 then we'll see
 # some replica errors because we've barely created the tables
 # and then immediately try to delete them which fails
-operations = [
+operations: list = [
     # Drop tables/dictionaries to allow this to rerun
     # Dict first because it depends on the table
     # run_sql_with_exceptions(DROP_EXCHANGE_RATE_DICTIONARY_SQL()),
