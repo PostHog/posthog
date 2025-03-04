@@ -10,6 +10,7 @@ import {
     BreakdownType,
     ChartDisplayCategory,
     ChartDisplayType,
+    ConversionWindowIntervalUnit,
     CountPerActorMathType,
     EventPropertyFilter,
     EventType,
@@ -1189,7 +1190,16 @@ export interface PathsV2QueryResponse extends AnalyticsQueryResponseBase<PathsV2
 
 export type CachedPathsV2QueryResponse = CachedQueryResponse<PathsV2QueryResponse>
 
-export type PathsV2Filter = {}
+export type PathsV2Filter = {
+    /** @default 5 */
+    maxSteps?: integer
+    /** @default 3 */
+    maxRowsPerStep?: integer
+    /** @default 14 */
+    windowInterval?: integer
+    /** @default day */
+    windowIntervalUnit?: ConversionWindowIntervalUnit
+}
 export interface PathsV2Query extends InsightsQueryBase<PathsV2QueryResponse> {
     kind: NodeKind.PathsV2Query
     pathsV2Filter?: PathsV2Filter

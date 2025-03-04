@@ -4555,6 +4555,10 @@
             "required": ["id", "templateId", "columnName", "bytecode", "input", "color"],
             "type": "object"
         },
+        "ConversionWindowIntervalUnit": {
+            "enum": ["second", "minute", "hour", "day", "week", "month"],
+            "type": "string"
+        },
         "CountPerActorMathType": {
             "enum": [
                 "avg_count_per_actor",
@@ -10436,6 +10440,24 @@
         },
         "PathsV2Filter": {
             "additionalProperties": false,
+            "properties": {
+                "maxRowsPerStep": {
+                    "$ref": "#/definitions/integer",
+                    "default": 3
+                },
+                "maxSteps": {
+                    "$ref": "#/definitions/integer",
+                    "default": 5
+                },
+                "windowInterval": {
+                    "$ref": "#/definitions/integer",
+                    "default": 14
+                },
+                "windowIntervalUnit": {
+                    "$ref": "#/definitions/ConversionWindowIntervalUnit",
+                    "default": "day"
+                }
+            },
             "type": "object"
         },
         "PathsV2Item": {

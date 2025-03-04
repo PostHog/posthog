@@ -1,10 +1,15 @@
+from datetime import datetime
+from functools import cached_property
+
 from typing import Any
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.parser import parse_select
+from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
 from posthog.schema import (
     CachedPathsV2QueryResponse,
@@ -29,6 +34,15 @@ class PathsV2QueryRunner(QueryRunner):
         limit_context: LimitContext | None = None,
     ):
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
+
+    @cached_property
+    def query_date_range(self) -> QueryDateRange:
+        return QueryDateRange(
+            date_range=self.query.dateRange,
+            team=self.team,
+            interval=None,
+            now=datetime.now(),
+        )
 
     def calculate(self) -> PathsV2QueryResponse:
         response = execute_hogql_query(
@@ -60,6 +74,34 @@ class PathsV2QueryRunner(QueryRunner):
         2025-02-20T20:57:55  018dd1b5-b644-0000-0000-20b757aa605e  some event
         2025-02-21T20:46:27  018dd1b5-b644-0000-0000-20b757aa605e  some event
         """
+
+        # date range filter
+        event_filters: list[ast.CompareOperation | ast.Expr] = [
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=ast.Field(chain=["timestamp"]),
+                right=self.query_date_range.date_from_to_start_of_interval_hogql(),
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.LtEq,
+                left=ast.Field(chain=["timestamp"]),
+                right=self.query_date_range.date_to_as_hogql(),
+            ),
+        ]
+
+        # properties filter
+        if self.query.properties is not None and self.query.properties != []:
+            event_filters.append(property_to_expr(self.query.properties, self.team))
+
+        # test account filter
+        if (
+            self.query.filterTestAccounts
+            and isinstance(self.team.test_account_filters, list)
+            and len(self.team.test_account_filters) > 0
+        ):
+            for prop in self.team.test_account_filters:
+                event_filters.append(property_to_expr(prop, self.team))
+
         return parse_select(
             """
             SELECT
@@ -67,9 +109,10 @@ class PathsV2QueryRunner(QueryRunner):
                 person_id as actor_id,
                 event as path_item
             FROM events
-            WHERE 1=1
+            WHERE {filters}
             ORDER BY actor_id, timestamp
-        """
+        """,
+            placeholders={"filters": ast.And(exprs=event_filters)},
         )
 
     def _paths_per_actor_as_array_query(self) -> ast.SelectQuery | ast.SelectSetQuery:

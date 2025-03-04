@@ -447,6 +447,15 @@ class ConditionalFormattingRule(BaseModel):
     templateId: str
 
 
+class ConversionWindowIntervalUnit(StrEnum):
+    SECOND = "second"
+    MINUTE = "minute"
+    HOUR = "hour"
+    DAY = "day"
+    WEEK = "week"
+    MONTH = "month"
+
+
 class CountPerActorMathType(StrEnum):
     AVG_COUNT_PER_ACTOR = "avg_count_per_actor"
     MIN_COUNT_PER_ACTOR = "min_count_per_actor"
@@ -1196,13 +1205,6 @@ class PathsLink(BaseModel):
     source: str
     target: str
     value: float
-
-
-class PathsV2Filter(BaseModel):
-    pass
-    model_config = ConfigDict(
-        extra="forbid",
-    )
 
 
 class PathsV2Item(BaseModel):
@@ -2540,6 +2542,16 @@ class PathsFilter(BaseModel):
     pathsHogQLExpression: Optional[str] = None
     startPoint: Optional[str] = None
     stepLimit: Optional[int] = 5
+
+
+class PathsV2Filter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    maxRowsPerStep: Optional[int] = 3
+    maxSteps: Optional[int] = 5
+    windowInterval: Optional[int] = 14
+    windowIntervalUnit: Optional[ConversionWindowIntervalUnit] = ConversionWindowIntervalUnit.DAY
 
 
 class PersonPropertyFilter(BaseModel):

@@ -2423,6 +2423,15 @@ export interface PathsFilterType extends FilterType {
     path_dropoff_key?: string // Paths People Dropoff Key
 }
 
+export enum ConversionWindowIntervalUnit {
+    Second = 'second',
+    Minute = 'minute',
+    Hour = 'hour',
+    Day = 'day',
+    Week = 'week',
+    Month = 'month',
+}
+
 export interface PathsV2FilterType {}
 
 export type RetentionEntityKind = NodeKind.ActionsNode | NodeKind.EventsNode
