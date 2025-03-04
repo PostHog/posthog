@@ -3,6 +3,7 @@ from django.conf import settings
 from infi.clickhouse_orm import Database
 
 from posthog.client import sync_execute
+from posthog.models.ai.pg_embeddings import TRUNCATE_PG_EMBEDDINGS_TABLE_SQL
 from posthog.models.raw_sessions.sql import TRUNCATE_RAW_SESSIONS_TABLE_SQL
 from posthog.test.base import PostHogTestCase, run_clickhouse_statement_in_parallel
 
@@ -112,6 +113,7 @@ def reset_clickhouse_tables():
         TRUNCATE_SESSIONS_TABLE_SQL(),
         TRUNCATE_RAW_SESSIONS_TABLE_SQL(),
         TRUNCATE_HEATMAPS_TABLE_SQL(),
+        TRUNCATE_PG_EMBEDDINGS_TABLE_SQL(),
     ]
 
     # Drop created Kafka tables because some tests don't expect it.
