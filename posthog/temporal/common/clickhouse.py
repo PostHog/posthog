@@ -34,6 +34,8 @@ def encode_clickhouse_data(data: typing.Any, quote_char="'") -> bytes:
             return f"{quote_char}{data}{quote_char}".encode()
 
         case int() | float():
+            if isinstance(data, float) and data.is_integer():
+                return f"{int(data)}".encode()
             return f"{data}".encode()
 
         case dt.datetime():
