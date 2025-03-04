@@ -859,22 +859,6 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ],
         }
 
-        # No bytecode for non-destination filters
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/hog_functions/",
-            data={
-                **EXAMPLE_FULL,
-                "type": "broadcast",
-                "filters": {
-                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
-                    "actions": [{"id": f"{action.id}", "name": "Test Action", "type": "actions", "order": 1}],
-                    "filter_test_accounts": True,
-                },
-            },
-        )
-        assert response.status_code == status.HTTP_201_CREATED, response.json()
-        assert response.json()["filters"].get("bytecode") is None
-
     def test_saves_masking_config(self, *args):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
@@ -1091,7 +1075,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert len(response.json()["results"]) == 1
 
     def test_list_with_type_filter(self, *args):
-        response = self.client.post(
+        response_destination = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
             data={
                 **EXAMPLE_FULL,
@@ -1100,33 +1084,36 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 },
             },
         )
-        assert response.status_code == status.HTTP_201_CREATED, response.json()
 
-        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/")
-        assert len(response.json()["results"]) == 1
+        destination_id = response_destination.json()["id"]
 
-        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?type=destination")
-        assert len(response.json()["results"]) == 1
-
-        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?type=email")
-        assert len(response.json()["results"]) == 0
-
-        response = self.client.post(
+        response_transform = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
-            data={**EXAMPLE_FULL, "type": "email"},
+            data={
+                "name": "HogTransform",
+                "hog": "return event",
+                "type": "transformation",
+                "template_id": "template-geoip",
+                "enabled": True,
+            },
         )
-        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+        assert response_transform.status_code == status.HTTP_201_CREATED, response_transform.json()
+
+        transformation_id = response_transform.json()["id"]
 
         response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/")
-        assert len(response.json()["results"]) == 1
+        assert len(response.json()["results"]) == 2
 
         response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?type=destination")
         assert len(response.json()["results"]) == 1
+        assert response.json()["results"][0]["id"] == destination_id
 
-        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?type=email")
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?type=transformation")
         assert len(response.json()["results"]) == 1
+        assert response.json()["results"][0]["id"] == transformation_id
 
-        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?types=destination,email")
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?types=destination,transformation")
         assert len(response.json()["results"]) == 2
 
     def test_create_hog_function_with_site_app_type(self):

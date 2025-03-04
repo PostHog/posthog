@@ -322,10 +322,10 @@ class HogFunctionInvocationSerializer(serializers.Serializer):
 class HogFunctionViewSet(
     TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, ForbidDestroyModel, viewsets.ModelViewSet
 ):
-    scope_object = "INTERNAL"  # Keep internal until we are happy to release this GA
+    scope_object = "hog_function"  # Keep internal until we are happy to release this GA
     queryset = HogFunction.objects.all()
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ["id", "team", "created_by", "enabled"]
+    filterset_fields = ["id", "created_by", "enabled", "type"]
 
     log_source = "hog_function"
     app_source = "hog_function"
@@ -339,14 +339,6 @@ class HogFunctionViewSet(
             queryset = queryset.filter(deleted=False)
 
         if self.action == "list":
-            if "type" in self.request.GET:
-                types = [self.request.GET.get("type", "destination")]
-            elif "types" in self.request.GET:
-                types = self.request.GET.get("types", "destination").split(",")
-            else:
-                types = ["destination"]
-            queryset = queryset.filter(type__in=types)
-            # Add ordering by execution_order and created_at
             queryset = queryset.order_by("execution_order", "created_at")
 
         if self.request.GET.get("filters"):
