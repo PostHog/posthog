@@ -8,7 +8,7 @@ from inline_snapshot import snapshot
 from rest_framework import status
 from django.test.utils import override_settings
 
-from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
+from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION, Operation
 from posthog.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from posthog.api.hog_function_template import HogFunctionTemplates
 from posthog.constants import AvailableFeature
@@ -1681,10 +1681,10 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             assert mock_create_hog_invocation_test.call_args_list[0].kwargs["payload"]["configuration"]["inputs"][
                 "url"
             ] == {
-                "destination" "bytecode": [
+                "bytecode": [
                     "_H",
                     1,
-                    32,
+                    Operation.STRING,
                     "http://localhost:2080/0e02d917-563f-4050-9725-aad881b69937",
                 ],
                 "order": 0,
