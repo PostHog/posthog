@@ -6,6 +6,7 @@ import {
     NodeKind,
     PathsQuery,
     RetentionQuery,
+    StickinessComputationModes,
     StickinessQuery,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
@@ -74,7 +75,9 @@ const stickinessQueryDefault: StickinessQuery = {
             math: BaseMathType.UniqueUsers,
         },
     ],
-    stickinessFilter: {},
+    stickinessFilter: {
+        computedAs: StickinessComputationModes.NonCumulative,
+    },
 }
 
 const lifecycleQueryDefault: LifecycleQuery = {

@@ -496,6 +496,8 @@ describe('checkFeatureFlagEligibility', () => {
         user_access_level: 'admin',
         status: 'ACTIVE',
         has_encrypted_payloads: false,
+        version: 0,
+        last_modified_by: null,
     }
     it('throws an error for a remote configuration feature flag', () => {
         const featureFlag = { ...baseFeatureFlag, is_remote_configuration: true }
@@ -810,10 +812,10 @@ describe('filterToMetricConfig', () => {
 })
 
 describe('metricToQuery', () => {
-    it('returns the correct query for a binomial metric', () => {
+    it('returns the correct query for a funnel metric', () => {
         const metric: ExperimentMetric = {
             kind: NodeKind.ExperimentMetric,
-            metric_type: ExperimentMetricType.BINOMIAL,
+            metric_type: ExperimentMetricType.FUNNEL,
             metric_config: {
                 kind: NodeKind.ExperimentEventMetricConfig,
                 event: 'purchase',

@@ -21,7 +21,7 @@ from posthog.temporal.batch_exports import (
     WORKFLOWS as BATCH_EXPORTS_WORKFLOWS,
 )
 from posthog.temporal.common.worker import start_worker
-from posthog.temporal.data_imports import ACTIVITIES as DATA_SYNC_ACTIVITIES, WORKFLOWS as DATA_SYNC_WORKFLOWS
+from posthog.temporal.data_imports.settings import ACTIVITIES as DATA_SYNC_ACTIVITIES, WORKFLOWS as DATA_SYNC_WORKFLOWS
 from posthog.temporal.data_modeling import ACTIVITIES as DATA_MODELING_ACTIVITIES, WORKFLOWS as DATA_MODELING_WORKFLOWS
 from posthog.temporal.delete_persons import (
     ACTIVITIES as DELETE_PERSONS_ACTIVITIES,

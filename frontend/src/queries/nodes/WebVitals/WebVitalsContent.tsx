@@ -42,7 +42,7 @@ export const WebVitalsContent = ({ webVitalsQueryResponse }: WebVitalsContentPro
     // NOTE: `band` will only return `none` if the value is undefined,
     // so this is basically the same check twice, but we need that to make TS happy
     if (value === undefined || band === 'none') {
-        return <LemonSkeleton fade className="w-full h-40 rounded sm:w-[30%]" />
+        return <LemonSkeleton fade className="w-full h-full rounded sm:w-[30%]" />
     }
 
     const grade = GRADE_PER_BAND[band]

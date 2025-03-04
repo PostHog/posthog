@@ -309,10 +309,10 @@ export function getDefaultFunnelsMetric(): ExperimentFunnelsQuery {
     }
 }
 
-export function getDefaultBinomialMetric(): ExperimentMetric {
+export function getDefaultFunnelMetric(): ExperimentMetric {
     return {
         kind: NodeKind.ExperimentMetric,
-        metric_type: ExperimentMetricType.BINOMIAL,
+        metric_type: ExperimentMetricType.FUNNEL,
         metric_config: {
             kind: NodeKind.ExperimentEventMetricConfig,
             event: '$pageview',
@@ -580,7 +580,7 @@ export function metricToQuery(
                 },
             ],
         } as TrendsQuery
-    } else if (metric.metric_type === ExperimentMetricType.BINOMIAL) {
+    } else if (metric.metric_type === ExperimentMetricType.FUNNEL) {
         return {
             kind: NodeKind.FunnelsQuery,
             filterTestAccounts,

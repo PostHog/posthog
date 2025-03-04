@@ -53,7 +53,12 @@ describe('processPersonsStep()', () => {
 
     it('creates person', async () => {
         const processPerson = true
-        const [resEvent, resPerson] = await processPersonsStep(runner, pluginEvent, timestamp, processPerson)
+        const [resEvent, resPerson] = await processPersonsStep(
+            runner as EventPipelineRunner,
+            pluginEvent,
+            timestamp,
+            processPerson
+        )
 
         expect(resEvent).toEqual(pluginEvent)
         expect(resPerson).toEqual(
@@ -85,7 +90,12 @@ describe('processPersonsStep()', () => {
 
         const processPerson = true
         const [normalizedEvent, timestamp] = await normalizeEventStep(event, processPerson)
-        const [resEvent, resPerson] = await processPersonsStep(runner, normalizedEvent, timestamp, processPerson)
+        const [resEvent, resPerson] = await processPersonsStep(
+            runner as EventPipelineRunner,
+            normalizedEvent,
+            timestamp,
+            processPerson
+        )
 
         expect(resEvent).toEqual({
             ...event,

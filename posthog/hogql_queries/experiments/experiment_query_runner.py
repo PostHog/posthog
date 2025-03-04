@@ -4,7 +4,10 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
+from posthog.hogql_queries.experiments import (
+    CONTROL_VARIANT_KEY,
+    MULTIPLE_VARIANT_KEY,
+)
 from posthog.hogql_queries.experiments.trends_statistics_v2_count import (
     are_results_significant_v2_count,
     calculate_credible_intervals_v2_count,
@@ -63,6 +66,12 @@ class ExperimentQueryRunner(QueryRunner):
         self.stats_version = 2
 
         self.date_range = self._get_date_range()
+        self.date_range_query = QueryDateRange(
+            date_range=self.date_range,
+            team=self.team,
+            interval=IntervalType.DAY,
+            now=datetime.now(),
+        )
 
         # Just to simplify access
         self.metric = self.query.metric
@@ -87,6 +96,44 @@ class ExperimentQueryRunner(QueryRunner):
             explicitDate=True,
         )
 
+    def _get_metric_time_window(self, left: ast.Expr) -> list[ast.CompareOperation]:
+        if self.metric.time_window_hours:
+            # Define conversion window as hours after exposure
+            time_window_clause = ast.CompareOperation(
+                left=left,
+                right=ast.Call(
+                    name="plus",
+                    args=[
+                        ast.Field(chain=["exposure_data", "first_exposure_time"]),
+                        ast.Call(name="toIntervalHour", args=[ast.Constant(value=self.metric.time_window_hours)]),
+                    ],
+                ),
+                op=ast.CompareOperationOp.Lt,
+            )
+        else:
+            # If no conversion window, just limit to experiment end date
+            time_window_clause = ast.CompareOperation(
+                op=ast.CompareOperationOp.LtEq,
+                left=left,
+                right=ast.Constant(value=self.date_range_query.date_to()),
+            )
+
+        return [
+            # Improve query performance by only fetching events after the experiment started
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=left,
+                right=ast.Constant(value=self.date_range_query.date_from()),
+            ),
+            # Ensure the event occurred after the user was exposed to the experiment
+            ast.CompareOperation(
+                left=left,
+                right=ast.Field(chain=["exposure_data", "first_exposure_time"]),
+                op=ast.CompareOperationOp.GtEq,
+            ),
+            time_window_clause,
+        ]
+
     def _get_experiment_query(self) -> ast.SelectQuery:
         # Lots of shortcuts taken here, but it's a proof of concept to illustrate the idea
 
@@ -94,7 +141,7 @@ class ExperimentQueryRunner(QueryRunner):
         feature_flag_property = f"$feature/{feature_flag_key}"
 
         is_data_warehouse_query = isinstance(self.metric.metric_config, ExperimentDataWarehouseMetricConfig)
-        is_binomial_metric = self.metric.metric_type == ExperimentMetricType.BINOMIAL
+        is_funnel_metric = self.metric.metric_type == ExperimentMetricType.FUNNEL
 
         # Pick the correct value for the aggregation chosen
         match self.metric.metric_type:
@@ -133,13 +180,6 @@ class ExperimentQueryRunner(QueryRunner):
             for property in self.metric.metric_config.properties:
                 metric_property_filters.append(property_to_expr(property, self.team))
 
-        date_range_query = QueryDateRange(
-            date_range=self.date_range,
-            team=self.team,
-            interval=IntervalType.DAY,
-            now=datetime.now(),
-        )
-
         event_name = "$feature_flag_called"
         exposure_config = (
             self.experiment.exposure_criteria.get("exposure_config") if self.experiment.exposure_criteria else None
@@ -159,10 +199,7 @@ class ExperimentQueryRunner(QueryRunner):
                     ),
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.In,
-                        left=parse_expr(
-                            "replaceAll(JSONExtractRaw(properties, {feature_flag_property}), '\"', '')",
-                            placeholders={"feature_flag_property": ast.Constant(value=feature_flag_property)},
-                        ),
+                        left=ast.Field(chain=["properties", feature_flag_property]),
                         right=ast.Constant(value=self.variants),
                     ),
                     *exposure_property_filters,
@@ -178,34 +215,43 @@ class ExperimentQueryRunner(QueryRunner):
                     ),
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.Eq,
-                        left=parse_expr("replaceAll(JSONExtractRaw(properties, '$feature_flag'), '\"', '')"),
+                        left=ast.Field(chain=["properties", "$feature_flag"]),
                         right=ast.Constant(value=feature_flag_key),
                     ),
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.In,
-                        left=parse_expr("replaceAll(JSONExtractRaw(properties, '$feature_flag_response'), '\"', '')"),
+                        left=ast.Field(chain=["properties", "$feature_flag_response"]),
                         right=ast.Constant(value=self.variants),
                     ),
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.In,
-                        left=parse_expr(
-                            "replaceAll(JSONExtractRaw(properties, {feature_flag_property}), '\"', '')",
-                            placeholders={"feature_flag_property": ast.Constant(value=feature_flag_property)},
-                        ),
+                        left=ast.Field(chain=["properties", feature_flag_property]),
                         right=ast.Constant(value=self.variants),
                     ),
                 ]
             )
 
-        exposure_query_select = [
+        exposure_query_select: list[ast.Expr] = [
             ast.Alias(alias="entity_id", expr=ast.Field(chain=["person_id"])),
-            parse_expr(
-                "replaceAll(JSONExtractRaw(properties, {feature_flag_property}), '\"', '') AS variant",
-                placeholders={"feature_flag_property": ast.Constant(value=feature_flag_property)},
+            ast.Alias(
+                alias="variant",
+                expr=parse_expr(
+                    "if(count(distinct {feature_flag_property}) > 1, {multiple_variant_key}, any({feature_flag_property}))",
+                    placeholders={
+                        "feature_flag_property": ast.Field(chain=["properties", feature_flag_property]),
+                        "multiple_variant_key": ast.Constant(value=MULTIPLE_VARIANT_KEY),
+                    },
+                ),
             ),
-            parse_expr("min(timestamp) as first_exposure_time"),
+            ast.Alias(
+                alias="first_exposure_time",
+                expr=ast.Call(
+                    name="min",
+                    args=[ast.Field(chain=["timestamp"])],
+                ),
+            ),
         ]
-        exposure_query_group_by = [ast.Field(chain=["variant"]), ast.Field(chain=["entity_id"])]
+        exposure_query_group_by = [ast.Field(chain=["entity_id"])]
         if is_data_warehouse_query:
             exposure_metric_config = cast(ExperimentDataWarehouseMetricConfig, self.metric.metric_config)
             exposure_query_select = [
@@ -233,12 +279,12 @@ class ExperimentQueryRunner(QueryRunner):
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.GtEq,
                         left=ast.Field(chain=["timestamp"]),
-                        right=ast.Constant(value=date_range_query.date_from()),
+                        right=ast.Constant(value=self.date_range_query.date_from()),
                     ),
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.LtEq,
                         left=ast.Field(chain=["timestamp"]),
-                        right=ast.Constant(value=date_range_query.date_to()),
+                        right=ast.Constant(value=self.date_range_query.date_to()),
                     ),
                     *test_accounts_filter,
                 ]
@@ -284,7 +330,10 @@ class ExperimentQueryRunner(QueryRunner):
                                             *metric_config.data_warehouse_join_key.split("."),
                                         ]
                                     ),
-                                    right=parse_expr("toString(exposure_data.exposure_identifier)"),
+                                    right=ast.Call(
+                                        name="toString",
+                                        args=[ast.Field(chain=["exposure_data", "exposure_identifier"])],
+                                    ),
                                     op=ast.CompareOperationOp.Eq,
                                 ),
                                 constraint_type="ON",
@@ -293,22 +342,8 @@ class ExperimentQueryRunner(QueryRunner):
                     ),
                     where=ast.And(
                         exprs=[
-                            # Improve query performance by only fetching events after the experiment started
-                            ast.CompareOperation(
-                                op=ast.CompareOperationOp.GtEq,
-                                left=ast.Field(chain=[metric_config.table_name, metric_config.timestamp_field]),
-                                right=ast.Constant(value=date_range_query.date_from()),
-                            ),
-                            ast.CompareOperation(
-                                op=ast.CompareOperationOp.LtEq,
-                                left=ast.Field(chain=[metric_config.table_name, metric_config.timestamp_field]),
-                                # NOTE: We have to append the conversion window here once we support it
-                                right=ast.Constant(value=date_range_query.date_to()),
-                            ),
-                            ast.CompareOperation(
-                                left=ast.Field(chain=[metric_config.table_name, metric_config.timestamp_field]),
-                                right=ast.Field(chain=["exposure_data", "first_exposure_time"]),
-                                op=ast.CompareOperationOp.GtEq,
+                            *self._get_metric_time_window(
+                                left=ast.Field(chain=[metric_config.table_name, metric_config.timestamp_field])
                             ),
                         ],
                     ),
@@ -357,24 +392,7 @@ class ExperimentQueryRunner(QueryRunner):
                     ),
                     where=ast.And(
                         exprs=[
-                            # Improve query performance by only fetching events after the experiment started
-                            ast.CompareOperation(
-                                op=ast.CompareOperationOp.GtEq,
-                                left=ast.Field(chain=["timestamp"]),
-                                right=ast.Constant(value=date_range_query.date_from()),
-                            ),
-                            ast.CompareOperation(
-                                op=ast.CompareOperationOp.LtEq,
-                                left=ast.Field(chain=["timestamp"]),
-                                # NOTE: We have to append the conversion window here once we support it
-                                right=ast.Constant(value=date_range_query.date_to()),
-                            ),
-                            # Only include events after exposure
-                            ast.CompareOperation(
-                                left=ast.Field(chain=["events", "timestamp"]),
-                                right=ast.Field(chain=["exposure_data", "first_exposure_time"]),
-                                op=ast.CompareOperationOp.GtEq,
-                            ),
+                            *self._get_metric_time_window(left=ast.Field(chain=["events", "timestamp"])),
                             event_filter,
                             *test_accounts_filter,
                             *metric_property_filters,
@@ -390,7 +408,7 @@ class ExperimentQueryRunner(QueryRunner):
                 ast.Field(chain=["exposure_data", "variant"]),
                 ast.Field(chain=["exposure_data", "entity_id"]),
                 parse_expr("coalesce(argMax(events_after_exposure.value, events_after_exposure.timestamp), 0) as value")
-                if is_binomial_metric
+                if is_funnel_metric
                 else parse_expr("sum(coalesce(events_after_exposure.value, 0)) as value"),
             ],
             select_from=ast.JoinExpr(
@@ -457,9 +475,12 @@ class ExperimentQueryRunner(QueryRunner):
             modifiers=create_default_modifiers_for_team(self.team),
         )
 
+        # NOTE: For now, remove the $multiple variant
+        response.results = [result for result in response.results if result[0] != MULTIPLE_VARIANT_KEY]
+
         sorted_results = sorted(response.results, key=lambda x: self.variants.index(x[0]))
 
-        if self.metric.metric_type == ExperimentMetricType.BINOMIAL:
+        if self.metric.metric_type == ExperimentMetricType.FUNNEL:
             return [
                 ExperimentVariantFunnelsBaseStats(
                     failure_count=result[1] - result[2],
@@ -514,7 +535,7 @@ class ExperimentQueryRunner(QueryRunner):
                     probabilities,
                 )
                 credible_intervals = calculate_credible_intervals_v2_count([control_variant, *test_variants])
-            case ExperimentMetricType.BINOMIAL:
+            case ExperimentMetricType.FUNNEL:
                 probabilities = calculate_probabilities_v2_funnel(
                     cast(ExperimentVariantFunnelsBaseStats, control_variant),
                     cast(list[ExperimentVariantFunnelsBaseStats], test_variants),

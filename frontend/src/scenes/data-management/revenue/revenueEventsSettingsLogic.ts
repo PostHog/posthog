@@ -4,7 +4,13 @@ import { TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { objectsEqual } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { RevenueTrackingConfig, RevenueTrackingEventItem } from '~/queries/schema/schema-general'
+import {
+    DataTableNode,
+    NodeKind,
+    RevenueExampleEventsQuery,
+    RevenueTrackingConfig,
+    RevenueTrackingEventItem,
+} from '~/queries/schema/schema-general'
 
 import type { revenueEventsSettingsLogicType } from './revenueEventsSettingsLogicType'
 
@@ -86,6 +92,26 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
                     return 'No changes to save'
                 }
                 return null
+            },
+        ],
+        eventsQuery: [
+            (s) => [s.revenueTrackingConfig],
+            (revenueTrackingConfig: RevenueTrackingConfig | null) => {
+                if (!revenueTrackingConfig) {
+                    return null
+                }
+
+                const source: RevenueExampleEventsQuery = {
+                    kind: NodeKind.RevenueExampleEventsQuery,
+                    revenueTrackingConfig: revenueTrackingConfig,
+                }
+
+                const query: DataTableNode = {
+                    kind: NodeKind.DataTableNode,
+                    full: true,
+                    source,
+                }
+                return query
             },
         ],
     }),

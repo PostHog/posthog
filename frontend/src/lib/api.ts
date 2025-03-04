@@ -915,7 +915,7 @@ class ApiRequest {
     // Resource Access Permissions
 
     public featureFlagAccessPermissions(flagId: FeatureFlagType['id']): ApiRequest {
-        return this.featureFlag(flagId, ApiConfig.getCurrentTeamId()).addPathComponent('role_access')
+        return this.featureFlag(flagId).addPathComponent('role_access')
     }
 
     public featureFlagAccessPermissionsDetail(
@@ -2008,7 +2008,9 @@ const api = {
             data: {
                 configuration: Record<string, any>
                 mock_async_functions: boolean
-                globals: any
+                globals?: any
+                clickhouse_event?: any
+                invocation_id?: string
             }
         ): Promise<HogFunctionTestInvocationResult> {
             return await new ApiRequest().hogFunction(id).withAction('invocations').create({ data })

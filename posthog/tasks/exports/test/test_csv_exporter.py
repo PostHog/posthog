@@ -1,19 +1,20 @@
 from datetime import datetime
+from io import BytesIO
 from typing import Any, Optional
 from unittest import mock
-from unittest.mock import MagicMock, Mock, patch, ANY
-from dateutil.relativedelta import relativedelta
+from unittest.mock import ANY, MagicMock, Mock, patch
 
-from freezegun import freeze_time
-from openpyxl import load_workbook
-from io import BytesIO
 import pytest
 from boto3 import resource
 from botocore.client import Config
+from dateutil.relativedelta import relativedelta
 from django.test import override_settings
 from django.utils.timezone import now
+from freezegun import freeze_time
+from openpyxl import load_workbook
 from requests.exceptions import HTTPError
 
+from posthog.hogql.constants import CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL
 from posthog.models import ExportedAsset
 from posthog.models.utils import UUIDT
 from posthog.settings import (
@@ -27,11 +28,10 @@ from posthog.storage.object_storage import ObjectStorageError
 from posthog.tasks.exports import csv_exporter
 from posthog.tasks.exports.csv_exporter import (
     UnexpectedEmptyJsonResponse,
-    add_query_params,
     _convert_response_to_csv_data,
+    add_query_params,
 )
-from posthog.hogql.constants import CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL
-from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events, _create_person
+from posthog.test.base import APIBaseTest, _create_event, _create_person, flush_persons_and_events
 from posthog.test.test_journeys import journeys_for
 from posthog.utils import absolute_uri
 
@@ -330,7 +330,7 @@ class TestCSVExporter(APIBaseTest):
     def test_failing_export_api_is_reported_query_size_exceeded(self, _mock_logger: MagicMock) -> None:
         with patch("posthog.tasks.exports.csv_exporter.make_api_call") as patched_make_api_call:
             exported_asset = self._create_asset()
-            mock_error = HTTPError("Query size exceeded")
+            mock_error = HTTPError("Query size exceeded")  # type: ignore[call-arg]
             mock_error.response = Mock()
             mock_error.response.text = "Query size exceeded"
             patched_make_api_call.side_effect = mock_error

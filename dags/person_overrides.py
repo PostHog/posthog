@@ -8,6 +8,7 @@ import dagster
 import pydantic
 from clickhouse_driver import Client
 
+from dags.common import JobOwners
 from posthog import settings
 from posthog.clickhouse.cluster import (
     ClickhouseCluster,
@@ -284,6 +285,23 @@ def create_snapshot_dictionary(
     return dictionary
 
 
+class GetExistingDictionaryConfig(dagster.Config):
+    id: str = pydantic.Field(description="The run ID of the original run that created the dictionary.")
+
+
+@dagster.op
+def get_existing_dictionary_for_run_id(
+    config: GetExistingDictionaryConfig,
+) -> PersonOverridesSnapshotDictionary:
+    """
+    Provides a handle to a snapshot dictionary based on the original run ID.
+
+    This does not create the dictionary or ensure that it or any of its dependencies exist.
+    """
+    table = PersonOverridesSnapshotTable(uuid.UUID(config.id))
+    return PersonOverridesSnapshotDictionary(table)
+
+
 @dagster.op
 def load_and_verify_snapshot_dictionary(
     cluster: dagster.ResourceParam[ClickhouseCluster],
@@ -353,10 +371,14 @@ def drop_snapshot_table(
     cluster.map_all_hosts(table.drop).result()
 
 
+def cleanup_snapshot_resources(dictionary: PersonOverridesSnapshotDictionary) -> None:
+    return drop_snapshot_table(drop_snapshot_dictionary(dictionary))
+
+
 # Job Definition
 
 
-@dagster.job
+@dagster.job(tags={"owner": JobOwners.TEAM_CLICKHOUSE.value})
 def squash_person_overrides():
     prepared_snapshot_table = wait_for_snapshot_table_replication(populate_snapshot_table(create_snapshot_table()))
     prepared_dictionary = load_and_verify_snapshot_dictionary(create_snapshot_dictionary(prepared_snapshot_table))
@@ -364,4 +386,19 @@ def squash_person_overrides():
     dictionary_after_override_delete_mutations = wait_for_overrides_delete_mutations(
         start_overrides_delete_mutations(dictionary_after_person_id_update_mutations)
     )
-    drop_snapshot_table(drop_snapshot_dictionary(dictionary_after_override_delete_mutations))
+    cleanup_snapshot_resources(dictionary_after_override_delete_mutations)
+
+
+@dagster.job(tags={"owner": JobOwners.TEAM_CLICKHOUSE.value})
+def cleanup_orphaned_person_overrides_snapshot():
+    """
+    Cleans up overrides snapshot resources after an irrecoverable job failure. This should only be run manually when the
+    resources are guaranteed to no longer be in use (i.e. no mutations are in progress, and the specified job is no
+    longer running and will not be retried.)
+
+    Typically, these resources are automatically cleaned up after the job successfully completes. However, there are
+    cases in which the job can fail and leave orphaned resources dangling around that can no longer be used and need to
+    be manually removed from the cluster. This job can be used to perform the cleanup of those resources.
+    """
+    dictionary = get_existing_dictionary_for_run_id()
+    cleanup_snapshot_resources(dictionary)
