@@ -19,7 +19,7 @@ export function LegacyMetricModal({
     const {
         experiment,
         experimentLoading,
-        getMetricType,
+        getInsightType,
         isPrimaryMetricModalOpen,
         isSecondaryMetricModalOpen,
         editingPrimaryMetricIndex,
@@ -42,7 +42,7 @@ export function LegacyMetricModal({
 
     const metrics = experiment[metricsField]
     const metric = metrics[metricIdx] as ExperimentTrendsQuery | ExperimentFunnelsQuery
-    const metricType = getMetricType(metric)
+    const insightType = getInsightType(metric)
     const funnelStepsLength = (metric as ExperimentFunnelsQuery)?.funnels_query?.series?.length || 0
 
     const onClose = (): void => {
@@ -94,7 +94,7 @@ export function LegacyMetricModal({
                         </LemonButton>
                         <LemonButton
                             disabledReason={
-                                metricType === InsightType.FUNNELS &&
+                                insightType === InsightType.FUNNELS &&
                                 funnelStepsLength < 2 &&
                                 'The experiment needs at least two funnel steps.'
                             }
@@ -117,13 +117,13 @@ export function LegacyMetricModal({
                 <span>Metric type</span>
                 <LemonSelect
                     data-attr="metrics-selector"
-                    value={metricType}
-                    onChange={(newMetricType) => {
+                    value={insightType}
+                    onChange={(newInsightType) => {
                         setExperiment({
                             ...experiment,
                             [metricsField]: [
                                 ...metrics.slice(0, metricIdx),
-                                newMetricType === InsightType.TRENDS
+                                newInsightType === InsightType.TRENDS
                                     ? getDefaultTrendsMetric()
                                     : getDefaultFunnelsMetric(),
                                 ...metrics.slice(metricIdx + 1),
@@ -136,7 +136,7 @@ export function LegacyMetricModal({
                     ]}
                 />
             </div>
-            {metricType === InsightType.TRENDS ? (
+            {insightType === InsightType.TRENDS ? (
                 <TrendsMetricForm isSecondary={isSecondary} />
             ) : (
                 <FunnelsMetricForm isSecondary={isSecondary} />
