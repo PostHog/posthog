@@ -217,7 +217,7 @@ describe('getMetricTag', () => {
             },
         }
 
-        expect(getMetricTag(experimentMetric)).toBe('Count')
+        expect(getMetricTag(experimentMetric)).toBe('Mean')
         expect(getMetricTag(funnelMetric)).toBe('Funnel')
         expect(getMetricTag(trendMetric)).toBe('Trend')
     })

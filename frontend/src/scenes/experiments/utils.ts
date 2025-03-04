@@ -554,62 +554,60 @@ export function metricToQuery(
         filterTestAccounts,
     }
 
-    if (
-        metric.metric_type === ExperimentMetricType.MEAN &&
-        metric.metric_config.math === ExperimentMetricMathType.TotalCount
-    ) {
-        return {
-            ...commonTrendsQueryProps,
-            series: [
-                {
-                    kind: NodeKind.EventsNode,
-                    name: (metric.metric_config as ExperimentEventMetricConfig).name,
-                    event: (metric.metric_config as ExperimentEventMetricConfig).event,
+    switch (metric.metric_type) {
+        case ExperimentMetricType.MEAN:
+            switch (metric.metric_config.math) {
+                case ExperimentMetricMathType.Sum:
+                    return {
+                        ...commonTrendsQueryProps,
+                        series: [
+                            {
+                                kind: NodeKind.EventsNode,
+                                event: (metric.metric_config as ExperimentEventMetricConfig).event,
+                                name: (metric.metric_config as ExperimentEventMetricConfig).name,
+                                math: ExperimentMetricMathType.Sum,
+                                math_property: (metric.metric_config as ExperimentEventMetricConfig).math_property,
+                            },
+                        ],
+                    } as TrendsQuery
+                default:
+                    return {
+                        ...commonTrendsQueryProps,
+                        series: [
+                            {
+                                kind: NodeKind.EventsNode,
+                                name: (metric.metric_config as ExperimentEventMetricConfig).name,
+                                event: (metric.metric_config as ExperimentEventMetricConfig).event,
+                            },
+                        ],
+                    } as TrendsQuery
+            }
+        case ExperimentMetricType.FUNNEL:
+            return {
+                kind: NodeKind.FunnelsQuery,
+                filterTestAccounts,
+                dateRange: {
+                    date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
+                    date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
+                    explicitDate: true,
                 },
-            ],
-        } as TrendsQuery
-    } else if (
-        metric.metric_type === ExperimentMetricType.MEAN &&
-        metric.metric_config.math === ExperimentMetricMathType.Sum
-    ) {
-        return {
-            ...commonTrendsQueryProps,
-            series: [
-                {
-                    kind: NodeKind.EventsNode,
-                    event: (metric.metric_config as ExperimentEventMetricConfig).event,
-                    name: (metric.metric_config as ExperimentEventMetricConfig).name,
-                    math: ExperimentMetricMathType.Sum,
-                    math_property: (metric.metric_config as ExperimentEventMetricConfig).math_property,
+                funnelsFilter: {
+                    layout: FunnelLayout.horizontal,
                 },
-            ],
-        } as TrendsQuery
-    } else if (metric.metric_type === ExperimentMetricType.FUNNEL) {
-        return {
-            kind: NodeKind.FunnelsQuery,
-            filterTestAccounts,
-            dateRange: {
-                date_from: dayjs().subtract(EXPERIMENT_DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
-                date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
-                explicitDate: true,
-            },
-            funnelsFilter: {
-                layout: FunnelLayout.horizontal,
-            },
-            series: [
-                {
-                    kind: NodeKind.EventsNode,
-                    event: '$feature_flag_called',
-                },
-                {
-                    kind: NodeKind.EventsNode,
-                    event: (metric.metric_config as ExperimentEventMetricConfig).event,
-                },
-            ],
-        } as FunnelsQuery
+                series: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: '$feature_flag_called',
+                    },
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: (metric.metric_config as ExperimentEventMetricConfig).event,
+                    },
+                ],
+            } as FunnelsQuery
+        default:
+            return undefined
     }
-
-    return undefined
 }
 
 export function getMathAvailability(metricType: ExperimentMetricType): MathAvailability {
