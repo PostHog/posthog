@@ -7349,7 +7349,7 @@
             "type": "string"
         },
         "ExperimentMetricType": {
-            "enum": ["mean", "funnel"],
+            "enum": ["funnel", "mean"],
             "type": "string"
         },
         "ExperimentQuery": {
