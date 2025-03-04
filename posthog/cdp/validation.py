@@ -3,11 +3,16 @@ import logging
 from typing import Any, Optional
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
+from posthog.cdp.filters import compile_filters_bytecode, compile_filters_expr
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.compiler.javascript import JavaScriptCompiler
 from posthog.hogql.parser import parse_program, parse_string_template
 from posthog.hogql.visitor import TraversingVisitor
-from posthog.models.hog_functions.hog_function import TYPES_WITH_JAVASCRIPT_SOURCE
+from posthog.models.hog_functions.hog_function import (
+    TYPES_WITH_COMPILED_FILTERS,
+    TYPES_WITH_JAVASCRIPT_SOURCE,
+    TYPES_WITH_TRANSPILED_FILTERS,
+)
 from posthog.hogql import ast
 
 logger = logging.getLogger(__name__)
@@ -249,10 +254,40 @@ class InputsSerializer(serializers.DictField):
         # Unlike standard dict validation we are iterating the schema - not the inputs
 
 
+class HogFunctionFiltersSerializer(serializers.Serializer):
+    actions = serializers.ListField(child=serializers.DictField(), required=False)
+    events = serializers.ListField(child=serializers.DictField(), required=False)
+    properties = serializers.ListField(child=serializers.DictField(), required=False)
+    bytecode = serializers.JSONField(required=False)
+    transpiled = serializers.JSONField(required=False)
+    filter_test_accounts = serializers.BooleanField(required=False)
+    bytecode_error = serializers.CharField(required=False)
+
+    def to_internal_value(self, data):
+        # Weirdly nested serializers don't get this set...
+        self.initial_data = data
+        return super().to_internal_value(data)
+
+    def validate(self, data):
+        function_type = self.context["function_type"]
+        team = self.context["get_team"]()
+
+        # If we have a bytecode, we need to validate the transpiled
+        if function_type in TYPES_WITH_COMPILED_FILTERS:
+            data = compile_filters_bytecode(data, team)
+        elif function_type in TYPES_WITH_TRANSPILED_FILTERS:
+            compiler = JavaScriptCompiler()
+            code = compiler.visit(compile_filters_expr(data, team))
+            data["transpiled"] = {"lang": "ts", "code": code, "stl": list(compiler.stl_functions)}
+            if "bytecode" in data:
+                del data["bytecode"]
+        return data
+
+
 class MappingsSerializer(serializers.Serializer):
     inputs_schema = serializers.ListField(child=InputsSchemaItemSerializer(), required=False)
     inputs = InputsSerializer(required=False)
-    filters = serializers.DictField(required=False)
+    filters = HogFunctionFiltersSerializer(required=False)
 
     def to_internal_value(self, data):
         # Weirdly nested serializers don't get this set...

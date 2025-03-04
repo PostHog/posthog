@@ -21,6 +21,7 @@ from posthog.api.shared import UserBasicSerializer
 
 from posthog.cdp.services.icons import CDPIconsService
 from posthog.cdp.validation import (
+    HogFunctionFiltersSerializer,
     InputsSchemaItemSerializer,
     InputsSerializer,
     MappingsSerializer,
@@ -95,6 +96,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
     inputs_schema = serializers.ListField(child=InputsSchemaItemSerializer(required=True), required=False)
     inputs = InputsSerializer(required=False)
     mappings = serializers.ListField(child=MappingsSerializer(), required=False, allow_null=True)
+    filters = HogFunctionFiltersSerializer(required=False)
 
     class Meta:
         model = HogFunction
@@ -143,7 +145,6 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
     # NOTE: All pre-validation should be done here such as loading the template info etc.
     def to_internal_value(self, data):
         team = self.context["get_team"]()
-        data["team"] = team
         has_addon = team.organization.is_feature_available(AvailableFeature.DATA_PIPELINES)
         bypass_addon_check = self.context.get("bypass_addon_check", False)
 
@@ -219,42 +220,15 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
     def validate(self, attrs):
         team = self.context["get_team"]()
-        attrs["team"] = team
-
+        attrs["team"] = team  # NOTE: This has to be done at this level
         hog_type = self.context["function_type"]
         is_create = self.context.get("is_create") or (
             self.context.get("view") and self.context["view"].action == "create"
         )
 
-        # # Used for both top level input validation, and mappings input validation
-        # def validate_input_and_filters(attrs: dict):
-        #     if "inputs" in attrs:
-        #         inputs = attrs["inputs"] or {}
-        #         existing_encrypted_inputs = None
-
-        #         if instance and instance.encrypted_inputs:
-        #             existing_encrypted_inputs = instance.encrypted_inputs
-
-        #         attrs["inputs_schema"] = attrs.get("inputs_schema", instance.inputs_schema if instance else [])
-        #         attrs["inputs"] = validate_inputs(attrs["inputs_schema"], inputs, existing_encrypted_inputs, hog_type)
-
-        #     if "filters" in attrs:
-        #         if hog_type in TYPES_WITH_COMPILED_FILTERS:
-        #             attrs["filters"] = compile_filters_bytecode(attrs["filters"], team)
-        #         elif hog_type in TYPES_WITH_TRANSPILED_FILTERS:
-        #             compiler = JavaScriptCompiler()
-        #             code = compiler.visit(compile_filters_expr(attrs["filters"], team))
-        #             attrs["filters"]["transpiled"] = {"lang": "ts", "code": code, "stl": list(compiler.stl_functions)}
-        #             if "bytecode" in attrs["filters"]:
-        #                 del attrs["filters"]["bytecode"]
-
-        # validate_input_and_filters(attrs)
-
-        # if attrs.get("mappings", None) is not None:
-        #     if hog_type not in ["site_destination", "destination"]:
-        #         raise serializers.ValidationError({"mappings": "Mappings are only allowed for destinations."})
-        #     for mapping in attrs["mappings"]:
-        #         validate_input_and_filters(mapping)
+        if attrs.get("mappings", None) is not None:
+            if hog_type not in ["site_destination", "destination"]:
+                raise serializers.ValidationError({"mappings": "Mappings are only allowed for destinations."})
 
         if "hog" in attrs:
             if hog_type in TYPES_WITH_JAVASCRIPT_SOURCE:

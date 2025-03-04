@@ -1280,6 +1280,122 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             }
         )
 
+    def test_compiles_valid_mappings(self):
+        payload = {
+            "name": "TypeScript Destination Function",
+            "hog": "print(inputs.message)",
+            "type": "destination",
+            "mappings": [
+                {
+                    "inputs": {"message": {"value": "Hello, {arrayMap(a -> a, [1, 2, 3])}!"}},
+                    "inputs_schema": [
+                        {"key": "message", "type": "string", "label": "Message", "required": True},
+                    ],
+                    "filters": {
+                        "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                        "filter_test_accounts": True,
+                    },
+                },
+            ],
+        }
+
+        def create(payload):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data=payload,
+            )
+            return response
+
+        response = create(payload)
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["mappings"] == snapshot(
+            [
+                {
+                    "inputs_schema": [
+                        {
+                            "type": "string",
+                            "key": "message",
+                            "label": "Message",
+                            "required": True,
+                            "secret": False,
+                            "hidden": False,
+                        }
+                    ],
+                    "inputs": {
+                        "message": {
+                            "value": "Hello, {arrayMap(a -> a, [1, 2, 3])}!",
+                            "bytecode": [
+                                "_H",
+                                1,
+                                32,
+                                "Hello, ",
+                                52,
+                                "lambda",
+                                1,
+                                0,
+                                3,
+                                36,
+                                0,
+                                38,
+                                53,
+                                0,
+                                33,
+                                1,
+                                33,
+                                2,
+                                33,
+                                3,
+                                43,
+                                3,
+                                2,
+                                "arrayMap",
+                                2,
+                                32,
+                                "!",
+                                2,
+                                "concat",
+                                3,
+                            ],
+                            "order": 0,
+                        }
+                    },
+                    "filters": {
+                        "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                        "bytecode": [
+                            "_H",
+                            1,
+                            32,
+                            "%@posthog.com%",
+                            32,
+                            "email",
+                            32,
+                            "properties",
+                            32,
+                            "person",
+                            1,
+                            3,
+                            2,
+                            "toString",
+                            1,
+                            20,
+                            32,
+                            "$pageview",
+                            32,
+                            "event",
+                            1,
+                            1,
+                            11,
+                            3,
+                            2,
+                            4,
+                            1,
+                        ],
+                        "filter_test_accounts": True,
+                    },
+                }
+            ]
+        )
+
     @override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS=[])
     def test_transformation_functions_require_template_when_disabled(self):
         response = self.client.post(
