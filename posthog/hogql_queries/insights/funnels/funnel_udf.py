@@ -1,6 +1,6 @@
 from typing import cast, Optional, runtime_checkable
 
-from django.core.exceptions import ValidationError
+from rest_framework.exceptions import ValidationError
 
 from posthog.hogql import ast
 from posthog.hogql.constants import DEFAULT_RETURNED_ROWS, HogQLQuerySettings
