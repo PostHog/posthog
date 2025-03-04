@@ -7,6 +7,9 @@ name: E2E CI Playwright
 
 on:
     pull_request:
+    push:
+        branches:
+            - master
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
@@ -76,7 +79,7 @@ jobs:
 
     playwright:
         name: Playwright E2E tests
-        runs-on: depot-ubuntu-latest-4
+        runs-on: depot-ubuntu-latest-arm-8
         timeout-minutes: 60
         needs: [changes, container]
         permissions:
