@@ -1954,7 +1954,7 @@ const api = {
                 .hogFunctions()
                 .withQueryString({
                     filters,
-                    ...(types ? { type: types.join(',') } : {}),
+                    ...(types ? { types: types.join(',') } : {}),
                 })
                 .get()
         },

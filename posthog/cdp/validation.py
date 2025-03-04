@@ -148,7 +148,7 @@ class InputsItemSerializer(serializers.Serializer):
                 raise serializers.ValidationError({"input": f"Value must be an Integration ID."})
         elif item_type == "email":
             if not isinstance(value, dict):
-                raise serializers.ValidationError({"input": f"Value must be an Integration ID."})
+                raise serializers.ValidationError({"input": f"Value must be an email object."})
             for key_ in ["from", "to", "subject"]:
                 if not value.get(key_):
                     raise serializers.ValidationError({"input": f"Missing value for '{key_}'."})
@@ -242,7 +242,6 @@ class InputsSerializer(serializers.DictField):
 
         # Assign order according to topological sort
         for i, key in enumerate(sorted_keys):
-            result[key]["order"] = i
             result[key]["order"] = i
             if "input_deps" in result[key]:
                 del result[key]["input_deps"]
