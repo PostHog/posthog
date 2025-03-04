@@ -361,7 +361,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         feature_flag_property = f"$feature/{feature_flag.key}"
 
         metric = ExperimentMetric(
-            metric_type=ExperimentMetricType.BINOMIAL,
+            metric_type=ExperimentMetricType.FUNNEL,
             metric_config=ExperimentEventMetricConfig(event="purchase"),
         )
 
@@ -867,7 +867,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
             experiment_id=experiment.id,
             kind="ExperimentQuery",
             metric=ExperimentMetric(
-                metric_type=ExperimentMetricType.BINOMIAL,
+                metric_type=ExperimentMetricType.FUNNEL,
                 metric_config=ExperimentEventMetricConfig(event="purchase"),
             ),
         )
@@ -1085,7 +1085,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(test_variant.exposure, 2.0)
 
     @snapshot_clickhouse_queries
-    def test_query_runner_data_warehouse_binomial_metric(self):
+    def test_query_runner_data_warehouse_funnel_metric(self):
         table_name = self.create_data_warehouse_table_with_usage()
 
         feature_flag = self.create_feature_flag()
@@ -1098,7 +1098,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         feature_flag_property = f"$feature/{feature_flag.key}"
 
         metric = ExperimentMetric(
-            metric_type=ExperimentMetricType.BINOMIAL,
+            metric_type=ExperimentMetricType.FUNNEL,
             metric_config=ExperimentDataWarehouseMetricConfig(
                 table_name=table_name,
                 events_join_key="properties.$user_id",

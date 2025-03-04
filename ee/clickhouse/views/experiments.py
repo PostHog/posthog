@@ -1,23 +1,10 @@
-from typing import Any, Optional
-from collections.abc import Callable
+from typing import Any
 
-from django.utils.timezone import now
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
-from statshog.defaults.django import statsd
-import posthoganalytics
 
-from ee.clickhouse.queries.experiments.funnel_experiment_result import (
-    ClickhouseFunnelExperimentResult,
-)
-from ee.clickhouse.queries.experiments.secondary_experiment_result import (
-    ClickhouseSecondaryExperimentResult,
-)
-from ee.clickhouse.queries.experiments.trend_experiment_result import (
-    ClickhouseTrendExperimentResult,
-)
 from ee.clickhouse.queries.experiments.utils import requires_flag_warning
 from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
@@ -26,136 +13,10 @@ from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSe
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
-from posthog.caching.insight_cache import update_cached_state
-from posthog.clickhouse.query_tagging import tag_queries
-from posthog.constants import INSIGHT_TRENDS
 from posthog.models.experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
-from posthog.utils import generate_cache_key, get_safe_cache
 from posthog.schema import ExperimentEventExposureConfig
-
-EXPERIMENT_RESULTS_CACHE_DEFAULT_TTL = 60 * 60  # 1 hour
-
-
-def _calculate_experiment_results(experiment: Experiment, refresh: bool = False):
-    # :TRICKY: Don't run any filter simplification on the experiment filter yet
-    filter = Filter({**experiment.filters, "is_simplified": True}, team=experiment.team)
-
-    exposure_filter_data = (experiment.parameters or {}).get("custom_exposure_filter")
-    exposure_filter = None
-    if exposure_filter_data:
-        exposure_filter = Filter(data={**exposure_filter_data, "is_simplified": True}, team=experiment.team)
-
-    if filter.insight == INSIGHT_TRENDS:
-        calculate_func = lambda: ClickhouseTrendExperimentResult(
-            filter,
-            experiment.team,
-            experiment.feature_flag,
-            experiment.start_date,
-            experiment.end_date,
-            holdout=experiment.holdout,
-            custom_exposure_filter=exposure_filter,
-        ).get_results()
-    else:
-        calculate_func = lambda: ClickhouseFunnelExperimentResult(
-            filter,
-            experiment.team,
-            experiment.feature_flag,
-            experiment.start_date,
-            experiment.end_date,
-            holdout=experiment.holdout,
-        ).get_results()
-
-    return _experiment_results_cached(
-        experiment,
-        "primary",
-        filter,
-        calculate_func,
-        refresh=refresh,
-        exposure_filter=exposure_filter,
-    )
-
-
-def _calculate_secondary_experiment_results(experiment: Experiment, parsed_id: int, refresh: bool = False):
-    filter = Filter(experiment.secondary_metrics[parsed_id]["filters"], team=experiment.team)
-
-    calculate_func = lambda: ClickhouseSecondaryExperimentResult(
-        filter,
-        experiment.team,
-        experiment.feature_flag,
-        experiment.start_date,
-        experiment.end_date,
-    ).get_results()
-    return _experiment_results_cached(experiment, "secondary", filter, calculate_func, refresh=refresh)
-
-
-def _experiment_results_cached(
-    experiment: Experiment,
-    results_type: str,
-    filter: Filter,
-    calculate_func: Callable,
-    refresh: bool,
-    exposure_filter: Optional[Filter] = None,
-):
-    cache_filter = filter.shallow_clone(
-        {
-            "date_from": experiment.start_date,
-            "date_to": experiment.end_date if experiment.end_date else None,
-        }
-    )
-
-    exposure_suffix = "" if not exposure_filter else f"_{exposure_filter.toJSON()}"
-
-    cache_key = generate_cache_key(
-        f"experiment_{results_type}_{cache_filter.toJSON()}_{experiment.team.pk}_{experiment.pk}{exposure_suffix}"
-    )
-
-    tag_queries(cache_key=cache_key)
-
-    cached_result_package = get_safe_cache(cache_key)
-
-    if cached_result_package and cached_result_package.get("result") and not refresh:
-        cached_result_package["is_cached"] = True
-        statsd.incr(
-            "posthog_cached_function_cache_hit",
-            tags={"route": "/projects/:id/experiments/:experiment_id/results"},
-        )
-        return cached_result_package
-
-    statsd.incr(
-        "posthog_cached_function_cache_miss",
-        tags={"route": "/projects/:id/experiments/:experiment_id/results"},
-    )
-
-    result = calculate_func()
-
-    timestamp = now()
-    fresh_result_package = {"result": result, "last_refresh": now(), "is_cached": False}
-
-    # Event to detect experiment significance flip-flopping
-    posthoganalytics.capture(
-        experiment.created_by.email,
-        "experiment result calculated",
-        properties={
-            "experiment_id": experiment.id,
-            "name": experiment.name,
-            "goal_type": experiment.filters.get("insight", "FUNNELS"),
-            "significant": result.get("significant"),
-            "significance_code": result.get("significance_code"),
-            "probability": result.get("probability"),
-        },
-    )
-
-    update_cached_state(
-        experiment.team.pk,
-        cache_key,
-        timestamp,
-        fresh_result_package,
-        ttl=EXPERIMENT_RESULTS_CACHE_DEFAULT_TTL,
-    )
-
-    return fresh_result_package
 
 
 class ExperimentSerializer(serializers.ModelSerializer):
@@ -539,57 +400,6 @@ class EnterpriseExperimentsViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         "feature_flag", "created_by", "holdout", "experimenttosavedmetric_set", "saved_metrics"
     ).all()
     ordering = "-created_at"
-
-    # ******************************************
-    # /projects/:id/experiments/:experiment_id/results
-    #
-    # Returns current results of an experiment, and graphs
-    # 1. Probability of success
-    # 2. Funnel breakdown graph to display
-    # ******************************************
-    @action(methods=["GET"], detail=True, required_scopes=["experiment:read"])
-    def results(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        experiment: Experiment = self.get_object()
-
-        refresh = request.query_params.get("refresh") is not None
-
-        if not experiment.filters:
-            raise ValidationError("Experiment has no target metric")
-
-        result = _calculate_experiment_results(experiment, refresh)
-
-        return Response(result)
-
-    # ******************************************
-    # /projects/:id/experiments/:experiment_id/secondary_results?id=<secondary_metric_id>
-    #
-    # Returns values for secondary experiment metrics, broken down by variants
-    # ******************************************
-    @action(methods=["GET"], detail=True, required_scopes=["experiment:read"])
-    def secondary_results(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        experiment: Experiment = self.get_object()
-
-        refresh = request.query_params.get("refresh") is not None
-
-        if not experiment.secondary_metrics:
-            raise ValidationError("Experiment has no secondary metrics")
-
-        metric_id = request.query_params.get("id")
-
-        if not metric_id:
-            raise ValidationError("Secondary metric id is required")
-
-        try:
-            parsed_id = int(metric_id)
-        except ValueError:
-            raise ValidationError("Secondary metric id must be an integer")
-
-        if parsed_id > len(experiment.secondary_metrics):
-            raise ValidationError("Invalid metric ID")
-
-        result = _calculate_secondary_experiment_results(experiment, parsed_id, refresh)
-
-        return Response(result)
 
     # ******************************************
     # /projects/:id/experiments/requires_flag_implementation

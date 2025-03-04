@@ -1901,7 +1901,7 @@ export interface ExperimentEventExposureConfig {
 export enum ExperimentMetricType {
     COUNT = 'count',
     CONTINUOUS = 'continuous',
-    BINOMIAL = 'binomial',
+    FUNNEL = 'funnel',
 }
 
 export type ExperimentMetricMath = 'total' | 'sum' | 'avg' | 'median' | 'min' | 'max'
