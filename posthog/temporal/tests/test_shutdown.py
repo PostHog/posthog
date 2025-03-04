@@ -86,33 +86,29 @@ def waiter() -> Waiter:
 
 
 @pytest_asyncio.fixture
-async def workers(temporal_client: Client, waiter: Waiter, task_queue: str):
+async def worker(temporal_client: Client, waiter: Waiter, task_queue: str):
     with ThreadPoolExecutor(max_workers=50) as executor:
-        workers = [
-            Worker(
-                temporal_client,
-                task_queue=task_queue,
-                workflows=[WaitWorkflow],
-                activities=[waiter.wait_for_activity_sync],
-                activity_executor=executor,
-                workflow_runner=UnsandboxedWorkflowRunner(),
-                max_concurrent_activities=50,
-            )
-            for _ in range(1)
-        ]
-        worker_run_tasks = [asyncio.create_task(worker.run()) for worker in workers]
+        worker = Worker(
+            temporal_client,
+            task_queue=task_queue,
+            workflows=[WaitWorkflow],
+            activities=[waiter.wait_for_activity_sync],
+            activity_executor=executor,
+            workflow_runner=UnsandboxedWorkflowRunner(),
+            max_concurrent_activities=50,
+        )
+        worker_run_task = asyncio.create_task(worker.run())
 
-        yield workers
+        yield worker
 
-        for task in worker_run_tasks:
-            if not task.done():
-                _ = task.cancel()
+        if not worker_run_task.done():
+            _ = worker_run_task.cancel()
 
-        _ = await asyncio.wait(worker_run_tasks)
+        _ = await asyncio.wait([worker_run_task])
 
 
 @pytest.mark.asyncio
-async def test_shutdown_monitor_sync(temporal_client: Client, task_queue: str, workers: list[Worker], waiter: Waiter):
+async def test_shutdown_monitor_sync(temporal_client: Client, task_queue: str, worker: Worker, waiter: Waiter):
     """Test `ShutdownMonitor` behavior with a test workflow.
 
     The test workflow `WaitWorkflow` will wait for 30s, but before that, we will
@@ -134,7 +130,7 @@ async def test_shutdown_monitor_sync(temporal_client: Client, task_queue: str, w
     )
 
     _ = await asyncio.to_thread(waiter.is_waiting_sync.wait)
-    shutdown_task = asyncio.create_task(workers[0].shutdown())
+    shutdown_task = asyncio.create_task(worker.shutdown())
 
     _ = await asyncio.wait([shutdown_task], timeout=5)
 

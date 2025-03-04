@@ -570,8 +570,6 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                     reset_pipeline=reset_pipeline,
                     shutdown_monitor=shutdown_monitor,
                 )
-            except:
-                raise
             finally:
                 # Delete the destination table (if it exists) after we're done with it
                 delete_table(

@@ -36,7 +36,7 @@ class Waiter:
 
     @activity.defn
     async def wait_for_activity(self, wait_for: int | float) -> None:
-        """A test activity that simply waits forever."""
+        """A test activity that simply waits."""
         elapsed = 0.0
         loop = asyncio.get_running_loop()
         start = loop.time()
@@ -58,7 +58,7 @@ class Waiter:
 
     @activity.defn
     def wait_for_activity_sync(self, wait_for: int | float) -> None:
-        """A test activity that simply waits forever."""
+        """A test activity that simply waits."""
         elapsed = 0.0
         start = time.monotonic()
         self.shutdown_monitor = ShutdownMonitor()
