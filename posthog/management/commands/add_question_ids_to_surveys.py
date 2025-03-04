@@ -160,7 +160,6 @@ class Command(BaseCommand):
         else:
             self.stdout.write(
                 self.style.SUCCESS(
-                    f"Successfully modified {total_modified} surveys "
-                    f"and updated {total_questions_updated} questions"
+                    f"Successfully modified {total_modified} surveys and updated {total_questions_updated} questions"
                 )
             )

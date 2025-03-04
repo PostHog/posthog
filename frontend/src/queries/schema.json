@@ -7339,6 +7339,9 @@
                 },
                 "name": {
                     "type": "string"
+                },
+                "time_window_hours": {
+                    "type": "number"
                 }
             },
             "required": ["kind", "metric_type", "metric_config"],
