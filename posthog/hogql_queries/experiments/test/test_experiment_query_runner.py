@@ -414,7 +414,7 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_query_runner_continuous_metric(self):
+    def test_query_runner_mean_property_sum_metric(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.stats_config = {"version": 2}
