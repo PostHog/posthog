@@ -1,8 +1,9 @@
-import { IconExpand45, IconInfo, IconOpenSidebar, IconX } from '@posthog/icons'
+import { IconExpand45, IconInfo, IconLineGraph, IconOpenSidebar, IconX } from '@posthog/icons'
+import { LemonSegmentedButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { IconOpenInNew, IconTableChart } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect/LemonSegmentedSelect'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -193,6 +194,10 @@ export const WebTabs = ({
     const activeTab = tabs.find((t) => t.id === activeTabId)
     const newInsightUrl = getNewInsightUrl(tileId, activeTabId)
 
+    const { setTileVisualization } = useActions(webAnalyticsLogic)
+    const { tileVisualizations } = useValues(webAnalyticsLogic)
+    const visualization = tileVisualizations[tileId]
+
     const buttonsRow = [
         activeTab?.canOpenInsight && newInsightUrl ? (
             <LemonButton
@@ -238,6 +243,27 @@ export const WebTabs = ({
                         />
                     )}
                 </h2>
+
+                {[TileId.SOURCES, TileId.DEVICES, TileId.PATHS].includes(tileId) && (
+                    <LemonSegmentedButton
+                        value={visualization || 'table'}
+                        onChange={(value) => setTileVisualization(tileId, value as 'table' | 'graph')}
+                        options={[
+                            {
+                                value: 'table',
+                                label: '',
+                                icon: <IconTableChart />,
+                            },
+                            {
+                                value: 'graph',
+                                label: '',
+                                icon: <IconLineGraph />,
+                            },
+                        ]}
+                        size="small"
+                        className="mr-2"
+                    />
+                )}
 
                 <LemonSegmentedSelect
                     shrinkOn={7}

@@ -1,5 +1,5 @@
-import { IconChevronDown, IconLineGraph, IconTrending, IconWarning } from '@posthog/icons'
-import { LemonSegmentedButton, Link, Tooltip } from '@posthog/lemon-ui'
+import { IconChevronDown, IconTrending, IconWarning } from '@posthog/icons'
+import { Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { getColorVar } from 'lib/colors'
@@ -7,7 +7,7 @@ import { IntervalFilterStandalone } from 'lib/components/IntervalFilter'
 import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { PropertyIcon } from 'lib/components/PropertyIcon'
-import { IconOpenInNew, IconTableChart, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
+import { IconOpenInNew, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { percentage, tryDecodeURIComponent, UnexpectedNeverError } from 'lib/utils'
@@ -537,15 +537,12 @@ export const WebStatsTableTile = ({
     query,
     breakdownBy,
     insightProps,
-    control,
-    tileId,
 }: QueryWithInsightProps<DataTableNode> & {
     breakdownBy: WebStatsBreakdown
     control?: JSX.Element
     tileId: TileId
 }): JSX.Element => {
-    const { togglePropertyFilter, setTileVisualization } = useActions(webAnalyticsLogic)
-    const { tileVisualizations } = useValues(webAnalyticsLogic)
+    const { togglePropertyFilter } = useActions(webAnalyticsLogic)
 
     const { key, type } = webStatsBreakdownToPropertyName(breakdownBy) || {}
 
@@ -588,31 +585,7 @@ export const WebStatsTableTile = ({
         }
     }, [onClick, insightProps])
 
-    const visualization = tileVisualizations[tileId]
-    return (
-        <div className="border rounded bg-surface-primary flex-1 flex flex-col">
-            <div className="flex flex-row items-center justify-between m-2 mr-4">
-                <LemonSegmentedButton
-                    value={visualization || 'table'}
-                    onChange={(value) => setTileVisualization(tileId, value as 'table' | 'graph')}
-                    options={[
-                        {
-                            value: 'table',
-                            label: 'Table',
-                            icon: <IconTableChart />,
-                        },
-                        {
-                            value: 'graph',
-                            label: 'Graph',
-                            icon: <IconLineGraph />,
-                        },
-                    ]}
-                />
-                {control != null && control}
-            </div>
-            <Query query={query} readOnly={true} context={context} />
-        </div>
-    )
+    return <Query query={query} readOnly={true} context={context} />
 }
 
 const getBreakdownValue = (record: unknown, breakdownBy: WebStatsBreakdown): string | null | undefined => {
