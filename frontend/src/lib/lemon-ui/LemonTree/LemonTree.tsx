@@ -136,6 +136,9 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
         return (
             <ul className={cn('list-none m-0 p-0', className)} role="group">
                 {data.map((item) => {
+                    // Clean up display name by replacing escaped characters
+                    const displayName = item.name.replace(/\\\//g, '/').replace(/\\/g, '')
+
                     if (item.type === 'separator') {
                         return (
                             <div key={item.id} className="h-1 -mx-2 flex items-center">
@@ -208,12 +211,11 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                     expandedItemIds: expandedItemIds ?? [],
                                                     defaultNodeIcon,
                                                 })}
-                                                // disabledReason={item.disabledReason}
                                                 disabled={!isItemDraggable?.(item) && enableDragAndDrop}
+                                                tooltip={displayName}
                                                 tooltipPlacement="right"
                                                 style={{ paddingLeft: `${DEPTH_OFFSET}px` }}
                                                 truncate
-                                                tooltip={item.name}
                                                 sideAction={itemSideAction ? itemSideAction(item) : undefined}
                                             >
                                                 <span
@@ -224,14 +226,14 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                 >
                                                     {renderItem ? (
                                                         <>
-                                                            {renderItem(item, item.name)}
+                                                            {renderItem(item, displayName)}
                                                             {item.record?.loading && <Spinner className="ml-1" />}
                                                             {item.record?.unapplied && (
                                                                 <IconUpload className="ml-1 text-warning" />
                                                             )}
                                                         </>
                                                     ) : (
-                                                        item.name
+                                                        displayName
                                                     )}
                                                 </span>
                                             </LemonButton>

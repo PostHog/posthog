@@ -14,7 +14,7 @@ import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { navigation3000Logic } from '../../navigationLogic'
 import { NavbarBottom } from '../NavbarBottom'
 import { projectTreeLogic } from './projectTreeLogic'
-import { joinPath, splitPath } from './utils'
+import { escapePath, joinPath, splitPath } from './utils'
 
 export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLElement> }): JSX.Element {
     const { theme } = useValues(themeLogic)
@@ -50,6 +50,37 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
     // TODO: sync with projectTreeLogic
     const notDraggableIds: string[] = ['project', 'project/Explore', 'project/Create new', 'project/Unfiled']
     const notDroppableIds: string[] = ['project', 'project/Explore', 'project/Create new']
+
+    const handleCreateFolder = (parentPath?: string): void => {
+        const promptMessage = parentPath ? `Create a folder under "${parentPath}":` : 'Create a new folder:'
+        const folder = prompt(promptMessage, '')
+        if (folder) {
+            const escapedFolderName = escapePath(folder)
+            const parentSplits = parentPath ? splitPath(parentPath) : []
+            const newPath = joinPath([...parentSplits, escapedFolderName])
+            addFolder(newPath)
+        }
+    }
+
+    const handleRename = (path?: string): void => {
+        if (path) {
+            const splits = splitPath(path)
+            if (splits.length > 0) {
+                const currentName = splits[splits.length - 1].replace(/\\/g, '')
+                const folder = prompt('New name?', currentName)
+                if (folder) {
+                    const escapedFolder = escapePath(folder)
+                    moveItem(path, joinPath([...splits.slice(0, -1), escapedFolder]))
+                }
+            }
+        }
+    }
+
+    const handleCopyPath = (path?: string): void => {
+        if (path) {
+            void navigator.clipboard.writeText(path)
+        }
+    }
 
     return (
         <>
@@ -89,7 +120,7 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                                     !pendingLoaderLoading
                                         ? () => {
                                               applyPendingActions()
-                                              toggleDragAndDrop(!dragAndDropEnabled)
+                                              toggleDragAndDrop(false)
                                           }
                                         : undefined
                                 }
@@ -100,12 +131,7 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                                 size="small"
                                 type="secondary"
                                 tooltip="Create new root folder"
-                                onClick={() => {
-                                    const folder = prompt('Create a new folder:')
-                                    if (folder) {
-                                        addFolder(folder)
-                                    }
-                                }}
+                                onClick={() => handleCreateFolder()}
                                 icon={<IconPlusSmall />}
                             />
                         </div>
@@ -192,39 +218,16 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                             }
                             return (
                                 <ContextMenuGroup>
-                                    {item.record?.type === 'folder' || item.record?.type === 'project' ? (
-                                        <ContextMenuItem
-                                            onClick={(e) => {
-                                                e.stopPropagation()
-                                                const folder = prompt(
-                                                    item.record?.path
-                                                        ? `Create a folder under "${item.record?.path}":`
-                                                        : 'Create a new folder:',
-                                                    ''
-                                                )
-                                                if (folder) {
-                                                    addFolder(
-                                                        item.record?.path ? `${item.record?.path}/${folder}` : folder
-                                                    )
-                                                }
-                                            }}
-                                        >
-                                            New Folder
-                                        </ContextMenuItem>
-                                    ) : null}
+                                    <ContextMenuItem
+                                        onClick={(e) => {
+                                            e.stopPropagation()
+                                            handleCreateFolder(item.record?.path)
+                                        }}
+                                    >
+                                        New Folder
+                                    </ContextMenuItem>
                                     {item.record?.path ? (
-                                        <ContextMenuItem
-                                            onClick={() => {
-                                                const oldPath = item.record?.path
-                                                const splits = splitPath(oldPath)
-                                                if (splits.length > 0) {
-                                                    const folder = prompt('New name?', splits[splits.length - 1])
-                                                    if (folder) {
-                                                        moveItem(oldPath, joinPath([...splits.slice(0, -1), folder]))
-                                                    }
-                                                }
-                                            }}
-                                        >
+                                        <ContextMenuItem onClick={() => handleRename(item.record?.path)}>
                                             Rename
                                         </ContextMenuItem>
                                     ) : null}
@@ -232,9 +235,7 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                                         <ContextMenuItem
                                             onClick={(e) => {
                                                 e.stopPropagation()
-                                                if (item.record?.path) {
-                                                    void navigator.clipboard.writeText(item.record?.path)
-                                                }
+                                                handleCopyPath(item.record?.path)
                                             }}
                                         >
                                             Copy Path
@@ -265,48 +266,19 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                                         onClick={(e) => e.stopPropagation()}
                                         overlay={
                                             <>
-                                                {item.record?.type === 'folder' || item.record?.type === 'project' ? (
-                                                    <LemonButton
-                                                        onClick={(e) => {
-                                                            e.stopPropagation()
-                                                            const folder = prompt(
-                                                                item.record?.path
-                                                                    ? `Create a folder under "${item.record?.path}":`
-                                                                    : 'Create a new folder:',
-                                                                ''
-                                                            )
-                                                            if (folder) {
-                                                                addFolder(
-                                                                    item.record?.path
-                                                                        ? `${item.record.path}/${folder}`
-                                                                        : folder
-                                                                )
-                                                            }
-                                                        }}
-                                                        fullWidth
-                                                        size="small"
-                                                    >
-                                                        New Folder
-                                                    </LemonButton>
-                                                ) : null}
+                                                <LemonButton
+                                                    onClick={(e) => {
+                                                        e.stopPropagation()
+                                                        handleCreateFolder(item.record?.path)
+                                                    }}
+                                                    fullWidth
+                                                    size="small"
+                                                >
+                                                    New Folder
+                                                </LemonButton>
                                                 {item.record?.path ? (
                                                     <LemonButton
-                                                        onClick={() => {
-                                                            const oldPath = item.record?.path
-                                                            const splits = splitPath(oldPath)
-                                                            if (splits.length > 0) {
-                                                                const folder = prompt(
-                                                                    'New name?',
-                                                                    splits[splits.length - 1]
-                                                                )
-                                                                if (folder) {
-                                                                    moveItem(
-                                                                        oldPath,
-                                                                        joinPath([...splits.slice(0, -1), folder])
-                                                                    )
-                                                                }
-                                                            }
-                                                        }}
+                                                        onClick={() => handleRename(item.record?.path)}
                                                         fullWidth
                                                         size="small"
                                                     >
@@ -317,9 +289,7 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                                                     <LemonButton
                                                         onClick={(e) => {
                                                             e.stopPropagation()
-                                                            if (item.record?.path) {
-                                                                void navigator.clipboard.writeText(item.record?.path)
-                                                            }
+                                                            handleCopyPath(item.record?.path)
                                                         }}
                                                         fullWidth
                                                         size="small"
