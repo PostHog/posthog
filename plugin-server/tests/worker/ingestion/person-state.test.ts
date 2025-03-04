@@ -1,7 +1,9 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { Database, Hub, InternalPerson } from '../../../src/types'
+import { fetchTeam } from '~/src/worker/ingestion/team-manager'
+
+import { Database, Hub, InternalPerson, Team } from '../../../src/types'
 import { DependencyUnavailableError } from '../../../src/utils/db/error'
 import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { PostgresUse } from '../../../src/utils/db/postgres'
@@ -22,6 +24,7 @@ describe('PersonState.update()', () => {
     let hub: Hub
 
     let teamId: number
+    let team: Team
     let organizationId: string
 
     // Common Distinct IDs (and their deterministic UUIDs) used in tests below.
@@ -43,6 +46,7 @@ describe('PersonState.update()', () => {
 
     beforeEach(async () => {
         teamId = await createTeam(hub.db.postgres, organizationId)
+        team = await fetchTeam(hub.db.postgres, teamId)
 
         newUserUuid = uuidFromDistinctId(teamId, newUserDistinctId)
         oldUserUuid = uuidFromDistinctId(teamId, oldUserDistinctId)
@@ -79,7 +83,7 @@ describe('PersonState.update()', () => {
 
         return new PersonState(
             fullEvent as any,
-            teamId,
+            team,
             event.distinct_id!,
             timestampParam,
             processPerson,
