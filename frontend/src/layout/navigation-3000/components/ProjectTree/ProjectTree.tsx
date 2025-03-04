@@ -282,7 +282,7 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                                                             if (folder) {
                                                                 addFolder(
                                                                     item.record?.path
-                                                                        ? `${item.record?.path}/${folder}`
+                                                                        ? `${item.record.path}/${folder}`
                                                                         : folder
                                                                 )
                                                             }
