@@ -21,6 +21,7 @@ from posthog.clickhouse.cluster import (
     Mutation,
     MutationRunner,
     NodeRole,
+    Query,
 )
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.event.sql import EVENTS_DATA_TABLE
@@ -320,6 +321,7 @@ def create_reporting_pending_person_deletions_table(
 def load_pending_person_deletions(
     context: OpExecutionContext,
     create_pending_person_deletions_table: PendingPersonEventDeletesTable,
+    cluster: ResourceParam[ClickhouseCluster],
     cleanup_delete_assets: bool | None = None,
 ) -> PendingPersonEventDeletesTable:
     """Query postgres using django ORM to get pending person deletions and insert directly into ClickHouse."""
@@ -342,14 +344,6 @@ def load_pending_person_deletions(
     current_chunk = []
     total_rows = 0
 
-    client = Client(
-        host=settings.CLICKHOUSE_HOST,
-        user=settings.CLICKHOUSE_USER,
-        password=settings.CLICKHOUSE_PASSWORD,
-        secure=settings.CLICKHOUSE_SECURE,
-        verify=settings.CLICKHOUSE_VERIFY,
-    )
-
     for deletion in pending_deletions.iterator():
         current_chunk.append(
             {
@@ -365,19 +359,19 @@ def load_pending_person_deletions(
         )
 
         if len(current_chunk) >= chunk_size:
-            client.execute(
-                create_pending_person_deletions_table.populate_query,
-                current_chunk,
-            )
+            cluster.any_host_by_role(
+                Query(create_pending_person_deletions_table.populate_query, current_chunk),
+                NodeRole.DATA,
+            ).result()
             total_rows += len(current_chunk)
             current_chunk = []
 
     # Insert any remaining records
     if current_chunk:
-        client.execute(
-            create_pending_person_deletions_table.populate_query,
-            current_chunk,
-        )
+        cluster.any_host_by_role(
+            Query(create_pending_person_deletions_table.populate_query, current_chunk),
+            NodeRole.DATA,
+        ).result()
         total_rows += len(current_chunk)
 
     context.add_output_metadata(
