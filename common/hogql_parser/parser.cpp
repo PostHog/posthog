@@ -1160,38 +1160,25 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     }
 
     PyObject* n = NULL;
-    PyObject* offset_value = Py_None;
-    Py_INCREF(Py_None); // Increment None since we'll be using it
+    PyObject* offset_value = NULL;
     
     // Check if it's a tuple
     if (PyTuple_Check(limit_expr_result)) {
       if (PyTuple_Size(limit_expr_result) >= 2) {
-        // Extract the tuple values - these are borrowed references
-        PyObject* first = PyTuple_GetItem(limit_expr_result, 0);
-        PyObject* second = PyTuple_GetItem(limit_expr_result, 1);
-        
-        // Create new references we'll own
-        n = first;
-        Py_INCREF(n);
-        
-        // Update offset_value (decref the None we previously incremented)
-        Py_DECREF(offset_value);
-        offset_value = second;
-        Py_INCREF(offset_value);
-        
-        // Now we have our own references for n and offset_value, we can safely DECREF the tuple
+        // Extract the tuple values
+        n = Py_NewRef(PyTuple_GetItem(limit_expr_result, 0));
+        offset_value = Py_NewRef(PyTuple_GetItem(limit_expr_result, 1));
         Py_DECREF(limit_expr_result);
       } else {
         // Tuple with wrong size
         Py_DECREF(limit_expr_result);
-        Py_DECREF(offset_value);
         Py_DECREF(exprs);
         throw ParsingError("Tuple from limitExpr has fewer than 2 items");
       }
     } else {
       // Not a tuple, just use as n (transfer ownership)
       n = limit_expr_result;
-      // limit_expr_result reference is now owned by n, no need to DECREF
+      offset_value = Py_NewRef(Py_None);
     }
     
     // Create the LimitByExpr node (transfers ownership of n, offset_value, and exprs)
@@ -1199,8 +1186,6 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
                        "n", n,
                        "offset_value", offset_value,
                        "exprs", exprs);
-    // The RETURN_NEW_AST_NODE macro either returns the node or throws if creation fails
-    // No need to handle cleanup here as the macro handles it
   }
 
   VISIT(LimitExpr) {
@@ -1248,10 +1233,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
   VISIT_UNSUPPORTED(ProjectionOrderByClause)
 
-  VISIT(LimitAndOffsetClause) {
-    // We handle this directly in the SelectStmt visitor, so just return NULL
-    return Py_BuildValue("");  // Returns None
-  }
+  VISIT_UNSUPPORTED(LimitAndOffsetClause) // We handle this directly in the SelectStmt visitor
 
   VISIT_UNSUPPORTED(SettingsClause)
 
