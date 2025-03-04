@@ -15510,6 +15510,9 @@
                 "includeBounceRate": {
                     "type": "boolean"
                 },
+                "includeDateBreakdown": {
+                    "type": "boolean"
+                },
                 "includeRevenue": {
                     "type": "boolean"
                 },

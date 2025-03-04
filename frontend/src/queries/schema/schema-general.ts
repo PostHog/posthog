@@ -1577,6 +1577,7 @@ export enum WebStatsBreakdown {
 export interface WebStatsTableQuery extends WebAnalyticsQueryBase<WebStatsTableQueryResponse> {
     kind: NodeKind.WebStatsTableQuery
     breakdownBy: WebStatsBreakdown
+    includeDateBreakdown?: boolean // include date in the results for breakdown visualization
     includeScrollDepth?: boolean // automatically sets includeBounceRate to true
     includeBounceRate?: boolean
     limit?: integer

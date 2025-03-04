@@ -59,10 +59,18 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner):
     def to_main_query(self, breakdown) -> ast.SelectQuery:
         with self.timings.measure("stats_table_query"):
             # Base selects, always returns the breakdown value, and the total number of visitors
-            selects = [
-                ast.Alias(alias="context.columns.breakdown_value", expr=self._processed_breakdown_value()),
-                self._period_comparison_tuple("filtered_person_id", "context.columns.visitors", "uniq"),
-            ]
+            selects = []
+
+            # Add date field if needed
+            if getattr(self.query, "includeDateBreakdown", False):
+                selects.append(ast.Alias(alias="date", expr=parse_expr("toDate(toStartOfDay(start_timestamp))")))
+
+            selects.extend(
+                [
+                    ast.Alias(alias="context.columns.breakdown_value", expr=self._processed_breakdown_value()),
+                    self._period_comparison_tuple("filtered_person_id", "context.columns.visitors", "uniq"),
+                ]
+            )
 
             if self.query.conversionGoal is not None:
                 selects.extend(
@@ -94,10 +102,16 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner):
                 if self._include_extra_aggregation_value():
                     selects.append(self._extra_aggregation_value())
 
+            # Create group_by list with optional date field
+            group_by = []
+            if getattr(self.query, "includeDateBreakdown", False):
+                group_by.append(ast.Field(chain=["date"]))
+            group_by.append(ast.Field(chain=["context.columns.breakdown_value"]))
+
             query = ast.SelectQuery(
                 select=selects,
                 select_from=ast.JoinExpr(table=self._main_inner_query(breakdown)),
-                group_by=[ast.Field(chain=["context.columns.breakdown_value"])],
+                group_by=group_by,
                 order_by=self._order_by(columns=[select.alias for select in selects]),
             )
 
@@ -112,10 +126,16 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner):
         return query
 
     def to_path_scroll_bounce_query(self) -> ast.SelectQuery:
-        with self.timings.measure("stats_table_bounce_query"):
-            query = parse_select(
-                """
+        include_date_breakdown_select = ""
+        if getattr(self.query, "includeDateBreakdown", False):
+            include_date_breakdown_select = """toDate(toStartOfDay(counts.start_timestamp)) AS date,"""
+
+        with self.timings.measure(
+            f"stats_table_bounce_query{'_date_breakdown' if include_date_breakdown_select else ''}"
+        ):
+            select_statement = """
 SELECT
+    {include_date_breakdown_select}
     counts.breakdown_value AS "context.columns.breakdown_value",
     tuple(counts.visitors, counts.previous_visitors) AS "context.columns.visitors",
     tuple(counts.views, counts.previous_views) AS "context.columns.views",
@@ -128,7 +148,8 @@ FROM (
         uniqIf(filtered_person_id, {current_period}) AS visitors,
         uniqIf(filtered_person_id, {previous_period}) AS previous_visitors,
         sumIf(filtered_pageview_count, {current_period}) AS views,
-        sumIf(filtered_pageview_count, {previous_period}) AS previous_views
+        sumIf(filtered_pageview_count, {previous_period}) AS previous_views,
+        min(start_timestamp) AS start_timestamp
     FROM (
         SELECT
             any(person_id) AS filtered_person_id,
@@ -204,7 +225,9 @@ LEFT JOIN (
     GROUP BY breakdown_value
 ) AS scroll
 ON counts.breakdown_value = scroll.breakdown_value
-""",
+"""
+            query = parse_select(
+                select_statement,
                 timings=self.timings,
                 placeholders={
                     "session_properties": self._session_properties(),
@@ -216,6 +239,7 @@ ON counts.breakdown_value = scroll.breakdown_value
                     "current_period": self._current_period_expression(),
                     "previous_period": self._previous_period_expression(),
                     "inside_periods": self._periods_expression(),
+                    "include_date_breakdown_select": include_date_breakdown_select,
                 },
             )
         assert isinstance(query, ast.SelectQuery)
@@ -223,6 +247,12 @@ ON counts.breakdown_value = scroll.breakdown_value
         # Compute query order based on the columns we're selecting
         columns = [select.alias for select in query.select if isinstance(select, ast.Alias)]
         query.order_by = self._order_by(columns)
+
+        query.group_by = [ast.Field(chain=["context.columns.breakdown_value"])]
+
+        # Add group by for date if needed
+        if getattr(self.query, "includeDateBreakdown", False):
+            query.group_by = [ast.Field(chain=["date"]), ast.Field(chain=["context.columns.breakdown_value"])]
 
         return query
 
@@ -367,25 +397,32 @@ GROUP BY session_id, breakdown_value
             elif field == WebAnalyticsOrderByFields.CONVERSION_RATE:
                 column = "context.columns.conversion_rate"
 
-        return [
-            expr
-            for expr in [
-                ast.OrderExpr(expr=ast.Field(chain=[column]), order=direction)
-                if column is not None and column in columns
-                else None,
-                ast.OrderExpr(expr=ast.Field(chain=["context.columns.visitors"]), order=direction)
-                if column != "context.columns.visitors"
-                else None,
-                ast.OrderExpr(expr=ast.Field(chain=["context.columns.views"]), order=direction)
-                if column != "context.columns.views" and "context.columns.views" in columns
-                else None,
+        order_exprs = []
+
+        # Add date ordering first if date is included
+        if getattr(self.query, "includeDateBreakdown", False) and "date" in columns:
+            order_exprs.append(ast.OrderExpr(expr=ast.Field(chain=["date"]), order="DESC"))
+
+        # Add the main ordering column if specified
+        if column is not None and column in columns:
+            order_exprs.append(ast.OrderExpr(expr=ast.Field(chain=[column]), order=direction))
+
+        # Add secondary ordering columns
+        if column != "context.columns.visitors" and "context.columns.visitors" in columns:
+            order_exprs.append(ast.OrderExpr(expr=ast.Field(chain=["context.columns.visitors"]), order=direction))
+
+        if column != "context.columns.views" and "context.columns.views" in columns:
+            order_exprs.append(ast.OrderExpr(expr=ast.Field(chain=["context.columns.views"]), order=direction))
+
+        if column != "context.columns.total_conversions" and "context.columns.total_conversions" in columns:
+            order_exprs.append(
                 ast.OrderExpr(expr=ast.Field(chain=["context.columns.total_conversions"]), order=direction)
-                if column != "context.columns.total_conversions" and "context.columns.total_conversions" in columns
-                else None,
-                ast.OrderExpr(expr=ast.Field(chain=["context.columns.breakdown_value"]), order="ASC"),
-            ]
-            if expr is not None
-        ]
+            )
+
+        # Always add breakdown value as the last ordering column
+        order_exprs.append(ast.OrderExpr(expr=ast.Field(chain=["context.columns.breakdown_value"]), order="ASC"))
+
+        return order_exprs
 
     def _period_comparison_tuple(self, column, alias, function_name):
         return ast.Alias(
@@ -466,33 +503,38 @@ GROUP BY session_id, breakdown_value
 
         assert results is not None
 
-        results_mapped = map_columns(
-            results,
+        # Determine the column mapping based on whether date is included
+        column_mapping = {}
+
+        date_offset = 0
+        if getattr(self.query, "includeDateBreakdown", False):
+            date_offset = 1
+            column_mapping[0] = lambda date, row: date  # date column
+
+        column_mapping.update(
             {
-                0: self._join_with_aggregation_value,  # breakdown_value
-                1: lambda tuple, row: (  # Views (tuple)
+                0 + date_offset: self._join_with_aggregation_value,  # breakdown_value
+                1 + date_offset: lambda tuple, row: (  # Views (tuple)
                     self._unsample(tuple[0], row),
                     self._unsample(tuple[1], row),
                 ),
-                2: lambda tuple, row: (  # Visitors (tuple)
+                2 + date_offset: lambda tuple, row: (  # Visitors (tuple)
                     self._unsample(tuple[0], row),
                     self._unsample(tuple[1], row),
                 ),
-            },
+            }
         )
+
+        results_mapped = map_columns(results, column_mapping)
 
         columns = response.columns
 
         if self.query.breakdownBy == WebStatsBreakdown.LANGUAGE:
             # Keep only first 3 columns, we don't need the aggregation value in the frontend
             # Remove both the value and the column (used to generate table headers)
-            results_mapped = [row[:3] for row in results_mapped]
-
-            columns = (
-                [column for column in response.columns if column != "context.columns.aggregation_value"]
-                if response.columns is not None
-                else response.columns
-            )
+            date_columns = 1 if getattr(self.query, "includeDateBreakdown", False) else 0
+            results_mapped = [row[: (3 + date_columns)] for row in results_mapped]
+            columns = columns[: (3 + date_columns)]
 
         # Add cross-sell opportunity column so that the frontend can render it properly
         if columns is not None:
@@ -514,7 +556,12 @@ GROUP BY session_id, breakdown_value
         if self.query.breakdownBy != WebStatsBreakdown.LANGUAGE:
             return breakdown_value
 
-        return f"{breakdown_value}-{row[3]}"  # Fourth value is the aggregation value
+        # Adjust the index based on whether date is included
+        aggregation_value_index = 3
+        if getattr(self.query, "includeDateBreakdown", False):
+            aggregation_value_index = 4
+
+        return f"{breakdown_value}-{row[aggregation_value_index]}"  # Fourth or fifth value is the aggregation value
 
     def _counts_breakdown_value(self):
         match self.query.breakdownBy:

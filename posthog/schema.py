@@ -6093,6 +6093,7 @@ class WebStatsTableQuery(BaseModel):
     doPathCleaning: Optional[bool] = None
     filterTestAccounts: Optional[bool] = None
     includeBounceRate: Optional[bool] = None
+    includeDateBreakdown: Optional[bool] = None
     includeRevenue: Optional[bool] = None
     includeScrollDepth: Optional[bool] = None
     kind: Literal["WebStatsTableQuery"] = "WebStatsTableQuery"
