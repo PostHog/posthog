@@ -1,11 +1,13 @@
 from typing import cast, Optional, runtime_checkable
 
+from django.core.exceptions import ValidationError
+
 from posthog.hogql import ast
 from posthog.hogql.constants import DEFAULT_RETURNED_ROWS, HogQLQuerySettings
 from posthog.hogql.parser import parse_select, parse_expr
 from posthog.hogql_queries.insights.funnels.base import FunnelBase, JOIN_ALGOS
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
-from posthog.schema import BreakdownType, BreakdownAttributionType
+from posthog.schema import BreakdownType, BreakdownAttributionType, StepOrderValue
 from posthog.utils import DATERANGE_MAP
 
 from typing import Protocol
@@ -170,6 +172,13 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
         return inner_select
 
     def get_query(self) -> ast.SelectQuery:
+        max_steps = self.context.max_steps
+
+        if self.context.funnelsFilter.funnelOrderType == StepOrderValue.UNORDERED:
+            for exclusion in self.context.funnelsFilter.exclusions or []:
+                if exclusion.funnelFromStep != 0 or exclusion.funnelToStep != max_steps - 1:
+                    raise ValidationError("Partial Exclusions not allowed in unordered funnels")
+
         inner_select = self._inner_aggregation_query()
 
         step_results = ",".join(
