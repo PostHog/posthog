@@ -141,7 +141,7 @@ class ExperimentQueryRunner(QueryRunner):
         feature_flag_property = f"$feature/{feature_flag_key}"
 
         is_data_warehouse_query = isinstance(self.metric.metric_config, ExperimentDataWarehouseMetricConfig)
-        is_binomial_metric = self.metric.metric_type == ExperimentMetricType.BINOMIAL
+        is_funnel_metric = self.metric.metric_type == ExperimentMetricType.FUNNEL
 
         # Pick the correct value for the aggregation chosen
         match self.metric.metric_type:
@@ -408,7 +408,7 @@ class ExperimentQueryRunner(QueryRunner):
                 ast.Field(chain=["exposure_data", "variant"]),
                 ast.Field(chain=["exposure_data", "entity_id"]),
                 parse_expr("coalesce(argMax(events_after_exposure.value, events_after_exposure.timestamp), 0) as value")
-                if is_binomial_metric
+                if is_funnel_metric
                 else parse_expr("sum(coalesce(events_after_exposure.value, 0)) as value"),
             ],
             select_from=ast.JoinExpr(
@@ -480,7 +480,7 @@ class ExperimentQueryRunner(QueryRunner):
 
         sorted_results = sorted(response.results, key=lambda x: self.variants.index(x[0]))
 
-        if self.metric.metric_type == ExperimentMetricType.BINOMIAL:
+        if self.metric.metric_type == ExperimentMetricType.FUNNEL:
             return [
                 ExperimentVariantFunnelsBaseStats(
                     failure_count=result[1] - result[2],
@@ -535,7 +535,7 @@ class ExperimentQueryRunner(QueryRunner):
                     probabilities,
                 )
                 credible_intervals = calculate_credible_intervals_v2_count([control_variant, *test_variants])
-            case ExperimentMetricType.BINOMIAL:
+            case ExperimentMetricType.FUNNEL:
                 probabilities = calculate_probabilities_v2_funnel(
                     cast(ExperimentVariantFunnelsBaseStats, control_variant),
                     cast(list[ExperimentVariantFunnelsBaseStats], test_variants),

@@ -776,7 +776,7 @@ class ExperimentMetricMath(StrEnum):
 class ExperimentMetricType(StrEnum):
     COUNT = "count"
     CONTINUOUS = "continuous"
-    BINOMIAL = "binomial"
+    FUNNEL = "funnel"
 
 
 class ExperimentSignificanceCode(StrEnum):
