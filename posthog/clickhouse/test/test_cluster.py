@@ -13,7 +13,8 @@ from posthog.clickhouse.cluster import (
     HostInfo,
     Mutation,
     MutationNotFound,
-    MutationRunner,
+    AlterTableMutationRunner,
+    LightweightDeleteMutationRunner,
     T,
     Query,
     RetryPolicy,
@@ -29,7 +30,7 @@ def cluster(django_db_setup) -> Iterator[ClickhouseCluster]:
 
 def test_mutation_runner_rejects_invalid_parameters() -> None:
     with pytest.raises(ValueError):
-        MutationRunner("table", "command", {"__invalid_key": True})
+        AlterTableMutationRunner("table", "command", parameters={"__invalid_key": True})
 
 
 def test_exception_summary(snapshot, cluster: ClickhouseCluster) -> None:
@@ -125,14 +126,14 @@ def test_mutations(cluster: ClickhouseCluster) -> None:
 
     # construct the runner
     sentinel_uuid = uuid.uuid1()  # unique to this test run to ensure we have a clean slate
-    runner = MutationRunner(
+    runner = AlterTableMutationRunner(
         table,
         f"""
         UPDATE person_id = %(uuid)s
         -- this is a comment that will not appear in system.mutations
         WHERE 1 = /* this will also be stripped out during formatting */ 01
         """,
-        {"uuid": sentinel_uuid},
+        parameters={"uuid": sentinel_uuid},
     )
 
     # nothing should be running yet
@@ -234,14 +235,11 @@ def test_lightweight_delete(cluster: ClickhouseCluster) -> None:
     [[[eid]]] = cluster.map_all_hosts(get_random_row).result().values()
 
     # construct the runner with a DELETE command
-    runner = MutationRunner(
+    runner = LightweightDeleteMutationRunner(
         table,
-        f"DELETE FROM {table} WHERE uuid = %(uuid)s",
-        {"uuid": eid},
+        f"uuid = %(uuid)s",
+        parameters={"uuid": eid},
     )
-
-    # verify it's detected as a lightweight delete
-    assert runner.is_lightweight_delete
 
     # start all mutations
     shard_mutations = cluster.map_one_host_per_shard(runner.enqueue).result()
