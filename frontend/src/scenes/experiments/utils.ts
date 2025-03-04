@@ -621,7 +621,7 @@ export function getMathAvailability(metricType: ExperimentMetricType): MathAvail
     }
 }
 
-export function getAllowedMathTypes(metricType: ExperimentMetricType): string[] {
+export function getAllowedMathTypes(metricType: ExperimentMetricType): ExperimentMetricMathType[] {
     switch (metricType) {
         case ExperimentMetricType.MEAN:
             return [ExperimentMetricMathType.TotalCount, ExperimentMetricMathType.Sum]

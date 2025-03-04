@@ -20,6 +20,7 @@ import {
 import {
     ChartDisplayType,
     EntityType,
+    ExperimentMetricMathType,
     FeatureFlagFilters,
     FeatureFlagType,
     InsightType,
@@ -695,7 +696,7 @@ describe('metricConfigToFilter', () => {
             timestamp_field: 'timestamp',
             events_join_key: 'person.properties.email',
             data_warehouse_join_key: 'customer.email',
-            math: 'total',
+            math: ExperimentMetricMathType.TotalCount,
             math_property: undefined,
             math_hogql: undefined,
         } as ExperimentDataWarehouseMetricConfig
@@ -712,7 +713,7 @@ describe('metricConfigToFilter', () => {
                     timestamp_field: 'timestamp',
                     events_join_key: 'person.properties.email',
                     data_warehouse_join_key: 'customer.email',
-                    math: 'total',
+                    math: ExperimentMetricMathType.TotalCount,
                     math_property: undefined,
                     math_hogql: undefined,
                 },
@@ -889,7 +890,7 @@ describe('metricToQuery', () => {
                 kind: NodeKind.ExperimentEventMetricConfig,
                 event: '$pageview',
                 name: '$pageview',
-                math: 'sum',
+                math: ExperimentMetricMathType.Sum,
                 math_property: 'property_value',
             },
         }
