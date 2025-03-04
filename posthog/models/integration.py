@@ -571,8 +571,6 @@ class GoogleAdsIntegration:
                         "name": nested_account["customerClient"].get("descriptiveName", "Google Ads account"),
                     }
                 )
-                # if nested_account["customerClient"].get("manager") == True and int(nested_account["customerClient"].get("level")) >= 1:
-                #     accounts = dfs(nested_account["customerClient"].get("clientCustomer").split("/")[1], accounts, parent_id)
 
             return accounts
 
