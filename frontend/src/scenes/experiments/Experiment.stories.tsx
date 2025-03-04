@@ -22,6 +22,7 @@ import {
     BaseMathType,
     ChartDisplayType,
     Experiment,
+    ExperimentMetricMathType,
     FeatureFlagBasicType,
     FunnelConversionWindowTimeUnit,
     FunnelVizType,
@@ -2216,7 +2217,7 @@ const EXPERIMENT_QUERY_RESULT_WITH_ASYMMETRIC_INTERVALS: CachedExperimentQueryRe
         metric_config: {
             event: 'experiment created',
             kind: NodeKind.ExperimentEventMetricConfig,
-            math: BaseMathType.TotalCount,
+            math: ExperimentMetricMathType.TotalCount,
             math_hogql: undefined,
             math_property: undefined,
             name: 'experiment created',

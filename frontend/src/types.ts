@@ -3723,8 +3723,8 @@ export enum GroupMathType {
 }
 
 export enum ExperimentMetricMathType {
-    TotalCount = BaseMathType.TotalCount,
-    Sum = PropertyMathType.Sum,
+    TotalCount = 'total',
+    Sum = 'sum',
 }
 
 export enum ActorGroupType {

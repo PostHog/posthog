@@ -5,7 +5,9 @@ import {
     ExperimentTrendsQuery,
     NodeKind,
 } from '~/queries/schema/schema-general'
+import { ExperimentMetricMathType } from '~/types'
 
+import { getDefaultMetricTitle, getMetricTag } from './DeltaChart'
 import { generateViolinPath } from './DeltaChart'
 
 /**
@@ -159,8 +161,6 @@ describe('generateViolinPath', () => {
     })
 })
 
-import { getDefaultMetricTitle, getMetricTag } from './DeltaChart'
-
 describe('getDefaultMetricTitle', () => {
     it('handles ExperimentEventMetricConfig with math and math_property', () => {
         const metric: ExperimentMetric = {
@@ -196,7 +196,7 @@ describe('getMetricTag', () => {
             metric_type: ExperimentMetricType.MEAN,
             metric_config: {
                 kind: NodeKind.ExperimentEventMetricConfig,
-                math: 'total',
+                math: ExperimentMetricMathType.TotalCount,
                 event: 'purchase',
             },
         }
