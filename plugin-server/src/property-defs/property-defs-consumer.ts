@@ -5,7 +5,6 @@ import { Counter } from 'prom-client'
 import { BatchConsumer, startBatchConsumer } from '../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../kafka/config'
 import { addSentryBreadcrumbsEventListeners } from '../main/ingestion-queues/kafka-metrics'
-import { latestOffsetTimestampGauge } from '../main/ingestion-queues/metrics'
 import { runInstrumentedFunction } from '../main/utils'
 import {
     ClickHouseEvent,
@@ -188,7 +187,7 @@ export class PropertyDefsConsumer {
     }
 
     private runInstrumented<T>(name: string, func: () => Promise<T>): Promise<T> {
-        return runInstrumentedFunction<T>({ statsKey: `ingestionConsumer.${name}`, func })
+        return runInstrumentedFunction<T>({ statsKey: `propertyDefsConsumer.${name}`, func })
     }
 
     public async handleKafkaBatch(messages: Message[]) {
@@ -201,19 +200,12 @@ export class PropertyDefsConsumer {
             propertyDefTypesCounter.inc({ type: propDef.property_type ?? 'null' })
         }
 
+        // TODO: Get all the related property defs from the DB and compare what we would have written for all those that don't exist
         // TODO: Write prop defs to DB
 
         status.debug('🔁', `Waiting for promises`, { promises: this.promises.size })
         await this.runInstrumented('awaitScheduledWork', () => Promise.all(this.promises))
         status.debug('🔁', `Processed batch`)
-
-        for (const message of messages) {
-            if (message.timestamp) {
-                latestOffsetTimestampGauge
-                    .labels({ partition: message.partition, topic: message.topic, groupId: this.groupId })
-                    .set(message.timestamp)
-            }
-        }
     }
 
     private derivePropDefs(events: ClickHouseEvent[]): CollectedPropertyDefinitions {
@@ -223,9 +215,10 @@ export class PropertyDefsConsumer {
         }
 
         for (const event of events) {
+            // Detect group identify events
             if (event.event === '$groupidentify') {
-                const groupType = event.properties['$group_type']
-                const groupProperties = event.properties['$group_set']
+                const groupType = event.properties['$group_type'] // e.g. "organization"
+                const groupProperties = event.properties['$group_set'] // { name: 'value', id: 'id', foo: "bar" }
 
                 for (const [property, value] of Object.entries(groupProperties)) {
                     const propDefId = `${event.team_id}:${groupType}:${property}`
@@ -248,20 +241,43 @@ export class PropertyDefsConsumer {
                         }
                     }
                 }
+
+                continue
             }
 
+            // Detect person properties
+            for (const [property, value] of Object.entries(event.person_properties ?? {})) {
+                const propDefPersonId = `${event.team_id}:person:${property}`
+
+                if (!collected.propertyDefinitionsById[propDefPersonId]) {
+                    const propType = getPropertyType(property, value)
+                    if (propType) {
+                        collected.propertyDefinitionsById[propDefPersonId] = {
+                            id: propDefPersonId,
+                            name: property,
+                            is_numerical: propType === PropertyType.Numeric,
+                            team_id: event.team_id,
+                            project_id: event.team_id, // TODO: Add project_id
+                            property_type: propType,
+                            type: PropertyDefinitionTypeEnum.Person,
+                        }
+                    }
+                }
+            }
+
+            // Detect event properties
             for (const [property, value] of Object.entries(event.properties)) {
                 if (SKIP_PROPERTIES.includes(property)) {
                     continue
                 }
 
-                const propDefId = `${event.team_id}:${property}`
+                const propDefEventId = `${event.team_id}:event:${property}`
 
-                if (!collected.propertyDefinitionsById[propDefId]) {
+                if (!collected.propertyDefinitionsById[propDefEventId]) {
                     const propType = getPropertyType(property, value)
                     if (propType) {
-                        collected.propertyDefinitionsById[propDefId] = {
-                            id: propDefId,
+                        collected.propertyDefinitionsById[propDefEventId] = {
+                            id: propDefEventId,
                             name: property,
                             is_numerical: propType === PropertyType.Numeric,
                             team_id: event.team_id,
@@ -284,8 +300,6 @@ export class PropertyDefsConsumer {
                     }
                 }
             }
-
-            // TODO: Iterate over group properties
         }
 
         return collected
@@ -339,7 +353,7 @@ export class PropertyDefsConsumer {
                 // histogramKafkaBatchSizeKb.observe(messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024)
 
                 return await runInstrumentedFunction({
-                    statsKey: `ingestionConsumer.handleEachBatch`,
+                    statsKey: `propertyDefsConsumer.handleEachBatch`,
                     sendTimeoutGuardToSentry: false,
                     func: async () => {
                         await options.handleBatch(messages)

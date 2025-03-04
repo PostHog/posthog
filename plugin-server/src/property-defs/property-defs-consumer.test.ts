@@ -184,4 +184,15 @@ describe('PropertyDefsConsumer', () => {
             expect(result).toEqual(expected)
         })
     })
+
+    describe('property updates', () => {
+        beforeEach(async () => {
+            ingester = new PropertyDefsConsumer(hub)
+            await ingester.start()
+        })
+
+        it('should write property defs to the DB', async () => {
+            const events = [createClickHouseEvent({})]
+        })
+    })
 })
