@@ -30,7 +30,7 @@ pub fn record_lag_count(topic: &str, partition: i32, consumergroup: &str, lag: i
     .set(lag as f64);
 }
 
-/// Record the consumer lag time metric in seconds
+/// Record the consumer lag time metric in milliseconds
 pub fn record_timestamp(topic: &str, partition: i32, consumergroup: &str, timestamp: i64) {
     let topic_owned = topic.to_string();
     let partition_str = format!("{}", partition);
