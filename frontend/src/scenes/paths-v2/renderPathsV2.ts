@@ -200,7 +200,7 @@ export function renderPathsV2(
     }
 
     const maxLayer = paths.links.reduce((prev, curr) => {
-        return Math.max(prev, Number(curr.step_index + 1))
+        return Math.max(prev, Number(curr.target.match(/[^_]*/)))
     }, 0)
 
     const minWidth = canvasWidth > FALLBACK_CANVAS_WIDTH || maxLayer < 3 ? canvasWidth : FALLBACK_CANVAS_WIDTH
