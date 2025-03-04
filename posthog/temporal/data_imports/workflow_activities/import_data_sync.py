@@ -516,15 +516,15 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 model.pipeline.job_inputs.get("using_temporary_dataset", False) and temporary_dataset_id is not None
             )
 
-            # Including the workflow ID in table prefix ensures we only delete tables
-            # from this workflow execution.
+            # Including the schema ID in table prefix ensures we only delete tables
+            # from this schema, and that if we fail we will clean up any previous
+            # execution's tables.
             # Table names in BigQuery can have up to 1024 bytes, so we can be pretty
-            # relaxed with using a relatively long workflow ID as part of the prefix.
-            # Some special characters do need to be replaced (pretty much only '_' is
-            # allowed).
-            workflow_id = activity.info().workflow_id
-            workflow_id = workflow_id.replace("-", "_").replace(":", "_")
-            destination_table_prefix = f"__posthog_import_{workflow_id}"
+            # relaxed with using a relatively long UUID as part of the prefix.
+            # Some special characters do need to be replaced, so we use the hex
+            # representation of the UUID.
+            schema_id = inputs.schema_id.hex
+            destination_table_prefix = f"__posthog_import_{schema_id}"
 
             destination_table_dataset_id = temporary_dataset_id if using_temporary_dataset else dataset_id
             destination_table = f"{project_id}.{destination_table_dataset_id}.{destination_table_prefix}{inputs.run_id}_{str(datetime.now().timestamp()).replace('.', '')}"
