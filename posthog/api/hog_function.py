@@ -316,7 +316,7 @@ class HogFunctionInvocationSerializer(serializers.Serializer):
 class HogFunctionViewSet(
     TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, ForbidDestroyModel, viewsets.ModelViewSet
 ):
-    scope_object = "hog_function"  # Keep internal until we are happy to release this GA
+    scope_object = "INTERNAL"  # Keep internal until we are happy to release this GA
     queryset = HogFunction.objects.all()
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["id", "created_by", "enabled", "type"]
