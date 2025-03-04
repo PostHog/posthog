@@ -39,7 +39,7 @@ export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
     connect({ values: [projectLogic, ['currentProjectId'], featureFlagsLogic, ['featureFlags']] }),
     props(
         {} as {
-            distinctId: string | null
+            distinctId: string
             groupTypeIndex?: number
             groups?: { [key: string]: string }
         }
