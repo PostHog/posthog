@@ -223,7 +223,7 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
                 "description": "Test description",
                 "query": {
                     "kind": "ExperimentMetric",
-                    "metric_type": "count",
+                    "metric_type": "mean",
                     "metric_config": {
                         "kind": "ExperimentEventMetricConfig",
                         "event": "$pageview",
@@ -237,7 +237,7 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         self.assertEqual(response.json()["name"], "Test Experiment saved metric")
         self.assertEqual(response.json()["description"], "Test description")
         self.assertEqual(response.json()["query"]["kind"], "ExperimentMetric")
-        self.assertEqual(response.json()["query"]["metric_type"], "count")
+        self.assertEqual(response.json()["query"]["metric_type"], "mean")
 
     def test_create_saved_metric_with_experiment_metric_invalid_metric_type(self):
         response = self.client.post(
@@ -258,7 +258,7 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("Input should be 'count', 'continuous' or 'funnel'", response.json()["detail"])
+        self.assertIn("Input should be 'mean' or 'funnel'", response.json()["detail"])
 
     def test_invalid_create(self):
         response = self.client.post(
