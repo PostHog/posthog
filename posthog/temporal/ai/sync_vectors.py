@@ -36,9 +36,16 @@ async def _get_orgs_from_the_feature_flag() -> list[str]:
 async def get_actions_qs(start_dt: datetime, offset: int | None = None, batch_size: int | None = None):
     orgs = await _get_orgs_from_the_feature_flag()
     actions_to_summarize = Action.objects.filter(
-        Q(updated_at__lte=start_dt)
-        & Q(team__organization__in=orgs)
-        & (Q(updated_at__gte=F("last_summarized_at")) | Q(last_summarized_at__isnull=True))
+        Q(team__organization__in=orgs)
+        & Q(updated_at__lte=start_dt)
+        & (
+            # Never summarized actions
+            Q(last_summarized_at__isnull=True)
+            # Actions updated after last summarization workflow
+            | Q(updated_at__gte=F("last_summarized_at"))
+            # Actions updated during this sync to preserve order
+            | Q(last_summarized_at=start_dt)
+        )
     ).order_by("id", "team_id", "updated_at")
     if offset is None or batch_size is None:
         return actions_to_summarize
@@ -54,6 +61,10 @@ class GetApproximateActionsCountInputs:
 async def get_approximate_actions_count(inputs: GetApproximateActionsCountInputs) -> int:
     qs = await get_actions_qs(datetime.fromisoformat(inputs.start_dt))
     return await qs.acount()
+
+
+def get_cohere_client() -> cohere.AsyncClientV2:
+    return cohere.AsyncClientV2()
 
 
 @dataclass
@@ -79,7 +90,7 @@ async def batch_summarize_and_embed_actions(inputs: RetrieveActionsInputs):
         action.summary = maybe_summary
         models_to_update.append(action)
 
-    cohere_client = cohere.AsyncClientV2()
+    cohere_client = get_cohere_client()
     embeddings_response = await cohere_client.embed(
         texts=[action.summary for action in models_to_update],
         model="embed-english-v3.0",
@@ -115,6 +126,7 @@ async def sync_action_vectors_for_team(inputs: SyncActionVectorsForTeamInputs) -
             & (
                 Q(last_summarized_at__gte=F("embedding_last_synced_at"))
                 | (Q(embedding_last_synced_at__isnull=True) & Q(last_summarized_at__isnull=False))
+                | Q(embedding_last_synced_at=workflow_start_dt)
             )
         )
         .order_by("id", "team_id", "updated_at")
