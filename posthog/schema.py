@@ -776,7 +776,7 @@ class ExperimentMetricMath(StrEnum):
 class ExperimentMetricType(StrEnum):
     COUNT = "count"
     CONTINUOUS = "continuous"
-    BINOMIAL = "binomial"
+    FUNNEL = "funnel"
 
 
 class ExperimentSignificanceCode(StrEnum):
@@ -4781,6 +4781,7 @@ class ExperimentMetric(BaseModel):
     metric_config: Union[ExperimentEventMetricConfig, ExperimentActionMetricConfig, ExperimentDataWarehouseMetricConfig]
     metric_type: ExperimentMetricType
     name: Optional[str] = None
+    time_window_hours: Optional[float] = None
 
 
 class ExperimentQueryResponse(BaseModel):
