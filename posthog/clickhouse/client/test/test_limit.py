@@ -103,7 +103,6 @@ class TestRateLimit(BaseTest):
             with self.limit.run(is_api=True, team_id=9, task_id=17):
                 result += 2
                 raise Exception()
-            result += 4
 
         with self.limit.run(is_api=True, team_id=9, task_id=17):
             result += 8
