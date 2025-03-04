@@ -1,3 +1,0 @@
-// Jest Snapshot v1, https://goo.gl/fbAQLP
-
-exports[`PropertyDefsConsumer general should process an event and derive all property defs 1`] = `[]`;

@@ -37,6 +37,11 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 ingestionV2: true,
                 ...sharedCapabilities,
             }
+        case PluginServerMode.property_defs:
+            return {
+                propertyDefs: true,
+                ...sharedCapabilities,
+            }
         case PluginServerMode.recordings_blob_ingestion:
             return {
                 sessionRecordingBlobIngestion: true,
