@@ -173,11 +173,14 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
 
     def get_query(self) -> ast.SelectQuery:
         max_steps = self.context.max_steps
+        funnelsFilter = self.context.funnelsFilter
 
-        if self.context.funnelsFilter.funnelOrderType == StepOrderValue.UNORDERED:
-            for exclusion in self.context.funnelsFilter.exclusions or []:
+        if funnelsFilter.funnelOrderType == StepOrderValue.UNORDERED:
+            for exclusion in funnelsFilter.exclusions or []:
                 if exclusion.funnelFromStep != 0 or exclusion.funnelToStep != max_steps - 1:
                     raise ValidationError("Partial Exclusions not allowed in unordered funnels")
+            if funnelsFilter.breakdownAttributionType == "step" and funnelsFilter.breakdownAttributionValue != 0:
+                raise ValidationError("Unordered Funnels only support first step attribution")
 
         inner_select = self._inner_aggregation_query()
 
