@@ -41,7 +41,6 @@ impl KafkaMonitor {
             .clone()
             .set("group.id", &config.kafka_consumer_group)
             .set("enable.auto.commit", "false")
-            .set("enable.partition.eof", "false")
             .create()
             .context("Failed to create Kafka consumer")?;
 
@@ -212,7 +211,7 @@ impl KafkaMonitor {
             .seek(
                 topic,
                 partition,
-                Offset::Offset(consumer_offset - 1),
+                Offset::Offset(consumer_offset.saturating_sub(1)),
                 Duration::from_secs(5),
             )
             .context("Failed to seek messageconsumer")?;
