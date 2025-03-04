@@ -1,6 +1,7 @@
 import csv
 import datetime
 import os
+import re
 
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import ReplacingMergeTree
@@ -99,8 +100,8 @@ EXCHANGE_RATE_DICTIONARY_NAME = "exchange_rate_dict"
 def EXCHANGE_RATE_TABLE_SQL(on_cluster=True):
     return """
 CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause} (
-    date Date,
     currency String,
+    date Date,
     rate Decimal64(10),
     version UInt32 DEFAULT toUnixTimestamp(now())
 ) ENGINE = {engine}
@@ -130,11 +131,54 @@ def EXCHANGE_RATE_DATA_BACKFILL_SQL(exchange_rates=None):
     if exchange_rates is None:
         exchange_rates = HISTORICAL_EXCHANGE_RATE_TUPLES()
 
-    values = ",\n".join(f"(toDate('{date}'), '{currency}', {rate})" for date, currency, rate in exchange_rates)
+    values = ",\n".join(f"('{currency}', {rate}, toDate('{date}'))" for date, currency, rate in exchange_rates)
 
     return f"""
-INSERT INTO exchange_rate (date, currency, rate) VALUES
+INSERT INTO exchange_rate (currency, rate, date) VALUES
   {values};"""
+
+
+# Query used by the dictionary to get the latest rate for a given date and currency
+# There's some magic here to get the end date for each rate
+#
+# The `leadInFrame` function is used to get the next date for each currency
+# The `PARTITION BY currency ORDER BY date ASC` is used to ensure the dates are sorted
+# The `ROWS BETWEEN 1 FOLLOWING AND 1 FOLLOWING` is used to get the next date for each currency
+#
+# The `argMax` function is used to get the latest rate for a given date and currency
+# which is necessary because we're using the `ReplacingMergeTree` engine which will keep
+# multiple versions of the same rate for the same date and currency until we eventually merge all rows.
+#
+# We use `0::Date` to represent the date `1970-01-01` because that's the first date in the CSV file.
+# If we don't do that the last returned end_date will be `1970-01-01` and that's not what we want.
+# If we keep that, then we'll never match it because `end_date` < `start_date`, so we edge-case it
+# to return NULL which implies it's an open-ended range - because it is.
+#
+# All the extra `strip` and `replace`, and `re.sub` are used to make the query
+# more readable when running/debugging it.
+#
+# NOTE: You need to use currency, start_date and end_date in this specific order
+# in the outer query or else the dictionary will not work.
+# This is for legacy reasons - from the time when Clickhouse
+# config was based on an XML file.
+EXCHANGE_RATE_DICTIONARY_QUERY = f"""
+    SELECT
+        currency,
+        date AS start_date,
+        IF(next_date = 0::Date, NULL, next_date) AS end_date,
+        rate
+    FROM (
+        SELECT
+            currency,
+            date,
+            leadInFrame(date) OVER w AS next_date,
+            argMax(rate, version) AS rate
+        FROM exchange_rate
+        GROUP BY date, currency
+        WINDOW w AS (PARTITION BY currency ORDER BY date ASC ROWS BETWEEN 1 FOLLOWING AND 1 FOLLOWING)
+    )
+""".replace("\n", " ").strip()
+EXCHANGE_RATE_DICTIONARY_QUERY = re.sub(r"\s\s+", " ", EXCHANGE_RATE_DICTIONARY_QUERY)
 
 
 # Use RANGE_HASHED to simplify queries by date
@@ -155,17 +199,17 @@ def EXCHANGE_RATE_DICTIONARY_SQL(on_cluster=True):
     return """
 CREATE DICTIONARY IF NOT EXISTS {exchange_rate_dictionary_name} {on_cluster_clause} (
     currency String,
-    rate Decimal64(10),
     start_date Date,
-    end_date Nullable(Date)
+    end_date Nullable(Date),
+    rate Decimal64(10)
 )
 PRIMARY KEY currency
-SOURCE(CLICKHOUSE(QUERY 'SELECT currency, anyLast(rate) AS rate, date AS start_date, NULL AS end_date FROM {exchange_rate_table_name} GROUP BY date, currency' PASSWORD '{clickhouse_password}'))
+SOURCE(CLICKHOUSE(QUERY '{query}' PASSWORD '{clickhouse_password}'))
 LIFETIME(MIN 3000 MAX 3600)
 LAYOUT(RANGE_HASHED(range_lookup_strategy 'max'))
 RANGE(MIN start_date MAX end_date)""".format(
         exchange_rate_dictionary_name=EXCHANGE_RATE_DICTIONARY_NAME,
-        exchange_rate_table_name=EXCHANGE_RATE_TABLE_NAME,
+        query=EXCHANGE_RATE_DICTIONARY_QUERY,
         clickhouse_password=CLICKHOUSE_PASSWORD,
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
     )
