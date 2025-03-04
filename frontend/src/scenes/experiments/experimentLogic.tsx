@@ -1707,7 +1707,7 @@ export const experimentLogic = kea<experimentLogicType>([
 
                     if (
                         metricResult.kind === NodeKind.ExperimentQuery &&
-                        metricResult.metric.metric_type === ExperimentMetricType.BINOMIAL
+                        metricResult.metric.metric_type === ExperimentMetricType.FUNNEL
                     ) {
                         const variants = metricResult.variants as FunnelExperimentVariant[]
                         const variantResults = variants.find((variant) => variant.key === variantKey)
