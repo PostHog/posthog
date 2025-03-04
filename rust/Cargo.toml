@@ -21,6 +21,7 @@ members = [
     "cyclotron-fetch",
     "cymbal",
     "posthog-cli",
+    "e2e-lag-exporter",
 ]
 
 [workspace.lints.rust]
