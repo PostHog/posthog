@@ -234,9 +234,10 @@ class PathsV2QueryRunner(QueryRunner):
                 event_count DESC,
                 source_step,
                 target_step
-            LIMIT 5 BY step_index
+            LIMIT {max_rows_per_step} BY step_index
         """,
             placeholders={
                 "paths_flattened_with_previous_item": self._paths_flattened_with_previous_item(),
+                "max_rows_per_step": ast.Constant(value=self.max_rows_per_step),
             },
         )
