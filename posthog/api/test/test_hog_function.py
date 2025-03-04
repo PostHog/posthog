@@ -625,7 +625,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         }
         res = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data={**payload})
         id = res.json()["id"]
-        assert res.json()["inputs"] == {"secret1": {"secret": True}}, res.json()
+        assert res.json().get("inputs") == {"secret1": {"secret": True}}, res.json()
         res = self.client.patch(
             f"/api/projects/{self.team.id}/hog_functions/{res.json()['id']}",
             data={
@@ -639,7 +639,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 },
             },
         )
-        assert res.json()["inputs"] == {"secret1": {"secret": True}, "secret2": {"secret": True}}, res.json()
+        assert res.json().get("inputs") == {"secret1": {"secret": True}, "secret2": {"secret": True}}, res.json()
 
         # Finally check the DB has the real value
         obj = HogFunction.objects.get(id=res.json()["id"])

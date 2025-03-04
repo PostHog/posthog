@@ -154,8 +154,11 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         instance = cast(Optional[HogFunction], self.context.get("instance", self.instance))
         data["type"] = data.get("type", instance.type if instance else "destination")
         data["template_id"] = instance.template_id if instance else data.get("template_id")
+        data["inputs_schema"] = data.get("inputs_schema", instance.inputs_schema if instance else [])
+        data["inputs"] = data.get("inputs", instance.inputs if instance else {})
 
         self.context["function_type"] = data["type"]
+        self.context["encrypted_inputs"] = instance.encrypted_inputs if instance else {}
 
         template = HogFunctionTemplates.template(data["template_id"]) if data["template_id"] else None
 

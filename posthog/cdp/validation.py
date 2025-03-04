@@ -188,6 +188,7 @@ class InputsSerializer(serializers.DictField):
         result = {}
         errors = {}
 
+        existing_secret_inputs = self.context.get("encrypted_inputs")
         # Note this should always be the child of a dict serializer with a sibling 'inputs_schema' field so we can validate against the relevant schema
         parent_serializer = self.parent
         try:
@@ -200,26 +201,26 @@ class InputsSerializer(serializers.DictField):
             key = str(schema["key"])
             value = data.get(key) or {}
 
-            # TODO: How to load secrets?
-            # # We only load the existing secret if the schema is secret and the given value has "secret" set
-            # if schema.get("secret") and existing_secret_inputs and value and value.get("secret"):
-            #     value = existing_secret_inputs.get(schema["key"]) or {}
+            # We only load the existing secret if the schema is secret and the given value has "secret" set
+            if schema.get("secret") and existing_secret_inputs and value and value.get("secret"):
+                value = existing_secret_inputs.get(schema["key"]) or {}
 
             self.context["schema"] = schema
 
             try:
-                result[key] = self.child.run_validation(value)
+                input_value = self.child.run_validation(value)
+
+                if "value" not in input_value:
+                    # Indicates no value is provided and no error was thrown which is fine so we can exclude it
+                    continue
+
+                result[key] = input_value
             except ValidationError as e:
                 # TRICKY: Need to get the nested error message to ensure the structure is correct
                 if "input" in e.detail and isinstance(e.detail, dict):
                     errors[key] = e.detail.get("input")
                 else:
                     errors[key] = e.detail
-
-        # # If it's a secret input, not required, and no value was provided, don't add it
-        # if schema.get("secret", False) and not schema.get("required", False) and "value" not in validated_data:
-        #     # Skip adding this input entirely
-        #     continue
 
         if errors:
             raise ValidationError(errors)
