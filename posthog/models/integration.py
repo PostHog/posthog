@@ -520,7 +520,7 @@ class GoogleAdsIntegration:
             raise Exception(f"There was an internal error")
 
         accessible_accounts = response.json()
-        all_accounts = []
+        all_accounts: list[dict[str, str]] = []
 
         def dfs(account_id, accounts=None, parent_id=None) -> list[dict]:
             if accounts is None:
