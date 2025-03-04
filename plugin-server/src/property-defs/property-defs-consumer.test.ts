@@ -40,14 +40,10 @@ jest.mock('../../src/kafka/batch-consumer', () => {
 
 let offsetIncrementer = 0
 
-const createRawClickHouseEvent = (event: Partial<ClickHouseEvent> = {}): RawClickHouseEvent => {
+const createRawClickHouseEvent = (event: ClickHouseEvent): RawClickHouseEvent => {
     // Inverts the parsing for simpler tests
     return {
-        distinct_id: event.distinct_id ?? 'distinct_id_1',
-        team_id: event.team_id ?? 1,
-        event: event.event ?? 'page',
-        uuid: event.uuid ?? '123',
-        person_mode: event.person_mode ?? 'full',
+        ...event,
         properties: JSON.stringify(event.properties),
         timestamp: castTimestampOrNow(event.timestamp ?? null, TimestampFormat.ClickHouse),
         created_at: castTimestampOrNow(event.created_at ?? null, TimestampFormat.ClickHouse),
@@ -96,7 +92,7 @@ const createClickHouseEvent = (event: Partial<ClickHouseEvent> = {}): ClickHouse
     }
 }
 
-const createKafkaMessages: (events: Partial<ClickHouseEvent>[]) => Message[] = (events) => {
+const createKafkaMessages: (events: ClickHouseEvent[]) => Message[] = (events) => {
     return events.map((event) => {
         // TRICKY: This is the slightly different format that capture sends
         return {
