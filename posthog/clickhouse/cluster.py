@@ -430,10 +430,12 @@ class MutationRunner(abc.ABC):
 
     @abc.abstractmethod
     def get_statement(self) -> str:
+        """Returns the full statement that can be used to enqueue the mutation."""
         raise NotImplementedError
 
     @abc.abstractmethod
     def get_command(self) -> str:
+        """Returns the command that can be used to find the mutation in the ``system.mutations`` table."""
         raise NotImplementedError
 
     def __post_init__(self) -> None:
