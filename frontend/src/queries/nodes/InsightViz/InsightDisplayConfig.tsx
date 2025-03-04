@@ -37,6 +37,7 @@ import { useDebouncedCallback } from 'use-debounce'
 import { resultCustomizationsModalLogic } from '~/queries/nodes/InsightViz/resultCustomizationsModalLogic'
 import { isValidBreakdown } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
+import { PathsV2MaxRowsPerStepPicker } from './PathsV2MaxRowsPerStepPicker'
 
 export function InsightDisplayConfig(): JSX.Element {
     const { insightProps, canEditInsight } = useValues(insightLogic)
@@ -195,12 +196,6 @@ export function InsightDisplayConfig(): JSX.Element {
                     </ConfigFilter>
                 )}
 
-                {!!isPathsV2 && (
-                    <ConfigFilter>
-                        <PathsV2MaxStepPicker />
-                    </ConfigFilter>
-                )}
-
                 {showCompare && (
                     <ConfigFilter>
                         <CompareFilter
@@ -239,6 +234,12 @@ export function InsightDisplayConfig(): JSX.Element {
                 {!!isTimeToConvertFunnel && (
                     <ConfigFilter>
                         <FunnelBinsPicker />
+                    </ConfigFilter>
+                )}
+                {!!isPathsV2 && (
+                    <ConfigFilter>
+                        <PathsV2MaxStepPicker />
+                        <PathsV2MaxRowsPerStepPicker />
                     </ConfigFilter>
                 )}
             </div>
