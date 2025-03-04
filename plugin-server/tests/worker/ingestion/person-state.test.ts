@@ -303,6 +303,50 @@ describe('PersonState.update()', () => {
             )
         })
 
+        it('force_upgrade is ignored if team.person_processing_opt_out is true', async () => {
+            mainTeam.person_processing_opt_out = true
+            await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, oldUserUuid, [
+                { distinctId: oldUserDistinctId },
+            ])
+
+            const hubParam = undefined
+            let processPerson = true
+            const [_person, kafkaAcks] = await personState(
+                {
+                    event: '$identify',
+                    distinct_id: newUserDistinctId,
+                    properties: {
+                        $anon_distinct_id: oldUserDistinctId,
+                    },
+                },
+                hubParam,
+                processPerson
+            ).update()
+            await hub.db.kafkaProducer.flush()
+            await kafkaAcks
+
+            // Using the `distinct_id` again with `processPerson=false` results in
+            // `force_upgrade=true` and real Person `uuid` and `created_at`
+            processPerson = false
+            const event_uuid = new UUIDT().toString()
+            const timestampParam = timestamp.plus({ minutes: 5 }) // Event needs to happen after Person creation
+            const [fakePerson, kafkaAcks2] = await personState(
+                {
+                    event: '$pageview',
+                    distinct_id: newUserDistinctId,
+                    uuid: event_uuid,
+                    properties: { $set: { should_be_dropped: 100 } },
+                },
+                hubParam,
+                processPerson,
+                timestampParam
+            ).update()
+            await hub.db.kafkaProducer.flush()
+            await kafkaAcks2
+
+            expect(fakePerson.force_upgrade).toBeUndefined()
+        })
+
         it('creates person if they are new', async () => {
             const event_uuid = new UUIDT().toString()
             const [person, kafkaAcks] = await personState({
