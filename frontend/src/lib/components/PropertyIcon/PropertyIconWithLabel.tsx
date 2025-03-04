@@ -1,4 +1,3 @@
-import clsx from 'clsx'
 import { forwardRef, Ref } from 'react'
 
 import { PropertyIconStandalone } from './PropertyIconStandalone'
@@ -9,8 +8,8 @@ export const PropertyIconWithLabel = forwardRef(function PropertyIconWithLabel(
     ref: Ref<HTMLDivElement>
 ): JSX.Element {
     return (
-        <div className={clsx('inline-flex items-center gap-2', className)}>
-            <PropertyIconStandalone property={property} value={value} ref={ref} />
+        <div className="inline-flex items-center gap-2">
+            <PropertyIconStandalone property={property} value={value} ref={ref} className={className} />
             <span>{value}</span>
         </div>
     )
