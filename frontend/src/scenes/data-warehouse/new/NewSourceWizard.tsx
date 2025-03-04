@@ -187,7 +187,7 @@ function FirstStep(): JSX.Element {
                 ]}
             />
 
-            <h2 className="mt-4">Self Managed</h2>
+            <h2 className="mt-4">Self-managed</h2>
 
             <p>
                 Data will be queried directly from your data source that you manage.{' '}

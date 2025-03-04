@@ -295,6 +295,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPieChart,
         inMenu: true,
     },
+    [NodeKind.RevenueExampleEventsQuery]: {
+        name: 'Revenue Example Events',
+        description: 'Revenue Example Events Query.',
+        icon: IconPieChart,
+        inMenu: true,
+    },
     [NodeKind.ErrorTrackingQuery]: {
         name: 'Error Tracking',
         description: 'List and explore exception groups.',

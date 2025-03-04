@@ -59,6 +59,7 @@ import {
     isHogQlAggregation,
     isHogQLQuery,
     isInsightActorsQuery,
+    isRevenueExampleEventsQuery,
     taxonomicEventFilterToHogQL,
     taxonomicPersonFilterToHogQL,
 } from '~/queries/utils'
@@ -566,7 +567,11 @@ export function DataTable({
                                 expandable && columnsInResponse?.includes('*')
                                     ? {
                                           expandedRowRender: function renderExpand({ result }) {
-                                              if (isEventsQuery(query.source) && Array.isArray(result)) {
+                                              if (
+                                                  (isEventsQuery(query.source) ||
+                                                      isRevenueExampleEventsQuery(query.source)) &&
+                                                  Array.isArray(result)
+                                              ) {
                                                   return (
                                                       <EventDetails
                                                           event={result[columnsInResponse.indexOf('*')] ?? {}}
