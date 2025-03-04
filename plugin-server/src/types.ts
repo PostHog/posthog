@@ -1158,19 +1158,20 @@ export enum PropertyDefinitionTypeEnum {
     Event = 1,
     Person = 2,
     Group = 3,
+    Session = 4,
 }
 
 export interface PropertyDefinitionType {
     id: string
     name: string
     is_numerical: boolean
-    volume_30_day: number | null
-    query_usage_30_day: number | null
     team_id: number
     project_id: number | null
-    property_type?: PropertyType
+    property_type: PropertyType | null
     type: PropertyDefinitionTypeEnum
-    group_type_index: number | null
+    group_type_index?: number | null
+    volume_30_day?: number | null
+    query_usage_30_day?: number | null
 }
 
 export interface EventPropertyType {
