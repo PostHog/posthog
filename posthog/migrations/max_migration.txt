@@ -1,1 +1,1 @@
-0678_action_embedding_last_synced_at
+0675_add_playlist_viewed
