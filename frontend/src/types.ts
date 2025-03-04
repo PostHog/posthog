@@ -771,6 +771,7 @@ export enum PipelineStage {
 export enum PipelineNodeTab {
     Backfills = 'backfills',
     Configuration = 'configuration',
+    Testing = 'testing',
     Runs = 'runs',
     Logs = 'logs',
     Metrics = 'metrics',
@@ -1038,6 +1039,7 @@ export enum SessionRecordingSidebarTab {
     OVERVIEW = 'overview',
     INSPECTOR = 'inspector',
     DEBUGGER = 'debugger',
+    NETWORK_WATERFALL = 'network-waterfall',
 }
 
 export enum SessionRecordingSidebarStacking {
@@ -1433,10 +1435,21 @@ export interface RecordingEventType
     fullyLoaded: boolean
 }
 
-export interface PlaylistRecordingsCounts {
-    query_count?: number
-    pinned_count?: number
+export interface PlaylistCollectionCount {
+    count: number
+    watched_count: number
+}
+
+export interface PlaylistSavedFiltersCount {
+    count: number
+    watched_count: number
     has_more?: boolean
+    increased?: boolean
+}
+
+export interface PlaylistRecordingsCounts {
+    saved_filters?: PlaylistSavedFiltersCount
+    collection: PlaylistCollectionCount
 }
 
 export interface SessionRecordingPlaylistType {
@@ -2457,6 +2470,12 @@ export interface RetentionEntity {
     properties?: AnyPropertyFilter[]
 }
 
+export enum RetentionDashboardDisplayType {
+    TableOnly = 'table_only',
+    GraphOnly = 'graph_only',
+    All = 'all',
+}
+
 export interface RetentionFilterType extends FilterType {
     retention_type?: RetentionType
     /** Whether retention is with regard to initial cohort size, or that of the previous period. */
@@ -2904,6 +2923,7 @@ export interface SurveyAppearance {
 
 export interface SurveyQuestionBase {
     question: string
+    id?: string
     description?: string | null
     descriptionContentType?: SurveyQuestionDescriptionContentType
     optional?: boolean
@@ -3298,6 +3318,7 @@ export interface EventDefinition {
     verified_at?: string
     verified_by?: string
     is_action?: boolean
+    hidden?: boolean
 }
 
 // TODO duplicated from plugin server. Follow-up to de-duplicate
@@ -3338,6 +3359,7 @@ export interface PropertyDefinition {
     verified?: boolean
     verified_at?: string
     verified_by?: string
+    hidden?: boolean
 }
 
 export enum PropertyDefinitionState {
@@ -3347,6 +3369,7 @@ export enum PropertyDefinitionState {
     Error = 'error',
 }
 
+export type PropertyDefinitionVerificationStatus = 'verified' | 'hidden' | 'visible'
 export type Definition = EventDefinition | PropertyDefinition
 
 export interface PersonProperty {

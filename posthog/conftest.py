@@ -2,7 +2,7 @@ import pytest
 from django.conf import settings
 from infi.clickhouse_orm import Database
 
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.models.raw_sessions.sql import TRUNCATE_RAW_SESSIONS_TABLE_SQL
 from posthog.test.base import PostHogTestCase, run_clickhouse_statement_in_parallel
 

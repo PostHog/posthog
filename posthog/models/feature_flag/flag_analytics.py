@@ -10,7 +10,7 @@ from posthog.redis import redis, get_client
 import time
 from posthog.exceptions_capture import capture_exception
 from django.conf import settings
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from datetime import datetime
 
 

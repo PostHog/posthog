@@ -5,7 +5,7 @@ from math import ceil
 
 from django.db import models
 
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.utils import UUIDModel
 

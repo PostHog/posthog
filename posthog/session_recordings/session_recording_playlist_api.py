@@ -36,6 +36,7 @@ from posthog.rate_limit import (
 from posthog.schema import RecordingsQuery
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylistViewed
 from posthog.session_recordings.session_recording_api import (
+    current_user_viewed,
     list_recordings_response,
     query_as_params_to_dict,
     list_recordings_from_query,
@@ -113,23 +114,54 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     last_modified_by = UserBasicSerializer(read_only=True)
 
-    def get_recordings_counts(self, playlist: SessionRecordingPlaylist) -> dict[str, int | bool | None]:
-        recordings_counts: dict[str, int | bool | None] = {
-            "query_count": None,
-            "pinned_count": None,
-            "has_more": None,
+    def get_recordings_counts(self, playlist: SessionRecordingPlaylist) -> dict[str, dict[str, int | bool | None]]:
+        recordings_counts: dict[str, dict[str, int | bool | None]] = {
+            "saved_filters": {
+                "count": None,
+                "has_more": None,
+                "watched_count": None,
+                "increased": None,
+            },
+            "collection": {
+                "count": None,
+                "watched_count": None,
+            },
         }
 
         try:
             redis_client = get_client()
             counts = redis_client.get(f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist.short_id}")
+
+            user = self.context["request"].user
+            team = self.context["get_team"]()
+
             if counts:
                 count_data = json.loads(counts)
-                id_list = count_data.get("session_ids", None)
-                recordings_counts["query_count"] = len(id_list) if id_list else 0
-                recordings_counts["has_more"] = count_data.get("has_more", False)
+                id_list: list[str] = count_data.get("session_ids", None)
+                current_count = len(id_list) if id_list else 0
+                previous_ids = count_data.get("previous_ids", None)
+                recordings_counts["saved_filters"] = {
+                    "count": current_count,
+                    "has_more": count_data.get("has_more", False),
+                    "watched_count": len(current_user_viewed(id_list, user, team)) if id_list else 0,
+                    "increased": previous_ids is not None and current_count > len(previous_ids),
+                }
 
-            recordings_counts["pinned_count"] = playlist.playlist_items.count()
+            playlist_items: QuerySet[SessionRecordingPlaylistItem] = playlist.playlist_items.filter(deleted=False)
+            watched_playlist_items = current_user_viewed(
+                # mypy can't detect that it's safe to pass queryset to list() 🤷
+                list(playlist.playlist_items.values_list("session_id", flat=True)),  # type: ignore
+                user,
+                team,
+            )
+
+            item_count = playlist_items.count()
+            watched_count = len(watched_playlist_items)
+            recordings_counts["collection"] = {
+                "count": item_count if item_count > 0 else None,
+                "watched_count": watched_count if watched_count > 0 else None,
+            }
+
         except Exception as e:
             posthoganalytics.capture_exception(e)
 

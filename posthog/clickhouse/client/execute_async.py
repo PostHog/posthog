@@ -11,7 +11,7 @@ from rest_framework.exceptions import APIException, NotFound
 
 from posthog import celery, redis
 from posthog.clickhouse.client.async_task_chain import add_task_to_on_commit
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import tag_queries, get_query_tag_value
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries, ExposedCHQueryError
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError
@@ -246,7 +246,8 @@ def enqueue_process_query_task(
     )
     manager.store_query_status(query_status)
 
-    task_signature = process_query_task.si(team.id, user_id, query_id, query_json, LimitContext.QUERY_ASYNC)
+    is_api = get_query_tag_value("access_method") == "personal_api_key"
+    task_signature = process_query_task.si(team.id, user_id, query_id, query_json, is_api, LimitContext.QUERY_ASYNC)
 
     if _test_only_bypass_celery:
         task_signature()

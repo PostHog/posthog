@@ -7,16 +7,15 @@ use crate::{
 
 use anyhow::Result;
 use axum::{
-    extract::{OriginalUri, Path, Query, State},
-    http::Uri,
+    extract::{Path, Query, State},
     routing::get,
     Json, Router,
 };
 use chrono::{DateTime, Utc};
-use serde::Serialize;
+use regex::Regex;
+use serde::{Deserialize, Serialize};
 use sqlx::{Execute, Executor, FromRow, Postgres, QueryBuilder, Row};
 use tracing::debug;
-use url::form_urlencoded;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -34,10 +33,9 @@ pub fn apply_routes(parent: Router, app_ctx: Arc<AppContext>) -> Router {
 
 async fn project_property_definitions_handler(
     State(app_ctx): State<Arc<AppContext>>,
-    OriginalUri(uri): OriginalUri,
     Path(project_id): Path<i32>,
     Query(params): Query<HashMap<String, String>>,
-) -> Result<Json<PropDefResponse>, ApiError> {
+) -> Result<Json<PropertyDefinitionResponse>, ApiError> {
     // parse and validate request's query params
     let params = parse_request(params);
     params.valid()?;
@@ -70,14 +68,11 @@ async fn project_property_definitions_handler(
         }
     };
 
-    let mut prop_defs = vec![];
+    let mut prop_defs: Vec<PropertyDefinition> = vec![];
     match qmgr.pool.fetch_all(props_query).await {
         Ok(result) => {
             for row in result {
-                debug!("PgRow: {:?}", row);
-
-                // TODO: iterate on this! populate ee & User fields when available etc.
-                let pd = PropDef::from_row(&row).map_err(|e| {
+                let pd = PropertyDefinition::from_row(&row).map_err(|e| {
                     ApiError::QueryError(format!("deserializing prop defs row: {}", e))
                 })?;
                 prop_defs.push(pd);
@@ -91,32 +86,24 @@ async fn project_property_definitions_handler(
         }
     }
 
-    // TODO: since this is an internal API, and using the incoming URI
-    // will likely not behave as expected for building user-visible
-    // next/prev URIs, we could return next limit/offset instead
-    // and let the caller (Django) build the URIs for responses?
-    let (prev_url, next_url) = gen_next_prev_urls(uri, total_count, params.limit, params.offset);
-
-    // execute the queries, and populate the response
-    let out = PropDefResponse {
+    // build and return JSON response
+    Ok(Json(PropertyDefinitionResponse {
         count: total_count,
-        next: next_url,
-        prev: prev_url,
         results: prop_defs,
-    };
-
-    Ok(Json(out))
+    }))
 }
 
 fn parse_request(params: HashMap<String, String>) -> Params {
     // search terms: optional - each term is a fragment that will be
     // fuzzy-searched in Postgres against the specified search fields
     // DIVERGES FROM DJANGO API: the new Rust API will accept lists as space-separated query param values
+    let search_terms_filter = Regex::new(r"^[ a-z0-9$._-]+$").unwrap();
     let search_terms: Vec<String> = params
         .get("search")
+        .filter(|s| search_terms_filter.is_match(s))
         .map(|raw| {
             raw.split(" ")
-                .map(|s| s.trim().to_string().to_lowercase())
+                .map(|s| s.trim().to_lowercase().to_string())
                 .collect()
         })
         .unwrap_or_default();
@@ -124,17 +111,20 @@ fn parse_request(params: HashMap<String, String>) -> Params {
     // which columns should we fuzzy-search for each of the user-supplied search terms?
     // defaults to "posthog_propertydefinition.name" column, but user can supply more
     // DIVERGES FROM DJANGO API: the new Rust API will accept lists as space-separated query param values
-    let search_fields: HashSet<String> = HashSet::from([
-        "name".to_string(), // this is the default value, always include it
-        params
-            .get("search_fields")
-            .map(|raw| {
-                raw.split(" ")
-                    .map(|s| s.trim().to_string().to_lowercase())
-                    .collect()
-            })
-            .unwrap_or_default(),
-    ]);
+    let mut search_fields: HashSet<String> = HashSet::from(["name".to_string()]);
+    let sf_overrides: Vec<String> = params
+        .get("search_fields")
+        .map(|raw| {
+            raw.split(" ")
+                .map(|s| s.trim().to_lowercase().to_string())
+                .collect()
+        })
+        .unwrap_or_default();
+    for field in sf_overrides {
+        if !field.is_empty() {
+            search_fields.insert(field);
+        }
+    }
 
     // which category of properties do we filter for? default is "event"
     let parent_type = params
@@ -150,7 +140,8 @@ fn parse_request(params: HashMap<String, String>) -> Params {
     // defaults to "-1" if the caller didn't supply the group_type_index, or the parent_type != "group"
     let group_type_index: i32 = params.get("group_type_index").map_or(-1, |s| {
         s.parse::<i32>().ok().map_or(-1, |gti| {
-            if parent_type == PropertyParentType::Group && (1..GROUP_TYPE_LIMIT).contains(&gti) {
+            if parent_type == PropertyParentType::Group {
+                // group_type_index value on "group" type query is validated downstream
                 gti
             } else {
                 -1
@@ -180,16 +171,16 @@ fn parse_request(params: HashMap<String, String>) -> Params {
         .map(|raw| raw.split(" ").map(|s| s.trim().to_string()).collect())
         .unwrap_or_default();
 
-    // NOTE: so far I'm assuming this should be calculated on the Django (caller) side and
-    // passed to this app as a flag b/c it references User model (etc.) but perhaps we just
-    // manually run those queries here too? TBD. the flag allows us to decide the base table
-    // to select from in our property defs queries. see also:
+    // NOTE: this is calculated using the User model in the Django app, so probably easiest to
+    // to just pass the result of those checks from the caller (Django) to this API? the flag decides
+    // if the props def query should join in enterprise prop defs and (indirectly) the users table.
+    // defaulting to true for now, but TBD if this is in parity w/original yet. see also:
     // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L463
     // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L504-L508
     let use_enterprise_taxonomy = params
         .get("use_enterprise_taxonomy")
         .and_then(|s| s.parse::<bool>().ok())
-        .unwrap_or(false);
+        .unwrap_or(true);
 
     // DIVERGES FROM DJANGO API: the new Rust API will accept lists as space-separated query param values
     // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L214
@@ -222,62 +213,6 @@ fn parse_request(params: HashMap<String, String>) -> Params {
     }
 }
 
-fn gen_next_prev_urls(
-    uri: Uri,
-    total_count: i64,
-    curr_limit: i64,
-    curr_offset: i64,
-) -> (Option<String>, Option<String>) {
-    let next_offset = curr_offset + curr_limit;
-    let prev_offset = curr_offset - curr_limit;
-
-    (
-        gen_url(uri.clone(), total_count, prev_offset),
-        gen_url(uri.clone(), total_count, next_offset),
-    )
-}
-
-fn gen_url(uri: Uri, total_count: i64, new_offset: i64) -> Option<String> {
-    if new_offset < 0 || new_offset > total_count {
-        return None;
-    }
-
-    // Parse the query parameters
-    let mut query_params = uri
-        .query()
-        .map(|query| {
-            form_urlencoded::parse(query.as_bytes())
-                .into_owned()
-                .collect::<HashMap<String, String>>()
-        })
-        .unwrap_or_default();
-
-    // Modify a single query parameter
-    query_params.insert("offset".to_string(), new_offset.to_string());
-
-    // Rebuild the Uri with the modified query parameters
-    let new_query = form_urlencoded::Serializer::new(String::new())
-        .extend_pairs(query_params)
-        .finish();
-
-    // Replace the original query with the modified query
-    let base_uri = uri
-        .clone()
-        .into_parts()
-        .path_and_query
-        .unwrap()
-        .path()
-        .to_string();
-    let uri = Uri::builder()
-        .scheme(uri.scheme().unwrap().as_str())
-        .authority(uri.authority().unwrap().as_str())
-        .path_and_query(base_uri + "?" + &new_query)
-        .build()
-        .unwrap();
-
-    Some(uri.to_string())
-}
-
 #[derive(Debug)]
 pub struct Params {
     pub search_terms: Vec<String>,
@@ -297,7 +232,9 @@ pub struct Params {
 impl Params {
     // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L81-L96
     pub fn valid(&self) -> Result<(), ApiError> {
-        if self.parent_type == PropertyParentType::Group && self.group_type_index <= 0 {
+        if self.parent_type == PropertyParentType::Group
+            && (0..GROUP_TYPE_LIMIT).contains(&self.group_type_index)
+        {
             return Err(ApiError::InvalidRequestParam(
                 "property_type 'group' requires 'group_type_index' parameter".to_string(),
             ));
@@ -320,58 +257,47 @@ impl Params {
     }
 }
 
-#[derive(Serialize)]
-pub struct PropDefResponse {
-    count: i64,
-    next: Option<String>,
-    prev: Option<String>,
-    results: Vec<PropDef>,
+impl Default for Params {
+    fn default() -> Self {
+        Params {
+            search_terms: vec![],
+            search_fields: HashSet::from(["name".to_string()]),
+            parent_type: PropertyParentType::Event,
+            group_type_index: -1,
+            properties: vec![],
+            excluded_properties: vec![],
+            event_names: vec![],
+            is_feature_flag: None,
+            is_numerical: false,
+            use_enterprise_taxonomy: true,
+            limit: 100,
+            offset: 0,
+        }
+    }
 }
 
-#[derive(Serialize, FromRow)]
-pub struct PropDef {
-    // required fields
+//
+// JSON API response structures below. These are shaped as the original Django API does
+//
+
+#[derive(Serialize)]
+pub struct PropertyDefinitionResponse {
+    count: i64,
+    results: Vec<PropertyDefinition>,
+    // let the caller (Django monolith) handle pagination and next/prev URI building
+}
+
+#[derive(Serialize, Deserialize, FromRow)]
+pub struct PropertyDefinition {
     id: uuid::Uuid,
     name: String,
-    property_type: String,
-    is_numerical: bool,
-    is_seen_on_filtered_events: bool,
-
-    // enterprise prop defs only fields below
-    #[serde(default)]
+    property_type: Option<String>,
+    is_numerical: Option<bool>,
+    is_seen_on_filtered_events: Option<bool>,
     updated_at: Option<DateTime<Utc>>,
-    #[serde(default)]
-    updated_by_id: Option<i64>, // TODO: when available, JOIN in the User record instead!
-    #[serde(default)]
+    updated_by_id: Option<i64>,
     verified: Option<bool>,
-    #[serde(default)]
     verified_at: Option<DateTime<Utc>>,
-    #[serde(default)]
-    verified_by_id: Option<i64>, // TODO: when available, JOIN in the User record instead!
-    #[serde(default)]
-    description: Option<String>,
-    #[serde(default)]
-    tags: Vec<String>,
-}
-
-// TODO: hydrate User(s) JOINed into prop defs query into this
-#[derive(Serialize, FromRow)]
-pub struct User {
-    id: u32,
-    uuid: uuid::Uuid,
-    distinct_id: String,
-    first_name: String,
-    last_name: String,
-    email: String,
-    is_email_verified: bool,
-    hedgehog_config: HedgehogConfig,
-}
-
-// TODO: optionally include when prop defs query JOINs in User records
-#[derive(Serialize, FromRow)]
-pub struct HedgehogConfig {
-    use_as_profile: bool,
-    color: String,
-    accessories: Vec<String>,
-    role_at_organization: Option<String>,
+    verified_by_id: Option<i64>,
+    tags: Option<Vec<String>>,
 }

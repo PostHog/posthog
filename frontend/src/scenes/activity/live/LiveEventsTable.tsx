@@ -5,10 +5,12 @@ import { useActions, useValues } from 'kea'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 
+import { EventCopyLinkButton } from '~/queries/nodes/DataTable/EventRowActions'
 import type { LiveEvent } from '~/types'
 
 const columns: LemonTableColumns<LiveEvent> = [
@@ -45,6 +47,21 @@ const columns: LemonTableColumns<LiveEvent> = [
         render: function Render(_, event: LiveEvent) {
             return <TZLabel time={event.timestamp} />
         },
+    },
+    {
+        dataIndex: '__more' as any,
+        render: function Render(_, event: LiveEvent) {
+            return (
+                <More
+                    overlay={
+                        <Tooltip title="It may take up to a few minutes for the event to show up in the Explore view">
+                            <EventCopyLinkButton event={event} />
+                        </Tooltip>
+                    }
+                />
+            )
+        },
+        width: 0,
     },
 ]
 
