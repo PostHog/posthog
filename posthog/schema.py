@@ -4780,6 +4780,7 @@ class ExperimentMetric(BaseModel):
     metric_config: Union[ExperimentEventMetricConfig, ExperimentActionMetricConfig, ExperimentDataWarehouseMetricConfig]
     metric_type: ExperimentMetricType
     name: Optional[str] = None
+    time_window_hours: Optional[float] = None
 
 
 class ExperimentQueryResponse(BaseModel):
