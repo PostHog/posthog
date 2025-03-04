@@ -17,6 +17,8 @@ from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
+from posthog.hogql_queries.utils.revenue import revenue_sum_expression, revenue_events_exprs
+
 from posthog.models import Action
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
@@ -217,41 +219,7 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
 
     @cached_property
     def revenue_sum_expression(self) -> ast.Expr:
-        config = (
-            RevenueTrackingConfig.model_validate(self.team.revenue_tracking_config)
-            if self.team.revenue_tracking_config
-            else None
-        )
-        exprs: list[ast.Expr] = []
-        if config:
-            for event in config.events:
-                exprs.append(
-                    ast.Call(
-                        name="sumIf",
-                        args=[
-                            ast.Call(
-                                name="ifNull",
-                                args=[
-                                    ast.Call(
-                                        name="toFloat",
-                                        args=[ast.Field(chain=["events", "properties", event.revenueProperty])],
-                                    ),
-                                    ast.Constant(value=0),
-                                ],
-                            ),
-                            ast.CompareOperation(
-                                left=ast.Field(chain=["event"]),
-                                op=ast.CompareOperationOp.Eq,
-                                right=ast.Constant(value=event.eventName),
-                            ),
-                        ],
-                    )
-                )
-        if not exprs:
-            return ast.Constant(value=None)
-        if len(exprs) == 1:
-            return exprs[0]
-        return ast.Call(name="plus", args=exprs)
+        return revenue_sum_expression(self.team.revenue_tracking_config)
 
     @cached_property
     def event_type_expr(self) -> ast.Expr:
@@ -269,22 +237,7 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
         elif self.query.includeRevenue:
             # Use elif here, we don't need to include revenue events if we already included conversion events, because
             # if there is a conversion goal set then we only show revenue from conversion events.
-
-            config = (
-                RevenueTrackingConfig.model_validate(self.team.revenue_tracking_config)
-                if self.team.revenue_tracking_config
-                else None
-            )
-
-            if config:
-                for eventItem in config.events:
-                    exprs.append(
-                        ast.CompareOperation(
-                            op=ast.CompareOperationOp.Eq,
-                            left=ast.Field(chain=["event"]),
-                            right=ast.Constant(value=eventItem.eventName),
-                        )
-                    )
+            exprs.extend(revenue_events_exprs(self.team.revenue_tracking_config))
 
         return ast.Or(exprs=exprs)
 

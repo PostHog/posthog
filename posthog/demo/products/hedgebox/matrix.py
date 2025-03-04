@@ -174,6 +174,7 @@ class HedgeboxMatrix(Matrix):
             ],
         )
         team.test_account_filters = [{"key": "id", "type": "cohort", "value": real_users_cohort.pk}]
+        team.revenue_tracking_config = {"events": [{"eventName": EVENT_PAID_BILL, "revenueProperty": "amount_usd"}]}
 
         # Dashboard: Key metrics (project home)
         key_metrics_dashboard = Dashboard.objects.create(
