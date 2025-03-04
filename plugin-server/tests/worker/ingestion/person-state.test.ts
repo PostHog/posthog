@@ -24,7 +24,7 @@ describe('PersonState.update()', () => {
     let hub: Hub
 
     let teamId: number
-    let team: Team
+    let mainTeam: Team
     let organizationId: string
 
     // Common Distinct IDs (and their deterministic UUIDs) used in tests below.
@@ -46,7 +46,7 @@ describe('PersonState.update()', () => {
 
     beforeEach(async () => {
         teamId = await createTeam(hub.db.postgres, organizationId)
-        team = (await fetchTeam(hub.db.postgres, teamId))!
+        mainTeam = (await fetchTeam(hub.db.postgres, teamId))!
 
         newUserUuid = uuidFromDistinctId(teamId, newUserDistinctId)
         oldUserUuid = uuidFromDistinctId(teamId, oldUserDistinctId)
@@ -73,7 +73,8 @@ describe('PersonState.update()', () => {
         event: Partial<PluginEvent>,
         customHub?: Hub,
         processPerson = true,
-        timestampParam = timestamp
+        timestampParam = timestamp,
+        team = mainTeam
     ) {
         const fullEvent = {
             team_id: teamId,
@@ -130,12 +131,19 @@ describe('PersonState.update()', () => {
             }).updateProperties()
 
             const otherTeamId = await createTeam(hub.db.postgres, organizationId)
+            const otherTeam = (await fetchTeam(hub.db.postgres, otherTeamId))!
             teamId = otherTeamId
-            const [personOtherTeam, kafkaAcksOther] = await personState({
-                event: '$pageview',
-                distinct_id: newUserDistinctId,
-                uuid: event_uuid,
-            }).updateProperties()
+            const [personOtherTeam, kafkaAcksOther] = await personState(
+                {
+                    event: '$pageview',
+                    distinct_id: newUserDistinctId,
+                    uuid: event_uuid,
+                },
+                undefined,
+                true,
+                timestamp,
+                otherTeam
+            ).updateProperties()
 
             await hub.db.kafkaProducer.flush()
             await kafkaAcks
