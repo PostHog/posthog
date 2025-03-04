@@ -46,11 +46,25 @@ export default function SchemaForm(): JSX.Element {
                             'Full refresh will refresh the full table on every sync, whereas incremental will only sync new/updated rows.',
                         render: (_, schema) => {
                             const incrementalSyncDisabledReason = getIncrementalSyncDisabledReason(schema)
+                            const defaultIncrementalField = incrementalSyncDisabledReason
+                                ? null
+                                : schema.incremental_fields[0]?.field ?? null
+                            const defaultIncrementalFieldType = incrementalSyncDisabledReason
+                                ? null
+                                : schema.incremental_fields[0]?.field_type ?? null
+
                             return (
                                 <div className="py-2">
                                     <LemonSelect
                                         value={schema.sync_type ?? null}
-                                        onChange={(val) => updateSchema({ ...schema, sync_type: val })}
+                                        onChange={(val) =>
+                                            updateSchema({
+                                                ...schema,
+                                                sync_type: val,
+                                                incremental_field: defaultIncrementalField,
+                                                incremental_field_type: defaultIncrementalFieldType,
+                                            })
+                                        }
                                         options={[
                                             { value: 'full_refresh', label: 'Full refresh' },
                                             {
