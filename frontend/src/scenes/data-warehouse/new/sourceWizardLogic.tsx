@@ -1275,7 +1275,15 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         sourceConnectionDetails: {
             defaults: buildKeaFormDefaultFromSourceDetails(SOURCE_DETAILS),
             errors: (sourceValues) => {
-                return getErrorsForFields(values.selectedConnector?.fields ?? [], sourceValues as any)
+                const errors = getErrorsForFields(values.selectedConnector?.fields ?? [], sourceValues as any)
+
+                // if (values.sourceConnectionDetailsManualErrors.prefix && sourceValues.prefix) {
+                //     actions.setSourceConnectionDetailsManualErrors({
+                //         prefix: undefined,
+                //     })
+                // }
+
+                return errors
             },
             submit: async (sourceValues) => {
                 if (values.selectedConnector) {
@@ -1342,10 +1350,15 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
 export const getErrorsForFields = (
     fields: SourceFieldConfig[],
-    values: { prefix: string; payload: Record<string, any> } | undefined
+    values: { prefix: string; payload: Record<string, any> } | undefined,
+    options?: { prefixRequired?: boolean }
 ): Record<string, any> => {
     const errors: Record<string, any> = {
         payload: {},
+    }
+
+    if (options?.prefixRequired && !values?.prefix) {
+        errors['prefix'] = 'Please enter a prefix.'
     }
 
     // Prefix errors
