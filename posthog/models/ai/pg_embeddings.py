@@ -83,3 +83,8 @@ def DROP_PG_EMBEDDINGS_TABLE_SQL():
 
 def TRUNCATE_PG_EMBEDDINGS_TABLE_SQL():
     return f"TRUNCATE TABLE IF EXISTS {PG_EMBEDDINGS_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}"
+
+
+INSERT_BULK_PG_EMBEDDINGS_SQL = """
+INSERT INTO writable_pg_embeddings (domain, team_id, id, vector, text, properties, is_deleted) VALUES
+"""

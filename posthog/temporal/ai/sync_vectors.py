@@ -1,6 +1,5 @@
 import asyncio
 import json
-from collections import defaultdict
 from collections.abc import Coroutine
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -12,12 +11,13 @@ import temporalio.activity
 import temporalio.common
 import temporalio.exceptions
 import temporalio.workflow
-import turbopuffer as tpuf
 from django.db.models import F, Q
 
 from ee.hogai.summarizers.chains import abatch_summarize_actions
-from posthog.models import Action, FeatureFlag, Team
+from posthog.models import Action, FeatureFlag
+from posthog.models.ai.pg_embeddings import INSERT_BULK_PG_EMBEDDINGS_SQL
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.utils import get_scheduled_start_time
 
 
@@ -63,7 +63,6 @@ class RetrieveActionsInputs:
 
 @dataclass
 class UpdatedAction:
-    team_id: int
     action_id: int
 
 
@@ -97,53 +96,35 @@ async def batch_summarize_and_embed_actions(inputs: RetrieveActionsInputs) -> li
         action.embedding = embedding
 
     await Action.objects.abulk_update(models_to_update, ["embedding", "last_summarized_at", "summary"])
-    return [UpdatedAction(team_id=action.team_id, action_id=action.id) for action in models_to_update]
+    return [UpdatedAction(action_id=action.id) for action in models_to_update]
 
 
 @dataclass
 class SyncActionVectorsForTeamInputs:
-    team_id: int
     action_ids: list[int]
 
 
 @temporalio.activity.defn
 async def sync_action_vectors_for_team(inputs: SyncActionVectorsForTeamInputs):
-    # Verify that the team exists
-    team = await Team.objects.aget(id=inputs.team_id)
-
-    models_to_update = [
-        action async for action in Action.objects.filter(id__in=inputs.action_ids, team_id=inputs.team_id)
-    ]
+    models_to_update = [action async for action in Action.objects.filter(id__in=inputs.action_ids)]
     if not models_to_update:
         return
-
-    ns = tpuf.Namespace(f"project_{team.id}")
-    # Blocking API call
-    ns.upsert(
-        ids=[action.id for action in models_to_update],
-        vectors=[action.embedding for action in models_to_update],
-        attributes={
-            "name": [action.name for action in models_to_update],
-            "description": [action.description for action in models_to_update],
-            "domain": ["action"] * len(models_to_update),
-            "summary": [action.summary for action in models_to_update],
-        },
-        distance_metric="cosine_distance",
-        schema={
-            "name": {
-                "type": "string",
-                "full_text_search": True,
-            },
-            "description": {
-                "type": "string",
-                "full_text_search": True,
-            },
-            "summary": {
-                "type": "string",
-                "full_text_search": True,
-            },
-        },
-    )
+    async with get_client() as client:
+        await client.apost_query(
+            INSERT_BULK_PG_EMBEDDINGS_SQL,
+            [
+                (
+                    "action",
+                    action.team_id,
+                    action.id,
+                    action.embedding,
+                    action.summary,
+                    {"name": action.name, "description": action.description},
+                    1 if action.deleted else 0,
+                )
+                for action in models_to_update
+            ],
+        )
 
 
 @dataclass
@@ -151,16 +132,16 @@ class SyncVectorsInputs:
     start_dt: datetime | None = None
     batch_size: int = 96
     max_parallel_requests: int = 4
-    sync_batch_size: int = 2000  # Maximum available is 5k/namespace/s
-    max_parallel_sync_requests: int = 10  # Maximum available is 200k documents/s
+    sync_batch_size: int = 50000
+    max_parallel_sync_requests: int = 5
 
 
 @temporalio.workflow.defn(name="ai-sync-vectors")
 class SyncVectorsWorkflow(PostHogWorkflow):
-    _updated_actions_by_team: defaultdict[int, set[int]]
+    _updated_actions: set[int]
 
     def __init__(self):
-        self._updated_actions_by_team = defaultdict(set)
+        self._updated_actions = set()
 
     @staticmethod
     def parse_inputs(inputs: list[str]) -> SyncVectorsInputs:
@@ -206,24 +187,23 @@ class SyncVectorsWorkflow(PostHogWorkflow):
             self._update_actions(batches)
 
         tasks: list[Coroutine[Any, Any, None]] = []
-        for team_id, action_ids in self._updated_actions_by_team.items():
-            sorted_action_ids = sorted(action_ids)  # Deterministic order
-            for batch in range(0, len(sorted_action_ids), inputs.sync_batch_size):
-                batch_action_ids = sorted_action_ids[batch : batch + inputs.sync_batch_size]
-                tasks.append(
-                    temporalio.workflow.execute_activity(
-                        sync_action_vectors_for_team,
-                        SyncActionVectorsForTeamInputs(team_id, batch_action_ids),
-                        start_to_close_timeout=timedelta(minutes=1),
-                        retry_policy=temporalio.common.RetryPolicy(
-                            initial_interval=timedelta(seconds=30), maximum_attempts=3
-                        ),
-                    )
+        sorted_action_ids = sorted(self._updated_actions)
+        for batch in range(0, len(sorted_action_ids), inputs.sync_batch_size):
+            batch_action_ids = sorted_action_ids[batch : batch + inputs.sync_batch_size]
+            tasks.append(
+                temporalio.workflow.execute_activity(
+                    sync_action_vectors_for_team,
+                    SyncActionVectorsForTeamInputs(batch_action_ids),
+                    start_to_close_timeout=timedelta(minutes=1),
+                    retry_policy=temporalio.common.RetryPolicy(
+                        initial_interval=timedelta(seconds=30), maximum_attempts=3
+                    ),
                 )
+            )
 
-                if len(tasks) == inputs.max_parallel_sync_requests:
-                    await asyncio.gather(*tasks)
-                    tasks = []
+            if len(tasks) == inputs.max_parallel_sync_requests:
+                await asyncio.gather(*tasks)
+                tasks = []
 
         if tasks:
             await asyncio.gather(*tasks)
@@ -231,4 +211,4 @@ class SyncVectorsWorkflow(PostHogWorkflow):
     def _update_actions(self, batches: list[list[UpdatedAction]]):
         for actions in batches:
             for action in actions:
-                self._updated_actions_by_team[action.team_id].add(action.action_id)
+                self._updated_actions.add(action.action_id)
