@@ -41,21 +41,28 @@ env = "local" if settings.DEBUG else "prod"
 resources = resources_by_env.get(env, resources_by_env["local"])
 
 defs = dagster.Definitions(
-    assets=dagster.load_assets_from_modules(
-        [
-            ch_examples,
-            orm_examples,
-            exchange_rate,
-        ]
-    ),
+    assets=[
+        ch_examples.get_clickhouse_version,
+        ch_examples.print_clickhouse_version,
+        exchange_rate.daily_exchange_rates,
+        exchange_rate.hourly_exchange_rates,
+        exchange_rate.daily_exchange_rates_in_clickhouse,
+        exchange_rate.hourly_exchange_rates_in_clickhouse,
+        orm_examples.pending_deletions,
+        orm_examples.process_pending_deletions,
+    ],
     jobs=[
         deletes.deletes_job,
+        exchange_rate.daily_exchange_rates_job,
+        exchange_rate.hourly_exchange_rates_job,
         export_query_logs_to_s3.export_query_logs_to_s3,
         materialized_columns.materialize_column,
         person_overrides.cleanup_orphaned_person_overrides_snapshot,
         person_overrides.squash_person_overrides,
     ],
     schedules=[
+        exchange_rate.daily_exchange_rates_schedule,
+        exchange_rate.hourly_exchange_rates_schedule,
         export_query_logs_to_s3.query_logs_export_schedule,
         person_overrides.squash_schedule,
     ],

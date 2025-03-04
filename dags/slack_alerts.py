@@ -7,6 +7,7 @@ from dags.common import JobOwners
 
 notification_channel_per_team = {
     JobOwners.TEAM_CLICKHOUSE.value: "#alerts-clickhouse",
+    JobOwners.TEAM_WEB_ANALYTICS.value: "#alerts-web-analytics",
 }
 
 
