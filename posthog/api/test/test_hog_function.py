@@ -1,6 +1,6 @@
 import json
 from typing import Any, Optional
-from unittest.mock import ANY, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from django.db import connection
 from freezegun import freeze_time
@@ -1653,3 +1653,42 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             )
             assert response.status_code == status.HTTP_201_CREATED, response.json()
             assert response.json()["hog"] == template_slack.hog  # Template code enforced
+
+    def test_can_call_a_test_invocation(self):
+        with patch("posthog.api.hog_function.create_hog_invocation_test") as mock_create_hog_invocation_test:
+            res = MagicMock(status_code=200, json=lambda: {"status": "success"})
+            mock_create_hog_invocation_test.return_value = res
+
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/new/invocations/",
+                data={
+                    "configuration": {
+                        **EXAMPLE_FULL,
+                    },
+                },
+            )
+
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            assert response.json() == {"status": "success"}
+
+            assert mock_create_hog_invocation_test.call_count == 1
+            assert mock_create_hog_invocation_test.call_args_list[0].kwargs["team_id"] == self.team.id
+            assert mock_create_hog_invocation_test.call_args_list[0].kwargs["hog_function_id"] == "new"
+            assert (
+                mock_create_hog_invocation_test.call_args_list[0].kwargs["payload"]["configuration"]["type"]
+                == "destination"
+            )
+            assert mock_create_hog_invocation_test.call_args_list[0].kwargs["payload"]["configuration"]["inputs"][
+                "url"
+            ] == {
+                "destination" "bytecode": [
+                    "_H",
+                    1,
+                    32,
+                    "http://localhost:2080/0e02d917-563f-4050-9725-aad881b69937",
+                ],
+                "order": 0,
+                "value": "http://localhost:2080/0e02d917-563f-4050-9725-aad881b69937",
+            }
+
+            # We don't need to validate everything as its just a duplicate of the other tests so just check a few fields

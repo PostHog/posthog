@@ -144,6 +144,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
     # NOTE: All pre-validation should be done here such as loading the template info etc.
     def to_internal_value(self, data):
+        self.initial_data = data
         team = self.context["get_team"]()
         has_addon = team.organization.is_feature_available(AvailableFeature.DATA_PIPELINES)
         bypass_addon_check = self.context.get("bypass_addon_check", False)
