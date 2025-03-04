@@ -57,3 +57,19 @@ CREATE TABLE IF NOT EXISTS posthog_grouptypemapping (
 CREATE UNIQUE INDEX IF NOT EXISTS posthog_grouptypemapping_pkey ON posthog_grouptypemapping (id);
 CREATE UNIQUE INDEX IF NOT EXISTS "unique group types for project" ON posthog_grouptypemapping USING btree (project_id, group_type);
 CREATE UNIQUE INDEX IF NOT EXISTS "unique event column indexes for project" ON posthog_grouptypemapping USING btree (project_id, group_type_index);
+
+CREATE TABLE ee_enterprisepropertydefinition (
+    propertydefinition_ptr_id UUID PRIMARY KEY,
+    description text,
+    deprecated_tags character varying(32)[],
+    updated_at timestamp with time zone NOT NULL,
+    updated_by_id integer,
+    tags character varying(32)[],
+    verified boolean NOT NULL,
+    verified_at timestamp with time zone,
+    verified_by_id integer
+);
+
+CREATE INDEX ee_enterprisepropertydefinition_updated_by_id ON ee_enterprisepropertydefinition USING btree (updated_by_id);
+CREATE INDEX ee_enterprisepropertydefinition_verified_by_id ON ee_enterprisepropertydefinition USING btree (verified_by_id);
+-- NOTE: for now, I left off some indices that aren't relevant to property defs query testing

@@ -10,8 +10,6 @@ import {
     PluginLogEntrySource,
     PluginLogEntryType,
     PluginMethods,
-    PluginTask,
-    PluginTaskType,
 } from '../../types'
 import { processError } from '../../utils/db/error'
 import { getPlugin, setPluginCapabilities } from '../../utils/db/sql'
@@ -58,8 +56,6 @@ export interface PluginInstance {
     failInitialization?: () => void
 
     getTeardown: () => Promise<PluginMethods['teardownPlugin'] | null>
-    getTask: (name: string, type: PluginTaskType) => Promise<PluginTask | null>
-    getScheduledTasks: () => Promise<Record<string, PluginTask>>
     getPluginMethod: <T extends keyof PluginMethods>(method_name: T) => Promise<PluginMethods[T] | null>
     clearRetryTimeoutIfExists: () => void
     setupPluginIfNeeded: () => Promise<boolean>
@@ -103,34 +99,6 @@ export class LazyPluginVM implements PluginInstance {
         return (await this.resolveInternalVm)?.methods['teardownPlugin'] || null
     }
 
-    public async getTask(name: string, type: PluginTaskType): Promise<PluginTask | null> {
-        let task = (await this.resolveInternalVm)?.tasks?.[type]?.[name] || null
-        if (!this.ready && task) {
-            const pluginReady = await this.setupPluginIfNeeded()
-            if (!pluginReady) {
-                task = null
-            }
-        }
-        return task
-    }
-
-    public async getScheduledTasks(): Promise<Record<string, PluginTask>> {
-        let tasks = (await this.resolveInternalVm)?.tasks?.[PluginTaskType.Schedule] || null
-        if (!this.ready && tasks && Object.values(tasks).length > 0) {
-            const pluginReady = await this.setupPluginIfNeeded()
-            if (!pluginReady) {
-                tasks = null
-                // KLUDGE: setupPlugin is retried, meaning methods may fail initially but work after a retry
-                // Schedules on the other hand need to be loaded in advance, so retries cannot turn on scheduled tasks after the fact.
-                await this.createLogEntry(
-                    'Cannot load scheduled tasks because the app errored during setup.',
-                    PluginLogEntryType.Error
-                )
-            }
-        }
-        return tasks || {}
-    }
-
     public async getPluginMethod<T extends keyof PluginMethods>(method_name: T): Promise<PluginMethods[T] | null> {
         let method = (await this.resolveInternalVm)?.methods[method_name] || null
         if (!this.ready && method) {
@@ -172,16 +140,6 @@ export class LazyPluginVM implements PluginInstance {
                         return
                     }
 
-                    const shouldSetupNow =
-                        (!this.ready && // harmless check used to skip setup in tests
-                            vm.tasks?.schedule &&
-                            Object.values(vm.tasks?.schedule).length > 0) ||
-                        (vm.tasks?.job && Object.values(vm.tasks?.job).length > 0)
-
-                    if (shouldSetupNow) {
-                        await this._setupPlugin(vm.vm)
-                        this.ready = true
-                    }
                     status.debug('🔌', `Loaded ${logInfo}.`)
                     await this.createLogEntry(
                         `Plugin loaded (instance ID ${this.hub.instanceId}).`,
@@ -328,7 +286,7 @@ export class LazyPluginVM implements PluginInstance {
     }
 
     private async updatePluginCapabilitiesIfNeeded(vm: PluginConfigVMResponse): Promise<void> {
-        const capabilities = getVMPluginCapabilities(vm.methods, vm.tasks)
+        const capabilities = getVMPluginCapabilities(vm.methods)
 
         const prevCapabilities = this.pluginConfig.plugin!.capabilities
         if (!equal(prevCapabilities, capabilities)) {
@@ -350,7 +308,7 @@ export async function populatePluginCapabilities(hub: Hub, pluginId: number): Pr
         return
     }
 
-    const { methods, tasks } = createPluginConfigVM(
+    const { methods } = createPluginConfigVM(
         hub,
         {
             id: 0,
@@ -364,7 +322,7 @@ export async function populatePluginCapabilities(hub: Hub, pluginId: number): Pr
         },
         plugin.source__index_ts || ''
     )
-    const capabilities = getVMPluginCapabilities(methods, tasks)
+    const capabilities = getVMPluginCapabilities(methods)
 
     const prevCapabilities = plugin.capabilities
     if (!equal(prevCapabilities, capabilities)) {

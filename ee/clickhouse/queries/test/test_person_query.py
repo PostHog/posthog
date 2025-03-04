@@ -1,7 +1,7 @@
 import pytest
 
 from ee.clickhouse.materialized_columns.columns import materialize
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.models.filters import Filter
 from posthog.models.team import Team
 from posthog.queries.person_query import PersonQuery

@@ -1,15 +1,15 @@
+import datetime
 import decimal
 from ipaddress import IPv4Address, IPv6Address
 import json
 import math
 import uuid
-from collections.abc import Hashable, Iterator, Sequence
-from typing import Any, Optional
+from collections.abc import Iterator, Sequence
+from typing import Any, Optional, cast
 
 import deltalake as deltalake
 import numpy as np
 import orjson
-import pandas as pd
 import pyarrow as pa
 import pyarrow.compute as pc
 from dateutil import parser
@@ -20,8 +20,10 @@ from dlt.common.normalizers.naming.snake_case import NamingConvention
 from dlt.sources import DltResource
 
 from posthog.temporal.common.logger import FilteringBoundLogger
+from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema
+from posthog.warehouse.types import IncrementalFieldType
 
 DLT_TO_PA_TYPE_MAP = {
     "text": pa.string(),
@@ -43,7 +45,7 @@ def normalize_column_name(column_name: str) -> str:
     return NamingConvention().normalize_identifier(column_name)
 
 
-def safe_parse_datetime(date_str):
+def safe_parse_datetime(date_str) -> None | pa.TimestampScalar | datetime.datetime:
     try:
         if date_str is None:
             return None
@@ -259,6 +261,61 @@ def _append_debug_column_to_pyarrows_table(table: pa.Table, load_id: int) -> pa.
     return table.append_column("_ph_debug", column)
 
 
+def should_partition_table(delta_table: deltalake.DeltaTable | None, schema: ExternalDataSchema) -> bool:
+    if not schema.is_incremental:
+        return False
+
+    if delta_table is None:
+        return True
+
+    delta_schema = delta_table.schema().to_pyarrow()
+    if PARTITION_KEY in delta_schema.names:
+        return True
+
+    return False
+
+
+def append_partition_key_to_table(
+    table: pa.Table, incremental_field: str, incremental_field_type: IncrementalFieldType, logger: FilteringBoundLogger
+) -> pa.Table:
+    if (
+        incremental_field_type != IncrementalFieldType.Date
+        and incremental_field_type != IncrementalFieldType.DateTime
+        and incremental_field_type != IncrementalFieldType.Timestamp
+    ):
+        logger.debug(f"No partition key added due to incremental_field_type={incremental_field_type}")
+        return table
+
+    partition_array: list[str | None] = []
+
+    for value in table.column(incremental_field):
+        parsed_value = safe_parse_datetime(value)
+        if not parsed_value:
+            partition_array.append(None)
+            continue
+
+        if isinstance(parsed_value, pa.TimestampScalar):
+            parsed_value_as_py = cast(Any, parsed_value.as_py())
+            if isinstance(parsed_value_as_py, int):
+                date = datetime.datetime.fromtimestamp(parsed_value_as_py)
+                partition_array.append(date.strftime("%Y-%m"))
+            elif isinstance(parsed_value_as_py, datetime.datetime):
+                date = parsed_value_as_py
+                partition_array.append(date.strftime("%Y-%m"))
+            else:
+                partition_array.append(None)
+        elif isinstance(parsed_value, datetime.datetime):
+            partition_array.append(parsed_value.strftime("%Y-%m"))
+
+    new_column = pa.array(partition_array, type=pa.string())
+    if new_column.null_count == len(new_column):
+        logger.debug(f"No partition key added due to {PARTITION_KEY} being all nulls")
+        return table
+
+    logger.debug(f"Partition key added")
+    return table.append_column(PARTITION_KEY, new_column)
+
+
 def _update_incremental_state(schema: ExternalDataSchema | None, table: pa.Table, logger: FilteringBoundLogger) -> None:
     if schema is None or schema.sync_type != ExternalDataSchema.SyncType.INCREMENTAL:
         return
@@ -422,12 +479,23 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
     else:
         arrow_schema = schema
 
-    drop_column_names: list[Hashable] = []
+    drop_column_names: list[str] = []
 
-    columnar_table_data: dict[Hashable, pa.Array | np.ndarray[Any, np.dtype[Any]]] = {
-        key: np.array([None if isinstance(x, float) and np.isnan(x) else x for x in values], dtype=object)
-        for key, values in pd.DataFrame(table_data, dtype=object).to_dict(orient="list").items()
-    }
+    column_names = set(table_data[0].keys())
+    columnar_table_data: dict[str, pa.Array | np.ndarray[Any, np.dtype[Any]]] = {}
+
+    for col in column_names:
+        values = [
+            None if isinstance(row.get(col, None), float) and np.isnan(row.get(col, None)) else row.get(col, None)
+            for row in table_data
+        ]
+
+        try:
+            # We want to use pyarrow arrays where possible to optimise on memory usage
+            columnar_table_data[col] = pa.array(values)
+        except:
+            # Some values can't be interpreted by pyarrows directly
+            columnar_table_data[col] = np.array(values, dtype=object)
 
     for field_name in columnar_table_data.keys():
         py_type: type = type(None)
