@@ -57,6 +57,7 @@ import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const BUFFER_MS = 60000 // +- before and after start and end of a recording to query for.
 const DEFAULT_REALTIME_POLLING_MILLIS = 3000
+const DEFAULT_V2_POLLING_INTERVAL_MS = 10000
 export const MUTATION_CHUNK_SIZE = 5000 // Maximum number of mutations per chunk
 
 let postHogEEModule: PostHogEE
@@ -461,7 +462,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         loadRecordingComments: true,
         maybeLoadRecordingMeta: true,
         loadSnapshots: true,
-        loadSnapshotSources: true,
+        loadSnapshotSources: (breakpointLength?: number) => ({ breakpointLength }),
         loadNextSnapshotSource: true,
         loadSnapshotsForSource: (source: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>) => ({ source }),
         loadEvents: true,
@@ -567,7 +568,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         snapshotSources: [
             null as SessionRecordingSnapshotSource[] | null,
             {
-                loadSnapshotSources: async () => {
+                loadSnapshotSources: async ({ breakpointLength }, breakpoint) => {
+                    if (breakpointLength) {
+                        await breakpoint(breakpointLength)
+                    }
                     const response = await api.recordings.listSnapshotSources(props.sessionRecordingId)
                     if (!response.sources) {
                         return []
@@ -743,7 +747,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                             query: hogql`SELECT properties, uuid
                                          FROM events
                                         -- the timestamp range here is only to avoid querying too much of the events table
-                                        -- we don't really care about the absolute value, 
+                                        -- we don't really care about the absolute value,
                                         -- but we do care about whether timezones have an odd impact
                                         -- so, we extend the range by a day on each side so that timezones don't cause issues
                                          WHERE timestamp > ${dayjs(earliestTimestamp).subtract(1, 'day')}
@@ -864,6 +868,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
             if (nextSourceToLoad) {
                 return actions.loadSnapshotsForSource(nextSourceToLoad)
+            }
+
+            if (values.snapshotSources?.find((s) => s.source === SnapshotSourceType.blob_v2)) {
+                actions.loadSnapshotSources(DEFAULT_V2_POLLING_INTERVAL_MS)
             }
 
             // TODO: Move this to a one time check - only report once per recording
