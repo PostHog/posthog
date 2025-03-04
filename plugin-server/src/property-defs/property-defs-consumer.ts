@@ -46,27 +46,6 @@ const SKIP_PROPERTIES: string[] = [
     '$groups',
 ]
 
-// export interface PropertyDefinitionType {
-//     id: string
-//     name: string
-//     is_numerical: boolean
-//     volume_30_day: number | null
-//     query_usage_30_day: number | null
-//     team_id: number
-//     project_id: number | null
-//     property_type?: PropertyType
-//     type: PropertyDefinitionTypeEnum
-//     group_type_index: number | null
-// }
-
-// export interface EventPropertyType {
-//     id: string
-//     event: string
-//     property: string
-//     team_id: number
-//     project_id: number | null
-// }
-
 export const getPropertyType = (key: string, value: any): PropertyType | null => {
     // Special cases for certain property prefixes
     if (key.startsWith('utm_')) {
@@ -220,7 +199,7 @@ export class PropertyDefsConsumer {
                 const groupType = event.properties['$group_type'] // e.g. "organization"
                 const groupProperties = event.properties['$group_set'] // { name: 'value', id: 'id', foo: "bar" }
 
-                for (const [property, value] of Object.entries(groupProperties)) {
+                for (const [property, value] of Object.entries(groupProperties ?? {})) {
                     const propDefId = `${event.team_id}:${groupType}:${property}`
 
                     if (collected.propertyDefinitionsById[propDefId]) {
