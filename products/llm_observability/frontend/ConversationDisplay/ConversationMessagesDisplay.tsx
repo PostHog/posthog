@@ -15,17 +15,19 @@ import { normalizeMessages } from '../utils'
 export function ConversationMessagesDisplay({
     input,
     output,
+    tools,
     httpStatus,
     raisedError,
     bordered = false,
 }: {
     input: any
     output: any
+    tools?: any
     httpStatus?: number
     raisedError?: boolean
     bordered?: boolean
 }): JSX.Element {
-    const inputNormalized = normalizeMessages(input, 'user')
+    const inputNormalized = normalizeMessages(input, 'user', tools)
     const outputNormalized = normalizeMessages(output, 'assistant')
 
     const outputDisplay = raisedError ? (
@@ -50,23 +52,25 @@ export function ConversationMessagesDisplay({
                 </span>
             )}
         </div>
+    ) : outputNormalized.length > 0 ? (
+        outputNormalized.map((message, i) => <LLMMessageDisplay key={i} message={message} isOutput />)
     ) : (
-        outputNormalized?.map((message, i) => <LLMMessageDisplay key={i} message={message} isOutput />) || (
-            <div className="rounded border text-default p-2 italic bg-[var(--bg-fill-error-tertiary)]">No output</div>
-        )
+        <div className="rounded border text-default p-2 italic bg-[var(--bg-fill-error-tertiary)]">No output</div>
     )
 
     return (
         <LLMInputOutput
             inputDisplay={
-                inputNormalized?.map((message, i) => (
-                    <>
-                        <LLMMessageDisplay key={i} message={message} />
-                        {i < inputNormalized.length - 1 && (
-                            <div className="border-l ml-2 h-2" /> /* Spacer connecting messages visually */
-                        )}
-                    </>
-                )) || (
+                inputNormalized.length > 0 ? (
+                    inputNormalized.map((message, i) => (
+                        <>
+                            <LLMMessageDisplay key={i} message={message} />
+                            {i < inputNormalized.length - 1 && (
+                                <div className="border-l ml-2 h-2" /> /* Spacer connecting messages visually */
+                            )}
+                        </>
+                    ))
+                ) : (
                     <div className="rounded border text-default p-2 italic bg-[var(--bg-fill-error-tertiary)]">
                         No input
                     </div>
@@ -76,7 +80,7 @@ export function ConversationMessagesDisplay({
             outputHeading={
                 raisedError
                     ? `Error (${httpStatus})`
-                    : `Output${outputNormalized && outputNormalized.length > 1 ? ' (multiple choices)' : ''}`
+                    : `Output${outputNormalized.length > 1 ? ' (multiple choices)' : ''}`
             }
             bordered={bordered}
         />
@@ -94,9 +98,13 @@ export const LLMMessageDisplay = React.memo(
         const isMarkdownCandidate = content ? /(\n\s*```|^>\s|#{1,6}\s)/.test(content) : false
 
         // Render any additional keyword arguments as JSON.
-        const additionalKwargsEntries = Object.fromEntries(
-            Object.entries(additionalKwargs).filter(([, value]) => value !== undefined)
-        )
+        const additionalKwargsEntries = Array.isArray(additionalKwargs.tools)
+            ? // Tools are a special case of input - and we want name and description to show first for them!
+              additionalKwargs.tools.map(({ function: { name, description, ...func }, ...tool }) => ({
+                  function: { name, description, ...func },
+                  ...tool,
+              }))
+            : Object.fromEntries(Object.entries(additionalKwargs).filter(([, value]) => value !== undefined))
 
         const renderMessageContent = (content: string): JSX.Element | null => {
             if (!content) {

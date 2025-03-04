@@ -401,6 +401,7 @@ const EventContent = React.memo(({ event }: { event: LLMTrace | LLMTraceEvent | 
                     {isLLMTraceEvent(event) ? (
                         event.event === '$ai_generation' ? (
                             <ConversationMessagesDisplay
+                                tools={event.properties.$ai_tools}
                                 input={event.properties.$ai_input}
                                 output={
                                     event.properties.$ai_is_error
