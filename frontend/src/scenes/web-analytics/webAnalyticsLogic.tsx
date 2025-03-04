@@ -9,7 +9,7 @@ import { FEATURE_FLAGS, RETENTION_FIRST_TIME } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link, PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { getDefaultInterval, isNotNil, objectsEqual, updateDatesWithInterval } from 'lib/utils'
+import { getDefaultInterval, isNotNil, objectsEqual, UnexpectedNeverError, updateDatesWithInterval } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
 import { errorTrackingQuery } from 'scenes/error-tracking/queries'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -237,104 +237,72 @@ export interface WebAnalyticsStatusCheck {
     hasAuthorizedUrls: boolean
 }
 
-// Maps WebStatsBreakdown enum values to BreakdownFilter objects
-const webAnalyticsBreakdownFilters: Record<WebStatsBreakdown, BreakdownFilter> = {
-    [WebStatsBreakdown.Page]: {
-        breakdown_type: 'event',
-        breakdown: '$pathname',
-    },
-    [WebStatsBreakdown.InitialPage]: {
-        breakdown_type: 'session',
-        breakdown: '$entry_pathname',
-    },
-    [WebStatsBreakdown.ExitPage]: {
-        breakdown_type: 'session',
-        breakdown: '$end_pathname',
-    },
-    [WebStatsBreakdown.ExitClick]: {
-        breakdown_type: 'session',
-        breakdown: '$last_external_click_url',
-    },
-    [WebStatsBreakdown.ScreenName]: {
-        breakdown_type: 'event',
-        breakdown: '$screen_name',
-    },
-    [WebStatsBreakdown.InitialReferringDomain]: {
-        breakdown_type: 'session',
-        breakdown: '$entry_referring_domain',
-    },
-    [WebStatsBreakdown.InitialUTMSource]: {
-        breakdown_type: 'session',
-        breakdown: '$entry_utm_source',
-    },
-    [WebStatsBreakdown.InitialUTMCampaign]: {
-        breakdown_type: 'session',
-        breakdown: '$entry_utm_campaign',
-    },
-    [WebStatsBreakdown.InitialUTMMedium]: {
-        breakdown_type: 'session',
-        breakdown: '$entry_utm_medium',
-    },
-    [WebStatsBreakdown.InitialUTMTerm]: {
-        breakdown_type: 'session',
-        breakdown: '$entry_utm_term',
-    },
-    [WebStatsBreakdown.InitialUTMContent]: {
-        breakdown_type: 'session',
-        breakdown: '$entry_utm_content',
-    },
-    [WebStatsBreakdown.InitialChannelType]: {
-        breakdown_type: 'session',
-        breakdown: '$channel_type',
-    },
-    [WebStatsBreakdown.InitialUTMSourceMediumCampaign]: {
-        breakdown_type: 'session',
-        // This is a special case that might need custom handling in the backend
-        // as it combines multiple fields
-        breakdown: ['$entry_utm_source', '$entry_utm_medium', '$entry_utm_campaign'],
-    },
-    [WebStatsBreakdown.Browser]: {
-        breakdown_type: 'event',
-        breakdown: '$browser',
-    },
-    [WebStatsBreakdown.OS]: {
-        breakdown_type: 'event',
-        breakdown: '$os',
-    },
-    [WebStatsBreakdown.Viewport]: {
-        breakdown_type: 'event',
-        // This is a special case that might need custom handling
-        breakdown: ['$viewport_width', '$viewport_height'],
-    },
-    [WebStatsBreakdown.DeviceType]: {
-        breakdown_type: 'event',
-        breakdown: '$device_type',
-    },
-    [WebStatsBreakdown.Country]: {
-        breakdown_type: 'event',
-        breakdown: '$geoip_country_code',
-    },
-    [WebStatsBreakdown.Region]: {
-        breakdown_type: 'event',
-        // This is a special case that might need custom handling
-        breakdown: ['$geoip_country_code', '$geoip_subdivision_1_code', '$geoip_subdivision_1_name'],
-    },
-    [WebStatsBreakdown.City]: {
-        breakdown_type: 'event',
-        breakdown: ['$geoip_country_code', '$geoip_city_name'],
-    },
-    [WebStatsBreakdown.Language]: {
-        breakdown_type: 'event',
-        breakdown: '$browser_language',
-    },
-    [WebStatsBreakdown.Timezone]: {
-        breakdown_type: 'event',
-        breakdown: '$timezone',
-    },
+export const webStatsBreakdownToPropertyName = (
+    breakdownBy: WebStatsBreakdown
+):
+    | { key: string; type: PropertyFilterType.Person | PropertyFilterType.Event | PropertyFilterType.Session }
+    | undefined => {
+    switch (breakdownBy) {
+        case WebStatsBreakdown.Page:
+            return { key: '$pathname', type: PropertyFilterType.Event }
+        case WebStatsBreakdown.InitialPage:
+            return { key: '$entry_pathname', type: PropertyFilterType.Session }
+        case WebStatsBreakdown.ExitPage:
+            return { key: '$end_pathname', type: PropertyFilterType.Session }
+        case WebStatsBreakdown.ExitClick:
+            return { key: '$last_external_click_url', type: PropertyFilterType.Session }
+        case WebStatsBreakdown.ScreenName:
+            return { key: '$screen_name', type: PropertyFilterType.Event }
+        case WebStatsBreakdown.InitialChannelType:
+            return { key: '$channel_type', type: PropertyFilterType.Session }
+        case WebStatsBreakdown.InitialReferringDomain:
+            return { key: '$entry_referring_domain', type: PropertyFilterType.Session }
+        case WebStatsBreakdown.InitialUTMSource:
+            return { key: '$entry_utm_source', type: PropertyFilterType.Session }
+        case WebStatsBreakdown.InitialUTMCampaign:
+            return { key: '$entry_utm_campaign', type: PropertyFilterType.Session }
+        case WebStatsBreakdown.InitialUTMMedium:
+            return { key: '$entry_utm_medium', type: PropertyFilterType.Session }
+        case WebStatsBreakdown.InitialUTMContent:
+            return { key: '$entry_utm_content', type: PropertyFilterType.Session }
+        case WebStatsBreakdown.InitialUTMTerm:
+            return { key: '$entry_utm_term', type: PropertyFilterType.Session }
+        case WebStatsBreakdown.Browser:
+            return { key: '$browser', type: PropertyFilterType.Event }
+        case WebStatsBreakdown.OS:
+            return { key: '$os', type: PropertyFilterType.Event }
+        case WebStatsBreakdown.Viewport:
+            return { key: '$viewport', type: PropertyFilterType.Event }
+        case WebStatsBreakdown.DeviceType:
+            return { key: '$device_type', type: PropertyFilterType.Event }
+        case WebStatsBreakdown.Country:
+            return { key: '$geoip_country_code', type: PropertyFilterType.Event }
+        case WebStatsBreakdown.Region:
+            return { key: '$geoip_subdivision_1_code', type: PropertyFilterType.Event }
+        case WebStatsBreakdown.City:
+            return { key: '$geoip_city_name', type: PropertyFilterType.Event }
+        case WebStatsBreakdown.Timezone:
+            return { key: '$timezone', type: PropertyFilterType.Event }
+        case WebStatsBreakdown.Language:
+            return { key: '$geoip_language', type: PropertyFilterType.Event }
+        case WebStatsBreakdown.InitialUTMSourceMediumCampaign:
+            return undefined
+        default:
+            throw new UnexpectedNeverError(breakdownBy)
+    }
 }
 
 export const getWebAnalyticsDateBreakdownFilter = (breakdown: WebStatsBreakdown): BreakdownFilter | undefined => {
-    return webAnalyticsBreakdownFilters[breakdown]
+    const property = webStatsBreakdownToPropertyName(breakdown)
+
+    if (!property) {
+        return undefined
+    }
+
+    return {
+        breakdown_type: property.type,
+        breakdown: property.key,
+    }
 }
 
 const GEOIP_TEMPLATE_IDS = ['template-geoip', 'plugin-posthog-plugin-geoip']
@@ -1025,6 +993,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         ...(tab || {}),
                     }
 
+                    // In case of a graph, we need to use the breakdownFilter and a InsightsVizNode,
+                    // which will actually handled by a WebStatsTrendTile instead of a WebStatsTableTile
                     if (visualization === 'graph') {
                         return {
                             ...baseTabProps,
