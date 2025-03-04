@@ -1,4 +1,4 @@
-import { IconChevronDown, IconGear, IconPlus } from '@posthog/icons'
+import { IconChevronDown, IconCornerDownRight, IconGear, IconPlus } from '@posthog/icons'
 import { LemonInput, LemonTag, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -184,7 +184,6 @@ function convertTeamToMenuItem(
     return {
         label: (
             <>
-                {team.project_id !== currentTeam.project_id && <span className="mr-1.5">{team.project_name}</span>}
                 <LemonTag size="small" className="border-text-3000 uppercase">
                     {team.name}
                 </LemonTag>
@@ -193,7 +192,7 @@ function convertTeamToMenuItem(
         key: team.id,
         active: team.id === currentTeam.id,
         to: determineProjectSwitchUrl(location.pathname, team.id),
-        icon: team.project_id === currentTeam.project_id ? <div className="size-5" /> : null,
+        icon: <IconCornerDownRight className="ml-1 -mr-1 -mt-[5px]" />,
         tooltip:
             team.id === currentTeam.id
                 ? 'Currently active environment'
