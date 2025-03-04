@@ -5,16 +5,11 @@ edition = "2021"
 
 [dependencies]
 anyhow = { workspace = true }
-chrono = { workspace = true }
 envconfig = { workspace = true }
-eyre = { workspace = true }
 metrics = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
 rdkafka = { workspace = true }
 futures = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
-thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }

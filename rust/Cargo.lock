@@ -1854,16 +1854,11 @@ name = "e2e-lag-exporter"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "chrono",
  "envconfig",
- "eyre",
  "futures",
  "metrics",
  "metrics-exporter-prometheus",
  "rdkafka",
- "serde",
- "serde_json",
- "thiserror",
  "tokio",
  "tracing",
  "tracing-subscriber",
