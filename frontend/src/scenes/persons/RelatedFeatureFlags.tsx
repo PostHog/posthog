@@ -12,7 +12,7 @@ import { FeatureFlagReleaseType } from '~/types'
 import { RelatedFeatureFlag, relatedFeatureFlagsLogic } from './relatedFeatureFlagsLogic'
 
 interface Props {
-    distinctId: string | null
+    distinctId: string
     groupTypeIndex?: number
     groups?: { [key: string]: string }
 }
