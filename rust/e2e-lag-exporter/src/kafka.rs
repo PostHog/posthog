@@ -1,12 +1,12 @@
 use anyhow::{Context, Result};
+use futures::future::join_all;
+use rdkafka::admin::AdminClient;
 use rdkafka::config::ClientConfig;
-use rdkafka::consumer::{StreamConsumer, Consumer};
+use rdkafka::consumer::{Consumer, StreamConsumer};
+use rdkafka::message::Message;
 use rdkafka::topic_partition_list::{Offset, TopicPartitionList};
 use rdkafka::util::Timeout;
-use rdkafka::admin::AdminClient;
-use rdkafka::message::Message;
 use std::time::Duration;
-use futures::future::join_all;
 use tracing::{debug, error, info};
 
 use crate::config::Config;
@@ -32,11 +32,13 @@ impl KafkaMonitor {
                 .set("enable.ssl.certificate.verification", "false");
         };
 
-        let admin_client: AdminClient<_> = common_config.clone()
+        let admin_client: AdminClient<_> = common_config
+            .clone()
             .create()
             .context("Failed to create Kafka admin client")?;
 
-        let consumer: StreamConsumer = common_config.clone()
+        let consumer: StreamConsumer = common_config
+            .clone()
             .set("group.id", &config.kafka_consumer_group)
             .set("enable.auto.commit", "false")
             .set("enable.partition.eof", "false")
@@ -44,19 +46,26 @@ impl KafkaMonitor {
             .context("Failed to create Kafka consumer")?;
 
         // Create a consumer to get the message at the offset
-        let message_consumer: StreamConsumer = common_config.clone()
-            .set("group.id", format!("{}-lag-checker", &config.kafka_consumer_group))
+        let message_consumer: StreamConsumer = common_config
+            .clone()
+            .set(
+                "group.id",
+                format!("{}-lag-checker", &config.kafka_consumer_group),
+            )
             .set("enable.auto.commit", "false")
             .create()
             .context("Failed to create message fetcher consumer")?;
 
-        let metadata = admin_client.inner().fetch_metadata(
-            None,
-            Timeout::from(Duration::from_secs(10)),
-        ).context("Failed to fetch Kafka metadata")?;
+        let metadata = admin_client
+            .inner()
+            .fetch_metadata(None, Timeout::from(Duration::from_secs(10)))
+            .context("Failed to fetch Kafka metadata")?;
 
-        let topic = metadata.topics().iter()
-                .find(|t| t.name() == config.kafka_topic.as_str()).unwrap();
+        let topic = metadata
+            .topics()
+            .iter()
+            .find(|t| t.name() == config.kafka_topic.as_str())
+            .unwrap();
 
         let topic_name = topic.name();
         debug!("Checking lag for topic: {}", topic_name);
@@ -67,7 +76,8 @@ impl KafkaMonitor {
         }
 
         // Assign the consumer to the specific offset
-        message_consumer.assign(&tpl)
+        message_consumer
+            .assign(&tpl)
             .context("Failed to assign consumer to partition")?;
 
         Ok(Self {
@@ -79,13 +89,17 @@ impl KafkaMonitor {
     }
 
     pub async fn check_lag(&self) -> Result<()> {
-        let metadata = self.admin_client.inner().fetch_metadata(
-            None,
-            Timeout::from(Duration::from_secs(10)),
-        ).context("Failed to fetch Kafka metadata")?;
+        let metadata = self
+            .admin_client
+            .inner()
+            .fetch_metadata(None, Timeout::from(Duration::from_secs(10)))
+            .context("Failed to fetch Kafka metadata")?;
 
-        let topic = metadata.topics().iter()
-                .find(|t| t.name() == self.config.kafka_topic).unwrap();
+        let topic = metadata
+            .topics()
+            .iter()
+            .find(|t| t.name() == self.config.kafka_topic)
+            .unwrap();
 
         let topic_name = topic.name();
         debug!("Checking lag for topic: {}", topic_name);
@@ -96,7 +110,10 @@ impl KafkaMonitor {
         }
 
         // Get consumer group offsets
-        match self.consumer.committed_offsets(tpl.clone(), Timeout::from(Duration::from_secs(10))) {
+        match self
+            .consumer
+            .committed_offsets(tpl.clone(), Timeout::from(Duration::from_secs(10)))
+        {
             Ok(committed_tpl) => {
                 let mut futes: Vec<_> = vec![];
                 // Process each partition
@@ -124,7 +141,12 @@ impl KafkaMonitor {
                                 );
 
                                 // Record message count lag metric
-                                metrics::record_lag_count(topic_name, partition_id, &self.config.kafka_consumer_group, lag);
+                                metrics::record_lag_count(
+                                    topic_name,
+                                    partition_id,
+                                    &self.config.kafka_consumer_group,
+                                    lag,
+                                );
 
                                 let topic_name_owned = topic_name.to_owned();
 
@@ -159,7 +181,8 @@ impl KafkaMonitor {
                                 })
                             }
                             Err(e) => {
-                                error!("Failed to fetch watermarks for {}/{}: {:?}",
+                                error!(
+                                    "Failed to fetch watermarks for {}/{}: {:?}",
                                     topic_name, partition_id, e
                                 );
                             }
@@ -185,28 +208,31 @@ impl KafkaMonitor {
         partition: i32,
         consumer_offset: i64,
     ) -> Result<Option<(i64, Option<i64>)>> {
-        self.message_consumer.seek(topic, partition, Offset::Offset(consumer_offset-1), Duration::from_secs(5))
-          .context("Failed to seek messageconsumer")?;
+        self.message_consumer
+            .seek(
+                topic,
+                partition,
+                Offset::Offset(consumer_offset - 1),
+                Duration::from_secs(5),
+            )
+            .context("Failed to seek messageconsumer")?;
 
         // Try to get a single message at the consumer offset
         let timeout = Duration::from_secs(1);
-        match tokio::time::timeout(
-            timeout,
-            self.message_consumer.recv()
-        ).await {
+        match tokio::time::timeout(timeout, self.message_consumer.recv()).await {
             Ok(result) => match result {
                 Ok(msg) => {
                     // Return the message offset and timestamp (if available)
                     let offset = msg.offset();
                     let timestamp = msg.timestamp().to_millis();
-                    
+
                     debug!(
                         "Message found at offset {} with timestamp {:?}",
                         offset, timestamp
                     );
-                    
+
                     Ok(Some((offset, timestamp)))
-                },
+                }
                 Err(e) => {
                     error!("Failed to get message: {:?}", e);
                     Ok(None)

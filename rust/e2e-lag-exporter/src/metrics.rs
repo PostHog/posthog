@@ -21,12 +21,13 @@ pub fn record_lag_count(topic: &str, partition: i32, consumergroup: &str, lag: i
     let topic_owned = topic.to_string();
     let partition_str = format!("{}", partition);
     let consumergroup_owned = consumergroup.to_string();
-    
+
     gauge!(METRIC_CONSUMER_LAG,
         "topic" => topic_owned,
         "partition" => partition_str,
         "consumergroup" => consumergroup_owned,
-    ).set(lag as f64);
+    )
+    .set(lag as f64);
 }
 
 /// Record the consumer lag time metric in seconds
@@ -34,10 +35,11 @@ pub fn record_timestamp(topic: &str, partition: i32, consumergroup: &str, timest
     let topic_owned = topic.to_string();
     let partition_str = format!("{}", partition);
     let consumergroup_owned = consumergroup.to_string();
-    
+
     gauge!(METRIC_CONSUMER_TIMESTAMP,
         "topic" => topic_owned,
         "partition" => partition_str,
         "consumergroup" => consumergroup_owned,
-    ).set(timestamp as f64);
+    )
+    .set(timestamp as f64);
 }

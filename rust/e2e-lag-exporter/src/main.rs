@@ -38,8 +38,8 @@ async fn main() -> Result<()> {
     info!("Metrics server listening on {}", metrics_addr);
 
     // Create Kafka monitor
-    let kafka_monitor = KafkaMonitor::new(config.clone())
-        .context("Failed to create Kafka monitor")?;
+    let kafka_monitor =
+        KafkaMonitor::new(config.clone()).context("Failed to create Kafka monitor")?;
 
     info!("Monitoring consumer group: {}", config.kafka_consumer_group);
 
