@@ -258,7 +258,7 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("Input should be 'mean' or 'funnel'", response.json()["detail"])
+        self.assertIn("Input should be 'funnel' or 'mean'", response.json()["detail"])
 
     def test_invalid_create(self):
         response = self.client.post(
