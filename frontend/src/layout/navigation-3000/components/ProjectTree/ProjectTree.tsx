@@ -77,7 +77,7 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                                 tooltip={
                                     dragAndDropEnabled
                                         ? 'Click to cancel changes'
-                                        : 'Click to editing and drag and drop'
+                                        : 'Click to edit or move items'
                                 }
                             >
                                 {dragAndDropEnabled ? `Cancel` : 'Edit'}
