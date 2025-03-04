@@ -3,7 +3,7 @@ import { experimentLogic } from 'scenes/experiments/experimentLogic'
 
 import { ExperimentMetric, ExperimentMetricType } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { FeatureFlagBasicType } from '~/types'
+import { ExperimentMetricMathType, FeatureFlagBasicType } from '~/types'
 
 import { runningTimeCalculatorLogic } from './runningTimeCalculatorLogic'
 
@@ -19,12 +19,15 @@ describe('runningTimeCalculatorLogic', () => {
     })
 
     // Should match https://docs.google.com/spreadsheets/d/11alyC8n7uqewZFLKfV4UAbW-0zH__EdV_Hrk2OQ4140/edit?gid=777532876#gid=777532876
-    describe('calculations for COUNT', () => {
+    describe('calculations for MEAN total count', () => {
         beforeEach(() => {
             experimentLogic.actions.setExperiment({
                 metrics: [
                     {
-                        metric_type: ExperimentMetricType.COUNT,
+                        metric_type: ExperimentMetricType.MEAN,
+                        metric_config: {
+                            math: ExperimentMetricMathType.TotalCount,
+                        },
                     } as ExperimentMetric,
                 ],
                 feature_flag: {
@@ -48,14 +51,14 @@ describe('runningTimeCalculatorLogic', () => {
             logic.actions.setMetricIndex(0)
         })
 
-        it('calculates recommended sample size and running time correctly for COUNT', async () => {
+        it('calculates recommended sample size and running time correctly for MEAN total count', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
             logic.actions.setMinimumDetectableEffect(5)
             logic.actions.setMetricResult({
                 uniqueUsers: 14000,
                 averageEventsPerUser: 4,
             })
-
-            await expectLogic(logic).toFinishAllListeners()
 
             await expectLogic(logic).toMatchValues({
                 minimumDetectableEffect: 5,
@@ -67,12 +70,15 @@ describe('runningTimeCalculatorLogic', () => {
     })
 
     // Should match https://docs.google.com/spreadsheets/d/11alyC8n7uqewZFLKfV4UAbW-0zH__EdV_Hrk2OQ4140/edit?gid=2067479228#gid=2067479228
-    describe('calculations for CONTINUOUS', () => {
+    describe('calculations for MEAN sum', () => {
         beforeEach(() => {
             experimentLogic.actions.setExperiment({
                 metrics: [
                     {
-                        metric_type: ExperimentMetricType.CONTINUOUS,
+                        metric_type: ExperimentMetricType.MEAN,
+                        metric_config: {
+                            math: ExperimentMetricMathType.Sum,
+                        },
                     } as ExperimentMetric,
                 ],
                 feature_flag: {
@@ -96,14 +102,14 @@ describe('runningTimeCalculatorLogic', () => {
             logic.actions.setMetricIndex(0)
         })
 
-        it('calculates recommended sample size and running time correctly for CONTINUOUS', async () => {
+        it('calculates recommended sample size and running time correctly for MEAN sum', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
             logic.actions.setMinimumDetectableEffect(5)
             logic.actions.setMetricResult({
                 uniqueUsers: 14000,
                 averagePropertyValuePerUser: 50,
             })
-
-            await expectLogic(logic).toFinishAllListeners()
 
             await expectLogic(logic).toMatchValues({
                 minimumDetectableEffect: 5,
