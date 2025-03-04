@@ -257,7 +257,7 @@ export const activationLogic = kea<activationLogicType>([
 
                 // Web Analytics
                 case ActivationTask.AddAuthorizedDomain:
-                    router.actions.push(urls.settings('environment-details', 'authorized-urls'))
+                    router.actions.push(urls.settings('environment', 'web-analytics-authorized-urls'))
                     break
                 case ActivationTask.SetUpWebVitals:
                     router.actions.push(urls.settings('environment-autocapture', 'web-vitals-autocapture'))

@@ -5,7 +5,7 @@ import { SettingsBar, SettingsMenu } from 'scenes/session-recordings/components/
 
 import { RecordingUniversalFilters } from '~/types'
 
-import { PlaybackMode, playerSettingsLogic } from '../player/playerSettingsLogic'
+import { playerSettingsLogic } from '../player/playerSettingsLogic'
 
 const SortingKeyToLabel = {
     start_time: 'Latest',
@@ -99,8 +99,8 @@ export function SessionRecordingsPlaylistTopSettings({
     filters?: RecordingUniversalFilters
     setFilters?: (filters: Partial<RecordingUniversalFilters>) => void
 }): JSX.Element {
-    const { autoplayDirection, playbackMode } = useValues(playerSettingsLogic)
-    const { setAutoplayDirection, setPlaybackMode } = useActions(playerSettingsLogic)
+    const { autoplayDirection } = useValues(playerSettingsLogic)
+    const { setAutoplayDirection } = useActions(playerSettingsLogic)
 
     return (
         <SettingsBar border="none" className="justify-between">
@@ -128,21 +128,6 @@ export function SessionRecordingsPlaylistTopSettings({
                                 label: 'Older recordings',
                                 onClick: () => setAutoplayDirection('older'),
                                 active: autoplayDirection === 'older',
-                            },
-                        ],
-                    },
-                    {
-                        label: 'Playback mode',
-                        items: [
-                            {
-                                label: 'Recordings',
-                                onClick: () => setPlaybackMode(PlaybackMode.Recording),
-                                active: playbackMode === PlaybackMode.Recording,
-                            },
-                            {
-                                label: 'Waterfall',
-                                onClick: () => setPlaybackMode(PlaybackMode.Waterfall),
-                                active: playbackMode === PlaybackMode.Waterfall,
                             },
                         ],
                     },

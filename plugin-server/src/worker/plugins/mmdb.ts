@@ -13,6 +13,7 @@ import {
 } from '../../config/mmdb-constants'
 import { Hub, PluginAttachmentDB } from '../../types'
 import { PostgresUse } from '../../utils/db/postgres'
+import { isTestEnv } from '../../utils/env-utils'
 import { status } from '../../utils/status'
 import { delay } from '../../utils/utils'
 
@@ -22,10 +23,12 @@ enum MMDBFileStatus {
     Unavailable = 'unavailable',
 }
 
-export async function setupMmdb(hub: Hub): Promise<schedule.Job | undefined> {
+export async function setupMmdb(hub: Hub): Promise<void> {
     if (!hub.DISABLE_MMDB && hub.capabilities.mmdb) {
         hub.mmdb = (await prepareMmdb(hub)) ?? undefined
-        return schedule.scheduleJob('0 */4 * * *', async () => await performMmdbStalenessCheck(hub))
+        if (!isTestEnv()) {
+            schedule.scheduleJob('0 */4 * * *', async () => await performMmdbStalenessCheck(hub))
+        }
     }
 }
 
