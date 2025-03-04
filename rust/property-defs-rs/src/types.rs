@@ -26,8 +26,15 @@ pub const SKIP_PROPERTIES: [&str; 9] = [
     "$groups",
 ];
 
-const DATETIME_PROPERTY_NAME_KEYWORDS: [&str; 6] =
-    ["time", "timestamp", "date", "_at", "createdat", "updatedat"];
+const DATETIME_PROPERTY_NAME_KEYWORDS: [&str; 7] = [
+    "time",
+    "timestamp",
+    "date",
+    "_at",
+    "-at",
+    "createdat",
+    "updatedat",
+];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, PartialOrd, Ord)]
 pub enum PropertyParentType {
@@ -866,6 +873,20 @@ mod test {
             ),
             Some(PropertyValueType::DateTime)
         );
+        assert_eq!(
+            detect_property_type(
+                "sent_at",
+                &Value::Number(serde_json::Number::from(1639400730))
+            ),
+            Some(PropertyValueType::DateTime)
+        );
+        assert_eq!(
+            detect_property_type(
+                "updated-at",
+                &Value::Number(serde_json::Number::from(1639400730))
+            ),
+            Some(PropertyValueType::DateTime)
+        );
 
         // Test non-matching property names (should be Numeric)
         assert_eq!(
@@ -874,13 +895,6 @@ mod test {
         );
         assert_eq!(
             detect_property_type("amount", &Value::Number(serde_json::Number::from(100))),
-            Some(PropertyValueType::Numeric)
-        );
-        assert_eq!(
-            detect_property_type(
-                "sent_at",
-                &Value::Number(serde_json::Number::from(1639400730))
-            ),
             Some(PropertyValueType::Numeric)
         );
 
