@@ -2386,8 +2386,8 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 "project_id": self.team.id,
             }
         ).json()
-        self.assertContains(response["featureFlags"], "test")
-        self.assertContains(response["featureFlags"], "default-flag")
+        self.assertIn("default-flag", response["featureFlags"])
+        self.assertIn("test", response["featureFlags"])
 
     @snapshot_postgres_queries
     def test_flag_with_regular_cohorts(self, *args):

@@ -4,6 +4,7 @@ import { cleanup, render, screen, waitFor, within } from '@testing-library/react
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 import { router } from 'kea-router'
+import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { PersonsManagementScene } from 'scenes/persons-management/PersonsManagementScene'
 import { urls } from 'scenes/urls'
 
@@ -122,6 +123,36 @@ describe('PersonsManagementScene', () => {
         await waitFor(() => {
             // TODO: this shouldn't say events, right?
             expect(withinTable.getByText('There are no matching events for this query')).toBeInTheDocument()
+        })
+    })
+
+    it('can navigate to the person', async () => {
+        render(
+            <Provider>
+                <PersonsManagementScene />
+            </Provider>
+        )
+
+        // Wait for loading to complete
+        await waitFor(() => {
+            const table = screen.getByTestId('persons-table')
+            expect(table).not.toHaveClass('LemonTable--loading')
+        })
+
+        // want to click on data-attr="persons-table" tr .PersonDisplay Link first one
+        const lemonTable = screen.getByTestId('persons-table')
+        const tableBody = lemonTable.querySelector('tbody')
+        const withinTable = within(tableBody!)
+        // there should be two rows, and i only care about the first one
+        const rows = withinTable.getAllByRole('row')
+        expect(rows).toHaveLength(2)
+        const firstRow = rows[0]
+        const personDisplayLink = within(firstRow).getByRole('link')
+
+        userEvent.click(personDisplayLink)
+
+        await waitFor(() => {
+            expect(router.values.location.pathname).toBe(`/project/${MOCK_TEAM_ID}/person/test_id`)
         })
     })
 })
