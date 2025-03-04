@@ -361,6 +361,17 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
+    if kind == "RevenueExampleEventsQuery":
+        from .web_analytics.revenue_example_events import RevenueExampleEventsQueryRunner
+
+        return RevenueExampleEventsQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
     if kind == "ErrorTrackingQuery":
         from .error_tracking_query_runner import ErrorTrackingQueryRunner
 

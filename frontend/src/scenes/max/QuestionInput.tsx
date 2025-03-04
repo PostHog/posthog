@@ -4,6 +4,8 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
+import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+
 import { maxLogic } from './maxLogic'
 
 export function QuestionInput(): JSX.Element {
@@ -65,7 +67,15 @@ export function QuestionInput(): JSX.Element {
                                 askMax(question)
                             }
                         }}
-                        tooltip={threadLoading ? "Let's bail" : "Let's go!"}
+                        tooltip={
+                            threadLoading ? (
+                                "Let's bail"
+                            ) : (
+                                <>
+                                    Let's go! <KeyboardShortcut enter />
+                                </>
+                            )
+                        }
                         disabledReason={submissionDisabledReason}
                         size="small"
                         icon={threadLoading ? <IconStopFilled /> : <IconArrowRight />}

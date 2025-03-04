@@ -230,7 +230,6 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
 
 const WebAnalyticsOnboarding = (): JSX.Element => {
     const { currentTeam } = useValues(teamLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const options: ProductConfigOption[] = [
         {
@@ -287,11 +286,7 @@ const WebAnalyticsOnboarding = (): JSX.Element => {
                 sdkInstructionMap={WebAnalyticsSDKInstructions}
                 stepKey={OnboardingStepKey.INSTALL}
             />
-
-            {featureFlags[FEATURE_FLAGS.ONBOARDING_AUTHORIZED_DOMAINS] && (
-                <OnboardingWebAnalyticsAuthorizedDomainsStep stepKey={OnboardingStepKey.AUTHORIZED_DOMAINS} />
-            )}
-
+            <OnboardingWebAnalyticsAuthorizedDomainsStep stepKey={OnboardingStepKey.AUTHORIZED_DOMAINS} />
             <OnboardingProductConfiguration stepKey={OnboardingStepKey.PRODUCT_CONFIGURATION} options={options} />
         </OnboardingWrapper>
     )
