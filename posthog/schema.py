@@ -770,8 +770,8 @@ class ExperimentMetricMathType(StrEnum):
 
 
 class ExperimentMetricType(StrEnum):
-    MEAN = "mean"
     FUNNEL = "funnel"
+    MEAN = "mean"
 
 
 class ExperimentSignificanceCode(StrEnum):
