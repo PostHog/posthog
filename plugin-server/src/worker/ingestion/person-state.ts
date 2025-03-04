@@ -154,7 +154,10 @@ export class PersonState {
                 // Ensure person properties don't propagate elsewhere, such as onto the event itself.
                 person.properties = {}
 
-                if (this.timestamp > person.created_at.plus({ minutes: 1 })) {
+                // If the team has opted out then we never force the upgrade.
+                const teamHasNotOptedOut = !this.team.person_processing_opt_out
+
+                if (teamHasNotOptedOut && this.timestamp > person.created_at.plus({ minutes: 1 })) {
                     // See documentation on the field.
                     //
                     // Note that we account for timestamp vs person creation time (with a little
