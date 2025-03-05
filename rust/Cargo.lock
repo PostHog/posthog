@@ -1924,21 +1924,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1c7a8fb8a9fbf66c1f703fe16184d10ca0ee9d23be5b4436400408ba54a95005"
 
 [[package]]
-name = "e2e-lag-exporter"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "envconfig",
- "futures",
- "metrics",
- "metrics-exporter-prometheus",
- "rdkafka",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "ecdsa"
 version = "0.14.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
