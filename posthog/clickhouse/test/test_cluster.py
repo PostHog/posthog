@@ -22,6 +22,7 @@ from posthog.clickhouse.cluster import (
     get_cluster,
 )
 from posthog.models.event.sql import EVENTS_DATA_TABLE
+from posthog.test.base import materialized
 
 
 @pytest.fixture
@@ -115,7 +116,7 @@ def test_retry_policy_exception_test():
     assert non_retryable_callable.call_count == 1
 
 
-def test_mutations(cluster: ClickhouseCluster) -> None:
+def test_alter_mutation_single_command(cluster: ClickhouseCluster) -> None:
     table = EVENTS_DATA_TABLE()
     count = 100
 
@@ -178,6 +179,36 @@ def test_mutations(cluster: ClickhouseCluster) -> None:
 
     with pytest.raises(MutationNotFound):
         assert cluster.any_host(Mutation("x", "y").is_done).result()
+
+
+def test_alter_mutation_multiple_commands(cluster: ClickhouseCluster) -> None:
+    table = EVENTS_DATA_TABLE()
+    count = 100
+
+    # make sure there is some data to play with first
+    def populate_random_data(client: Client) -> None:
+        client.execute(f"INSERT INTO {table} SELECT * FROM generateRandom() LIMIT {count}")
+
+    cluster.map_one_host_per_shard(populate_random_data).result()
+
+    sentinel_uuid = uuid.uuid1()  # unique to this test run to ensure we have a clean slate
+
+    with (
+        materialized("events", f"{sentinel_uuid}_a") as column_a,
+        materialized("events", f"{sentinel_uuid}_b") as column_b,
+    ):
+        runner = AlterTableMutationRunner(
+            table,
+            {f"MATERIALIZE COLUMN {column_a.name}", f"MATERIALIZE COLUMN {column_b.name}"},
+        )
+
+        # nothing should be running yet
+        existing_mutations = cluster.map_all_hosts(runner.find).result()
+        assert all(mutation is None for mutation in existing_mutations.values())
+
+        # start all mutations
+        shard_mutations = cluster.map_one_host_per_shard(runner.enqueue).result()
+        assert len(shard_mutations) > 0
 
 
 def test_map_hosts_by_role() -> None:
