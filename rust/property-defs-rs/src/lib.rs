@@ -98,11 +98,15 @@ pub async fn update_consumer_loop(
                     tries += 1;
                     if tries > 3 {
                         metrics::counter!(ISSUE_FAILED).increment(1);
-                        error!("Too many tries, dropping batch");
+                        error!(
+                            "Too many tries, dropping batch of size {}, got: {:?}",
+                            chunk.len(),
+                            e
+                        );
                         // We clear any updates that were in this batch from the cache, so that
                         // if we see them again we'll try again to issue them.
                         chunk.iter().for_each(|u| {
-                            metrics::counter!(UPDATES_CACHE, &[("action", "removed")]).increment(1);
+                            metrics::counter!(UPDATES_CACHE, &[("action", "dropped")]).increment(1);
                             m_cache.remove(u);
                         });
                         return;
@@ -161,12 +165,13 @@ pub async fn update_producer_loop(
         // 3. Although backing rd_kafka_offset_store doesn't force a commit, doing this in a tight loop can be heavy
         //
         // To be clear: I don't see the service restarting all the time, so prob isn't an issue, but panic'ing vs.
-        // log/statting could hide this as a potential source of property loss
+        // log/statting could hide this as a source of unnecessary property loss
         let curr_offset = offset.get_value();
         match offset.store() {
             Ok(_) => (),
             Err(e) => {
                 metrics::counter!(UPDATE_PRODUCER_OFFSET, &[("op", "store_fail")]).increment(1);
+                // TODO: consumer json_recv() should expose the source partition ID too
                 error!(
                     "update_producer_loop: failed to store offset {}, got: {}",
                     curr_offset, e
