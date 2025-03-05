@@ -219,7 +219,7 @@ export function HogFunctionConfiguration({
                             <b>Error saving filters:</b> {hogFunction.filters.bytecode_error}
                         </LemonBanner>
                     </div>
-                ) : ['template-reddit-pixel', 'template-snapchat-ads'].includes(templateId ?? '') ? (
+                ) : ['template-reddit-conversions-api', 'template-snapchat-ads'].includes(templateId ?? '') ? (
                     <div>
                         <LemonBanner type="warning">
                             You are using a rate limited destination. If you send more than 10 events per second, some
