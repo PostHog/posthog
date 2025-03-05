@@ -12,7 +12,7 @@ import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 
-import { DatabaseSchemaTable, DatabaseSerializedFieldType } from '~/queries/schema'
+import { DatabaseSchemaTable, DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
 
 interface DatabaseTableProps {
     table: string

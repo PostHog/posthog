@@ -1,6 +1,7 @@
 from datetime import datetime
 from typing import Optional
 from django.utils import timezone
+from ee.models.assistant import CoreMemory
 from posthog.hogql.ai import hit_openai
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import QueryRunner
@@ -38,9 +39,11 @@ class SuggestedQuestionsQueryRunner(QueryRunner):
                 "content": (
                     f"You are a product manager at organization {team.organization.name}, handling project {team.project.name}. "
                     f"This project was created {(timezone.now() - team.project.created_at).total_seconds() // 86400} days ago.\n"
-                    f"Your help must be tailored for the product you own, which is described as follows:\n"
-                    f"{team.project.product_description}\n"
-                    "Your task is helping product teams understand their users. "
+                    f"Your task is helping product teams understand their users. Your help must be tailored for the product you own. "
+                    "You have access to the core memory about the company and product in the <core_memory> tag.\n\n"
+                    "<core_memory>\n"
+                    f"{self.core_memory.formatted_text if self.core_memory else 'No core memory available.'}\n"
+                    "</core_memory>"
                 ),
             },
             {
@@ -81,13 +84,8 @@ class SuggestedQuestionsQueryRunner(QueryRunner):
             },
         ]
 
-        prompt_tokens_total, completion_tokens_total = 0, 0
         for _ in range(3):  # Try up to 3 times in case the output is malformed - though this is very unlikely
-            content, prompt_tokens_last, completion_tokens_last = hit_openai(
-                messages, f"{get_instance_region()}/team/{team.id}"
-            )
-            prompt_tokens_total += prompt_tokens_last
-            completion_tokens_total += completion_tokens_last
+            content, _, __ = hit_openai(messages, f"{get_instance_region()}/team/{team.id}")
             questions_start = content.find("QUESTIONS:")
             if questions_start == -1:
                 continue
@@ -107,8 +105,18 @@ class SuggestedQuestionsQueryRunner(QueryRunner):
 
         return SuggestedQuestionsQueryResponse(questions=[q for q, _ in questions[:12]])
 
+    @property
+    def core_memory(self) -> CoreMemory | None:
+        try:
+            return CoreMemory.objects.get(team=self.team)
+        except CoreMemory.DoesNotExist:
+            return None
+
     def get_cache_payload(self):
-        return {**super().get_cache_payload(), "product_description": self.team.project.product_description}
+        return {
+            **super().get_cache_payload(),
+            "core_memory": self.core_memory.formatted_text if self.core_memory else None,
+        }
 
     def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
         # We don't want to regenerate suggestions more often than 3 days, as there's no point

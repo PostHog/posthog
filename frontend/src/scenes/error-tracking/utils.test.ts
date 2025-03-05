@@ -1,4 +1,4 @@
-import { ErrorTrackingIssue } from '~/queries/schema'
+import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
 import { mergeIssues } from './utils'
 

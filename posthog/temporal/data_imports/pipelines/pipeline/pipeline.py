@@ -2,10 +2,13 @@ import gc
 import time
 from typing import Any
 import pyarrow as pa
-from dlt.sources import DltSource, DltResource
+from dlt.sources import DltSource
 import deltalake as deltalake
 from posthog.temporal.common.logger import FilteringBoundLogger
+from posthog.temporal.data_imports.deltalake_compaction_job import trigger_compaction_job
+from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
+    _get_column_hints,
     _handle_null_columns_with_definitions,
     _update_incremental_state,
     _get_primary_keys,
@@ -13,18 +16,20 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     _append_debug_column_to_pyarrows_table,
     _update_job_row_count,
     _update_last_synced_at_sync,
+    append_partition_key_to_table,
+    should_partition_table,
     table_from_py_list,
-    trigger_compaction_job,
 )
 from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
 from posthog.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
 from posthog.temporal.data_imports.pipelines.pipeline_sync import validate_schema_and_update_table_sync
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 from posthog.warehouse.models import DataWarehouseTable, ExternalDataJob, ExternalDataSchema
+from posthog.warehouse.types import IncrementalFieldType
 
 
 class PipelineNonDLT:
-    _resource: DltResource
+    _resource: SourceResponse
     _resource_name: str
     _job: ExternalDataJob
     _schema: ExternalDataSchema
@@ -36,14 +41,29 @@ class PipelineNonDLT:
     _load_id: int
 
     def __init__(
-        self, source: DltSource, logger: FilteringBoundLogger, job_id: str, is_incremental: bool, reset_pipeline: bool
+        self,
+        source: DltSource | SourceResponse,
+        logger: FilteringBoundLogger,
+        job_id: str,
+        is_incremental: bool,
+        reset_pipeline: bool,
     ) -> None:
-        resources = list(source.resources.items())
-        assert len(resources) == 1
-        resource_name, resource = resources[0]
+        if isinstance(source, DltSource):
+            resources = list(source.resources.items())
+            assert len(resources) == 1
+            resource_name, resource = resources[0]
 
-        self._resource = resource
-        self._resource_name = resource_name
+            self._resource_name = resource_name
+            self._resource = SourceResponse(
+                items=resource,
+                primary_keys=_get_primary_keys(resource),
+                name=resource_name,
+                column_hints=_get_column_hints(resource),
+            )
+        else:
+            self._resource = source
+            self._resource_name = source.name
+
         self._job = ExternalDataJob.objects.prefetch_related("schema").get(id=job_id)
         self._is_incremental = is_incremental
         self._reset_pipeline = reset_pipeline
@@ -54,7 +74,7 @@ class PipelineNonDLT:
         assert schema is not None
         self._schema = schema
 
-        self._delta_table_helper = DeltaTableHelper(resource_name, self._job, self._logger)
+        self._delta_table_helper = DeltaTableHelper(self._resource_name, self._job, self._logger)
         self._internal_schema = HogQLSchema()
 
     def run(self):
@@ -80,7 +100,7 @@ class PipelineNonDLT:
                 self._schema.sync_type_config.pop("incremental_field_last_value", None)
                 self._schema.save()
 
-            for item in self._resource:
+            for item in self._resource.items:
                 py_table = None
 
                 if isinstance(item, list):
@@ -148,12 +168,28 @@ class PipelineNonDLT:
         delta_table = self._delta_table_helper.get_delta_table()
 
         pa_table = _append_debug_column_to_pyarrows_table(pa_table, self._load_id)
+
+        if should_partition_table(delta_table, self._schema):
+            incremental_field = self._schema.sync_type_config.get("incremental_field")
+            incremental_field_type_str = self._schema.sync_type_config.get("incremental_field_type")
+            if incremental_field and incremental_field_type_str:
+                incremental_field_type = IncrementalFieldType(incremental_field_type_str)
+
+                # This needs to happen before _evolve_pyarrow_schema
+                pa_table = append_partition_key_to_table(
+                    table=pa_table,
+                    incremental_field=str(incremental_field),
+                    incremental_field_type=incremental_field_type,
+                    logger=self._logger,
+                )
+            else:
+                self._logger.debug("incremental_field or incremental_field_type missing: skipping partition key")
+
         pa_table = _evolve_pyarrow_schema(pa_table, delta_table.schema() if delta_table is not None else None)
         pa_table = _handle_null_columns_with_definitions(pa_table, self._resource)
 
-        table_primary_keys = _get_primary_keys(self._resource)
         delta_table = self._delta_table_helper.write_to_deltalake(
-            pa_table, self._is_incremental, index, table_primary_keys
+            pa_table, self._is_incremental, index, self._resource.primary_keys
         )
 
         self._internal_schema.add_pyarrow_table(pa_table)
@@ -168,10 +204,8 @@ class PipelineNonDLT:
             self._logger.debug("No deltalake table, not continuing with post-run ops")
             return
 
-        self._logger.debug("SKIPPING deltatable compact and vacuuming")
-
         self._logger.debug("Triggering workflow to compact and vacuum")
-        compaction_job_id = trigger_compaction_job(self._job, self._schema)
+        compaction_job_id = trigger_compaction_job(self._job, self._schema, self._logger)
         self._logger.debug(f"Compaction workflow id: {compaction_job_id}")
 
         file_uris = delta_table.file_uris()

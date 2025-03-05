@@ -6,13 +6,12 @@ import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/types'
 
-import { onboardingLogic } from '../onboarding/onboardingLogic'
 import type { productsLogicType } from './productsLogicType'
 
 export const productsLogic = kea<productsLogicType>([
     path(['scenes', 'products', 'productsLogic']),
     connect({
-        actions: [onboardingLogic, ['setIncludeIntro'], teamLogic, ['addProductIntent']],
+        actions: [teamLogic, ['addProductIntent']],
     }),
     actions(() => ({
         toggleSelectedProduct: (productKey: ProductKey) => ({ productKey }),
@@ -40,7 +39,6 @@ export const productsLogic = kea<productsLogicType>([
                 return
             }
 
-            actions.setIncludeIntro(false)
             router.actions.push(urls.onboarding(values.firstProductOnboarding))
             values.selectedProducts.forEach((productKey) => {
                 actions.addProductIntent({

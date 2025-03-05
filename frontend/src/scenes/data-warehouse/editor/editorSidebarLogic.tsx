@@ -12,7 +12,7 @@ import { urls } from 'scenes/urls'
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { FuseSearchMatch } from '~/layout/navigation-3000/sidebars/utils'
 import { BasicListItem, ExtendedListItem, ListItemAccordion, SidebarCategory } from '~/layout/navigation-3000/types'
-import { DatabaseSchemaDataWarehouseTable, DatabaseSchemaTable } from '~/queries/schema'
+import { DatabaseSchemaDataWarehouseTable, DatabaseSchemaTable } from '~/queries/schema/schema-general'
 import { DataWarehouseSavedQuery, PipelineTab } from '~/types'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'

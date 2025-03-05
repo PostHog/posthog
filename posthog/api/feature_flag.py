@@ -2,6 +2,7 @@ import json
 from typing import Any, Optional, cast
 from datetime import datetime
 
+from django.db import transaction
 from django.db.models import QuerySet, Q, deletion, Prefetch
 from django.conf import settings
 from drf_spectacular.utils import OpenApiParameter
@@ -32,12 +33,14 @@ from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.constants import FlagRequestType
 from posthog.event_usage import report_user_action
+from posthog.exceptions import Conflict
 from posthog.helpers.dashboard_templates import (
     add_enriched_insights_to_feature_flag_dashboard,
 )
 from posthog.helpers.encrypted_flag_payloads import (
     encrypt_flag_payloads,
     get_decrypted_flag_payloads,
+    REDACTED_PAYLOAD_VALUE,
 )
 from posthog.models import FeatureFlag
 from posthog.models.activity_logging.activity_log import (
@@ -57,7 +60,7 @@ from posthog.models.feature_flag import (
 )
 from posthog.models.feature_flag.flag_analytics import increment_request_count
 from posthog.models.feature_flag.flag_matching import check_flag_evaluation_query_is_ok
-from posthog.models.feedback.survey import Survey
+from posthog.models.surveys.survey import Survey
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property import Property
 from posthog.models.feature_flag.flag_status import FeatureFlagStatusChecker, FeatureFlagStatus
@@ -100,6 +103,8 @@ class FeatureFlagSerializer(
     TaggedItemSerializerMixin, UserAccessControlSerializerMixin, serializers.HyperlinkedModelSerializer
 ):
     created_by = UserBasicSerializer(read_only=True)
+    version = serializers.IntegerField(required=False, default=0)
+    last_modified_by = UserBasicSerializer(read_only=True)
 
     # :TRICKY: Needed for backwards compatibility
     filters = serializers.DictField(source="get_filters", required=False)
@@ -146,6 +151,8 @@ class FeatureFlagSerializer(
             "active",
             "created_by",
             "created_at",
+            "version",
+            "last_modified_by",
             "is_simple_flag",
             "rollout_percentage",
             "ensure_experience_continuity",
@@ -189,7 +196,7 @@ class FeatureFlagSerializer(
         )
 
     # Simple flags are ones that only have rollout_percentage
-    #  That means server side libraries are able to gate these flags without calling to the server
+    # That means server side libraries are able to gate these flags without calling to the server
     def get_is_simple_flag(self, feature_flag: FeatureFlag) -> bool:
         no_properties_used = all(len(condition.get("properties", [])) == 0 for condition in feature_flag.conditions)
         return (
@@ -360,6 +367,7 @@ class FeatureFlagSerializer(
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> FeatureFlag:
         request = self.context["request"]
         validated_data["created_by"] = request.user
+        validated_data["last_modified_by"] = request.user
         validated_data["team_id"] = self.context["team_id"]
         tags = validated_data.pop("tags", None)  # tags are created separately below as global tag relationships
         creation_context = validated_data.pop(
@@ -388,6 +396,8 @@ class FeatureFlagSerializer(
                 "Feature flag with this key already exists and is used in an experiment. Please delete the experiment before deleting the flag."
             )
 
+        analytics_dashboards = validated_data.pop("analytics_dashboards", None)
+
         self.check_flag_evaluation(validated_data)
 
         instance: FeatureFlag = super().create(validated_data)
@@ -396,6 +406,10 @@ class FeatureFlagSerializer(
 
         _create_usage_dashboard(instance, request.user)
 
+        if analytics_dashboards is not None:
+            for dashboard in analytics_dashboards:
+                FeatureFlagDashboards.objects.get_or_create(dashboard=dashboard, feature_flag=instance)
+
         analytics_metadata = instance.get_analytics_metadata()
         analytics_metadata["creation_context"] = creation_context
         report_user_action(request.user, "feature flag created", analytics_metadata)
@@ -403,30 +417,54 @@ class FeatureFlagSerializer(
         return instance
 
     def update(self, instance: FeatureFlag, validated_data: dict, *args: Any, **kwargs: Any) -> FeatureFlag:
+        request = self.context["request"]
+        validated_data["last_modified_by"] = request.user
+
         if "deleted" in validated_data and validated_data["deleted"] is True and instance.features.count() > 0:
             raise exceptions.ValidationError(
                 "Cannot delete a feature flag that is in use with early access features. Please delete the early access feature before deleting the flag."
             )
 
-        request = self.context["request"]
-        validated_key = validated_data.get("key", None)
-        if validated_key:
-            # Delete any soft deleted feature flags with the same key to prevent conflicts
-            FeatureFlag.objects.filter(
-                key=validated_key, team__project_id=instance.team.project_id, deleted=True
-            ).delete()
-        self._update_filters(validated_data)
-        encrypt_flag_payloads(validated_data)
+        with transaction.atomic():
+            # select_for_update locks the database row so we ensure version updates are atomic
+            locked_instance = FeatureFlag.objects.select_for_update().get(pk=instance.pk)
+            locked_version = locked_instance.version or 0
 
-        analytics_dashboards = validated_data.pop("analytics_dashboards", None)
+            version = validated_data.get("version", -1)
 
-        if analytics_dashboards is not None:
-            for dashboard in analytics_dashboards:
-                FeatureFlagDashboards.objects.get_or_create(dashboard=dashboard, feature_flag=instance)
+            # If version is not provided, we don't check for conflicts. This is just in case there's a place
+            # that's using the feature flag that doesn't know about the version field yet.
+            if version != -1 and version != locked_version:
+                raise Conflict(
+                    f"The feature flag was updated by {locked_instance.last_modified_by.email if locked_instance.last_modified_by else 'another user'} since you started editing it. Please refresh and try again."
+                )
 
-        old_key = instance.key
+            validated_data["version"] = locked_version + 1
 
-        instance = super().update(instance, validated_data)
+            validated_key = validated_data.get("key", None)
+            if validated_key:
+                # Delete any soft deleted feature flags with the same key to prevent conflicts
+                FeatureFlag.objects.filter(
+                    key=validated_key, team__project_id=instance.team.project_id, deleted=True
+                ).delete()
+            self._update_filters(validated_data)
+
+            if validated_data.get("has_encrypted_payloads", False):
+                if validated_data["filters"]["payloads"]["true"] == REDACTED_PAYLOAD_VALUE:
+                    # Don't write the redacted payload to the db, keep the current value instead
+                    validated_data["filters"]["payloads"]["true"] = instance.filters["payloads"]["true"]
+                else:
+                    encrypt_flag_payloads(validated_data)
+
+            analytics_dashboards = validated_data.pop("analytics_dashboards", None)
+
+            if analytics_dashboards is not None:
+                for dashboard in analytics_dashboards:
+                    FeatureFlagDashboards.objects.get_or_create(dashboard=dashboard, feature_flag=instance)
+
+            old_key = instance.key
+
+            instance = super().update(instance, validated_data)
 
         # Propagate the new variants and aggregation group type index to the linked experiments
         if "filters" in validated_data:
@@ -548,6 +586,7 @@ class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
             "deleted",
             "active",
             "ensure_experience_continuity",
+            "has_encrypted_payloads",
         ]
 
 
@@ -559,7 +598,7 @@ class FeatureFlagViewSet(
     viewsets.ModelViewSet,
 ):
     """
-    Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/user-guides/feature-flags) for more information on feature flags.
+    Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
 
     If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
     """
@@ -637,7 +676,7 @@ class FeatureFlagViewSet(
         else:
             queryset = queryset.order_by("-created_at")
 
-        return queryset.select_related("created_by")
+        return queryset.select_related("created_by", "last_modified_by")
 
     @extend_schema(
         parameters=[
@@ -796,8 +835,27 @@ class FeatureFlagViewSet(
         methods=["GET"], detail=False, throttle_classes=[FeatureFlagThrottle], required_scopes=["feature_flag:read"]
     )
     def local_evaluation(self, request: request.Request, **kwargs):
+        # Check if team is quota limited for feature flags
+        if settings.DECIDE_FEATURE_FLAG_QUOTA_CHECK:
+            from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
+
+            limited_tokens_flags = list_limited_team_attributes(
+                QuotaResource.FEATURE_FLAG_REQUESTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+            )
+            if self.team.api_token in limited_tokens_flags:
+                return Response(
+                    {
+                        "type": "quota_limited",
+                        "detail": "You have exceeded your feature flag request quota",
+                        "code": "payment_required",
+                    },
+                    status=status.HTTP_402_PAYMENT_REQUIRED,
+                )
+
         feature_flags: QuerySet[FeatureFlag] = FeatureFlag.objects.db_manager(DATABASE_FOR_LOCAL_EVALUATION).filter(
-            team__project_id=self.project_id, deleted=False
+            ~Q(is_remote_configuration=True),
+            team__project_id=self.project_id,
+            deleted=False,
         )
 
         should_send_cohorts = "send_cohorts" in request.GET

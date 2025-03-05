@@ -4,7 +4,7 @@ import { useValues } from 'kea'
 import { useMemo } from 'react'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
-import { WebVitalsQueryResponse } from '~/queries/schema'
+import { WebVitalsQueryResponse } from '~/queries/schema/schema-general'
 
 import {
     EXPERIENCE_PER_BAND,
@@ -42,7 +42,7 @@ export const WebVitalsContent = ({ webVitalsQueryResponse }: WebVitalsContentPro
     // NOTE: `band` will only return `none` if the value is undefined,
     // so this is basically the same check twice, but we need that to make TS happy
     if (value === undefined || band === 'none') {
-        return <LemonSkeleton fade className="w-full h-40 rounded md:w-[30%]" />
+        return <LemonSkeleton fade className="w-full h-full rounded sm:w-[30%]" />
     }
 
     const grade = GRADE_PER_BAND[band]
@@ -58,7 +58,7 @@ export const WebVitalsContent = ({ webVitalsQueryResponse }: WebVitalsContentPro
     const unit = webVitalsTab === 'CLS' ? '' : 'ms'
 
     return (
-        <div className="w-full border rounded p-6 md:w-[30%] flex flex-col gap-2 m-2">
+        <div className="w-full p-4 sm:w-[30%] flex flex-col gap-2 bg-surface-primary rounded border">
             <span className="text-lg">
                 <strong>{LONG_METRIC_NAME[webVitalsTab]}</strong>
             </span>

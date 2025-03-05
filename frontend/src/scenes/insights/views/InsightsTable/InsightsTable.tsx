@@ -44,6 +44,7 @@ export interface InsightsTableProps {
     embedded?: boolean
     /** @default false */
     canEditSeriesNameInline?: boolean
+    seriesNameTooltip?: string
     /**
      * (Un)checking series updates the insight via the API, so it should be disabled if updates aren't desired.
      *  @default true
@@ -61,6 +62,7 @@ export function InsightsTable({
     isLegend = false,
     embedded = false,
     canEditSeriesNameInline = false,
+    seriesNameTooltip,
     canCheckUncheckSeries = true,
     isMainInsightView = false,
 }: InsightsTableProps): JSX.Element {
@@ -124,6 +126,7 @@ export function InsightsTable({
                     item={item}
                     indexedResults={indexedResults}
                     canEditSeriesNameInline={canEditSeriesNameInline}
+                    seriesNameTooltip={seriesNameTooltip}
                     handleEditClick={handleSeriesEditClick}
                     hasMultipleSeries={!isSingleSeries}
                     hasBreakdown={isValidBreakdown(breakdownFilter)}

@@ -2,7 +2,9 @@ import { ErrorTrackingException } from 'lib/components/Errors/types'
 import { dayjs } from 'lib/dayjs'
 import { range } from 'lib/utils'
 
-import { ErrorTrackingIssue, ErrorTrackingSparklineConfig } from '~/queries/schema'
+import { ErrorTrackingIssue, ErrorTrackingSparklineConfig } from '~/queries/schema/schema-general'
+
+const THIRD_PARTY_SCRIPT_ERROR = 'Script error.'
 
 const volumePeriods: ('customVolume' | 'volumeDay' | 'volumeMonth')[] = ['customVolume', 'volumeDay', 'volumeMonth']
 const sumVolumes = (...arrays: number[][]): number[] =>
@@ -112,6 +114,10 @@ export function getExceptionAttributes(
 
 export function hasStacktrace(exceptionList: ErrorTrackingException[]): boolean {
     return exceptionList?.length > 0 && exceptionList.some((e) => !!e.stacktrace)
+}
+
+export function isThirdPartyScriptError(value: ErrorTrackingException['value']): boolean {
+    return value === THIRD_PARTY_SCRIPT_ERROR
 }
 
 export function hasAnyInAppFrames(exceptionList: ErrorTrackingException[]): boolean {

@@ -164,7 +164,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     // TODO(@Gilbert09): Better loading support for all components - e.g. using the `loading` param of `Table`
     if (!showEditingUI && (!response || responseLoading)) {
         component = (
-            <div className="flex flex-col flex-1 justify-center items-center border rounded bg-surface-primary">
+            <div className="flex flex-col flex-1 justify-center items-center bg-surface-primary h-full">
                 <LoadingBar />
             </div>
         )

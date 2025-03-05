@@ -19,7 +19,7 @@ import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigati
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
-import { DashboardFilter, HogQLVariable, Node } from '~/queries/schema'
+import { DashboardFilter, HogQLVariable, Node } from '~/queries/schema/schema-general'
 import { ActivityScope, Breadcrumb, DashboardType, InsightShortId, InsightType, ItemMode } from '~/types'
 
 import { insightDataLogic } from './insightDataLogic'

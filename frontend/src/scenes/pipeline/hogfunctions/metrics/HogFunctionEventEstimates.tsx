@@ -6,7 +6,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
-import { DataTableNode } from '~/queries/schema'
+import { DataTableNode } from '~/queries/schema/schema-general'
 import { InsightType } from '~/types'
 
 import { hogFunctionConfigurationLogic } from '../hogFunctionConfigurationLogic'

@@ -1,15 +1,18 @@
 import { expectLogic, partial } from 'kea-test-utils'
+import { dayjs } from 'lib/dayjs'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import {
     AnyPropertyFilter,
+    EventPropertyFilter,
     PropertyFilterType,
     PropertyOperator,
     Survey,
     SurveyQuestionBranchingType,
     SurveyQuestionType,
+    SurveySchedule,
     SurveyType,
 } from '~/types'
 
@@ -59,6 +62,7 @@ const MULTIPLE_CHOICE_SURVEY: Survey = {
     responses_limit: null,
     iteration_count: null,
     iteration_frequency_days: null,
+    schedule: SurveySchedule.Once,
 }
 
 const SINGLE_CHOICE_SURVEY: Survey = {
@@ -107,6 +111,7 @@ const SINGLE_CHOICE_SURVEY: Survey = {
     responses_limit: null,
     iteration_count: null,
     iteration_frequency_days: null,
+    schedule: SurveySchedule.Once,
 }
 
 const MULTIPLE_CHOICE_SURVEY_WITH_OPEN_CHOICE: Survey = {
@@ -156,6 +161,7 @@ const MULTIPLE_CHOICE_SURVEY_WITH_OPEN_CHOICE: Survey = {
     responses_limit: null,
     iteration_count: null,
     iteration_frequency_days: null,
+    schedule: SurveySchedule.Once,
 }
 
 const SINGLE_CHOICE_SURVEY_WITH_OPEN_CHOICE: Survey = {
@@ -205,6 +211,7 @@ const SINGLE_CHOICE_SURVEY_WITH_OPEN_CHOICE: Survey = {
     responses_limit: null,
     iteration_count: null,
     iteration_frequency_days: null,
+    schedule: SurveySchedule.Once,
 }
 
 describe('multiple choice survey logic', () => {
@@ -453,6 +460,7 @@ describe('set response-based survey branching', () => {
         archived: false,
         targeting_flag_filters: undefined,
         responses_limit: null,
+        schedule: SurveySchedule.Once,
     }
 
     describe('main', () => {
@@ -1553,5 +1561,134 @@ describe('survey filters', () => {
                     }),
                 }),
             })
+    })
+})
+
+describe('surveyLogic filters for surveys responses', () => {
+    let logic: ReturnType<typeof surveyLogic.build>
+
+    beforeEach(() => {
+        initKeaTests()
+        logic = surveyLogic({ id: 'new' })
+        logic.mount()
+    })
+
+    it('applies answer filters to queries', async () => {
+        const answerFilter: EventPropertyFilter = {
+            key: '$survey_response',
+            value: 'test response',
+            operator: PropertyOperator.IContains,
+            type: PropertyFilterType.Event,
+        }
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess(MULTIPLE_CHOICE_SURVEY)
+            logic.actions.setAnswerFilters([answerFilter])
+        })
+            .toDispatchActions(['loadSurveySuccess', 'setAnswerFilters'])
+            .toMatchValues({
+                answerFilters: [answerFilter],
+                dataTableQuery: partial({
+                    source: partial({
+                        properties: expect.arrayContaining([
+                            // Survey ID property should still be present
+                            {
+                                key: '$survey_id',
+                                operator: 'exact',
+                                type: 'event',
+                                value: MULTIPLE_CHOICE_SURVEY.id,
+                            },
+                            answerFilter,
+                        ]),
+                    }),
+                }),
+            })
+    })
+    it('reloads survey results when answer filters change', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess(MULTIPLE_CHOICE_SURVEY)
+        }).toDispatchActions(['loadSurveySuccess'])
+
+        const answerFilter: EventPropertyFilter = {
+            key: '$survey_response',
+            value: 'test response',
+            operator: PropertyOperator.IContains,
+            type: PropertyFilterType.Event,
+        }
+
+        await expectLogic(logic, () => {
+            logic.actions.setAnswerFilters([answerFilter])
+        }).toDispatchActions(['setAnswerFilters', 'loadSurveyUserStats', 'loadSurveyMultipleChoiceResults'])
+    })
+
+    describe('interval selection', () => {
+        it('starts with null interval', async () => {
+            await expectLogic(logic).toMatchValues({
+                interval: null,
+            })
+        })
+
+        it('calculates default interval based on survey dates', async () => {
+            // Test for survey <= 2 days old
+            await expectLogic(logic, () => {
+                logic.actions.setSurveyValue('created_at', dayjs().subtract(1, 'day').format('YYYY-MM-DD'))
+            }).toMatchValues({
+                defaultInterval: 'hour',
+            })
+
+            // Test for survey <= 4 weeks old
+            await expectLogic(logic, () => {
+                logic.actions.setSurveyValue('created_at', dayjs().subtract(3, 'weeks').format('YYYY-MM-DD'))
+            }).toMatchValues({
+                defaultInterval: 'day',
+            })
+
+            // Test for survey <= 12 weeks old
+            await expectLogic(logic, () => {
+                logic.actions.setSurveyValue('created_at', dayjs().subtract(10, 'weeks').format('YYYY-MM-DD'))
+            }).toMatchValues({
+                defaultInterval: 'week',
+            })
+
+            // Test for survey > 12 weeks old
+            await expectLogic(logic, () => {
+                logic.actions.setSurveyValue('created_at', dayjs().subtract(16, 'weeks').format('YYYY-MM-DD'))
+            }).toMatchValues({
+                defaultInterval: 'month',
+            })
+        })
+
+        it('uses start_date over created_at when available', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setSurveyValue('created_at', dayjs().subtract(16, 'weeks').format('YYYY-MM-DD'))
+                logic.actions.setSurveyValue('start_date', dayjs().subtract(2, 'weeks').format('YYYY-MM-DD'))
+            }).toMatchValues({
+                defaultInterval: 'day',
+            })
+        })
+
+        it('uses end_date when available', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setSurveyValue('created_at', dayjs().subtract(20, 'weeks').format('YYYY-MM-DD'))
+                logic.actions.setSurveyValue('end_date', dayjs().subtract(3, 'weeks').format('YYYY-MM-DD'))
+            }).toMatchValues({
+                defaultInterval: 'month',
+            })
+        })
+
+        it('allows manual interval override', async () => {
+            // Set survey dates that would default to 'day'
+            await expectLogic(logic, () => {
+                logic.actions.setSurveyValue('created_at', dayjs().subtract(3, 'weeks').format('YYYY-MM-DD'))
+            })
+
+            // Override with manual selection
+            await expectLogic(logic, () => {
+                logic.actions.setInterval('month')
+            }).toMatchValues({
+                interval: 'month',
+                defaultInterval: 'day', // Default interval remains unchanged
+            })
+        })
     })
 })

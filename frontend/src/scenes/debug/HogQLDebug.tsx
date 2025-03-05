@@ -8,7 +8,7 @@ import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { Reload } from '~/queries/nodes/DataNode/Reload'
 import { EventPropertyFilters } from '~/queries/nodes/EventsNode/EventPropertyFilters'
 import { HogQLQueryEditor } from '~/queries/nodes/HogQLQuery/HogQLQueryEditor'
-import { HogQLQuery, HogQLQueryResponse } from '~/queries/schema'
+import { HogQLQuery, HogQLQueryResponse } from '~/queries/schema/schema-general'
 
 import { QueryTabs } from './QueryTabs'
 

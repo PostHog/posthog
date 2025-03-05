@@ -9,7 +9,7 @@ import { Error404 as Error404Component } from '~/layout/Error404'
 import { ErrorNetwork as ErrorNetworkComponent } from '~/layout/ErrorNetwork'
 import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '~/layout/ErrorProjectUnavailable'
 import { productConfiguration, productRedirects, productRoutes } from '~/products'
-import { EventsQuery } from '~/queries/schema'
+import { EventsQuery } from '~/queries/schema/schema-general'
 import {
     ActivityScope,
     ActivityTab,
@@ -297,9 +297,9 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     },
     [Scene.Max]: {
         projectBased: true,
-        name: 'Max AI',
+        name: 'Max',
         layout: 'app-raw',
-        hideProjectNotice: true, // FIXME: Currently doesn't render well...
+        hideProjectNotice: true,
     },
     [Scene.IntegrationsRedirect]: {
         name: 'Integrations redirect',
@@ -470,8 +470,8 @@ export const redirects: Record<
         ])
         try {
             const timestamp = decodeURIComponent(_)
-            const after = dayjs(timestamp).subtract(1, 'second').startOf('second').toISOString()
-            const before = dayjs(timestamp).add(1, 'second').startOf('second').toISOString()
+            const after = dayjs(timestamp).subtract(15, 'second').startOf('second').toISOString()
+            const before = dayjs(timestamp).add(15, 'second').startOf('second').toISOString()
             Object.assign(query.source as EventsQuery, { before, after })
         } catch (e) {
             lemonToast.error('Invalid event timestamp')

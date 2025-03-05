@@ -17,9 +17,22 @@ import { urls } from 'scenes/urls'
 import { errorColumn, loadingColumn } from '~/queries/nodes/DataTable/dataTableLogic'
 import { renderHogQLX } from '~/queries/nodes/HogQLX/render'
 import { DeletePersonButton } from '~/queries/nodes/PersonsNode/DeletePersonButton'
-import { DataTableNode, EventsQueryPersonColumn, HasPropertiesNode, LLMTracePerson } from '~/queries/schema'
+import {
+    DataTableNode,
+    EventsQueryPersonColumn,
+    HasPropertiesNode,
+    LLMTracePerson,
+} from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { isActorsQuery, isEventsQuery, isHogQLQuery, isPersonsNode, isTracesQuery, trimQuotes } from '~/queries/utils'
+import {
+    isActorsQuery,
+    isEventsQuery,
+    isHogQLQuery,
+    isPersonsNode,
+    isRevenueExampleEventsQuery,
+    isTracesQuery,
+    trimQuotes,
+} from '~/queries/utils'
 import { AnyPropertyFilter, EventType, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
 
 export function renderColumn(
@@ -147,7 +160,6 @@ export function renderColumn(
                 : '#'
             return (
                 <Link
-                    className="ph-no-capture"
                     to={newUrl}
                     onClick={(e) => {
                         e.preventDefault()
@@ -194,7 +206,6 @@ export function renderColumn(
                 : '#'
             return (
                 <Link
-                    className="ph-no-capture"
                     to={newUrl}
                     onClick={(e) => {
                         e.preventDefault()
@@ -220,7 +231,7 @@ export function renderColumn(
             noPopover: true,
         }
 
-        if (isEventsQuery(query.source)) {
+        if (isEventsQuery(query.source) || isRevenueExampleEventsQuery(query.source)) {
             displayProps.person = value.distinct_id ? (value as EventsQueryPersonColumn) : value
             displayProps.noPopover = false // If we are in an events list, the popover experience is better
         }

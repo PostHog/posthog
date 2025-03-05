@@ -2,7 +2,7 @@ import { IconCheckCircle, IconWarning } from '@posthog/icons'
 import { IconExclamation } from 'lib/lemon-ui/icons'
 import { WebVitalsPercentile } from 'scenes/web-analytics/webAnalyticsLogic'
 
-import { WebVitalsItem, WebVitalsMetric, WebVitalsMetricBand } from '~/queries/schema'
+import { WebVitalsItem, WebVitalsMetric, WebVitalsMetricBand } from '~/queries/schema/schema-general'
 
 const PERCENTILE_NAME: Record<WebVitalsPercentile, string> = {
     p75: '75%',
@@ -66,10 +66,17 @@ export const getMetric = (
     metric: WebVitalsMetric,
     percentile: WebVitalsPercentile
 ): number | undefined => {
-    return results
-        ?.filter((result) => result.action.custom_name === metric)
-        .find((result) => result.action.math === percentile)
-        ?.data.slice(-1)[0]
+    const data = results
+        ?.filter((result) => result.action.custom_name === metric) // Filter to the right metric
+        .find((result) => result.action.math === percentile)?.data // Get the right percentile // Get the actual data array
+
+    // If CLS, just return last value, it can be 0
+    if (metric === 'CLS') {
+        return data?.slice(-1)[0]
+    }
+
+    // Else, return the last non-0 value
+    return data?.filter((value) => value !== 0).slice(-1)[0] // Get the last non-0 value
 }
 
 export const getMetricBand = (value: number | undefined, metric: WebVitalsMetric): WebVitalsMetricBand | 'none' => {

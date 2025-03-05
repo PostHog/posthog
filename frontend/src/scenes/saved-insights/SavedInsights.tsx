@@ -22,7 +22,7 @@ import {
     IconVideoCamera,
     IconWarning,
 } from '@posthog/icons'
-import { LemonSelectOptions, LemonTag } from '@posthog/lemon-ui'
+import { LemonSelectOptions } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -295,6 +295,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPieChart,
         inMenu: true,
     },
+    [NodeKind.RevenueExampleEventsQuery]: {
+        name: 'Revenue Example Events',
+        description: 'Revenue Example Events Query.',
+        icon: IconPieChart,
+        inMenu: true,
+    },
     [NodeKind.ErrorTrackingQuery]: {
         name: 'Error Tracking',
         description: 'List and explore exception groups.',
@@ -313,6 +319,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconFlask,
         inMenu: false,
     },
+    [NodeKind.ExperimentExposureQuery]: {
+        name: 'Experiment Exposure',
+        description: 'View experiment exposure.',
+        icon: IconFlask,
+        inMenu: false,
+    },
     [NodeKind.ExperimentTrendsQuery]: {
         name: 'Experiment Trends Result',
         description: 'View experiment trend result.',
@@ -322,6 +334,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.ExperimentFunnelsQuery]: {
         name: 'Experiment Funnels Result',
         description: 'View experiment funnel result.',
+        icon: IconFlask,
+        inMenu: false,
+    },
+    [NodeKind.ExperimentEventExposureConfig]: {
+        name: 'Experiment Event Exposure Config',
+        description: 'Experiment event exposure configuration.',
         icon: IconFlask,
         inMenu: false,
     },
@@ -678,11 +696,7 @@ export function SavedInsights(): JSX.Element {
                         ? [
                               {
                                   key: SavedInsightsTabs.Alerts,
-                                  label: (
-                                      <div className="flex items-center gap-2">
-                                          Alerts <LemonTag type="highlight">ALPHA</LemonTag>
-                                      </div>
-                                  ),
+                                  label: <div className="flex items-center gap-2">Alerts</div>,
                               },
                           ]
                         : []),

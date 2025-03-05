@@ -1,8 +1,16 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { KafkaProducerWrapper } from '../../../../src/kafka/producer'
-import { ISOTimestamp, Person, PipelineEvent, PreIngestionEvent, RawKafkaEvent } from '../../../../src/types'
+import { KafkaProducerWrapper, TopicMessage } from '../../../../src/kafka/producer'
+import {
+    ClickHouseTimestamp,
+    ISOTimestamp,
+    Person,
+    PipelineEvent,
+    PreIngestionEvent,
+    ProjectId,
+    RawKafkaEvent,
+} from '../../../../src/types'
 import { createEventsToDropByToken } from '../../../../src/utils/db/hub'
 import { cookielessServerHashStep } from '../../../../src/worker/ingestion/event-pipeline/cookielessServerHashStep'
 import { createEventStep } from '../../../../src/worker/ingestion/event-pipeline/createEventStep'
@@ -69,31 +77,34 @@ const pluginEvent: PluginEvent = {
 const preIngestionEvent: PreIngestionEvent = {
     eventUuid: 'uuid1',
     distinctId: 'my_id',
-    ip: '127.0.0.1',
     teamId: 2,
-    projectId: 1,
+    projectId: 1 as ProjectId,
     timestamp: '2020-02-23T02:15:00.000Z' as ISOTimestamp,
     event: '$pageview',
     properties: {},
+
+    // @ts-expect-error TODO: Check if elementsList and ip are necessary
     elementsList: [],
+    ip: '127.0.0.1',
 }
 
 const createdEvent: RawKafkaEvent = {
-    created_at: '2024-11-18 14:54:33.606',
+    created_at: '2024-11-18 14:54:33.606' as ClickHouseTimestamp,
     distinct_id: 'my_id',
     elements_chain: '',
     event: '$pageview',
-    person_created_at: '2024-11-18 14:54:33',
+    person_created_at: '2024-11-18 14:54:33' as ClickHouseTimestamp,
     person_mode: 'full',
     person_properties: '{}',
-    project_id: 1,
+    project_id: 1 as ProjectId,
     properties: '{}',
     team_id: 2,
-    timestamp: '2020-02-23 02:15:00.000',
+    timestamp: '2020-02-23 02:15:00.000' as ClickHouseTimestamp,
     uuid: 'uuid1',
 }
 
 const person: Person = {
+    // @ts-expect-error TODO: Check if we need to pass id in here
     id: 123,
     team_id: 2,
     properties: {},
@@ -134,13 +145,20 @@ describe('EventPipelineRunner', () => {
         jest.mocked(populateTeamDataStep).mockResolvedValue(pluginEvent)
         jest.mocked(cookielessServerHashStep).mockResolvedValue([pluginEvent])
         jest.mocked(pluginsProcessEventStep).mockResolvedValue(pluginEvent)
+
+        // @ts-expect-error this is just a mock
         jest.mocked(processPersonsStep).mockResolvedValue([
             pluginEvent,
             { person, personUpdateProperties: {}, get: () => Promise.resolve(person) } as any,
         ])
         jest.mocked(prepareEventStep).mockResolvedValue(preIngestionEvent)
+
+        // @ts-expect-error TODO: Check why expect never
         jest.mocked(createEventStep).mockResolvedValue(createdEvent)
+
+        // @ts-expect-error TODO: Check why expect never
         jest.mocked(emitEventStep).mockResolvedValue([Promise.resolve()])
+
         jest.mocked(processOnEventStep).mockResolvedValue(null)
     })
 
@@ -274,8 +292,14 @@ describe('EventPipelineRunner', () => {
 
                 expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
 
-                expect(mockProducer.queueMessages.mock.calls[0][0].topic).toEqual('events_dead_letter_queue_test')
-                expect(JSON.parse(mockProducer.queueMessages.mock.calls[0][0].messages[0].value)).toMatchObject({
+                expect((mockProducer.queueMessages.mock.calls[0][0] as TopicMessage).topic).toEqual(
+                    'events_dead_letter_queue_test'
+                )
+                expect(
+                    JSON.parse(
+                        (mockProducer.queueMessages.mock.calls[0][0] as TopicMessage).messages[0].value as string
+                    )
+                ).toMatchObject({
                     team_id: 2,
                     distinct_id: 'my_id',
                     error: 'Event ingestion failed. Error: testError',
@@ -310,7 +334,11 @@ describe('EventPipelineRunner', () => {
                 await runner.runEventPipeline(event)
                 expect(runner.steps).toEqual(['populateTeamDataStep'])
                 expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
-                expect(JSON.parse(mockProducer.queueMessages.mock.calls[0][0].messages[0].value)).toMatchObject({
+                expect(
+                    JSON.parse(
+                        (mockProducer.queueMessages.mock.calls[0][0] as TopicMessage).messages[0].value as string
+                    )
+                ).toMatchObject({
                     team_id: 9,
                     type: 'client_ingestion_warning',
                     details: JSON.stringify({
@@ -431,7 +459,11 @@ describe('EventPipelineRunner', () => {
                 await runner.runEventPipeline(event)
                 expect(runner.steps).toEqual(['populateTeamDataStep'])
                 expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
-                expect(JSON.parse(mockProducer.queueMessages.mock.calls[0][0].messages[0].value)).toMatchObject({
+                expect(
+                    JSON.parse(
+                        (mockProducer.queueMessages.mock.calls[0][0] as TopicMessage).messages[0].value as string
+                    )
+                ).toMatchObject({
                     team_id: 9,
                     type: 'invalid_event_when_process_person_profile_is_false',
                     details: JSON.stringify({ eventUuid: 'uuid1', event: eventName, distinctId: 'my_id' }),

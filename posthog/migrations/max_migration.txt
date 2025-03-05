@@ -1,1 +1,1 @@
-0668_hostdefinition_and_more
+0680_alter_integration_kind

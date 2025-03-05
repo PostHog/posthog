@@ -2,6 +2,7 @@ import { IconServer } from '@posthog/icons'
 import {
     IconAndroidOS,
     IconAppleIOS,
+    IconCSharp,
     IconFlutter,
     IconGolang,
     IconJavascript,
@@ -17,6 +18,7 @@ import { SDKKey } from '~/types'
 import {
     AndroidSnippet,
     APISnippet,
+    CSharpSnippet,
     FeatureFlagSnippet,
     FlutterSnippet,
     GolangSnippet,
@@ -149,9 +151,24 @@ export const OPTIONS: InstructionOption[] = [
         key: SDKKey.RUBY,
         Icon: IconRuby,
     },
+    {
+        value: 'C#/.NET',
+        documentationLink: `${DOC_BASE_URL}libraries/dotnet${UTM_TAGS}`,
+        Snippet: CSharpSnippet,
+        type: LibraryType.Server,
+        key: SDKKey.DOTNET,
+        Icon: IconCSharp,
+    },
 ]
 
-export const LOCAL_EVALUATION_LIBRARIES: string[] = [SDKKey.NODE_JS, SDKKey.PYTHON, SDKKey.RUBY, SDKKey.PHP, SDKKey.GO]
+export const LOCAL_EVALUATION_LIBRARIES: string[] = [
+    SDKKey.NODE_JS,
+    SDKKey.PYTHON,
+    SDKKey.RUBY,
+    SDKKey.PHP,
+    SDKKey.GO,
+    SDKKey.DOTNET,
+]
 
 export const PAYLOAD_LIBRARIES: string[] = [
     SDKKey.API,
@@ -164,10 +181,18 @@ export const PAYLOAD_LIBRARIES: string[] = [
     SDKKey.REACT_NATIVE,
     SDKKey.IOS,
     SDKKey.FLUTTER,
+    SDKKey.DOTNET,
     SDKKey.GO,
 ]
 
-export const ENCRYPTED_PAYLOAD_LIBRARIES: string[] = [SDKKey.API, SDKKey.NODE_JS, SDKKey.PYTHON, SDKKey.GO, SDKKey.RUBY]
+export const REMOTE_CONFIGURATION_LIBRARIES: string[] = [
+    SDKKey.API,
+    SDKKey.NODE_JS,
+    SDKKey.PYTHON,
+    SDKKey.GO,
+    SDKKey.RUBY,
+    SDKKey.DOTNET,
+]
 
 export const BOOTSTRAPPING_OPTIONS: InstructionOption[] = [
     {

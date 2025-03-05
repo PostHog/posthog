@@ -1,4 +1,4 @@
-import { WebVitalsMetric, WebVitalsMetricBand } from '~/queries/schema'
+import { WebVitalsMetric, WebVitalsMetricBand } from '~/queries/schema/schema-general'
 
 import {
     computePositionInBand,
@@ -28,9 +28,9 @@ export function WebVitalsProgressBar({ value, metric }: WebVitalsProgressBarProp
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{
                     width: `${goodWidth}%`,
-                    backgroundColor: band === 'good' ? WEB_VITALS_COLORS.good : undefined,
+                    backgroundColor: band === 'good' ? `${WEB_VITALS_COLORS.good} !important` : undefined,
                 }}
-                className="absolute h-full rounded-full bg-surface-tooltip"
+                className="absolute h-full rounded-full bg-surface-secondary"
             >
                 <IndicatorLine value={value} metric={metric} band="good" />
             </div>
@@ -41,9 +41,12 @@ export function WebVitalsProgressBar({ value, metric }: WebVitalsProgressBarProp
                 style={{
                     left: `${goodWidth + 1}%`,
                     width: `${improvementsWidth - 1}%`,
-                    backgroundColor: band === 'needs_improvements' ? WEB_VITALS_COLORS.needs_improvements : undefined,
+                    backgroundColor:
+                        band === 'needs_improvements'
+                            ? `${WEB_VITALS_COLORS.needs_improvements} !important`
+                            : undefined,
                 }}
-                className="absolute h-full rounded-full bg-surface-tooltip"
+                className="absolute h-full rounded-full bg-surface-secondary"
             >
                 <IndicatorLine value={value} metric={metric} band="needs_improvements" />
             </div>
@@ -54,9 +57,9 @@ export function WebVitalsProgressBar({ value, metric }: WebVitalsProgressBarProp
                 style={{
                     left: `${goodWidth + improvementsWidth + 1}%`,
                     width: `${poorWidth - 1}%`,
-                    backgroundColor: band === 'poor' ? WEB_VITALS_COLORS.poor : undefined,
+                    backgroundColor: band === 'poor' ? `${WEB_VITALS_COLORS.poor} !important` : undefined,
                 }}
-                className="absolute h-full rounded-full bg-surface-tooltip"
+                className="absolute h-full rounded-full bg-surface-secondary"
             >
                 <IndicatorLine value={value} metric={metric} band="poor" />
             </div>

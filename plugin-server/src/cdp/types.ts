@@ -265,6 +265,7 @@ export type HogFunctionInputSchemaType = {
     required?: boolean
     default?: any
     secret?: boolean
+    hidden?: boolean
     description?: string
     integration?: string
     integration_key?: string

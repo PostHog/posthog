@@ -4,7 +4,7 @@ import { D3Selector } from 'lib/hooks/useD3'
 import { stripHTTP } from 'lib/utils'
 import { Dispatch, RefObject, SetStateAction } from 'react'
 
-import { FunnelPathsFilter, PathsFilter } from '~/queries/schema'
+import { FunnelPathsFilter, PathsFilter } from '~/queries/schema/schema-general'
 
 import { FALLBACK_CANVAS_WIDTH, HIDE_PATH_CARD_HEIGHT } from './Paths'
 import { isSelectedPathStartOrEnd, PathNodeData, PathTargetLink, roundedRect } from './pathUtils'

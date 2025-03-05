@@ -32,7 +32,6 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
         "id": 997,
         "name": "MockHog App + Marketing",
         "organization_id": "ABCD",
-        "product_description": null,
       },
     ],
     "slug": "mockhog-fstn",
@@ -108,6 +107,9 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
           "events": [],
         },
         "session_recording_linked_flag": null,
+        "session_recording_masking_config": {
+          "maskAllInputs": true,
+        },
         "session_recording_minimum_duration_milliseconds": null,
         "session_recording_network_payload_capture_config": {
           "recordBody": true,

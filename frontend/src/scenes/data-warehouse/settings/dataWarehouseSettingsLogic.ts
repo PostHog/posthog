@@ -6,7 +6,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import posthog from 'posthog-js'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
-import { DatabaseSchemaDataWarehouseTable } from '~/queries/schema'
+import { DatabaseSchemaDataWarehouseTable } from '~/queries/schema/schema-general'
 import { ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
 import type { dataWarehouseSettingsLogicType } from './dataWarehouseSettingsLogicType'

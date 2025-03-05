@@ -423,8 +423,11 @@ pyarrow==18.1.0
     #   -c requirements.txt
     #   -r requirements-dev.in
     #   datasets
+    #   pyarrow-stubs
 pyarrow-hotfix==0.6
     # via datasets
+pyarrow-stubs==17.16
+    # via -r requirements-dev.in
 pycparser==2.20
     # via
     #   -c requirements.txt
@@ -634,10 +637,9 @@ tenacity==8.4.2
     #   langchain
     #   langchain-community
     #   langchain-core
-tiktoken==0.8.0
+tiktoken==0.9.0
     # via
     #   -c requirements.txt
-    #   -r requirements-dev.in
     #   langchain-openai
     #   ragas
 toml==0.10.2
@@ -683,7 +685,7 @@ types-pyyaml==6.0.1
     #   responses
 types-redis==4.3.20
     # via -r requirements-dev.in
-types-requests==2.26.1
+types-requests==2.31.0.6
     # via
     #   -r requirements-dev.in
     #   djangorestframework-stubs
@@ -695,6 +697,8 @@ types-toml==0.10.8.20240310
     # via inline-snapshot
 types-tzlocal==5.1.0.1
     # via -r requirements-dev.in
+types-urllib3==1.26.25.14
+    # via types-requests
 typing-extensions==4.12.2
     # via
     #   -c requirements.txt

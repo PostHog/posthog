@@ -190,7 +190,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                     const destinationTypes = siteDesinationsEnabled
                         ? props.types
                         : props.types.filter((type) => type !== 'site_destination')
-                    return (await api.hogFunctions.list(undefined, destinationTypes)).results
+                    return (await api.hogFunctions.list({ types: destinationTypes })).results
                 },
                 saveTransformationsOrder: async ({ newOrders }) => {
                     const response = await api.update(`api/projects/@current/hog_functions/rearrange`, {

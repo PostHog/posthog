@@ -1,5 +1,7 @@
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
@@ -32,6 +34,7 @@ export enum OnboardingStepKey {
     DASHBOARD_TEMPLATE = 'dashboard_template',
     DASHBOARD_TEMPLATE_CONFIGURE = 'dashboard_template_configure',
     SESSION_REPLAY = 'session_replay',
+    AUTHORIZED_DOMAINS = 'authorized_domains',
 }
 
 export const breadcrumbExcludeSteps = [OnboardingStepKey.DASHBOARD_TEMPLATE_CONFIGURE]
@@ -54,6 +57,8 @@ export const getProductUri = (productKey: ProductKey, replayLandingPage: ReplayT
     switch (productKey) {
         case ProductKey.PRODUCT_ANALYTICS:
             return urls.insightNew()
+        case ProductKey.WEB_ANALYTICS:
+            return urls.webAnalytics()
         case ProductKey.SESSION_REPLAY:
             return urls.replay(replayLandingPage)
         case ProductKey.FEATURE_FLAGS:
@@ -82,6 +87,8 @@ export const onboardingLogic = kea<onboardingLogicType>([
             ['isCloudOrDev'],
             replayLandingPageLogic,
             ['replayLandingPage'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [
             billingLogic,
@@ -102,7 +109,6 @@ export const onboardingLogic = kea<onboardingLogicType>([
         setAllOnboardingSteps: (allOnboardingSteps: AllOnboardingSteps) => ({ allOnboardingSteps }),
         setStepKey: (stepKey: OnboardingStepKey) => ({ stepKey }),
         setSubscribedDuringOnboarding: (subscribedDuringOnboarding: boolean) => ({ subscribedDuringOnboarding }),
-        setIncludeIntro: (includeIntro: boolean) => ({ includeIntro }),
         setTeamPropertiesForProduct: (productKey: ProductKey) => ({ productKey }),
         setWaitForBilling: (waitForBilling: boolean) => ({ waitForBilling }),
         goToNextStep: (numStepsToAdvance?: number) => ({ numStepsToAdvance }),
@@ -139,12 +145,6 @@ export const onboardingLogic = kea<onboardingLogicType>([
             false,
             {
                 setSubscribedDuringOnboarding: (_, { subscribedDuringOnboarding }) => subscribedDuringOnboarding,
-            },
-        ],
-        includeIntro: [
-            true,
-            {
-                setIncludeIntro: (_, { includeIntro }) => includeIntro,
             },
         ],
         waitForBilling: [
@@ -235,6 +235,19 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 return (
                     productKey && [ProductKey.FEATURE_FLAGS, ProductKey.EXPERIMENTS].includes(productKey as ProductKey)
                 )
+            },
+        ],
+        shouldShowDataWarehouseStep: [
+            (s) => [s.productKey, s.featureFlags],
+            (productKey, featureFlags) => {
+                const dataWarehouseStepEnabled =
+                    featureFlags[FEATURE_FLAGS.ONBOARDING_DATA_WAREHOUSE_FOR_PRODUCT_ANALYTICS] === 'test'
+
+                if (!dataWarehouseStepEnabled) {
+                    return false
+                }
+
+                return productKey === ProductKey.PRODUCT_ANALYTICS
             },
         ],
         isStepKeyInvalid: [

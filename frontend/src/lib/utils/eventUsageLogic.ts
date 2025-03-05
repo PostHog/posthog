@@ -19,8 +19,13 @@ import { filtersFromUniversalFilterGroups } from 'scenes/session-recordings/util
 import { NewSurvey, SurveyTemplateType } from 'scenes/surveys/constants'
 import { userLogic } from 'scenes/userLogic'
 
-import { ExperimentFunnelsQuery, ExperimentTrendsQuery, Node } from '~/queries/schema'
-import { ExperimentMetric, NodeKind } from '~/queries/schema/schema-general'
+import {
+    ExperimentFunnelsQuery,
+    ExperimentMetric,
+    ExperimentTrendsQuery,
+    Node,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 import {
     getBreakdown,
     getCompareFilter,

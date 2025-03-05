@@ -1,4 +1,5 @@
 import asyncio
+import dataclasses
 import datetime as dt
 import json
 import operator
@@ -12,7 +13,6 @@ import pyarrow as pa
 import pytest
 import pytest_asyncio
 from django.test import override_settings
-from freezegun.api import freeze_time
 from google.cloud import bigquery
 from temporalio import activity
 from temporalio.client import WorkflowFailureError
@@ -39,12 +39,19 @@ from posthog.temporal.batch_exports.bigquery_batch_export import (
     get_bigquery_fields_from_record_schema,
     insert_into_bigquery_activity,
 )
-from posthog.temporal.batch_exports.spmc import Producer, RecordBatchQueue, SessionsRecordBatchModel
-from posthog.temporal.common.clickhouse import ClickHouseClient
-from posthog.temporal.tests.batch_exports.utils import get_record_batch_from_queue, mocked_start_batch_export_run
-from posthog.temporal.tests.utils.events import (
-    generate_test_events_in_clickhouse,
+from posthog.temporal.batch_exports.spmc import (
+    Producer,
+    RecordBatchQueue,
+    RecordBatchTaskError,
+    SessionsRecordBatchModel,
 )
+from posthog.temporal.common.clickhouse import ClickHouseClient
+from posthog.temporal.tests.batch_exports.utils import (
+    FlakyClickHouseClient,
+    get_record_batch_from_queue,
+    mocked_start_batch_export_run,
+)
+from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.models import (
     acreate_batch_export,
     adelete_batch_export,
@@ -73,6 +80,7 @@ EXPECTED_PERSONS_BATCH_EXPORT_FIELDS = [
     "person_distinct_id_version",
     "created_at",
     "_inserted_at",
+    "is_deleted",
 ]
 
 
@@ -185,7 +193,6 @@ async def assert_clickhouse_records_in_bigquery(
             is_backfill=backfill_details is not None,
             backfill_details=backfill_details,
             extra_query_parameters=extra_query_parameters,
-            use_latest_schema=True,
         )
 
         while True:
@@ -440,10 +447,8 @@ async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table(
         elif batch_export_model.name == "sessions":
             sort_key = "session_id"
 
-    with freeze_time(TEST_TIME) as frozen_time, override_settings(BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES=1):
+    with override_settings(BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES=1):
         await activity_environment.run(insert_into_bigquery_activity, insert_inputs)
-
-        ingested_timestamp = frozen_time().replace(tzinfo=dt.UTC)
 
         await assert_clickhouse_records_in_bigquery(
             bigquery_client=bigquery_client,
@@ -456,7 +461,7 @@ async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table(
             include_events=None,
             batch_export_model=model,
             use_json_type=use_json_type,
-            min_ingested_timestamp=ingested_timestamp,
+            min_ingested_timestamp=TEST_TIME,
             sort_key=sort_key,
         )
 
@@ -510,12 +515,10 @@ async def test_insert_into_bigquery_activity_inserts_sessions_data_into_bigquery
 
     sort_key = "session_id"
 
-    with freeze_time(TEST_TIME) as frozen_time, override_settings(BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES=1):
+    with override_settings(BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES=1):
         records_completed = await activity_environment.run(insert_into_bigquery_activity, insert_inputs)
 
         assert records_completed == 1
-
-        ingested_timestamp = frozen_time().replace(tzinfo=dt.UTC)
 
         await assert_clickhouse_records_in_bigquery(
             bigquery_client=bigquery_client,
@@ -528,7 +531,7 @@ async def test_insert_into_bigquery_activity_inserts_sessions_data_into_bigquery
             include_events=None,
             batch_export_model=model,
             use_json_type=use_json_type,
-            min_ingested_timestamp=ingested_timestamp,
+            min_ingested_timestamp=TEST_TIME,
             sort_key=sort_key,
         )
 
@@ -625,10 +628,8 @@ async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table_wi
         **bigquery_config,
     )
 
-    with freeze_time(TEST_TIME) as frozen_time, override_settings(BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES=1):
+    with override_settings(BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES=1):
         await activity_environment.run(insert_into_bigquery_activity, insert_inputs)
-
-        ingested_timestamp = frozen_time().replace(tzinfo=dt.UTC)
 
         await assert_clickhouse_records_in_bigquery(
             bigquery_client=bigquery_client,
@@ -641,7 +642,7 @@ async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table_wi
             include_events=None,
             batch_export_model=model,
             use_json_type=use_json_type,
-            min_ingested_timestamp=ingested_timestamp,
+            min_ingested_timestamp=TEST_TIME,
             sort_key="event",
         )
 
@@ -691,7 +692,6 @@ async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table_wi
     )
 
     with (
-        freeze_time(TEST_TIME) as frozen_time,
         override_settings(BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES=1),
         unittest.mock.patch(
             "posthog.temporal.batch_exports.bigquery_batch_export.BigQueryClient.acheck_for_query_permissions_on_table",
@@ -699,8 +699,6 @@ async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table_wi
         ) as mocked_check,
     ):
         await activity_environment.run(insert_into_bigquery_activity, insert_inputs)
-
-        ingested_timestamp = frozen_time().replace(tzinfo=dt.UTC)
 
         mocked_check.assert_called_once()
         await assert_clickhouse_records_in_bigquery(
@@ -714,7 +712,7 @@ async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table_wi
             include_events=None,
             batch_export_model=model,
             use_json_type=use_json_type,
-            min_ingested_timestamp=ingested_timestamp,
+            min_ingested_timestamp=TEST_TIME,
             sort_key="person_id"
             if batch_export_model is not None and batch_export_model.name == "persons"
             else "event",
@@ -752,10 +750,8 @@ async def test_insert_into_bigquery_activity_merges_persons_data_in_follow_up_ru
         **bigquery_config,
     )
 
-    with freeze_time(TEST_TIME) as frozen_time:
+    with override_settings(BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES=1):
         await activity_environment.run(insert_into_bigquery_activity, insert_inputs)
-
-        ingested_timestamp = frozen_time().replace(tzinfo=dt.UTC)
 
         await assert_clickhouse_records_in_bigquery(
             bigquery_client=bigquery_client,
@@ -765,7 +761,7 @@ async def test_insert_into_bigquery_activity_merges_persons_data_in_follow_up_ru
             team_id=ateam.pk,
             date_ranges=[(data_interval_start, data_interval_end)],
             batch_export_model=model,
-            min_ingested_timestamp=ingested_timestamp,
+            min_ingested_timestamp=TEST_TIME,
             sort_key="person_id",
         )
 
@@ -792,22 +788,19 @@ async def test_insert_into_bigquery_activity_merges_persons_data_in_follow_up_ru
             timestamp=old_person["_timestamp"],
         )
 
-    with freeze_time(TEST_TIME) as frozen_time:
-        await activity_environment.run(insert_into_bigquery_activity, insert_inputs)
+    await activity_environment.run(insert_into_bigquery_activity, insert_inputs)
 
-        ingested_timestamp = frozen_time().replace(tzinfo=dt.UTC)
-
-        await assert_clickhouse_records_in_bigquery(
-            bigquery_client=bigquery_client,
-            clickhouse_client=clickhouse_client,
-            table_id=table_id,
-            dataset_id=bigquery_dataset.dataset_id,
-            team_id=ateam.pk,
-            date_ranges=[(data_interval_start, data_interval_end)],
-            batch_export_model=model,
-            min_ingested_timestamp=ingested_timestamp,
-            sort_key="person_id",
-        )
+    await assert_clickhouse_records_in_bigquery(
+        bigquery_client=bigquery_client,
+        clickhouse_client=clickhouse_client,
+        table_id=table_id,
+        dataset_id=bigquery_dataset.dataset_id,
+        team_id=ateam.pk,
+        date_ranges=[(data_interval_start, data_interval_end)],
+        batch_export_model=model,
+        min_ingested_timestamp=TEST_TIME,
+        sort_key="person_id",
+    )
 
 
 async def test_insert_into_bigquery_activity_merges_sessions_data_in_follow_up_runs(
@@ -841,23 +834,21 @@ async def test_insert_into_bigquery_activity_merges_sessions_data_in_follow_up_r
         **bigquery_config,
     )
 
-    with freeze_time(TEST_TIME) as frozen_time:
-        records_completed = await activity_environment.run(insert_into_bigquery_activity, insert_inputs)
+    records_completed = await activity_environment.run(insert_into_bigquery_activity, insert_inputs)
 
-        assert records_completed == 1
-        ingested_timestamp = frozen_time().replace(tzinfo=dt.UTC)
+    assert records_completed == 1
 
-        await assert_clickhouse_records_in_bigquery(
-            bigquery_client=bigquery_client,
-            clickhouse_client=clickhouse_client,
-            table_id=table_id,
-            dataset_id=bigquery_dataset.dataset_id,
-            team_id=ateam.pk,
-            date_ranges=[(data_interval_start, data_interval_end)],
-            batch_export_model=model,
-            min_ingested_timestamp=ingested_timestamp,
-            sort_key="session_id",
-        )
+    await assert_clickhouse_records_in_bigquery(
+        bigquery_client=bigquery_client,
+        clickhouse_client=clickhouse_client,
+        table_id=table_id,
+        dataset_id=bigquery_dataset.dataset_id,
+        team_id=ateam.pk,
+        date_ranges=[(data_interval_start, data_interval_end)],
+        batch_export_model=model,
+        min_ingested_timestamp=TEST_TIME,
+        sort_key="session_id",
+    )
 
     events_to_export_created, _ = generate_test_data
     event = events_to_export_created[0]
@@ -885,24 +876,21 @@ async def test_insert_into_bigquery_activity_merges_sessions_data_in_follow_up_r
     insert_inputs.data_interval_start = new_data_interval_start.isoformat()
     insert_inputs.data_interval_end = new_data_interval_end.isoformat()
 
-    with freeze_time(TEST_TIME) as frozen_time:
-        records_completed = await activity_environment.run(insert_into_bigquery_activity, insert_inputs)
+    records_completed = await activity_environment.run(insert_into_bigquery_activity, insert_inputs)
 
-        assert records_completed == 1
+    assert records_completed == 1
 
-        ingested_timestamp = frozen_time().replace(tzinfo=dt.UTC)
-
-        await assert_clickhouse_records_in_bigquery(
-            bigquery_client=bigquery_client,
-            clickhouse_client=clickhouse_client,
-            table_id=table_id,
-            dataset_id=bigquery_dataset.dataset_id,
-            team_id=ateam.pk,
-            date_ranges=[(new_data_interval_start, new_data_interval_end)],
-            batch_export_model=model,
-            min_ingested_timestamp=ingested_timestamp,
-            sort_key="session_id",
-        )
+    await assert_clickhouse_records_in_bigquery(
+        bigquery_client=bigquery_client,
+        clickhouse_client=clickhouse_client,
+        table_id=table_id,
+        dataset_id=bigquery_dataset.dataset_id,
+        team_id=ateam.pk,
+        date_ranges=[(new_data_interval_start, new_data_interval_end)],
+        batch_export_model=model,
+        min_ingested_timestamp=TEST_TIME,
+        sort_key="session_id",
+    )
 
     query_job = bigquery_client.query(f"SELECT * FROM {bigquery_dataset.dataset_id}.{table_id}")
     result = query_job.result()
@@ -948,22 +936,19 @@ async def test_insert_into_bigquery_activity_handles_person_schema_changes(
         **bigquery_config,
     )
 
-    with freeze_time(TEST_TIME) as frozen_time:
-        await activity_environment.run(insert_into_bigquery_activity, insert_inputs)
+    await activity_environment.run(insert_into_bigquery_activity, insert_inputs)
 
-        ingested_timestamp = frozen_time().replace(tzinfo=dt.UTC)
-
-        await assert_clickhouse_records_in_bigquery(
-            bigquery_client=bigquery_client,
-            clickhouse_client=clickhouse_client,
-            table_id=f"test_insert_activity_migration_table_{ateam.pk}",
-            dataset_id=bigquery_dataset.dataset_id,
-            team_id=ateam.pk,
-            date_ranges=[(data_interval_start, data_interval_end)],
-            batch_export_model=model,
-            min_ingested_timestamp=ingested_timestamp,
-            sort_key="person_id",
-        )
+    await assert_clickhouse_records_in_bigquery(
+        bigquery_client=bigquery_client,
+        clickhouse_client=clickhouse_client,
+        table_id=f"test_insert_activity_migration_table_{ateam.pk}",
+        dataset_id=bigquery_dataset.dataset_id,
+        team_id=ateam.pk,
+        date_ranges=[(data_interval_start, data_interval_end)],
+        batch_export_model=model,
+        min_ingested_timestamp=TEST_TIME,
+        sort_key="person_id",
+    )
 
     # drop the created_at column from the BigQuery table
     drop_column_from_bigquery_table(
@@ -996,25 +981,22 @@ async def test_insert_into_bigquery_activity_handles_person_schema_changes(
             timestamp=old_person["_timestamp"],
         )
 
-    with freeze_time(TEST_TIME) as frozen_time:
-        await activity_environment.run(insert_into_bigquery_activity, insert_inputs)
+    await activity_environment.run(insert_into_bigquery_activity, insert_inputs)
 
-        ingested_timestamp = frozen_time().replace(tzinfo=dt.UTC)
-
-        # this time we don't expected there to be a created_at column
-        expected_fields = [field for field in EXPECTED_PERSONS_BATCH_EXPORT_FIELDS if field != "created_at"]
-        await assert_clickhouse_records_in_bigquery(
-            bigquery_client=bigquery_client,
-            clickhouse_client=clickhouse_client,
-            table_id=f"test_insert_activity_migration_table_{ateam.pk}",
-            dataset_id=bigquery_dataset.dataset_id,
-            team_id=ateam.pk,
-            date_ranges=[(data_interval_start, data_interval_end)],
-            batch_export_model=model,
-            min_ingested_timestamp=ingested_timestamp,
-            sort_key="person_id",
-            expected_fields=expected_fields,
-        )
+    # this time we don't expected there to be a created_at column
+    expected_fields = [field for field in EXPECTED_PERSONS_BATCH_EXPORT_FIELDS if field != "created_at"]
+    await assert_clickhouse_records_in_bigquery(
+        bigquery_client=bigquery_client,
+        clickhouse_client=clickhouse_client,
+        table_id=f"test_insert_activity_migration_table_{ateam.pk}",
+        dataset_id=bigquery_dataset.dataset_id,
+        team_id=ateam.pk,
+        date_ranges=[(data_interval_start, data_interval_end)],
+        batch_export_model=model,
+        min_ingested_timestamp=TEST_TIME,
+        sort_key="person_id",
+        expected_fields=expected_fields,
+    )
 
 
 @pytest.mark.parametrize("interval", ["hour"], indirect=True)
@@ -1239,6 +1221,96 @@ async def test_insert_into_bigquery_activity_completes_range(
     )
 
 
+async def test_insert_into_bigquery_activity_completes_range_when_there_is_a_failure(
+    clickhouse_client,
+    activity_environment,
+    bigquery_client,
+    bigquery_config,
+    bigquery_dataset,
+    generate_test_data,
+    data_interval_start,
+    data_interval_end,
+    ateam,
+):
+    """Test that if the insert_into_bigquery_activity activity fails, it can resume from a heartbeat.
+
+    We simulate a failure in the SPMC producer halfway through streaming records, then resume from the heartbeat.
+    We're particularly interested in ensuring all records are exported into the final BigQuery table.
+    """
+
+    batch_export_model = BatchExportModel(name="events", schema=None)
+    now = dt.datetime.now(tz=dt.UTC)
+    fail_after_records = 200
+
+    heartbeat_details: list[BigQueryHeartbeatDetails] = []
+
+    def track_hearbeat_details(*details):
+        """Record heartbeat details received."""
+        nonlocal heartbeat_details
+        bigquery_details = BigQueryHeartbeatDetails.from_activity_details(details)
+        heartbeat_details.append(bigquery_details)
+
+    activity_environment.on_heartbeat = track_hearbeat_details
+
+    insert_inputs = BigQueryInsertInputs(
+        team_id=ateam.pk,
+        table_id=f"test_insert_activity_table_{ateam.pk}",
+        dataset_id=bigquery_dataset.dataset_id,
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        use_json_type=True,
+        batch_export_model=batch_export_model,
+        **bigquery_config,
+    )
+
+    with unittest.mock.patch(
+        "posthog.temporal.common.clickhouse.ClickHouseClient",
+        lambda *args, **kwargs: FlakyClickHouseClient(*args, **kwargs, fail_after_records=fail_after_records),
+    ):
+        # we expect this to raise an exception
+        with pytest.raises(RecordBatchTaskError):
+            await activity_environment.run(insert_into_bigquery_activity, insert_inputs)
+
+    assert len(heartbeat_details) > 0
+    detail = heartbeat_details[-1]
+    assert len(detail.done_ranges) > 0
+    assert detail.records_completed == fail_after_records
+
+    # now we resume from the heartbeat
+    previous_info = dataclasses.asdict(activity_environment.info)
+    previous_info["heartbeat_details"] = detail.serialize_details()
+    new_info = activity.Info(
+        **previous_info,
+    )
+
+    activity_environment.info = new_info
+
+    await activity_environment.run(insert_into_bigquery_activity, insert_inputs)
+
+    assert len(heartbeat_details) > 0
+    detail = heartbeat_details[-1]
+    assert len(detail.done_ranges) == 1
+    assert detail.done_ranges[0] == (data_interval_start, data_interval_end)
+
+    # records_completed is actually larger than num_expected_records because of duplicates
+    # assert detail.records_completed == num_expected_records
+
+    await assert_clickhouse_records_in_bigquery(
+        bigquery_client=bigquery_client,
+        clickhouse_client=clickhouse_client,
+        table_id=f"test_insert_activity_table_{ateam.pk}",
+        dataset_id=bigquery_dataset.dataset_id,
+        team_id=ateam.pk,
+        date_ranges=[(data_interval_start, data_interval_end)],
+        include_events=None,
+        batch_export_model=batch_export_model,
+        use_json_type=True,
+        min_ingested_timestamp=now,
+        sort_key="event",
+        expect_duplicates=True,
+    )
+
+
 @pytest.fixture
 def table_id(ateam, interval):
     return f"test_workflow_table_{ateam.pk}_{interval}"
@@ -1321,27 +1393,26 @@ async def test_bigquery_export_workflow(
         **bigquery_batch_export.destination.config,
     )
 
-    with freeze_time(TEST_TIME) as frozen_time:
-        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
-            async with Worker(
-                activity_environment.client,
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=BATCH_EXPORTS_TASK_QUEUE,
+            workflows=[BigQueryBatchExportWorkflow],
+            activities=[
+                start_batch_export_run,
+                insert_into_bigquery_activity,
+                finish_batch_export_run,
+            ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            await activity_environment.client.execute_workflow(
+                BigQueryBatchExportWorkflow.run,
+                inputs,
+                id=workflow_id,
                 task_queue=BATCH_EXPORTS_TASK_QUEUE,
-                workflows=[BigQueryBatchExportWorkflow],
-                activities=[
-                    start_batch_export_run,
-                    insert_into_bigquery_activity,
-                    finish_batch_export_run,
-                ],
-                workflow_runner=UnsandboxedWorkflowRunner(),
-            ):
-                await activity_environment.client.execute_workflow(
-                    BigQueryBatchExportWorkflow.run,
-                    inputs,
-                    id=workflow_id,
-                    task_queue=BATCH_EXPORTS_TASK_QUEUE,
-                    retry_policy=RetryPolicy(maximum_attempts=1),
-                    execution_timeout=dt.timedelta(seconds=60),
-                )
+                retry_policy=RetryPolicy(maximum_attempts=1),
+                execution_timeout=dt.timedelta(seconds=60),
+            )
 
         runs = await afetch_batch_export_runs(batch_export_id=bigquery_batch_export.id)
         assert len(runs) == 1
@@ -1356,7 +1427,6 @@ async def test_bigquery_export_workflow(
             == len([event for event in events_to_export_created if event["properties"] is not None])
         )
 
-        ingested_timestamp = frozen_time().replace(tzinfo=dt.UTC)
         await assert_clickhouse_records_in_bigquery(
             bigquery_client=bigquery_client,
             clickhouse_client=clickhouse_client,
@@ -1368,7 +1438,7 @@ async def test_bigquery_export_workflow(
             include_events=None,
             batch_export_model=model,
             use_json_type=use_json_type,
-            min_ingested_timestamp=ingested_timestamp,
+            min_ingested_timestamp=TEST_TIME,
             sort_key="person_id"
             if batch_export_model is not None and batch_export_model.name == "persons"
             else "event",
@@ -1415,27 +1485,26 @@ async def test_bigquery_export_workflow_without_events(
         **bigquery_batch_export.destination.config,
     )
 
-    with freeze_time(TEST_TIME):
-        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
-            async with Worker(
-                activity_environment.client,
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=BATCH_EXPORTS_TASK_QUEUE,
+            workflows=[BigQueryBatchExportWorkflow],
+            activities=[
+                start_batch_export_run,
+                insert_into_bigquery_activity,
+                finish_batch_export_run,
+            ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            await activity_environment.client.execute_workflow(
+                BigQueryBatchExportWorkflow.run,
+                inputs,
+                id=workflow_id,
                 task_queue=BATCH_EXPORTS_TASK_QUEUE,
-                workflows=[BigQueryBatchExportWorkflow],
-                activities=[
-                    start_batch_export_run,
-                    insert_into_bigquery_activity,
-                    finish_batch_export_run,
-                ],
-                workflow_runner=UnsandboxedWorkflowRunner(),
-            ):
-                await activity_environment.client.execute_workflow(
-                    BigQueryBatchExportWorkflow.run,
-                    inputs,
-                    id=workflow_id,
-                    task_queue=BATCH_EXPORTS_TASK_QUEUE,
-                    retry_policy=RetryPolicy(maximum_attempts=1),
-                    execution_timeout=dt.timedelta(seconds=10),
-                )
+                retry_policy=RetryPolicy(maximum_attempts=1),
+                execution_timeout=dt.timedelta(seconds=10),
+            )
 
         runs = await afetch_batch_export_runs(batch_export_id=bigquery_batch_export.id)
         assert len(runs) == 1

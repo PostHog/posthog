@@ -17,12 +17,10 @@ export const ErrorTrackingFilters = (): JSX.Element => {
     return (
         <div className="space-y-1">
             <div className="flex gap-2 items-center">
-                <UniversalSearch />
-                <InternalAccounts />
-            </div>
-            <div className="flex gap-2">
                 <DateRange />
                 <FilterGroup />
+                <UniversalSearch />
+                <InternalAccounts />
             </div>
         </div>
     )

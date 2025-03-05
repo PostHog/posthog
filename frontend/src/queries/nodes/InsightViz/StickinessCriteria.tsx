@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { OperatorSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
-import { StickinessOperator } from '~/queries/schema'
+import { StickinessOperator } from '~/queries/schema/schema-general'
 import { EditorFilterProps, PropertyOperator } from '~/types'
 
 export function StickinessCriteria({ insightProps }: EditorFilterProps): JSX.Element {

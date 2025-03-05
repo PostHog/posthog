@@ -55,6 +55,7 @@ from posthog.utils import (
     get_ip_address,
     get_week_start_for_country_code,
 )
+from posthog.api.team import TEAM_CONFIG_FIELDS_SET
 
 
 class ProjectSerializer(serializers.ModelSerializer):
@@ -81,7 +82,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "effective_membership_level",  # Compat with TeamSerializer
             "has_group_types",  # Compat with TeamSerializer
             "live_events_token",  # Compat with TeamSerializer
-            "updated_at",
+            "updated_at",  # Compat with TeamSerializer
             "uuid",  # Compat with TeamSerializer
             "api_token",  # Compat with TeamSerializer
             "app_urls",  # Compat with TeamSerializer
@@ -109,8 +110,9 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "session_recording_minimum_duration_milliseconds",  # Compat with TeamSerializer
             "session_recording_linked_flag",  # Compat with TeamSerializer
             "session_recording_network_payload_capture_config",  # Compat with TeamSerializer
+            "session_recording_masking_config",  # Compat with TeamSerializer
             "session_replay_config",  # Compat with TeamSerializer
-            "survey_config",
+            "survey_config",  # Compat with TeamSerializer
             "access_control",  # Compat with TeamSerializer
             "week_start_day",  # Compat with TeamSerializer
             "primary_dashboard",  # Compat with TeamSerializer
@@ -172,6 +174,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "session_recording_minimum_duration_milliseconds",
             "session_recording_linked_flag",
             "session_recording_network_payload_capture_config",
+            "session_recording_masking_config",
             "session_replay_config",
             "survey_config",
             "access_control",
@@ -220,6 +223,10 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
     @staticmethod
     def validate_session_recording_network_payload_capture_config(value) -> dict | None:
         return TeamSerializer.validate_session_recording_network_payload_capture_config(value)
+
+    @staticmethod
+    def validate_session_recording_masking_config(value) -> dict | None:
+        return TeamSerializer.validate_session_recording_masking_config(value)
 
     @staticmethod
     def validate_session_replay_config(value) -> dict | None:
@@ -423,6 +430,18 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         if self.action == "list":
             return ProjectBackwardCompatBasicSerializer
         return super().get_serializer_class()
+
+    def dangerously_get_required_scopes(self, request, view) -> list[str] | None:
+        # If the request only contains config fields, require read:team scope
+        # Otherwise, require write:team scope (handled by APIScopePermission)
+        if self.action == "partial_update":
+            request_fields = set(request.data.keys())
+            non_team_config_fields = request_fields - TEAM_CONFIG_FIELDS_SET
+            if not non_team_config_fields:
+                return ["project:read"]
+
+        # Fall back to the default behavior
+        return None
 
     # NOTE: Team permissions are somewhat complex so we override the underlying viewset's get_permissions method
     def dangerously_get_permissions(self) -> list:

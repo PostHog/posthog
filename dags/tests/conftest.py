@@ -7,9 +7,14 @@ from collections.abc import Iterator
 
 import pytest
 
+from posthog.test.base import reset_clickhouse_database
 from posthog.clickhouse.cluster import ClickhouseCluster, get_cluster
 
 
 @pytest.fixture
 def cluster(django_db_setup) -> Iterator[ClickhouseCluster]:
-    yield get_cluster()
+    reset_clickhouse_database()
+    try:
+        yield get_cluster()
+    finally:
+        reset_clickhouse_database()
