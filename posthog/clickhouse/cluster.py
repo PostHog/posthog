@@ -408,7 +408,7 @@ class MutationWaiter:
             WHERE database = %(database)s AND table = %(table)s AND mutation_id IN %(mutation_ids)s
             GROUP BY ALL
             """,
-            {"database": settings.CLICKHOUSE_DATABASE, "table": self.table, "mutation_ids": self.mutation_id},
+            {"database": settings.CLICKHOUSE_DATABASE, "table": self.table, "mutation_ids": self.mutation_ids},
         )
 
         statuses = dict(rows)
@@ -462,9 +462,13 @@ class MutationRunner(abc.ABC):
         # mutations are not always immediately visible, so give it a bit of time to show up
         start = time.time()
         for _ in range(5):
-            mutations = self.__find(client, expected_commands)
-            if all(mutations.values()):
-                return MutationWaiter(self.table, set(mutations.values()))  # TODO
+            mutations_running = {
+                command: mutation_id
+                for command, mutation_id in self.__find(client, expected_commands).items()
+                if mutation_id is not None
+            }
+            if mutations_running.keys() == expected_commands:
+                return MutationWaiter(self.table, set(mutations_running.values()))
 
         raise Exception(f"unable to find mutation after {time.time() - start:0.2f}s!")
 
