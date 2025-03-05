@@ -23,7 +23,7 @@ import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { FilterLogicalOperator, PropertyDefinition, ReplayTabs } from '~/types'
-import { Definition, EventDefinition } from '~/types'
+import { EventDefinition } from '~/types'
 
 export const scene: SceneExport = {
     component: DefinitionView,
@@ -33,13 +33,8 @@ export const scene: SceneExport = {
     }),
 }
 
-// Type guard to check if a Definition has default_columns with values
-function hasDefaultColumns(definition: Definition): definition is EventDefinition & { default_columns: string[] } {
-    return (
-        'default_columns' in definition &&
-        Array.isArray((definition as any).default_columns) &&
-        (definition as any).default_columns.length > 0
-    )
+function hasDefaultColumns(definition: EventDefinition): boolean {
+    return 'default_columns' in definition && !!definition.default_columns?.length
 }
 
 export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
@@ -48,13 +43,9 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
         useValues(logic)
     const { deleteDefinition } = useActions(logic)
 
-    // Extract complex expression for dependency array
-    const definitionColumns = isEvent && hasDefaultColumns(definition) ? definition.default_columns : null
-
     const memoizedQuery = useMemo(() => {
-        // Always ensure we have default columns
         const columnsToUse = hasDefaultColumns(definition)
-            ? definition.default_columns
+            ? (definition as EventDefinition).default_columns
             : defaultDataTableColumns(NodeKind.EventsQuery)
 
         return {
@@ -67,8 +58,12 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
             full: true,
             showEventFilter: false,
             showPersistentColumnConfigurator: true,
+            context: {
+                type: 'event_definition',
+                eventDefinitionId: definition.id,
+            },
         }
-    }, [definition.name, definitionColumns])
+    }, [definition])
 
     if (definitionLoading) {
         return <SpinnerOverlay sceneLevel />
@@ -250,12 +245,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                     <LemonDivider className="my-6" />
                     <h3>Matching events</h3>
                     <p>This is the list of recent events that match this definition.</p>
-                    <Query
-                        query={memoizedQuery}
-                        key={`event-definition-query-${definition.id}-${definition.updated_at}-${JSON.stringify(
-                            definitionColumns
-                        )}`}
-                    />
+                    <Query query={memoizedQuery} />
                 </>
             )}
         </>

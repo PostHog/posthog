@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, path, props, propsChanged, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api from 'lib/api'
@@ -142,15 +142,6 @@ export const definitionLogic = kea<definitionLogicType>([
             actions.setDefinition(createNewDefinition(values.isEvent))
         } else {
             actions.loadDefinition(props.id)
-        }
-    }),
-
-    // Ensure we reload when navigating between definitions
-    propsChanged(({ actions, values, props }, oldProps) => {
-        if (props.id && props.id !== oldProps.id && props.id !== 'new') {
-            actions.loadDefinition(props.id)
-        } else if (!props.id || props.id === 'new') {
-            actions.setDefinition(createNewDefinition(values.isEvent))
         }
     }),
 ])

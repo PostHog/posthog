@@ -1,5 +1,4 @@
 import { actions, kea, key, listeners, path, props, propsChanged, reducers } from 'kea'
-import { router } from 'kea-router'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
@@ -13,6 +12,10 @@ export interface ColumnConfiguratorLogicProps {
     columns: string[]
     setColumns: (columns: string[]) => void
     isPersistent?: boolean
+    context?: {
+        type: 'event_definition' | 'team_columns'
+        eventDefinitionId?: string
+    }
 }
 
 export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>([
@@ -59,6 +62,12 @@ export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>([
                 },
             },
         ],
+        context: [
+            props.context,
+            {
+                // No actions modify context after initialization
+            },
+        ],
     })),
     propsChanged(({ actions, props }, oldProps) => {
         if (JSON.stringify(props.columns) !== JSON.stringify(oldProps.columns)) {
@@ -67,34 +76,27 @@ export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>([
     }),
     listeners(({ values, props }) => ({
         save: async () => {
-            // Check if we're in an event definition view
-            const isEventDefinition = router.values.currentLocation?.pathname.includes('/data-management/events/')
-
-            // Regular team-wide default columns behavior - only if we're not in event definition view
-            if (props.isPersistent && values.saveAsDefault && !isEventDefinition) {
-                teamLogic.actions.updateCurrentTeam({ live_events_columns: [HOGQL_COLUMNS_KEY, ...values.columns] })
+            if (!props.isPersistent || !values.saveAsDefault) {
+                props.setColumns(values.columns)
+                return
             }
 
-            // Handle event definition saving
-            if (props.isPersistent && isEventDefinition && values.saveAsDefault) {
-                const pathname = router.values.currentLocation?.pathname || ''
-                const eventDefinitionId = pathname.split('/').pop() || ''
-
-                if (eventDefinitionId) {
-                    try {
-                        await api.eventDefinitions.update({
-                            eventDefinitionId,
-                            eventDefinitionData: {
-                                default_columns: values.columns,
-                            },
-                        })
-
-                        lemonToast.success('Default columns saved for this event')
-                    } catch (error) {
-                        console.error('Error saving default columns to event definition:', error)
-                        lemonToast.error('Failed to save columns to event definition')
-                    }
+            if (props.context?.type === 'event_definition' && props.context.eventDefinitionId) {
+                try {
+                    await api.eventDefinitions.update({
+                        eventDefinitionId: props.context.eventDefinitionId,
+                        eventDefinitionData: {
+                            default_columns: values.columns,
+                        },
+                    })
+                    lemonToast.success('Default columns saved for this event')
+                } catch (error) {
+                    console.error('Error saving default columns to event definition:', error)
+                    lemonToast.error('Failed to save columns to event definition')
                 }
+            } else {
+                // Team-wide default columns
+                teamLogic.actions.updateCurrentTeam({ live_events_columns: [HOGQL_COLUMNS_KEY, ...values.columns] })
             }
 
             // Always update the columns in the query

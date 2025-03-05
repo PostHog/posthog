@@ -6,7 +6,6 @@ import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-
 import { CSS } from '@dnd-kit/utilities'
 import { IconPencil, IconX } from '@posthog/icons'
 import { BindLogic, useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
@@ -68,6 +67,7 @@ export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps)
                 setQuery?.({ ...query, columns })
             }
         },
+        context: query.context || { type: 'team_columns' },
     }
     const { showModal } = useActions(columnConfiguratorLogic(columnConfiguratorLogicProps))
 
@@ -94,6 +94,7 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
     const { modalVisible, columns, saveAsDefault } = useValues(columnConfiguratorLogic)
     const { hideModal, moveColumn, setColumns, selectColumn, unselectColumn, save, toggleSaveAsDefault } =
         useActions(columnConfiguratorLogic)
+    const { context } = useValues(columnConfiguratorLogic)
 
     const onEditColumn = (column: string, index: number): void => {
         const newColumn = window.prompt('Edit column', column)
@@ -190,7 +191,7 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                 {isEventsQuery(query.source) && query.showPersistentColumnConfigurator ? (
                     <LemonCheckbox
                         label={
-                            router.values.currentLocation?.pathname.includes('/data-management/events/')
+                            context?.type === 'event_definition'
                                 ? 'Save as default columns for this event type'
                                 : 'Save as default for all project members'
                         }
