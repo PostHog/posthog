@@ -98,9 +98,7 @@ export function ExperimentView(): JSX.Element {
                 ) : (
                     <>
                         <Info />
-                        <div className="xl:flex">
-                            {shouldUseExperimentMetrics ? <ExperimentHeader /> : <LegacyExperimentHeader />}
-                        </div>
+                        {shouldUseExperimentMetrics ? <ExperimentHeader /> : <LegacyExperimentHeader />}
                         <LemonTabs
                             activeKey={tabKey}
                             onChange={(key) => setTabKey(key)}

@@ -2162,6 +2162,13 @@ export const experimentLogic = kea<experimentLogicType>([
                 return featureFlags[FEATURE_FLAGS.EXPERIMENTS_NEW_QUERY_RUNNER]
             },
         ],
+        exposureCriteriaLabel: [
+            () => [],
+            (): string => {
+                // TODO: Implement exposure criteria label
+                return 'Default ($feature_flag_called)'
+            },
+        ],
     }),
     forms(({ actions }) => ({
         experiment: {
