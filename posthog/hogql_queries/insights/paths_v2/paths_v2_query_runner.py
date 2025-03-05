@@ -213,10 +213,10 @@ class PathsV2QueryRunner(QueryRunner):
                 path_tuple.2 AS path_item,
 
                 /* Add the previous path item. */
-                arrayElement(
-                    limited_paths_array_per_session,
-                    step_in_session_index - 1
-                ).2 as previous_path_item,
+                if(step_in_session_index = 1,
+                    null,
+                    arrayElement(limited_paths_array_per_session, step_in_session_index - 1).2
+                ) AS previous_path_item
             FROM {paths_per_actor_and_session_as_tuple_query}
             ARRAY JOIN limited_paths_array_per_session AS path_tuple,
                 arrayEnumerate(limited_paths_array_per_session) AS step_in_session_index
