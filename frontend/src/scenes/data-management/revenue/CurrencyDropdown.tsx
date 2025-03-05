@@ -13,16 +13,20 @@ export const CurrencyDropdown: React.FC<CurrencyDropdownProps> = (props) => {
         <LemonSelect
             {...props}
             options={
-                Object.keys(SupportedCurrencies).map((currency) => ({
-                    value: currency,
-                    disabledReason: DISABLED_CURRENCIES[currency as SupportedCurrencies],
-                    label: (
-                        <span>
-                            {CURRENCY_SYMBOL_TO_EMOJI_MAP[currency as SupportedCurrencies]}{' '}
-                            {CURRENCY_SYMBOL_TO_NAME_MAP[currency as SupportedCurrencies]}
-                        </span>
-                    ),
-                })) as SelectOption[]
+                Object.keys(SupportedCurrencies).map((currency) => {
+                    const mappedCurrency = currency as SupportedCurrencies // Make TS happy, can't type on the function signature
+
+                    return {
+                        value: mappedCurrency,
+                        disabledReason: DISABLED_CURRENCIES[mappedCurrency],
+                        label: (
+                            <span>
+                                {CURRENCY_SYMBOL_TO_EMOJI_MAP[mappedCurrency]}{' '}
+                                {CURRENCY_SYMBOL_TO_NAME_MAP[mappedCurrency]}
+                            </span>
+                        ),
+                    }
+                }) as SelectOption[]
             }
         />
     )
