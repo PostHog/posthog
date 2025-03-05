@@ -206,6 +206,15 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                 style={{ paddingLeft: `${DEPTH_OFFSET}px` }}
                                                 truncate
                                                 sideAction={itemSideAction ? itemSideAction(item) : undefined}
+                                                buttonWrapper={
+                                                    enableDragAndDrop && isItemDraggable?.(item) && item.record?.path
+                                                        ? (button) => (
+                                                              <TreeNodeDraggable id={item.record?.path} enableDragging>
+                                                                  {button}
+                                                              </TreeNodeDraggable>
+                                                          )
+                                                        : undefined
+                                                }
                                             >
                                                 <span
                                                     className={cn('', {
@@ -266,20 +275,9 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                     let wrappedContent = content
                     const path = item.record?.path || ''
 
-                    if (isItemDraggable?.(item)) {
+                    if (isItemDroppable?.(item)) {
                         wrappedContent = (
-                            <TreeNodeDroppable id={path} isDroppable={isItemDroppable?.(item) && path}>
-                                <TreeNodeDraggable
-                                    id={path}
-                                    enableDragging={isItemDraggable(item) && enableDragAndDrop}
-                                >
-                                    {wrappedContent}
-                                </TreeNodeDraggable>
-                            </TreeNodeDroppable>
-                        )
-                    } else if (isItemDroppable?.(item)) {
-                        wrappedContent = (
-                            <TreeNodeDroppable id={path} isDroppable={isItemDroppable(item)}>
+                            <TreeNodeDroppable id={path} isDroppable={!!item.record?.path}>
                                 {wrappedContent}
                             </TreeNodeDroppable>
                         )
