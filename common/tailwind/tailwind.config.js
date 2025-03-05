@@ -1,4 +1,5 @@
 /** @type {import('tailwindcss').Config} */
+const plugin = require('tailwindcss/plugin')
 
 const commonColors = {
     'inherit': 'inherit',
@@ -780,23 +781,26 @@ const config = {
     },
     plugins: [
         require('@tailwindcss/container-queries'),
-        function ({ addUtilities, theme }) {
+        plugin(({ addUtilities, theme }) => {
             const spacing = theme("spacing");
             const newUtilities = {};
 
             for (const [key, value] of Object.entries(spacing)) {
-                // Why... tailwind v4 changed how spacing utilities worked, and so this is adding backward compatibility
-                // for the old way of doing things.
-                newUtilities[`.deprecated-deprecated-space-y-${key} > :not([hidden]) ~ :not([hidden])`] = {
+                // Convert decimal points to underscores for class names like space-y-1.5 -> space-y-1_5
+                // Our style lint complains about using 1.5 etc, so we can use this to convert them
+                // We don't have any spacing classes left using 1.5 etc, so this is just a lint fix
+                const safeKey = key.toString().replace('.', '_');
+                
+                newUtilities[`.deprecated-space-y-${safeKey} > :not([hidden]) ~ :not([hidden])`] = {
                     marginTop: value,
                 };
-                newUtilities[`.deprecated-deprecated-space-x-${key} > :not([hidden]) ~ :not([hidden])`] = {
+                newUtilities[`.deprecated-space-x-${safeKey} > :not([hidden]) ~ :not([hidden])`] = {
                     marginLeft: value,
                 };
             }
 
             addUtilities(newUtilities);
-        },
+        }),
     ],
 }
 
