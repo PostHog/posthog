@@ -374,8 +374,6 @@ class IntegerType(ConstantType):
 
 @dataclass(kw_only=True)
 class DecimalType(ConstantType):
-    data_type: ConstantDataType = field(default="decimal", init=False)
-
     def print_type(self) -> str:
         return "Decimal"
 
