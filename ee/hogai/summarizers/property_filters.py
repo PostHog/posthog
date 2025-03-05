@@ -1,4 +1,4 @@
-from typing import Any, Literal, Union
+from typing import Any, Literal, Union, cast
 
 from pydantic import BaseModel, ConfigDict
 
@@ -34,6 +34,13 @@ PropertyFilterUnion = Union[
     EmptyPropertyFilter,
     DataWarehousePropertyFilter,
     DataWarehousePersonPropertyFilter,
+]
+ActionPropertyFilter = Union[
+    EventPropertyFilter,
+    PersonPropertyFilter,
+    ElementPropertyFilter,
+    SessionPropertyFilter,
+    FeaturePropertyFilter,
 ]
 
 PROPERTY_FILTER_VERBOSE_NAME: dict[PropertyOperator, str] = {
@@ -121,6 +128,7 @@ class PropertyFilterDescriber(BaseModel):
         if not verbose_name:
             raise ValueError(f"Unknown filter type: {type(filter)}")
 
+        filter = cast(ActionPropertyFilter, filter)
         return f"{verbose_name} {self._describe_filter_with_value(filter.key, filter.operator, filter.value)}"
 
     @property
@@ -148,7 +156,7 @@ class PropertyFilterDescriber(BaseModel):
         group, key, description = prop
         return PropertyFilterTaxonomyEntry(group=group, key=key, description=description)
 
-    def _describe_filter_with_value(self, key: str, operator: PropertyOperator, value: Any):
+    def _describe_filter_with_value(self, key: Any, operator: PropertyOperator | None, value: Any):
         if value is None:
             formatted_value = None
         elif isinstance(value, list):
@@ -158,7 +166,9 @@ class PropertyFilterDescriber(BaseModel):
             formatted_value = str(int(value))
         else:
             formatted_value = str(value)
-        val = f"`{key}` {PROPERTY_FILTER_VERBOSE_NAME[operator]}"
+        val = str(key)
+        if operator is not None:
+            val += f" {PROPERTY_FILTER_VERBOSE_NAME[operator]}"
         if formatted_value is not None:
             return f"{val} `{formatted_value}`"
         return val

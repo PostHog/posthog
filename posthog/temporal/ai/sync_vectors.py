@@ -2,6 +2,7 @@ import asyncio
 import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import cast
 
 import cohere
 import posthoganalytics
@@ -30,7 +31,7 @@ async def _get_orgs_from_the_feature_flag() -> list[str]:
         return []
     payload = feature_flag.get_payload("true")
     try:
-        orgs = json.loads(payload)["organizations"]
+        orgs = json.loads(cast(str, payload))["organizations"]
         if isinstance(orgs, list):
             return orgs
     except:

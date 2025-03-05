@@ -130,7 +130,7 @@ async def test_get_approximate_actions_count(mock_flag, actions):
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_batch_summarize_and_embed_actions(mock_flag, actions: tuple[Action]):
+async def test_batch_summarize_and_embed_actions(mock_flag, actions):
     with (
         patch("posthog.temporal.ai.sync_vectors.get_cohere_client", return_value=cohere.AsyncClientV2(api_key="test")),
         patch("posthog.temporal.ai.sync_vectors.abatch_summarize_actions") as summarize_mock,

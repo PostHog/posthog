@@ -3,6 +3,7 @@ from collections.abc import Sequence
 import posthoganalytics
 import structlog
 from langchain_core.output_parsers import StrOutputParser
+from langchain_core.prompt_values import PromptValue
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 
@@ -15,7 +16,7 @@ logger = structlog.get_logger(__name__)
 
 
 async def abatch_summarize_actions(actions: Sequence[Action]) -> list[str | BaseException]:
-    prompts = []
+    prompts: list[PromptValue] = []
     for action in actions:
         try:
             action_summarizer = ActionSummarizer(action)
@@ -37,4 +38,4 @@ async def abatch_summarize_actions(actions: Sequence[Action]) -> list[str | Base
         prompts.append(prompt)
 
     chain = ChatOpenAI(model="gpt-4o", temperature=0, streaming=False) | StrOutputParser()
-    return await chain.abatch(prompts, return_exceptions=True)
+    return await chain.abatch(prompts, return_exceptions=True)  # type: ignore
