@@ -63,12 +63,12 @@ export function ConversationMessagesDisplay({
             inputDisplay={
                 inputNormalized.length > 0 ? (
                     inputNormalized.map((message, i) => (
-                        <>
-                            <LLMMessageDisplay key={i} message={message} />
+                        <React.Fragment key={i}>
+                            <LLMMessageDisplay message={message} />
                             {i < inputNormalized.length - 1 && (
                                 <div className="border-l ml-2 h-2" /> /* Spacer connecting messages visually */
                             )}
-                        </>
+                        </React.Fragment>
                     ))
                 ) : (
                     <div className="rounded border text-default p-2 italic bg-[var(--bg-fill-error-tertiary)]">
