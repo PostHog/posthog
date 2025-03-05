@@ -136,6 +136,10 @@ function DictionaryField({
             return false
         }
 
+        // If you don't care about the order of the elements inside
+        // the array, you should sort both arrays here.
+        // Please note that calling sort on an array will modify that array.
+        // you might want to clone your array first.
         // For arrays of arrays (like [string, string][]), we need to do a deep comparison
         for (let i = 0; i < a.length; ++i) {
             // If the elements are arrays, compare them element by element
