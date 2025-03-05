@@ -75,7 +75,7 @@ export function AutocaptureSettings(): JSX.Element {
                 , where they can be configured directly in code.
             </p>
 
-            <div className="space-y-2">
+            <div className="deprecated-space-y-2">
                 <LemonSwitch
                     id="posthog-autocapture-switch"
                     onChange={(checked) => {

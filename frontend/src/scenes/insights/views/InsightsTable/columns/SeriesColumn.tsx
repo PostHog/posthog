@@ -25,7 +25,7 @@ export function SeriesColumnItem({
     const showCountedByTag = !!indexedResults.find(({ action }) => action?.math && action.math !== 'total')
 
     return (
-        <div className="series-name-wrapper-col space-x-1">
+        <div className="series-name-wrapper-col deprecated-space-x-1">
             <InsightLabel
                 action={item.action}
                 fallbackName={item.breakdown_value === '' ? 'None' : item.label}
