@@ -508,7 +508,8 @@ class ExperimentQueryRunner(QueryRunner):
 
         self._validate_event_variants(variants)
 
-        control_variant = next((variant for variant in variants if variant.key == CONTROL_VARIANT_KEY), None)
+        control_variants = [variant for variant in variants if variant.key == CONTROL_VARIANT_KEY]
+        control_variant = control_variants[0]
         test_variants = [variant for variant in variants if variant.key != CONTROL_VARIANT_KEY]
 
         match self.metric.metric_type:
@@ -574,7 +575,7 @@ class ExperimentQueryRunner(QueryRunner):
         )
 
     def _validate_event_variants(
-        self, variants: list[ExperimentVariantTrendsBaseStats | ExperimentVariantFunnelsBaseStats]
+        self, variants: list[ExperimentVariantTrendsBaseStats] | list[ExperimentVariantFunnelsBaseStats]
     ):
         errors = {
             ExperimentNoResultsErrorKeys.NO_EXPOSURES: True,
