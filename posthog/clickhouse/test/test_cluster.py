@@ -210,6 +210,15 @@ def test_alter_mutation_multiple_commands(cluster: ClickhouseCluster) -> None:
         shard_mutations = cluster.map_one_host_per_shard(runner.enqueue).result()
         assert len(shard_mutations) > 0
 
+        for host_info, mutation in shard_mutations.items():
+            assert host_info.shard_num is not None
+
+            # wait for mutations to complete on shard
+            cluster.map_all_hosts_in_shard(host_info.shard_num, mutation.wait).result()
+
+            # check to make sure all mutations are marked as done
+            assert all(cluster.map_all_hosts_in_shard(host_info.shard_num, mutation.is_done).result().values())
+
 
 def test_map_hosts_by_role() -> None:
     bootstrap_client_mock = Mock()

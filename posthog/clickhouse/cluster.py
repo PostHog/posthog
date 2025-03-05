@@ -400,21 +400,24 @@ class Mutation:
     def is_done(self, client: Client) -> bool:
         rows = client.execute(
             f"""
-            SELECT is_done
+            SELECT
+                mutation_id,  -- ensure no rows are returned if the mutation we're looking for doesn't exist
+                countIf(is_done) = count()  -- multiple commands can be issued in a single mutation, consolidate all statuses into one value
             FROM system.mutations
             WHERE database = %(database)s AND table = %(table)s AND mutation_id = %(mutation_id)s
-            ORDER BY create_time DESC
+            GROUP BY ALL
             """,
             {"database": settings.CLICKHOUSE_DATABASE, "table": self.table, "mutation_id": self.mutation_id},
         )
 
         if len(rows) == 1:
-            [[is_done]] = rows
+            [[mutation_id, is_done]] = rows
+            assert mutation_id == self.mutation_id
             return is_done
         elif len(rows) == 0:
             raise MutationNotFound(f"could not find mutation matching {self!r}")
         else:
-            raise ValueError(f"expected zero or one mutations, found {len(rows)}")
+            raise ValueError(f"expected zero or one rows, found {len(rows)}")
 
     def wait(self, client: Client) -> None:
         while not self.is_done(client):
