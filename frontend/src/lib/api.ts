@@ -1197,8 +1197,8 @@ const api = {
     },
 
     fileSystem: {
-        async list(): Promise<CountedPaginatedResponse<FileSystemEntry>> {
-            return await new ApiRequest().fileSystem().get()
+        async list(parent?: string, depth?: number): Promise<CountedPaginatedResponse<FileSystemEntry>> {
+            return await new ApiRequest().fileSystem().withQueryString({ parent, depth }).get()
         },
         async unfiled(type?: FileSystemType): Promise<CountedPaginatedResponse<FileSystemEntry>> {
             return await new ApiRequest().fileSystemUnfiled(type).get()
@@ -1954,7 +1954,8 @@ const api = {
                 .hogFunctions()
                 .withQueryString({
                     filters,
-                    ...(types ? { types: types.join(',') } : {}),
+                    // NOTE: The API expects "type" as thats the DB level name
+                    ...(types ? { type: types.join(',') } : {}),
                 })
                 .get()
         },
