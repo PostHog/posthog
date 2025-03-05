@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import logging
 
 from django.utils.crypto import get_random_string
 import posthoganalytics
@@ -20,8 +19,6 @@ from posthog.rate_limit import SetupWizardQueryRateThrottle
 from rest_framework.exceptions import AuthenticationFailed
 
 from .utils import action
-
-logger = logging.getLogger("sentry.api")
 
 SETUP_WIZARD_CACHE_PREFIX = "setup-wizard:v1:"
 SETUP_WIZARD_CACHE_TIMEOUT = 600
