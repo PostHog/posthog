@@ -554,7 +554,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "other_viewers": 1,
         }
 
-    def test_get_single_session_recording_viewed_stats_fcan_404(self):
+    def test_get_single_session_recording_viewed_stats_can_404(self):
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/12345/viewed")
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
