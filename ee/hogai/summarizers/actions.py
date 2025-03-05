@@ -68,19 +68,19 @@ class ActionSummarizer:
     @property
     def taxonomy_description(self) -> str:
         groups: dict[str, list[PropertyFilterTaxonomyEntry]] = defaultdict(list)
-        for taxonony in self._taxonomy:
-            groups[taxonony.group_verbose_name].append(taxonony)
+        for taxonomy in self._taxonomy:
+            groups[taxonomy.group_verbose_name].append(taxonomy)
 
         group_descriptions = []
-        for group, taxononies in groups.items():
+        for group, taxonomies in groups.items():
             description = f"Description of {group} for your reference:\n"
-            description += "\n".join([f"- `{taxonony.key}`: {taxonony.description}" for taxonony in taxononies])
+            description += "\n".join([f"- `{taxonomy.key}`: {taxonomy.description}" for taxonomy in taxonomies])
             group_descriptions.append(description)
 
         description = "\n\n".join(group_descriptions)
         return description
 
-    def _describe_action_step(self, step: ActionStepJSON, index: int):
+    def _describe_action_step(self, step: ActionStepJSON, index: int) -> tuple[str, set[PropertyFilterTaxonomyEntry]]:
         taxonomy: set[PropertyFilterTaxonomyEntry] = set()
         description: list[str] = []
 

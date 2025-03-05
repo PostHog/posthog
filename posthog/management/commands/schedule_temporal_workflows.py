@@ -1,14 +1,15 @@
-import logging
-
+import structlog
 from django.core.management.base import BaseCommand
 
 from posthog.temporal.schedule import init_schedules
+
+logger = structlog.get_logger(__name__)
 
 
 class Command(BaseCommand):
     help = "Schedule Temporal Workflows"
 
     def handle(self, *args, **options):
-        logging.info("Scheduling Temporal Workflows...")
+        logger.info("Scheduling Temporal Workflows...")
         init_schedules()
-        logging.info("Done")
+        logger.info("Done")

@@ -36,7 +36,6 @@ def PG_EMBEDDINGS_TABLE_SQL(on_cluster=True):
     SETTINGS index_granularity=512
     """
     ).format(
-        base_sql=PG_EMBEDDINGS_TABLE_BASE_SQL,
         table_name=PG_EMBEDDINGS_DATA_TABLE(),
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=PG_EMBEDDINGS_DATA_TABLE_ENGINE(),
@@ -55,7 +54,6 @@ def WRITABLE_PG_EMBEDDINGS_TABLE_SQL(on_cluster=True):
             data_table=PG_EMBEDDINGS_DATA_TABLE(),
             sharding_key="sipHash64(domain, team_id)",
         ),
-        index_clause="",
     )
 
 
@@ -68,7 +66,6 @@ def DISTRIBUTED_PG_EMBEDDINGS_TABLE_SQL(on_cluster=True):
             data_table=PG_EMBEDDINGS_DATA_TABLE(),
             sharding_key="sipHash64(domain, team_id)",
         ),
-        index_clause="",
     )
 
 

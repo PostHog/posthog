@@ -221,8 +221,6 @@ class SyncVectorsInputs:
 
 @temporalio.workflow.defn(name="ai-sync-vectors")
 class SyncVectorsWorkflow(PostHogWorkflow):
-    _updated_actions: set[int]
-
     @staticmethod
     def parse_inputs(inputs: list[str]) -> SyncVectorsInputs:
         """Parse inputs from the management command CLI."""
@@ -253,7 +251,7 @@ class SyncVectorsWorkflow(PostHogWorkflow):
                 )
             )
 
-            # Maximum alllowed parallel request count to LLMs is 384 (96 * 4).
+            # Maximum allowed parallel request count to LLMs is 384 (96 * 4).
             if len(tasks) == inputs.max_parallel_requests:
                 await asyncio.gather(*tasks)
                 tasks = []

@@ -18,15 +18,15 @@ def get_scheduled_start_time():
     # So, they exist to make mypy happy.
     if scheduled_start_time_attr is None:
         msg = (
-            "Expected 'TemporalScheduledStartTime' of type 'list[str]' or 'list[datetime], found 'NoneType'."
+            "Expected 'TemporalScheduledStartTime' of type 'list[str]' or 'list[datetime]', found 'NoneType'."
             "This should be set by the Temporal Schedule unless triggering workflow manually."
         )
         raise TypeError(msg)
 
     # Failing here would perhaps be a bug in Temporal.
     if isinstance(scheduled_start_time_attr[0], str):
-        data_interval_end_str = scheduled_start_time_attr[0]
-        return datetime.fromisoformat(data_interval_end_str)
+        scheduled_start_time_str = scheduled_start_time_attr[0]
+        return datetime.fromisoformat(scheduled_start_time_str)
 
     elif isinstance(scheduled_start_time_attr[0], datetime):
         return scheduled_start_time_attr[0]

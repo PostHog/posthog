@@ -38,4 +38,4 @@ async def abatch_summarize_actions(actions: Sequence[Action]) -> list[str | Base
         prompts.append(prompt)
 
     chain = ChatOpenAI(model="gpt-4o", temperature=0, streaming=False) | StrOutputParser()
-    return await chain.abatch(prompts, return_exceptions=True)  # type: ignore
+    return await chain.abatch(prompts, return_exceptions=True)  # type: ignore  # typing doesn't match in LangChain
