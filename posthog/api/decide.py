@@ -364,6 +364,7 @@ def get_feature_flags_response(request: HttpRequest, data: dict, team: Team, tok
         hash_key_override=data.get("$anon_distinct_id"),
         property_value_overrides=all_property_overrides,
         group_property_value_overrides=(data.get("group_properties") or {}),
+        flag_keys=data.get("flag_keys_to_evaluate"),
     )
 
     # Record metrics and handle billing

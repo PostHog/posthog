@@ -1,26 +1,26 @@
 import dataclasses
 import uuid
 from datetime import datetime
-from dateutil import parser
 from typing import Any, Optional
 
+from dateutil import parser
 from django.db import close_old_connections
 from django.db.models import Prefetch
 from dlt.sources import DltSource
+from structlog.typing import FilteringBoundLogger
 from temporalio import activity
 
 from posthog.models.integration import Integration
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
+from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
 from posthog.temporal.data_imports.pipelines.bigquery import delete_all_temp_destination_tables, delete_table
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
+from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
 from posthog.warehouse.models import (
     ExternalDataJob,
     ExternalDataSource,
 )
-from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
-from structlog.typing import FilteringBoundLogger
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.ssh_tunnel import SSHTunnel
 from posthog.warehouse.types import IncrementalFieldType
@@ -178,9 +178,9 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
             ExternalDataSource.Type.MYSQL,
             ExternalDataSource.Type.MSSQL,
         ]:
-            from posthog.temporal.data_imports.pipelines.sql_database import sql_source_for_type
-            from posthog.temporal.data_imports.pipelines.postgres.postgres import postgres_source
             from posthog.temporal.data_imports.pipelines.mysql.mysql import mysql_source
+            from posthog.temporal.data_imports.pipelines.postgres.postgres import postgres_source
+            from posthog.temporal.data_imports.pipelines.sql_database import sql_source_for_type
 
             host = model.pipeline.job_inputs.get("host")
             port = model.pipeline.job_inputs.get("port")
@@ -516,7 +516,16 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 model.pipeline.job_inputs.get("using_temporary_dataset", False) and temporary_dataset_id is not None
             )
 
-            destination_table_prefix = "__posthog_import_"
+            # Including the schema ID in table prefix ensures we only delete tables
+            # from this schema, and that if we fail we will clean up any previous
+            # execution's tables.
+            # Table names in BigQuery can have up to 1024 bytes, so we can be pretty
+            # relaxed with using a relatively long UUID as part of the prefix.
+            # Some special characters do need to be replaced, so we use the hex
+            # representation of the UUID.
+            schema_id = inputs.schema_id.hex
+            destination_table_prefix = f"__posthog_import_{schema_id}"
+
             destination_table_dataset_id = temporary_dataset_id if using_temporary_dataset else dataset_id
             destination_table = f"{project_id}.{destination_table_dataset_id}.{destination_table_prefix}{inputs.run_id}_{str(datetime.now().timestamp()).replace('.', '')}"
 

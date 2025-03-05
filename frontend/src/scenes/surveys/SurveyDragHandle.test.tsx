@@ -1,10 +1,14 @@
 import '@testing-library/jest-dom'
 
-import { render } from '@testing-library/react'
+import { cleanup, render } from '@testing-library/react'
 
 import { SurveyDragHandle } from './SurveyDragHandle'
 
 describe('SurveyDragHandle', () => {
+    beforeEach(() => {
+        cleanup()
+    })
+
     const mockListeners = {
         onKeyDown: jest.fn(),
         onMouseDown: jest.fn(),

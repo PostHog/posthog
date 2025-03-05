@@ -11,6 +11,7 @@ use property_defs_rs::{
 
 use quick_cache::sync::Cache;
 use serve_metrics::{serve, setup_metrics_routes};
+use sqlx::postgres::PgPoolOptions;
 use tokio::{
     sync::mpsc::{self},
     task::JoinHandle,
@@ -65,7 +66,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let consumer = SingleTopicConsumer::new(config.kafka.clone(), config.consumer.clone())?;
 
     // owns Postgres client and biz logic that handles property defs API calls
-    let query_manager = Manager::new(&config).await?;
+    let options = PgPoolOptions::new().max_connections(config.max_pg_connections);
+    let api_pool = options.connect(&config.database_url).await?;
+    let query_manager = Manager::new(api_pool).await?;
 
     let context = Arc::new(AppContext::new(&config, query_manager).await?);
 
