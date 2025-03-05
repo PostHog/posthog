@@ -446,26 +446,35 @@ class MutationRunner(abc.ABC):
 
     def find(self, client: Client) -> Mutation | None:
         """Find the running mutation task, if one exists."""
-
-        results = client.execute(
+        commands = [*self.get_commands()]
+        mutations = client.execute(
             f"""
-            SELECT mutation_id, command
-            FROM system.mutations
-            WHERE
-                database = %(__database)s
-                AND table = %(__table)s
-                AND has(
-                    arrayMap(
-                        command -> extract(command, '^\\s*(.*?)(?:,)?\\s*$'),  -- strip leading/trailing whitespace and optional trailing comma
-                        arraySlice(  -- drop "ALTER TABLE" preamble line
-                            splitByChar('\n', formatQuery($__sql$ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{self.table} {", ".join(self.get_commands())}$__sql$)),
-                            2
+            SELECT mutation_id
+            FROM (
+                SELECT
+                    (arrayJoin(
+                        arrayZip(
+                            arrayMap(
+                                command -> extract(command, '^\\s*(.*?)(?:,)?\\s*$'),  -- strip leading/trailing whitespace and optional trailing comma
+                                arraySlice(  -- drop "ALTER TABLE" preamble line
+                                    splitByChar('\n', formatQuery($__sql$ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{self.table} {", ".join(commands)}$__sql$)),
+                                    2
+                                )
+                            ) as commands,
+                            arrayEnumerate(commands)
                         )
-                    ),
-                    command
-                )
-                AND NOT is_killed  -- ok to restart a killed mutation
-            ORDER BY create_time DESC
+                    ) as t).1 as command,
+                    t.2 as position
+            ) commands
+            LEFT OUTER JOIN (
+                SELECT *
+                FROM system.mutations
+                WHERE
+                    database = %(__database)s
+                    AND table = %(__table)s
+                    AND NOT is_killed  -- ok to restart a killed mutation
+            ) mutations USING (command)
+            ORDER BY position ASC
             """,
             {
                 f"__database": settings.CLICKHOUSE_DATABASE,
@@ -473,11 +482,14 @@ class MutationRunner(abc.ABC):
                 **self.parameters,
             },
         )
-        if not results:
+        assert len(mutations) == len(commands)
+        command_mutations = {command: mutation for command, (mutation,) in zip(commands, mutations)}
+
+        # TODO: handle multiple results if a mutation was split across multiple runs
+        if not any(command_mutations.values()):
             return None
         else:
-            # TODO: handle multiple results
-            [mutation_id] = {mutation_id for mutation_id, _ in results}
+            [mutation_id] = set(command_mutations.values())
             return Mutation(self.table, mutation_id)
 
     def enqueue(self, client: Client) -> Mutation:
