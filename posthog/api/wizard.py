@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from typing import Optional
 
 from django.utils.crypto import get_random_string
 import posthoganalytics
@@ -12,6 +13,7 @@ from rest_framework import serializers, exceptions
 from openai.types.chat import (
     ChatCompletionSystemMessageParam,
     ChatCompletionUserMessageParam,
+    ChatCompletionMessageParam,
 )
 from posthoganalytics.ai.openai import OpenAI
 
@@ -31,7 +33,7 @@ class SetupWizardSerializer(serializers.Serializer):
     def to_representation(self, instance: str) -> dict[str, str]:
         return {"hash": instance}
 
-    def create(self) -> dict[str, str]:
+    def create(self, validated_data: Optional[dict[str, str]] = None) -> dict[str, str]:
         hash = get_random_string(64, allowed_chars="abcdefghijklmnopqrstuvwxyz0123456789")
         key = f"{SETUP_WIZARD_CACHE_PREFIX}{hash}"
 
@@ -112,15 +114,19 @@ class SetupWizardViewSet(viewsets.ViewSet):
         user_message = ChatCompletionUserMessageParam(role="user", content=message)
 
         # Convert messages to OpenAI format and combine with system message
-        messages = [system_message, user_message]
+        messages: list[ChatCompletionMessageParam] = [system_message, user_message]
 
         posthog_client = posthoganalytics.default_client
+
+        if not posthog_client:
+            raise exceptions.ValidationError("PostHog client not found")
+
         openai = OpenAI(posthog_client=posthog_client)
 
         completion = openai.beta.chat.completions.parse(
             model=SETUP_WIZARD_MODEL,
             messages=messages,
-            response_format={"type": "json_schema", "json_schema": json_schema},
+            response_format={"type": "json_schema", "json_schema": json_schema},  # type: ignore
         )
 
         if not completion.choices or not completion.choices[0].message.content:

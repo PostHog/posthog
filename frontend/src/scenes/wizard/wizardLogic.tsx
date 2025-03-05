@@ -8,8 +8,6 @@ import type { wizardLogicType } from './wizardLogicType'
 
 export interface WizardTokenResponseType {
     success: boolean
-    errorCode?: string
-    errorDetail?: string
 }
 
 export const wizardLogic = kea<wizardLogicType>([
@@ -33,13 +31,10 @@ export const wizardLogic = kea<wizardLogicType>([
                         })
                         actions.setView('success')
                         return response
-                    } catch (e: unknown) {
+                    } catch (_) {
                         actions.setView('invalid')
-                        if (e instanceof Error && 'code' in e && 'detail' in e) {
-                            return { success: false, errorCode: e.code, errorDetail: e.detail }
-                        }
 
-                        return { success: false, errorCode: 'unknown', errorDetail: 'Unknown error' }
+                        return { success: false }
                     }
                 },
             },
