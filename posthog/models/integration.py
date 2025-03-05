@@ -497,7 +497,7 @@ class GoogleAdsIntegration:
     def client(self) -> WebClient:
         return WebClient(self.integration.sensitive_config["access_token"])
 
-    def list_google_ads_conversion_actions(self, customer_id) -> list[dict]:
+    def list_google_ads_conversion_actions(self, customer_id, parent_id=None) -> list[dict]:
         response = requests.request(
             "POST",
             f"https://googleads.googleapis.com/v18/customers/{customer_id}/googleAds:searchStream",
@@ -506,6 +506,7 @@ class GoogleAdsIntegration:
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
                 "developer-token": settings.GOOGLE_ADS_DEVELOPER_TOKEN,
+                **({"login-customer-id": parent_id} if parent_id else {}),
             },
         )
 
@@ -517,6 +518,8 @@ class GoogleAdsIntegration:
 
         return response.json()
 
+    # Google Ads manager accounts can have access to other accounts (including other manager accounts).
+    # Filter out duplicates where a user has direct access and access through a manager account, while prioritizing direct access.
     def list_google_ads_accessible_accounts(self) -> list[dict[str, str]]:
         response = requests.request(
             "GET",
@@ -532,35 +535,65 @@ class GoogleAdsIntegration:
             capture_exception(Exception(f"GoogleAdsIntegration: Failed to list accessible accounts: {response.text}"))
             raise Exception(f"There was an internal error")
 
-        accounts = response.json()
-        accounts_with_name = []
+        accessible_accounts = response.json()
+        all_accounts: list[dict[str, str]] = []
 
-        for account in accounts["resourceNames"]:
+        def dfs(account_id, accounts=None, parent_id=None) -> list[dict]:
+            if accounts is None:
+                accounts = []
             response = requests.request(
                 "POST",
-                f"https://googleads.googleapis.com/v18/customers/{account.split('/')[1]}/googleAds:searchStream",
+                f"https://googleads.googleapis.com/v18/customers/{account_id}/googleAds:searchStream",
                 json={
-                    "query": "SELECT customer_client.descriptive_name, customer_client.client_customer FROM customer_client WHERE customer_client.level <= 1"
+                    "query": "SELECT customer_client.descriptive_name, customer_client.client_customer, customer_client.level, customer_client.manager, customer_client.status FROM customer_client WHERE customer_client.level <= 5"
                 },
                 headers={
                     "Content-Type": "application/json",
                     "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
                     "developer-token": settings.GOOGLE_ADS_DEVELOPER_TOKEN,
+                    **({"login-customer-id": parent_id} if parent_id else {}),
                 },
             )
 
             if response.status_code != 200:
-                continue
+                return []
 
             data = response.json()
-            accounts_with_name.append(
-                {
-                    "id": account.split("/")[1],
-                    "name": data[0]["results"][0]["customerClient"].get("descriptiveName", "Google Ads account"),
-                }
-            )
 
-        return accounts_with_name
+            for nested_account in data[0]["results"]:
+                if any(
+                    account["id"] == nested_account["customerClient"]["clientCustomer"].split("/")[1]
+                    and account["level"] > nested_account["customerClient"]["level"]
+                    for account in accounts
+                ):
+                    accounts = [
+                        account
+                        for account in accounts
+                        if account["id"] != nested_account["customerClient"]["clientCustomer"].split("/")[1]
+                    ]
+                elif any(
+                    account["id"] == nested_account["customerClient"]["clientCustomer"].split("/")[1]
+                    and account["level"] < nested_account["customerClient"]["level"]
+                    for account in accounts
+                ):
+                    continue
+                if nested_account["customerClient"].get("status") != "ENABLED":
+                    continue
+                accounts.append(
+                    {
+                        "parent_id": parent_id,
+                        "id": nested_account["customerClient"].get("clientCustomer").split("/")[1],
+                        "level": nested_account["customerClient"].get("level"),
+                        "name": nested_account["customerClient"].get("descriptiveName", "Google Ads account"),
+                    }
+                )
+
+            return accounts
+
+        for account in accessible_accounts["resourceNames"]:
+            all_accounts = dfs(account.split("/")[1], all_accounts, account.split("/")[1])
+
+        return all_accounts
 
 
 class GoogleCloudIntegration:

@@ -28,7 +28,7 @@ export function WebExperimentTransformField({
 
     return (
         <>
-            <div className="inline-flex space-x-2">
+            <div className="inline-flex deprecated-space-x-2">
                 <LemonButton
                     icon={<IconCursorClick />}
                     size="small"
