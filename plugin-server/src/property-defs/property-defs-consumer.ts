@@ -110,6 +110,9 @@ export const getPropertyType = (key: string, value: any): PropertyType | null =>
     return null
 }
 
+/**
+ * NOTE: This is currently experimental and only used to do some testing on performance and comparisons.
+ */
 export class PropertyDefsConsumer {
     protected name = 'property-defs-consumer'
     protected groupId: string
