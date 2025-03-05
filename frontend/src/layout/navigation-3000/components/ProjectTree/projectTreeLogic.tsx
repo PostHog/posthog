@@ -279,7 +279,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         projectTree: [
             (s) => [s.viableItems, s.folderStates],
             (viableItems, folderStates): TreeDataItem[] =>
-                convertFileSystemEntryToTreeDataItem(viableItems, folderStates),
+                convertFileSystemEntryToTreeDataItem(viableItems, folderStates, 'project'),
         ],
         groupNodes: [
             (s) => [s.groupTypes, s.groupsAccessStatus, s.aggregationLabel],
@@ -308,10 +308,10 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             },
         ],
         defaultTreeNodes: [
-            (s) => [s.featureFlags, s.groupNodes],
-            (_featureFlags, groupNodes: FileSystemImport[]) =>
+            (s) => [s.featureFlags, s.groupNodes, s.folderStates],
+            (_featureFlags, groupNodes: FileSystemImport[], folderStates) =>
                 // .filter(f => !f.flag || featureFlags[f.flag])
-                convertFileSystemEntryToTreeDataItem(getDefaultTree(groupNodes), 'root'),
+                convertFileSystemEntryToTreeDataItem(getDefaultTree(groupNodes), folderStates, 'root'),
         ],
         projectRow: [
             () => [],
@@ -349,7 +349,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 const response = await api.fileSystem.list(
                     folder,
                     splitPath(folder).length + 1,
-                    PAGINATION_LIMIT,
+                    PAGINATION_LIMIT + 1,
                     previousFiles.length
                 )
 

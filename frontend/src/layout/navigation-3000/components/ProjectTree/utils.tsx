@@ -1,3 +1,4 @@
+import { IconPlus } from '@posthog/icons'
 import { router } from 'kea-router'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 
@@ -9,8 +10,6 @@ export function convertFileSystemEntryToTreeDataItem(
     folderStates: Record<string, FolderState>,
     root = 'project'
 ): TreeDataItem[] {
-    // console.log({folderStates})
-    Object.keys(folderStates)
     // The top-level nodes for our project tree
     const rootNodes: TreeDataItem[] = []
 
@@ -43,12 +42,13 @@ export function convertFileSystemEntryToTreeDataItem(
 
         // Start at the root level.
         let currentLevel = rootNodes
+        let folderNode: TreeDataItem | undefined = undefined
         const accumulatedPath: string[] = []
 
         // Create (or find) nested folders as needed.
         for (const part of folderParts) {
             accumulatedPath.push(part)
-            const folderNode = findOrCreateFolder(currentLevel, part, joinPath(accumulatedPath))
+            folderNode = findOrCreateFolder(currentLevel, part, joinPath(accumulatedPath))
             currentLevel = folderNode.children!
         }
 
@@ -70,11 +70,30 @@ export function convertFileSystemEntryToTreeDataItem(
         }
         // Place the item in the current (deepest) folder.
         currentLevel.push(node)
+
+        if (item.type === 'folder' && folderStates[item.path] === 'has-more') {
+            if (!node.children) {
+                node.children = []
+            }
+            node.children.push({
+                id: `${root}-load-more/${item.path}`,
+                name: 'Load more...',
+                icon: <IconPlus />,
+            })
+        }
     }
 
     // Helper function to sort nodes (and their children) alphabetically by name.
     const sortNodes = (nodes: TreeDataItem[]): void => {
-        nodes.sort((a, b) => a.name.localeCompare(b.name))
+        nodes.sort((a, b) => {
+            if (a.id.startsWith(`${root}-load-more/`)) {
+                return 1
+            }
+            if (b.id.startsWith(`${root}-load-more/`)) {
+                return -1
+            }
+            return a.name.localeCompare(b.name)
+        })
         for (const node of nodes) {
             if (node.children) {
                 sortNodes(node.children)
