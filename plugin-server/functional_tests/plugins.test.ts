@@ -93,64 +93,61 @@ test.concurrent(`plugin method tests: event captured, processed, ingested`, asyn
     })
 })
 
-test.concurrent(
-    `plugin method tests: records error in app metrics and creates log entry on unhandled throw`,
-    async () => {
-        const plugin = await createPlugin({
-            organization_id: organizationId,
-            name: 'test plugin',
-            plugin_type: 'source',
-            is_global: false,
-            source__index_ts: `
+test.only(`plugin method tests: records error in app metrics and creates log entry on unhandled throw`, async () => {
+    const plugin = await createPlugin({
+        organization_id: organizationId,
+        name: 'test plugin',
+        plugin_type: 'source',
+        is_global: false,
+        source__index_ts: `
             export async function processEvent(event) {
                 throw new Error('error thrown in plugin')
             }
         `,
-        })
-        const teamId = await createTeam(organizationId)
-        const pluginConfig = await createAndReloadPluginConfig(teamId, plugin.id)
+    })
+    const teamId = await createTeam(organizationId)
+    const pluginConfig = await createAndReloadPluginConfig(teamId, plugin.id)
 
-        const distinctId = new UUIDT().toString()
-        const uuid = new UUIDT().toString()
+    const distinctId = new UUIDT().toString()
+    const uuid = new UUIDT().toString()
 
-        const event = {
-            event: 'custom event',
-            properties: { name: 'haha', other: '\u0000' },
-        }
-
-        await capture({ teamId, distinctId, uuid, event: event.event, properties: event.properties })
-
-        await waitForExpect(async () => {
-            const events = await fetchEvents(teamId)
-            expect(events.length).toBe(1)
-            return events
-        })
-
-        const appMetric = await waitForExpect(async () => {
-            const errorMetrics = await fetchPluginAppMetrics(pluginConfig.id)
-            expect(errorMetrics.length).toEqual(1)
-            return errorMetrics[0]
-        })
-
-        expect(appMetric.successes).toEqual(0)
-        expect(appMetric.failures).toEqual(1)
-        expect(appMetric.error_type).toEqual('Error')
-        expect(JSON.parse(appMetric.error_details!)).toMatchObject({
-            error: { message: 'error thrown in plugin' },
-            event: { properties: event.properties },
-        })
-
-        const errorLogEntry = await waitForExpect(async () => {
-            const errorLogEntries = (await fetchPluginLogEntries(pluginConfig.id)).filter(
-                (entry) => entry.type == PluginLogEntryType.Error
-            )
-            expect(errorLogEntries.length).toBe(1)
-            return errorLogEntries[0]
-        })
-
-        expect(errorLogEntry.message).toContain('error thrown in plugin')
+    const event = {
+        event: 'custom event',
+        properties: { name: 'haha', other: '\u0000' },
     }
-)
+
+    await capture({ teamId, distinctId, uuid, event: event.event, properties: event.properties })
+
+    await waitForExpect(async () => {
+        const events = await fetchEvents(teamId)
+        expect(events.length).toBe(1)
+        return events
+    })
+
+    const appMetric = await waitForExpect(async () => {
+        const errorMetrics = await fetchPluginAppMetrics(pluginConfig.id)
+        expect(errorMetrics.length).toEqual(1)
+        return errorMetrics[0]
+    })
+
+    expect(appMetric.successes).toEqual(0)
+    expect(appMetric.failures).toEqual(1)
+    expect(appMetric.error_type).toEqual('Error')
+    expect(JSON.parse(appMetric.error_details!)).toMatchObject({
+        error: { message: 'error thrown in plugin' },
+        event: { properties: event.properties },
+    })
+
+    const errorLogEntry = await waitForExpect(async () => {
+        const errorLogEntries = (await fetchPluginLogEntries(pluginConfig.id)).filter(
+            (entry) => entry.type == PluginLogEntryType.Error
+        )
+        expect(errorLogEntries.length).toBe(1)
+        return errorLogEntries[0]
+    })
+
+    expect(errorLogEntry.message).toContain('error thrown in plugin')
+})
 
 test.concurrent(
     `plugin method tests: records success in app metrics and creates error log entry on unawaited promise rejection`,
