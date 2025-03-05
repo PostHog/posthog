@@ -177,7 +177,6 @@ const CURRENCY_SYMBOL_TO_NAME_MAP: Record<SupportedCurrencies, string> = {
     [SupportedCurrencies.WST]: 'Samoan Tala',
     [SupportedCurrencies.XAF]: 'CFA Franc BEAC',
     [SupportedCurrencies.XCD]: 'East Caribbean Dollar',
-    [SupportedCurrencies.XDR]: 'Special Drawing Rights',
     [SupportedCurrencies.XOF]: 'CFA Franc BCEAO',
     [SupportedCurrencies.XPF]: 'CFP Franc',
     [SupportedCurrencies.YER]: 'Yemeni Rial',
@@ -334,7 +333,6 @@ const CURRENCY_SYMBOL_TO_EMOJI_MAP: Record<SupportedCurrencies, string> = {
     [SupportedCurrencies.WST]: '🇼🇸',
     [SupportedCurrencies.XAF]: '🌍', // Central Africa currency, using Africa+Europe globe emoji
     [SupportedCurrencies.XCD]: '🌎', // East Caribbean Dollar, using Americas globe emoji
-    [SupportedCurrencies.XDR]: '🌎', // Special Drawing rights, IMF "currency", Americas globe emoji because I have to pick something
     [SupportedCurrencies.XOF]: '🌍', // West Africa currency, using Africa+Europe globe emoji
     [SupportedCurrencies.XPF]: '🌏', // French ultramarine territories in Oceania, using Asia+Oceania globe emoji
     [SupportedCurrencies.YER]: '🇾🇪',

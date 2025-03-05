@@ -2681,7 +2681,6 @@ export enum SupportedCurrencies {
     WST = 'WST',
     XAF = 'XAF',
     XCD = 'XCD',
-    XDR = 'XDR',
     XOF = 'XOF',
     XPF = 'XPF',
     YER = 'YER',

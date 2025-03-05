@@ -159,7 +159,6 @@ SUPPORTED_CURRENCIES: dict[SupportedCurrencies, str] = {
     SupportedCurrencies.WST: "Samoan Tala",
     SupportedCurrencies.XAF: "CFA Franc BEAC",
     SupportedCurrencies.XCD: "East Caribbean Dollar",
-    SupportedCurrencies.XDR: "Special Drawing Rights",
     SupportedCurrencies.XOF: "CFA Franc BCEAO",
     SupportedCurrencies.XPF: "CFP Franc",
     SupportedCurrencies.YER: "Yemeni Rial",

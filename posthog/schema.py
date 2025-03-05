@@ -1624,7 +1624,6 @@ class SupportedCurrencies(StrEnum):
     WST = "WST"
     XAF = "XAF"
     XCD = "XCD"
-    XDR = "XDR"
     XOF = "XOF"
     XPF = "XPF"
     YER = "YER"
