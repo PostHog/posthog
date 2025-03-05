@@ -166,7 +166,7 @@ class PropertyFilterDescriber(BaseModel):
             formatted_value = str(int(value))
         else:
             formatted_value = str(value)
-        val = str(key)
+        val = f"`{key}`"
         if operator is not None:
             val += f" {PROPERTY_FILTER_VERBOSE_NAME[operator]}"
         if formatted_value is not None:
