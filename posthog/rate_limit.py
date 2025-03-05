@@ -46,6 +46,9 @@ def get_team_allow_list(_ttl: int) -> list[str]:
 
 
 def team_is_allowed_to_bypass_throttle(team_id: Optional[int]) -> bool:
+    """
+    Check if a given team_id belongs to a throttle bypass allow list.
+    """
     allow_list = get_team_allow_list(round(time.time() / 60))
     return team_id is not None and str(team_id) in allow_list
 

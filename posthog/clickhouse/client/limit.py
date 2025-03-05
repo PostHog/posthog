@@ -9,7 +9,6 @@ from celery import current_task
 from prometheus_client import Counter
 
 from posthog import redis
-from posthog.rate_limit import team_is_allowed_to_bypass_throttle
 from posthog.settings import TEST
 from posthog.utils import generate_short_id
 
@@ -97,6 +96,8 @@ class RateLimit:
             )
             == 0
         ):
+            from posthog.rate_limit import team_is_allowed_to_bypass_throttle
+
             bypass = team_is_allowed_to_bypass_throttle(kwargs.get("team_id", None))
             result = "allow" if bypass else "block"
 
