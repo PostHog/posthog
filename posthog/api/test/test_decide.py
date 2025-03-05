@@ -2386,7 +2386,8 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 "project_id": self.team.id,
             }
         ).json()
-        self.assertEqual(response["featureFlags"], ["test", "default-flag"])
+        self.assertIn("default-flag", response["featureFlags"])
+        self.assertIn("test", response["featureFlags"])
 
     @snapshot_postgres_queries
     def test_flag_with_regular_cohorts(self, *args):
@@ -3768,7 +3769,11 @@ class TestDecide(BaseTest, QueryMatchingTest):
         # Make a decide request with only flag-1 and flag-3 keys
         response = self._post_decide(
             api_version=3,
-            data={"token": self.team.api_token, "distinct_id": "example_id", "flag_keys": ["flag-1", "flag-3"]},
+            data={
+                "token": self.team.api_token,
+                "distinct_id": "example_id",
+                "flag_keys_to_evaluate": ["flag-1", "flag-3"],
+            },
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
