@@ -294,7 +294,7 @@ export const webStatsBreakdownToPropertyName = (
     }
 }
 
-export const getWebAnalyticsDateBreakdownFilter = (breakdown: WebStatsBreakdown): BreakdownFilter | undefined => {
+export const getWebAnalyticsBreakdownFilter = (breakdown: WebStatsBreakdown): BreakdownFilter | undefined => {
     const property = webStatsBreakdownToPropertyName(breakdown)
 
     if (!property) {
