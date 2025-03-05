@@ -6,7 +6,7 @@ import logging
 import re
 import time
 from collections import defaultdict
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence, Set
 from concurrent.futures import (
     ALL_COMPLETED,
     FIRST_EXCEPTION,
@@ -434,7 +434,7 @@ class MutationRunner(abc.ABC):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def get_command(self) -> str:
+    def get_commands(self) -> Set[str]:
         """Returns the command that can be used to find the mutation in the ``system.mutations`` table."""
         raise NotImplementedError
 
@@ -445,7 +445,9 @@ class MutationRunner(abc.ABC):
     def find(self, client: Client) -> Mutation | None:
         """Find the running mutation task, if one exists."""
 
-        command = self.get_command().strip()
+        # TODO: support looking up multiple commands
+        [command] = self.get_commands()
+        command = command.strip()
         if (command_kind_match := re.match(r"^(\w+)\s*", command)) is None:
             raise ValueError(f"could not determine command kind from {command!r}")
 
@@ -530,8 +532,8 @@ class AlterTableMutationRunner(MutationRunner):
     def get_statement(self) -> str:
         return f"ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{self.table} {self.command}"
 
-    def get_command(self) -> str:
-        return self.command
+    def get_commands(self) -> Set[str]:
+        return {self.command}
 
 
 @dataclass
@@ -541,5 +543,5 @@ class LightweightDeleteMutationRunner(MutationRunner):
     def get_statement(self) -> str:
         return f"DELETE FROM {settings.CLICKHOUSE_DATABASE}.{self.table} WHERE {self.predicate}"
 
-    def get_command(self) -> str:
-        return f"UPDATE _row_exists = 0 WHERE {self.predicate}"
+    def get_commands(self) -> Set[str]:
+        return {f"UPDATE _row_exists = 0 WHERE {self.predicate}"}
