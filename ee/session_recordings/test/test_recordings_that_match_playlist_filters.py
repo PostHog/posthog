@@ -173,7 +173,7 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest):
                 filter_test_accounts=False,
                 having_predicates=[
                     RecordingPropertyFilter(
-                        key="active_seconds", label=None, operator=PropertyOperator.GT, type="recording", value=60.0
+                        key="duration", label=None, operator=PropertyOperator.GT, type="recording", value=60.0
                     )
                 ],
                 kind="RecordingsQuery",

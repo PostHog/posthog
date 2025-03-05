@@ -108,7 +108,9 @@ def convert_legacy_filters_to_universal_filters(filters: Optional[dict[str, Any]
         duration.append(
             {
                 **filters["session_recording_duration"],
-                "key": filters.get("duration_type_filter", "active_seconds"),
+                "key": filters.get(
+                    "duration_type_filter", filters.get("session_recording_duration", {}).get("key", "active_seconds")
+                ),
             }
         )
 
