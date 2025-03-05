@@ -290,7 +290,13 @@ class BaseTestFunnelUnorderedStepsBreakdown(
         people = journeys_for(events_by_person, self.team)
 
         query = cast(FunnelsQuery, filter_to_query(filters))
-        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+        runner = FunnelsQueryRunner(query=query, team=self.team)
+        if isinstance(runner.funnel_class, FunnelUDF):
+            # We don't actually support non step 0 attribution in unordered funnels. Test is vestigial.
+            self.assertRaises(ValidationError, runner.calculate)
+            return
+        results = runner.calculate().results
         results = sorted(results, key=lambda res: res[0]["breakdown"])
 
         self.assertEqual(len(results), 6)
@@ -384,7 +390,12 @@ class BaseTestFunnelUnorderedStepsBreakdown(
         people = journeys_for(events_by_person, self.team)
 
         query = cast(FunnelsQuery, filter_to_query(filters))
-        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+        runner = FunnelsQueryRunner(query=query, team=self.team)
+        if isinstance(runner.funnel_class, FunnelUDF):
+            # We don't actually support non step 0 attribution in unordered funnels. Test is vestigial.
+            self.assertRaises(ValidationError, runner.calculate)
+            return
+        results = runner.calculate().results
         results = sorted(results, key=lambda res: res[0]["breakdown"])
 
         # Breakdown by step_1 means funnel items that never reach step_1 are NULLed out
@@ -498,7 +509,12 @@ class BaseTestFunnelUnorderedStepsBreakdown(
         people = journeys_for(events_by_person, self.team)
 
         query = cast(FunnelsQuery, filter_to_query(filters))
-        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+        runner = FunnelsQueryRunner(query=query, team=self.team)
+        if isinstance(runner.funnel_class, FunnelUDF):
+            # We don't actually support non step 0 attribution in unordered funnels. Test is vestigial.
+            self.assertRaises(ValidationError, runner.calculate)
+            return
+        results = runner.calculate().results
         results = sorted(results, key=lambda res: res[0]["breakdown"])
 
         # Breakdown by step_1 means funnel items that never reach step_1 are NULLed out
@@ -626,7 +642,13 @@ class BaseTestFunnelUnorderedStepsBreakdown(
         journeys_for(events_by_person, self.team)
 
         query = cast(FunnelsQuery, filter_to_query(filters))
-        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+        runner = FunnelsQueryRunner(query=query, team=self.team)
+        if isinstance(runner.funnel_class, FunnelUDF):
+            # We don't actually support non step 0 attribution in unordered funnels. Test is vestigial.
+            self.assertRaises(ValidationError, runner.calculate)
+            return
+
+        results = runner.calculate().results
         results = sorted(results, key=lambda res: res[0]["breakdown"])
 
         self.assertEqual(len(results), 3)
