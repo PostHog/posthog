@@ -27,7 +27,6 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
         lastViewedId,
         viableItems,
         helpNoticeVisible,
-        dragAndDropEnabled,
         pendingActionsCount,
         pendingLoaderLoading,
     } = useValues(projectTreeLogic)
@@ -41,16 +40,10 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
         setLastViewedId,
         setExpandedFolders,
         setHelpNoticeVisibility,
-        toggleDragAndDrop,
         applyPendingActions,
         cancelPendingActions,
     } = useActions(projectTreeLogic)
     const containerRef = useRef<HTMLDivElement | null>(null)
-
-    // Items that should not be draggable or droppable, or have a side action
-    // TODO: sync with projectTreeLogic
-    const notDraggableIds: string[] = ['project', 'project/Explore', 'project/Create new', 'project/Unfiled']
-    const notDroppableIds: string[] = ['project', 'project/Explore', 'project/Create new']
 
     const handleCopyPath = (path?: string): void => {
         if (path) {
@@ -74,19 +67,18 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                                     {pendingActionsCount} <span>{pendingActionsCount > 1 ? 'changes' : 'change'}</span>
                                 </span>
                             ) : null}
-                            <LemonButton
-                                onClick={() => {
-                                    cancelPendingActions()
-                                    toggleDragAndDrop(!dragAndDropEnabled)
-                                }}
-                                type="secondary"
-                                size="small"
-                                tooltip={
-                                    pendingActionsCount > 0 ? 'Click to cancel changes' : 'Click to edit or move items'
-                                }
-                            >
-                                {pendingActionsCount > 0 || dragAndDropEnabled ? `Cancel` : 'Rearrange'}
-                            </LemonButton>
+                            {pendingActionsCount > 0 ? (
+                                <LemonButton
+                                    onClick={() => {
+                                        cancelPendingActions()
+                                    }}
+                                    type="secondary"
+                                    size="small"
+                                    tooltip="Click to cancel changes"
+                                >
+                                    Cancel
+                                </LemonButton>
+                            ) : null}
                             <LemonButton
                                 size="small"
                                 type={pendingActionsCount > 0 ? 'primary' : 'secondary'}
@@ -98,7 +90,6 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                                     !pendingLoaderLoading
                                         ? () => {
                                               applyPendingActions()
-                                              toggleDragAndDrop(false)
                                           }
                                         : undefined
                                 }
@@ -135,7 +126,7 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                             }
                         }}
                         onSetExpandedItemIds={setExpandedFolders}
-                        enableDragAndDrop={dragAndDropEnabled}
+                        enableDragAndDrop={true}
                         onDragEnd={(dragEvent) => {
                             const oldPath = dragEvent.active.id as string
                             const folder = dragEvent.over?.id
@@ -165,18 +156,13 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                             }
                         }}
                         isItemDraggable={(item) => {
-                            return (
-                                item.record?.type !== 'project' &&
-                                item.record?.path &&
-                                !notDraggableIds.includes(item.id || '') &&
-                                dragAndDropEnabled
-                            )
+                            return item.id.startsWith('project/') && item.record?.path
                         }}
                         isItemDroppable={(item) => {
                             const path = item.record?.path || ''
 
                             // disable dropping for these IDS
-                            if (notDroppableIds.includes(item.id || '') || notDroppableIds.includes(item.id || '')) {
+                            if (!item.id.startsWith('project/')) {
                                 return false
                             }
 
@@ -191,7 +177,7 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                             return false
                         }}
                         itemContextMenu={(item) => {
-                            if (notDraggableIds.includes(item.id || '')) {
+                            if (!item.id.startsWith('project/')) {
                                 return undefined
                             }
                             return (
@@ -234,7 +220,7 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                             )
                         }}
                         itemSideAction={(item) => {
-                            if (notDraggableIds.includes(item.id || '')) {
+                            if (!item.id.startsWith('project/')) {
                                 return undefined
                             }
                             return {
