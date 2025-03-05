@@ -99,4 +99,6 @@ Unit tests
 Integration tests
   - Integration tests should ensure that the feature works end-to-end. They must cover all the important use cases of the feature.
   
+Running commands
+- Use `uv pip install` instead of `pip install`
 Refer to Django documentation for best practices in views, models, forms, and security considerations.

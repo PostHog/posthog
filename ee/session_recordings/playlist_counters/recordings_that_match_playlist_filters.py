@@ -1,6 +1,6 @@
 from datetime import datetime
 import json
-from typing import Any
+from typing import Any, Optional
 import posthoganalytics
 from celery import shared_task
 from django.conf import settings
@@ -11,7 +11,7 @@ from posthog.session_recordings.models.session_recording_playlist import Session
 from posthog.session_recordings.session_recording_api import list_recordings_from_query, filter_from_params_to_query
 from posthog.tasks.utils import CeleryQueue
 from posthog.redis import get_client
-from posthog.schema import RecordingsQuery, FilterLogicalOperator
+from posthog.schema import RecordingsQuery, FilterLogicalOperator, PropertyOperator, PropertyFilterType
 
 from structlog import get_logger
 
@@ -51,24 +51,114 @@ REPLAY_PLAYLIST_COUNT_TIMER = Histogram(
     buckets=(1, 2, 4, 8, 10, 30, 60, 120, 240, 300, 360, 420, 480, 540, 600, float("inf")),
 )
 
+DEFAULT_RECORDING_FILTERS = {
+    "date_from": "-3d",
+    "date_to": None,
+    "filter_test_accounts": False,
+    "duration": [
+        {
+            "type": PropertyFilterType.RECORDING,
+            "key": "active_seconds",
+            "value": 5,
+            "operator": PropertyOperator.GT,
+        }
+    ],
+    "order": "start_time",
+}
 
-def convert_universal_filters_to_recordings_query(universal_filters: dict[str, Any]) -> RecordingsQuery:
+
+def convert_legacy_filters_to_universal_filters(filters: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+    """
+    Convert legacy filters to universal filters format.
+    This is the Python equivalent of the frontend's convertLegacyFiltersToUniversalFilters function.
+    """
+    filters = filters or {}
+
+    if not filters:
+        return {}
+
+    events = filters.get("events", [])
+    actions = filters.get("actions", [])
+    properties = filters.get("properties", [])
+
+    log_level_filters = []
+    if filters.get("console_logs"):
+        log_level_filters.append(
+            {
+                "key": "level",
+                "value": filters["console_logs"],
+                "operator": PropertyOperator.EXACT,
+                "type": PropertyFilterType.LOG_ENTRY,
+            }
+        )
+
+    log_query_filters = []
+    if filters.get("console_search_query"):
+        log_query_filters.append(
+            {
+                "key": "message",
+                "value": [filters["console_search_query"]],
+                "operator": PropertyOperator.EXACT,
+                "type": PropertyFilterType.LOG_ENTRY,
+            }
+        )
+
+    duration = []
+    if filters.get("session_recording_duration"):
+        duration.append(
+            {
+                **filters["session_recording_duration"],
+                "key": filters.get(
+                    "duration_type_filter", filters.get("session_recording_duration", {}).get("key", "active_seconds")
+                ),
+            }
+        )
+
+    return {
+        "date_from": filters.get("date_from") or DEFAULT_RECORDING_FILTERS["date_from"],
+        "date_to": filters.get("date_to") or DEFAULT_RECORDING_FILTERS["date_to"],
+        "filter_test_accounts": filters.get("filter_test_accounts", DEFAULT_RECORDING_FILTERS["filter_test_accounts"]),
+        "duration": duration or DEFAULT_RECORDING_FILTERS["duration"],
+        "filter_group": {
+            "type": FilterLogicalOperator.AND_,
+            "values": [
+                {
+                    "type": FilterLogicalOperator.AND_,
+                    "values": events + actions + properties + log_level_filters + log_query_filters,
+                }
+            ],
+        },
+        "order": DEFAULT_RECORDING_FILTERS["order"],
+    }
+
+
+def convert_filters_to_recordings_query(filters: dict[str, Any]) -> RecordingsQuery:
     """
     Convert universal filters to a RecordingsQuery object.
     This is the Python equivalent of the frontend's convertUniversalFiltersToRecordingsQuery function.
     """
-    # Check if we have universal filters or legacy filters
-    if "filter_group" not in universal_filters:
-        # If we don't have universal filters, we can just use filter_from_params_to_query
-        return filter_from_params_to_query(universal_filters)
+
+    # we used to send `version` and it's not part of query, so we pop to make sure
+    filters.pop("version", None)
+    # we used to send `hogql_filtering` and it's not part of query, so we pop to make sure
+    filters.pop("hogql_filtering", None)
+
+    # Check if we have legacy filters (they don't have filter_group)
+    if "filter_group" not in filters:
+        if not filters:
+            return filter_from_params_to_query(filters)
+        else:
+            # then we have a legacy filter
+            # because we know we don't have a query
+            filters = convert_legacy_filters_to_universal_filters(filters)
 
     # Extract filters from the filter group
-    filters = []
-    if universal_filters.get("filter_group") and universal_filters["filter_group"].get("values"):
+    extracted_filters = []
+    if filters.get("filter_group") and filters["filter_group"].get("values"):
         # Get the first group (which should be the only one)
-        group = universal_filters["filter_group"]["values"][0]
+        group = filters["filter_group"]["values"][0]
         if group and group.get("values"):
-            filters = group["values"]
+            extracted_filters = group["values"]
     else:
         raise Exception("Invalid universal filters")
 
@@ -79,13 +169,13 @@ def convert_universal_filters_to_recordings_query(universal_filters: dict[str, A
     having_predicates = []
 
     # Get order and duration filter
-    order = universal_filters.get("order")
-    duration_filters = universal_filters.get("duration", [])
+    order = filters.get("order")
+    duration_filters = filters.get("duration", [])
     if duration_filters and len(duration_filters) > 0:
         having_predicates.append(duration_filters[0])
 
     # Process each filter
-    for f in filters:
+    for f in extracted_filters:
         filter_type = f.get("type")
 
         if filter_type == "events":
@@ -124,15 +214,15 @@ def convert_universal_filters_to_recordings_query(universal_filters: dict[str, A
     # Construct the RecordingsQuery
     return RecordingsQuery(
         order=order,
-        date_from=universal_filters.get("date_from"),
-        date_to=universal_filters.get("date_to"),
+        date_from=filters.get("date_from"),
+        date_to=filters.get("date_to"),
         properties=properties,
         events=events,
         actions=actions,
         console_log_filters=console_log_filters,
         having_predicates=having_predicates,
-        filter_test_accounts=universal_filters.get("filter_test_accounts"),
-        operand=universal_filters.get("filter_group", {}).get("type", FilterLogicalOperator.AND_),
+        filter_test_accounts=filters.get("filter_test_accounts"),
+        operand=filters.get("filter_group", {}).get("type", FilterLogicalOperator.AND_),
     )
 
 
@@ -144,6 +234,8 @@ def convert_universal_filters_to_recordings_query(universal_filters: dict[str, A
     expires=TASK_EXPIRATION_TIME,
 )
 def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
+    playlist: SessionRecordingPlaylist | None = None
+    query: RecordingsQuery | None = None
     try:
         with REPLAY_PLAYLIST_COUNT_TIMER.time():
             playlist = SessionRecordingPlaylist.objects.get(id=playlist_id)
@@ -155,6 +247,7 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
             else:
                 existing_value = {}
 
+            # if we have results from the last hour we don't need to run the query
             if existing_value.get("refreshed_at"):
                 last_refreshed_at = datetime.fromisoformat(existing_value["refreshed_at"])
                 seconds_since_refresh = int((datetime.now() - last_refreshed_at).total_seconds())
@@ -163,7 +256,7 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
                     REPLAY_TEAM_PLAYLIST_COUNT_SKIPPED.inc()
                     return
 
-            query = convert_universal_filters_to_recordings_query(playlist.filters)
+            query = convert_filters_to_recordings_query(playlist.filters)
             (recordings, more_recordings_available, _) = list_recordings_from_query(
                 query, user=None, team=playlist.team
             )
@@ -182,13 +275,31 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
 
             REPLAY_TEAM_PLAYLIST_COUNT_SUCCEEDED.inc()
     except SessionRecordingPlaylist.DoesNotExist:
-        logger.info("Playlist does not exist", playlist_id=playlist_id)
+        logger.info(
+            "Playlist does not exist",
+            playlist_id=playlist_id,
+            playlist_short_id=playlist.short_id if playlist else None,
+        )
         REPLAY_TEAM_PLAYLIST_COUNT_UNKNOWN.inc()
     except Exception as e:
         posthoganalytics.capture_exception(
-            e, properties={"playlist_id": playlist_id, "posthog_feature": "session_replay_playlist_counters"}
+            e,
+            properties={
+                "playlist_id": playlist_id,
+                "playlist_short_id": playlist.short_id if playlist else None,
+                "posthog_feature": "session_replay_playlist_counters",
+                "filters": playlist.filters if playlist else None,
+                "query": query,
+            },
         )
-        logger.exception("Failed to count recordings that match playlist filters", playlist_id=playlist_id, error=e)
+        logger.exception(
+            "Failed to count recordings that match playlist filters",
+            playlist_id=playlist_id,
+            playlist_short_id=playlist.short_id if playlist else None,
+            filters=playlist.filters if playlist else None,
+            query=query,
+            error=e,
+        )
         REPLAY_TEAM_PLAYLIST_COUNT_FAILED.inc()
 
 

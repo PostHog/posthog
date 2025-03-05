@@ -56,6 +56,7 @@ class Integration(models.Model):
         GOOGLE_ADS = "google-ads"
         SNAPCHAT = "snapchat"
         LINKEDIN_ADS = "linkedin-ads"
+        INTERCOM = "intercom"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
@@ -122,7 +123,7 @@ class OauthConfig:
 
 
 class OauthIntegration:
-    supported_kinds = ["slack", "salesforce", "hubspot", "google-ads", "snapchat", "linkedin-ads"]
+    supported_kinds = ["slack", "salesforce", "hubspot", "google-ads", "snapchat", "linkedin-ads", "intercom"]
     integration: Integration
 
     def __str__(self) -> str:
@@ -234,6 +235,21 @@ class OauthIntegration:
                 id_path="sub",
                 name_path="email",
             )
+        elif kind == "intercom":
+            if not settings.INTERCOM_APP_CLIENT_ID or not settings.INTERCOM_APP_CLIENT_SECRET:
+                raise NotImplementedError("Intercom app not configured")
+
+            return OauthConfig(
+                authorize_url="https://app.intercom.com/oauth",
+                token_url="https://api.intercom.io/auth/eagle/token",
+                token_info_url="https://api.intercom.io/me",
+                token_info_config_fields=["id", "email", "app.region"],
+                client_id=settings.INTERCOM_APP_CLIENT_ID,
+                client_secret=settings.INTERCOM_APP_CLIENT_SECRET,
+                scope="",
+                id_path="id",
+                name_path="email",
+            )
 
         raise NotImplementedError(f"Oauth config for kind {kind} not implemented")
 
@@ -243,7 +259,7 @@ class OauthIntegration:
         return f"{settings.SITE_URL.replace('http://', 'https://')}/integrations/{kind}/callback"
 
     @classmethod
-    def authorize_url(cls, kind: str, next="") -> str:
+    def authorize_url(cls, kind: str, token: str, next="") -> str:
         oauth_config = cls.oauth_config_for_kind(kind)
 
         query_params = {
@@ -251,7 +267,7 @@ class OauthIntegration:
             "scope": oauth_config.scope,
             "redirect_uri": cls.redirect_uri(kind),
             "response_type": "code",
-            "state": urlencode({"next": next}),
+            "state": urlencode({"next": next, "token": token}),
             **(oauth_config.additional_authorize_params or {}),
         }
 
@@ -391,23 +407,28 @@ class SlackIntegration:
     def client(self) -> WebClient:
         return WebClient(self.integration.sensitive_config["access_token"])
 
-    def list_channels(self) -> list[dict]:
+    def list_channels(self, authed_user) -> list[dict]:
         # NOTE: Annoyingly the Slack API has no search so we have to load all channels...
         # We load public and private channels separately as when mixed, the Slack API pagination is buggy
-        public_channels = self._list_channels_by_type("public_channel")
-        private_channels = self._list_channels_by_type("private_channel")
+        public_channels = self._list_channels_by_type("public_channel", authed_user)
+        private_channels = self._list_channels_by_type("private_channel", authed_user)
         channels = public_channels + private_channels
 
         return sorted(channels, key=lambda x: x["name"])
 
-    def _list_channels_by_type(self, type: Literal["public_channel", "private_channel"]) -> list[dict]:
+    def _list_channels_by_type(self, type: Literal["public_channel", "private_channel"], authed_user) -> list[dict]:
         max_page = 20
         channels = []
         cursor = None
 
         while max_page > 0:
             max_page -= 1
-            res = self.client.conversations_list(exclude_archived=True, types=type, limit=200, cursor=cursor)
+            if type == "public_channel":
+                res = self.client.conversations_list(exclude_archived=True, types=type, limit=200, cursor=cursor)
+            else:
+                res = self.client.users_conversations(
+                    exclude_archived=True, types=type, limit=200, cursor=cursor, user=authed_user
+                )
 
             channels.extend(res["channels"])
             cursor = res["response_metadata"]["next_cursor"]

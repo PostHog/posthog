@@ -54,7 +54,7 @@ export class TemplateTester {
         }
 
         if (!this.geoIp) {
-            this.geoIp = await this.geoipService.get(this.mockHub)
+            this.geoIp = await this.geoipService.get()
         }
 
         this.template = {

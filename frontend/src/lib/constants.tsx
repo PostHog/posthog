@@ -206,7 +206,6 @@ export const FEATURE_FLAGS = {
     EXPERIMENTS_HOGQL: 'experiments-hogql', // owner: @jurajmajerik #team-experiments
     ROLE_BASED_ACCESS_CONTROL: 'role-based-access-control', // owner: @zach
     MESSAGING: 'messaging', // owner @mariusandra #team-cdp
-    BILLING_TRIAL_FLOW: 'billing-trial-flow', // owner: @zach
     EDIT_DWH_SOURCE_CONFIG: 'edit_dwh_source_config', // owner: @Gilbert09 #team-data-warehouse
     AI_SURVEY_RESPONSE_SUMMARY: 'ai-survey-response-summary', // owner: #team-surveys
     SELF_SERVE_CREDIT_OVERRIDE: 'self-serve-credit-override', // owner: @zach
@@ -229,8 +228,6 @@ export const FEATURE_FLAGS = {
     WEB_ANALYTICS_FOR_MOBILE: 'web-analytics-for-mobile', // owner: @robbie-c #team-web-analytics
     REPLAY_FLAGS_FILTERS: 'replay-flags-filters', // owner: @pauldambra #team-replay
     REPLAY_LANDING_PAGE: 'replay-landing-page', // owner :#team-replay
-    WEB_VITALS: 'web-vitals', // owner: @rafaeelaudibert #team-web-analytics
-    WEB_VITALS_TOOLBAR: 'web-vitals-toolbar', // owner: @rafaeelaudibert #team-web-analytics
     WEB_REVENUE_TRACKING: 'web-revenue-tracking', // owner: @robbie-c #team-web-analytics
     LLM_OBSERVABILITY: 'llm-observability', // owner: #team-ai-product-manager
     ONBOARDING_SESSION_REPLAY_SEPARATE_STEP: 'onboarding-session-replay-separate-step', // owner: @joshsny #team-growth
@@ -244,15 +241,11 @@ export const FEATURE_FLAGS = {
     TREE_VIEW: 'tree-view', // owner: @mariusandra #team-devex
     EXPERIMENTS_NEW_QUERY_RUNNER: 'experiments-new-query-runner', // owner: #team-experiments
     RECORDINGS_AI_REGEX: 'recordings-ai-regex', // owner: @veryayskiy #team-replay
-    PATH_CLEANING_AI_REGEX: 'path-cleaning-ai-regex', // owner: @rafaeelaudibert #team-web-analytics
     EXPERIMENTS_NEW_QUERY_RUNNER_AA_TEST: 'experiments-new-query-runner-aa-test', // #team-experiments
-    WEB_ANALYTICS_TABLE_SORTING: 'web-analytics-table-sorting', // owner: @rafaeelaudibert #team-web-analytics
     ONBOARDING_DATA_WAREHOUSE_FOR_PRODUCT_ANALYTICS: 'onboarding-data-warehouse-for-product-analytics', // owner: @joshsny #team-growth
     DELAYED_LOADING_ANIMATION: 'delayed-loading-animation', // owner: @raquelmsmith
     PROJECTED_TOTAL_AMOUNT: 'projected-total-amount', // owner: @zach
     SESSION_RECORDINGS_PLAYLIST_COUNT_COLUMN: 'session-recordings-playlist-count-column', // owner: @pauldambra #team-replay
-    WEB_ANALYTICS_DOMAIN_DROPDOWN: 'web-analytics-domain-dropdown', // owner: @rafaeelaudibert #team-web-analytics
-    ONBOARDING_AUTHORIZED_DOMAINS: 'onboarding-authorized-domains', // owner: @rafaeelaudibert #team-web-analytics
     ONBOARDING_NEW_INSTALLATION_STEP: 'onboarding-new-installation-step', // owner: @joshsny #team-growth
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
@@ -266,6 +259,8 @@ export enum FunnelLayout {
 }
 
 export const BIN_COUNT_AUTO = 'auto' as const
+
+export const RETENTION_MEAN_NONE = 'none' as const
 
 // Cohort types
 export enum CohortTypeEnum {

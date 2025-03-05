@@ -8,12 +8,14 @@ import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { useCallback, useRef } from 'react'
 import { revenueEventsSettingsLogic } from 'scenes/data-management/revenue/revenueEventsSettingsLogic'
 
+import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
+import { Query } from '~/queries/Query/Query'
 import { RevenueTrackingEventItem } from '~/queries/schema/schema-general'
 
 const ADD_EVENT_BUTTON_ID = 'data-management-revenue-settings-add-event'
 
 export function RevenueEventsSettings(): JSX.Element {
-    const { saveDisabledReason, events } = useValues(revenueEventsSettingsLogic)
+    const { saveDisabledReason, events, eventsQuery } = useValues(revenueEventsSettingsLogic)
     const { addEvent, deleteEvent, updatePropertyName, save } = useActions(revenueEventsSettingsLogic)
 
     const renderPropertyColumn = useCallback(
@@ -81,6 +83,7 @@ export function RevenueEventsSettings(): JSX.Element {
                 onChange={addEvent}
                 value={undefined}
                 placeholder="Create revenue event"
+                placeholderClass=""
                 excludedProperties={{
                     [TaxonomicFilterGroupType.CustomEvents]: [null, ...events.map((item) => item.eventName)],
                 }}
@@ -92,6 +95,16 @@ export function RevenueEventsSettings(): JSX.Element {
                     Save
                 </LemonButton>
             </div>
+
+            {eventsQuery ? (
+                <Query
+                    query={eventsQuery}
+                    context={{
+                        showOpenEditorButton: true,
+                        extraDataTableQueryFeatures: [QueryFeature.highlightExceptionEventRows],
+                    }}
+                />
+            ) : null}
         </div>
     )
 }

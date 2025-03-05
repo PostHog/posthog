@@ -18,8 +18,8 @@ import { useValues } from 'kea'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorInline, CodeEditorInlineProps } from 'lib/monaco/CodeEditorInline'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
-import { capitalizeFirstLetter } from 'lib/utils'
-import { useEffect, useState } from 'react'
+import { capitalizeFirstLetter, objectsEqual } from 'lib/utils'
+import { useEffect, useRef, useState } from 'react'
 
 import {
     HogFunctionConfigurationType,
@@ -123,12 +123,23 @@ function DictionaryField({
     templating: boolean
 }): JSX.Element {
     const [entries, setEntries] = useState<[string, string][]>(Object.entries(value ?? {}))
+    const prevFilteredEntriesRef = useRef<[string, string][]>(entries)
 
     useEffect(() => {
         // NOTE: Filter out all empty entries as fetch will throw if passed in
-        const val = Object.fromEntries(entries.filter(([key, val]) => key.trim() !== '' || val.trim() !== ''))
+        const filteredEntries = entries.filter(([key, val]) => key.trim() !== '' || val.trim() !== '')
+
+        // Compare with previous filtered entries to avoid unnecessary updates
+        if (objectsEqual(filteredEntries, prevFilteredEntriesRef.current)) {
+            return
+        }
+
+        // Update the ref with current filtered entries
+        prevFilteredEntriesRef.current = filteredEntries
+
+        const val = Object.fromEntries(filteredEntries)
         onChange?.(val)
-    }, [entries])
+    }, [entries, onChange])
 
     return (
         <div className="space-y-2">
