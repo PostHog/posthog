@@ -1930,6 +1930,24 @@
   
   '''
 # ---
+# name: test_create_table_query[pg_embeddings]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS pg_embeddings ON CLUSTER 'posthog'
+  (
+      domain String,
+      team_id Int64,
+      id String,
+      vector Array(Float32),
+      text String,
+      properties VARCHAR CODEC(ZSTD(3)),
+      timestamp DateTime64(6, 'UTC') DEFAULT NOW('UTC'),
+      is_deleted UInt8,
+      
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_pg_embeddings', sipHash64(team_id))
+  
+  '''
+# ---
 # name: test_create_table_query[plugin_log_entries]
   '''
   
@@ -2716,6 +2734,31 @@
   
   '''
 # ---
+# name: test_create_table_query[sharded_pg_embeddings]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_pg_embeddings ON CLUSTER 'posthog'
+  (
+      domain String,
+      team_id Int64,
+      id String,
+      vector Array(Float32),
+      text String,
+      properties VARCHAR CODEC(ZSTD(3)),
+      timestamp DateTime64(6, 'UTC') DEFAULT NOW('UTC'),
+      is_deleted UInt8,
+      
+          -- Faster skipping if we want to retrieve all embeddings for a domain
+          INDEX domain_idx domain TYPE set(0) GRANULARITY 1,
+          
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.pg_embeddings', '{replica}', timestamp, is_deleted)
+  
+      -- id for uniqueness
+      ORDER BY (team_id, domain, id)
+      SETTINGS index_granularity=512
+      
+  '''
+# ---
 # name: test_create_table_query[sharded_raw_sessions]
   '''
   
@@ -3047,6 +3090,24 @@
       _offset UInt64,
       _partition UInt64
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_heatmaps', cityHash64(concat(toString(team_id), '-', session_id, '-', toString(toDate(timestamp)))))
+  
+  '''
+# ---
+# name: test_create_table_query[writable_pg_embeddings]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS writable_pg_embeddings ON CLUSTER 'posthog'
+  (
+      domain String,
+      team_id Int64,
+      id String,
+      vector Array(Float32),
+      text String,
+      properties VARCHAR CODEC(ZSTD(3)),
+      timestamp DateTime64(6, 'UTC') DEFAULT NOW('UTC'),
+      is_deleted UInt8,
+      
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_pg_embeddings', sipHash64(team_id))
   
   '''
 # ---
@@ -3931,6 +3992,31 @@
   
   SETTINGS storage_policy = 'hot_to_cold'
   
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[sharded_pg_embeddings]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_pg_embeddings ON CLUSTER 'posthog'
+  (
+      domain String,
+      team_id Int64,
+      id String,
+      vector Array(Float32),
+      text String,
+      properties VARCHAR CODEC(ZSTD(3)),
+      timestamp DateTime64(6, 'UTC') DEFAULT NOW('UTC'),
+      is_deleted UInt8,
+      
+          -- Faster skipping if we want to retrieve all embeddings for a domain
+          INDEX domain_idx domain TYPE set(0) GRANULARITY 1,
+          
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.pg_embeddings', '{replica}', timestamp, is_deleted)
+  
+      -- id for uniqueness
+      ORDER BY (team_id, domain, id)
+      SETTINGS index_granularity=512
+      
   '''
 # ---
 # name: test_create_table_query_replicated_and_storage[sharded_raw_sessions]
