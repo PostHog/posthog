@@ -147,21 +147,45 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest):
         """
         This is a regression test, we have playlists with legacy filters that we want to make sure still work
         """
+        legacy_filters = {
+            "events": [],
+            "actions": [],
+            "date_from": "-21d",
+            "properties": [],
+            "session_recording_duration": {"key": "duration", "type": "recording", "value": 60, "operator": "gt"},
+        }
+
         playlist = SessionRecordingPlaylist.objects.create(
             team=self.team,
             name="test",
-            filters={
-                "events": [],
-                "actions": [],
-                "date_from": "-21d",
-                "properties": [],
-                "session_recording_duration": {"key": "duration", "type": "recording", "value": 60, "operator": "gt"},
-            },
+            filters=legacy_filters,
         )
         mock_list_recordings_from_query.return_value = ([], False, None)
 
         count_recordings_that_match_playlist_filters(playlist.id)
         mock_capture_exception.assert_not_called()
+
+        playlist.refresh_from_db()
+        assert playlist.filters == {
+            "date_from": "-21d",
+            "date_to": None,
+            "duration": [
+                {
+                    "key": "duration",
+                    "type": "recording",
+                    "value": 60,
+                    "operator": "gt",
+                }
+            ],
+            "filter_group": {
+                "type": FilterLogicalOperator.AND_,
+                "values": [
+                    {"type": FilterLogicalOperator.AND_, "values": []},
+                ],
+            },
+            "filter_test_accounts": False,
+            "order": RecordingOrder.START_TIME,
+        }
 
         assert mock_list_recordings_from_query.call_args[0] == (
             RecordingsQuery(
