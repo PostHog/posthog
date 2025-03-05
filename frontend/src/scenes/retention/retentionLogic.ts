@@ -7,7 +7,7 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { ProcessedRetentionPayload } from 'scenes/retention/types'
 
 import { RetentionFilter, RetentionResult } from '~/queries/schema/schema-general'
-import { isRetentionQuery } from '~/queries/utils'
+import { isRetentionQuery, isValidBreakdown } from '~/queries/utils'
 import { DateMappingOption, InsightLogicProps, RetentionPeriod } from '~/types'
 
 import type { retentionLogicType } from './retentionLogicType'
@@ -37,6 +37,7 @@ export const retentionLogic = kea<retentionLogicType>([
         ],
     }),
     selectors({
+        hasValidBreakdown: [(s) => [s.breakdownFilter], (breakdownFilter) => isValidBreakdown(breakdownFilter)],
         results: [
             (s) => [s.insightQuery, s.insightData, s.retentionFilter],
             (insightQuery, insightData, retentionFilter): ProcessedRetentionPayload[] => {
@@ -123,6 +124,7 @@ export const retentionLogic = kea<retentionLogicType>([
                 const valueSet = new Set(
                     results.filter((result) => 'breakdown_value' in result).map((result) => result.breakdown_value)
                 )
+
                 return Array.from(valueSet)
             },
         ],

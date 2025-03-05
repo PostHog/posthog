@@ -7,7 +7,7 @@ import { useActions, useValues } from 'kea'
 import { IconChevronRight } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { gradateColor, range } from 'lib/utils'
-import React, { useState } from 'react'
+import React from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { retentionModalLogic } from './retentionModalLogic'
@@ -16,26 +16,21 @@ import { NO_BREAKDOWN_VALUE } from './types'
 
 export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolean }): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { tableRowsSplitByBreakdownValue, hideSizeColumn, retentionVizOptions, theme, retentionFilter } = useValues(
-        retentionTableLogic(insightProps)
-    )
+    const {
+        tableRowsSplitByBreakdownValue,
+        hideSizeColumn,
+        retentionVizOptions,
+        theme,
+        retentionFilter,
+        expandedBreakdowns,
+    } = useValues(retentionTableLogic(insightProps))
+    const { toggleBreakdown } = useActions(retentionTableLogic(insightProps))
     const { openModal } = useActions(retentionModalLogic(insightProps))
     const backgroundColor = theme?.['preset-1'] || '#000000' // Default to black if no color found
     const backgroundColorMean = theme?.['preset-2'] || '#000000' // Default to black if no color found
     const meanRetentionCalculation = retentionFilter?.meanRetentionCalculation ?? 'weighted'
 
     const totalIntervals = retentionFilter?.totalIntervals ?? 8
-
-    // Track which breakdown sections are expanded
-    const [expandedBreakdowns, setExpandedBreakdowns] = useState<Record<string, boolean>>({})
-
-    // Toggle expansion state for a breakdown
-    const toggleBreakdown = (breakdownValue: string): void => {
-        setExpandedBreakdowns((prevState) => ({
-            ...prevState,
-            [breakdownValue]: !prevState[breakdownValue],
-        }))
-    }
 
     return (
         <table
@@ -60,7 +55,12 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                 {Object.entries(tableRowsSplitByBreakdownValue).map(
                     ([breakdownValue, breakdownRows], breakdownIndex) => (
                         <React.Fragment key={breakdownIndex}>
-                            <tr onClick={() => toggleBreakdown(breakdownValue)} className="cursor-pointer">
+                            <tr
+                                onClick={() => toggleBreakdown(breakdownValue)}
+                                className={clsx('cursor-pointer', {
+                                    'bg-slate-100': expandedBreakdowns[breakdownValue],
+                                })}
+                            >
                                 <td>
                                     {expandedBreakdowns[breakdownValue] ? <IconChevronDown /> : <IconChevronRight />}
                                     <span className="pl-2">
@@ -126,6 +126,7 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                                                 openModal(rowIndex)
                                             }
                                         }}
+                                        className="bg-slate-100"
                                     >
                                         <td className="pl-6">{row.label}</td>
                                         {!hideSizeColumn && (

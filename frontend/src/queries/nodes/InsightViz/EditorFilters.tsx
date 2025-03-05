@@ -100,7 +100,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                           },
                           {
                               key: 'retention-options',
-                              label: 'Retention calculation options',
+                              label: 'Calculation options',
                               component: RetentionOptions,
                           },
                       ]

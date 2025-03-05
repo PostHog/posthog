@@ -1,4 +1,4 @@
-import { connect, kea, key, path, props, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { dayjs } from 'lib/dayjs'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -22,7 +22,37 @@ export const retentionTableLogic = kea<retentionTableLogicType>([
             retentionLogic(props),
             ['results', 'selectedBreakdownValue'],
         ],
+        actions: [retentionLogic(props), ['setSelectedBreakdownValue']],
     })),
+
+    actions({
+        toggleBreakdown: (breakdownValue: string) => ({ breakdownValue }),
+        setExpandedBreakdowns: (expandedBreakdowns: Record<string, boolean>) => ({ expandedBreakdowns }),
+    }),
+
+    reducers({
+        expandedBreakdowns: [
+            {} as Record<string, boolean>,
+            {
+                toggleBreakdown: (state, { breakdownValue }) => ({
+                    ...state,
+                    [breakdownValue]: !state[breakdownValue],
+                }),
+                setExpandedBreakdowns: (_, { expandedBreakdowns }) => expandedBreakdowns,
+            },
+        ],
+    }),
+
+    afterMount(({ actions, values }) => {
+        autoExpandSingleBreakdown(values.tableRowsSplitByBreakdownValue, actions.setExpandedBreakdowns)
+    }),
+
+    listeners(({ actions, values }) => ({
+        setSelectedBreakdownValue: () => {
+            autoExpandSingleBreakdown(values.tableRowsSplitByBreakdownValue, actions.setExpandedBreakdowns)
+        },
+    })),
+
     selectors({
         retentionVizOptions: [
             (s) => [s.vizSpecificOptions],
@@ -95,19 +125,17 @@ export const retentionTableLogic = kea<retentionTableLogicType>([
                     return acc
                 }, {} as Record<string, RetentionTableRow[]>),
         ],
-
-        breakdownValues: [
-            (s) => [s.results],
-            (results) => {
-                if (!results || results.length === 0) {
-                    return []
-                }
-                // Extract unique breakdown values from results
-                const valueSet = new Set(
-                    results.filter((result) => 'breakdown_value' in result).map((result) => result.breakdown_value)
-                )
-                return Array.from(valueSet)
-            },
-        ],
     }),
 ])
+
+// Helper function to auto-expand a single breakdown
+function autoExpandSingleBreakdown(
+    tableRowsSplitByBreakdownValue: Record<string, RetentionTableRow[]>,
+    setExpandedBreakdownsAction: (expandedBreakdowns: Record<string, boolean>) => void
+): void {
+    const breakdownKeys = Object.keys(tableRowsSplitByBreakdownValue)
+    if (breakdownKeys.length === 1) {
+        const singleBreakdownValue = breakdownKeys[0]
+        setExpandedBreakdownsAction({ [singleBreakdownValue]: true })
+    }
+}

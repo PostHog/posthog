@@ -26,13 +26,21 @@ function displayTypeToGraphType(displayType: ChartDisplayType): GraphType {
 
 export function RetentionGraph({ inSharedMode = false }: RetentionGraphProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { retentionFilter, filteredTrendSeries, incompletenessOffsetFromEnd, aggregationGroupTypeIndex } = useValues(
-        retentionGraphLogic(insightProps)
-    )
+    const {
+        hasValidBreakdown,
+        retentionFilter,
+        filteredTrendSeries,
+        incompletenessOffsetFromEnd,
+        aggregationGroupTypeIndex,
+    } = useValues(retentionGraphLogic(insightProps))
     const { openModal } = useActions(retentionModalLogic(insightProps))
 
-    if (filteredTrendSeries.length === 0) {
-        return null
+    if (filteredTrendSeries.length === 0 && hasValidBreakdown) {
+        return (
+            <p className="w-full m-0 text-center text-sm text-gray-500">
+                Select a breakdown to see the retention graph
+            </p>
+        )
     }
 
     return filteredTrendSeries ? (

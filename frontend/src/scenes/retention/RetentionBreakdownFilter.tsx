@@ -3,23 +3,25 @@ import { useActions, useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { retentionLogic } from './retentionLogic'
-import { retentionTableLogic } from './retentionTableLogic'
 
 export function RetentionBreakdownFilter(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { breakdownValues, selectedBreakdownValue } = useValues(retentionTableLogic(insightProps))
+    const { breakdownValues, selectedBreakdownValue } = useValues(retentionLogic(insightProps))
     const { setSelectedBreakdownValue } = useActions(retentionLogic(insightProps))
 
     if (!breakdownValues || breakdownValues.length === 0) {
         return null
     }
 
-    const options = breakdownValues
-        .filter((value) => !!value)
-        .map((value) => ({
-            value: value as string | number | boolean,
-            label: value === null ? '(empty)' : value,
-        }))
+    const options = [
+        { value: null, label: 'All values' },
+        ...breakdownValues
+            .filter((value) => !!value)
+            .map((value) => ({
+                value: value as string | number | boolean,
+                label: value === null ? '(empty)' : value,
+            })),
+    ]
 
     return (
         <LemonSelect

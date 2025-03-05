@@ -397,41 +397,26 @@ class RetentionQueryRunner(QueryRunner):
         """Create a breakdown expression that works in the innermost query level"""
         if breakdown_type == "person":
             return ast.Call(
-                name="toString",
+                name="JSONExtractString",
                 args=[
-                    ast.Call(
-                        name="JSONExtractRaw",
-                        args=[
-                            ast.Field(chain=["person", "properties"]),
-                            ast.Constant(value=property_name),
-                        ],
-                    )
+                    ast.Field(chain=["person", "properties"]),
+                    ast.Constant(value=property_name),
                 ],
             )
         elif breakdown_type == "group":
             return ast.Call(
-                name="toString",
+                name="JSONExtractString",
                 args=[
-                    ast.Call(
-                        name="JSONExtractRaw",
-                        args=[
-                            ast.Field(chain=[f"groups_{group_type_index}", "properties"]),
-                            ast.Constant(value=property_name),
-                        ],
-                    )
+                    ast.Field(chain=[f"groups_{group_type_index}", "properties"]),
+                    ast.Constant(value=property_name),
                 ],
             )
         else:  # Default to event properties
             return ast.Call(
-                name="toString",
+                name="JSONExtractString",
                 args=[
-                    ast.Call(
-                        name="JSONExtractRaw",
-                        args=[
-                            ast.Field(chain=["events", "properties"]),
-                            ast.Constant(value=property_name),
-                        ],
-                    )
+                    ast.Field(chain=["events", "properties"]),
+                    ast.Constant(value=property_name),
                 ],
             )
 
@@ -765,11 +750,6 @@ class RetentionQueryRunner(QueryRunner):
         # At this level we can't access the raw events table anymore
         # We need to reference fields that were already selected in actor_query
 
-        # Build the breakdown expression based on what's already in the query
-        if hasattr(actor_query, "breakdown_value"):
-            # If the actor query already has a breakdown value, just return it
-            return actor_query
-
         # We'll need to modify our actor_query at this point to include the breakdown value
         # Since we've already added breakdown fields in actor_query() method at the inner level,
         # we can just reference those fields directly
@@ -784,16 +764,13 @@ class RetentionQueryRunner(QueryRunner):
             select_from=ast.JoinExpr(table=actor_query),
         )
 
-        # The breakdown_value field should already be part of the actor_query columns
-        # We don't need to add it again
-
         return new_query
 
     def _get_breakdown_expr(self, property_name, breakdown_type, group_type_index=None):
         """Similar to _create_breakdown_expr but for actors query"""
         if breakdown_type == "person":
             return ast.Call(
-                name="JSONExtractRaw",
+                name="JSONExtractString",
                 args=[
                     ast.Field(chain=["person", "properties"]),
                     ast.Constant(value=property_name),
@@ -801,7 +778,7 @@ class RetentionQueryRunner(QueryRunner):
             )
         elif breakdown_type == "group":
             return ast.Call(
-                name="JSONExtractRaw",
+                name="JSONExtractString",
                 args=[
                     ast.Field(chain=[f"groups_{group_type_index}", "properties"]),
                     ast.Constant(value=property_name),
@@ -809,7 +786,7 @@ class RetentionQueryRunner(QueryRunner):
             )
         else:  # Default to event properties
             return ast.Call(
-                name="JSONExtractRaw",
+                name="JSONExtractString",
                 args=[
                     ast.Field(chain=["events", "properties"]),
                     ast.Constant(value=property_name),
