@@ -2,9 +2,15 @@ import { router } from 'kea-router'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 
 import { iconForType } from './defaultTree'
-import { FileSystemImport } from './types'
+import { FileSystemImport, FolderState } from './types'
 
-export function convertFileSystemEntryToTreeDataItem(imports: FileSystemImport[], root = 'project'): TreeDataItem[] {
+export function convertFileSystemEntryToTreeDataItem(
+    imports: FileSystemImport[],
+    folderStates: Record<string, FolderState>,
+    root = 'project'
+): TreeDataItem[] {
+    // console.log({folderStates})
+    Object.keys(folderStates)
     // The top-level nodes for our project tree
     const rootNodes: TreeDataItem[] = []
 

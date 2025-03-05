@@ -14,8 +14,10 @@ import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 import { getDefaultTree } from './defaultTree'
 import type { projectTreeLogicType } from './projectTreeLogicType'
-import { FileSystemImport, ProjectTreeAction } from './types'
+import { FileSystemImport, FolderState, ProjectTreeAction } from './types'
 import { convertFileSystemEntryToTreeDataItem, findInProjectTree, joinPath, splitPath } from './utils'
+
+const PAGINATION_LIMIT = 10
 
 export const projectTreeLogic = kea<projectTreeLogicType>([
     path(['layout', 'navigation-3000', 'components', 'projectTreeLogic']),
@@ -45,7 +47,11 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         setHelpNoticeVisibility: (visible: boolean) => ({ visible }),
         loadFolder: (folder: string) => ({ folder }),
         loadFolderStart: (folder: string) => ({ folder }),
-        loadFolderSuccess: (folder: string, entries: FileSystemEntry[]) => ({ folder, entries }),
+        loadFolderSuccess: (folder: string, entries: FileSystemEntry[], hasMore: boolean = false) => ({
+            folder,
+            entries,
+            hasMore,
+        }),
         loadFolderFailure: (folder: string, error: string) => ({ folder, error }),
         rename: (path: string) => ({ path }),
         createFolder: (parentPath: string) => ({ parentPath }),
@@ -130,10 +136,13 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             },
         ],
         folderStates: [
-            {} as Record<string, 'loading' | 'loaded' | 'error'>,
+            {} as Record<string, FolderState>,
             {
                 loadFolderStart: (state, { folder }) => ({ ...state, [folder]: 'loading' }),
-                loadFolderSuccess: (state, { folder }) => ({ ...state, [folder]: 'loaded' }),
+                loadFolderSuccess: (state, { folder, hasMore }) => ({
+                    ...state,
+                    [folder]: hasMore ? 'has-more' : 'loaded',
+                }),
                 loadFolderFailure: (state, { folder }) => ({ ...state, [folder]: 'error' }),
             },
         ],
@@ -268,8 +277,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         ],
         pendingActionsCount: [(s) => [s.pendingActions], (pendingActions): number => pendingActions.length],
         projectTree: [
-            (s) => [s.viableItems],
-            (viableItems): TreeDataItem[] => convertFileSystemEntryToTreeDataItem(viableItems),
+            (s) => [s.viableItems, s.folderStates],
+            (viableItems, folderStates): TreeDataItem[] =>
+                convertFileSystemEntryToTreeDataItem(viableItems, folderStates),
         ],
         groupNodes: [
             (s) => [s.groupTypes, s.groupsAccessStatus, s.aggregationLabel],
@@ -335,8 +345,21 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             }
             actions.loadFolderStart(folder)
             try {
-                const response = await api.fileSystem.list(folder, splitPath(folder).length + 1)
-                actions.loadFolderSuccess(folder, response.results)
+                const previousFiles = values.folders[folder] || []
+                const response = await api.fileSystem.list(
+                    folder,
+                    splitPath(folder).length + 1,
+                    PAGINATION_LIMIT,
+                    previousFiles.length
+                )
+
+                let files = response.results
+                let hasMore = false
+                if (files.length > PAGINATION_LIMIT) {
+                    files = files.slice(0, PAGINATION_LIMIT)
+                    hasMore = true
+                }
+                actions.loadFolderSuccess(folder, [...previousFiles, ...files], hasMore)
             } catch (error) {
                 actions.loadFolderFailure(folder, String(error))
             }
