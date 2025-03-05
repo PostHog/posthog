@@ -397,11 +397,10 @@ def count_delta_table_rows(delta_table: DeltaTable) -> int:
 
 
 async def update_table_row_count(saved_query: DataWarehouseSavedQuery, row_count: int) -> None:
-    """Update the row count in the DataWarehouseTable record. `saved_query` name is unique per team."""
     try:
-        table = await database_sync_to_async(
-            DataWarehouseTable.objects.filter(team_id=saved_query.team_id, name=saved_query.name).first
-        )()
+        table = None
+        if saved_query.table_id:
+            table = await database_sync_to_async(DataWarehouseTable.objects.get)(id=saved_query.table_id)
 
         if table:
             table.row_count = row_count

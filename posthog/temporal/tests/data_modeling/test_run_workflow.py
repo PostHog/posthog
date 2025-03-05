@@ -606,13 +606,16 @@ async def test_run_workflow_with_minio_bucket(
     expected_events_b = [event for event in all_expected_events if event["distinct_id"] == "b"]
 
     for query in saved_queries:
-        await DataWarehouseTable.objects.acreate(
+        table = await DataWarehouseTable.objects.acreate(
             name=query.name,
             team=ateam,
             format="Delta",
             url_pattern=f"s3://{bucket_name}/team_{ateam.pk}_model_{query.id.hex}",
             credential=None,
         )
+        # link the saved query to the table
+        query.table_id = table.id
+        await database_sync_to_async(query.save)()
 
     workflow_id = str(uuid.uuid4())
     inputs = RunWorkflowInputs(team_id=ateam.pk)
@@ -689,9 +692,7 @@ async def test_run_workflow_with_minio_bucket(
             assert query.last_run_at == TEST_TIME
 
             # Verify row count was updated in the DataWarehouseTable
-            warehouse_table = await database_sync_to_async(
-                DataWarehouseTable.objects.filter(team_id=ateam.pk, name=query.name).first
-            )()
+            warehouse_table = await DataWarehouseTable.objects.aget(team_id=ateam.pk, id=query.table_id)
             assert warehouse_table is not None, f"DataWarehouseTable for {query.name} not found"
             # Match the 50 page_view events defined above
             assert warehouse_table.row_count == len(expected_data), f"Row count for {query.name} not the expected value"
