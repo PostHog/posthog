@@ -143,7 +143,7 @@ def convert_filters_to_recordings_query(filters: dict[str, Any]) -> RecordingsQu
 
     # Check if we have legacy filters (they don't have filter_group)
     if "filter_group" not in filters:
-        if not filters.keys():
+        if not filters:
             return filter_from_params_to_query(filters)
         else:
             # then we have a legacy filter
