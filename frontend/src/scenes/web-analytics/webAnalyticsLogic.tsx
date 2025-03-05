@@ -1287,7 +1287,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 {},
                                 {
                                     control: (
-                                        <div className="flex flex-row space-x-2 font-medium">
+                                        <div className="flex flex-row deprecated-space-x-2 font-medium">
                                             <span>Customize channel types</span>
                                             <LemonButton
                                                 icon={<IconGear />}

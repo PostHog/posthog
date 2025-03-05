@@ -6,7 +6,7 @@ import { getColorVar } from 'lib/colors'
 import { IntervalFilterStandalone } from 'lib/components/IntervalFilter'
 import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { PropertyIcon } from 'lib/components/PropertyIcon'
+import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 import { IconOpenInNew, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
@@ -263,32 +263,17 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
             break
         case WebStatsBreakdown.DeviceType:
             if (typeof value === 'string') {
-                return (
-                    <div className="flex items-center gap-2">
-                        <PropertyIcon property="$device_type" value={value} />
-                        <span>{value}</span>
-                    </div>
-                )
+                return <PropertyIcon.WithLabel property="$device_type" value={value} />
             }
             break
         case WebStatsBreakdown.Browser:
             if (typeof value === 'string') {
-                return (
-                    <div className="flex items-center gap-2">
-                        <PropertyIcon property="$browser" value={value} />
-                        <span>{value}</span>
-                    </div>
-                )
+                return <PropertyIcon.WithLabel property="$browser" value={value} />
             }
             break
         case WebStatsBreakdown.OS:
             if (typeof value === 'string') {
-                return (
-                    <div className="flex items-center gap-2">
-                        <PropertyIcon property="$os" value={value} />
-                        <span>{value}</span>
-                    </div>
-                )
+                return <PropertyIcon.WithLabel property="$os" value={value} />
             }
             break
     }
@@ -677,7 +662,7 @@ export const WebExternalClicksTile = ({
     return (
         <div className="border rounded bg-surface-primary flex-1 flex flex-col">
             <div className="flex flex-row items-center justify-end m-2 mr-4">
-                <div className="flex flex-row items-center space-x-2">
+                <div className="flex flex-row items-center deprecated-space-x-2">
                     <LemonSwitch
                         label="Strip query parameters"
                         checked={shouldStripQueryParams}

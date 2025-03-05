@@ -11,7 +11,7 @@ export const Shortcuts = (): JSX.Element => {
         <div className="flex flex-col h-full p-5">
             <h3>Keyboard shortcuts</h3>
             <h4>Site-wide shortcuts</h4>
-            <div className="space-y-1">
+            <div className="deprecated-space-y-1">
                 <div>
                     <KeyboardShortcut command k /> Open search
                 </div>

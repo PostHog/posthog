@@ -142,16 +142,18 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
 
             view: DataWarehouseSavedQuery = super().update(instance, validated_data)
 
-            try:
-                view.columns = view.get_columns()
-                view.external_tables = view.s3_tables
-                view.status = DataWarehouseSavedQuery.Status.MODIFIED
-            except RecursionError:
-                raise serializers.ValidationError("Model contains a cycle")
-            except Exception as err:
-                raise serializers.ValidationError(str(err))
+            # Only update columns and status if the query has changed
+            if "query" in validated_data:
+                try:
+                    view.columns = view.get_columns()
+                    view.external_tables = view.s3_tables
+                    view.status = DataWarehouseSavedQuery.Status.MODIFIED
+                except RecursionError:
+                    raise serializers.ValidationError("Model contains a cycle")
+                except Exception as err:
+                    raise serializers.ValidationError(str(err))
 
-            view.save()
+                view.save()
 
             try:
                 DataWarehouseModelPath.objects.update_from_saved_query(view)

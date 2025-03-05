@@ -64,7 +64,7 @@ function TraceSceneWrapper(): JSX.Element {
             ) : !trace ? (
                 <NotFound object="trace" />
             ) : (
-                <div className="relative space-y-4 flex flex-col md:h-[calc(100vh_-_var(--breadcrumbs-height-full)_-_var(--scene-padding)_-_var(--scene-padding-bottom))] ">
+                <div className="relative deprecated-space-y-4 flex flex-col md:h-[calc(100vh_-_var(--breadcrumbs-height-full)_-_var(--scene-padding)_-_var(--scene-padding-bottom))] ">
                     <TraceMetadata
                         trace={trace}
                         metricEvents={metricEvents as LLMTraceEvent[]}
@@ -361,7 +361,7 @@ const EventContent = React.memo(({ event }: { event: LLMTrace | LLMTraceEvent | 
                 <InsightEmptyState heading="Event not found" detail="Check if the event ID is correct." />
             ) : (
                 <>
-                    <header className="space-y-2">
+                    <header className="deprecated-space-y-2">
                         <div className="flex-row flex items-center gap-2">
                             <EventTypeTag event={event} />
                             <h3 className="text-lg font-semibold p-0 m-0 truncate flex-1">
@@ -401,6 +401,7 @@ const EventContent = React.memo(({ event }: { event: LLMTrace | LLMTraceEvent | 
                     {isLLMTraceEvent(event) ? (
                         event.event === '$ai_generation' ? (
                             <ConversationMessagesDisplay
+                                tools={event.properties.$ai_tools}
                                 input={event.properties.$ai_input}
                                 output={
                                     event.properties.$ai_is_error

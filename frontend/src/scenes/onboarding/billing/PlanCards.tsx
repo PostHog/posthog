@@ -121,7 +121,7 @@ export const PlanCard: React.FC<PlanCardProps> = ({ planData, product, highlight
                     )}
                 </section>
                 <section className="flex-1 mb-3">
-                    <ul className="space-y-2">
+                    <ul className="deprecated-space-y-2">
                         {features.map((feature) => (
                             <li key={feature.name} className="flex items-center">
                                 {feature.available ? (
