@@ -1971,8 +1971,7 @@
       properties VARCHAR CODEC(ZSTD(3)),
       timestamp DateTime64(6, 'UTC') DEFAULT NOW('UTC'),
       is_deleted UInt8,
-      
-  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_pg_embeddings', sipHash64(team_id))
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_pg_embeddings', sipHash64(domain, team_id))
   
   '''
 # ---
@@ -2818,14 +2817,10 @@
       properties VARCHAR CODEC(ZSTD(3)),
       timestamp DateTime64(6, 'UTC') DEFAULT NOW('UTC'),
       is_deleted UInt8,
-      
-          -- Faster skipping if we want to retrieve all embeddings for a domain
-          INDEX domain_idx domain TYPE set(0) GRANULARITY 1,
-          
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.pg_embeddings', '{replica}', timestamp, is_deleted)
   
       -- id for uniqueness
-      ORDER BY (team_id, domain, id)
+      ORDER BY (domain, team_id, id)
       SETTINGS index_granularity=512
       
   '''
@@ -3192,8 +3187,7 @@
       properties VARCHAR CODEC(ZSTD(3)),
       timestamp DateTime64(6, 'UTC') DEFAULT NOW('UTC'),
       is_deleted UInt8,
-      
-  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_pg_embeddings', sipHash64(team_id))
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_pg_embeddings', sipHash64(domain, team_id))
   
   '''
 # ---
@@ -4093,14 +4087,10 @@
       properties VARCHAR CODEC(ZSTD(3)),
       timestamp DateTime64(6, 'UTC') DEFAULT NOW('UTC'),
       is_deleted UInt8,
-      
-          -- Faster skipping if we want to retrieve all embeddings for a domain
-          INDEX domain_idx domain TYPE set(0) GRANULARITY 1,
-          
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.pg_embeddings', '{replica}', timestamp, is_deleted)
   
       -- id for uniqueness
-      ORDER BY (team_id, domain, id)
+      ORDER BY (domain, team_id, id)
       SETTINGS index_granularity=512
       
   '''
