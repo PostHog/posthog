@@ -7,13 +7,14 @@ from django.http import JsonResponse, StreamingHttpResponse
 from drf_spectacular.utils import OpenApiResponse
 from pydantic import BaseModel
 from rest_framework import status, viewsets
-from rest_framework.exceptions import NotAuthenticated, ValidationError
+from rest_framework.exceptions import NotAuthenticated, ValidationError, Throttled
 from rest_framework.request import Request
 from rest_framework.response import Response
 from sentry_sdk import set_tag
 from asgiref.sync import sync_to_async
 from concurrent.futures import ThreadPoolExecutor
 
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.exceptions_capture import capture_exception
 from posthog.api.documentation import extend_schema
 from posthog.api.mixins import PydanticModelMixin
@@ -139,6 +140,8 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             return Response(result, status=response_status)
         except (ExposedHogQLError, ExposedCHQueryError) as e:
             raise ValidationError(str(e), getattr(e, "code_name", None))
+        except ConcurrencyLimitExceeded as c:
+            raise Throttled(detail=str(c))
         except Exception as e:
             self.handle_column_ch_error(e)
             capture_exception(e)
@@ -191,9 +194,9 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     @monitor(feature=Feature.QUERY, endpoint="query", method="DELETE")
     def destroy(self, request, pk=None, *args, **kwargs):
         dequeue_only = request.query_params.get("dequeue_only", False) == "true"
-        cancel_query(self.team.pk, pk, dequeue_only=dequeue_only)
+        message = cancel_query(self.team.pk, pk, dequeue_only=dequeue_only)
 
-        return Response(status=204)
+        return Response(status=200, data={"message": message})
 
     @action(methods=["GET"], detail=False)
     def draft_sql(self, request: Request, *args, **kwargs) -> Response:
@@ -273,18 +276,24 @@ async def query_awaited(request: Request, *args, **kwargs) -> StreamingHttpRespo
 
         # Start the query processing in a background thread
         loop = asyncio.get_running_loop()
-        query_task = loop.run_in_executor(
-            QUERY_EXECUTOR,  # Use our dedicated executor instead of None
-            lambda: process_query_model(
-                team=team,
-                query=query,
-                execution_mode=execution_mode,
-                query_id=client_query_id,
-                user=request.user
-                if not isinstance(request.user, AnonymousUser)
-                else None,  # just for typing, actual auth check happens above
-            ),
-        )
+
+        async def async_process_query():
+            # Run the synchronous function in an executor and await its result
+            return await loop.run_in_executor(
+                QUERY_EXECUTOR,
+                lambda: process_query_model(
+                    team=team,
+                    query=query,
+                    execution_mode=execution_mode,
+                    query_id=client_query_id,
+                    user=request.user
+                    if not isinstance(request.user, AnonymousUser)
+                    else None,  # just for typing, actual auth check happens above
+                ),
+            )
+
+        # Create a task from the async wrapper
+        query_task = asyncio.create_task(async_process_query())
 
         async def event_stream():
             assert kwargs.get("team_id") is not None

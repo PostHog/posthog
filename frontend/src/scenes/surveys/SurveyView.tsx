@@ -9,7 +9,6 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { IntervalFilterStandalone } from 'lib/components/IntervalFilter'
 import { PageHeader } from 'lib/components/PageHeader'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -19,7 +18,7 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils'
 import { useEffect, useState } from 'react'
 import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
-import { SurveyAnswerFilters } from 'scenes/surveys/SurveyAnswerFilters'
+import { SurveyResponseFilters } from 'scenes/surveys/SurveyResponseFilters'
 import { getSurveyResponseKey } from 'scenes/surveys/utils'
 
 import { Query } from '~/queries/Query/Query'
@@ -49,26 +48,6 @@ import {
     SingleChoiceQuestionPieChart,
     Summary,
 } from './surveyViewViz'
-
-function SurveyResultsFilters(): JSX.Element {
-    const { propertyFilters } = useValues(surveyLogic)
-    const { setPropertyFilters } = useActions(surveyLogic)
-
-    return (
-        <div className="space-y-2">
-            <h3 className="text-base">Filter survey results</h3>
-            <SurveyAnswerFilters />
-            <div className="w-fit">
-                <PropertyFilters
-                    propertyFilters={propertyFilters}
-                    onChange={setPropertyFilters}
-                    pageKey="survey-results"
-                    buttonText="More filters"
-                />
-            </div>
-        </div>
-    )
-}
 
 function SurveySchedule(): JSX.Element {
     const { survey } = useValues(surveyLogic)
@@ -365,7 +344,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                         )}
                                                     </span>
                                                     {survey.questions.map((q, idx) => (
-                                                        <li key={idx}>{q.question}</li>
+                                                        <li key={q.id ?? idx}>{q.question}</li>
                                                     ))}
                                                 </>
                                             )}
@@ -528,7 +507,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
 
     return (
         <div className="space-y-4">
-            <SurveyResultsFilters />
+            <SurveyResponseFilters />
             {isAnyResultsLoading && (
                 <div className="flex gap-1">
                     <span className="text-sm text-secondary">Loading results...</span>

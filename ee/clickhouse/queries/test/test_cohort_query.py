@@ -5,7 +5,7 @@ from freezegun import freeze_time
 
 
 from ee.clickhouse.queries.enterprise_cohort_query import check_negation_clause
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.constants import PropertyOperatorType
 from posthog.hogql_queries.hogql_cohort_query import TestWrapperCohortQuery as CohortQuery
 from posthog.models import Team

@@ -5,7 +5,7 @@ from typing import Any, Optional, Union
 import posthoganalytics
 from dateutil.parser import isoparse, parser
 
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.cloud_utils import is_cloud
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.path_filter import PathFilter

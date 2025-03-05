@@ -1,5 +1,3 @@
-import { ReaderModel } from '@maxmind/geoip2-node'
-
 const MAX_DEPTH = 3
 
 function cleanNullValuesInternal(value: unknown, depth: number): unknown {
@@ -33,20 +31,4 @@ function cleanNullValuesInternal(value: unknown, depth: number): unknown {
 
 export function cleanNullValues(value: unknown): unknown {
     return cleanNullValuesInternal(value, 1)
-}
-
-export function createGeoipLookup(mmdb: ReaderModel | undefined) {
-    return (ipAddress: unknown) => {
-        if (typeof ipAddress !== 'string') {
-            return null
-        }
-        if (!mmdb) {
-            return null
-        }
-        try {
-            return mmdb.city(ipAddress)
-        } catch {
-            return null
-        }
-    }
 }

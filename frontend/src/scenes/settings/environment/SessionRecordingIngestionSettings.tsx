@@ -231,6 +231,10 @@ export function SessionRecordingIngestionSettings(): JSX.Element | null {
                                         value: '0.05',
                                     },
                                     {
+                                        label: '1%',
+                                        value: '0.01',
+                                    },
+                                    {
                                         label: '0% (replay disabled)',
                                         value: '0.00',
                                     },
