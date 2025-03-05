@@ -1,4 +1,5 @@
 import { DataWarehousePopoverField } from 'lib/components/TaxonomicFilter/types'
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
@@ -77,15 +78,10 @@ export function ExperimentMetricForm({
                                 'Calculates the percentage of users for whom the metric occurred at least once, useful for measuring conversion rates.',
                         },
                         {
-                            value: ExperimentMetricType.COUNT,
-                            label: 'Count',
+                            value: ExperimentMetricType.MEAN,
+                            label: 'Mean',
                             description:
-                                'Tracks how many times the metric occurs per user, useful for measuring click counts or page views.',
-                        },
-                        {
-                            value: ExperimentMetricType.CONTINUOUS,
-                            label: 'Continuous',
-                            description: 'Measures numerical values of the metric, such as revenue or session length.',
+                                'Tracks the value of the metric per user, useful for measuring count of clicks, revenue, or other numeric metrics such as session length.',
                         },
                     ]}
                 />
@@ -121,20 +117,18 @@ export function ExperimentMetricForm({
                 />
             </div>
             {/* :KLUDGE: Query chart type is inferred from the initial state, so need to render Trends and Funnels separately */}
-            {(metric.metric_type === ExperimentMetricType.COUNT ||
-                metric.metric_type === ExperimentMetricType.CONTINUOUS) &&
-                !isDataWarehouseMetric && (
-                    <Query
-                        query={{
-                            kind: NodeKind.InsightVizNode,
-                            source: metricToQuery(metric, filterTestAccounts),
-                            showTable: false,
-                            showLastComputation: true,
-                            showLastComputationRefresh: false,
-                        }}
-                        readOnly
-                    />
-                )}
+            {metric.metric_type === ExperimentMetricType.MEAN && !isDataWarehouseMetric && (
+                <Query
+                    query={{
+                        kind: NodeKind.InsightVizNode,
+                        source: metricToQuery(metric, filterTestAccounts),
+                        showTable: false,
+                        showLastComputation: true,
+                        showLastComputationRefresh: false,
+                    }}
+                    readOnly
+                />
+            )}
             {metric.metric_type === ExperimentMetricType.FUNNEL && !isDataWarehouseMetric && (
                 <Query
                     query={{
@@ -147,6 +141,66 @@ export function ExperimentMetricForm({
                     readOnly
                 />
             )}
+            <div>
+                <LemonLabel
+                    className="mb-1"
+                    info={
+                        <>
+                            Controls how long a metric value is considered relevant to an experiment exposure:
+                            <ul className="list-disc pl-4">
+                                <li>
+                                    <strong>Experiment duration</strong> considers any data from when a user is first
+                                    exposed until the experiment ends.
+                                </li>
+                                <li>
+                                    <strong>Conversion window</strong> only includes data that occurs within the
+                                    specified number of hours after a user's first exposure (also ignoring the
+                                    experiment end date).
+                                </li>
+                            </ul>
+                        </>
+                    }
+                >
+                    Time window
+                </LemonLabel>
+                <div className="flex items-center gap-2">
+                    <LemonRadio
+                        className="my-1.5"
+                        value={metric.time_window_hours === undefined ? 'full' : 'conversion'}
+                        orientation="horizontal"
+                        onChange={(value) =>
+                            handleSetMetric({
+                                newMetric: {
+                                    ...metric,
+                                    time_window_hours: value === 'full' ? undefined : 72,
+                                },
+                            })
+                        }
+                        options={[
+                            {
+                                value: 'full',
+                                label: 'Experiment duration',
+                            },
+                            {
+                                value: 'conversion',
+                                label: 'Conversion window',
+                            },
+                        ]}
+                    />
+                    {metric.time_window_hours !== undefined && (
+                        <LemonInput
+                            value={metric.time_window_hours}
+                            onChange={(value) =>
+                                handleSetMetric({ newMetric: { ...metric, time_window_hours: value || undefined } })
+                            }
+                            type="number"
+                            step={1}
+                            suffix={<span className="text-sm">hours</span>}
+                            size="small"
+                        />
+                    )}
+                </div>
+            </div>
         </div>
     )
 }

@@ -16,6 +16,7 @@ export interface LemonRadioProps<T extends React.Key> {
     options: LemonRadioOption<T>[]
     className?: string
     radioPosition?: 'center' | 'top'
+    orientation?: 'vertical' | 'horizontal'
 }
 
 /** Single choice radio. */
@@ -25,9 +26,16 @@ export function LemonRadio<T extends React.Key>({
     options,
     className,
     radioPosition,
+    orientation = 'vertical',
 }: LemonRadioProps<T>): JSX.Element {
     return (
-        <div className={clsx('flex flex-col gap-2 font-medium', className)}>
+        <div
+            className={clsx(
+                'flex font-medium',
+                orientation === 'vertical' ? 'flex-col gap-2' : 'flex-row gap-4',
+                className
+            )}
+        >
             {options.map(({ value, label, disabledReason, description, ...optionProps }) => {
                 const content = (
                     <label

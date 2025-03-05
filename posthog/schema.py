@@ -144,6 +144,12 @@ class AssistantMessageType(StrEnum):
     AI_FAILURE = "ai/failure"
 
 
+class MeanRetentionCalculation(StrEnum):
+    SIMPLE = "simple"
+    WEIGHTED = "weighted"
+    NONE = "none"
+
+
 class RetentionReference(StrEnum):
     TOTAL = "total"
     PREVIOUS = "previous"
@@ -764,19 +770,14 @@ class ExperimentExposureTimeSeries(BaseModel):
     variant: str
 
 
-class ExperimentMetricMath(StrEnum):
+class ExperimentMetricMathType(StrEnum):
     TOTAL = "total"
     SUM = "sum"
-    AVG = "avg"
-    MEDIAN = "median"
-    MIN = "min"
-    MAX = "max"
 
 
 class ExperimentMetricType(StrEnum):
-    COUNT = "count"
-    CONTINUOUS = "continuous"
     FUNNEL = "funnel"
+    MEAN = "mean"
 
 
 class ExperimentSignificanceCode(StrEnum):
@@ -2285,7 +2286,7 @@ class ExperimentDataWarehouseMetricConfig(BaseModel):
     data_warehouse_join_key: str
     events_join_key: str
     kind: Literal["ExperimentDataWarehouseMetricConfig"] = "ExperimentDataWarehouseMetricConfig"
-    math: Optional[ExperimentMetricMath] = None
+    math: Optional[ExperimentMetricMathType] = None
     math_hogql: Optional[str] = None
     math_property: Optional[str] = None
     name: Optional[str] = None
@@ -3362,6 +3363,7 @@ class AssistantTrendsEventsNode(BaseModel):
             FunnelMathType,
             PropertyMathType,
             CountPerActorMathType,
+            ExperimentMetricMathType,
             Literal["unique_group"],
             Literal["hogql"],
         ]
@@ -4388,6 +4390,7 @@ class DataWarehouseNode(BaseModel):
             FunnelMathType,
             PropertyMathType,
             CountPerActorMathType,
+            ExperimentMetricMathType,
             Literal["unique_group"],
             Literal["hogql"],
         ]
@@ -4479,6 +4482,7 @@ class EntityNode(BaseModel):
             FunnelMathType,
             PropertyMathType,
             CountPerActorMathType,
+            ExperimentMetricMathType,
             Literal["unique_group"],
             Literal["hogql"],
         ]
@@ -4607,6 +4611,7 @@ class EventsNode(BaseModel):
             FunnelMathType,
             PropertyMathType,
             CountPerActorMathType,
+            ExperimentMetricMathType,
             Literal["unique_group"],
             Literal["hogql"],
         ]
@@ -4671,7 +4676,7 @@ class ExperimentActionMetricConfig(BaseModel):
     )
     action: float
     kind: Literal["ExperimentActionMetricConfig"] = "ExperimentActionMetricConfig"
-    math: Optional[ExperimentMetricMath] = None
+    math: Optional[ExperimentMetricMathType] = None
     math_hogql: Optional[str] = None
     math_property: Optional[str] = None
     name: Optional[str] = None
@@ -4727,7 +4732,7 @@ class ExperimentEventMetricConfig(BaseModel):
     )
     event: str
     kind: Literal["ExperimentEventMetricConfig"] = "ExperimentEventMetricConfig"
-    math: Optional[ExperimentMetricMath] = None
+    math: Optional[ExperimentMetricMathType] = None
     math_hogql: Optional[str] = None
     math_property: Optional[str] = None
     name: Optional[str] = None
@@ -4781,6 +4786,7 @@ class ExperimentMetric(BaseModel):
     metric_config: Union[ExperimentEventMetricConfig, ExperimentActionMetricConfig, ExperimentDataWarehouseMetricConfig]
     metric_type: ExperimentMetricType
     name: Optional[str] = None
+    time_window_hours: Optional[float] = None
 
 
 class ExperimentQueryResponse(BaseModel):
@@ -4862,6 +4868,7 @@ class FunnelExclusionActionsNode(BaseModel):
             FunnelMathType,
             PropertyMathType,
             CountPerActorMathType,
+            ExperimentMetricMathType,
             Literal["unique_group"],
             Literal["hogql"],
         ]
@@ -4931,6 +4938,7 @@ class FunnelExclusionEventsNode(BaseModel):
             FunnelMathType,
             PropertyMathType,
             CountPerActorMathType,
+            ExperimentMetricMathType,
             Literal["unique_group"],
             Literal["hogql"],
         ]
@@ -5951,6 +5959,7 @@ class RetentionFilter(BaseModel):
     cumulative: Optional[bool] = None
     dashboardDisplay: Optional[RetentionDashboardDisplayType] = None
     display: Optional[ChartDisplayType] = Field(default=None, description="controls the display of the retention graph")
+    meanRetentionCalculation: Optional[MeanRetentionCalculation] = None
     period: Optional[RetentionPeriod] = RetentionPeriod.DAY
     retentionReference: Optional[RetentionReference] = Field(
         default=None,
@@ -5968,6 +5977,7 @@ class RetentionFilterLegacy(BaseModel):
         extra="forbid",
     )
     cumulative: Optional[bool] = None
+    mean_retention_calculation: Optional[MeanRetentionCalculation] = None
     period: Optional[RetentionPeriod] = None
     retention_reference: Optional[RetentionReference] = Field(
         default=None,
@@ -6269,6 +6279,7 @@ class ActionsNode(BaseModel):
             FunnelMathType,
             PropertyMathType,
             CountPerActorMathType,
+            ExperimentMetricMathType,
             Literal["unique_group"],
             Literal["hogql"],
         ]
@@ -6351,6 +6362,12 @@ class AssistantRetentionFilter(BaseModel):
             " coming back in period 5 makes them count towards all the previous periods."
         ),
     )
+    meanRetentionCalculation: Optional[MeanRetentionCalculation] = Field(
+        default=None,
+        description=(
+            "Whether an additional series should be shown, showing the mean conversion for each period across cohorts."
+        ),
+    )
     period: Optional[RetentionPeriod] = Field(
         default=RetentionPeriod.DAY, description="Retention period, the interval to track cohorts by."
     )
@@ -6373,7 +6390,8 @@ class AssistantRetentionFilter(BaseModel):
     showMean: Optional[bool] = Field(
         default=None,
         description=(
-            "Whether an additional series should be shown, showing the mean conversion for each period across cohorts."
+            "DEPRECATED: Whether an additional series should be shown, showing the mean conversion for each period"
+            " across cohorts."
         ),
     )
     targetEntity: Optional[RetentionEntity] = Field(
