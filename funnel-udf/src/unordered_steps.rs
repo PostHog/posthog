@@ -5,9 +5,11 @@ use std::iter::repeat;
 use uuid::Uuid;
 
 struct Vars {
+    max_non_excluded_step: (usize, EnteredTimestamp),
     max_step: (usize, EnteredTimestamp),
     events_by_step: Vec<VecDeque<Event>>,
     num_steps_completed: usize,
+    first_event_timestamp: Option<f64>,
 }
 
 pub struct AggregateFunnelRowUnordered {
@@ -39,14 +41,15 @@ impl AggregateFunnelRowUnordered {
     #[inline(always)]
     fn loop_prop_val(&mut self, args: &Args, prop_val: &PropVal) {
         let mut vars = Vars {
-            // For each step, we store a deque of events (in chronological order) that have reached that step
             events_by_step: repeat(VecDeque::new()).take(args.num_steps).collect(),
-            // Max step keeps track of the place where we have matched the most events
             max_step: (0, DEFAULT_ENTERED_TIMESTAMP.clone()),
             num_steps_completed: 0,
+            // Keep track of the first event's timestamp in the current funnel attempt
+            first_event_timestamp: None,
         };
 
-        let (exclusions, non_exclusions): (Vec<&Event>, Vec<&Event>) = args
+        // Get all relevant events, both exclusions and non-exclusions
+        let all_events: Vec<&Event> = args
             .value
             .iter()
             .filter(|e| {
@@ -56,36 +59,22 @@ impl AggregateFunnelRowUnordered {
                     true
                 }
             })
-            .partition(|&event| event.steps.iter().all(|&step| step < 0));
+            .collect();
 
-        for event in non_exclusions {
+        for event in all_events {
             self.process_event(args, &mut vars, event, prop_val);
-        }
-
-        // Find the furthest step we have made it to and print it
-        let final_index = vars.max_step.0;
-        let final_value = &vars.max_step.1;
-
-        // Check for exclusions
-        for exclusion in exclusions {
-            // Check if the exclusion timestamp falls within the range of our max step
-            if !vars.max_step.1.timings.is_empty() {
-                let start_timestamp = vars.max_step.1.timings.first().unwrap();
-                let end_timestamp = vars.max_step.1.timings.last().unwrap();
-
-                if exclusion.timestamp > *start_timestamp && exclusion.timestamp < *end_timestamp {
-                    // Exclusion falls within our funnel path, mark as excluded
-                    self.results
-                        .push(Result(-1, prop_val.clone(), vec![], vec![]));
-                    return;
-                }
+            // If we've completed all steps, we can finalize right away
+            if vars.max_step.0 == args.num_steps {
+                break;
             }
         }
 
+        // After processing all events, return the result
         self.results.push(Result(
-            final_index as i8 - 1,
+            vars.max_step.0 as i8 - 1,
             prop_val.clone(),
-            final_value
+            vars.max_step
+                .1
                 .timings
                 .windows(2)
                 .map(|w| w[1] - w[0])
@@ -96,18 +85,88 @@ impl AggregateFunnelRowUnordered {
                 .iter()
                 .map(|uuid| vec![*uuid])
                 .collect(),
-        ))
+        ));
     }
 
     #[inline(always)]
     fn process_event(&mut self, args: &Args, vars: &mut Vars, event: &Event, prop_val: &PropVal) {
-        // 1. Push the event to the back of the deque. If it matches multiple steps, push it to the one whose last element is the further from now
-        // 2. Delete all events that are out of the match window
-        // 3. Update some value to store the size of the match now (so we know if we can update max without iterating through them all again)
+        // Find the latest event timestamp
+        let latest_timestamp = event.timestamp;
 
-        // If it matches one step, update that step
-        // The assumption here is that there is only one way to fulfill each step. For example, if the same event fulfills steps 2 and 7, there is no other event
-        // that fulfills just step 2. If we add that functionality, this gets more complicated.
+        // Now we need to look at the oldest event until we're in the conversion window of the newest event
+        loop {
+            let (oldest_event_index, oldest_event) = vars
+                .events_by_step
+                .iter()
+                .enumerate()
+                .filter_map(|(idx, deque)| deque.front().map(|event| (idx, event)))
+                .min_by(|(_, a), (_, b)| {
+                    a.timestamp
+                        .partial_cmp(&b.timestamp)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .unzip();
+
+            if oldest_event.is_none() {
+                break;
+            }
+
+            let oldest_event = oldest_event.unwrap();
+            let oldest_event_index = oldest_event_index.unwrap();
+
+            // Now we are in the conversion window so we need to process the new event
+            if oldest_event.timestamp + args.conversion_window_limit as f64 >= latest_timestamp {
+                break;
+            }
+
+            // Here we need to remove the oldest event and potentially decrement the num_steps_completed
+            vars.events_by_step[oldest_event_index].pop_front();
+            // Update max_step if we've completed more steps than before
+            if vars.num_steps_completed > vars.max_step.0 {
+                let mut timestamps_with_uuids: Vec<(f64, Uuid)> = vars
+                    .events_by_step
+                    .iter()
+                    .filter_map(|deque| deque.front().map(|e| (e.timestamp, e.uuid)))
+                    .collect();
+
+                timestamps_with_uuids.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+
+                let timings = timestamps_with_uuids
+                    .iter()
+                    .map(|(t, _)| *t)
+                    .collect::<Vec<f64>>();
+                let uuids = timestamps_with_uuids
+                    .iter()
+                    .map(|(_, u)| *u)
+                    .collect::<Vec<Uuid>>();
+
+                vars.max_step = (
+                    vars.num_steps_completed,
+                    EnteredTimestamp {
+                        timestamp: event.timestamp,
+                        excluded: false,
+                        timings,
+                        uuids,
+                    },
+                );
+            }
+
+            // Decrement num_steps_completed if we no longer have an event in that step
+            if vars.events_by_step[oldest_event_index].is_empty() {
+                vars.num_steps_completed -= 1;
+            }
+        }
+
+        // If we hit an exclusion, we clear everything
+        let is_exclusion = event.steps.iter().all(|&step| step < 0);
+
+        if is_exclusion {
+            vars.events_by_step = repeat(VecDeque::new()).take(args.num_steps).collect();
+            vars.num_steps_completed = 0;
+            return;
+        }
+
+        // Now we process the event as normal
 
         // Find the step with the minimum timestamp.
         let min_timestamp_step = *event
@@ -136,56 +195,5 @@ impl AggregateFunnelRowUnordered {
             vars.num_steps_completed += 1;
         }
         vars.events_by_step[min_timestamp_step - 1].push_back(event.clone());
-
-        // 2. Delete all events that are out of the match window
-        for index in 0..vars.events_by_step.len() {
-            if !vars.events_by_step[index].is_empty() {
-                loop {
-                    let front_event = vars.events_by_step[index].front();
-                    if front_event.is_none() {
-                        vars.num_steps_completed -= 1;
-                        break;
-                    }
-
-                    let front_event = front_event.unwrap();
-                    if event.timestamp - front_event.timestamp > args.conversion_window_limit as f64
-                    {
-                        vars.events_by_step[index].pop_front();
-                    } else {
-                        break;
-                    }
-                }
-            }
-        }
-
-        // 3. Update max_step if we've completed more steps than before
-        if vars.num_steps_completed > vars.max_step.0 {
-            let mut timestamps_with_uuids: Vec<(f64, Uuid)> = vars
-                .events_by_step
-                .iter()
-                .filter_map(|deque| deque.front().map(|e| (e.timestamp, e.uuid)))
-                .collect();
-
-            timestamps_with_uuids.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
-
-            let timings = timestamps_with_uuids
-                .iter()
-                .map(|(t, _)| *t)
-                .collect::<Vec<f64>>();
-            let uuids = timestamps_with_uuids
-                .iter()
-                .map(|(_, u)| *u)
-                .collect::<Vec<Uuid>>();
-
-            vars.max_step = (
-                vars.num_steps_completed,
-                EnteredTimestamp {
-                    timestamp: event.timestamp,
-                    excluded: false,
-                    timings: timings,
-                    uuids: uuids,
-                },
-            );
-        }
     }
 }
