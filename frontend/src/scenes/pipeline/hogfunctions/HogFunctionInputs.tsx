@@ -18,7 +18,7 @@ import { useValues } from 'kea'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorInline, CodeEditorInlineProps } from 'lib/monaco/CodeEditorInline'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter, objectsEqual } from 'lib/utils'
 import { useEffect, useRef, useState } from 'react'
 
 import {
@@ -125,41 +125,12 @@ function DictionaryField({
     const [entries, setEntries] = useState<[string, string][]>(Object.entries(value ?? {}))
     const prevFilteredEntriesRef = useRef<[string, string][]>([])
 
-    const arraysEqual = (a: any[], b: any[]): boolean => {
-        if (a === b) {
-            return true
-        }
-        if (a == null || b == null) {
-            return false
-        }
-        if (a.length !== b.length) {
-            return false
-        }
-
-        // If you don't care about the order of the elements inside
-        // the array, you should sort both arrays here.
-        // Please note that calling sort on an array will modify that array.
-        // you might want to clone your array first.
-        // For arrays of arrays (like [string, string][]), we need to do a deep comparison
-        for (let i = 0; i < a.length; ++i) {
-            // If the elements are arrays, compare them element by element
-            if (Array.isArray(a[i]) && Array.isArray(b[i])) {
-                if (!arraysEqual(a[i], b[i])) {
-                    return false
-                }
-            } else if (a[i] !== b[i]) {
-                return false
-            }
-        }
-        return true
-    }
-
     useEffect(() => {
         // NOTE: Filter out all empty entries as fetch will throw if passed in
         const filteredEntries = entries.filter(([key, val]) => key.trim() !== '' || val.trim() !== '')
 
         // Compare with previous filtered entries to avoid unnecessary updates
-        if (arraysEqual(filteredEntries, prevFilteredEntriesRef.current)) {
+        if (objectsEqual(filteredEntries, prevFilteredEntriesRef.current)) {
             return
         }
 
