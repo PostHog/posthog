@@ -146,6 +146,7 @@ class DeltaTableHelper:
                     source_alias="source",
                     target_alias="target",
                     predicate=" AND ".join(predicate_ops),
+                    streamed_exec=False,
                 )
                 .when_matched_update_all()
                 .when_not_matched_insert_all()
