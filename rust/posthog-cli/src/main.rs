@@ -11,6 +11,7 @@ fn main() {
                 None => format!("Oops! {:?}", e.inner),
             };
             error!(msg);
+            std::process::exit(1);
         }
     }
 }
