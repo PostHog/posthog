@@ -122,15 +122,13 @@ export class PluginServer {
                         return consumer.service
                     })
                 }
-            } else {
-                if (capabilities.ingestionV2) {
-                    serviceLoaders.push(async () => {
-                        await initPlugins()
-                        const consumer = new IngestionConsumer(hub)
-                        await consumer.start()
-                        return consumer.service
-                    })
-                }
+            } else if (capabilities.ingestionV2) {
+                serviceLoaders.push(async () => {
+                    await initPlugins()
+                    const consumer = new IngestionConsumer(hub)
+                    await consumer.start()
+                    return consumer.service
+                })
             }
 
             if (capabilities.processAsyncOnEventHandlers) {
