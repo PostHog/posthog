@@ -26,7 +26,7 @@ export function RevenueEventsSettings(): JSX.Element {
                 updatePropertyFunction: (eventName: string, propertyName: string) => void
             ) =>
             // eslint-disable-next-line react/display-name
-            (_, item: RevenueTrackingEventItem) => {
+            (_: string | undefined, item: RevenueTrackingEventItem) => {
                 return (
                     <TaxonomicPopover
                         size="small"
