@@ -255,7 +255,12 @@ export function convertLegacyFiltersToUniversalFilters(
                 ? DEFAULT_RECORDING_FILTERS['filter_test_accounts']
                 : filters.filter_test_accounts,
         duration: filters.session_recording_duration
-            ? [{ ...filters.session_recording_duration, key: filters.duration_type_filter || 'active_seconds' }]
+            ? [
+                  {
+                      ...filters.session_recording_duration,
+                      key: filters.duration_type_filter || filters.session_recording_duration.key || 'active_seconds',
+                  },
+              ]
             : DEFAULT_RECORDING_FILTERS['duration'],
         filter_group: {
             type: FilterLogicalOperator.And,

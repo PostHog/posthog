@@ -33,6 +33,7 @@ from posthog.schema import (
     ExperimentActionMetricConfig,
     ExperimentDataWarehouseMetricConfig,
     ExperimentEventMetricConfig,
+    ExperimentMetricMathType,
     ExperimentMetricType,
     ExperimentQueryResponse,
     ExperimentSignificanceCode,
@@ -144,9 +145,9 @@ class ExperimentQueryRunner(QueryRunner):
         is_funnel_metric = self.metric.metric_type == ExperimentMetricType.FUNNEL
 
         # Pick the correct value for the aggregation chosen
-        match self.metric.metric_type:
-            case ExperimentMetricType.CONTINUOUS:
-                # If the metric type is continuous, we need to extract the value from the event property
+        match self.metric.metric_config.math:
+            case ExperimentMetricMathType.SUM:
+                # If the metric is a property math type, we need to extract the value from the event property
                 metric_property = self.metric.metric_config.math_property
                 if metric_property:
                     if is_data_warehouse_query:
@@ -157,7 +158,7 @@ class ExperimentQueryRunner(QueryRunner):
                             placeholders={"property": ast.Constant(value=metric_property)},
                         )
                 else:
-                    raise ValueError("Metric property is required for continuous metrics")
+                    raise ValueError("Metric property is required for property math types")
             case _:
                 # Else, we default to count
                 # We then just emit 1 so we can easily sum it up
@@ -513,28 +514,34 @@ class ExperimentQueryRunner(QueryRunner):
             raise ValueError("Test variants not found in experiment results")
 
         match self.metric.metric_type:
-            case ExperimentMetricType.CONTINUOUS:
-                probabilities = calculate_probabilities_v2_continuous(
-                    control_variant=cast(ExperimentVariantTrendsBaseStats, control_variant),
-                    test_variants=cast(list[ExperimentVariantTrendsBaseStats], test_variants),
-                )
-                significance_code, p_value = are_results_significant_v2_continuous(
-                    control_variant=cast(ExperimentVariantTrendsBaseStats, control_variant),
-                    test_variants=cast(list[ExperimentVariantTrendsBaseStats], test_variants),
-                    probabilities=probabilities,
-                )
-                credible_intervals = calculate_credible_intervals_v2_continuous([control_variant, *test_variants])
-            case ExperimentMetricType.COUNT:
-                probabilities = calculate_probabilities_v2_count(
-                    cast(ExperimentVariantTrendsBaseStats, control_variant),
-                    cast(list[ExperimentVariantTrendsBaseStats], test_variants),
-                )
-                significance_code, p_value = are_results_significant_v2_count(
-                    cast(ExperimentVariantTrendsBaseStats, control_variant),
-                    cast(list[ExperimentVariantTrendsBaseStats], test_variants),
-                    probabilities,
-                )
-                credible_intervals = calculate_credible_intervals_v2_count([control_variant, *test_variants])
+            case ExperimentMetricType.MEAN:
+                match self.metric.metric_config.math:
+                    case ExperimentMetricMathType.SUM:
+                        probabilities = calculate_probabilities_v2_continuous(
+                            control_variant=cast(ExperimentVariantTrendsBaseStats, control_variant),
+                            test_variants=cast(list[ExperimentVariantTrendsBaseStats], test_variants),
+                        )
+                        significance_code, p_value = are_results_significant_v2_continuous(
+                            control_variant=cast(ExperimentVariantTrendsBaseStats, control_variant),
+                            test_variants=cast(list[ExperimentVariantTrendsBaseStats], test_variants),
+                            probabilities=probabilities,
+                        )
+                        credible_intervals = calculate_credible_intervals_v2_continuous(
+                            [control_variant, *test_variants]
+                        )
+                    # Otherwise, we default to count
+                    case _:
+                        probabilities = calculate_probabilities_v2_count(
+                            cast(ExperimentVariantTrendsBaseStats, control_variant),
+                            cast(list[ExperimentVariantTrendsBaseStats], test_variants),
+                        )
+                        significance_code, p_value = are_results_significant_v2_count(
+                            cast(ExperimentVariantTrendsBaseStats, control_variant),
+                            cast(list[ExperimentVariantTrendsBaseStats], test_variants),
+                            probabilities,
+                        )
+                        credible_intervals = calculate_credible_intervals_v2_count([control_variant, *test_variants])
+
             case ExperimentMetricType.FUNNEL:
                 probabilities = calculate_probabilities_v2_funnel(
                     cast(ExperimentVariantFunnelsBaseStats, control_variant),
@@ -548,6 +555,7 @@ class ExperimentQueryRunner(QueryRunner):
                 credible_intervals = calculate_credible_intervals_v2_funnel(
                     cast(list[ExperimentVariantFunnelsBaseStats], [control_variant, *test_variants])
                 )
+
             case _:
                 raise ValueError(f"Unsupported metric type: {self.metric.metric_type}")
 

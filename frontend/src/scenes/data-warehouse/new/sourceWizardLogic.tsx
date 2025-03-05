@@ -1279,7 +1279,15 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         sourceConnectionDetails: {
             defaults: buildKeaFormDefaultFromSourceDetails(SOURCE_DETAILS),
             errors: (sourceValues) => {
-                return getErrorsForFields(values.selectedConnector?.fields ?? [], sourceValues as any)
+                const errors = getErrorsForFields(values.selectedConnector?.fields ?? [], sourceValues as any)
+
+                if (values.sourceConnectionDetailsManualErrors.prefix && sourceValues.prefix) {
+                    actions.setSourceConnectionDetailsManualErrors({
+                        prefix: undefined,
+                    })
+                }
+
+                return errors
             },
             submit: async (sourceValues) => {
                 if (values.selectedConnector) {

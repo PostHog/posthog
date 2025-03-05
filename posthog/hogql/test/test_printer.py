@@ -1197,7 +1197,7 @@ class TestPrinter(BaseTest):
     def test_select_limit_by(self):
         self.assertEqual(
             self._select("select event from events limit 10 offset 0 by 1,event"),
-            f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10 OFFSET 0 BY 1, events.event",
+            f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10 OFFSET 0 BY 1, events.event LIMIT 50000",
         )
 
     def test_select_group_by(self):
