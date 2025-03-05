@@ -144,7 +144,7 @@ SUPPORTED_CURRENCIES: dict[SupportedCurrencies, str] = {
     SupportedCurrencies.TMT: "Turkmenistani Manat",
     SupportedCurrencies.TND: "Tunisian Dinar",
     SupportedCurrencies.TOP: "Tongan Pa'anga",
-    SupportedCurrencies.TRY: "Turkish Lira",
+    SupportedCurrencies.TRY_: "Turkish Lira",  # Named `TRY_` in Python because `TRY` is a reserved word
     SupportedCurrencies.TTD: "Trinidad and Tobago Dollar",
     SupportedCurrencies.TWD: "New Taiwan Dollar",
     SupportedCurrencies.TZS: "Tanzanian Shilling",
