@@ -119,11 +119,11 @@ impl AggregateFunnelRowUnordered {
                 break;
             }
 
-            // Here we need to remove the oldest event and potentially decrement the num_steps_completed
-            vars.events_by_step[oldest_event_index].pop_front();
-
             // Update max_step if we've completed more steps than before
             self.update_max_step(vars, event);
+
+            // Here we need to remove the oldest event and potentially decrement the num_steps_completed
+            vars.events_by_step[oldest_event_index].pop_front();
 
             // Decrement num_steps_completed if we no longer have an event in that step
             if vars.events_by_step[oldest_event_index].is_empty() {

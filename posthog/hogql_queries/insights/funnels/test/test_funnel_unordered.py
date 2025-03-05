@@ -1220,18 +1220,11 @@ class BaseTestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(len(results), 2)
         self.assertEqual(results[0]["name"], "Completed 1 step")
-        if isinstance(runner.funnel_class, FunnelUDF):
-            self.assertEqual(results[0]["count"], 2)
-            self.assertCountEqual(
-                self._get_actor_ids_at_step(filters, 1),
-                [person1.uuid, person3.uuid],
-            )
-        else:
-            self.assertEqual(results[0]["count"], 3)
-            self.assertCountEqual(
-                self._get_actor_ids_at_step(filters, 1),
-                [person1.uuid, person2.uuid, person3.uuid],
-            )
+        self.assertEqual(results[0]["count"], 3)
+        self.assertCountEqual(
+            self._get_actor_ids_at_step(filters, 1),
+            [person1.uuid, person2.uuid, person3.uuid],
+        )
         self.assertEqual(results[1]["name"], "Completed 2 steps")
         self.assertEqual(results[1]["count"], 2)
 
