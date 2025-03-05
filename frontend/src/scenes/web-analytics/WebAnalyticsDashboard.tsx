@@ -254,12 +254,10 @@ export const WebTabs = ({
                         options={[
                             {
                                 value: 'table',
-                                label: '',
                                 icon: <IconTableChart />,
                             },
                             {
                                 value: 'graph',
-                                label: '',
                                 icon: <IconLineGraph />,
                             },
                         ]}
