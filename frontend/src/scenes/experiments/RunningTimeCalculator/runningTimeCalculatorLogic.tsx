@@ -14,13 +14,20 @@ import {
     TrendsQuery,
     TrendsQueryResponse,
 } from '~/queries/schema/schema-general'
-import { BaseMathType, CountPerActorMathType, Experiment, FunnelVizType, PropertyMathType } from '~/types'
+import {
+    BaseMathType,
+    CountPerActorMathType,
+    Experiment,
+    ExperimentMetricMathType,
+    FunnelVizType,
+    PropertyMathType,
+} from '~/types'
 
 import type { runningTimeCalculatorLogicType } from './runningTimeCalculatorLogicType'
 
 export const TIMEFRAME_HISTORICAL_DATA_DAYS = 14
-export const VARIANCE_SCALING_FACTOR_COUNT = 2
-export const VARIANCE_SCALING_FACTOR_CONTINUOUS = 0.25
+export const VARIANCE_SCALING_FACTOR_TOTAL_COUNT = 2
+export const VARIANCE_SCALING_FACTOR_SUM = 0.25
 
 const getKindField = (metric: ExperimentMetric): NodeKind => {
     return metric.metric_config.kind === NodeKind.ExperimentEventMetricConfig
@@ -38,7 +45,7 @@ const getEventField = (metric: ExperimentMetric): string | number => {
         : metric.metric_config.table_name
 }
 
-const getCountQuery = (metric: ExperimentMetric, experiment: Experiment): TrendsQuery => {
+const getTotalCountQuery = (metric: ExperimentMetric, experiment: Experiment): TrendsQuery => {
     return {
         kind: NodeKind.TrendsQuery,
         series: [
@@ -63,7 +70,7 @@ const getCountQuery = (metric: ExperimentMetric, experiment: Experiment): Trends
     } as TrendsQuery
 }
 
-const getContinuousQuery = (metric: ExperimentMetric, experiment: Experiment): TrendsQuery => {
+const getSumQuery = (metric: ExperimentMetric, experiment: Experiment): TrendsQuery => {
     return {
         kind: NodeKind.TrendsQuery,
         series: [
@@ -164,20 +171,24 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                 }
 
                 const query =
-                    metric.metric_type === ExperimentMetricType.COUNT
-                        ? getCountQuery(metric, values.experiment)
-                        : metric.metric_type === ExperimentMetricType.CONTINUOUS
-                        ? getContinuousQuery(metric, values.experiment)
+                    metric.metric_type === ExperimentMetricType.MEAN &&
+                    metric.metric_config.math === ExperimentMetricMathType.TotalCount
+                        ? getTotalCountQuery(metric, values.experiment)
+                        : metric.metric_type === ExperimentMetricType.MEAN &&
+                          metric.metric_config.math === ExperimentMetricMathType.Sum
+                        ? getSumQuery(metric, values.experiment)
                         : getFunnelQuery(metric, values.experiment)
 
                 const result = (await performQuery(query)) as Partial<TrendsQueryResponse>
 
                 return {
                     uniqueUsers: result?.results?.[0]?.count ?? null,
-                    ...(metric.metric_type === ExperimentMetricType.COUNT
+                    ...(metric.metric_type === ExperimentMetricType.MEAN &&
+                    metric.metric_config.math === ExperimentMetricMathType.TotalCount
                         ? { averageEventsPerUser: result?.results?.[1]?.count ?? null }
                         : {}),
-                    ...(metric.metric_type === ExperimentMetricType.CONTINUOUS
+                    ...(metric.metric_type === ExperimentMetricType.MEAN &&
+                    metric.metric_config.math === ExperimentMetricMathType.Sum
                         ? { averagePropertyValuePerUser: result?.results?.[1]?.count ?? null }
                         : {}),
                     ...(metric.metric_type === ExperimentMetricType.FUNNEL
@@ -223,10 +234,16 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                     return null
                 }
 
-                if (metric.metric_type === ExperimentMetricType.COUNT) {
-                    return VARIANCE_SCALING_FACTOR_COUNT * averageEventsPerUser
-                } else if (metric.metric_type === ExperimentMetricType.CONTINUOUS) {
-                    return VARIANCE_SCALING_FACTOR_CONTINUOUS * averagePropertyValuePerUser ** 2
+                if (
+                    metric.metric_type === ExperimentMetricType.MEAN &&
+                    metric.metric_config.math === ExperimentMetricMathType.TotalCount
+                ) {
+                    return VARIANCE_SCALING_FACTOR_TOTAL_COUNT * averageEventsPerUser
+                } else if (
+                    metric.metric_type === ExperimentMetricType.MEAN &&
+                    metric.metric_config.math === ExperimentMetricMathType.Sum
+                ) {
+                    return VARIANCE_SCALING_FACTOR_SUM * averagePropertyValuePerUser ** 2
                 }
                 return null
             },
@@ -264,7 +281,10 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                 let d // Represents the absolute effect size (difference we want to detect)
                 let sampleSizeFormula // The correct sample size formula for each metric type
 
-                if (metric.metric_type === ExperimentMetricType.COUNT) {
+                if (
+                    metric.metric_type === ExperimentMetricType.MEAN &&
+                    metric.metric_config.math === ExperimentMetricMathType.TotalCount
+                ) {
                     /*
                         Count Per User Metric:
                         - "mean" is the average number of events per user (e.g., clicks per user).
@@ -288,7 +308,10 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                         - `d` is the absolute effect size (MDE * mean).
                     */
                     sampleSizeFormula = (16 * variance) / d ** 2
-                } else if (metric.metric_type === ExperimentMetricType.CONTINUOUS) {
+                } else if (
+                    metric.metric_type === ExperimentMetricType.MEAN &&
+                    metric.metric_config.math === ExperimentMetricMathType.Sum
+                ) {
                     /*
                         Continuous property metric:
                         - "mean" is the average value of the measured property per user (e.g., revenue per user).
