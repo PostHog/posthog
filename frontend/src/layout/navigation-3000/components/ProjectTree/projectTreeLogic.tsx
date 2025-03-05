@@ -17,7 +17,7 @@ import type { projectTreeLogicType } from './projectTreeLogicType'
 import { FileSystemImport, FolderState, ProjectTreeAction } from './types'
 import { convertFileSystemEntryToTreeDataItem, findInProjectTree, joinPath, splitPath } from './utils'
 
-const PAGINATION_LIMIT = 10
+const PAGINATION_LIMIT = 100
 
 export const projectTreeLogic = kea<projectTreeLogicType>([
     path(['layout', 'navigation-3000', 'components', 'projectTreeLogic']),
