@@ -1078,6 +1078,10 @@ class ApiRequest {
     public coreMemoryDetail(id: CoreMemory['id']): ApiRequest {
         return this.coreMemory().addPathComponent(id)
     }
+
+    public authenticateWizard(): ApiRequest {
+        return this.environments().current().addPathComponent('authenticate_wizard')
+    }
 }
 
 const normalizeUrl = (url: string): string => {
@@ -2813,6 +2817,11 @@ const api = {
         },
         async update(coreMemoryId: CoreMemory['id'], coreMemory: Pick<CoreMemory, 'text'>): Promise<CoreMemory> {
             return await new ApiRequest().coreMemoryDetail(coreMemoryId).update({ data: coreMemory })
+        },
+    },
+    wizard: {
+        async authenticateWizard(data: { hash: string }): Promise<{ success: boolean }> {
+            return await new ApiRequest().authenticateWizard().create({ data })
         },
     },
 
