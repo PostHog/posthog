@@ -56,9 +56,8 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
         const promptMessage = parentPath ? `Create a folder under "${parentPath}":` : 'Create a new folder:'
         const folder = prompt(promptMessage, '')
         if (folder) {
-            const escapedFolderName = escapePath(folder)
             const parentSplits = parentPath ? splitPath(parentPath) : []
-            const newPath = joinPath([...parentSplits, escapedFolderName])
+            const newPath = joinPath([...parentSplits, folder])
             addFolder(newPath)
         }
     }
