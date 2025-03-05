@@ -5,11 +5,9 @@ use std::iter::repeat;
 use uuid::Uuid;
 
 struct Vars {
-    max_non_excluded_step: (usize, EnteredTimestamp),
     max_step: (usize, EnteredTimestamp),
     events_by_step: Vec<VecDeque<Event>>,
     num_steps_completed: usize,
-    first_event_timestamp: Option<f64>,
 }
 
 pub struct AggregateFunnelRowUnordered {
@@ -44,8 +42,6 @@ impl AggregateFunnelRowUnordered {
             events_by_step: repeat(VecDeque::new()).take(args.num_steps).collect(),
             max_step: (0, DEFAULT_ENTERED_TIMESTAMP.clone()),
             num_steps_completed: 0,
-            // Keep track of the first event's timestamp in the current funnel attempt
-            first_event_timestamp: None,
         };
 
         // Get all relevant events, both exclusions and non-exclusions
@@ -61,11 +57,15 @@ impl AggregateFunnelRowUnordered {
             })
             .collect();
 
-        for event in all_events {
+        for (i, event) in all_events.iter().enumerate() {
             self.process_event(args, &mut vars, event, prop_val);
             // If we've completed all steps, we can finalize right away
             if vars.max_step.0 == args.num_steps {
                 break;
+            }
+            // Call update_max_step if this is the last event
+            if i == all_events.len() - 1 {
+                self.update_max_step(&mut vars, event);
             }
         }
 
@@ -121,35 +121,9 @@ impl AggregateFunnelRowUnordered {
 
             // Here we need to remove the oldest event and potentially decrement the num_steps_completed
             vars.events_by_step[oldest_event_index].pop_front();
+
             // Update max_step if we've completed more steps than before
-            if vars.num_steps_completed > vars.max_step.0 {
-                let mut timestamps_with_uuids: Vec<(f64, Uuid)> = vars
-                    .events_by_step
-                    .iter()
-                    .filter_map(|deque| deque.front().map(|e| (e.timestamp, e.uuid)))
-                    .collect();
-
-                timestamps_with_uuids.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
-
-                let timings = timestamps_with_uuids
-                    .iter()
-                    .map(|(t, _)| *t)
-                    .collect::<Vec<f64>>();
-                let uuids = timestamps_with_uuids
-                    .iter()
-                    .map(|(_, u)| *u)
-                    .collect::<Vec<Uuid>>();
-
-                vars.max_step = (
-                    vars.num_steps_completed,
-                    EnteredTimestamp {
-                        timestamp: event.timestamp,
-                        excluded: false,
-                        timings,
-                        uuids,
-                    },
-                );
-            }
+            self.update_max_step(vars, event);
 
             // Decrement num_steps_completed if we no longer have an event in that step
             if vars.events_by_step[oldest_event_index].is_empty() {
@@ -195,5 +169,37 @@ impl AggregateFunnelRowUnordered {
             vars.num_steps_completed += 1;
         }
         vars.events_by_step[min_timestamp_step - 1].push_back(event.clone());
+    }
+
+    #[inline(always)]
+    fn update_max_step(&self, vars: &mut Vars, event: &Event) {
+        if vars.num_steps_completed > vars.max_step.0 {
+            let mut timestamps_with_uuids: Vec<(f64, Uuid)> = vars
+                .events_by_step
+                .iter()
+                .filter_map(|deque| deque.front().map(|e| (e.timestamp, e.uuid)))
+                .collect();
+
+            timestamps_with_uuids.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+
+            let timings = timestamps_with_uuids
+                .iter()
+                .map(|(t, _)| *t)
+                .collect::<Vec<f64>>();
+            let uuids = timestamps_with_uuids
+                .iter()
+                .map(|(_, u)| *u)
+                .collect::<Vec<Uuid>>();
+
+            vars.max_step = (
+                vars.num_steps_completed,
+                EnteredTimestamp {
+                    timestamp: event.timestamp,
+                    excluded: false,
+                    timings,
+                    uuids,
+                },
+            );
+        }
     }
 }
