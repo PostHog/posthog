@@ -6,6 +6,7 @@ import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
+import EXPERIMENT_DRAFT from '~/mocks/fixtures/api/experiments/_experiment_draft.json'
 import EXPERIMENT_V3_WITH_ONE_EXPERIMENT_QUERY from '~/mocks/fixtures/api/experiments/_experiment_v3_with_one_metric.json'
 import EXPERIMENT_WITH_ASYMMETRIC_INTERVALS from '~/mocks/fixtures/api/experiments/_experiment_with_asymmetric_credible_interval.json'
 import { toPaginatedResponse } from '~/mocks/handlers'
@@ -2259,6 +2260,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2025-01-27',
+        featureFlags: ['experiments-new-query-runner'],
     },
     decorators: [
         mswDecorator({
@@ -2269,10 +2271,13 @@ const meta: Meta = {
                     EXPERIMENT_WITH_ASYMMETRIC_INTERVALS,
                 ]),
                 '/api/projects/:team_id/experiments/66/': EXPERIMENT,
+                '/api/projects/:team_id/experiments/20/': EXPERIMENT_DRAFT,
                 '/api/projects/:team_id/experiments/67/': EXPERIMENT_V3_WITH_ONE_EXPERIMENT_QUERY,
                 '/api/projects/:team_id/experiments/68/': EXPERIMENT_WITH_ASYMMETRIC_INTERVALS,
                 '/api/projects/:team_id/experiment_holdouts': [],
                 '/api/projects/:team_id/experiment_saved_metrics/': [],
+                '/api/projects/:team_id/feature_flags/24/': {},
+                '/api/projects/:team_id/feature_flags/24/status/': {},
                 '/api/projects/997/feature_flags/162/': {},
                 '/api/projects/997/feature_flags/162/status/': {},
                 '/api/projects/997/feature_flags/163/': FEATURE_FLAG_163_RESPONSE,
@@ -2305,6 +2310,13 @@ export default meta
 export const ExperimentsList: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.experiments())
+    }, [])
+    return <App />
+}
+
+export const ExperimentDraft: StoryFn = () => {
+    useEffect(() => {
+        router.actions.push(urls.experiment(EXPERIMENT_DRAFT.id))
     }, [])
     return <App />
 }
