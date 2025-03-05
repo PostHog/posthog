@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 const meta: Meta = {
-    title: 'Design System/Colors',
+    title: 'UI/Colors',
     parameters: {
         docs: {
             description: {

@@ -3724,6 +3724,11 @@ export enum GroupMathType {
     UniqueGroup = 'unique_group',
 }
 
+export enum ExperimentMetricMathType {
+    TotalCount = 'total',
+    Sum = 'sum',
+}
+
 export enum ActorGroupType {
     Person = 'person',
     GroupPrefix = 'group',
@@ -3826,6 +3831,7 @@ export type IntegrationKind =
     | 'google-ads'
     | 'linkedin-ads'
     | 'snapchat'
+    | 'intercom'
 
 export interface IntegrationType {
     id: number

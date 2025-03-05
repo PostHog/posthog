@@ -146,8 +146,7 @@ class TraversingVisitor(Visitor[None]):
             self.visit(expr)
         for expr in node.order_by or []:
             self.visit(expr)
-        for expr in node.limit_by or []:
-            self.visit(expr)
+        self.visit(node.limit_by)
         self.visit(node.limit)
         self.visit(node.offset)
         for expr in (node.window_exprs or {}).values():
@@ -292,6 +291,13 @@ class TraversingVisitor(Visitor[None]):
 
     def visit_program(self, node: ast.Program):
         for expr in node.declarations:
+            self.visit(expr)
+
+    def visit_limit_by_expr(self, node: ast.LimitByExpr):
+        self.visit(node.n)
+        if node.offset_value:
+            self.visit(node.offset_value)
+        for expr in node.exprs:
             self.visit(expr)
 
     def visit_statement(self, node: ast.Statement):
@@ -595,7 +601,7 @@ class CloningVisitor(Visitor[Any]):
             having=self.visit(node.having),
             group_by=[self.visit(expr) for expr in node.group_by] if node.group_by else None,
             order_by=[self.visit(expr) for expr in node.order_by] if node.order_by else None,
-            limit_by=[self.visit(expr) for expr in node.limit_by] if node.limit_by else None,
+            limit_by=self.visit(node.limit_by),
             limit=self.visit(node.limit),
             limit_with_ties=node.limit_with_ties,
             offset=self.visit(node.offset),
@@ -773,4 +779,13 @@ class CloningVisitor(Visitor[Any]):
             end=None if self.clear_locations else node.end,
             left=self.visit(node.left),
             right=self.visit(node.right),
+        )
+
+    def visit_limit_by_expr(self, node: ast.LimitByExpr) -> ast.LimitByExpr:
+        return ast.LimitByExpr(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            n=self.visit(node.n),
+            offset_value=self.visit(node.offset_value) if node.offset_value is not None else None,
+            exprs=[self.visit(expr) for expr in node.exprs],
         )

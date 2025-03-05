@@ -125,7 +125,7 @@ export const FlagsToolbarMenu = (): JSX.Element => {
                                                 />
                                             ) : null}
 
-                                            <div className={clsx('py-1', hasVariants && 'pl-4')}>
+                                            <div className={clsx(hasVariants && 'py-1 pl-4')}>
                                                 {openPayloadEditors[feature_flag.key] ? (
                                                     <div className="flex gap-2 items-start mt-1">
                                                         <LemonTextArea
