@@ -74,7 +74,7 @@ class FileSystemSerializer(serializers.ModelSerializer):
 
 
 class FileSystemsLimitOffsetPagination(pagination.LimitOffsetPagination):
-    default_limit = 11
+    default_limit = 100
 
 
 class UnfiledFilesQuerySerializer(serializers.Serializer):
