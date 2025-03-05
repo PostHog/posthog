@@ -595,6 +595,36 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
     )
 }
 
+function createNPSTrendSeries(
+    key: string,
+    values: string[],
+    label: string
+): {
+    event: string
+    kind: NodeKind.EventsNode
+    custom_name: string
+    properties: Array<{
+        type: PropertyFilterType.Event
+        key: string
+        operator: PropertyOperator.Exact
+        value: string[]
+    }>
+} {
+    return {
+        event: SURVEY_EVENT_NAME,
+        kind: NodeKind.EventsNode,
+        custom_name: label,
+        properties: [
+            {
+                type: PropertyFilterType.Event,
+                key,
+                operator: PropertyOperator.Exact,
+                value: values,
+            },
+        ],
+    }
+}
+
 function SurveyNPSResults({
     survey,
     surveyNPSScore,
@@ -677,84 +707,36 @@ function SurveyNPSResults({
                                     : dayjs().add(1, 'day').format('YYYY-MM-DD'),
                             },
                             series: [
-                                {
-                                    event: SURVEY_EVENT_NAME,
-                                    kind: NodeKind.EventsNode,
-                                    custom_name: NPS_PASSIVE_LABEL,
-                                    properties: [
-                                        {
-                                            type: PropertyFilterType.Event,
-                                            key: getResponseFieldWithId(questionIndex, questionId).indexBasedKey,
-                                            operator: PropertyOperator.Exact,
-                                            value: ['9', '10'],
-                                        },
-                                    ],
-                                },
-                                {
-                                    event: SURVEY_EVENT_NAME,
-                                    kind: NodeKind.EventsNode,
-                                    custom_name: NPS_PASSIVE_LABEL,
-                                    properties: [
-                                        {
-                                            type: PropertyFilterType.Event,
-                                            key: getResponseFieldWithId(questionIndex, questionId).idBasedKey,
-                                            operator: PropertyOperator.Exact,
-                                            value: ['9', '10'],
-                                        },
-                                    ],
-                                },
-                                {
-                                    event: SURVEY_EVENT_NAME,
-                                    kind: NodeKind.EventsNode,
-                                    custom_name: NPS_PASSIVE_LABEL,
-                                    properties: [
-                                        {
-                                            type: PropertyFilterType.Event,
-                                            key: getResponseFieldWithId(questionIndex, questionId).indexBasedKey,
-                                            operator: PropertyOperator.Exact,
-                                            value: ['7', '8'],
-                                        },
-                                    ],
-                                },
-                                {
-                                    event: SURVEY_EVENT_NAME,
-                                    kind: NodeKind.EventsNode,
-                                    custom_name: NPS_PASSIVE_LABEL,
-                                    properties: [
-                                        {
-                                            type: PropertyFilterType.Event,
-                                            key: getResponseFieldWithId(questionIndex, questionId).idBasedKey,
-                                            operator: PropertyOperator.Exact,
-                                            value: ['7', '8'],
-                                        },
-                                    ],
-                                },
-                                {
-                                    event: SURVEY_EVENT_NAME,
-                                    kind: NodeKind.EventsNode,
-                                    custom_name: NPS_DETRACTOR_LABEL,
-                                    properties: [
-                                        {
-                                            type: PropertyFilterType.Event,
-                                            key: getResponseFieldWithId(questionIndex, questionId).indexBasedKey,
-                                            operator: PropertyOperator.Exact,
-                                            value: ['0', '1', '2', '3', '4', '5', '6'],
-                                        },
-                                    ],
-                                },
-                                {
-                                    event: SURVEY_EVENT_NAME,
-                                    kind: NodeKind.EventsNode,
-                                    custom_name: NPS_DETRACTOR_LABEL,
-                                    properties: [
-                                        {
-                                            type: PropertyFilterType.Event,
-                                            key: getResponseFieldWithId(questionIndex, questionId).idBasedKey,
-                                            operator: PropertyOperator.Exact,
-                                            value: ['0', '1', '2', '3', '4', '5', '6'],
-                                        },
-                                    ],
-                                },
+                                createNPSTrendSeries(
+                                    getResponseFieldWithId(questionIndex, questionId).indexBasedKey,
+                                    ['9', '10'],
+                                    NPS_PASSIVE_LABEL
+                                ),
+                                createNPSTrendSeries(
+                                    getResponseFieldWithId(questionIndex, questionId).idBasedKey ?? '',
+                                    ['9', '10'],
+                                    NPS_PASSIVE_LABEL
+                                ),
+                                createNPSTrendSeries(
+                                    getResponseFieldWithId(questionIndex, questionId).indexBasedKey,
+                                    ['7', '8'],
+                                    NPS_PASSIVE_LABEL
+                                ),
+                                createNPSTrendSeries(
+                                    getResponseFieldWithId(questionIndex, questionId).idBasedKey ?? '',
+                                    ['7', '8'],
+                                    NPS_PASSIVE_LABEL
+                                ),
+                                createNPSTrendSeries(
+                                    getResponseFieldWithId(questionIndex, questionId).indexBasedKey,
+                                    ['0', '1', '2', '3', '4', '5', '6'],
+                                    NPS_DETRACTOR_LABEL
+                                ),
+                                createNPSTrendSeries(
+                                    getResponseFieldWithId(questionIndex, questionId).idBasedKey ?? '',
+                                    ['0', '1', '2', '3', '4', '5', '6'],
+                                    NPS_DETRACTOR_LABEL
+                                ),
                             ],
                             properties: [
                                 {
