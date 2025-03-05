@@ -138,7 +138,7 @@ if (inputs.debug) {
         assert hog_function.inputs == snapshot(
             {
                 "body": {
-                    "order": 2,
+                    "order": 1,
                     "value": {
                         "data": {
                             "event": "{event.event}",
@@ -194,7 +194,7 @@ if (inputs.debug) {
                     "value": "hooks/standard/1234/abcd",
                     "bytecode": ["_H", 1, 32, "hooks/standard/1234/abcd"],
                 },
-                "debug": {"order": 1},
+                "debug": None,
             }
         )
 
