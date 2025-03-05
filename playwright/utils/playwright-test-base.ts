@@ -85,23 +85,14 @@ export const test = base.extend<{ loginBeforeTests: void; page: Page }>({
             const loginField = page.getByPlaceholder('email@yourcompany.com')
             const homepageMenuItem = page.locator('[data-attr="menu-item-projecthomepage"]')
 
-            const firstVisible = await Promise.race([
-                loginField.waitFor({ timeout: 5000 }).then(() => 'login'),
-                homepageMenuItem.waitFor({ timeout: 5000 }).then(() => 'authenticated'),
-            ]).catch(() => 'timeout')
+            await loginField.fill(LOGIN_USERNAME)
 
-            if (firstVisible === 'login') {
-                await loginField.fill(LOGIN_USERNAME)
+            const passwd = page.getByPlaceholder('••••••••••')
+            await expect(passwd).toBeVisible()
+            await passwd.fill(LOGIN_PASSWORD)
 
-                const passwd = page.getByPlaceholder('••••••••••')
-                await expect(passwd).toBeVisible()
-                await passwd.fill(LOGIN_PASSWORD)
-
-                await page.getByRole('button', { name: 'Log in' }).click()
-                await homepageMenuItem.waitFor()
-            } else if (firstVisible === 'timeout') {
-                throw new Error('Neither login page nor authenticated UI loaded')
-            }
+            await page.getByRole('button', { name: 'Log in' }).click()
+            await homepageMenuItem.waitFor()
 
             // Continue with tests
             await use()
