@@ -17,41 +17,29 @@ jobs:
                 include:
                     - image: capture
                       dockerfile: ./rust/Dockerfile
-                      project: kshskj225r
                     - image: hook-api
                       dockerfile: ./rust/Dockerfile
-                      project: c1bwj4j4qg
                     - image: hook-janitor
                       dockerfile: ./rust/Dockerfile
-                      project: c1bwj4j4qg
                     - image: hook-worker
                       dockerfile: ./rust/Dockerfile
-                      project: c1bwj4j4qg
                     - image: hook-migrator
                       dockerfile: ./rust/Dockerfile.migrate-hooks
-                      project: c1bwj4j4qg
                     - image: cyclotron-janitor
                       dockerfile: ./rust/Dockerfile
-                      project: r4zm8vtlbw
                     - image: cyclotron-fetch
                       dockerfile: ./rust/Dockerfile
-                      project: r4zm8vtlbw
                     - image: property-defs-rs
                       dockerfile: ./rust/Dockerfile
-                      project: vznmbshh6q
                     - image: cymbal
                       dockerfile: ./rust/Dockerfile
-                      project: 8dq0xkk0ck
                     - image: feature-flags
                       dockerfile: ./rust/Dockerfile-feature-flags
-                      project: vglf58qgzw
                     - image: batch-import-worker
                       dockerfile: ./rust/Dockerfile
-                      project: 4ppc15q4bv
                     - image: e2e-lag-exporter
                       dockerfile: ./rust/Dockerfile
-                      project: c1bwj4j4qg # Just use the hook-legacy project here
-        runs-on: depot-ubuntu-22.04
+        runs-on: depot-ubuntu-22.04-4
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
             contents: read # allow reading the repo contents
@@ -128,7 +116,6 @@ jobs:
               id: docker_build
               uses: depot/build-push-action@v1
               with:
-                  project: ${{ matrix.project }}
                   context: ./rust/
                   file: ${{ matrix.dockerfile }}
                   push: true
