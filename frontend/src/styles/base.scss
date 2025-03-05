@@ -339,40 +339,58 @@
     // Used for interactive elements and highlights, inputs, toggles, charts, etc.
     // //////////////////////////////////////////////////////////
     --accent-primary: hsl(var(--brand-primary-hue), var(--brand-primary-saturation), var(--brand-primary-lightness));
-    --accent-primary-hover: hsl(var(--brand-primary-hue),
-            var(--brand-primary-saturation),
-            calc(var(--brand-primary-lightness) + 10%));
-    --accent-primary-active: hsl(var(--brand-primary-hue),
-            var(--brand-primary-saturation),
-            calc(var(--brand-primary-lightness) + 15%));
-    --accent-primary-highlight: hsla(var(--brand-primary-hue),
-            var(--brand-primary-saturation),
-            var(--brand-primary-lightness),
-            10%);
-    --accent-secondary: hsl(var(--brand-secondary-hue),
-            var(--brand-secondary-saturation),
-            var(--brand-secondary-lightness));
-    --accent-secondary-hover: hsl(var(--brand-secondary-hue),
-            var(--brand-secondary-saturation),
-            calc(var(--brand-secondary-lightness) + 10%));
-    --accent-secondary-active: hsl(var(--brand-secondary-hue),
-            var(--brand-secondary-saturation),
-            calc(var(--brand-secondary-lightness) + 15%));
-    --accent-secondary-highlight: hsla(var(--brand-secondary-hue),
-            var(--brand-secondary-saturation),
-            var(--brand-secondary-lightness),
-            10%);
+    --accent-primary-hover: hsl(
+        var(--brand-primary-hue),
+        var(--brand-primary-saturation),
+        calc(var(--brand-primary-lightness) + 10%)
+    );
+    --accent-primary-active: hsl(
+        var(--brand-primary-hue),
+        var(--brand-primary-saturation),
+        calc(var(--brand-primary-lightness) + 15%)
+    );
+    --accent-primary-highlight: hsla(
+        var(--brand-primary-hue),
+        var(--brand-primary-saturation),
+        var(--brand-primary-lightness),
+        10%
+    );
+    --accent-secondary: hsl(
+        var(--brand-secondary-hue),
+        var(--brand-secondary-saturation),
+        var(--brand-secondary-lightness)
+    );
+    --accent-secondary-hover: hsl(
+        var(--brand-secondary-hue),
+        var(--brand-secondary-saturation),
+        calc(var(--brand-secondary-lightness) + 10%)
+    );
+    --accent-secondary-active: hsl(
+        var(--brand-secondary-hue),
+        var(--brand-secondary-saturation),
+        calc(var(--brand-secondary-lightness) + 15%)
+    );
+    --accent-secondary-highlight: hsla(
+        var(--brand-secondary-hue),
+        var(--brand-secondary-saturation),
+        var(--brand-secondary-lightness),
+        10%
+    );
 
     // Backgrounds
     // Behind surfaces, large areas: app scenes, etc.
     // //////////////////////////////////////////////////////////
     --bg-primary: var(--primitive-3000-50);
+
     /* Most prominent/used background (replaces --bg-3000) */
     --bg-surface-primary: var(--color-white);
+
     /* Most prominent surface (Cards, tables, etc.) */
     --bg-surface-secondary: var(--primitive-3000-100);
+
     /* Second most prominent surface (Toolbars) */
     --bg-surface-tertiary: var(--primitive-3000-150);
+
     /* Most prominent surface (Cards, tables, etc.) */
     --bg-surface-tooltip: var(--primitive-neutral-cool-850);
     --bg-surface-tooltip-inverse: var(--primitive-neutral-cool-250);
@@ -393,45 +411,49 @@
     --bg-fill-highlight-inverse-200: color-mix(in oklab, var(--color-white) 20%, transparent);
 
     // Highlights
-    --bg-fill-primary-highlight: color-mix(in oklab,
-            var(--color-primary-500) 10%,
-            transparent);
+    --bg-fill-primary-highlight: color-mix(in oklab, var(--color-primary-500) 10%, transparent);
+
     /* highlight bg for primary blocks */
 
     // Info fills
     --bg-fill-info-secondary: var(--color-blue-100);
+
     /* promonent bg for info blocks */
     --bg-fill-info-tertiary: var(--color-blue-50);
+
     /* subtle bg for info blocks */
 
     // Warning fills
     --bg-fill-warning-secondary: var(--color-yellow-100);
+
     /* prominent bg for warning blocks */
     --bg-fill-warning-tertiary: var(--color-yellow-50);
+
     /* subtle bg for warning blocks */
-    --bg-fill-warning-highlight: color-mix(in oklab,
-            var(--color-yellow-500) 15%,
-            transparent);
+    --bg-fill-warning-highlight: color-mix(in oklab, var(--color-yellow-500) 15%, transparent);
+
     /* highlight bg for warning blocks */
 
     // Error fills
     --bg-fill-error-secondary: var(--color-red-100);
+
     /* prominent bg for error blocks */
     --bg-fill-error-tertiary: var(--color-red-50);
+
     /* subtle bg for error blocks */
-    --bg-fill-error-highlight: color-mix(in oklab,
-            var(--color-red-500) 10%,
-            transparent);
+    --bg-fill-error-highlight: color-mix(in oklab, var(--color-red-500) 10%, transparent);
+
     /* highlight bg for error blocks */
 
     // Success fills
     --bg-fill-success-secondary: var(--color-green-100);
+
     /* promonent bg for success blocks */
     --bg-fill-success-tertiary: var(--color-green-50);
+
     /* subtle bg for success blocks */
-    --bg-fill-success-highlight: color-mix(in oklab,
-            var(--color-green-500) 10%,
-            transparent);
+    --bg-fill-success-highlight: color-mix(in oklab, var(--color-green-500) 10%, transparent);
+
     /* highlight bg for success blocks */
 
     // Inputs
@@ -453,12 +475,16 @@
     // Texts which are on colourful fills, ensures contrast
     // //////////////////////////////////////////////////////////
     --text-info-on-fill: var(--color-blue-800);
+
     /* On-fill text for info */
     --text-warning-on-fill: var(--color-yellow-800);
+
     /* On-fill text for warning */
     --text-error-on-fill: var(--color-red-800);
+
     /* On-fill text for error */
     --text-success-on-fill: var(--color-green-800);
+
     /* On-fill text for success */
 
     // Borders
@@ -468,29 +494,40 @@
     --border-secondary: var(--primitive-3000-400);
     --border-info: var(--color-blue-400);
     --border-warning: var(--color-yellow-400);
+
     /* Border for warning */
     --border-error: var(--color-red-400);
+
     /* Border for error */
     --border-success: var(--color-green-400);
+
     /* Border for success */
 
     // Graph colors
     // //////////////////////////////////////////////////////////
     --color-graph-axis-label: var(--text-secondary);
+
     /* Labels around graph */
     --color-graph-axis-line: var(--primitive-neutral-cool-100);
+
     /* Background lines in a graph, horizontal and vertical */
 
     --color-graph-axis: var(--text-secondary);
+
     /* Line around a graph */
     --color-graph-crosshair: var(--primitive-neutral-cool-450);
+
     /* Crosshair line, horizontal or vertical */
 
     // Skeleton colors
     // //////////////////////////////////////////////////////////
-    --color-skeleton-light: rgb(190 190 190 / 20%); // Equivalent to --primitive-neutral-200 but with transparency, improve browser compatibility
+    --color-skeleton-light: rgb(
+        190 190 190 / 20%
+    ); // Equivalent to --primitive-neutral-200 but with transparency, improve browser compatibility
 
-    --color-skeleton-dark: rgb(129 129 129 / 24%); // Equivalent to --primitive-neutral-400 but with transparency, improve browser compatibility
+    --color-skeleton-dark: rgb(
+        129 129 129 / 24%
+    ); // Equivalent to --primitive-neutral-400 but with transparency, improve browser compatibility
 
     // Breakpoint variables
     // Breakpoint variables
@@ -773,29 +810,43 @@
     // Accent colors (dark mode)
     // //////////////////////////////////////////////////////////
     --accent-primary: hsl(var(--brand-primary-hue), var(--brand-primary-saturation), var(--brand-primary-lightness));
-    --accent-primary-hover: hsl(var(--brand-primary-hue),
-            var(--brand-primary-saturation),
-            calc(var(--brand-primary-lightness) + 10%));
-    --accent-primary-active: hsl(var(--brand-primary-hue),
-            var(--brand-primary-saturation),
-            calc(var(--brand-primary-lightness) + 15%));
-    --accent-primary-highlight: hsla(var(--brand-primary-hue),
-            var(--brand-primary-saturation),
-            var(--brand-primary-lightness),
-            10%);
-    --accent-secondary: hsl(var(--brand-secondary-hue),
-            var(--brand-secondary-saturation),
-            var(--brand-secondary-lightness));
-    --accent-secondary-hover: hsl(var(--brand-secondary-hue),
-            var(--brand-secondary-saturation),
-            calc(var(--brand-secondary-lightness) + 10%));
-    --accent-secondary-active: hsl(var(--brand-secondary-hue),
-            var(--brand-secondary-saturation),
-            calc(var(--brand-secondary-lightness) + 15%));
-    --accent-secondary-highlight: hsla(var(--brand-secondary-hue),
-            var(--brand-secondary-saturation),
-            var(--brand-secondary-lightness),
-            10%);
+    --accent-primary-hover: hsl(
+        var(--brand-primary-hue),
+        var(--brand-primary-saturation),
+        calc(var(--brand-primary-lightness) + 10%)
+    );
+    --accent-primary-active: hsl(
+        var(--brand-primary-hue),
+        var(--brand-primary-saturation),
+        calc(var(--brand-primary-lightness) + 15%)
+    );
+    --accent-primary-highlight: hsla(
+        var(--brand-primary-hue),
+        var(--brand-primary-saturation),
+        var(--brand-primary-lightness),
+        10%
+    );
+    --accent-secondary: hsl(
+        var(--brand-secondary-hue),
+        var(--brand-secondary-saturation),
+        var(--brand-secondary-lightness)
+    );
+    --accent-secondary-hover: hsl(
+        var(--brand-secondary-hue),
+        var(--brand-secondary-saturation),
+        calc(var(--brand-secondary-lightness) + 10%)
+    );
+    --accent-secondary-active: hsl(
+        var(--brand-secondary-hue),
+        var(--brand-secondary-saturation),
+        calc(var(--brand-secondary-lightness) + 15%)
+    );
+    --accent-secondary-highlight: hsla(
+        var(--brand-secondary-hue),
+        var(--brand-secondary-saturation),
+        var(--brand-secondary-lightness),
+        10%
+    );
 
     // Backgrounds (dark mode)
     // //////////////////////////////////////////////////////////
@@ -850,12 +901,16 @@
     // Texts which are on colourful fills, ensures contrast
     // //////////////////////////////////////////////////////////
     --text-info-on-fill: var(--color-blue-50);
+
     /* On-fill text for info */
     --text-warning-on-fill: var(--color-yellow-50);
+
     /* On-fill text for warning */
     --text-error-on-fill: var(--color-red-50);
+
     /* On-fill text for error */
     --text-success-on-fill: var(--color-green-50);
+
     /* On-fill text for success */
 
     // Borders (dark mode)
@@ -865,10 +920,13 @@
     --border-secondary: var(--primitive-neutral-cool-600);
     --border-info: var(--color-blue-900);
     --border-warning: var(--color-yellow-900);
+
     /* Border for warning */
     --border-error: var(--color-red-900);
+
     /* Border for error */
     --border-success: var(--color-green-900);
+
     /* Border for success */
 
     // Graph colors (dark mode)
@@ -943,7 +1001,6 @@ input[type='radio'] {
 }
 
 input[type='search'] {
-
     &::-webkit-search-decoration,
     &::-webkit-search-cancel-button,
     &::-webkit-search-results-button,
@@ -978,7 +1035,7 @@ body {
         }
     }
 
-    *> {
+    * > {
         ::-webkit-scrollbar {
             width: 0.5rem;
             height: 0.5rem;
@@ -1400,12 +1457,12 @@ img {
         display: none;
     }
 
-    #storybook-root>.fixed:only-child {
+    #storybook-root > .fixed:only-child {
         // Fix for stories of fixed overlays like CommandBar - otherwise body would be zero-sized
         position: static !important;
     }
 
-    #storybook-root:empty~.ReactModalPortal>.ReactModal__Overlay {
+    #storybook-root:empty ~ .ReactModalPortal > .ReactModal__Overlay {
         // Fix for stories of fixed modals - otherwise body would be zero-sized
         position: static !important;
     }
