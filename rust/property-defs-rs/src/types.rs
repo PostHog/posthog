@@ -346,7 +346,7 @@ fn detect_property_type(key: &str, value: &Value) -> Option<PropertyValueType> {
             // TODO - this is a divergence from the TS impl - the TS also checks if the contained number is
             // "likely" to be a unix timestamp on the basis of the number of characters. I have mixed feelings about this,
             // so I'm going to leave it as just checking the key for now. This means we're being /less/ strict with datetime
-            // detection here than in the TS
+            // detection here than in the TS (NOTE: updated by eli.r@posthog.com 3/2025)
             let candidate = key.to_lowercase();
             if DATETIME_PROPERTY_NAME_KEYWORDS
                 .iter()
@@ -372,7 +372,7 @@ fn is_valid_date_string(s: &str) -> bool {
     // a string prefix of their value. While this doesn't enforce compliance to standard formats,
     // it does represent a pretty strong indication of the user's intent, for the purposes of
     // *property definition capture only* especially when a bad decision "locks" the property name
-    // to the wrong type forever. Try it here: https://rustexp.lpil.uk/ and review the unit tests.
+    // to the wrong type. Try it here: https://rustexp.lpil.uk/ and review the unit tests.
     // Also notable: post-capture, PostHog displays timestamps in a variety formats:
     // https://github.com/PostHog/posthog/blob/master/posthog/models/property_definition.py#L18-L30
     let datetime_prefix_pattern: Regex = regex::Regex::new(
