@@ -329,16 +329,28 @@ export const WithSideAction = (): JSX.Element => {
 
 export const WithButtonWrapper = (): JSX.Element => {
     return (
-        <div className="space-y-2">
+        <div className="flex flex-col gap-2">
             <div className="border rounded-lg flex flex-col p-2 space-y-1">
-                <LemonButton buttonWrapper={(button) => <div className="opacity-0.5">{button}</div>} active>
-                    Active item
+                <LemonButton
+                    buttonWrapper={(button) => <div className="opacity-50">{button}</div>}
+                    sideAction={{
+                        icon: <IconPlus />,
+                        tooltip: 'No wrapper around side action',
+                        onClick: () => alert('Side action!'),
+                    }}
+                    active
+                >
+                    wrapped with opacity 50
                 </LemonButton>
-                <LemonButton buttonWrapper={(button) => <div className="opacity-0.25">{button}</div>}>
-                    Item 1
-                </LemonButton>
-                <LemonButton buttonWrapper={(button) => <div className="opacity-0.75">{button}</div>}>
-                    Item 2
+                <LemonButton
+                    buttonWrapper={(button) => <div className="opacity-20">{button}</div>}
+                    sideAction={{
+                        icon: <IconPlus />,
+                        tooltip: 'No wrapper around side action',
+                        onClick: () => alert('Side action!'),
+                    }}
+                >
+                    wrapped with opacity 20
                 </LemonButton>
             </div>
         </div>
