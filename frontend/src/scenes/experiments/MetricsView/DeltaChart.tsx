@@ -17,6 +17,12 @@ import { humanFriendlyNumber } from 'lib/utils'
 import { useEffect, useRef, useState } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import {
+    ExperimentFunnelsQuery,
+    ExperimentMetric,
+    ExperimentTrendsQuery,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 import { InsightType, TrendExperimentVariant } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
@@ -24,6 +30,24 @@ import { ExploreButton, ResultsQuery, VariantTag } from '../ExperimentView/compo
 import { SignificanceText, WinningVariantText } from '../ExperimentView/Overview'
 import { SummaryTable } from '../ExperimentView/SummaryTable'
 import { NoResultEmptyState } from './NoResultEmptyState'
+
+export function getMetricTag(metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery): string {
+    if (metric.kind === NodeKind.ExperimentMetric) {
+        return metric.metric_type.charAt(0).toUpperCase() + metric.metric_type.slice(1).toLowerCase()
+    } else if (metric.kind === NodeKind.ExperimentFunnelsQuery) {
+        return 'Funnel'
+    }
+    return 'Trend'
+}
+
+export function getDefaultMetricTitle(metric: ExperimentMetric): string {
+    if (metric.metric_config.kind === NodeKind.ExperimentEventMetricConfig) {
+        return metric.metric_config.event
+    } else if (metric.metric_config.kind === NodeKind.ExperimentActionMetricConfig) {
+        return metric.metric_config.name || `Action ${metric.metric_config.action}`
+    }
+    return 'Untitled metric'
+}
 
 function formatTickValue(value: number): string {
     if (value === 0) {
@@ -46,9 +70,13 @@ function formatTickValue(value: number): string {
 
     return `${(value * 100).toFixed(decimals)}%`
 }
-const getMetricTitle = (metric: any, metricType: InsightType): JSX.Element => {
+export const getMetricTitle = (metric: any, metricType?: InsightType): JSX.Element => {
     if (metric.name) {
         return <span className="truncate">{metric.name}</span>
+    }
+
+    if (metric.kind === NodeKind.ExperimentMetric) {
+        return <span className="truncate">{getDefaultMetricTitle(metric)}</span>
     }
 
     if (metricType === InsightType.TRENDS && metric.count_query?.series?.[0]?.name) {
@@ -63,38 +91,57 @@ const getMetricTitle = (metric: any, metricType: InsightType): JSX.Element => {
 
             return (
                 <span className="inline-flex items-center gap-1 min-w-0">
-                    <IconFunnels className="text-muted flex-shrink-0" fontSize="14" />
+                    <IconFunnels className="text-secondary flex-shrink-0" fontSize="14" />
                     <span className="truncate">{firstStep}</span>
-                    <IconArrowRight className="text-muted flex-shrink-0" fontSize="14" />
+                    <IconArrowRight className="text-secondary flex-shrink-0" fontSize="14" />
                     <span className="truncate">{lastStep}</span>
                 </span>
             )
         }
     }
 
-    return <span className="text-muted truncate">Untitled metric</span>
+    return <span className="text-secondary truncate">Untitled metric</span>
 }
 
-function generateViolinPath(x1: number, x2: number, y: number, height: number): string {
+export function generateViolinPath(x1: number, x2: number, y: number, height: number, deltaX: number): string {
     // Create points for the violin curve
     const points: [number, number][] = []
     const steps = 20
-    const maxWidth = height / 2 // Use half the height as the maximum width to maintain proportions
+    const maxWidth = height / 2
 
-    // Generate top curve points
+    // Generate left side points (x1 to deltaX)
     for (let i = 0; i <= steps; i++) {
         const t = i / steps
-        const x = x1 + (x2 - x1) * t
-        // Using a normal distribution approximation
-        const width = Math.exp(-Math.pow((t - 0.5) * 3, 2)) * maxWidth
+        const x = x1 + (deltaX - x1) * t
+        // Standard normal distribution PDF from x1 to deltaX
+        const z = (t - 1) * 2 // Reduced scale factor from 2.5 to 2 for thicker tails
+        const width = Math.exp(-0.5 * z * z) * maxWidth
+        points.push([x, y + height / 2 - width])
+    }
+
+    // Generate right side points (deltaX to x2)
+    for (let i = 0; i <= steps; i++) {
+        const t = i / steps
+        const x = deltaX + (x2 - deltaX) * t
+        // Standard normal distribution PDF from deltaX to x2
+        const z = t * 2 // Reduced scale factor from 2.5 to 2 for thicker tails
+        const width = Math.exp(-0.5 * z * z) * maxWidth
         points.push([x, y + height / 2 - width])
     }
 
     // Generate bottom curve points (mirror of top)
     for (let i = steps; i >= 0; i--) {
         const t = i / steps
-        const x = x1 + (x2 - x1) * t
-        const width = Math.exp(-Math.pow((t - 0.5) * 3, 2)) * maxWidth
+        const x = deltaX + (x2 - deltaX) * t
+        const z = t * 2
+        const width = Math.exp(-0.5 * z * z) * maxWidth
+        points.push([x, y + height / 2 + width])
+    }
+    for (let i = steps; i >= 0; i--) {
+        const t = i / steps
+        const x = x1 + (deltaX - x1) * t
+        const z = (t - 1) * 2
+        const width = Math.exp(-0.5 * z * z) * maxWidth
         points.push([x, y + height / 2 + width])
     }
 
@@ -133,13 +180,15 @@ export function DeltaChart({
         credibleIntervalForVariant,
         conversionRateForVariant,
         experimentId,
+        experiment,
         countDataForVariant,
         exposureCountDataForVariant,
         metricResultsLoading,
+        secondaryMetricResultsLoading,
         featureFlags,
+        primaryMetricsLengthWithSharedMetrics,
     } = useValues(experimentLogic)
 
-    const { experiment } = useValues(experimentLogic)
     const {
         openPrimaryMetricModal,
         openSecondaryMetricModal,
@@ -165,6 +214,8 @@ export function DeltaChart({
         return 0
     }
 
+    const resultsLoading = isSecondary ? secondaryMetricResultsLoading : metricResultsLoading
+
     const BAR_HEIGHT = 10 + getScaleAddition(variants.length)
     const BAR_PADDING = 10 + getScaleAddition(variants.length)
     const TICK_PANEL_HEIGHT = 20
@@ -176,7 +227,7 @@ export function DeltaChart({
 
     const { isDarkModeOn } = useValues(themeLogic)
     const COLORS = {
-        TICK_TEXT_COLOR: 'var(--text-secondary-3000)',
+        TICK_TEXT_COLOR: 'var(--text-tertiary)',
         BOUNDARY_LINES: 'var(--border-primary)',
         ZERO_LINE: 'var(--border-bold)',
         BAR_NEGATIVE: isDarkModeOn ? '#c32f45' : '#f84257',
@@ -280,7 +331,7 @@ export function DeltaChart({
                             </div>
                             <div className="space-x-1">
                                 <LemonTag type="muted" size="small">
-                                    {metric.kind === 'ExperimentFunnelsQuery' ? 'Funnel' : 'Trend'}
+                                    {getMetricTag(metric)}
                                 </LemonTag>
                                 {metric.isSharedMetric && (
                                     <LemonTag type="option" size="small">
@@ -343,7 +394,7 @@ export function DeltaChart({
                         <div className="absolute top-2 left-2" style={{ zIndex: 102 }}>
                             <SignificanceHighlight metricIndex={metricIndex} isSecondary={isSecondary} />
                         </div>
-                        {(isSecondary || (!isSecondary && experiment.metrics.length > 1)) && (
+                        {(isSecondary || (!isSecondary && primaryMetricsLengthWithSharedMetrics > 1)) && (
                             <div
                                 className="absolute bottom-2 left-2 flex justify-center bg-[var(--bg-table)]"
                                 // Chart is z-index 100, so we need to be above it
@@ -466,7 +517,7 @@ export function DeltaChart({
                                             {variant.key === 'control' ? (
                                                 // Control variant - dashed violin
                                                 <path
-                                                    d={generateViolinPath(x1, x2, y, BAR_HEIGHT)}
+                                                    d={generateViolinPath(x1, x2, y, BAR_HEIGHT, deltaX)}
                                                     fill={COLORS.BAR_CONTROL}
                                                     stroke={COLORS.BOUNDARY_LINES}
                                                     strokeWidth={1}
@@ -477,7 +528,9 @@ export function DeltaChart({
                                                 <>
                                                     <defs>
                                                         <linearGradient
-                                                            id={`gradient-${metricIndex}-${variant.key}`}
+                                                            id={`gradient-${metricIndex}-${variant.key}-${
+                                                                isSecondary ? 'secondary' : 'primary'
+                                                            }`}
                                                             x1="0"
                                                             x2="1"
                                                             y1="0"
@@ -512,8 +565,10 @@ export function DeltaChart({
                                                         </linearGradient>
                                                     </defs>
                                                     <path
-                                                        d={generateViolinPath(x1, x2, y, BAR_HEIGHT)}
-                                                        fill={`url(#gradient-${metricIndex}-${variant.key})`}
+                                                        d={generateViolinPath(x1, x2, y, BAR_HEIGHT, deltaX)}
+                                                        fill={`url(#gradient-${metricIndex}-${variant.key}-${
+                                                            isSecondary ? 'secondary' : 'primary'
+                                                        })`}
                                                     />
                                                 </>
                                             )}
@@ -540,7 +595,7 @@ export function DeltaChart({
                             </svg>
                         </div>
                     </div>
-                ) : metricResultsLoading ? (
+                ) : resultsLoading ? (
                     <svg
                         ref={chartSvgRef}
                         viewBox={`0 0 ${VIEW_BOX_WIDTH} ${chartHeight}`}
@@ -553,7 +608,7 @@ export function DeltaChart({
                             height="20"
                         >
                             <div
-                                className="flex items-center justify-center text-muted cursor-default"
+                                className="flex items-center justify-center text-secondary cursor-default"
                                 // eslint-disable-next-line react/forbid-dom-props
                                 style={{ fontSize: '10px', fontWeight: 400 }}
                             >
@@ -570,7 +625,7 @@ export function DeltaChart({
                         {!experiment.start_date ? (
                             <foreignObject x="0" y={chartHeight / 2 - 10} width={VIEW_BOX_WIDTH} height="20">
                                 <div
-                                    className="flex items-center ml-2 xl:ml-0 xl:justify-center text-muted cursor-default"
+                                    className="flex items-center ml-2 xl:ml-0 xl:justify-center text-secondary cursor-default"
                                     // eslint-disable-next-line react/forbid-dom-props
                                     style={{ fontSize: '10px', fontWeight: 400 }}
                                 >
@@ -597,7 +652,7 @@ export function DeltaChart({
                                 onMouseLeave={() => setEmptyStateTooltipVisible(false)}
                             >
                                 <div
-                                    className="flex items-center ml-2 xl:ml-0 xl:justify-center text-muted cursor-default"
+                                    className="flex items-center ml-2 xl:ml-0 xl:justify-center text-secondary cursor-default"
                                     // eslint-disable-next-line react/forbid-dom-props
                                     style={{ fontSize: '10px', fontWeight: 400 }}
                                 >
@@ -640,8 +695,8 @@ export function DeltaChart({
                             left: tooltipData.x,
                             top: tooltipData.y,
                             transform: 'translate(-50%, -100%)',
-                            backgroundColor: 'var(--bg-light)',
-                            border: '1px solid var(--border)',
+                            backgroundColor: 'var(--bg-surface-primary)',
+                            border: '1px solid var(--border-primary)',
                             padding: '8px 12px',
                             borderRadius: '6px',
                             fontSize: '13px',
@@ -654,7 +709,7 @@ export function DeltaChart({
                         <div className="flex flex-col gap-1">
                             <VariantTag experimentId={experimentId} variantKey={tooltipData.variant} />
                             <div className="inline-flex">
-                                <span className="text-muted font-semibold mb-1">Win probability:</span>
+                                <span className="text-secondary font-semibold mb-1">Win probability:</span>
                                 {result?.probability?.[tooltipData.variant] !== undefined ? (
                                     <span className="flex items-center justify-between flex-1 pl-6">
                                         <LemonProgress
@@ -672,7 +727,7 @@ export function DeltaChart({
                             {metricType === InsightType.TRENDS ? (
                                 <>
                                     <div className="flex justify-between items-center">
-                                        <span className="text-muted font-semibold">
+                                        <span className="text-secondary font-semibold">
                                             {metricType === InsightType.TRENDS &&
                                             result.exposure_query?.series?.[0]?.math
                                                 ? 'Total'
@@ -687,7 +742,7 @@ export function DeltaChart({
                                         </span>
                                     </div>
                                     <div className="flex justify-between items-center">
-                                        <span className="text-muted font-semibold">Exposure:</span>
+                                        <span className="text-secondary font-semibold">Exposure:</span>
                                         <span className="font-semibold">
                                             {(() => {
                                                 const exposure = exposureCountDataForVariant(
@@ -699,7 +754,7 @@ export function DeltaChart({
                                         </span>
                                     </div>
                                     <div className="flex justify-between items-center">
-                                        <span className="text-muted font-semibold">Mean:</span>
+                                        <span className="text-secondary font-semibold">Mean:</span>
                                         <span className="font-semibold">
                                             {(() => {
                                                 const variant = result.variants.find(
@@ -714,17 +769,17 @@ export function DeltaChart({
                                 </>
                             ) : (
                                 <div className="flex justify-between items-center">
-                                    <span className="text-muted font-semibold">Conversion rate:</span>
+                                    <span className="text-secondary font-semibold">Conversion rate:</span>
                                     <span className="font-semibold">
                                         {conversionRateForVariant(result, tooltipData.variant)?.toFixed(2)}%
                                     </span>
                                 </div>
                             )}
                             <div className="flex justify-between items-center">
-                                <span className="text-muted font-semibold">Delta:</span>
+                                <span className="text-secondary font-semibold">Delta:</span>
                                 <span className="font-semibold">
                                     {tooltipData.variant === 'control' ? (
-                                        <em className="text-muted">Baseline</em>
+                                        <em className="text-secondary">Baseline</em>
                                     ) : (
                                         (() => {
                                             if (metricType === InsightType.TRENDS) {
@@ -775,7 +830,7 @@ export function DeltaChart({
                                 </span>
                             </div>
                             <div className="flex justify-between items-center">
-                                <span className="text-muted font-semibold">Credible interval:</span>
+                                <span className="text-secondary font-semibold">Credible interval:</span>
                                 <span className="font-semibold">
                                     {(() => {
                                         const interval = credibleIntervalForVariant(
@@ -805,8 +860,8 @@ export function DeltaChart({
                             left: tooltipPosition.x,
                             top: tooltipPosition.y,
                             transform: 'translate(-50%, -100%)',
-                            backgroundColor: 'var(--bg-light)',
-                            border: '1px solid var(--border)',
+                            backgroundColor: 'var(--bg-surface-primary)',
+                            border: '1px solid var(--border-primary)',
                             padding: '8px 12px',
                             borderRadius: '6px',
                             fontSize: '13px',
@@ -837,17 +892,27 @@ export function DeltaChart({
                     </LemonButton>
                 }
             >
-                <div className="flex justify-end">
-                    <ExploreButton result={result} />
-                </div>
-                <LemonBanner type="info" className="mb-4">
+                {/* TODO: Only show explore button if the metric is a trends or funnels query. Not supported yet with new query runner */}
+                {result &&
+                    (result.kind === NodeKind.ExperimentTrendsQuery ||
+                        result.kind === NodeKind.ExperimentFunnelsQuery) && (
+                        <div className="flex justify-end">
+                            <ExploreButton result={result} />
+                        </div>
+                    )}
+                <LemonBanner type={result?.significant ? 'success' : 'info'} className="mb-4">
                     <div className="items-center inline-flex flex-wrap">
                         <WinningVariantText result={result} experimentId={experimentId} />
                         <SignificanceText metricIndex={metricIndex} />
                     </div>
                 </LemonBanner>
                 <SummaryTable metric={metric} metricIndex={metricIndex} isSecondary={isSecondary} />
-                <ResultsQuery result={result} showTable={true} />
+                {/* TODO: Only show results query if the metric is a trends or funnels query. Not supported yet with new query runner */}
+                {result &&
+                    (result.kind === NodeKind.ExperimentTrendsQuery ||
+                        result.kind === NodeKind.ExperimentFunnelsQuery) && (
+                        <ResultsQuery result={result} showTable={true} />
+                    )}
             </LemonModal>
         </div>
     )

@@ -79,24 +79,25 @@ const sourceFieldToElement = (
     }
 
     if (field.type === 'switch-group') {
+        const enabled = !!lastValue?.[field.name]?.enabled || lastValue?.[field.name]?.enabled === 'True'
         return (
             <LemonField key={field.name} name={[field.name, 'enabled']} label={field.label}>
-                {({ value, onChange }) => (
-                    <>
-                        {!!field.caption && <p>{field.caption}</p>}
-                        <LemonSwitch
-                            checked={value === undefined || value === null ? lastValue?.['enabled'] : value}
-                            onChange={onChange}
-                        />
-                        {value && (
-                            <Group name={field.name}>
-                                {field.fields.map((field) =>
-                                    sourceFieldToElement(field, sourceConfig, lastValue?.[field.name])
-                                )}
-                            </Group>
-                        )}
-                    </>
-                )}
+                {({ value, onChange }) => {
+                    const isEnabled = value === undefined || value === null || value === 'False' ? enabled : value
+                    return (
+                        <>
+                            {!!field.caption && <p>{field.caption}</p>}
+                            <LemonSwitch checked={isEnabled} onChange={onChange} />
+                            {isEnabled && (
+                                <Group name={field.name}>
+                                    {field.fields.map((field) =>
+                                        sourceFieldToElement(field, sourceConfig, lastValue?.[field.name])
+                                    )}
+                                </Group>
+                            )}
+                        </>
+                    )
+                }}
             </LemonField>
         )
     }
@@ -226,7 +227,7 @@ export function SourceFormComponent({
                 )}
             </Group>
             {showPrefix && (
-                <LemonField name="prefix" label="Table Prefix (optional)">
+                <LemonField name="prefix" label="Table prefix (optional)">
                     {({ value, onChange }) => (
                         <>
                             <LemonInput

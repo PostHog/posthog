@@ -14,7 +14,7 @@ pub struct JsData {
 }
 
 #[derive(Debug)]
-enum JsDataType {
+pub enum JsDataType {
     SourceAndMap = 2,
     SourceMapCache = 3,
 }
@@ -160,7 +160,7 @@ impl JsData {
         Ok(())
     }
 
-    fn get_version(&self) -> u32 {
+    pub fn get_version(&self) -> u32 {
         u32::from_le_bytes(
             self.data[Self::MAGIC.len()..Self::MAGIC.len() + 4]
                 .try_into()
@@ -168,7 +168,7 @@ impl JsData {
         )
     }
 
-    fn get_data_type(&self) -> Result<JsDataType, JsDataError> {
+    pub fn get_data_type(&self) -> Result<JsDataType, JsDataError> {
         let data_type = u32::from_le_bytes(
             self.data[Self::header_len() - 4..Self::header_len()]
                 .try_into()
@@ -222,7 +222,7 @@ impl JsData {
         Ok(())
     }
 
-    fn get_minified_source(&self) -> Result<&[u8], JsDataError> {
+    pub fn get_minified_source(&self) -> Result<&[u8], JsDataError> {
         if !matches!(self.get_data_type()?, JsDataType::SourceAndMap) {
             return Err(JsDataError::InvalidDataTypeForOperation(
                 self.get_data_type()? as u32,
@@ -238,7 +238,7 @@ impl JsData {
         Ok(&self.data[Self::header_len() + 8..Self::header_len() + 8 + s_len as usize])
     }
 
-    fn get_sourcemap(&self) -> Result<&[u8], JsDataError> {
+    pub fn get_sourcemap(&self) -> Result<&[u8], JsDataError> {
         if !matches!(self.get_data_type()?, JsDataType::SourceAndMap) {
             return Err(JsDataError::InvalidDataTypeForOperation(
                 self.get_data_type()? as u32,

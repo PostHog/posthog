@@ -89,6 +89,27 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         for table_name in tables:
             assert serialized_database.get(table_name) is not None
 
+    def test_serialize_database_deleted_saved_query(self):
+        saved_query_name = "deleted_saved_query"
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="DELETED",
+            query={
+                "kind": "HogQLQuery",
+                "query": "select event as event from events LIMIT 100",
+            },
+            deleted=True,
+            deleted_name=saved_query_name,
+        )
+        database = create_hogql_database(team_id=self.team.pk)
+
+        serialized_database = serialize_database(HogQLContext(team_id=self.team.pk, database=database))
+
+        assert saved_query_name not in serialized_database
+        assert saved_query_name not in database._view_table_names
+        assert "DELETED" not in serialized_database
+        assert "DELETED" not in database._view_table_names
+
     def test_serialize_database_warehouse_table_s3(self):
         credentials = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
         DataWarehouseTable.objects.create(
@@ -326,7 +347,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         )
         db = create_hogql_database(team_id=self.team.pk)
 
-        assert db.events.fields["event"] == StringDatabaseField(name="event")
+        assert db.events.fields["event"] == StringDatabaseField(name="event", nullable=False)
 
     def test_database_expression_fields(self):
         db = create_hogql_database(team_id=self.team.pk)
@@ -707,3 +728,178 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert person_id_field.chain == ["events_data", "person_id"]
 
         print_ast(parse_select("SELECT person_id FROM warehouse_table"), context, dialect="clickhouse")
+
+    def test_database_warehouse_resolve_field_through_linear_joins_basic_join(self):
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+
+        DataWarehouseTable.objects.create(
+            team=self.team,
+            name="subscriptions",
+            columns={
+                "id": "String",
+                "created_at": "DateTime64(3, 'UTC')",
+                "customer_id": "String",
+            },
+            credential=credentials,
+            url_pattern="s3://test/*",
+            format=DataWarehouseTable.TableFormat.Parquet,
+        )
+
+        DataWarehouseTable.objects.create(
+            team=self.team,
+            name="customers",
+            columns={
+                "id": "String",
+                "email": "String",
+            },
+            credential=credentials,
+            url_pattern="s3://test/*",
+            format=DataWarehouseTable.TableFormat.Parquet,
+        )
+
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="subscriptions",
+            source_table_key="customer_id",
+            joining_table_name="customers",
+            joining_table_key="id",
+            field_name="customer",
+        )
+
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="customers",
+            source_table_key="email",
+            joining_table_name="events",
+            joining_table_key="person.properties.email",
+            field_name="events",
+        )
+
+        db = create_hogql_database(team_id=self.team.pk)
+
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            database=db,
+        )
+
+        print_ast(parse_select("SELECT customer.events.distinct_id FROM subscriptions"), context, dialect="clickhouse")
+
+    def test_database_warehouse_resolve_field_through_nested_joins_basic_join(self):
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+
+        DataWarehouseTable.objects.create(
+            team=self.team,
+            name="subscriptions",
+            columns={
+                "id": "String",
+                "created_at": "DateTime64(3, 'UTC')",
+                "customer_id": "String",
+            },
+            credential=credentials,
+            url_pattern="s3://test/*",
+            format=DataWarehouseTable.TableFormat.Parquet,
+        )
+
+        DataWarehouseTable.objects.create(
+            team=self.team,
+            name="customers",
+            columns={
+                "id": "String",
+                "email": "String",
+            },
+            credential=credentials,
+            url_pattern="s3://test/*",
+            format=DataWarehouseTable.TableFormat.Parquet,
+        )
+
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="subscriptions",
+            source_table_key="customer_id",
+            joining_table_name="customers",
+            joining_table_key="id",
+            field_name="customer",
+        )
+
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="subscriptions",
+            source_table_key="customer.email",
+            joining_table_name="events",
+            joining_table_key="person.properties.email",
+            field_name="events",
+        )
+
+        db = create_hogql_database(team_id=self.team.pk)
+
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            database=db,
+        )
+
+        print_ast(parse_select("SELECT events.distinct_id FROM subscriptions"), context, dialect="clickhouse")
+
+    def test_database_warehouse_resolve_field_through_nested_joins_experiments_optimized_events_join(self):
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+
+        DataWarehouseTable.objects.create(
+            team=self.team,
+            name="subscriptions",
+            columns={
+                "id": "String",
+                "created_at": "DateTime64(3, 'UTC')",
+                "customer_id": "String",
+            },
+            credential=credentials,
+            url_pattern="s3://test/*",
+            format=DataWarehouseTable.TableFormat.Parquet,
+        )
+
+        DataWarehouseTable.objects.create(
+            team=self.team,
+            name="customers",
+            columns={
+                "id": "String",
+                "email": "String",
+            },
+            credential=credentials,
+            url_pattern="s3://test/*",
+            format=DataWarehouseTable.TableFormat.Parquet,
+        )
+
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="subscriptions",
+            source_table_key="customer_id",
+            joining_table_name="customers",
+            joining_table_key="id",
+            field_name="customer",
+        )
+
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="subscriptions",
+            source_table_key="customer.email",
+            joining_table_name="events",
+            joining_table_key="person.properties.email",
+            field_name="events",
+            configuration={"experiments_optimized": True, "experiments_timestamp_key": "created_at"},
+        )
+
+        db = create_hogql_database(team_id=self.team.pk)
+
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            database=db,
+        )
+
+        print_ast(parse_select("SELECT events.distinct_id FROM subscriptions"), context, dialect="clickhouse")

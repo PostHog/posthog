@@ -7,12 +7,13 @@
     "scripts": {
         "test": "cargo test",
         "build": "pnpm run build:cargo --release && pnpm run build:move-lib && pnpm run build:typescript",
-        "build:move-lib": "cp ../target/release/libcyclotron_node.dylib index.node || cp ../target/release/libcyclotron_node.so index.node",
+        "build:move-lib": "cp ../target/release/libcyclotron_node.dylib index.node 2>/dev/null || cp ../target/release/libcyclotron_node.so index.node || (echo \"No valid library file found.\" && exit 1)",
         "build:cargo": "cargo build --message-format=json > cargo.log",
         "build:cargo:debug": "pnpm run build:cargo",
         "build:cross": "cross build --message-format=json > cross.log",
         "build:typescript": "tsc",
-        "package": "NODE_ENV=development pnpm i --dev && pnpm run build"
+        "clean": "rm -rf index.node",
+        "package": "NODE_ENV=development pnpm --filter=@posthog/cyclotron run build"
     },
     "author": "",
     "license": "MIT",

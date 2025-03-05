@@ -1,9 +1,11 @@
+use core::str;
 use std::sync::Arc;
 
 use common_types::ClickHouseEvent;
 use cymbal::{
     config::Config,
-    frames::RawFrame,
+    frames::{Frame, RawFrame},
+    hack::js_data::JsData,
     symbol_store::{
         caching::{Caching, SymbolSetCache},
         sourcemap::SourcemapProvider,
@@ -12,6 +14,7 @@ use cymbal::{
     types::{RawErrProps, Stacktrace},
 };
 use httpmock::MockServer;
+use symbolic::sourcemapcache::SourcePosition;
 use tokio::sync::Mutex;
 
 const CHUNK_PATH: &str = "/static/chunk-PGUQKT6S.js";
@@ -46,14 +49,14 @@ async fn end_to_end_resolver_test() {
     // We're going to pretend out stack consists exclusively of JS frames whose source
     // we have locally
     test_stack.retain(|s| {
-        let RawFrame::JavaScript(s) = s else {
+        let RawFrame::JavaScriptWeb(s) = s else {
             panic!("Expected a JavaScript frame")
         };
         s.source_url.as_ref().unwrap().contains(CHUNK_PATH)
     });
 
     for frame in test_stack.iter_mut() {
-        let RawFrame::JavaScript(frame) = frame else {
+        let RawFrame::JavaScriptWeb(frame) = frame else {
             panic!("Expected a JavaScript frame")
         };
         // Our test data contains our /actual/ source urls - we need to swap that to localhost
@@ -82,4 +85,29 @@ async fn end_to_end_resolver_test() {
     // The use of the caching layer is tested here - we should only have hit the server once
     source_mock.assert_hits(1);
     map_mock.assert_hits(1);
+}
+
+#[tokio::test]
+async fn sourcemap_nulls_dont_go_on_frames() {
+    let content = "{\"colno\":15,\"filename\":\"irrelevant_for_test\",\"function\":\"?\",\"in_app\":true,\"lineno\":476,\"platform\":\"web:javascript\"}";
+    let frame: RawFrame = serde_json::from_str(content).unwrap();
+
+    let jsdata_bytes = include_bytes!("static/sourcemap_with_nulls.jsdata").to_vec();
+    let data = JsData::from_bytes(jsdata_bytes).unwrap();
+    let smc = data.to_smc().unwrap();
+    let c = smc.get_smc();
+
+    let RawFrame::JavaScriptWeb(frame) = frame else {
+        panic!("Expected a JavaScript web frame")
+    };
+
+    let location = frame.location.clone().unwrap();
+
+    let token = c
+        .lookup(SourcePosition::new(location.line - 1, location.column))
+        .unwrap();
+
+    let res = Frame::from((&frame, token));
+
+    assert!(!res.source.unwrap().contains('\0'));
 }

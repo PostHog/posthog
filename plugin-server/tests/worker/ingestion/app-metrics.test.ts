@@ -216,7 +216,7 @@ describe('AppMetrics()', () => {
                 },
                 timestamp,
             ])
-            expect(JSON.parse(call[0].errorDetails)).toEqual({
+            expect(JSON.parse(call[0].errorDetails!)).toEqual({
                 error: {
                     name: 'Error',
                     message: 'foobar',
@@ -239,7 +239,7 @@ describe('AppMetrics()', () => {
                 },
                 timestamp,
             ])
-            expect(JSON.parse(call[0].errorDetails)).toEqual({
+            expect(JSON.parse(call[0].errorDetails!)).toEqual({
                 error: {
                     name: 'StringError',
                 },

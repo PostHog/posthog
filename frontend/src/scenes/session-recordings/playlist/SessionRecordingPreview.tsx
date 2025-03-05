@@ -1,3 +1,5 @@
+import './SessionRecordingPreview.scss'
+
 import { IconBug, IconCursorClick, IconKeyboard, IconLive, IconPinFilled } from '@posthog/icons'
 import clsx from 'clsx'
 import { useValues } from 'kea'
@@ -11,11 +13,11 @@ import { colonDelimitedDuration } from 'lib/utils'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { SimpleTimeLabel } from 'scenes/session-recordings/components/SimpleTimeLabel'
-import { countryTitleFrom } from 'scenes/session-recordings/player/playerMetaLogic'
+import { countryTitleFrom } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
 import { playerSettingsLogic, TimestampFormat } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { urls } from 'scenes/urls'
 
-import { RecordingsQuery } from '~/queries/schema'
+import { RecordingsQuery } from '~/queries/schema/schema-general'
 import { SessionRecordingType } from '~/types'
 
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
@@ -30,14 +32,14 @@ export interface SessionRecordingPreviewProps {
 
 function RecordingDuration({ recordingDuration }: { recordingDuration: number | undefined }): JSX.Element {
     if (recordingDuration === undefined) {
-        return <div className="flex text-muted text-xs">-</div>
+        return <div className="flex text-secondary text-xs">-</div>
     }
 
     const formattedDuration = colonDelimitedDuration(recordingDuration)
     const [hours, minutes, seconds] = formattedDuration.split(':')
 
     return (
-        <div className="flex text-muted text-xs">
+        <div className="flex text-secondary text-xs">
             {hours != '00' && <span>{hours}:</span>}
             <span>
                 {minutes}:{seconds}
@@ -123,7 +125,7 @@ export function PropertyIcons({ recordingProperties, loading, iconClassNames }: 
 function FirstURL(props: { startUrl: string | undefined }): JSX.Element {
     const firstPath = props.startUrl?.replace(/https?:\/\//g, '').split(/[?|#]/)[0]
     return (
-        <span className="flex overflow-hidden text-muted text-xs">
+        <span className="flex overflow-hidden text-secondary text-xs">
             <span title={`First URL: ${props.startUrl}`} className="truncate">
                 {firstPath}
             </span>
@@ -150,10 +152,27 @@ function RecordingOngoingIndicator(): JSX.Element {
     )
 }
 
-function UnwatchedIndicator(): JSX.Element {
+function UnwatchedIndicator({ otherViewers }: { otherViewers: SessionRecordingType['viewers'] }): JSX.Element {
+    const tooltip = otherViewers.length ? (
+        <span>
+            You have not watched this recording yet. {otherViewers.length} other{' '}
+            {otherViewers.length === 1 ? 'person has' : 'people have'}.
+        </span>
+    ) : (
+        <span>Nobody has watched this recording yet.</span>
+    )
+
     return (
-        <Tooltip title="Indicates the recording has not been watched yet">
-            <div className="w-2 h-2 rounded-full bg-primary-3000" aria-label="unwatched-recording-label" />
+        <Tooltip title={tooltip}>
+            <div
+                className={clsx(
+                    'UnwatchedIndicator w-2 h-2 rounded-full',
+                    otherViewers.length ? 'UnwatchedIndicator--secondary' : 'UnwatchedIndicator--primary'
+                )}
+                aria-label={
+                    otherViewers.length ? 'unwatched-recording-by-you-label' : 'unwatched-recording-by-everyone-label'
+                }
+            />
         </Tooltip>
     )
 }
@@ -181,7 +200,7 @@ export function SessionRecordingPreview({
     const loading = !recordingProperties && recordingPropertiesLoading
     const iconProperties = gatherIconProperties(recordingProperties, recording)
 
-    const iconClassNames = 'text-muted-alt shrink-0'
+    const iconClassNames = 'text-secondary shrink-0'
 
     return (
         <DraggableToNotebook href={urls.replaySingle(recording.id)}>
@@ -201,7 +220,7 @@ export function SessionRecordingPreview({
 
                         {playlistTimestampFormat === TimestampFormat.Relative ? (
                             <TZLabel
-                                className="overflow-hidden text-ellipsis text-xs text-muted shrink-0"
+                                className="overflow-hidden text-ellipsis text-xs text-secondary shrink-0"
                                 time={recording.start_time}
                                 placement="right"
                             />
@@ -214,7 +233,7 @@ export function SessionRecordingPreview({
                     </div>
 
                     <div className="flex justify-between items-center space-x-0.5">
-                        <div className="flex space-x-2 text-muted text-sm">
+                        <div className="flex space-x-2 text-secondary text-sm">
                             <PropertyIcons
                                 recordingProperties={iconProperties}
                                 iconClassNames={iconClassNames}
@@ -261,7 +280,7 @@ export function SessionRecordingPreview({
                 >
                     {recording.ongoing ? <RecordingOngoingIndicator /> : null}
                     {pinned ? <PinnedIndicator /> : null}
-                    {!recording.viewed ? <UnwatchedIndicator /> : null}
+                    {!recording.viewed ? <UnwatchedIndicator otherViewers={recording.viewers} /> : null}
                 </div>
             </div>
         </DraggableToNotebook>

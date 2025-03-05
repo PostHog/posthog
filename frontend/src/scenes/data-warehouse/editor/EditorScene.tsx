@@ -72,7 +72,7 @@ const EditorSidebarOverlay = (): JSX.Element => {
     const { toggleJoinTableModal, selectSourceTable } = useActions(viewLinkLogic)
 
     return (
-        <div className="flex flex-col">
+        <div className="flex flex-col h-full">
             <header className="flex flex-row items-center h-10 border-b shrink-0 p-1 gap-2">
                 <LemonButton size="small" icon={<IconArrowLeft />} onClick={() => setSidebarOverlayOpen(false)} />
                 {selectedSchema?.name && (
@@ -80,7 +80,7 @@ const EditorSidebarOverlay = (): JSX.Element => {
                         className="font-mono"
                         tooltipMessage={null}
                         description="schema"
-                        iconStyle={{ color: 'var(--muted-alt)' }}
+                        iconStyle={{ color: 'var(--text-secondary)' }}
                         explicitValue={selectedSchema?.name}
                     >
                         {selectedSchema?.name}
@@ -104,7 +104,9 @@ const EditorSidebarOverlay = (): JSX.Element => {
                     </div>
                 </LemonMenu>
             </header>
-            <DatabaseTableTree items={sidebarOverlayTreeItems} />
+            <div className="overflow-y-auto flex-1">
+                <DatabaseTableTree items={sidebarOverlayTreeItems} />
+            </div>
         </div>
     )
 }

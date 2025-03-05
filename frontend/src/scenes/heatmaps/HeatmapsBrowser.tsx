@@ -26,7 +26,7 @@ function UrlSearchHeader(): JSX.Element {
     const placeholderUrl = browserUrlSearchOptions?.[0] ?? 'https://your-website.com/pricing'
 
     return (
-        <div className="bg-accent-3000 p-2 border-b flex items-center gap-2">
+        <div className="bg-surface-primary p-2 border-b flex items-center gap-2">
             <span className="flex-1">
                 <LemonInputSelect
                     mode="single"
@@ -92,7 +92,7 @@ function HeatmapsBrowserIntro(): JSX.Element {
                     </div>
                 </div>
 
-                <div className="gap-y-px p-2 border bg-bg-light rounded">
+                <div className="gap-y-px p-2 border bg-surface-primary rounded">
                     {topUrlsLoading ? (
                         <LemonSkeleton className="h-10" repeat={10} />
                     ) : noPageviews ? (
@@ -296,7 +296,7 @@ export function HeatmapsBrowser(): JSX.Element {
                 <div className="flex flex-col overflow-hidden w-full h-[90vh] rounded border">
                     <UrlSearchHeader />
 
-                    <div className="relative flex flex-1 bg-accent-3000 overflow-hidden">
+                    <div className="relative flex flex-1 bg-surface-primary overflow-hidden">
                         {browserUrl ? (
                             <>
                                 {!isBrowserUrlAuthorized ? (

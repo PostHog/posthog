@@ -18,17 +18,18 @@ import { DateTime } from 'luxon'
 import { VM } from 'vm2'
 
 import { EncryptedFields } from './cdp/encryption-utils'
+import type { CookielessManager } from './ingestion/cookieless/cookieless-manager'
 import { BatchConsumer } from './kafka/batch-consumer'
 import { KafkaProducerWrapper } from './kafka/producer'
 import { ObjectStorage } from './main/services/object_storage'
 import { Celery } from './utils/db/celery'
 import { DB } from './utils/db/db'
 import { PostgresRouter } from './utils/db/postgres'
+import { GeoIPService } from './utils/geoip'
 import { UUID } from './utils/utils'
 import { ActionManager } from './worker/ingestion/action-manager'
 import { ActionMatcher } from './worker/ingestion/action-matcher'
 import { AppMetrics } from './worker/ingestion/app-metrics'
-import type { CookielessSaltManager } from './worker/ingestion/event-pipeline/cookielessServerHashStep'
 import { GroupTypeManager } from './worker/ingestion/group-type-manager'
 import { OrganizationManager } from './worker/ingestion/organization-manager'
 import { TeamManager } from './worker/ingestion/team-manager'
@@ -73,17 +74,9 @@ export enum KafkaSaslMechanism {
 }
 
 export enum PluginServerMode {
-    all_v2 = 'all-v2',
-    ingestion = 'ingestion',
     ingestion_v2 = 'ingestion-v2',
-    ingestion_overflow = 'ingestion-overflow',
-    ingestion_historical = 'ingestion-historical',
-    events_ingestion = 'events-ingestion',
     async_onevent = 'async-onevent',
     async_webhooks = 'async-webhooks',
-    jobs = 'jobs',
-    scheduler = 'scheduler',
-    analytics_ingestion = 'analytics-ingestion',
     recordings_blob_ingestion = 'recordings-blob-ingestion',
     recordings_blob_ingestion_overflow = 'recordings-blob-ingestion-overflow',
     recordings_blob_ingestion_v2 = 'recordings-blob-ingestion-v2',
@@ -224,6 +217,8 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     HTTP_SERVER_PORT: number
     SCHEDULE_LOCK_TTL: number // how many seconds to hold the lock for the schedule
     DISABLE_MMDB: boolean // whether to disable fetching MaxMind database for IP location
+    MMDB_FILE_LOCATION: string // if set we will load the MMDB file from this location instead of downloading it
+    MMDB_COMPARE_MODE: boolean // whether to compare the MMDB file to the local file
     DISTINCT_ID_LRU_SIZE: number
     EVENT_PROPERTY_LRU_SIZE: number // size of the event property tracker's LRU cache (keyed by [team.id, event])
     JOB_QUEUES: string // retry queue engine and fallback queues
@@ -253,7 +248,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     PLUGIN_LOAD_SEQUENTIALLY: boolean // could help with reducing memory usage spikes on startup
     KAFKAJS_LOG_LEVEL: 'NOTHING' | 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
     MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: number
-    USE_KAFKA_FOR_SCHEDULED_TASKS: boolean // distribute scheduled tasks across the scheduler workers
     EVENT_OVERFLOW_BUCKET_CAPACITY: number
     EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: number
     /** Label of the PostHog Cloud environment. Null if not running PostHog Cloud. @example 'US' */
@@ -321,9 +315,9 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     CYCLOTRON_DATABASE_URL: string
     CYCLOTRON_SHARD_DEPTH_LIMIT: number
 
-    // HOG Transformations (Alpha feature)
-    HOG_TRANSFORMATIONS_ENABLED: boolean
-    HOG_TRANSFORMATIONS_COMPARISON_PERCENTAGE: number | undefined
+    // posthog
+    POSTHOG_API_KEY: string
+    POSTHOG_HOST_URL: string
 
     // cookieless
     COOKIELESS_DISABLED: boolean
@@ -340,6 +334,12 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     SESSION_RECORDING_V2_S3_PREFIX: string
     SESSION_RECORDING_V2_S3_ENDPOINT: string
     SESSION_RECORDING_V2_S3_REGION: string
+    SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: string
+    SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: string
+    SESSION_RECORDING_V2_S3_TIMEOUT_MS: number
+
+    // Destination Migration Diffing
+    DESTINATION_MIGRATION_DIFFING_ENABLED: boolean
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -375,8 +375,7 @@ export interface Hub extends PluginsServerConfig {
     celery: Celery
     // geoip database, setup in workers
     mmdb?: ReaderModel
-    // functions
-    enqueuePluginJob: (job: EnqueuedPluginJob) => Promise<void>
+    geoipService: GeoIPService
     // ValueMatchers used for various opt-in/out features
     pluginConfigsToSkipElementsParsing: ValueMatcher<number>
     // lookups
@@ -385,21 +384,14 @@ export interface Hub extends PluginsServerConfig {
     encryptedFields: EncryptedFields
 
     // cookieless
-    cookielessConfig: CookielessConfig
-    cookielessSaltManager: CookielessSaltManager
+    cookielessManager: CookielessManager
 }
 
 export interface PluginServerCapabilities {
     // Warning: when adding more entries, make sure to update worker/vm/capabilities.ts
     // and the shouldSetupPluginInServer() test accordingly.
-    ingestion?: boolean
-    ingestionOverflow?: boolean
-    ingestionHistorical?: boolean
-    eventsIngestionPipelines?: boolean
     ingestionV2Combined?: boolean
     ingestionV2?: boolean
-    pluginScheduledTasks?: boolean
-    processPluginJobs?: boolean
     processAsyncOnEventHandlers?: boolean
     processAsyncWebhooksHandlers?: boolean
     sessionRecordingBlobIngestion?: boolean
@@ -418,7 +410,6 @@ export interface PluginServerCapabilities {
     syncInlinePlugins?: boolean
 }
 
-export type EnqueuedJob = EnqueuedPluginJob | GraphileWorkerCronScheduleJob
 export interface EnqueuedPluginJob {
     type: string
     payload: Record<string, any>
@@ -426,16 +417,6 @@ export interface EnqueuedPluginJob {
     pluginConfigId: number
     pluginConfigTeam: number
     jobKey?: string
-}
-
-export interface GraphileWorkerCronScheduleJob {
-    timestamp?: number
-    jobKey?: string
-}
-
-export enum JobName {
-    PLUGIN_JOB = 'pluginJob',
-    BUFFER_JOB = 'bufferJob',
 }
 
 export type PluginId = Plugin['id']
@@ -496,13 +477,10 @@ export interface Plugin {
     capabilities?: PluginCapabilities
     metrics?: StoredPluginMetrics
     is_stateless?: boolean
-    public_jobs?: Record<string, JobSpec>
     log_level?: PluginLogLevel
 }
 
 export interface PluginCapabilities {
-    jobs?: string[]
-    scheduled_tasks?: string[]
     methods?: string[]
 }
 
@@ -597,19 +575,6 @@ export interface PluginLogEntry {
     instance_id: string
 }
 
-export enum PluginTaskType {
-    Job = 'job',
-    Schedule = 'schedule',
-}
-
-export interface PluginTask {
-    name: string
-    type: PluginTaskType
-    exec: (payload?: Record<string, any>) => Promise<any>
-
-    __ignoreForAppMetrics?: boolean
-}
-
 export type PluginMethods = {
     setupPlugin?: () => Promise<void>
     teardownPlugin?: () => Promise<void>
@@ -648,7 +613,6 @@ export interface Alert {
 export interface PluginConfigVMResponse {
     vm: VM
     methods: PluginMethods
-    tasks: Record<PluginTaskType, Record<string, PluginTask>>
     vmResponseVariable: string
     usedImports: Set<string>
 }
@@ -1317,14 +1281,4 @@ export type AppMetric2Type = {
         | 'inputs_failed'
         | 'fetch'
     count: number
-}
-
-export interface CookielessConfig {
-    disabled: boolean
-    forceStatelessMode: boolean
-    deleteExpiredLocalSaltsIntervalMs: number
-    identifiesTtlSeconds: number
-    sessionTtlSeconds: number
-    saltTtlSeconds: number
-    sessionInactivityMs: number
 }

@@ -1,13 +1,4 @@
-import {
-    BaseIcon,
-    IconCheck,
-    IconChevronDown,
-    IconEye,
-    IconHide,
-    IconLogomark,
-    IconSearch,
-    IconVideoCamera,
-} from '@posthog/icons'
+import { BaseIcon, IconCheck, IconChevronDown, IconEye, IconHide, IconLogomark, IconVideoCamera } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -16,7 +7,7 @@ import { dayjs } from 'lib/dayjs'
 import { IconUnverifiedEvent } from 'lib/lemon-ui/icons'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
-import { SettingsBar, SettingsMenu, SettingsToggle } from 'scenes/session-recordings/components/PanelSettings'
+import { SettingsBar, SettingsMenu } from 'scenes/session-recordings/components/PanelSettings'
 import { SimpleKeyValueList } from 'scenes/session-recordings/player/inspector/components/SimpleKeyValueList'
 
 import { eventDebugMenuLogic } from '~/toolbar/debug/eventDebugMenuLogic'
@@ -67,14 +58,13 @@ function EventTimestamp({ e }: { e: EventType }): JSX.Element {
     return (
         <div>
             <span>{ts.format(formatString)}</span>
-            <span className="text-xxs text-muted">{ts.format('.SSS')}</span>
+            <span className="text-xxs text-secondary">{ts.format('.SSS')}</span>
         </div>
     )
 }
 
 export const EventDebugMenu = (): JSX.Element => {
     const {
-        searchVisible,
         searchText,
         isCollapsedEventRow,
         activeFilteredEvents,
@@ -84,14 +74,8 @@ export const EventDebugMenu = (): JSX.Element => {
         hidePostHogFlags,
         expandedProperties,
     } = useValues(eventDebugMenuLogic)
-    const {
-        markExpanded,
-        setSelectedEventType,
-        setSearchText,
-        setSearchVisible,
-        setHidePostHogProperties,
-        setHidePostHogFlags,
-    } = useActions(eventDebugMenuLogic)
+    const { markExpanded, setSelectedEventType, setSearchText, setHidePostHogProperties, setHidePostHogFlags } =
+        useActions(eventDebugMenuLogic)
 
     const showEventsMenuItems = [
         checkableMenuItem(
@@ -131,31 +115,22 @@ export const EventDebugMenu = (): JSX.Element => {
             <ToolbarMenu.Header>
                 <div className="flex flex-col pb-2 space-y-1">
                     <div className="flex justify-center flex-col">
-                        <SettingsBar border="bottom" className="justify-end">
-                            <div className="flex-1 text-sm pl-1">
-                                View all events sent from this page as they are sent to PostHog.
-                            </div>
-                            <SettingsToggle
-                                label="Search"
-                                icon={<IconSearch />}
-                                active={searchVisible}
-                                onClick={() => setSearchVisible(!searchVisible)}
-                            />
-                        </SettingsBar>
-                        {searchVisible && (
-                            <LemonInput
-                                size="xsmall"
-                                fullWidth={true}
-                                type="search"
-                                value={searchText}
-                                onChange={setSearchText}
-                            />
-                        )}
+                        <LemonInput
+                            autoFocus={true}
+                            fullWidth={true}
+                            placeholder="Search"
+                            type="search"
+                            value={searchText}
+                            onChange={setSearchText}
+                        />
                     </div>
                 </div>
             </ToolbarMenu.Header>
             <ToolbarMenu.Body>
                 <div className="flex flex-col space-y-1">
+                    <div className="flex-1 text-sm pl-1">
+                        View all events sent from this page as they are sent to PostHog.
+                    </div>
                     {activeFilteredEvents.length ? (
                         activeFilteredEvents.map((e) => {
                             const expanded = e.uuid !== undefined && !isCollapsedEventRow(e.uuid)
@@ -168,7 +143,7 @@ export const EventDebugMenu = (): JSX.Element => {
                                         expanded ? markExpanded(null) : markExpanded(e.uuid || null)
                                     }}
                                 >
-                                    <div className="flex flex-row justify-between hover:bg-bg-light hover:text-text-3000">
+                                    <div className="flex flex-row justify-between hover:bg-surface-primary hover:text-accent-highlight">
                                         <EventTimestamp e={e} />
 
                                         <div className="flex flex-row items-end gap-1">

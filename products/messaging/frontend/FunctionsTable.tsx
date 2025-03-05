@@ -64,7 +64,7 @@ export function FunctionsTable({ type }: FunctionsTableProps): JSX.Element {
                             render: function RenderPluginName(_, hogFunction) {
                                 return (
                                     <LemonTableLink
-                                        to={hogFunctionUrl(hogFunction.type, hogFunction.id)}
+                                        to={hogFunctionUrl(hogFunction.type, hogFunction.id, hogFunction.template?.id)}
                                         title={
                                             <>
                                                 <Tooltip title="Click to update configuration, view metrics, and more">

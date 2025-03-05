@@ -124,9 +124,40 @@ function DictionaryField({
 }): JSX.Element {
     const [entries, setEntries] = useState<[string, string][]>(Object.entries(value ?? {}))
 
+    const arraysEqual = (a: any[], b: any[]): boolean => {
+        if (a === b) {
+            return true
+        }
+        if (a == null || b == null) {
+            return false
+        }
+        if (a.length !== b.length) {
+            return false
+        }
+
+        // If you don't care about the order of the elements inside
+        // the array, you should sort both arrays here.
+        // Please note that calling sort on an array will modify that array.
+        // you might want to clone your array first.
+
+        for (let i = 0; i < a.length; ++i) {
+            if (a[i] !== b[i]) {
+                return false
+            }
+        }
+        return true
+    }
+
     useEffect(() => {
         // NOTE: Filter out all empty entries as fetch will throw if passed in
-        const val = Object.fromEntries(entries.filter(([key, val]) => key.trim() !== '' || val.trim() !== ''))
+        const filteredEntries = entries.filter(([key, val]) => key.trim() !== '' || val.trim() !== '')
+
+        // avoid changing configuration if nothing has changed
+        if (arraysEqual(filteredEntries, entries)) {
+            return
+        }
+
+        const val = Object.fromEntries(filteredEntries)
         onChange?.(val)
     }, [entries])
 
@@ -464,7 +495,7 @@ export function HogFunctionInputWithSchema({
                                 </div>
                                 {value?.secret ? (
                                     <div className="flex items-center gap-2 p-1 border border-dashed rounded">
-                                        <span className="flex-1 p-1 italic text-muted-alt">
+                                        <span className="flex-1 p-1 italic text-secondary">
                                             This value is secret and is not displayed here.
                                         </span>
                                         <LemonButton
@@ -513,7 +544,7 @@ export function HogFunctionInputs({
             // If this is a mapping, don't show any error message.
             return null
         }
-        return <span className="italic text-muted-alt">This function does not require any input variables.</span>
+        return <span className="italic text-secondary">This function does not require any input variables.</span>
     }
 
     const inputSchemas = configuration.inputs_schema
@@ -533,16 +564,18 @@ export function HogFunctionInputs({
                 }}
             >
                 <SortableContext disabled={!showSource} items={inputSchemaIds} strategy={verticalListSortingStrategy}>
-                    {configuration.inputs_schema?.map((schema) => {
-                        return (
-                            <HogFunctionInputWithSchema
-                                key={schema.key}
-                                schema={schema}
-                                configuration={configuration}
-                                setConfigurationValue={setConfigurationValue}
-                            />
-                        )
-                    })}
+                    {configuration.inputs_schema
+                        ?.filter((i) => !i.hidden)
+                        .map((schema) => {
+                            return (
+                                <HogFunctionInputWithSchema
+                                    key={schema.key}
+                                    schema={schema}
+                                    configuration={configuration}
+                                    setConfigurationValue={setConfigurationValue}
+                                />
+                            )
+                        })}
                 </SortableContext>
             </DndContext>
         </>

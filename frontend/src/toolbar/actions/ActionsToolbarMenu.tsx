@@ -32,13 +32,12 @@ const ActionsListToolbarMenu = (): JSX.Element => {
         <ToolbarMenu>
             <ToolbarMenu.Header>
                 <LemonInput
-                    autoFocus
-                    fullWidth
+                    autoFocus={true}
+                    fullWidth={true}
                     placeholder="Search"
                     type="search"
                     value={searchTerm}
                     onChange={(s) => setSearchTerm(s)}
-                    className="Toolbar__top_input"
                 />
             </ToolbarMenu.Header>
             <ToolbarMenu.Body>
@@ -54,7 +53,7 @@ const ActionsListToolbarMenu = (): JSX.Element => {
             </ToolbarMenu.Body>
             <ToolbarMenu.Footer>
                 <div className="flex items-center justify-between flex-1">
-                    <Link to={`${apiURL}${urls.actions()}`} target="_blank">
+                    <Link to={`${apiURL}${urls.actions()}`} target="_blank" className="text-primary">
                         View &amp; edit all actions <IconOpenInNew />
                     </Link>
                     <LemonButton type="primary" size="small" onClick={() => newAction()} icon={<IconPlus />}>

@@ -1,5 +1,4 @@
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
-import * as Sentry from '@sentry/node'
 import LRU from 'lru-cache'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
@@ -10,6 +9,7 @@ import { InternalPerson, Person, PropertyUpdateOperation } from '../../types'
 import { DB } from '../../utils/db/db'
 import { PostgresUse, TransactionClient } from '../../utils/db/postgres'
 import { eventToPersonProperties, initialEventToPersonProperties, timeoutGuard } from '../../utils/db/utils'
+import { captureException } from '../../utils/posthog'
 import { promiseRetry } from '../../utils/retries'
 import { status } from '../../utils/status'
 import { uuidFromDistinctId } from './person-uuid'
@@ -426,7 +426,7 @@ export class PersonState {
                 )
             }
         } catch (e) {
-            Sentry.captureException(e, {
+            captureException(e, {
                 tags: { team_id: this.teamId, pipeline_step: 'processPersonsStep' },
                 extra: {
                     location: 'handleIdentifyOrAlias',

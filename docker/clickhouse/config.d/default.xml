@@ -5,7 +5,7 @@
         <posthog>
             <shard>
                 <replica>
-                    <host>localhost</host>
+                    <host>clickhouse</host>
                     <port>9000</port>
                 </replica>
             </shard>
@@ -13,7 +13,7 @@
         <posthog_single_shard>
             <shard>
                 <replica>
-                    <host>localhost</host>
+                    <host>clickhouse</host>
                     <port>9000</port>
                 </replica>
             </shard>
@@ -21,7 +21,7 @@
         <posthog_migrations>
             <shard>
                 <replica>
-                    <host>localhost</host>
+                    <host>clickhouse</host>
                     <port>9000</port>
                 </replica>
             </shard>
@@ -32,6 +32,6 @@
         <shard>01</shard>
         <replica>ch1</replica>
         <hostClusterType>online</hostClusterType>
-        <hostClusterRole>worker</hostClusterRole>
+        <hostClusterRole>data</hostClusterRole>
     </macros>
 </clickhouse>

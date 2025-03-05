@@ -1,9 +1,5 @@
-import { Reader } from '@maxmind/geoip2-node'
-import { readFileSync } from 'fs'
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
-import { join } from 'path'
-import { brotliDecompressSync } from 'zlib'
 
 import { template as geoipTemplate } from '~/src/cdp/templates/_transformations/geoip/geoip.template'
 import { compileHog } from '~/src/cdp/templates/compiler'
@@ -103,10 +99,6 @@ describe('IngestionConsumer', () => {
         offsetIncrementer = 0
         await resetTestDatabase()
         hub = await createHub()
-
-        // Set up GeoIP database
-        const mmdbBrotliContents = readFileSync(join(__dirname, '../../tests/assets/GeoLite2-City-Test.mmdb.br'))
-        hub.mmdb = Reader.openBuffer(Buffer.from(brotliDecompressSync(mmdbBrotliContents)))
 
         hub.kafkaProducer = mockProducer
         team = await getFirstTeam(hub)
@@ -480,6 +472,32 @@ describe('IngestionConsumer', () => {
                 () => [createEvent({ event: '$pageview', properties: { $process_person_profile: false } })],
             ],
             [
+                'forced person upgrade',
+                () => [
+                    createEvent({
+                        event: '$pageview',
+                        properties: { $process_person_profile: false, $set: { update1: '1' } },
+                    }),
+                    createEvent({
+                        event: '$identify',
+                        properties: { $process_person_profile: true, $set: { email: 'test@example.com' } },
+                    }),
+                    // Add an event at least a minute in the future and it should get force upgraded
+                    createEvent({
+                        event: '$pageview',
+                        properties: { $process_person_profile: false, $set: { update2: '2' } },
+                        timestamp: DateTime.now().plus({ minutes: 2 }).toISO(),
+                    }),
+                    // Add a person-full event and ensure all properties are there that should be
+                    createEvent({
+                        event: '$pageview',
+                        properties: { $process_person_profile: true, $set: { update3: '3' } },
+                        timestamp: DateTime.now().plus({ minutes: 3 }).toISO(),
+                    }),
+                    // Snapshot should contain update2 and update3 but not update1
+                ],
+            ],
+            [
                 'client ingestion warning',
                 () => [
                     createEvent({
@@ -487,6 +505,72 @@ describe('IngestionConsumer', () => {
                         properties: { $$client_ingestion_warning_message: 'test' },
                     }),
                 ],
+            ],
+            [
+                'groups',
+                () => [
+                    createEvent({
+                        event: '$pageview',
+                        properties: {
+                            $groups: {
+                                a: 'group-a',
+                                b: 'group-b',
+                                c: 'group-c',
+                                d: 'group-d',
+                                e: 'group-e',
+                                f: 'group-f',
+                            },
+                        },
+                    }),
+                    createEvent({
+                        event: '$groupidentify',
+                        properties: {
+                            $group_type: 'a',
+                            $group_key: 'group-a',
+                            $group_set: {
+                                id: 'group-a',
+                                foo: 'bar',
+                            },
+                        },
+                    }),
+                    // This triggers an event but not a groups clickhouse change as the max groups is already hit
+                    createEvent({
+                        event: '$groupidentify',
+                        properties: {
+                            $group_type: 'f',
+                            $group_key: 'group-f',
+                            $group_set: {
+                                id: 'group-f',
+                                foo: 'bar',
+                            },
+                        },
+                    }),
+                ],
+            ],
+            [
+                'person property merging via alias',
+                () => {
+                    const anonId1 = new UUIDT().toString()
+                    const anonId2 = new UUIDT().toString()
+                    return [
+                        createEvent({
+                            distinct_id: anonId1,
+                            event: 'custom event',
+                            properties: { $set: { k: 'v' } },
+                        }),
+                        createEvent({
+                            distinct_id: anonId2,
+                            event: 'custom event',
+                            properties: { $set: { j: 'w' } },
+                        }),
+                        // final event should have k, j, l
+                        createEvent({
+                            distinct_id: anonId2,
+                            event: '$create_alias',
+                            properties: { alias: anonId1, $set: { l: 'x' } },
+                        }),
+                    ]
+                },
             ],
         ]
 
@@ -522,9 +606,6 @@ describe('IngestionConsumer', () => {
         }
 
         beforeEach(async () => {
-            // Enable HOG transformations
-            hub.HOG_TRANSFORMATIONS_ENABLED = true
-
             // Create a transformation function using the geoip template as an example
             const hogByteCode = await compileHog(geoipTemplate.hog)
             transformationFunction = await insertHogFunction({
@@ -542,8 +623,8 @@ describe('IngestionConsumer', () => {
             async () => {
                 // make the geoip lookup fail
                 const event = createEvent({
-                    ip: '1.1.1.1',
-                    properties: { $ip: '1.1.1.1' },
+                    ip: '256.256.256.256',
+                    properties: { $ip: '256.256.256.256' },
                 })
                 const messages = createKafkaMessages([event])
 
@@ -591,7 +672,7 @@ describe('IngestionConsumer', () => {
                             level: 'info',
                             log_source: 'hog_function',
                             log_source_id: transformationFunction.id,
-                            message: 'geoip lookup failed for ip, 1.1.1.1',
+                            message: 'geoip lookup failed for ip, 256.256.256.256',
                             team_id: team.id,
                             timestamp: expect.stringMatching(/2025-01-01 00:00:00\.\d{3}/),
                         },

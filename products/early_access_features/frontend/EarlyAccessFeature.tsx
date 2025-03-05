@@ -292,7 +292,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                                         {earlyAccessFeature.description ? (
                                             earlyAccessFeature.description
                                         ) : (
-                                            <span className="text-muted">No description</span>
+                                            <span className="text-secondary">No description</span>
                                         )}
                                     </div>
                                 </div>
@@ -317,7 +317,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                                                 {earlyAccessFeature.documentation_url}
                                             </Link>
                                         ) : (
-                                            <span className="text-muted">No documentation URL</span>
+                                            <span className="text-secondary">No documentation URL</span>
                                         )}
                                     </div>
                                 </div>
@@ -331,6 +331,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                         <h3>Notifications</h3>
                         <p>Get notified when people opt in or out of your feature.</p>
                         <LinkedHogFunctions
+                            logicKey="early-access-feature"
                             type="destination"
                             filters={destinationFilters}
                             subTemplateId="early-access-feature-enrollment"

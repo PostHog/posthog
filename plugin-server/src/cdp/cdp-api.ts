@@ -1,17 +1,26 @@
+import { PluginEvent } from '@posthog/plugin-scaffold'
 import express from 'express'
 import { DateTime } from 'luxon'
 
 import { Hub, PluginServerService } from '../types'
 import { status } from '../utils/status'
-import { delay, UUIDT } from '../utils/utils'
+import { delay, UUID, UUIDT } from '../utils/utils'
 import { HogTransformerService } from './hog-transformations/hog-transformer.service'
 import { createCdpRedisPool } from './redis'
 import { FetchExecutorService } from './services/fetch-executor.service'
 import { HogExecutorService, MAX_ASYNC_STEPS } from './services/hog-executor.service'
 import { HogFunctionManagerService } from './services/hog-function-manager.service'
+import { HogFunctionMonitoringService } from './services/hog-function-monitoring.service'
 import { HogWatcherService, HogWatcherState } from './services/hog-watcher.service'
 import { HOG_FUNCTION_TEMPLATES } from './templates'
-import { HogFunctionInvocationResult, HogFunctionQueueParametersFetchRequest, HogFunctionType, LogEntry } from './types'
+import {
+    HogFunctionInvocationGlobals,
+    HogFunctionInvocationResult,
+    HogFunctionQueueParametersFetchRequest,
+    HogFunctionType,
+    LogEntry,
+} from './types'
+import { convertToHogFunctionInvocationGlobals } from './utils'
 
 export class CdpApi {
     private hogExecutor: HogExecutorService
@@ -19,6 +28,7 @@ export class CdpApi {
     private fetchExecutor: FetchExecutorService
     private hogWatcher: HogWatcherService
     private hogTransformer: HogTransformerService
+    private hogFunctionMonitoringService: HogFunctionMonitoringService
 
     constructor(private hub: Hub) {
         this.hogFunctionManager = new HogFunctionManagerService(hub)
@@ -26,6 +36,7 @@ export class CdpApi {
         this.fetchExecutor = new FetchExecutorService(hub)
         this.hogWatcher = new HogWatcherService(hub, createCdpRedisPool(hub))
         this.hogTransformer = new HogTransformerService(hub)
+        this.hogFunctionMonitoringService = new HogFunctionMonitoringService(hub)
     }
 
     public get service(): PluginServerService {
@@ -107,12 +118,16 @@ export class CdpApi {
     private postFunctionInvocation = async (req: express.Request, res: express.Response): Promise<any> => {
         try {
             const { id, team_id } = req.params
-            const { globals, mock_async_functions, configuration } = req.body
+            const { clickhouse_event, mock_async_functions, configuration, invocation_id } = req.body
+            let { globals } = req.body
 
             status.info('⚡️', 'Received invocation', { id, team_id, body: req.body })
 
-            if (!globals || !globals.event) {
-                res.status(400).json({ error: 'Missing event' })
+            const invocationID = invocation_id ?? new UUIDT().toString()
+
+            // Check the invocationId is a valid UUID
+            if (!UUID.validateString(invocationID)) {
+                res.status(400).json({ error: 'Invalid invocation ID' })
                 return
             }
 
@@ -125,6 +140,19 @@ export class CdpApi {
 
             if (!team) {
                 return res.status(404).json({ error: 'Team not found' })
+            }
+
+            globals = clickhouse_event
+                ? convertToHogFunctionInvocationGlobals(
+                      clickhouse_event,
+                      team,
+                      this.hub.SITE_URL ?? 'http://localhost:8000'
+                  )
+                : globals
+
+            if (!globals || !globals.event) {
+                res.status(400).json({ error: 'Missing event' })
+                return
             }
 
             // NOTE: We allow the hog function to be null if it is a "new" hog function
@@ -147,7 +175,7 @@ export class CdpApi {
             let result: any = null
             const errors: any[] = []
 
-            const triggerGlobals = {
+            const triggerGlobals: HogFunctionInvocationGlobals = {
                 ...globals,
                 project: {
                     id: team.id,
@@ -157,7 +185,7 @@ export class CdpApi {
                 },
             }
 
-            if (compoundConfiguration.type === 'destination') {
+            if (['destination', 'internal_destination'].includes(compoundConfiguration.type)) {
                 const {
                     invocations,
                     logs: filterLogs,
@@ -182,6 +210,7 @@ export class CdpApi {
                 for (const _invocation of invocations) {
                     let count = 0
                     let invocation = _invocation
+                    invocation.id = invocationID
 
                     while (!lastResponse || !lastResponse.finished) {
                         if (count > MAX_ASYNC_STEPS * 2) {
@@ -195,7 +224,7 @@ export class CdpApi {
                             if (mock_async_functions) {
                                 // Add the state, simulating what executeAsyncResponse would do
                                 // Re-parse the fetch args for the logging
-                                const fetchArgs: HogFunctionQueueParametersFetchRequest =
+                                const { url: fetchUrl, ...fetchArgs }: HogFunctionQueueParametersFetchRequest =
                                     this.hogExecutor.redactFetchRequest(
                                         invocation.queueParameters as HogFunctionQueueParametersFetchRequest
                                     )
@@ -216,7 +245,7 @@ export class CdpApi {
                                         {
                                             level: 'info',
                                             timestamp: DateTime.now(),
-                                            message: `fetch(${JSON.stringify(fetchArgs, null, 2)})`,
+                                            message: `fetch('${fetchUrl}', ${JSON.stringify(fetchArgs, null, 2)})`,
                                         },
                                     ],
                                 }
@@ -233,19 +262,33 @@ export class CdpApi {
                         if (response.error) {
                             errors.push(response.error)
                         }
+
+                        await this.hogFunctionMonitoringService.processInvocationResults([response])
                     }
                 }
             } else if (compoundConfiguration.type === 'transformation') {
                 // NOTE: We override the ID so that the transformer doesn't cache the result
                 // TODO: We could do this with a "special" ID to indicate no caching...
                 compoundConfiguration.id = new UUIDT().toString()
-                const response = await this.hogTransformer.executeHogFunction(compoundConfiguration, triggerGlobals)
-                logs = logs.concat(response.logs)
-                result = response.execResult ?? null
-
-                if (response.error) {
-                    errors.push(response.error)
+                const pluginEvent: PluginEvent = {
+                    ...triggerGlobals.event,
+                    ip: triggerGlobals.event.properties.$ip,
+                    site_url: triggerGlobals.project.url,
+                    team_id: triggerGlobals.project.id,
+                    now: '',
                 }
+                const response = await this.hogTransformer.transformEvent(pluginEvent, [compoundConfiguration])
+
+                result = response.event
+
+                for (const invocationResult of response.invocationResults) {
+                    logs = logs.concat(invocationResult.logs)
+                    if (invocationResult.error) {
+                        errors.push(invocationResult.error)
+                    }
+                }
+            } else {
+                return res.status(400).json({ error: 'Invalid function type' })
             }
 
             res.json({
@@ -257,6 +300,8 @@ export class CdpApi {
         } catch (e) {
             console.error(e)
             res.status(500).json({ errors: [e.message] })
+        } finally {
+            await this.hogFunctionMonitoringService.produceQueuedMessages()
         }
     }
 }

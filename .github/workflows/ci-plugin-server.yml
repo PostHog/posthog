@@ -24,7 +24,7 @@ jobs:
     # Job to decide if we should run plugin server ci
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
     changes:
-        runs-on: ubuntu-24.04
+        runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 5
         name: Determine need to run plugin server checks
         outputs:
@@ -53,10 +53,7 @@ jobs:
         name: Code quality
         needs: changes
         if: needs.changes.outputs.plugin-server == 'true'
-        runs-on: ubuntu-24.04
-        defaults:
-            run:
-                working-directory: 'plugin-server'
+        runs-on: depot-ubuntu-24.04-4
         steps:
             - uses: actions/checkout@v3
 
@@ -70,23 +67,25 @@ jobs:
                   cache: pnpm
 
             - name: Install package.json dependencies with pnpm
-              run: pnpm install --frozen-lockfile
+              run: |
+                  pnpm --filter=@posthog/plugin-server... install --frozen-lockfile
+                  bin/turbo --filter=@posthog/plugin-server prepare
 
             - name: Check formatting with prettier
-              run: pnpm prettier:check
+              run: pnpm --filter=@posthog/plugin-server prettier:check
 
             - name: Lint with ESLint
-              run: pnpm lint
+              run: pnpm --filter=@posthog/plugin-server lint
 
     tests:
-        name: Plugin Server Tests (${{matrix.shard}})
+        name: Plugin Server Tests (${{matrix.shard}}/3)
         needs: changes
-        runs-on: ubuntu-24.04
+        runs-on: depot-ubuntu-24.04-4
 
         strategy:
             fail-fast: false
             matrix:
-                shard: [1/3, 2/3, 3/3]
+                shard: [1, 2, 3]
 
         env:
             REDIS_URL: 'redis://localhost'
@@ -106,9 +105,9 @@ jobs:
                   docker compose -f docker-compose.dev.yml down
                   docker compose -f docker-compose.dev.yml up -d
 
-            - name: Add Kafka to /etc/hosts
+            - name: Add Kafka and ClickHouse to /etc/hosts
               if: needs.changes.outputs.plugin-server == 'true'
-              run: echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
+              run: echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
 
             - name: Set up Python
               if: needs.changes.outputs.plugin-server == 'true'
@@ -161,11 +160,16 @@ jobs:
               with:
                   node-version: 18.12.1
                   cache: pnpm
-                  cache-dependency-path: plugin-server/pnpm-lock.yaml
+                  cache-dependency-path: pnpm-lock.yaml
+
+            - name: Download MaxMind Database
+              if: needs.changes.outputs.plugin-server == 'true'
+              run: |
+                  ./bin/download-mmdb
 
             - name: Install package.json dependencies with pnpm
               if: needs.changes.outputs.plugin-server == 'true'
-              run: cd plugin-server && pnpm i
+              run: pnpm --filter=@posthog/plugin-server... install --frozen-lockfile
 
             - name: Wait for Clickhouse, Redis & Kafka
               if: needs.changes.outputs.plugin-server == 'true'
@@ -179,7 +183,7 @@ jobs:
                   TEST: 'true'
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
-              run: cd plugin-server && pnpm setup:test
+              run: pnpm --filter=@posthog/plugin-server setup:test
 
             - name: Test with Jest
               if: needs.changes.outputs.plugin-server == 'true'
@@ -188,12 +192,14 @@ jobs:
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'
                   REDIS_URL: 'redis://localhost'
                   NODE_OPTIONS: '--max_old_space_size=4096'
-              run: cd plugin-server && pnpm test -- --runInBand --forceExit --shard=${{matrix.shard}}
+                  SHARD_INDEX: ${{ matrix.shard }}
+                  SHARD_COUNT: 3
+              run: bin/turbo run test --filter=@posthog/plugin-server
 
     functional-tests:
         name: Functional tests
         needs: changes
-        runs-on: ubuntu-24.04
+        runs-on: depot-ubuntu-24.04-4
 
         env:
             REDIS_URL: 'redis://localhost'
@@ -215,9 +221,9 @@ jobs:
                   docker compose -f docker-compose.dev.yml down
                   docker compose -f docker-compose.dev.yml up -d
 
-            - name: Add Kafka to /etc/hosts
+            - name: Add Kafka and ClickHouse to /etc/hosts
               if: needs.changes.outputs.plugin-server == 'true'
-              run: echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
+              run: echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
 
             - name: Set up Python
               if: needs.changes.outputs.plugin-server == 'true'
@@ -253,14 +259,13 @@ jobs:
               with:
                   node-version: 18.12.1
                   cache: pnpm
-                  cache-dependency-path: plugin-server/pnpm-lock.yaml
+                  cache-dependency-path: pnpm-lock.yaml
 
             - name: Install package.json dependencies with pnpm
               if: needs.changes.outputs.plugin-server == 'true'
               run: |
-                  cd plugin-server
-                  pnpm install --frozen-lockfile
-                  pnpm build
+                  pnpm --filter=@posthog/plugin-server... install --frozen-lockfile 
+                  bin/turbo --filter=@posthog/plugin-server build
 
             - name: Wait for Clickhouse, Redis & Kafka
               if: needs.changes.outputs.plugin-server == 'true'

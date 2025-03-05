@@ -10,6 +10,7 @@ use crate::{
     error::{Error, FrameError, JsResolveErr, UnhandledError},
     frames::{Context, ContextLine, Frame},
     metric_consts::{FRAME_NOT_RESOLVED, FRAME_RESOLVED},
+    sanitize_string,
     symbol_store::{sourcemap::OwnedSourceMapCache, SymbolCatalog},
 };
 
@@ -149,7 +150,7 @@ impl From<(&RawJSFrame, SourceLocation<'_>)> for Frame {
         metrics::counter!(FRAME_RESOLVED, "lang" => "javascript").increment(1);
 
         let resolved_name = match token.scope() {
-            ScopeLookupResult::NamedScope(name) => Some(name.to_string()),
+            ScopeLookupResult::NamedScope(name) => Some(sanitize_string(name.to_string())),
             ScopeLookupResult::AnonymousScope => Some("<anonymous>".to_string()),
             ScopeLookupResult::Unknown => None,
         };
@@ -165,7 +166,10 @@ impl From<(&RawJSFrame, SourceLocation<'_>)> for Frame {
             mangled_name: raw_frame.fn_name.clone(),
             line: Some(token.line()),
             column: Some(token.column()),
-            source: token.file().and_then(|f| f.name()).map(|s| s.to_string()),
+            source: token
+                .file()
+                .and_then(|f| f.name())
+                .map(|s| sanitize_string(s.to_string())),
             in_app,
             resolved_name,
             lang: "javascript".to_string(),

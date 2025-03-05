@@ -3,19 +3,25 @@ import { useActions, useValues } from 'kea'
 import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { useMemo, useState } from 'react'
-import { WEB_VITALS_COLORS, WEB_VITALS_THRESHOLDS, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
+import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import {
     AnyResponseType,
     WebVitalsMetricBand,
     WebVitalsPathBreakdownQuery,
     WebVitalsPathBreakdownQueryResponse,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { PropertyFilterType } from '~/types'
 
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
-import { computePositionInBand, getValueWithUnit, ICON_PER_BAND } from './definitions'
+import {
+    computePositionInBand,
+    getValueWithUnit,
+    ICON_PER_BAND,
+    WEB_VITALS_COLORS,
+    WEB_VITALS_THRESHOLDS,
+} from './definitions'
 
 let uniqueNode = 0
 export function WebVitalsPathBreakdown(props: {
@@ -41,7 +47,7 @@ export function WebVitalsPathBreakdown(props: {
     const webVitalsQueryResponse = response as WebVitalsPathBreakdownQueryResponse | undefined
 
     return (
-        <div className="border rounded bg-bg-muted grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x min-h-60 h-full">
+        <div className="border rounded bg-surface-primary grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x min-h-60 h-full">
             <div className="p-4">
                 <Header band="good" label="Good" />
                 <Content band="good" response={webVitalsQueryResponse} responseLoading={responseLoading} />
@@ -107,11 +113,11 @@ const Header = ({ band, label }: { band: WebVitalsMetricBand; label: string }): 
     return (
         <div className="flex flex-row justify-between">
             {/* eslint-disable-next-line react/forbid-dom-props */}
-            <span className="flex flex-row gap-1 items-center" style={{ color: WEB_VITALS_COLORS[band] }}>
-                <Icon />
+            <span className="flex flex-row gap-1 items-center font-semibold" style={{ color: WEB_VITALS_COLORS[band] }}>
+                <Icon className="w-6 h-6" />
                 {label}
             </span>
-            <span className="text-sm text-muted">{thresholdText}</span>
+            <span className="text-sm text-secondary">{thresholdText}</span>
         </div>
     )
 }
@@ -135,7 +141,6 @@ const Content = ({
     const { togglePropertyFilter } = useActions(webAnalyticsLogic)
 
     const values = response?.results[0][band]
-    const threshold = WEB_VITALS_THRESHOLDS[webVitalsTab]
 
     const loadedValues = values != null
     const hasNoValues = values?.length === 0
@@ -147,7 +152,7 @@ const Content = ({
                     <LemonSkeleton fade className={clsx('w-full', SKELETON_HEIGHT[band])} />
                 ) : values?.length ? (
                     values?.map(({ path, value }) => {
-                        const width = computePositionInBand(value, threshold) * 100
+                        const width = computePositionInBand(value, webVitalsTab) * 100
 
                         const { value: parsedValue, unit } = getValueWithUnit(value, webVitalsTab)
 
@@ -157,9 +162,9 @@ const Content = ({
                                 key={path}
                             >
                                 <div
-                                    className="absolute top-0 left-0 h-full"
+                                    className="absolute top-0 left-0 h-full opacity-80 bg-surface-secondary"
                                     // eslint-disable-next-line react/forbid-dom-props
-                                    style={{ width, backgroundColor: 'var(--muted)', opacity: 0.5 }}
+                                    style={{ width }}
                                 />
                                 <span
                                     title={path}
@@ -180,7 +185,7 @@ const Content = ({
                 ) : (
                     <div className="text-center">
                         <span>{band === 'good' ? '😿' : '🚀'}</span>
-                        <span className="text-muted">No scores in this band</span>
+                        <span className="text-secondary">No scores in this band</span>
                     </div>
                 )}
             </div>

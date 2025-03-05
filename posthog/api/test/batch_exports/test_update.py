@@ -19,7 +19,6 @@ from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
 from posthog.batch_exports.service import sync_batch_export
 from posthog.models import BatchExport, BatchExportDestination
-from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.codec import EncryptionCodec
 
 pytestmark = [
@@ -27,9 +26,7 @@ pytestmark = [
 ]
 
 
-def test_can_put_config(client: HttpClient):
-    temporal = sync_connect()
-
+def test_can_put_config(client: HttpClient, temporal):
     destination_data = {
         "type": "S3",
         "config": {
@@ -108,9 +105,7 @@ def test_can_put_config(client: HttpClient):
     "timezone",
     ["US/Pacific", "UTC", "Europe/Berlin", "Asia/Tokyo", "Pacific/Marquesas", "Asia/Katmandu"],
 )
-def test_can_patch_config(client: HttpClient, interval, timezone):
-    temporal = sync_connect()
-
+def test_can_patch_config(client: HttpClient, interval, timezone, temporal):
     destination_data = {
         "type": "S3",
         "config": {
@@ -178,9 +173,7 @@ def test_can_patch_config(client: HttpClient, interval, timezone):
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("interval", ["hour", "day"])
-def test_can_patch_config_with_invalid_old_values(client: HttpClient, interval):
-    temporal = sync_connect()
-
+def test_can_patch_config_with_invalid_old_values(client: HttpClient, interval, temporal):
     destination_data = {
         "type": "S3",
         "config": {
@@ -248,10 +241,8 @@ def test_can_patch_config_with_invalid_old_values(client: HttpClient, interval):
         assert args.get("invalid_key", None) is None
 
 
-def test_can_patch_hogql_query(client: HttpClient):
+def test_can_patch_hogql_query(client: HttpClient, temporal):
     """Test we can patch a schema with a HogQL query."""
-    temporal = sync_connect()
-
     destination_data = {
         "type": "S3",
         "config": {
@@ -344,9 +335,7 @@ def test_can_patch_hogql_query(client: HttpClient):
         }
 
 
-def test_patch_returns_error_on_unsupported_hogql_query(client: HttpClient):
-    temporal = sync_connect()
-
+def test_patch_returns_error_on_unsupported_hogql_query(client: HttpClient, temporal):
     destination_data = {
         "type": "S3",
         "config": {
@@ -387,10 +376,8 @@ def test_patch_returns_error_on_unsupported_hogql_query(client: HttpClient):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
 
-def test_can_patch_snowflake_batch_export_credentials(client: HttpClient):
+def test_can_patch_snowflake_batch_export_credentials(client: HttpClient, temporal):
     """Test we can switch Snowflake authentication types while preserving credentials."""
-    temporal = sync_connect()
-
     destination_data = {
         "type": "Snowflake",
         "config": {
@@ -469,10 +456,8 @@ def test_can_patch_snowflake_batch_export_credentials(client: HttpClient):
         assert "password" not in batch_export["destination"]["config"]  # Password should be hidden in response
 
 
-def test_switching_snowflake_auth_type_to_keypair_requires_private_key(client: HttpClient):
+def test_switching_snowflake_auth_type_to_keypair_requires_private_key(client: HttpClient, temporal):
     """Test that switching to keypair authentication requires a private key to be provided."""
-    temporal = sync_connect()
-
     destination_data = {
         "type": "Snowflake",
         "config": {

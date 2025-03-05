@@ -13,4 +13,5 @@ export const urls = {
         const stringifiedParams = queryParams.toString()
         return `/llm-observability/traces/${id}${stringifiedParams ? `?${stringifiedParams}` : ''}`
     },
+    llmObservabilityUsers: (): string => '/llm-observability/users',
 }

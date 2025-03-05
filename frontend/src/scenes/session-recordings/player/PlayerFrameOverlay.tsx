@@ -19,10 +19,10 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
 
     if (currentPlayerState === SessionPlayerState.ERROR) {
         content = (
-            <div className="flex flex-col justify-center items-center p-6 bg-bg-light rounded m-6 gap-2 max-w-120 shadow">
+            <div className="flex flex-col justify-center items-center p-6 bg-surface-primary rounded m-6 gap-2 max-w-120 shadow">
                 <IconErrorOutline className="text-danger text-5xl" />
                 <div className="font-bold text-text-3000 text-lg">We're unable to play this recording</div>
-                <div className="text-muted text-sm text-center">
+                <div className="text-secondary text-sm text-center">
                     An error occurred that is preventing this recording from being played. You can refresh the page to
                     reload the recording.
                 </div>
@@ -66,7 +66,7 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
     return content ? (
         <div
             className={clsx(
-                'PlayerFrameOverlay__content',
+                'PlayerFrameOverlay__content absolute inset-0 z-1 flex items-center justify-center bg-black/15 opacity-80 transition-opacity duration-100 hover:opacity-100',
                 pausedState && !isInExportContext && 'PlayerFrameOverlay__content--only-hover'
             )}
             aria-busy={currentPlayerState === SessionPlayerState.BUFFER}
@@ -80,7 +80,7 @@ export function PlayerFrameOverlay(): JSX.Element {
     const { togglePlayPause } = useActions(sessionRecordingPlayerLogic)
 
     return (
-        <div className="PlayerFrameOverlay" onClick={togglePlayPause}>
+        <div className="PlayerFrameOverlay absolute inset-0 z-10" onClick={togglePlayPause}>
             <PlayerFrameOverlayContent />
         </div>
     )

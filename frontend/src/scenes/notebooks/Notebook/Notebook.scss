@@ -117,12 +117,12 @@
 
         .Backlink {
             padding: 0.125rem 0.25rem;
-            background-color: var(--bg-light);
-            border: 1px solid var(--border);
+            background-color: var(--bg-surface-primary);
+            border: 1px solid var(--border-primary);
             border-radius: var(--radius);
 
             &:hover {
-                background-color: var(--bg-3000);
+                background-color: var(--bg-primary);
             }
 
             & svg {

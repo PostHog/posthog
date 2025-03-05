@@ -13,7 +13,7 @@
      LIMIT 100) ARRAY
   JOIN (kv).1 AS key,
        (kv).2 AS value
-  WHERE not(match(key, '(\\$set|\\$time|\\$set_once|\\$sent_at|\\$ip|\\$feature\\/|__|phjs|survey_dismissed|survey_responded|partial_filter_chosen|changed_action|window-id|changed_event|partial_filter)'))
+  WHERE not(match(key, '(\\$set|\\$time|\\$set_once|\\$sent_at|distinct_id|\\$ip|\\$feature\\/|__|phjs|survey_dismissed|survey_responded|partial_filter_chosen|changed_action|window-id|changed_event|partial_filter|distinct_id)'))
   GROUP BY key
   ORDER BY total_count DESC
   LIMIT 500 SETTINGS readonly=2,

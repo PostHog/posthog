@@ -5,7 +5,7 @@ from freezegun import freeze_time
 
 
 from ee.clickhouse.queries.enterprise_cohort_query import check_negation_clause
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.constants import PropertyOperatorType
 from posthog.hogql_queries.hogql_cohort_query import TestWrapperCohortQuery as CohortQuery
 from posthog.models import Team
@@ -14,6 +14,7 @@ from posthog.models.cohort import Cohort
 from posthog.models.filters.filter import Filter
 from posthog.models.property import Property, PropertyGroup
 
+from posthog.models.property_definition import PropertyDefinition
 from posthog.test.base import (
     BaseTest,
     ClickhouseTestMixin,
@@ -60,6 +61,7 @@ def execute(filter: Filter, team: Team):
     q, params = cohort_query.get_query()
     res = sync_execute(q, {**params, **filter.hogql_context.values})
     unittest.TestCase().assertCountEqual(res, cohort_query.hogql_result.results)
+    assert ["id"] == cohort_query.hogql_result.columns
     return res, q, params
 
 
@@ -3364,3 +3366,137 @@ class TestCohortNegationValidation(BaseTest):
         has_pending_neg, has_reg = check_negation_clause(property_group)
         self.assertEqual(has_pending_neg, False)
         self.assertEqual(has_reg, True)
+
+    def test_type_misalignment(self):
+        PropertyDefinition.objects.create(
+            team=self.team,
+            name="createdDate",
+            property_type="DateTime",
+            type=PropertyDefinition.Type.PERSON,
+        )
+
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["p3"],
+            properties={"name": "test2", "email": "test@posthog.com", "createdDate": "2022-10-11"},
+        )
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="cohort",
+            is_static=False,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {
+                                    "key": "createdDate",
+                                    "type": "person",
+                                    "value": "2022",
+                                    "negation": False,
+                                    "operator": "icontains",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"key": "id", "value": cohort.pk, "type": "cohort"}],
+                }
+            },
+            team=self.team,
+        )
+
+        res, q, params = execute(filter, self.team)
+        assert 1 == len(res)
+
+    def test_project_properties(self):
+        PropertyDefinition.objects.create(
+            team=self.team,
+            name="bool_key",
+            property_type="Boolean",
+            type=PropertyDefinition.Type.EVENT,
+        )
+
+        other_team = Team.objects.create(organization=self.organization, project=self.project)
+
+        action = Action.objects.create(
+            team=self.team,
+            name="action",
+            steps_json=[
+                {
+                    "event": "$pageview",
+                    "properties": [
+                        {
+                            "key": "bool_key",
+                            "operator": "exact",
+                            "value": ["true"],
+                            "type": "event",
+                        }
+                    ],
+                }
+            ],
+        )
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="cohort",
+            is_static=False,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {
+                                    "key": action.pk,
+                                    "type": "behavioral",
+                                    "value": "performed_event",
+                                    "negation": False,
+                                    "event_type": "actions",
+                                    "time_value": "30",
+                                    "time_interval": "day",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+
+        filter_data = {
+            "properties": {
+                "type": "OR",
+                "values": [{"key": "id", "value": cohort.pk, "type": "cohort"}],
+            }
+        }
+
+        cohort_query1 = CohortQuery(
+            filter=Filter(
+                data=filter_data,
+                team=self.team,
+            ),
+            team=self.team,
+        )
+        cohort_query2 = CohortQuery(
+            filter=Filter(
+                data=filter_data,
+                team=other_team,
+            ),
+            team=other_team,
+        )
+
+        assert (
+            cohort_query1.clickhouse_query.replace(f"team_id, {self.team.pk}", f"team_id, {str(other_team.pk)}")
+            == cohort_query2.clickhouse_query
+        )

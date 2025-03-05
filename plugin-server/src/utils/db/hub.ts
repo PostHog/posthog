@@ -9,27 +9,21 @@ import { ConnectionOptions } from 'tls'
 
 import { getPluginServerCapabilities } from '../../capabilities'
 import { EncryptedFields } from '../../cdp/encryption-utils'
-import { buildIntegerMatcher, createCookielessConfig, defaultConfig } from '../../config/config'
+import { buildIntegerMatcher, defaultConfig } from '../../config/config'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from '../../config/constants'
-import { KAFKA_JOBS } from '../../config/kafka-topics'
+import { CookielessManager } from '../../ingestion/cookieless/cookieless-manager'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { getObjectStorage } from '../../main/services/object_storage'
-import {
-    EnqueuedPluginJob,
-    Hub,
-    KafkaSecurityProtocol,
-    PluginServerCapabilities,
-    PluginsServerConfig,
-} from '../../types'
+import { Hub, KafkaSecurityProtocol, PluginServerCapabilities, PluginsServerConfig } from '../../types'
 import { ActionManager } from '../../worker/ingestion/action-manager'
 import { ActionMatcher } from '../../worker/ingestion/action-matcher'
 import { AppMetrics } from '../../worker/ingestion/app-metrics'
-import { CookielessSaltManager } from '../../worker/ingestion/event-pipeline/cookielessServerHashStep'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
 import { OrganizationManager } from '../../worker/ingestion/organization-manager'
 import { TeamManager } from '../../worker/ingestion/team-manager'
 import { RustyHook } from '../../worker/rusty-hook'
 import { isTestEnv } from '../env-utils'
+import { GeoIPService } from '../geoip'
 import { status } from '../status'
 import { UUIDT } from '../utils'
 import { PluginsApiKeyManager } from './../../worker/vm/extensions/helpers/api-key-manager'
@@ -132,36 +126,17 @@ export async function createHub(
         serverConfig.PLUGINS_DEFAULT_LOG_LEVEL,
         serverConfig.PERSON_INFO_CACHE_TTL
     )
-    const teamManager = new TeamManager(postgres, serverConfig)
+    const teamManager = new TeamManager(postgres)
     const organizationManager = new OrganizationManager(postgres, teamManager)
     const pluginsApiKeyManager = new PluginsApiKeyManager(db)
     const rootAccessManager = new RootAccessManager(db)
     const rustyHook = new RustyHook(serverConfig)
 
     const actionManager = new ActionManager(postgres, serverConfig)
-    const actionMatcher = new ActionMatcher(postgres, actionManager, teamManager)
+    const actionMatcher = new ActionMatcher(postgres, actionManager)
     const groupTypeManager = new GroupTypeManager(postgres, teamManager)
 
-    const cookielessConfig = createCookielessConfig(serverConfig)
-    const cookielessSaltManager = new CookielessSaltManager(db, cookielessConfig)
-
-    const enqueuePluginJob = async (job: EnqueuedPluginJob) => {
-        // NOTE: we use the producer directly here rather than using the wrapper
-        // such that we can a response immediately on error, and thus bubble up
-        // any errors in producing. It's important that we ensure that we have
-        // an acknowledgement as for instance there are some jobs that are
-        // chained, and if we do not manage to produce then the chain will be
-        // broken.
-        await kafkaProducer.queueMessages({
-            topic: KAFKA_JOBS,
-            messages: [
-                {
-                    value: Buffer.from(JSON.stringify(job)),
-                    key: Buffer.from(job.pluginConfigTeam.toString()),
-                },
-            ],
-        })
-    }
+    const cookielessManager = new CookielessManager(serverConfig, redisPool, teamManager)
 
     const hub: Hub = {
         ...serverConfig,
@@ -173,7 +148,6 @@ export async function createHub(
         clickhouse,
         kafka,
         kafkaProducer,
-        enqueuePluginJob,
         objectStorage: objectStorage,
         groupTypeManager,
 
@@ -191,6 +165,7 @@ export async function createHub(
         rustyHook,
         actionMatcher,
         actionManager,
+        geoipService: new GeoIPService(serverConfig),
         pluginConfigsToSkipElementsParsing: buildIntegerMatcher(process.env.SKIP_ELEMENTS_PARSING_PLUGINS, true),
         eventsToDropByToken: createEventsToDropByToken(process.env.DROP_EVENTS_BY_TOKEN_DISTINCT_ID),
         eventsToSkipPersonsProcessingByToken: createEventsToDropByToken(
@@ -203,8 +178,7 @@ export async function createHub(
         ),
         encryptedFields: new EncryptedFields(serverConfig),
         celery: new Celery(serverConfig),
-        cookielessConfig,
-        cookielessSaltManager,
+        cookielessManager,
     }
 
     return hub as Hub
@@ -216,7 +190,7 @@ export const closeHub = async (hub: Hub): Promise<void> => {
     }
     await Promise.allSettled([hub.kafkaProducer.disconnect(), hub.redisPool.drain(), hub.postgres?.end()])
     await hub.redisPool.clear()
-    hub.cookielessSaltManager.shutdown()
+    hub.cookielessManager.shutdown()
 
     if (isTestEnv()) {
         // Break circular references to allow the hub to be GCed when running unit tests

@@ -17,9 +17,10 @@ export const OnboardingStep = ({
     showSkip = false,
     showHelpButton = false,
     onSkip,
-    continueAction,
+    onContinue,
     continueText,
     continueOverride,
+    continueDisabledReason,
     hideHeader,
     breadcrumbHighlightName,
     fullWidth = false,
@@ -31,9 +32,10 @@ export const OnboardingStep = ({
     showSkip?: boolean
     showHelpButton?: boolean
     onSkip?: () => void
-    continueAction?: () => void
+    onContinue?: () => void
     continueText?: string
     continueOverride?: JSX.Element
+    continueDisabledReason?: string
     hideHeader?: boolean
     breadcrumbHighlightName?: OnboardingStepKey
     fullWidth?: boolean
@@ -51,7 +53,7 @@ export const OnboardingStep = ({
     return (
         <>
             <div className="pb-2">
-                <div className={`text-muted max-w-screen-md mx-auto ${hideHeader && 'hidden'}`}>
+                <div className={`text-secondary max-w-screen-md mx-auto ${hideHeader && 'hidden'}`}>
                     <div
                         className="flex items-center justify-start gap-x-3 px-2 shrink-0 w-full"
                         data-attr="onboarding-breadcrumbs"
@@ -132,7 +134,7 @@ export const OnboardingStep = ({
                             status="alt"
                             data-attr="onboarding-continue"
                             onClick={() => {
-                                continueAction && continueAction()
+                                onContinue?.()
                                 !hasNextStep
                                     ? completeOnboarding(
                                           undefined,
@@ -143,6 +145,7 @@ export const OnboardingStep = ({
                                     : goToNextStep()
                             }}
                             sideIcon={hasNextStep ? <IconArrowRight /> : null}
+                            disabledReason={continueDisabledReason}
                         >
                             {continueText ? continueText : !hasNextStep ? 'Finish' : 'Next'}
                         </LemonButton>

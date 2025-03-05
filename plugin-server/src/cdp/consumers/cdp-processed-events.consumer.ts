@@ -5,11 +5,10 @@ import { Hub, RawClickHouseEvent } from '~/src/types'
 
 import {
     convertToHogFunctionInvocationGlobals,
-    fixLogDeduplication,
     isLegacyPluginHogFunction,
     serializeHogFunctionInvocation,
 } from '../../cdp/utils'
-import { KAFKA_EVENTS_JSON, KAFKA_LOG_ENTRIES } from '../../config/kafka-topics'
+import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
 import { runInstrumentedFunction } from '../../main/utils'
 import { status } from '../../utils/status'
 import { HogWatcherState } from '../services/hog-watcher.service'
@@ -55,7 +54,7 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
             throw e
         }
 
-        await this.produceQueuedMessages()
+        await this.hogFunctionMonitoringService.produceQueuedMessages()
 
         return invocationsToBeQueued
     }
@@ -77,17 +76,8 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
                     await this.runManyWithHeartbeat(invocationGlobals, (globals) => {
                         const { invocations, metrics, logs } = this.hogExecutor.findHogFunctionInvocations(globals)
 
-                        metrics.forEach((metric) => {
-                            this.produceAppMetric(metric)
-                        })
-
-                        fixLogDeduplication(logs).forEach((logEntry) => {
-                            this.messagesToProduce.push({
-                                topic: KAFKA_LOG_ENTRIES,
-                                value: logEntry,
-                                key: logEntry.instance_id,
-                            })
-                        })
+                        this.hogFunctionMonitoringService.produceAppMetrics(metrics)
+                        this.hogFunctionMonitoringService.produceLogs(logs)
 
                         return invocations
                     })
@@ -100,7 +90,7 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
                 possibleInvocations.forEach((item) => {
                     const state = states[item.hogFunction.id].state
                     if (state >= HogWatcherState.disabledForPeriod) {
-                        this.produceAppMetric({
+                        this.hogFunctionMonitoringService.produceAppMetric({
                             team_id: item.globals.project.id,
                             app_source_id: item.hogFunction.id,
                             metric_kind: 'failure',
@@ -125,15 +115,15 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
                     validInvocations
                 )
 
-                masked.forEach((item) => {
-                    this.produceAppMetric({
+                this.hogFunctionMonitoringService.produceAppMetrics(
+                    masked.map((item) => ({
                         team_id: item.globals.project.id,
                         app_source_id: item.hogFunction.id,
                         metric_kind: 'other',
                         metric_name: 'masked',
                         count: 1,
-                    })
-                })
+                    }))
+                )
 
                 return notMaskedInvocations
             },

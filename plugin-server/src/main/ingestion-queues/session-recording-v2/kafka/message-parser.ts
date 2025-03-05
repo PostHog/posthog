@@ -1,3 +1,4 @@
+import { DateTime } from 'luxon'
 import { promisify } from 'node:util'
 import { Message } from 'node-rdkafka'
 import { gunzip } from 'zlib'
@@ -9,6 +10,42 @@ import { ParsedMessageData } from './types'
 
 const GZIP_HEADER = Uint8Array.from([0x1f, 0x8b, 0x08, 0x00])
 const decompressWithGzip = promisify(gunzip)
+
+function getValidEvents(events: RRWebEvent[]): {
+    validEvents: RRWebEvent[]
+    startDateTime: DateTime
+    endDateTime: DateTime
+} | null {
+    const eventsWithDates = events
+        .filter((event) => (event?.timestamp || -1) > 0)
+        .map((event) => ({
+            event,
+            dateTime: DateTime.fromMillis(event.timestamp),
+        }))
+
+    const validEventsAndDates = eventsWithDates.filter(({ dateTime }) => dateTime.isValid)
+
+    if (!validEventsAndDates.length) {
+        return null
+    }
+
+    let startDateTime = validEventsAndDates[0].dateTime
+    let endDateTime = validEventsAndDates[0].dateTime
+    for (const { dateTime } of validEventsAndDates) {
+        if (dateTime < startDateTime) {
+            startDateTime = dateTime
+        }
+        if (dateTime > endDateTime) {
+            endDateTime = dateTime
+        }
+    }
+
+    return {
+        validEvents: validEventsAndDates.map(({ event }) => event),
+        startDateTime,
+        endDateTime,
+    }
+}
 
 export class KafkaMessageParser {
     public async parseBatch(messages: Message[]): Promise<ParsedMessageData[]> {
@@ -60,15 +97,11 @@ export class KafkaMessageParser {
             return dropMessage('received_non_snapshot_message')
         }
 
-        const events: RRWebEvent[] = $snapshot_items.filter((event: any) => event && event.timestamp > 0)
-
-        if (!events.length) {
+        const result = getValidEvents($snapshot_items)
+        if (!result) {
             return dropMessage('message_contained_no_valid_rrweb_events')
         }
-
-        const timestamps = events.map((event) => event.timestamp)
-        const minTimestamp = Math.min(...timestamps)
-        const maxTimestamp = Math.max(...timestamps)
+        const { validEvents, startDateTime, endDateTime } = result
 
         return {
             metadata: {
@@ -82,11 +115,11 @@ export class KafkaMessageParser {
             distinct_id: messagePayload.distinct_id,
             session_id: $session_id,
             eventsByWindowId: {
-                [$window_id ?? '']: events,
+                [$window_id ?? '']: validEvents,
             },
             eventsRange: {
-                start: minTimestamp,
-                end: maxTimestamp,
+                start: startDateTime,
+                end: endDateTime,
             },
             snapshot_source: $snapshot_source,
         }

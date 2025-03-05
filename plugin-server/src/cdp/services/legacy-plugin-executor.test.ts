@@ -9,10 +9,12 @@ import {
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
-import { Hub, Team } from '../../types'
+import { createPlugin, createPluginConfig } from '../../../tests/helpers/sql'
+import { Hub, PluginConfig, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
 import { DESTINATION_PLUGINS_BY_ID, TRANSFORMATION_PLUGINS_BY_ID } from '../legacy-plugins'
-import { HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'
+import { LegacyDestinationPlugin, LegacyTransformationPlugin } from '../legacy-plugins/types'
+import { HogFunctionInvocation, HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'
 import { LegacyPluginExecutorService } from './legacy-plugin-executor.service'
 
 jest.setTimeout(1000)
@@ -27,8 +29,9 @@ describe('LegacyPluginExecutorService', () => {
     let globals: HogFunctionInvocationGlobalsWithInputs
     let fn: HogFunctionType
     let mockFetch: jest.Mock
+    let pluginConfig: PluginConfig
 
-    const customerIoPlugin = DESTINATION_PLUGINS_BY_ID['customerio-plugin']
+    const customerIoPlugin = DESTINATION_PLUGINS_BY_ID['plugin-customerio-plugin']
 
     beforeEach(async () => {
         hub = await createHub()
@@ -38,11 +41,30 @@ describe('LegacyPluginExecutorService', () => {
 
         fn = createHogFunction({
             name: 'Plugin test',
-            template_id: `plugin-${customerIoPlugin.id}`,
+            template_id: customerIoPlugin.template.id,
+            team_id: team.id,
         })
 
         const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
         jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
+
+        const plugin = await createPlugin(hub.postgres, {
+            organization_id: team.organization_id,
+            name: 'first-time-event-tracker',
+            plugin_type: 'source',
+            is_global: false,
+            source__index_ts: `
+            export async function processEvent(event) {
+                return event
+            }
+        `,
+        })
+        pluginConfig = await createPluginConfig(hub.postgres, {
+            id: 10001,
+            name: 'first-time-event-tracker',
+            team_id: team.id,
+            plugin_id: plugin.id,
+        } as any)
 
         mockFetch = jest.fn(() =>
             Promise.resolve({
@@ -78,6 +100,7 @@ describe('LegacyPluginExecutorService', () => {
                 customerioSiteId: '1234567890',
                 customerioToken: 'cio-token',
                 email: 'test@posthog.com',
+                legacy_plugin_config_id: pluginConfig.id,
             },
         }
     })
@@ -149,6 +172,9 @@ describe('LegacyPluginExecutorService', () => {
 
             const res = await service.execute(invocation)
 
+            expect(res.finished).toBe(true)
+            expect(res.error).toBeUndefined()
+
             expect(customerIoPlugin.onEvent).toHaveBeenCalledTimes(1)
             expect(forSnapshot(jest.mocked(customerIoPlugin.onEvent!).mock.calls[0][0])).toMatchInlineSnapshot(`
                 {
@@ -160,13 +186,13 @@ describe('LegacyPluginExecutorService', () => {
                       "email": "test@posthog.com",
                       "first_name": "Pumpkin",
                     },
-                    "team_id": 1,
+                    "team_id": 2,
                     "uuid": "uuid",
                   },
                   "properties": {
                     "email": "test@posthog.com",
                   },
-                  "team_id": 1,
+                  "team_id": 2,
                   "timestamp": "2025-01-01T00:00:00.000Z",
                   "uuid": "<REPLACED-UUID-0>",
                 }
@@ -189,7 +215,7 @@ describe('LegacyPluginExecutorService', () => {
                   [
                     "https://track.customer.io/api/v1/customers/distinct_id",
                     {
-                      "body": "{"identifier":"distinct_id","email":"test@posthog.com"}",
+                      "body": "{"_update":false,"identifier":"distinct_id","email":"test@posthog.com"}",
                       "headers": {
                         "Authorization": "Basic MTIzNDU2Nzg5MDpjaW8tdG9rZW4=",
                         "Content-Type": "application/json",
@@ -216,12 +242,10 @@ describe('LegacyPluginExecutorService', () => {
             expect(res.finished).toBe(true)
             expect(res.logs.map((l) => l.message)).toMatchInlineSnapshot(`
                 [
-                  "Executing plugin customerio-plugin",
                   "Successfully authenticated with Customer.io. Completing setupPlugin.",
-                  "Detected email:, test@posthog.com",
-                  "{"status":{},"email":"test@posthog.com"}",
-                  "Should customer be tracked:, true",
-                  "Execution successful",
+                  "Detected email, test@posthog.com",
+                  "{"status":{},"existsAlready":false,"email":"test@posthog.com"}",
+                  "true",
                 ]
             `)
         })
@@ -245,13 +269,12 @@ describe('LegacyPluginExecutorService', () => {
 
             expect(forSnapshot(res.logs.map((l) => l.message))).toMatchInlineSnapshot(`
                 [
-                  "Executing plugin customerio-plugin",
                   "Successfully authenticated with Customer.io. Completing setupPlugin.",
-                  "Detected email:, test@posthog.com",
-                  "{"status":{},"email":"test@posthog.com"}",
-                  "Should customer be tracked:, true",
+                  "Detected email, test@posthog.com",
+                  "{"status":{},"existsAlready":false,"email":"test@posthog.com"}",
+                  "true",
                   "Fetch called but mocked due to test function",
-                  "Plugin execution failed: Received a potentially intermittent error from the Customer.io API. Response 500: {"message":"Test function"}",
+                  "Fetch called but mocked due to test function",
                 ]
             `)
         })
@@ -283,11 +306,10 @@ describe('LegacyPluginExecutorService', () => {
             expect(res.error).toBeInstanceOf(Error)
             expect(forSnapshot(res.logs.map((l) => l.message))).toMatchInlineSnapshot(`
                 [
-                  "Executing plugin customerio-plugin",
                   "Successfully authenticated with Customer.io. Completing setupPlugin.",
-                  "Detected email:, test@posthog.com",
-                  "{"status":{},"email":"test@posthog.com"}",
-                  "Should customer be tracked:, true",
+                  "Detected email, test@posthog.com",
+                  "{"status":{},"existsAlready":false,"email":"test@posthog.com"}",
+                  "true",
                   "Plugin execution failed: Received a potentially intermittent error from the Customer.io API. Response 500: {}",
                 ]
             `)
@@ -308,7 +330,7 @@ describe('LegacyPluginExecutorService', () => {
                 const res = await service.execute(invocation)
 
                 expect(res.error).toMatchInlineSnapshot(
-                    `[Error: Plugin posthog-filter-out-plugin is not a destination]`
+                    `[Error: Plugin plugin-posthog-filter-out-plugin is not a destination]`
                 )
             })
         })
@@ -340,7 +362,7 @@ describe('LegacyPluginExecutorService', () => {
                       "properties": {
                         "email": "test@posthog.com",
                       },
-                      "team_id": 1,
+                      "team_id": 2,
                       "timestamp": "2025-01-01T00:00:00.000Z",
                       "uuid": "<REPLACED-UUID-0>",
                     }
@@ -392,7 +414,7 @@ describe('LegacyPluginExecutorService', () => {
                         "version__minor": 12,
                         "version__patch": 20,
                       },
-                      "team_id": 1,
+                      "team_id": 2,
                       "timestamp": "2025-01-01T00:00:00.000Z",
                       "uuid": "<REPLACED-UUID-0>",
                     }
@@ -402,21 +424,16 @@ describe('LegacyPluginExecutorService', () => {
     })
 
     describe('smoke tests', () => {
-        const testCasesDestination = Object.entries(DESTINATION_PLUGINS_BY_ID).map(([pluginId, plugin]) => ({
-            name: pluginId,
-            plugin,
-        }))
-
-        it.each(testCasesDestination)('should run the destination plugin: %s', async ({ name, plugin }) => {
-            globals.event.event = '$identify' // Many plugins filter for this
+        const buildInvocation = (
+            plugin: LegacyDestinationPlugin | LegacyTransformationPlugin
+        ): HogFunctionInvocation => {
             const invocation = createInvocation(fn, globals)
             invocation.globals.inputs = {}
-
-            invocation.hogFunction.template_id = `plugin-${plugin.id}`
+            invocation.hogFunction.template_id = plugin.template.id
 
             const inputs: Record<string, any> = {}
 
-            for (const input of plugin.metadata.config) {
+            for (const input of plugin.template.inputs_schema) {
                 if (!input.key) {
                     continue
                 }
@@ -427,17 +444,28 @@ describe('LegacyPluginExecutorService', () => {
                 }
 
                 if (input.type === 'choice') {
-                    inputs[input.key] = input.choices[0]
+                    inputs[input.key] = input.choices?.[0].value
                 } else if (input.type === 'string') {
                     inputs[input.key] = 'test'
                 }
             }
 
             invocation.globals.inputs = inputs
+            return invocation
+        }
+        const testCasesDestination = Object.entries(DESTINATION_PLUGINS_BY_ID).map(([pluginId, plugin]) => ({
+            name: pluginId,
+            plugin,
+        }))
+        it.each(testCasesDestination)('should run the destination plugin: %s', async ({ name, plugin }) => {
+            const invocation = buildInvocation(plugin)
             invocation.hogFunction.name = name
+            invocation.globals.event.event = '$identify' // Many plugins filter for this
 
+            if (plugin.template.id === 'plugin-customerio-plugin') {
+                invocation.globals.inputs.legacy_plugin_config_id = pluginConfig.id
+            }
             const res = await service.execute(invocation)
-
             expect(res.logs.map((l) => l.message)).toMatchSnapshot()
         })
 
@@ -447,36 +475,46 @@ describe('LegacyPluginExecutorService', () => {
         }))
 
         it.each(testCasesTransformation)('should run the transformation plugin: %s', async ({ name, plugin }) => {
-            globals.event.event = '$pageview'
-            const invocation = createInvocation(fn, globals)
-
-            invocation.hogFunction.type = 'transformation'
-            invocation.hogFunction.template_id = `plugin-${plugin.id}`
-
-            const inputs: Record<string, any> = {}
-
-            for (const input of plugin.metadata.config || []) {
-                if (!input.key) {
-                    continue
-                }
-
-                if (input.default) {
-                    inputs[input.key] = input.default
-                    continue
-                }
-
-                if (input.type === 'choice') {
-                    inputs[input.key] = input.choices[0]
-                } else if (input.type === 'string') {
-                    inputs[input.key] = 'test'
-                }
-            }
-
+            const invocation = buildInvocation(plugin)
             invocation.hogFunction.name = name
-            invocation.globals.inputs = inputs
+            invocation.hogFunction.type = 'transformation'
+            invocation.globals.event.event = '$pageview'
+            const res = await service.execute(invocation)
+            expect(res.logs.map((l) => l.message)).toMatchSnapshot()
+        })
+    })
+
+    describe('first-time-event-tracker', () => {
+        let invocation: HogFunctionInvocation
+        beforeEach(() => {
+            fn = createHogFunction({
+                team_id: team.id,
+                name: 'First time event tracker',
+                template_id: 'plugin-first-time-event-tracker',
+                type: 'transformation',
+            })
+
+            globals.inputs = {
+                events: '$pageview',
+                legacy_plugin_config_id: '123',
+            }
+            invocation = createInvocation(fn, globals)
+        })
+
+        it('should error if no legacy plugin config id is provided', async () => {
             const res = await service.execute(invocation)
 
-            expect(res.logs.map((l) => l.message)).toMatchSnapshot()
+            expect(res.finished).toBe(true)
+            expect(res.error).toMatchInlineSnapshot(`[Error: Plugin config 123 for team 2 not found]`)
+        })
+
+        it('should succeed if legacy plugin config id is provided', async () => {
+            invocation.globals.inputs.legacy_plugin_config_id = pluginConfig.id
+
+            const res = await service.execute(invocation)
+
+            expect(res.finished).toBe(true)
+            expect(res.error).toBeUndefined()
         })
     })
 })

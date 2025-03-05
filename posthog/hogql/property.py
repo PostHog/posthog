@@ -1,5 +1,6 @@
 from typing import Literal, Optional, cast
 
+from django.db.models.functions.comparison import Coalesce
 from pydantic import BaseModel
 
 from posthog.constants import (
@@ -48,6 +49,8 @@ from posthog.schema import (
 from posthog.warehouse.models import DataWarehouseJoin
 from posthog.utils import get_from_dict_or_attr
 from django.db.models import Q
+from django.db import models
+
 
 from posthog.warehouse.models.util import get_view_or_table_by_name
 
@@ -85,14 +88,18 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
     if value != "true" and value != "false":
         return value
     if property.type == "person":
-        property_types = PropertyDefinition.objects.filter(
-            team=team,
+        property_types = PropertyDefinition.objects.alias(
+            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
+        ).filter(
+            effective_project_id=team.project_id,  # type: ignore
             name=property.key,
             type=PropertyDefinition.Type.PERSON,
         )
     elif property.type == "group":
-        property_types = PropertyDefinition.objects.filter(
-            team=team,
+        property_types = PropertyDefinition.objects.alias(
+            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
+        ).filter(
+            effective_project_id=team.project_id,  # type: ignore
             name=property.key,
             type=PropertyDefinition.Type.GROUP,
             group_type_index=property.group_type_index,
@@ -132,8 +139,10 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
         return value
 
     else:
-        property_types = PropertyDefinition.objects.filter(
-            team=team,
+        property_types = PropertyDefinition.objects.alias(
+            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
+        ).filter(
+            effective_project_id=team.project_id,  # type: ignore
             name=property.key,
             type=PropertyDefinition.Type.EVENT,
         )
@@ -184,13 +193,13 @@ def _expr_to_compare_op(
     elif operator == PropertyOperator.ICONTAINS:
         return ast.CompareOperation(
             op=ast.CompareOperationOp.ILike,
-            left=expr,
+            left=ast.Call(name="toString", args=[expr]),
             right=ast.Constant(value=f"%{value}%"),
         )
     elif operator == PropertyOperator.NOT_ICONTAINS:
         return ast.CompareOperation(
             op=ast.CompareOperationOp.NotILike,
-            left=expr,
+            left=ast.Call(name="toString", args=[expr]),
             right=ast.Constant(value=f"%{value}%"),
         )
     elif operator == PropertyOperator.REGEX:

@@ -1,4 +1,6 @@
 import {
+    IconCollapse,
+    IconExpand,
     IconRefresh,
     IconThumbsDown,
     IconThumbsDownFilled,
@@ -43,7 +45,7 @@ export function Thread(): JSX.Element | null {
     const { threadGrouped } = useValues(maxLogic)
 
     return (
-        <div className="flex flex-col items-stretch w-full max-w-200 self-center gap-2 grow p-4">
+        <div className="@container/thread flex flex-col items-stretch w-full max-w-200 self-center gap-2 grow p-3">
             {threadGrouped.map((group, index) => (
                 <MessageGroup key={index} messages={group} index={index} isFinal={index === threadGrouped.length - 1} />
             ))}
@@ -63,8 +65,13 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
     const groupType = messages[0].type === 'human' ? 'human' : 'ai'
 
     return (
-        <div className={clsx('relative flex gap-2', groupType === 'human' ? 'flex-row-reverse ml-10' : 'mr-10')}>
-            <Tooltip placement={groupType === 'human' ? 'right' : 'left'} title={groupType === 'human' ? 'You' : 'Max'}>
+        <div
+            className={clsx(
+                'relative flex gap-2',
+                groupType === 'human' ? 'flex-row-reverse ml-4 @md/thread:ml-10 ' : 'mr-4 @md/thread:mr-10'
+            )}
+        >
+            <Tooltip title={groupType === 'human' ? 'You' : 'Max'}>
                 <ProfilePicture
                     user={
                         groupType === 'human'
@@ -72,7 +79,7 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                             : { hedgehog_config: { ...user?.hedgehog_config, use_as_profile: true } }
                     }
                     size="lg"
-                    className="mt-1 border"
+                    className="hidden @md/thread:flex mt-1 border"
                 />
             </Tooltip>
             <div
@@ -115,7 +122,7 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                                 {message.substeps?.map((substep, substepIndex) => (
                                     <LemonMarkdown
                                         key={substepIndex}
-                                        className="mt-1.5 leading-6 px-1 text-[0.6875rem] font-semibold bg-accent-3000 rounded w-fit"
+                                        className="mt-1.5 leading-6 px-1 text-[0.6875rem] font-semibold bg-surface-secondary rounded w-fit"
                                     >
                                         {substep}
                                     </LemonMarkdown>
@@ -152,12 +159,16 @@ const MessageTemplate = React.forwardRef<HTMLDivElement, MessageTemplateProps>(f
 ) {
     return (
         <div
-            className={twMerge('flex flex-col gap-1 w-full', type === 'human' ? 'items-end' : 'items-start', className)}
+            className={twMerge(
+                'flex flex-col gap-px w-full break-words',
+                type === 'human' ? 'items-end' : 'items-start',
+                className
+            )}
             ref={ref}
         >
             <div
                 className={twMerge(
-                    'border py-2 px-3 rounded-lg bg-bg-light',
+                    'max-w-full border py-2 px-3 rounded-lg bg-surface-primary',
                     type === 'human' && 'font-medium',
                     boxClassName
                 )}
@@ -255,6 +266,8 @@ function VisualizationAnswer({
     message: VisualizationMessage
     status?: MessageStatus
 }): JSX.Element | null {
+    const [isSummaryShown, setIsSummaryShown] = useState(false)
+
     const query = useMemo<InsightVizNode | null>(() => {
         if (message.answer) {
             return {
@@ -271,26 +284,38 @@ function VisualizationAnswer({
         ? null
         : query && (
               <>
-                  <MessageTemplate type="ai" className="w-full" boxClassName="w-full">
-                      <div className="min-h-80 flex">
-                          <Query query={query} readOnly embedded />
-                      </div>
-                      <div className="relative mb-1">
+                  <MessageTemplate type="ai" className="w-full" boxClassName="flex flex-col min-h-60 w-full">
+                      <Query query={query} readOnly embedded />
+                      <div className="flex items-center justify-between mt-2">
                           <LemonButton
-                              to={urls.insightNew(undefined, undefined, query)}
+                              sideIcon={isSummaryShown ? <IconCollapse /> : <IconExpand />}
+                              onClick={() => setIsSummaryShown(!isSummaryShown)}
+                              size="xsmall"
+                              className="-m-1"
+                              tooltip={isSummaryShown ? 'Hide definition' : 'Show definition'}
+                          >
+                              <h5 className="m-0 leading-none">
+                                  <TopHeading query={query} />
+                              </h5>
+                          </LemonButton>
+                          <LemonButton
+                              to={urls.insightNew({ query })}
                               sideIcon={<IconOpenInNew />}
                               size="xsmall"
                               targetBlank
-                              className="absolute right-0 -top-px"
                           >
                               Open as new insight
                           </LemonButton>
-                          <SeriesSummary query={query.source} heading={<TopHeading query={query} />} />
-                          <div className="flex flex-wrap gap-4 mt-1 *:grow">
-                              <PropertiesSummary properties={query.source.properties} />
-                              <BreakdownSummary query={query.source} />
-                          </div>
                       </div>
+                      {isSummaryShown && (
+                          <>
+                              <SeriesSummary query={query.source} heading={null} />
+                              <div className="flex flex-wrap gap-4 mt-1 *:grow">
+                                  <PropertiesSummary properties={query.source.properties} />
+                                  <BreakdownSummary query={query.source} />
+                              </div>
+                          </>
+                      )}
                   </MessageTemplate>
               </>
           )
@@ -303,9 +328,10 @@ function RetriableFailureActions(): JSX.Element {
         <LemonButton
             icon={<IconRefresh />}
             type="tertiary"
-            size="small"
+            size="xsmall"
             tooltip="Try again"
             onClick={() => retryLastMessage()}
+            className="ml-1 -mb-1"
         >
             Try again
         </LemonButton>
@@ -321,39 +347,32 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
     const [feedbackInputStatus, setFeedbackInputStatus] = useState<'hidden' | 'pending' | 'submitted'>('hidden')
 
     function submitRating(newRating: 'good' | 'bad'): void {
-        if (rating) {
+        if (rating || !traceId) {
             return // Already rated
         }
         setRating(newRating)
-        posthog.capture('$ai_metric', {
-            $ai_metric_name: 'quality',
-            $ai_metric_value: newRating,
-            $ai_trace_id: traceId,
-        })
+        posthog.captureTraceMetric(traceId, 'quality', newRating)
         if (newRating === 'bad') {
             setFeedbackInputStatus('pending')
         }
     }
 
     function submitFeedback(): void {
-        if (!feedback) {
+        if (!feedback || !traceId) {
             return // Input is empty
         }
-        posthog.capture('$ai_feedback', {
-            $ai_feedback_text: feedback,
-            $ai_trace_id: traceId,
-        })
+        posthog.captureTraceFeedback(traceId, feedback)
         setFeedbackInputStatus('submitted')
     }
 
     return (
         <>
-            <div className="flex items-center">
+            <div className="flex items-center ml-1 -mb-1">
                 {rating !== 'bad' && (
                     <LemonButton
                         icon={rating === 'good' ? <IconThumbsUpFilled /> : <IconThumbsUp />}
                         type="tertiary"
-                        size="small"
+                        size="xsmall"
                         tooltip="Good answer"
                         onClick={() => submitRating('good')}
                     />
@@ -362,7 +381,7 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
                     <LemonButton
                         icon={rating === 'bad' ? <IconThumbsDownFilled /> : <IconThumbsDown />}
                         type="tertiary"
-                        size="small"
+                        size="xsmall"
                         tooltip="Bad answer"
                         onClick={() => submitRating('bad')}
                     />
@@ -371,7 +390,7 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
                     <LemonButton
                         icon={<IconRefresh />}
                         type="tertiary"
-                        size="small"
+                        size="xsmall"
                         tooltip="Try again"
                         onClick={() => retryLastMessage()}
                     />

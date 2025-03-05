@@ -33,10 +33,10 @@ import { urls } from 'scenes/urls'
 import { AvailableFeature, ProductKey, SidePanelTab } from '~/types'
 
 import AlgoliaSearch from '../../components/AlgoliaSearch'
+import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
 import { sidePanelStateLogic } from '../sidePanelStateLogic'
 import { MaxChatInterface } from './sidePanelMaxChatInterface'
 import { sidePanelStatusLogic } from './sidePanelStatusLogic'
-
 const PRODUCTS = [
     {
         name: 'Product OS',
@@ -153,12 +153,12 @@ const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element =
             </LemonButton>
             <br />
             {featureFlags[FEATURE_FLAGS.SUPPORT_MESSAGE_OVERRIDE] ? (
-                <div className="border bg-bg-light p-2 rounded gap-2">
+                <div className="border bg-surface-primary p-2 rounded gap-2">
                     <strong>{SUPPORT_MESSAGE_OVERRIDE_TITLE}</strong>
                     <p className="mt-2 mb-0">{SUPPORT_MESSAGE_OVERRIDE_BODY}</p>
                 </div>
             ) : (
-                <div className="grid grid-cols-2 border rounded [&_>*]:px-2 [&_>*]:py-0.5 mb-4 bg-bg-light pt-4">
+                <div className="grid grid-cols-2 border rounded [&_>*]:px-2 [&_>*]:py-0.5 mb-4 bg-surface-primary pt-4">
                     <div className="col-span-full flex justify-between py-1">
                         {/* If placing a support message, replace the line below with explanation */}
                         <strong>Avg support response times</strong>
@@ -212,6 +212,7 @@ export const SidePanelSupport = (): JSX.Element => {
     return (
         <>
             <div className="overflow-y-auto" data-attr="side-panel-support-container">
+                <SidePanelPaneHeader title="Help" />
                 <div className="p-3 max-w-160 w-full mx-auto">
                     {isEmailFormOpen ? (
                         <SupportFormBlock onCancel={() => closeEmailForm()} />
@@ -235,7 +236,7 @@ export const SidePanelSupport = (): JSX.Element => {
                             </Section>
 
                             <Section title="Explore the docs">
-                                <ul className="border rounded divide-y bg-bg-light dark:bg-transparent font-title font-medium">
+                                <ul className="border rounded divide-y bg-surface-primary dark:bg-transparent font-title font-medium">
                                     {PRODUCTS.map((product, index) => (
                                         <li key={index}>
                                             <Link
@@ -279,7 +280,7 @@ export const SidePanelSupport = (): JSX.Element => {
                                 </Section>
                             ) : null}
 
-                            {isCloud || true ? (
+                            {isCloud ? (
                                 <FlaggedFeature flag={FEATURE_FLAGS.SUPPORT_SIDEBAR_MAX} match={true}>
                                     <Section title="Ask Max the Hedgehog">
                                         <>
@@ -305,7 +306,7 @@ export const SidePanelSupport = (): JSX.Element => {
                                 </FlaggedFeature>
                             ) : null}
 
-                            {isCloud || true ? (
+                            {isCloud ? (
                                 <Section title="Contact us">
                                     <p>Can't find what you need in the docs?</p>
                                     <LemonButton

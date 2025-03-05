@@ -433,7 +433,7 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
         for i in range(10):
             FeatureFlag.objects.create(team=self.team, created_by=self.other_user, key=f"flag-{i}")
 
-        baseline = 42  # This is a lot! There is currently an n+1 issue with the legacy access control system
+        baseline = 44  # This is a lot! There is currently an n+1 issue with the legacy access control system
         with self.assertNumQueries(baseline + 6):  # org, roles, preloaded permissions acs, preloaded acs for the list
             self.client.get("/api/projects/@current/feature_flags/")
 

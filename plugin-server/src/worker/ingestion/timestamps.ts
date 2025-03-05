@@ -1,7 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
-import * as Sentry from '@sentry/node'
 import { DateTime, Duration } from 'luxon'
 
+import { captureException } from '../../utils/posthog'
 import { status } from '../../utils/status'
 
 type IngestionWarningCallback = (type: string, details: Record<string, any>) => void
@@ -96,7 +96,7 @@ function handleTimestamp(data: PluginEvent, now: DateTime, sentAt: DateTime | nu
             parsedTs = now.plus(timestamp.diff(sentAt))
         } catch (error) {
             status.error('⚠️', 'Error when handling timestamp:', { error: error.message })
-            Sentry.captureException(error, {
+            captureException(error, {
                 tags: { team_id: teamId },
                 extra: { data, now, sentAt },
             })

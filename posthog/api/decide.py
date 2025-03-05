@@ -1,5 +1,4 @@
 from random import random
-from typing import Any, Union
 
 import structlog
 from django.conf import settings
@@ -7,7 +6,7 @@ from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from prometheus_client import Counter
 from rest_framework import status
-from sentry_sdk import capture_exception
+from posthog.exceptions_capture import capture_exception
 from statshog.defaults.django import statsd
 
 from posthog.api.survey import SURVEY_TARGETING_FLAG_PREFIX
@@ -166,11 +165,16 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
 @csrf_exempt
 @timed("posthog_cloud_decide_endpoint")
 def get_decide(request: HttpRequest):
-    # handle cors request
+    """Handle the /decide endpoint which provides configuration and feature flags to PostHog clients.
+    The decide endpoint is a critical API that tells PostHog clients (like posthog-js) how they should behave,
+    including which feature flags are enabled, whether to record sessions, etc.
+    """
+    # --- 1. Handle non-POST requests ---
     if request.method == "OPTIONS":
         return cors_response(request, JsonResponse({"status": 1}))
 
     if request.method != "POST":
+        # Return minimal default configuration for non-POST requests
         statsd.incr(f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "decide"})
         return cors_response(
             request,
@@ -179,7 +183,6 @@ def get_decide(request: HttpRequest):
                     "config": {"enable_collect_everything": True},
                     "toolbarParams": {},
                     "isAuthenticated": False,
-                    # gzip and gzip-js are aliases for the same compression algorithm
                     "supportedCompression": ["gzip", "gzip-js"],
                     "featureFlags": [],
                     "sessionRecording": False,
@@ -187,6 +190,7 @@ def get_decide(request: HttpRequest):
             ),
         )
 
+    # --- 2. Parse request data and API version ---
     try:
         data = load_data_from_request(request)
         api_version_string = request.GET.get("v")
@@ -219,11 +223,13 @@ def get_decide(request: HttpRequest):
             generate_exception_response("decide", f"Malformed request data: {error}", code="malformed_data"),
         )
 
+    # --- 3. Authenticate the request ---
     token = get_token(data, request)
     team = Team.objects.get_team_from_cache_or_token(token)
+
+    # Handle personal API key authentication if team lookup failed
     if team is None and token:
         project_id = get_project_id(data, request)
-
         if not project_id:
             return cors_response(
                 request,
@@ -250,122 +256,40 @@ def get_decide(request: HttpRequest):
             )
         team = user.teams.get(id=project_id)
 
-    is_request_sampled_for_logging = random() < settings.DECIDE_REQUEST_LOGGING_SAMPLING_RATE
+    # --- 4. Process authenticated requests ---
     if team:
-        if is_request_sampled_for_logging:
-            logger.warn(
-                "DECIDE_REQUEST_STARTED",
-                team_id=team.id,
-                distinct_id=data.get("distinct_id", None),
-            )
-
+        # Check if team is allowed to use decide
         if team.id in settings.DECIDE_SHORT_CIRCUITED_TEAM_IDS:
             return cors_response(
                 request,
                 generate_exception_response(
                     "decide",
-                    f"Team with ID {team.id} cannot access the /decide endpoint."
-                    f"Please contact us at hey@posthog.com",
+                    f"Team with ID {team.id} cannot access the /decide endpoint. Please contact us at hey@posthog.com",
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 ),
             )
 
         token = team.api_token
-
         structlog.contextvars.bind_contextvars(team_id=team.id)
 
-        disable_flags = process_bool(data.get("disable_flags")) is True
-        feature_flags = None
-        errors = False
-        flags_response: dict[str, Any] = {}
+        # --- 5. Handle feature flags ---
+        flags_response = get_feature_flags_response(request, data, team, token, api_version)
+        response = get_base_config(token, team, request, skip_db=flags_response.get("errorsWhileComputingFlags", False))
 
-        if not disable_flags:
-            distinct_id = data.get("distinct_id")
-            if distinct_id is None:
-                return cors_response(
-                    request,
-                    generate_exception_response(
-                        "decide",
-                        "Decide requires a distinct_id.",
-                        code="missing_distinct_id",
-                        type="validation_error",
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                    ),
-                )
-            else:
-                distinct_id = str(distinct_id)
-
-            property_overrides = {}
-            geoip_enabled = process_bool(data.get("geoip_disable")) is False
-
-            if geoip_enabled:
-                property_overrides = get_geoip_properties(get_ip_address(request))
-
-            all_property_overrides: dict[str, Union[str, int]] = {
-                **property_overrides,
-                **(data.get("person_properties") or {}),
-            }
-
-            feature_flags, _, feature_flag_payloads, errors = get_all_feature_flags(
-                team.pk,
-                distinct_id,
-                data.get("groups") or {},
-                hash_key_override=data.get("$anon_distinct_id"),
-                property_value_overrides=all_property_overrides,
-                group_property_value_overrides=(data.get("group_properties") or {}),
-            )
-
-            active_flags = {key: value for key, value in feature_flags.items() if value}
-
-            if api_version == 2:
-                flags_response["featureFlags"] = active_flags
-            elif api_version >= 3:
-                # v3 returns all flags, not just active ones, as well as if there was an error computing all flags
-                flags_response["featureFlags"] = feature_flags
-                flags_response["errorsWhileComputingFlags"] = errors
-                flags_response["featureFlagPayloads"] = feature_flag_payloads
-            else:
-                # default v1
-                flags_response["featureFlags"] = list(active_flags.keys())
-
-            # metrics for feature flags
-            team_id_label = label_for_team_id_to_track(team.pk)
-            FLAG_EVALUATION_COUNTER.labels(
-                team_id=team_id_label,
-                errors_computing=errors,
-                has_hash_key_override=bool(data.get("$anon_distinct_id")),
-            ).inc()
-
-            if is_request_sampled_for_logging:
-                logger.warn(
-                    "DECIDE_REQUEST_SUCCEEDED",
-                    team_id=team.id,
-                    distinct_id=distinct_id,
-                    errors_while_computing=errors or False,
-                    has_hash_key_override=bool(data.get("$anon_distinct_id")),
-                )
-        else:
-            flags_response["featureFlags"] = {}
-
-        # NOTE: Changed code - everything not feature flags goes in here
-        response = get_base_config(token, team, request, skip_db=errors)
-        response.update(flags_response)
-
+        # For remote config, we need to ensure quota limiting is reflected
+        if flags_response.get("quotaLimited"):
+            response["quotaLimited"] = flags_response["quotaLimited"]
+            response["featureFlags"] = {}
+            response["errorsWhileComputingFlags"] = False
+            response["featureFlagPayloads"] = {}
+        else:  # Only update flags if not quota limited
+            response.update(flags_response)
         # NOTE: Whenever you add something to decide response, update this test:
         # `test_decide_doesnt_error_out_when_database_is_down`
         # which ensures that decide doesn't error out when the database is down
 
-        if feature_flags:
-            # Billing analytics for decide requests with feature flags
-            # Don't count if all requests are for survey targeting flags only.
-            if not all(flag.startswith(SURVEY_TARGETING_FLAG_PREFIX) for flag in feature_flags.keys()):
-                # Sample no. of decide requests with feature flags
-                if settings.DECIDE_BILLING_SAMPLING_RATE and random() < settings.DECIDE_BILLING_SAMPLING_RATE:
-                    count = int(1 / settings.DECIDE_BILLING_SAMPLING_RATE)
-                    increment_request_count(team.pk, count)
-
     else:
-        # no auth provided
+        # No valid authentication provided
         return cors_response(
             request,
             generate_exception_response(
@@ -379,6 +303,117 @@ def get_decide(request: HttpRequest):
 
     statsd.incr(f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "decide"})
     return cors_response(request, JsonResponse(response))
+
+
+def get_feature_flags_response(request: HttpRequest, data: dict, team: Team, token: str, api_version: int) -> dict:
+    """Determine feature flag response based on various conditions."""
+
+    # Early exit if flags are disabled via request
+    if process_bool(data.get("disable_flags")) is True:
+        return {
+            "featureFlags": {},
+            "errorsWhileComputingFlags": False,
+            "featureFlagPayloads": {},
+        }
+
+    # Check if team is quota limited for feature flags
+    if settings.DECIDE_FEATURE_FLAG_QUOTA_CHECK:
+        from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
+
+        limited_tokens_flags = list_limited_team_attributes(
+            QuotaResource.FEATURE_FLAG_REQUESTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+        )
+        if token in limited_tokens_flags:
+            return {
+                "quotaLimited": ["feature_flags"],
+                "featureFlags": {},
+                "errorsWhileComputingFlags": False,
+                "featureFlagPayloads": {},
+            }
+
+    # Validate distinct_id
+    distinct_id = data.get("distinct_id")
+    if distinct_id is None:
+        return cors_response(
+            request,
+            generate_exception_response(
+                "decide",
+                "Decide requires a distinct_id.",
+                code="missing_distinct_id",
+                type="validation_error",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            ),
+        )
+    distinct_id = str(distinct_id)
+
+    # Get property overrides
+    property_overrides = {}
+    if process_bool(data.get("geoip_disable")) is False:
+        property_overrides = get_geoip_properties(get_ip_address(request))
+
+    all_property_overrides = {
+        **property_overrides,
+        **(data.get("person_properties") or {}),
+    }
+
+    # Compute feature flags
+    feature_flags, _, feature_flag_payloads, errors = get_all_feature_flags(
+        team,
+        distinct_id,
+        data.get("groups") or {},
+        hash_key_override=data.get("$anon_distinct_id"),
+        property_value_overrides=all_property_overrides,
+        group_property_value_overrides=(data.get("group_properties") or {}),
+        flag_keys=data.get("flag_keys_to_evaluate"),
+    )
+
+    # Record metrics and handle billing
+    _record_feature_flag_metrics(team, feature_flags, errors, data)
+
+    # Format response based on API version
+    return _format_feature_flags_response(feature_flags, feature_flag_payloads, errors, api_version)
+
+
+def _format_feature_flags_response(
+    feature_flags: dict, feature_flag_payloads: dict, errors: bool, api_version: int
+) -> dict:
+    """Format feature flags response according to API version."""
+    active_flags = {key: value for key, value in feature_flags.items() if value}
+
+    if api_version == 2:
+        return {"featureFlags": active_flags}
+    elif api_version >= 3:
+        return {
+            "featureFlags": feature_flags,
+            "errorsWhileComputingFlags": errors,
+            "featureFlagPayloads": feature_flag_payloads,
+        }
+    else:  # v1
+        return {"featureFlags": list(active_flags.keys())}
+
+
+def _record_feature_flag_metrics(
+    team: Team,
+    feature_flags: dict,
+    errors: bool,
+    data: dict,
+):
+    """Record metrics and handle billing for feature flag computations."""
+    if not feature_flags:
+        return
+
+    team_id_label = label_for_team_id_to_track(team.id)
+    FLAG_EVALUATION_COUNTER.labels(
+        team_id=team_id_label,
+        errors_computing=errors,
+        has_hash_key_override=bool(data.get("$anon_distinct_id")),
+    ).inc()
+
+    # Handle billing analytics
+    if not all(flag.startswith(SURVEY_TARGETING_FLAG_PREFIX) for flag in feature_flags.keys()):
+        if settings.DECIDE_BILLING_SAMPLING_RATE and random() < settings.DECIDE_BILLING_SAMPLING_RATE:
+            count = int(1 / settings.DECIDE_BILLING_SAMPLING_RATE)
+            increment_request_count(team.id, count)
 
 
 def _session_recording_domain_not_allowed(team: Team, request: HttpRequest) -> bool:
@@ -428,6 +463,7 @@ def _session_recording_config_response(request: HttpRequest, team: Team) -> bool
                 "minimumDurationMilliseconds": minimum_duration,
                 "linkedFlag": linked_flag,
                 "networkPayloadCapture": team.session_recording_network_payload_capture_config or None,
+                "masking": team.session_recording_masking_config or None,
                 "urlTriggers": team.session_recording_url_trigger_config,
                 "urlBlocklist": team.session_recording_url_blocklist_config,
                 "eventTriggers": team.session_recording_event_trigger_config,

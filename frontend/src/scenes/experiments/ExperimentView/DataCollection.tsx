@@ -1,9 +1,8 @@
 import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonModal, Link, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { AnimationType } from 'lib/animations/animations'
-import { Animation } from 'lib/components/Animation/Animation'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
+import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { humanFriendlyNumber } from 'lib/utils'
 
 import { Experiment, InsightType } from '~/types'
@@ -17,7 +16,7 @@ export function DataCollection(): JSX.Element {
     const {
         experimentId,
         experiment,
-        getMetricType,
+        getInsightType,
         funnelResultsPersonsTotal,
         actualRunningTime,
         minimumDetectableEffect,
@@ -26,13 +25,13 @@ export function DataCollection(): JSX.Element {
 
     const { openExperimentCollectionGoalModal } = useActions(experimentLogic)
 
-    const metricType = getMetricType(firstPrimaryMetric)
+    const insightType = getInsightType(firstPrimaryMetric)
 
     const recommendedRunningTime = experiment?.parameters?.recommended_running_time || 1
     const recommendedSampleSize = experiment?.parameters?.recommended_sample_size || 100
 
     const experimentProgressPercent =
-        metricType === InsightType.FUNNELS
+        insightType === InsightType.FUNNELS
             ? (funnelResultsPersonsTotal(0) / recommendedSampleSize) * 100
             : (actualRunningTime / recommendedRunningTime) * 100
 
@@ -57,7 +56,7 @@ export function DataCollection(): JSX.Element {
                     </div>
                 }
             >
-                <IconInfo className="text-muted-alt text-base" />
+                <IconInfo className="text-secondary text-base" />
             </Tooltip>
         )
     }
@@ -70,7 +69,7 @@ export function DataCollection(): JSX.Element {
                     title="Estimated target for the number of participants. Actual data may reveal significance earlier or later
                     than predicted."
                 >
-                    <IconInfo className="text-muted-alt text-base" />
+                    <IconInfo className="text-secondary text-base" />
                 </Tooltip>
             </div>
             <div className="flex">
@@ -84,7 +83,7 @@ export function DataCollection(): JSX.Element {
                         size="medium"
                         percent={experimentProgressPercent}
                     />
-                    {metricType === InsightType.TRENDS && (
+                    {insightType === InsightType.TRENDS && (
                         <div className="flex justify-between mt-0">
                             <span className="flex items-center text-xs">
                                 Completed&nbsp;
@@ -104,7 +103,7 @@ export function DataCollection(): JSX.Element {
                             </span>
                         </div>
                     )}
-                    {metricType === InsightType.FUNNELS && (
+                    {insightType === InsightType.FUNNELS && (
                         <div className="flex justify-between mt-0">
                             <div className="space-x-1 flex items-center text-xs">
                                 <span>
@@ -148,7 +147,7 @@ export function DataCollection(): JSX.Element {
                             }
                             closeDelayMs={200}
                         >
-                            <IconInfo className="text-muted-alt text-base" />
+                            <IconInfo className="text-secondary text-base" />
                         </Tooltip>
                     </div>
                     {!experiment.end_date && (
@@ -173,7 +172,7 @@ export function DataCollection(): JSX.Element {
 export function DataCollectionGoalModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
     const {
         isExperimentCollectionGoalModalOpen,
-        getMetricType,
+        getInsightType,
         firstPrimaryMetric,
         trendMetricInsightLoading,
         funnelMetricInsightLoading,
@@ -182,7 +181,7 @@ export function DataCollectionGoalModal({ experimentId }: { experimentId: Experi
         useActions(experimentLogic({ experimentId }))
 
     const isInsightLoading =
-        getMetricType(firstPrimaryMetric) === InsightType.TRENDS
+        getInsightType(firstPrimaryMetric) === InsightType.TRENDS
             ? trendMetricInsightLoading
             : funnelMetricInsightLoading
 
@@ -220,8 +219,8 @@ export function DataCollectionGoalModal({ experimentId }: { experimentId: Experi
         >
             {isInsightLoading ? (
                 <div className="flex flex-col flex-1 justify-center items-center mb-6">
-                    <Animation type={AnimationType.LaptopHog} />
-                    <div className="text-xs text-muted w-60">
+                    <LoadingBar />
+                    <div className="text-xs text-secondary w-60">
                         <span className="mr-1">Fetching past events for the estimation</span>
                         <EllipsisAnimation />
                     </div>

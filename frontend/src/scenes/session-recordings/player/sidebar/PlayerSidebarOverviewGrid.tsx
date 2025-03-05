@@ -1,16 +1,16 @@
 import { useValues } from 'kea'
 import { PropertyIcon } from 'lib/components/PropertyIcon'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
 
 import { OverviewGrid, OverviewGridItem } from '../../components/OverviewGrid'
-import { playerMetaLogic } from '../playerMetaLogic'
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 
 export function PlayerSidebarOverviewGrid(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { overviewItems, loading } = useValues(playerMetaLogic(logicProps))
     return (
-        <div className="rounded border bg-bg-light">
+        <div className="rounded border bg-surface-primary">
             {loading ? (
                 <div className="flex flex-col space-y-1">
                     <LemonSkeleton.Row repeat={6} className="h-5" />
@@ -21,9 +21,10 @@ export function PlayerSidebarOverviewGrid(): JSX.Element {
                         return (
                             <OverviewGridItem
                                 key={item.label}
-                                description={item.tooltipTitle}
+                                description={item.valueTooltip}
                                 label={item.label}
                                 icon={item.icon}
+                                itemKeyTooltip={item.keyTooltip}
                                 fadeLabel
                             >
                                 <div className="flex flex-row items-center space-x-2 justify-start font-medium">

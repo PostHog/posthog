@@ -1,6 +1,5 @@
 import ClickHouse from '@posthog/clickhouse'
 import { CacheOptions, Properties } from '@posthog/plugin-scaffold'
-import { captureException } from '@sentry/node'
 import { Pool as GenericPool } from 'generic-pool'
 import Redis from 'ioredis'
 import { DateTime } from 'luxon'
@@ -51,6 +50,7 @@ import { fetchOrganization } from '../../worker/ingestion/organization-manager'
 import { fetchTeam, fetchTeamByToken } from '../../worker/ingestion/team-manager'
 import { parseRawClickHouseEvent } from '../event'
 import { instrumentQuery } from '../metrics'
+import { captureException } from '../posthog'
 import { status } from '../status'
 import {
     castTimestampOrNow,
@@ -1398,38 +1398,6 @@ export class DB {
             row.project_id = Number(row.project_id) as ProjectId
         }
         return selectResult.rows
-    }
-
-    public async addOrUpdatePublicJob(
-        pluginId: number,
-        jobName: string,
-        jobPayloadJson: Record<string, any>
-    ): Promise<void> {
-        await this.postgres.transaction(PostgresUse.COMMON_WRITE, 'addOrUpdatePublicJob', async (tx) => {
-            let publicJobs: Record<string, any> = (
-                await this.postgres.query(
-                    tx,
-                    'SELECT public_jobs FROM posthog_plugin WHERE id = $1 FOR UPDATE',
-                    [pluginId],
-                    'selectPluginPublicJobsForUpdate'
-                )
-            ).rows[0]?.public_jobs
-
-            if (
-                !publicJobs ||
-                !(jobName in publicJobs) ||
-                JSON.stringify(publicJobs[jobName]) !== JSON.stringify(jobPayloadJson)
-            ) {
-                publicJobs = { ...publicJobs, [jobName]: jobPayloadJson }
-
-                await this.postgres.query(
-                    tx,
-                    'UPDATE posthog_plugin SET public_jobs = $1 WHERE id = $2',
-                    [JSON.stringify(publicJobs), pluginId],
-                    'updatePublicJob'
-                )
-            }
-        })
     }
 
     public async getPluginSource(pluginId: Plugin['id'], filename: string): Promise<string | null> {

@@ -3,7 +3,7 @@ import math
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
-from posthog.hogql.property import property_to_expr, get_property_type
+from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.web_analytics.web_analytics_query_runner import (
     WebAnalyticsQueryRunner,
@@ -69,18 +69,6 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
         properties = self.query.properties + self._test_account_filters
         return property_to_expr(properties, team=self.team)
 
-    def event_properties(self) -> ast.Expr:
-        properties = [
-            p for p in self.query.properties + self._test_account_filters if get_property_type(p) in ["event", "person"]
-        ]
-        return property_to_expr(properties, team=self.team, scope="event")
-
-    def session_properties(self) -> ast.Expr:
-        properties = [
-            p for p in self.query.properties + self._test_account_filters if get_property_type(p) == "session"
-        ]
-        return property_to_expr(properties, team=self.team, scope="event")
-
     @cached_property
     def pageview_count_expression(self) -> ast.Expr:
         return ast.Call(
@@ -108,7 +96,7 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
         parsed_select = parse_select(
             """
 SELECT
-    any(events.person_id) as person_id,
+    any(events.person_id) as session_person_id,
     session.session_id as session_id,
     min(session.$start_timestamp) as start_timestamp
 FROM events
@@ -116,15 +104,13 @@ WHERE and(
     events.`$session_id` IS NOT NULL,
     {event_type_expr},
     {inside_timestamp_period},
-    {event_properties},
-    {session_properties}
+    {all_properties},
 )
 GROUP BY session_id
 HAVING {inside_start_timestamp_period}
         """,
             placeholders={
-                "event_properties": self.event_properties(),
-                "session_properties": self.session_properties(),
+                "all_properties": self.all_properties(),
                 "event_type_expr": self.event_type_expr,
                 "inside_timestamp_period": self._periods_expression("timestamp"),
                 "inside_start_timestamp_period": self._periods_expression("start_timestamp"),
@@ -193,8 +179,8 @@ HAVING {inside_start_timestamp_period}
 
         if self.query.conversionGoal:
             select = [
-                current_period_aggregate("uniq", "person_id", "unique_users"),
-                previous_period_aggregate("uniq", "person_id", "previous_unique_users"),
+                current_period_aggregate("uniq", "session_person_id", "unique_users"),
+                previous_period_aggregate("uniq", "session_person_id", "previous_unique_users"),
                 current_period_aggregate("sum", "conversion_count", "total_conversion_count"),
                 previous_period_aggregate("sum", "conversion_count", "previous_total_conversion_count"),
                 current_period_aggregate("uniq", "conversion_person_id", "unique_conversions"),
@@ -225,8 +211,8 @@ HAVING {inside_start_timestamp_period}
                 )
         else:
             select = [
-                current_period_aggregate("uniq", "person_id", "unique_users"),
-                previous_period_aggregate("uniq", "person_id", "previous_unique_users"),
+                current_period_aggregate("uniq", "session_person_id", "unique_users"),
+                previous_period_aggregate("uniq", "session_person_id", "previous_unique_users"),
                 current_period_aggregate("sum", "filtered_pageview_count", "total_filtered_pageview_count"),
                 previous_period_aggregate("sum", "filtered_pageview_count", "previous_filtered_pageview_count"),
                 current_period_aggregate("uniq", "session_id", "unique_sessions"),

@@ -90,7 +90,7 @@ export function AddSecondaryMetric(): JSX.Element {
 export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Element {
     const {
         experiment,
-        getMetricType,
+        getInsightType,
         metricResults,
         secondaryMetricResults,
         primaryMetricsResultErrors,
@@ -128,8 +128,8 @@ export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Ele
                 return []
             }
             return variants.flatMap((variant) => {
-                const metricType = getMetricType(metric)
-                const interval = credibleIntervalForVariant(result, variant.key, metricType)
+                const insightType = getInsightType(metric)
+                const interval = credibleIntervalForVariant(result, variant.key, insightType)
                 return interval ? [Math.abs(interval[0] / 100), Math.abs(interval[1] / 100)] : []
             })
         })
@@ -156,7 +156,7 @@ export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Ele
                                         : 'Primary metrics represent the main goal of your experiment. They directly measure whether your hypothesis was successful and are the key factor in deciding if the test achieved its primary objective.'
                                 }
                             >
-                                <IconInfo className="text-muted-alt text-lg" />
+                                <IconInfo className="text-secondary text-lg" />
                             </Tooltip>
                         )}
                         {hasSomeResults && !isSecondary && (
@@ -201,7 +201,7 @@ export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Ele
                                         </div>
                                     }
                                 >
-                                    <span className="text-xs text-muted-alt cursor-help">How to read</span>
+                                    <span className="text-xs text-secondary cursor-help">How to read</span>
                                 </Tooltip>
                             </>
                         )}
@@ -243,7 +243,7 @@ export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Ele
                                         result={result}
                                         error={errors?.[metricIndex]}
                                         variants={variants}
-                                        metricType={getMetricType(metric)}
+                                        metricType={getInsightType(metric)}
                                         metricIndex={metricIndex}
                                         isFirstMetric={isFirstMetric}
                                         metric={metric}
@@ -256,7 +256,7 @@ export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Ele
                     </div>
                 </div>
             ) : (
-                <div className="border rounded bg-bg-light pt-6 pb-8 text-muted mt-2">
+                <div className="border rounded bg-surface-primary pt-6 pb-8 text-secondary mt-2">
                     <div className="flex flex-col items-center mx-auto space-y-3">
                         <IconAreaChart fontSize="30" />
                         <div className="text-sm text-center text-balance max-w-sm">

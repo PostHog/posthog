@@ -24,6 +24,7 @@ from posthog.warehouse.data_load.service import (
 from posthog.warehouse.types import IncrementalFieldType
 from posthog.warehouse.models.ssh_tunnel import SSHTunnel
 from posthog.warehouse.util import database_sync_to_async
+from dlt.common.normalizers.naming.snake_case import NamingConvention
 
 
 class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, DeletedMetaFields):
@@ -67,6 +68,10 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
 
     def folder_path(self) -> str:
         return f"team_{self.team_id}_{self.source.source_type}_{str(self.id)}".lower().replace("-", "_")
+
+    @property
+    def normalized_name(self):
+        return NamingConvention().normalize_identifier(self.name)
 
     @property
     def is_incremental(self):
@@ -172,7 +177,9 @@ def sync_old_schemas_with_new_schemas(new_schemas: list[str], source_id: uuid.UU
     return schemas_to_create
 
 
-def sync_frequency_to_sync_frequency_interval(frequency: str) -> timedelta:
+def sync_frequency_to_sync_frequency_interval(frequency: str) -> timedelta | None:
+    if frequency == "never":
+        return None
     if frequency == "5min":
         return timedelta(minutes=5)
     if frequency == "30min":
@@ -193,25 +200,27 @@ def sync_frequency_to_sync_frequency_interval(frequency: str) -> timedelta:
     raise ValueError(f"Frequency {frequency} is not supported")
 
 
-def sync_frequency_interval_to_sync_frequency(schema: ExternalDataSchema) -> str:
-    if schema.sync_frequency_interval == timedelta(minutes=5):
+def sync_frequency_interval_to_sync_frequency(sync_frequency_interval: timedelta | None) -> str | None:
+    if sync_frequency_interval is None:
+        return None
+    if sync_frequency_interval == timedelta(minutes=5):
         return "5min"
-    if schema.sync_frequency_interval == timedelta(minutes=30):
+    if sync_frequency_interval == timedelta(minutes=30):
         return "30min"
-    if schema.sync_frequency_interval == timedelta(hours=1):
+    if sync_frequency_interval == timedelta(hours=1):
         return "1hour"
-    if schema.sync_frequency_interval == timedelta(hours=6):
+    if sync_frequency_interval == timedelta(hours=6):
         return "6hour"
-    if schema.sync_frequency_interval == timedelta(hours=12):
+    if sync_frequency_interval == timedelta(hours=12):
         return "12hour"
-    if schema.sync_frequency_interval == timedelta(hours=24):
+    if sync_frequency_interval == timedelta(hours=24):
         return "24hour"
-    if schema.sync_frequency_interval == timedelta(days=7):
+    if sync_frequency_interval == timedelta(days=7):
         return "7day"
-    if schema.sync_frequency_interval == timedelta(days=30):
+    if sync_frequency_interval == timedelta(days=30):
         return "30day"
 
-    raise ValueError(f"Frequency interval {schema.sync_frequency_interval} is not supported")
+    raise ValueError(f"Frequency interval {sync_frequency_interval} is not supported")
 
 
 def filter_snowflake_incremental_fields(columns: list[tuple[str, str]]) -> list[tuple[str, IncrementalFieldType]]:
@@ -482,13 +491,13 @@ def filter_mssql_incremental_fields(columns: list[tuple[str, str]]) -> list[tupl
 def get_mssql_schemas(
     host: str, port: str, database: str, user: str, password: str, schema: str, ssh_tunnel: SSHTunnel
 ) -> dict[str, list[tuple[str, str]]]:
-    def get_schemas(postgres_host: str, postgres_port: int):
+    def get_schemas(mssql_host: str, mssql_port: int):
         # Importing pymssql requires mssql drivers to be installed locally - see posthog/warehouse/README.md
         import pymssql
 
         connection = pymssql.connect(
-            server=postgres_host,
-            port=str(postgres_port),
+            server=mssql_host,
+            port=str(mssql_port),
             database=database,
             user=user,
             password=password,

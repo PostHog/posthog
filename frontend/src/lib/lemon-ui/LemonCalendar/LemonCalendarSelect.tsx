@@ -198,9 +198,11 @@ export function LemonCalendarSelect({
                     />
                 )}
                 <div className="flex space-x-2">
-                    <LemonButton type="secondary" onClick={onClose} data-attr="lemon-calendar-select-cancel">
-                        Cancel
-                    </LemonButton>
+                    {onClose && (
+                        <LemonButton type="secondary" onClick={onClose} data-attr="lemon-calendar-select-cancel">
+                            Cancel
+                        </LemonButton>
+                    )}
                     <LemonButton
                         type="primary"
                         disabled={!selectValue}

@@ -249,7 +249,7 @@
                     arg_types: [
                       {
                         data_type: "str"
-                        nullable: False
+                        nullable: True
                       }
                     ]
                     name: "toUUID"
@@ -1271,7 +1271,7 @@
                       arg_types: [
                         {
                           data_type: "str"
-                          nullable: False
+                          nullable: True
                         }
                       ]
                       name: "toUUID"
@@ -2008,7 +2008,7 @@
             arg_types: [
               {
                 data_type: "str"
-                nullable: False
+                nullable: True
               }
             ]
             name: "toUUID"
@@ -2187,7 +2187,7 @@
                   arg_types: [
                     {
                       data_type: "str"
-                      nullable: False
+                      nullable: True
                     }
                   ]
                   name: "toUUID"
@@ -2686,6 +2686,9 @@
                           $end_timestamp: {
                             hidden: False
                           },
+                          $entry__kx: {
+                            hidden: False
+                          },
                           $entry_current_url: {
                             hidden: False
                           },
@@ -2699,6 +2702,9 @@
                             hidden: False
                           },
                           $entry_hostname: {
+                            hidden: False
+                          },
+                          $entry_irclid: {
                             hidden: False
                           },
                           $entry_pathname: {
@@ -3323,7 +3329,7 @@
                     arg_types: [
                       {
                         data_type: "str"
-                        nullable: False
+                        nullable: True
                       }
                     ]
                     name: "toUUID"
@@ -4346,7 +4352,7 @@
                         arg_types: [
                           {
                             data_type: "str"
-                            nullable: False
+                            nullable: True
                           }
                         ]
                         name: "toUUID"
@@ -5043,7 +5049,7 @@
                       arg_types: [
                         {
                           data_type: "str"
-                          nullable: False
+                          nullable: True
                         }
                       ]
                       name: "toUUID"
@@ -5222,7 +5228,7 @@
                             arg_types: [
                               {
                                 data_type: "str"
-                                nullable: False
+                                nullable: True
                               }
                             ]
                             name: "toUUID"
@@ -6231,7 +6237,7 @@
             arg_types: [
               {
                 data_type: "str"
-                nullable: False
+                nullable: True
               }
             ]
             name: "toUUID"
@@ -6410,7 +6416,7 @@
                   arg_types: [
                     {
                       data_type: "str"
-                      nullable: False
+                      nullable: True
                     }
                   ]
                   name: "toUUID"
@@ -7163,7 +7169,7 @@
             arg_types: [
               {
                 data_type: "str"
-                nullable: False
+                nullable: True
               }
             ]
             name: "toUUID"
@@ -7342,7 +7348,7 @@
                   arg_types: [
                     {
                       data_type: "str"
-                      nullable: False
+                      nullable: True
                     }
                   ]
                   name: "toUUID"

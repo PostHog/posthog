@@ -1,31 +1,28 @@
-import { IconArrowUpRight, IconGear, IconOpenSidebar, IconShuffle } from '@posthog/icons'
+import { IconArrowUpRight, IconGear, IconShuffle } from '@posthog/icons'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { maxSettingsLogic } from 'scenes/settings/environment/maxSettingsLogic'
 
 import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
 
-import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 
 export function QuestionSuggestions(): JSX.Element {
-    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
-    const { visibleSuggestions, allSuggestionsLoading, currentProject } = useValues(maxLogic)
+    const { visibleSuggestions, allSuggestionsLoading, dataProcessingAccepted } = useValues(maxLogic)
     const { askMax, shuffleVisibleSuggestions } = useActions(maxLogic)
+    const { coreMemory, coreMemoryLoading } = useValues(maxSettingsLogic)
     const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
 
-    if (currentProject && !currentProject.product_description) {
+    if (!coreMemoryLoading && !coreMemory) {
         return (
             <LemonButton
                 size="xsmall"
                 type="primary"
-                sideIcon={<IconOpenSidebar />}
-                className="relative"
-                onClick={() => {
-                    openSettingsPanel({ settingId: 'product-description' })
-                    setTimeout(() => document.getElementById('product-description-textarea')?.focus(), 1)
-                }}
+                onClick={() => askMax('Ready, steady, go!')}
+                disabledReason={!dataProcessingAccepted ? 'Please accept OpenAI processing data' : undefined}
+                center
             >
-                Tell me a bit about your product, and I'll offer better answers and suggestions
+                Let's get started with me learning about your project!
             </LemonButton>
         )
     }
@@ -33,7 +30,7 @@ export function QuestionSuggestions(): JSX.Element {
     return (
         <div className="flex items-center justify-center flex-wrap gap-x-2 gap-y-1.5 w-[min(48rem,100%)]">
             {
-                allSuggestionsLoading ? (
+                coreMemoryLoading || allSuggestionsLoading ? (
                     Array.from({ length: 3 }).map((_, index) => (
                         <LemonButton
                             key={index}
@@ -74,11 +71,13 @@ export function QuestionSuggestions(): JSX.Element {
                                 tooltip="Shuffle suggestions"
                             />
                             <LemonButton
-                                onClick={() => openSettingsPanel({ settingId: 'product-description' })}
+                                onClick={() =>
+                                    openSettingsPanel({ sectionId: 'environment-max', settingId: 'core-memory' })
+                                }
                                 size="xsmall"
                                 type="secondary"
                                 icon={<IconGear />}
-                                tooltip="Edit product description"
+                                tooltip="Edit Max's memory"
                             />
                         </div>
                     </>

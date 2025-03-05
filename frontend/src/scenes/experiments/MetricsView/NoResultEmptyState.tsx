@@ -5,7 +5,7 @@ import { combineUrl } from 'kea-router/lib/utils'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
-import { NodeKind } from '~/queries/schema'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { ActivityTab, InsightType } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
@@ -17,7 +17,7 @@ export enum ResultErrorCode {
 }
 
 export function NoResultEmptyState({ error, metric }: { error: any; metric: any }): JSX.Element {
-    const { experiment, variants, getMetricType } = useValues(experimentLogic)
+    const { experiment, variants, getInsightType } = useValues(experimentLogic)
 
     if (!error) {
         return <></>
@@ -38,11 +38,11 @@ export function NoResultEmptyState({ error, metric }: { error: any; metric: any 
             [ResultErrorCode.NO_EXPOSURES]: 'Exposure events have been received',
         }
 
-        const metricType = getMetricType(metric)
+        const insightType = getInsightType(metric)
         const hasMissingExposure = errorCode === ResultErrorCode.NO_EXPOSURES
 
         const requiredEvent =
-            metricType === InsightType.TRENDS
+            insightType === InsightType.TRENDS
                 ? hasMissingExposure
                     ? metric.exposure_query?.series[0]?.event || '$feature_flag_called'
                     : metric.count_query?.series[0]?.event
@@ -90,7 +90,7 @@ export function NoResultEmptyState({ error, metric }: { error: any; metric: any 
                 {value === false ? (
                     <span className="flex items-center space-x-2">
                         <IconCheck className="text-success" fontSize={16} />
-                        <span className="text-muted">{successText[errorCode]}</span>
+                        <span className="text-secondary">{successText[errorCode]}</span>
                     </span>
                 ) : (
                     <span className="flex items-center space-x-2">

@@ -1,12 +1,12 @@
-import { IconMarkdown, IconMarkdownFilled } from '@posthog/icons'
+import { IconEye, IconMarkdown, IconMarkdownFilled } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { JSONViewer } from 'lib/components/JSONViewer'
-import { IconExclamation } from 'lib/lemon-ui/icons'
+import { IconExclamation, IconEyeHidden } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { isObject } from 'lib/utils'
-import React, { useState } from 'react'
+import React from 'react'
 
 import { LLMInputOutput } from '../LLMInputOutput'
 import { CompatMessage } from '../types'
@@ -39,7 +39,7 @@ export function ConversationMessagesDisplay({
                         try {
                             const parsedJson = JSON.parse(output)
                             return isObject(parsedJson) ? (
-                                <JSONViewer src={parsedJson} collapsed={4} />
+                                <JSONViewer src={parsedJson} collapsed={5} />
                             ) : (
                                 JSON.stringify(output ?? null)
                             )
@@ -85,12 +85,52 @@ export function ConversationMessagesDisplay({
 
 export const LLMMessageDisplay = React.memo(
     ({ message, isOutput }: { message: CompatMessage; isOutput?: boolean }): JSX.Element => {
-        const [isRenderingMarkdown, setIsRenderingMarkdown] = useState(!!message.content)
-
         const { role, content, ...additionalKwargs } = message
+        const [isRenderingMarkdown, setIsRenderingMarkdown] = React.useState(true)
+        const [show, setShow] = React.useState(true)
+
+        // Compute whether the content looks like Markdown.
+        // (Heuristic: looks for code blocks, blockquotes, or headings)
+        const isMarkdownCandidate = content ? /(\n\s*```|^>\s|#{1,6}\s)/.test(content) : false
+
+        // Render any additional keyword arguments as JSON.
         const additionalKwargsEntries = Object.fromEntries(
             Object.entries(additionalKwargs).filter(([, value]) => value !== undefined)
         )
+
+        const renderMessageContent = (content: string): JSX.Element | null => {
+            if (!content) {
+                return null
+            }
+            const trimmed = content.trim()
+
+            // If content is valid JSON (we only check when it starts and ends with {} or [] to avoid false positives)
+            if (
+                (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+                (trimmed.startsWith('[') && trimmed.endsWith(']'))
+            ) {
+                try {
+                    const parsed = JSON.parse(content)
+                    if (typeof parsed === 'object' && parsed !== null) {
+                        return <JSONViewer src={parsed} name={null} collapsed={5} />
+                    }
+                } catch {
+                    // Not valid JSON. Fall through to Markdown/plain text handling.
+                }
+            }
+
+            // If the content appears to be Markdown, render based on the toggle.
+            if (isMarkdownCandidate) {
+                return isRenderingMarkdown ? (
+                    <LemonMarkdown>{content}</LemonMarkdown>
+                ) : (
+                    <span className="font-mono text-xs whitespace-pre-wrap">{content}</span>
+                )
+            }
+
+            // Fallback: render as plain text.
+            return <span className="text-xs whitespace-pre-wrap">{content}</span>
+        }
 
         return (
             <div
@@ -102,7 +142,7 @@ export const LLMMessageDisplay = React.memo(
                         ? 'bg-[var(--bg-fill-tertiary)]'
                         : role === 'assistant'
                         ? 'bg-[var(--bg-fill-info-tertiary)]'
-                        : null // e.g. system
+                        : null
                 )}
             >
                 <div className="flex items-center gap-1 w-full px-2 h-6 text-xs font-medium">
@@ -112,10 +152,19 @@ export const LLMMessageDisplay = React.memo(
                             <LemonButton
                                 size="small"
                                 noPadding
-                                icon={isRenderingMarkdown ? <IconMarkdownFilled /> : <IconMarkdown />}
-                                tooltip="Toggle Markdown rendering"
-                                onClick={() => setIsRenderingMarkdown(!isRenderingMarkdown)}
+                                icon={show ? <IconEyeHidden /> : <IconEye />}
+                                tooltip="Toggle message content"
+                                onClick={() => setShow((prev) => !prev)}
                             />
+                            {isMarkdownCandidate && (
+                                <LemonButton
+                                    size="small"
+                                    noPadding
+                                    icon={isRenderingMarkdown ? <IconMarkdownFilled /> : <IconMarkdown />}
+                                    tooltip="Toggle markdown rendering"
+                                    onClick={() => setIsRenderingMarkdown((prev) => !prev)}
+                                />
+                            )}
                             <CopyToClipboardInline
                                 iconSize="small"
                                 description="message content"
@@ -124,26 +173,10 @@ export const LLMMessageDisplay = React.memo(
                         </>
                     )}
                 </div>
-                {!!content && (
-                    <div
-                        className={clsx(
-                            'p-2 whitespace-pre-wrap border-t',
-                            !isRenderingMarkdown && 'font-mono text-xs'
-                        )}
-                    >
-                        {isRenderingMarkdown ? <LemonMarkdown>{content}</LemonMarkdown> : content}
-                    </div>
-                )}
-                {Object.keys(additionalKwargsEntries).length > 0 && (
+                {show && !!content && <div className="p-2 border-t">{renderMessageContent(content)}</div>}
+                {show && Object.keys(additionalKwargsEntries).length > 0 && (
                     <div className="p-2 text-xs border-t">
-                        <JSONViewer
-                            src={additionalKwargsEntries}
-                            name={null}
-                            // `collapsed` limits depth shown at first. 4 is chosen so that we do show
-                            // function arguments in `tool_calls`, but if an argument is an object,
-                            // its child objects are collapsed by default
-                            collapsed={4}
-                        />
+                        <JSONViewer src={additionalKwargsEntries} name={null} collapsed={5} />
                     </div>
                 )}
             </div>
