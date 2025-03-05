@@ -13,6 +13,7 @@ use crate::metrics_consts::{EVENTS_SKIPPED, UPDATES_ISSUED, UPDATES_SKIPPED};
 // We skip updates for events we generate
 pub const EVENTS_WITHOUT_PROPERTIES: [&str; 1] = ["$$plugin_metrics"];
 
+pub const SIX_MONTHS_AGO_SECS: u64 = 15768000;
 // These properties have special meaning, and are ignored
 pub const SKIP_PROPERTIES: [&str; 9] = [
     "$set",
@@ -389,9 +390,8 @@ fn is_valid_date_string(s: &str) -> bool {
 fn is_likely_unix_timestamp(n: &serde_json::Number) -> bool {
     if let Some(value) = n.as_u64() {
         // we could go more conservative here, but you get the idea
-        let unix_secs_six_months_ago: u64 =
-            (Utc::now().timestamp_millis() as u64 / 1000u64) - 15768000;
-        if value >= unix_secs_six_months_ago {
+        let threshold: u64 = (Utc::now().timestamp_millis() as u64 / 1000u64) - SIX_MONTHS_AGO_SECS;
+        if value >= threshold {
             return true;
         }
     }
