@@ -11,7 +11,10 @@ async-trait = { workspace = true }
 axum = { workspace = true }
 axum-client-ip = { workspace = true }
 chrono = { workspace = true }
+common-redis = { path = "../common/redis" }
 envconfig = { workspace = true }
+limiters = { path = "../common/limiters" }
+time = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
@@ -26,7 +29,6 @@ redis = { version = "0.23.3", features = [
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-serde-pickle = { version = "1.1.1"}
 sha1 = "0.10.6"
 regex = "1.10.4"
 maxminddb = "0.17"

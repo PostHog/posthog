@@ -1,9 +1,9 @@
 use crate::api::errors::FlagError;
 use crate::client::database::Client as DatabaseClient;
-use crate::client::redis::Client as RedisClient;
 use crate::cohort::cohort_models::CohortId;
 use crate::flags::flag_models::*;
 use crate::properties::property_models::PropertyFilter;
+use common_redis::Client as RedisClient;
 use std::sync::Arc;
 use tracing::instrument;
 

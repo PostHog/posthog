@@ -1,9 +1,8 @@
+use crate::flags::flag_request::FlagRequestType;
 use anyhow::Result;
+use common_redis::{Client as RedisClient, CustomRedisError};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-
-use crate::client::redis::{Client as RedisClient, CustomRedisError};
-use crate::flags::flag_request::FlagRequestType;
 
 const CACHE_BUCKET_SIZE: u64 = 60 * 2; // duration in seconds
 
