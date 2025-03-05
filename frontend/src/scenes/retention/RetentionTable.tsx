@@ -1,26 +1,41 @@
 import './RetentionTable.scss'
 
+import { IconChevronDown } from '@posthog/icons'
 import clsx from 'clsx'
 import { mean, sum } from 'd3'
 import { useActions, useValues } from 'kea'
-import { RETENTION_MEAN_NONE } from 'lib/constants'
+import { IconChevronRight } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { gradateColor, range } from 'lib/utils'
+import React, { useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { retentionModalLogic } from './retentionModalLogic'
 import { retentionTableLogic } from './retentionTableLogic'
-import { ProcessedRetentionValue } from './types'
+import { NO_BREAKDOWN_VALUE } from './types'
 
 export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolean }): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { tableHeaders, tableRows, hideSizeColumn, retentionVizOptions, theme, retentionFilter } = useValues(
+    const { tableRowsSplitByBreakdownValue, hideSizeColumn, retentionVizOptions, theme, retentionFilter } = useValues(
         retentionTableLogic(insightProps)
     )
     const { openModal } = useActions(retentionModalLogic(insightProps))
     const backgroundColor = theme?.['preset-1'] || '#000000' // Default to black if no color found
     const backgroundColorMean = theme?.['preset-2'] || '#000000' // Default to black if no color found
-    const meanRetentionCalculation = retentionFilter?.meanRetentionCalculation ?? RETENTION_MEAN_NONE
+    const meanRetentionCalculation = retentionFilter?.meanRetentionCalculation ?? 'weighted'
+
+    const totalIntervals = retentionFilter?.totalIntervals ?? 8
+
+    // Track which breakdown sections are expanded
+    const [expandedBreakdowns, setExpandedBreakdowns] = useState<Record<string, boolean>>({})
+
+    // Toggle expansion state for a breakdown
+    const toggleBreakdown = (breakdownValue: string): void => {
+        setExpandedBreakdowns((prevState) => ({
+            ...prevState,
+            [breakdownValue]: !prevState[breakdownValue],
+        }))
+    }
 
     return (
         <table
@@ -35,130 +50,104 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
         >
             <tbody>
                 <tr>
-                    {tableHeaders.map((heading) => (
-                        <th key={heading}>{heading}</th>
+                    <th className="bg">Cohort</th>
+                    {!hideSizeColumn && <th className="bg">Size</th>}
+                    {range(0, totalIntervals).map((interval) => (
+                        <th key={interval}>{`${retentionFilter?.period} ${interval}`}</th>
                     ))}
                 </tr>
 
-                {meanRetentionCalculation === 'weighted' && tableRows.length > 0 ? (
-                    <tr className="border-b" key={-2}>
-                        {range(0, tableRows[0].length).map((columnIndex) => (
-                            <td key={columnIndex} className="pb-2">
-                                {columnIndex <= (hideSizeColumn ? 0 : 1) ? (
-                                    columnIndex == 0 ? (
-                                        <span className="RetentionTable__TextTab">Weighted Mean</span>
-                                    ) : null
-                                ) : (
-                                    <CohortDay
-                                        percentage={
-                                            (() => {
-                                                const validRows = tableRows.filter((row) => {
-                                                    return !(
-                                                        (columnIndex >= row.length - 1 &&
-                                                            (row[columnIndex] as ProcessedRetentionValue)
-                                                                ?.isCurrentPeriod) ||
-                                                        !row[columnIndex] ||
-                                                        (row[columnIndex] as ProcessedRetentionValue)?.count <= 0
-                                                    )
-                                                })
-                                                if (validRows.length === 0) {
-                                                    return 0
-                                                }
-                                                const weights = validRows.map((row) =>
-                                                    parseInt((row[1] as number)?.toString() || '0')
-                                                )
-                                                const weightedSum = sum(
-                                                    validRows.map(
-                                                        (row, i) =>
-                                                            ((row[columnIndex] as ProcessedRetentionValue)
-                                                                ?.percentage || 0) * weights[i]
-                                                    )
-                                                )
-                                                const totalWeight = sum(weights)
-                                                return totalWeight > 0 ? weightedSum / totalWeight : 0
-                                            })() || 0
-                                        }
-                                        clickable={false}
-                                        backgroundColor={backgroundColorMean}
-                                    />
-                                )}
-                            </td>
-                        ))}
-                    </tr>
-                ) : undefined}
+                {Object.entries(tableRowsSplitByBreakdownValue).map(
+                    ([breakdownValue, breakdownRows], breakdownIndex) => (
+                        <React.Fragment key={breakdownIndex}>
+                            <tr onClick={() => toggleBreakdown(breakdownValue)} className="cursor-pointer">
+                                <td>
+                                    {expandedBreakdowns[breakdownValue] ? <IconChevronDown /> : <IconChevronRight />}
+                                    <span className="pl-2">
+                                        {breakdownValue === NO_BREAKDOWN_VALUE ? 'Weighted Mean' : breakdownValue}{' '}
+                                    </span>
+                                </td>
 
-                {meanRetentionCalculation === 'simple' && tableRows.length > 0 ? (
-                    <tr className="border-b" key={-1}>
-                        {range(0, tableRows[0].values.length).map((columnIndex) => (
-                            <td key={columnIndex} className="pb-2">
-                                {columnIndex <= (hideSizeColumn ? 0 : 1) ? (
-                                    columnIndex == 0 ? (
-                                        <span className="RetentionTable__TextTab">Mean</span>
-                                    ) : null
-                                ) : (
-                                    <CohortDay
-                                        percentage={
-                                            mean(
-                                                tableRows.map((row) => {
-                                                    if (columnIndex >= row.length) {
-                                                        return null
-                                                    }
+                                {!hideSizeColumn && <td>{sum(breakdownRows.map((row) => row.cohortSize))}</td>}
 
-                                                    // Don't include the last item in a row, which is an incomplete time period
-                                                    // Also don't include the percentage if the cohort size (count) is 0 or less
-                                                    if (
-                                                        (columnIndex >= row.length - 1 &&
-                                                            (row[columnIndex] as ProcessedRetentionValue)
-                                                                ?.isCurrentPeriod) ||
-                                                        !row[columnIndex] ||
-                                                        (row[columnIndex] as ProcessedRetentionValue)?.count <= 0
-                                                    ) {
-                                                        return null
-                                                    }
-
-                                                    return (row[columnIndex] as ProcessedRetentionValue)?.percentage
-                                                })
-                                            ) || 0
-                                        }
-                                        clickable={false}
-                                        backgroundColor={backgroundColorMean}
-                                    />
-                                )}
-                            </td>
-                        ))}
-                    </tr>
-                ) : undefined}
-
-                {tableRows.map((row, rowIndex) => (
-                    <tr
-                        key={rowIndex}
-                        onClick={() => {
-                            if (!inSharedMode) {
-                                openModal(rowIndex)
-                            }
-                        }}
-                    >
-                        {row.map((column, columnIndex) => (
-                            <td
-                                key={columnIndex}
-                                className={clsx({ 'pt-2': rowIndex === 0 && meanRetentionCalculation !== 'none' })}
-                            >
-                                {columnIndex <= (hideSizeColumn ? 0 : 1) ? (
-                                    <span className="RetentionTable__TextTab">{column}</span>
-                                ) : (
-                                    typeof column === 'object' && (
+                                {range(0, totalIntervals).map((interval) => (
+                                    <td key={interval}>
                                         <CohortDay
-                                            percentage={column.percentage}
-                                            clickable={true}
-                                            isCurrentPeriod={column.isCurrentPeriod}
-                                            backgroundColor={backgroundColor}
+                                            percentage={
+                                                (() => {
+                                                    // rows with value for the (completed) interval
+                                                    // Also don't include the count if the cohort size (count) is 0 or less
+                                                    const validRows = breakdownRows.filter((row) => {
+                                                        return !(
+                                                            row.values?.[interval]?.isCurrentPeriod ||
+                                                            !row.values?.[interval] ||
+                                                            row.values?.[interval]?.count <= 0
+                                                        )
+                                                    })
+
+                                                    if (meanRetentionCalculation === 'weighted') {
+                                                        if (validRows.length === 0) {
+                                                            return 0
+                                                        }
+
+                                                        const weightedSum = sum(
+                                                            validRows.map(
+                                                                (row) =>
+                                                                    (row.values?.[interval]?.percentage || 0) *
+                                                                    row.cohortSize
+                                                            )
+                                                        )
+                                                        const totalWeight = sum(validRows.map((row) => row.cohortSize))
+
+                                                        return totalWeight > 0 ? weightedSum / totalWeight : 0
+                                                    }
+                                                    // default to simple mean
+
+                                                    return (
+                                                        mean(
+                                                            validRows.map((row) => row.values[interval]?.percentage)
+                                                        ) || 0
+                                                    )
+                                                })() || 0
+                                            }
+                                            clickable={false}
+                                            backgroundColor={backgroundColorMean}
                                         />
-                                    )
-                                )}
-                            </td>
-                        ))}
-                    </tr>
-                ))}
+                                    </td>
+                                ))}
+                            </tr>
+
+                            {expandedBreakdowns[breakdownValue] &&
+                                breakdownRows.map((row, rowIndex) => (
+                                    <tr
+                                        key={rowIndex}
+                                        onClick={() => {
+                                            if (!inSharedMode) {
+                                                openModal(rowIndex)
+                                            }
+                                        }}
+                                    >
+                                        <td className="pl-6">{row.label}</td>
+                                        {!hideSizeColumn && (
+                                            <td>
+                                                <span className="RetentionTable__TextTab">{row.cohortSize}</span>
+                                            </td>
+                                        )}
+                                        {row.values.map((column, columnIndex) => (
+                                            <td key={columnIndex}>
+                                                <CohortDay
+                                                    percentage={column.percentage}
+                                                    clickable={true}
+                                                    isCurrentPeriod={column.isCurrentPeriod}
+                                                    backgroundColor={backgroundColor}
+                                                />
+                                            </td>
+                                        ))}
+                                    </tr>
+                                ))}
+                        </React.Fragment>
+                    )
+                )}
             </tbody>
         </table>
     )
@@ -166,14 +155,14 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
 
 function CohortDay({
     percentage,
-    isCurrentPeriod = false,
     clickable,
     backgroundColor,
+    isCurrentPeriod,
 }: {
     percentage: number
-    isCurrentPeriod?: boolean
     clickable: boolean
     backgroundColor: string
+    isCurrentPeriod?: boolean
 }): JSX.Element {
     const backgroundColorSaturation = percentage / 100
     const saturatedBackgroundColor = gradateColor(backgroundColor, backgroundColorSaturation, 0.1)

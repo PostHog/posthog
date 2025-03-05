@@ -366,22 +366,19 @@ class RetentionQueryRunner(QueryRunner):
                 inner_query.select.append(ast.Alias(alias="breakdown_prop_0", expr=prop_expr))
                 breakdown_props.append("breakdown_prop_0")
 
-            # Make sure these fields are included in any GROUP BY clauses
-            if "group_by" in inner_query.__dict__ and inner_query.group_by:
-                for prop in breakdown_props:
-                    inner_query.group_by.append(ast.Field(chain=[prop]))
+            # update group by to include breakdown props
+            for prop in breakdown_props:
+                inner_query.group_by.append(ast.Field(chain=[prop]))
 
         # Create the final breakdown value field (concatenation for multiple props)
         if breakdown_props:
             final_query = ast.SelectQuery(
                 select=[
-                    # Copy existing fields
                     *[ast.Alias(alias=col.alias, expr=ast.Field(chain=[col.alias])) for col in inner_query.select],
                 ],
                 select_from=ast.JoinExpr(table=inner_query),
             )
 
-            # Add the breakdown_value - either direct reference or concatenation
             if len(breakdown_props) > 1:
                 # Build concatenation for multiple breakdowns
                 concat_expr = self._build_concat_expr([ast.Field(chain=[prop]) for prop in breakdown_props])
@@ -464,6 +461,12 @@ class RetentionQueryRunner(QueryRunner):
 
         return expr
 
+    def breakdowns_in_query(self) -> bool:
+        return self.query.breakdownFilter is not None and (
+            self.query.breakdownFilter.breakdown is not None
+            or (self.query.breakdownFilter.breakdowns is not None and len(self.query.breakdownFilter.breakdowns) > 0)
+        )
+
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         with self.timings.measure("retention_query"):
             if self.query.retentionFilter.cumulative:
@@ -481,7 +484,7 @@ class RetentionQueryRunner(QueryRunner):
                 actor_query = self.actor_query()
 
             # Add breakdown if needed
-            if self.query.breakdownFilter:
+            if self.breakdowns_in_query():
                 actor_query = self._add_breakdown_to_query(actor_query)
 
                 # Build retention query with breakdown
@@ -594,7 +597,7 @@ class RetentionQueryRunner(QueryRunner):
         )
 
         # Process results based on whether we have breakdowns
-        if self.query.breakdownFilter:
+        if self.breakdowns_in_query():
             # Group results by breakdown_value
             breakdown_results = {}
             for row in response.results:
@@ -618,6 +621,7 @@ class RetentionQueryRunner(QueryRunner):
                 }
 
                 # Format results for this breakdown
+
                 breakdown_results = [
                     {
                         "values": [

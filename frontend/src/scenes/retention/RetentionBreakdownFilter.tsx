@@ -18,7 +18,7 @@ export function RetentionBreakdownFilter(): JSX.Element | null {
         .filter((value) => !!value)
         .map((value) => ({
             value: value as string | number | boolean,
-            label: value === null ? '(empty)' : String(value),
+            label: value === null ? '(empty)' : value,
         }))
 
     return (
