@@ -74,7 +74,7 @@ def convert_legacy_filters_to_universal_filters(filters: Optional[dict[str, Any]
     """
     filters = filters or {}
 
-    if not filters.keys():
+    if not filters:
         return {}
 
     events = filters.get("events", [])
