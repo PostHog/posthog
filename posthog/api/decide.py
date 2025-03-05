@@ -55,21 +55,26 @@ REMOTE_CONFIG_CACHE_COUNTER = Counter(
 
 
 def maybe_log_decide_data(request_body: Optional[dict] = None, response_body: Optional[dict] = None) -> bool:
-    context = structlog.contextvars.get_contextvars()
-    team_id_filter: list[str] = settings.DECIDE_TRACK_TEAM_IDS
-    team_id_as_string = str(context.get("team_id"))
+    try:
+        context = structlog.contextvars.get_contextvars()
+        team_id_filter: list[str] = settings.DECIDE_TRACK_TEAM_IDS
+        team_id_as_string = str(context.get("team_id"))
 
-    if team_id_as_string not in team_id_filter:
-        return
+        if team_id_as_string not in team_id_filter:
+            return
 
-    request_id = structlog.get_context(logger).get("request_id")
+        request_id = structlog.get_context(logger).get("request_id")
 
-    if request_body:
-        logger.info("Decide request data", request_id=request_id, team_id=team_id_as_string, request_body=request_body)
-    if response_body:
-        logger.info(
-            "Decide response data", request_id=request_id, team_id=team_id_as_string, response_body=response_body
-        )
+        if request_body:
+            logger.warn(
+                "Decide request data", request_id=request_id, team_id=team_id_as_string, request_body=request_body
+            )
+        if response_body:
+            logger.warn(
+                "Decide response data", request_id=request_id, team_id=team_id_as_string, response_body=response_body
+            )
+    except:
+        pass
 
 
 def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool = False) -> dict:
