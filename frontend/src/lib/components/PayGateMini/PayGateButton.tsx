@@ -1,7 +1,10 @@
 import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { useMemo } from 'react'
+import { getUpgradeProductLink } from 'scenes/billing/billing-utils'
 import { urls } from 'scenes/urls'
+
+import { BillingProductV2Type } from '~/types'
 
 import { payGateMiniLogic, PayGateMiniLogicProps } from './payGateMiniLogic'
 
@@ -13,9 +16,11 @@ export const PayGateButton = ({ feature, currentUsage, ...buttonProps }: PayGate
 
     const ctaLink = useMemo(() => {
         if (gateVariant === 'add-card' && !isAddonProduct) {
-            return `/api/billing/activate?products=all_products:&redirect_path=${urls.organizationBilling()}&intent_product=${
-                productWithFeature?.type
-            }`
+            return getUpgradeProductLink({
+                product: productWithFeature as BillingProductV2Type,
+                redirectPath: urls.organizationBilling(),
+                includeAddons: true,
+            })
         } else if (gateVariant === 'add-card') {
             return `/organization/billing${scrollToProduct ? `?products=${productWithFeature?.type}` : ''}`
         } else if (gateVariant === 'contact-sales') {
