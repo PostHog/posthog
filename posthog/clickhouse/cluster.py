@@ -464,7 +464,6 @@ class MutationRunner(abc.ABC):
                     length(splitByString(%(__command_kind)s, replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(formatQuery($__sql$ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{self.table} {command}$__sql$), '\\s+', ' '), '\\(\\s+', '('), '\\s+\\)', ')')) as lines) != 2,
                     'unexpected number of lines, expected 2 (ALTER TABLE prefix, followed by single command)'
                 )
-                AND command = %(__command_kind)s || ' ' || trim(lines[2])
                 AND NOT is_killed  -- ok to restart a killed mutation
             ORDER BY create_time DESC
             """,
