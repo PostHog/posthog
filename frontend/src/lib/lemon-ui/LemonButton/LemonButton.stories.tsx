@@ -327,6 +327,36 @@ export const WithSideAction = (): JSX.Element => {
     )
 }
 
+export const WithButtonWrapper = (): JSX.Element => {
+    return (
+        <div className="flex flex-col gap-2">
+            <div className="border rounded-lg flex flex-col p-2 space-y-1">
+                <LemonButton
+                    buttonWrapper={(button) => <div className="opacity-50">{button}</div>}
+                    sideAction={{
+                        icon: <IconPlus />,
+                        tooltip: 'No wrapper around side action',
+                        onClick: () => alert('Side action!'),
+                    }}
+                    active
+                >
+                    wrapped with opacity 50
+                </LemonButton>
+                <LemonButton
+                    buttonWrapper={(button) => <div className="opacity-20">{button}</div>}
+                    sideAction={{
+                        icon: <IconPlus />,
+                        tooltip: 'No wrapper around side action',
+                        onClick: () => alert('Side action!'),
+                    }}
+                >
+                    wrapped with opacity 20
+                </LemonButton>
+            </div>
+        </div>
+    )
+}
+
 export const AsLinks = (): JSX.Element => {
     return (
         <div className="deprecated-space-y-2">
