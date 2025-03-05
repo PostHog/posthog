@@ -71,8 +71,15 @@ function ConversionWindowFilter({
 }
 
 export function PathsV2SessionWindow({ insightProps }: EditorFilterProps): JSX.Element {
-    const { pathsFilter } = useValues(pathsV2DataLogic(insightProps))
+    const { pathsV2Filter } = useValues(pathsV2DataLogic(insightProps))
     const { updateInsightFilter } = useActions(pathsV2DataLogic(insightProps))
 
-    return <ConversionWindowFilter />
+    return (
+        <ConversionWindowFilter
+            windowInterval={pathsV2Filter?.windowInterval}
+            windowIntervalUnit={pathsV2Filter?.windowIntervalUnit}
+            onWindowIntervalChange={(windowInterval) => updateInsightFilter({ windowInterval })}
+            onWindowIntervalUnitChange={(windowIntervalUnit) => updateInsightFilter({ windowIntervalUnit })}
+        />
+    )
 }
