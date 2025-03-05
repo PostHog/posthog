@@ -20,6 +20,7 @@ import {
 import {
     ChartDisplayType,
     EntityType,
+    ExperimentMetricMathType,
     FeatureFlagFilters,
     FeatureFlagType,
     InsightType,
@@ -695,7 +696,7 @@ describe('metricConfigToFilter', () => {
             timestamp_field: 'timestamp',
             events_join_key: 'person.properties.email',
             data_warehouse_join_key: 'customer.email',
-            math: 'total',
+            math: ExperimentMetricMathType.TotalCount,
             math_property: undefined,
             math_hogql: undefined,
         } as ExperimentDataWarehouseMetricConfig
@@ -712,7 +713,7 @@ describe('metricConfigToFilter', () => {
                     timestamp_field: 'timestamp',
                     events_join_key: 'person.properties.email',
                     data_warehouse_join_key: 'customer.email',
-                    math: 'total',
+                    math: ExperimentMetricMathType.TotalCount,
                     math_property: undefined,
                     math_hogql: undefined,
                 },
@@ -850,7 +851,7 @@ describe('metricToQuery', () => {
     it('returns the correct query for a count metric', () => {
         const metric: ExperimentMetric = {
             kind: NodeKind.ExperimentMetric,
-            metric_type: ExperimentMetricType.COUNT,
+            metric_type: ExperimentMetricType.MEAN,
             metric_config: {
                 kind: NodeKind.ExperimentEventMetricConfig,
                 event: '$pageview',
@@ -881,15 +882,15 @@ describe('metricToQuery', () => {
         })
     })
 
-    it('returns the correct query for a continuous metric', () => {
+    it('returns the correct query for a mean metric with sum math type', () => {
         const metric: ExperimentMetric = {
             kind: NodeKind.ExperimentMetric,
-            metric_type: ExperimentMetricType.CONTINUOUS,
+            metric_type: ExperimentMetricType.MEAN,
             metric_config: {
                 kind: NodeKind.ExperimentEventMetricConfig,
                 event: '$pageview',
                 name: '$pageview',
-                math: 'sum',
+                math: ExperimentMetricMathType.Sum,
                 math_property: 'property_value',
             },
         }
