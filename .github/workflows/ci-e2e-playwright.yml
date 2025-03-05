@@ -76,7 +76,7 @@ jobs:
 
     playwright:
         name: Playwright E2E tests
-        runs-on: depot-ubuntu-latest-arm-8
+        runs-on: depot-ubuntu-latest-8
         timeout-minutes: 60
         needs: [changes, container]
         permissions:
