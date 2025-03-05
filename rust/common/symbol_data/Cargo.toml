@@ -8,5 +8,4 @@ workspace = true
 
 [dependencies]
 thiserror = { workspace = true }
-symbolic = { version = "12.12.1", features = ["sourcemapcache"] }
 serde = { workspace = true }
