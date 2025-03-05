@@ -1183,7 +1183,16 @@ HOGQL_POSTHOG_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
                     StringType(),
                     StringType(),
                     DecimalType(),
+                    DateType(),
+                ),
+                DecimalType(),
+            ),
+            (
+                (
                     StringType(),
+                    StringType(),
+                    DecimalType(),
+                    DateTimeType(),
                 ),
                 DecimalType(),
             ),

@@ -1213,7 +1213,7 @@ class _Printer(Visitor):
                     node.name == "hogql_convertCurrency"
                 ):  # hogql_convertCurrency(from_currency, to_currency, amount, timestamp)
                     from_currency, to_currency, amount, *_rest = args
-                    date = f"toDate({args[3]})" if len(args) > 3 and args[3] else "today()"
+                    date = args[3] if len(args) > 3 and args[3] else "today()"
                     return f"multiplyDecimal(divideDecimal({amount}, dictGet({EXCHANGE_RATE_DICTIONARY_NAME}, 'rate', {from_currency}, {date}, 0)), dictGet({EXCHANGE_RATE_DICTIONARY_NAME}, 'rate', {to_currency}, {date}, 0))"
             raise QueryError(f"Unexpected unresolved HogQL function '{node.name}(...)'")
         else:

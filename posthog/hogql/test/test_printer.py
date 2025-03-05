@@ -2033,7 +2033,7 @@ class TestPrinter(BaseTest):
         )
 
     def test_currency_conversion(self):
-        query = parse_select("select hogql_convertCurrency('USD', 'EUR', 100, '2021-01-01')")
+        query = parse_select("select hogql_convertCurrency('USD', 'EUR', 100, toDate('2021-01-01'))")
         printed = print_ast(
             query,
             HogQLContext(team_id=self.team.pk, enable_select_queries=True),
@@ -2042,7 +2042,7 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(
             (
-                f"SELECT multiplyDecimal(divideDecimal(100, dictGet({EXCHANGE_RATE_DICTIONARY_NAME}, 'rate', %(hogql_val_0)s, toDate(%(hogql_val_2)s), 0)), dictGet({EXCHANGE_RATE_DICTIONARY_NAME}, 'rate', %(hogql_val_1)s, toDate(%(hogql_val_2)s), 0)) "
+                f"SELECT multiplyDecimal(divideDecimal(100, dictGet({EXCHANGE_RATE_DICTIONARY_NAME}, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), 0)), dictGet({EXCHANGE_RATE_DICTIONARY_NAME}, 'rate', %(hogql_val_1)s, toDateOrNull(%(hogql_val_2)s), 0)) "
                 "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0"
             ),
             printed,
