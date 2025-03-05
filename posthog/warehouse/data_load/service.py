@@ -1,6 +1,7 @@
 from dataclasses import asdict
 from datetime import timedelta
 from typing import TYPE_CHECKING
+from datetime import datetime
 
 from temporalio.client import (
     Schedule,
@@ -52,13 +53,14 @@ def get_sync_schedule(external_data_schema: "ExternalDataSchema"):
 
     sync_frequency, jitter = get_sync_frequency(external_data_schema)
 
-    # format 15:00:00 --> 3:00 PM UTC | default to midnight UTC
     hour = 0
     minute = 0
+    # format 15:00:00 --> 3:00 PM UTC | default to midnight UTC
     if external_data_schema.sync_time_of_day:
-        sync_time_of_day = str(external_data_schema.sync_time_of_day)
-        hour = int(sync_time_of_day.split(":")[0])
-        minute = int(sync_time_of_day.split(":")[1])
+        time_str = external_data_schema.sync_time_of_day
+        time = datetime.strptime(time_str, "%H:%M:%S").time()
+        hour = time.hour
+        minute = time.minute
 
     return to_temporal_schedule(
         external_data_schema,

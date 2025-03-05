@@ -17,7 +17,7 @@ export const defaultQuery = (table: string, columns: DatabaseSchemaField[]): Dat
 /**
  * This is meant to provide a human-readable sentence that computes the times of day in which a sync
  * will occur.
- * "The syncs will at 12:00 AM UTC, 5:00 PM UTC, and 11:00 PM UTC"
+ * "The sync runs at 12:00 AM, 5:00 PM, and 11:00 PM UTC"
  * @param anchorTime - The time at which the sync was anchored (UTC)
  * @param syncFrequency - Interval at which the sync will reoccur
  */
@@ -34,28 +34,28 @@ export const syncAnchorIntervalToHumanReadable = (
 
     const [hours, minutes] = anchorTime.split(':').map(Number)
     if (syncFrequency === '24hour') {
-        return `The sync runs daily at ${formatTimeAMPM(hours, minutes)} UTC`
+        return `The sync runs daily at ${humanTimeFormatter(hours, minutes)} UTC`
     }
     if (syncFrequency === '7day') {
-        return `The sync runs weekly at ${formatTimeAMPM(hours, minutes)} UTC`
+        return `The sync runs weekly at ${humanTimeFormatter(hours, minutes)} UTC`
     }
     if (syncFrequency === '30day') {
-        return `The sync runs monthly at ${formatTimeAMPM(hours, minutes)} UTC`
+        return `The sync runs monthly at ${humanTimeFormatter(hours, minutes)} UTC`
     }
 
     const syncTimes: string[] = []
     const interval = syncFrequency === '6hour' ? 6 : 12
 
-    // Calculate all sync times within a 24-hour period
     for (let i = hours; i < 24; i += interval) {
-        syncTimes.push(formatTimeAMPM(i, minutes))
+        syncTimes.push(humanTimeFormatter(i, minutes))
     }
 
-    return `The sync runs at ${syncTimes.join(', ')} UTC`
+    return `The sync runs at ${syncTimes.slice(0, -1).join(', ')}${syncTimes.length > 1 ? ' and ' : ''}${
+        syncTimes[syncTimes.length - 1]
+    } UTC`
 }
 
-// Helper function to format time as HH:MM AM/PM
-function formatTimeAMPM(hours: number, minutes: number): string {
+function humanTimeFormatter(hours: number, minutes: number): string {
     const period = hours >= 12 ? 'PM' : 'AM'
     const displayHours = hours % 12 || 12 // Convert 0 to 12 for 12 AM
     return `${displayHours}:${minutes.toString().padStart(2, '0')} ${period}`
