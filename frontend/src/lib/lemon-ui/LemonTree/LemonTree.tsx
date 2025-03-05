@@ -222,7 +222,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                     isSelfDraggable={isItemDraggable?.(item)}
                                     isSelfDroppable={isItemDroppable?.(item)}
                                     {...props}
-                                    id={item.record?.Path}
+                                    id={item.record?.path}
                                 />
                             ))}
                         </AccordionPrimitive.Content>
