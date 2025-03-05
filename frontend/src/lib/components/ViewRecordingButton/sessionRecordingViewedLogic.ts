@@ -34,7 +34,7 @@ export const sessionRecordingViewedLogic = kea<sessionRecordingViewedLogicType>(
                 return response as SessionRecordingViewedResult
             },
             userClickedThrough: async () => {
-                return { viewed: true, otherViewers: values.isViewed?.otherViewers ?? 0 }
+                return { viewed: true, otherViewers: values.recordingViewed?.otherViewers ?? 0 }
             },
         },
     })),

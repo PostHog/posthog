@@ -369,7 +369,7 @@ export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JS
                     )}
                 </div>
 
-                {matchedRecordings.length && matchedRecordings.length > 1 ? (
+                {matchedRecordings.length > 1 ? (
                     <div className="shrink-0">
                         <LemonButton
                             onClick={onOpenRecordingClick}
