@@ -219,6 +219,7 @@ def export_query_logs(
 def export_query_logs_to_s3():
     export_query_logs()
 
+
 # Schedule to run query logs export at 1 AM daily
 query_logs_export_schedule = dagster.ScheduleDefinition(
     job=export_query_logs_to_s3,
