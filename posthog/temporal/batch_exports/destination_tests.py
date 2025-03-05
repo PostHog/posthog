@@ -47,9 +47,10 @@ class DestinationTestStep:
         result: After running this test step, the result will be populated.
     """
 
-    def __init__(self, name: str, description: str) -> None:
-        self.name = name
-        self.description = description
+    name: str = NotImplemented
+    description: str = NotImplemented
+
+    def __init__(self) -> None:
         self.result: DestinationTestStepResult | None = None
 
     @abc.abstractmethod
@@ -139,6 +140,9 @@ class S3CheckBucketExistsTestStep(DestinationTestStep):
         aws_secret_access_key: Secret access key for the bucket.
     """
 
+    name = "Check S3 bucket exists"
+    description = "Ensure the configured S3 bucket exists and that we have the required permissions to access it."
+
     def __init__(
         self,
         bucket_name: str | None = None,
@@ -147,9 +151,7 @@ class S3CheckBucketExistsTestStep(DestinationTestStep):
         aws_access_key_id: str | None = None,
         aws_secret_access_key: str | None = None,
     ) -> None:
-        super().__init__(
-            name="Check S3 bucket exists", description="Verify the configured S3 bucket exists and we can access it"
-        )
+        super().__init__()
         self.bucket_name = bucket_name
         self.region = region
         self.endpoint_url = endpoint_url
@@ -252,8 +254,13 @@ class BigQueryCheckProjectExistsTestStep(DestinationTestStep):
             project.
     """
 
+    name = "Check project exists"
+    description = (
+        "Ensure the configured BigQuery project exists and that we have the required permissions to access it."
+    )
+
     def __init__(self, project_id: str | None = None, service_account_info: dict[str, str] | None = None) -> None:
-        super().__init__(name="Check project exists", description="Verify the configured project exists")
+        super().__init__()
         self.project_id = project_id
         self.service_account_info = service_account_info
 
@@ -289,13 +296,19 @@ class BigQueryCheckDatasetExistsTestStep(DestinationTestStep):
             project and dataset.
     """
 
+    name = "Check dataset exists"
+    description = (
+        "Verify the configured BigQuery dataset exists and that we have the required permissions to access it."
+    )
+
     def __init__(
         self,
         project_id: str | None = None,
         dataset_id: str | None = None,
         service_account_info: dict[str, str] | None = None,
     ) -> None:
-        super().__init__(name="Check dataset exists", description="Verify the configured dataset exists")
+        super().__init__()
+
         self.dataset_id = dataset_id
         self.project_id = project_id
         self.service_account_info = service_account_info
@@ -340,6 +353,12 @@ class BigQueryCheckTableTestStep(DestinationTestStep):
             project and dataset.
     """
 
+    name = "Check batch exports table"
+    description = (
+        "Verify the configured BigQuery table already exists or that we have the required permissions to create it. "
+        "Additionally, when creating a table, we will attempt to delete it."
+    )
+
     def __init__(
         self,
         project_id: str | None = None,
@@ -347,9 +366,7 @@ class BigQueryCheckTableTestStep(DestinationTestStep):
         table_id: str | None = None,
         service_account_info: dict[str, str] | None = None,
     ) -> None:
-        super().__init__(
-            name="Check batch exports table", description="Verify the configured table already exists or can be created"
-        )
+        super().__init__()
         self.dataset_id = dataset_id
         self.project_id = project_id
         self.table_id = table_id
