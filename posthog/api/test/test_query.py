@@ -7,7 +7,6 @@ from rest_framework import status
 
 from posthog.api.services.query import process_query_dict
 
-
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.property_definition import PropertyDefinition, PropertyType
 from posthog.models.utils import UUIDT
@@ -1048,6 +1047,43 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         response = CachedHogQLQueryResponse.model_validate(api_response)
         assert response.results[0][0] == variable_override_value
+
+    @snapshot_clickhouse_queries
+    def test_query_trends(self):
+        query = {
+            "query": {
+                "kind": "TrendsQuery",
+                "series": [{"kind": "EventsNode", "math": "total", "name": "ai_executed", "event": "ai_executed"}],
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {"key": "model_simplified", "type": "event", "value": "is_set", "operator": "is_set"}
+                            ],
+                        }
+                    ],
+                },
+                "trendsFilter": {"display": "ActionsTable"},
+                "samplingFactor": None,
+                "breakdownFilter": {
+                    "breakdowns": [
+                        {"type": "event", "property": "prompt_type"},
+                        {"type": "event", "property": "model_simplified"},
+                    ],
+                    "breakdown_limit": 50,
+                },
+            },
+            "client_query_id": "0c9aa03c-bf93-41c2-a00e-5cfb6a4044c4",
+            "refresh": "sync",
+            "filters_override": None,
+            "variables_override": None,
+        }
+        api_response = self.client.post(f"/api/projects/{self.team.id}/query/", query)
+        self.assertEqual(api_response.status_code, status.HTTP_202_ACCEPTED)
+        response = api_response.json()
+        assert response["results"][0][1] == query["query"]
 
 
 class TestQueryAwaited(ClickhouseTestMixin, APIBaseTest):
