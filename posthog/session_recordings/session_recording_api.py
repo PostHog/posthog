@@ -473,9 +473,6 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
     def viewed(self, request: request.Request, *args: Any, **kwargs: Any) -> JsonResponse:
         recording: SessionRecording = self.get_object()
 
-        if not recording:
-            raise exceptions.NotFound("Recording not found")
-
         if not request.user.is_anonymous:
             viewed = current_user_viewed([str(recording.session_id)], cast(User, request.user), self.team)
             other_viewers = _other_users_viewed([str(recording.session_id)], cast(User, request.user), self.team)
