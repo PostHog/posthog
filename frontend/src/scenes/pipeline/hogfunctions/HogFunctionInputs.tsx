@@ -123,7 +123,7 @@ function DictionaryField({
     templating: boolean
 }): JSX.Element {
     const [entries, setEntries] = useState<[string, string][]>(Object.entries(value ?? {}))
-    const prevFilteredEntriesRef = useRef<[string, string][]>([])
+    const prevFilteredEntriesRef = useRef<[string, string][]>(entries)
 
     useEffect(() => {
         // NOTE: Filter out all empty entries as fetch will throw if passed in
