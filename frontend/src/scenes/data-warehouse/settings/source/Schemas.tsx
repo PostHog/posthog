@@ -1,3 +1,4 @@
+import { IconInfo } from '@posthog/icons'
 import {
     LemonButton,
     LemonInput,
@@ -17,7 +18,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { useEffect } from 'react'
-import { defaultQuery } from 'scenes/data-warehouse/utils'
+import { defaultQuery, syncAnchorIntervalToHumanReadable } from 'scenes/data-warehouse/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -76,6 +77,64 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                         },
                     },
                     {
+                        title: (
+                            <div className="flex items-center gap-2">
+                                <span>Anchor Time</span>
+                                <div className="flex items-center gap-1">
+                                    <span>UTC</span>
+                                    {currentTeam?.timezone !== 'UTC' && currentTeam?.timezone !== 'GMT' && (
+                                        <>
+                                            <LemonSwitch checked={isProjectTime} onChange={setIsProjectTime} />
+                                            <span>{currentTeam?.timezone || 'UTC'}</span>
+                                        </>
+                                    )}
+                                </div>
+                            </div>
+                        ),
+                        tooltip: `Time of day in which the first sync will run. The sync frequency will be offset from the anchor time. This will not apply to sync intervals one hour or less.`,
+                        key: 'sync_time_of_day',
+                        render: function RenderSyncTimeOfDayLocal(_, schema) {
+                            const utcTime = schema.sync_time_of_day || '00:00:00'
+                            const localTime = isProjectTime
+                                ? dayjs
+                                      .utc(`${dayjs().format('YYYY-MM-DD')}T${utcTime}`)
+                                      .local()
+                                      .tz(currentTeam?.timezone || 'UTC')
+                                      .format('HH:mm:00')
+                                : utcTime
+
+                            return (
+                                <LemonInput
+                                    type="time"
+                                    disabled={
+                                        !schema.should_sync ||
+                                        schema.sync_frequency === '5min' ||
+                                        schema.sync_frequency === '30min' ||
+                                        schema.sync_frequency === '1hour'
+                                    }
+                                    value={localTime.substring(0, 5)}
+                                    onChange={(value) => {
+                                        const newValue = `${value}:00`
+                                        const utcValue = isProjectTime
+                                            ? dayjs(`${dayjs().format('YYYY-MM-DD')}T${newValue}`)
+                                                  .utc()
+                                                  .tz(currentTeam?.timezone || 'UTC')
+                                                  .format('HH:mm:00')
+                                            : newValue
+                                        updateSchema({ ...schema, sync_time_of_day: utcValue })
+                                    }}
+                                    suffix={
+                                        <Tooltip
+                                            title={syncAnchorIntervalToHumanReadable(utcTime, schema.sync_frequency)}
+                                        >
+                                            {schema.should_sync && <IconInfo className="text-muted-alt" />}
+                                        </Tooltip>
+                                    }
+                                />
+                            )
+                        },
+                    },
+                    {
                         title: 'Sync Frequency',
                         key: 'frequency',
                         render: function RenderFrequency(_, schema) {
@@ -97,47 +156,6 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                                         { value: '7day' as DataWarehouseSyncInterval, label: 'Weekly' },
                                         { value: '30day' as DataWarehouseSyncInterval, label: 'Monthly' },
                                     ]}
-                                />
-                            )
-                        },
-                    },
-                    {
-                        title: (
-                            <div className="flex items-center gap-2">
-                                <span>First Sync Time</span>
-                                <div className="flex items-center gap-1">
-                                    <span>UTC</span>
-                                    <LemonSwitch checked={isProjectTime} onChange={setIsProjectTime} />
-                                    <span>{dayjs().format('z')}</span>
-                                </div>
-                            </div>
-                        ),
-                        key: 'sync_time_of_day_local',
-                        render: function RenderSyncTimeOfDayLocal(_, schema) {
-                            const utcTime = schema.sync_time_of_day || '00:00:00'
-                            const localTime = isProjectTime
-                                ? dayjs
-                                      .utc(`${dayjs().format('YYYY-MM-DD')}T${utcTime}`)
-                                      .local()
-                                      .tz(currentTeam?.timezone || 'UTC')
-                                      .format('HH:mm:00')
-                                : utcTime
-
-                            return (
-                                <LemonInput
-                                    type="time"
-                                    disabled={!schema.should_sync}
-                                    value={localTime.substring(0, 5)}
-                                    onChange={(value) => {
-                                        const newValue = `${value}:00`
-                                        const utcValue = isProjectTime
-                                            ? dayjs(`${dayjs().format('YYYY-MM-DD')}T${newValue}`)
-                                                  .utc()
-                                                  .tz(currentTeam?.timezone || 'UTC')
-                                                  .format('HH:mm:00')
-                                            : newValue
-                                        updateSchema({ ...schema, sync_time_of_day: utcValue })
-                                    }}
                                 />
                             )
                         },

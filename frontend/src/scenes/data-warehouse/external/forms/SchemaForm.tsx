@@ -1,6 +1,8 @@
-import { LemonButton, LemonCheckbox, LemonInput, LemonModal, LemonSwitch, LemonTable } from '@posthog/lemon-ui'
+import { IconInfo } from '@posthog/icons'
+import { LemonButton, LemonCheckbox, LemonInput, LemonModal, LemonSwitch, LemonTable, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
+import { syncAnchorIntervalToHumanReadable } from 'scenes/data-warehouse/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { sourceWizardLogic } from '../../new/sourceWizardLogic'
@@ -57,15 +59,17 @@ export default function SchemaForm(): JSX.Element {
                             {
                                 title: (
                                     <div className="flex items-center gap-2">
-                                        <span>First Sync Time</span>
+                                        <span>Anchor Time</span>
                                         <div className="flex items-center gap-1">
                                             <span>UTC</span>
                                             <LemonSwitch checked={isProjectTime} onChange={setIsProjectTime} />
-                                            <span>{dayjs().format('z')}</span>
+                                            <span>{currentTeam?.timezone || 'UTC'}</span>
                                         </div>
                                     </div>
                                 ),
-                                key: 'sync_time_of_day_local',
+                                key: 'sync_time_of_day',
+                                tooltip:
+                                    'Time of day in which the first sync will run. The sync interval will be offset from the anchor time. This will not apply to sync intervals one hour or less.',
                                 render: function RenderSyncTimeOfDayLocal(_, schema) {
                                     const utcTime = schema.sync_time_of_day || '00:00:00'
                                     const localTime = isProjectTime
@@ -91,6 +95,14 @@ export default function SchemaForm(): JSX.Element {
                                                     : newValue
                                                 updateSyncTimeOfDay(schema, utcValue)
                                             }}
+                                            suffix={
+                                                <Tooltip
+                                                    interactive={schema.should_sync}
+                                                    title={syncAnchorIntervalToHumanReadable(utcTime, '6hour')}
+                                                >
+                                                    <IconInfo className="text-muted-alt" />
+                                                </Tooltip>
+                                            }
                                         />
                                     )
                                 },

@@ -73,63 +73,55 @@ def get_sync_schedule(external_data_schema: "ExternalDataSchema"):
 def to_temporal_schedule(
     external_data_schema, inputs, hour_of_day=0, minute_of_hour=0, sync_frequency=timedelta(hours=6), jitter=None
 ):
-    if sync_frequency < timedelta(hours=1):
-        # For sub-hour frequencies, use interval-based scheduling instead of calendar-based
-        return Schedule(
-            action=ScheduleActionStartWorkflow(
-                "external-data-job",
-                asdict(inputs),
-                id=str(external_data_schema.id),
-                task_queue=str(DATA_WAREHOUSE_TASK_QUEUE),
-                retry_policy=RetryPolicy(
-                    initial_interval=timedelta(seconds=10),
-                    maximum_interval=timedelta(seconds=60),
-                    maximum_attempts=3,
-                    non_retryable_error_types=["NondeterminismError"],
-                ),
-            ),
-            spec=ScheduleSpec(
-                intervals=[ScheduleIntervalSpec(every=sync_frequency)],
-                jitter=jitter,
-            ),
-            state=ScheduleState(note=f"Schedule for external data source: {external_data_schema.pk}"),
-            policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
+    action = ScheduleActionStartWorkflow(
+        "external-data-job",
+        asdict(inputs),
+        id=str(external_data_schema.id),
+        task_queue=str(DATA_WAREHOUSE_TASK_QUEUE),
+        retry_policy=RetryPolicy(
+            initial_interval=timedelta(seconds=10),
+            maximum_interval=timedelta(seconds=60),
+            maximum_attempts=3,
+            non_retryable_error_types=["NondeterminismError"],
+        ),
+    )
+
+    # Determine spec based on frequency
+    if sync_frequency <= timedelta(hours=1):
+        spec = ScheduleSpec(intervals=[ScheduleIntervalSpec(every=sync_frequency)], jitter=jitter)
+    else:
+        spec = ScheduleSpec(
+            calendars=[get_calendar_spec(hour_of_day, minute_of_hour, sync_frequency)],
+            jitter=jitter if minute_of_hour == 0 and hour_of_day == 0 else None,
         )
 
-    # For hour or longer frequencies, use a calendar-based approach
-
-    hours_per_day = 24
-    step = int(sync_frequency.total_seconds() // 3600)
-    max_hour = hours_per_day - step
-    end_hour = max((hour_of_day // step) * step, 0)
-    while end_hour + step <= max_hour:
-        end_hour += step
-
     return Schedule(
-        action=ScheduleActionStartWorkflow(
-            "external-data-job",
-            asdict(inputs),
-            id=str(external_data_schema.id),
-            task_queue=str(DATA_WAREHOUSE_TASK_QUEUE),
-            retry_policy=RetryPolicy(
-                initial_interval=timedelta(seconds=10),
-                maximum_interval=timedelta(seconds=60),
-                maximum_attempts=3,
-                non_retryable_error_types=["NondeterminismError"],
-            ),
-        ),
-        spec=ScheduleSpec(
-            calendars=[
-                ScheduleCalendarSpec(
-                    hour=[ScheduleRange(start=hour_of_day, end=end_hour, step=step)],
-                    minute=[ScheduleRange(start=minute_of_hour, end=minute_of_hour, step=1)],
-                )
-            ],
-            # No jitter when it's not midnight
-            jitter=jitter if minute_of_hour == 0 and hour_of_day == 0 else None,
-        ),
+        action=action,
+        spec=spec,
         state=ScheduleState(note=f"Schedule for external data source: {external_data_schema.pk}"),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
+    )
+
+
+def get_calendar_spec(hour_of_day: int, minute_of_hour: int, sync_frequency: timedelta) -> ScheduleCalendarSpec:
+    hours_per_day = 24
+    seconds_per_hour = 3600
+    step = max(int(sync_frequency.total_seconds() // seconds_per_hour), 1)
+
+    # If step is greater than or equal to 24 hours, we only need one execution per day
+    if step >= hours_per_day:
+        return ScheduleCalendarSpec(
+            hour=[ScheduleRange(start=hour_of_day, end=hour_of_day, step=step)],
+            minute=[ScheduleRange(start=minute_of_hour, end=minute_of_hour, step=1)],
+        )
+
+    end_hour = hour_of_day
+    while (end_hour + step) < hours_per_day:
+        end_hour += step
+
+    return ScheduleCalendarSpec(
+        hour=[ScheduleRange(start=hour_of_day, end=end_hour, step=step)],
+        minute=[ScheduleRange(start=minute_of_hour, end=minute_of_hour, step=1)],
     )
 
 
