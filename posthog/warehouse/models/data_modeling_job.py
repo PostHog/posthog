@@ -10,7 +10,7 @@ class DataModelingJob(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
         FAILED = "Failed", "Failed"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.SET_NULL, null=True)
-    saved_query = models.ForeignKey("posthog.DataWarehouseSavedQuery", on_delete=models.CASCADE, null=True)
+    saved_query = models.ForeignKey("posthog.DataWarehouseSavedQuery", on_delete=models.SET_NULL, null=True)
     status = models.CharField(max_length=400, choices=Status.choices, default=Status.RUNNING)
     rows_materialized = models.IntegerField(default=0)
     error = models.TextField(null=True, blank=True)
