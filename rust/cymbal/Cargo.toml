@@ -16,6 +16,7 @@ common-alloc = { path = "../common/alloc" }
 common-kafka = { path = "../common/kafka" }
 common-types = { path = "../common/types" }
 common-dns = { path = "../common/dns" }
+common-symbol-data = { path = "../common/symbol_data" }
 thiserror = { workspace = true }
 sqlx = { workspace = true }
 serde_json = { workspace = true }

@@ -206,6 +206,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
             {surveyID && <UnsubscribeSurveyModal product={addon} />}
 
             {/* Trial modal */}
+            {/* Not currently used but keeping around incase we need it again */}
             <LemonModal
                 isOpen={trialModalOpen}
                 onClose={() => setTrialModalOpen(false)}

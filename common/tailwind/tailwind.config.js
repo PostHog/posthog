@@ -153,6 +153,7 @@ const deprecatedColors = {
     'lifecycle-dormant-hover': 'var(--lifecycle-dormant-hover)',
 
     // Z-indexes
+    'z-top': 'var(--z-top)',
     'z-bottom-notice': 'var(--z-bottom-notice)',
     'z-command-palette': 'var(--z-command-palette)',
     'z-force-modal-above-popovers': 'var(--z-force-modal-above-popovers)',
@@ -627,11 +628,18 @@ const config = {
                 'surface-secondary': 'var(--bg-surface-secondary)',
                 'surface-tertiary': 'var(--bg-surface-tertiary)',
                 'surface-tooltip': 'var(--bg-surface-tooltip)',
+                'surface-tooltip-inverse': 'var(--bg-surface-tooltip-inverse)',
                 'surface-popover': 'var(--bg-surface-popover)',
-
+                'surface-popover-inverse': 'var(--bg-surface-popover-inverse)',
                 'fill-primary': 'var(--bg-fill-primary)',
                 'fill-secondary': 'var(--bg-fill-secondary)',
                 'fill-tertiary': 'var(--bg-fill-tertiary)',
+                'fill-highlight-100': 'var(--bg-fill-highlight-100)',
+                'fill-highlight-inverse-100': 'var(--bg-fill-highlight-inverse-100)',
+                'fill-highlight-150': 'var(--bg-fill-highlight-150)',
+                'fill-highlight-inverse-150': 'var(--bg-fill-highlight-inverse-150)',
+                'fill-highlight-200': 'var(--bg-fill-highlight-200)',
+                'fill-highlight-inverse-200': 'var(--bg-fill-highlight-inverse-200)',
                 'fill-primary-highlight': 'var(--bg-fill-primary-highlight)',
                 'fill-info-secondary': 'var(--bg-fill-info-secondary)',
                 'fill-info-tertiary': 'var(--bg-fill-info-tertiary)',
@@ -764,6 +772,9 @@ const config = {
             flex: {
                 2: '2 2 0%',
                 3: '3 3 0%',
+            },
+            zIndex: {
+                'top': 'var(--z-top)',
             },
         },
     },

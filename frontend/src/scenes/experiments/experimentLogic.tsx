@@ -1430,8 +1430,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 ): InsightType => {
                     return metric &&
                         ((metric?.kind === NodeKind.ExperimentMetric &&
-                            (metric.metric_type === ExperimentMetricType.COUNT ||
-                                metric.metric_type === ExperimentMetricType.CONTINUOUS)) ||
+                            metric.metric_type === ExperimentMetricType.MEAN) ||
                             metric?.kind === NodeKind.ExperimentTrendsQuery)
                         ? InsightType.TRENDS
                         : InsightType.FUNNELS
@@ -1441,7 +1440,7 @@ export const experimentLogic = kea<experimentLogicType>([
             () => [],
             () =>
                 (metric: ExperimentMetric | undefined): ExperimentMetricType => {
-                    return metric?.metric_type || ExperimentMetricType.COUNT
+                    return metric?.metric_type || ExperimentMetricType.MEAN
                 },
         ],
         isExperimentRunning: [
@@ -1707,7 +1706,7 @@ export const experimentLogic = kea<experimentLogicType>([
 
                     if (
                         metricResult.kind === NodeKind.ExperimentQuery &&
-                        metricResult.metric.metric_type === ExperimentMetricType.BINOMIAL
+                        metricResult.metric.metric_type === ExperimentMetricType.FUNNEL
                     ) {
                         const variants = metricResult.variants as FunnelExperimentVariant[]
                         const variantResults = variants.find((variant) => variant.key === variantKey)
