@@ -3,7 +3,6 @@ from __future__ import annotations
 import abc
 import itertools
 import logging
-import re
 import time
 from collections import defaultdict
 from collections.abc import Callable, Iterator, Mapping, Sequence, Set
@@ -445,24 +444,22 @@ class MutationRunner(abc.ABC):
     def find(self, client: Client) -> Mutation | None:
         """Find the running mutation task, if one exists."""
 
-        # TODO: support looking up multiple commands
-        [command] = self.get_commands()
-        command = command.strip()
-        if (command_kind_match := re.match(r"^(\w+)\s*", command)) is None:
-            raise ValueError(f"could not determine command kind from {command!r}")
-
         results = client.execute(
             f"""
-            SELECT mutation_id
+            SELECT mutation_id, command
             FROM system.mutations
             WHERE
                 database = %(__database)s
                 AND table = %(__table)s
-                -- only one command per mutation is currently supported, so throw if the mutation contains more than we expect to find
-                -- throwIf always returns 0 if it does not throw, so negation turns this condition into effectively a noop if the test passes
-                AND NOT throwIf(
-                    length(splitByString(%(__command_kind)s, replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(formatQuery($__sql$ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{self.table} {command}$__sql$), '\\s+', ' '), '\\(\\s+', '('), '\\s+\\)', ')')) as lines) != 2,
-                    'unexpected number of lines, expected 2 (ALTER TABLE prefix, followed by single command)'
+                AND has(
+                    arrayMap(
+                        command -> extract(command, '^\\s*(.*?)(?:,)?\\s*$'),  -- strip leading/trailing whitespace and optional trailing comma
+                        arraySlice(  -- drop "ALTER TABLE" preamble line
+                            splitByChar('\n', formatQuery($__sql$ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{self.table} {", ".join(self.get_commands())}$__sql$)),
+                            2
+                        )
+                    ),
+                    command
                 )
                 AND NOT is_killed  -- ok to restart a killed mutation
             ORDER BY create_time DESC
@@ -470,15 +467,14 @@ class MutationRunner(abc.ABC):
             {
                 f"__database": settings.CLICKHOUSE_DATABASE,
                 f"__table": self.table,
-                f"__command_kind": command_kind_match.group(1),
                 **self.parameters,
             },
         )
         if not results:
             return None
         else:
-            assert len(results) == 1
-            [[mutation_id]] = results
+            # TODO: handle multiple results
+            [mutation_id] = {mutation_id for mutation_id, _ in results}
             return Mutation(self.table, mutation_id)
 
     def enqueue(self, client: Client) -> Mutation:
