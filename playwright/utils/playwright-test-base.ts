@@ -1,4 +1,4 @@
-import { expect, Page, test as base } from '@playwright/test'
+import { Page, test as base } from '@playwright/test'
 import { urls } from 'scenes/urls'
 
 import { AppContext } from '~/types'
@@ -31,12 +31,11 @@ declare module '@playwright/test' {
  * */
 export const test = base.extend<{ loginBeforeTests: void; page: Page }>({
     page: async ({ page }, use) => {
-        // // Add custom methods to the page object
-        // you can see that page/window is separate to test context.
-        // e.g. how we have to pass key and value in setAppContext
+        // Add custom methods to the page object
         page.setAppContext = async function <K extends keyof AppContext>(key: K, value: AppContext[K]): Promise<void> {
             await page.evaluate(
                 ([key, value]) => {
+                    // @ts-expect-error - Type safety is handled by the generic constraint
                     ;(window as WindowWithPostHog).POSTHOG_APP_CONTEXT[key as string] = value
                 },
                 [key, value]
@@ -79,34 +78,17 @@ export const test = base.extend<{ loginBeforeTests: void; page: Page }>({
     // this auto fixture makes sure we log in before every test
     loginBeforeTests: [
         async ({ page }, use) => {
-            // Perform authentication steps
-            await page.goto(urls.login())
-
-            const loginField = page.getByPlaceholder('email@yourcompany.com')
-            const homepageMenuItem = page.locator('[data-attr="menu-item-projecthomepage"]')
-
-            const firstVisible = await Promise.race([
-                loginField.waitFor({ timeout: 5000 }).then(() => 'login'),
-                homepageMenuItem.waitFor({ timeout: 5000 }).then(() => 'authenticated'),
-            ]).catch(() => 'timeout')
-
-            if (firstVisible === 'login') {
-                await loginField.fill(LOGIN_USERNAME)
-
-                const passwd = page.getByPlaceholder('••••••••••')
-                await expect(passwd).toBeVisible()
-                await passwd.fill(LOGIN_PASSWORD)
-
-                await page.getByRole('button', { name: 'Log in' }).click()
-                await homepageMenuItem.waitFor()
-            } else if (firstVisible === 'timeout') {
-                throw new Error('Neither login page nor authenticated UI loaded')
-            }
+            // Perform authentication via API
+            await page.request.post('/api/login/', {
+                data: {
+                    email: LOGIN_USERNAME,
+                    password: LOGIN_PASSWORD,
+                },
+            })
+            await page.goto(urls.projectHomepage())
 
             // Continue with tests
             await use()
-
-            // any teardown would go here
         },
         { auto: true },
     ],
