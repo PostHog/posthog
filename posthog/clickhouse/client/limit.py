@@ -85,7 +85,7 @@ class RateLimit:
             access_method = "other"
 
         team_gauge = CONCURRENT_QUERY_PER_TEAM.labels(
-            team_id=str(kwargs.get("team_id", "")), access_method=access_method
+            team_id=str(kwargs.get("team_id", "unknown")), access_method=access_method
         )
         team_gauge.inc()
         try:
