@@ -35,7 +35,7 @@ export const SymbolSetUploadModal = (): JSX.Element => {
                             }
                         />
                     </LemonField>
-                    <LemonField name="sourcemap">
+                    <LemonField name="sourceMap">
                         <LemonFileInput
                             accept="*"
                             multiple={false}
