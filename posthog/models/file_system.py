@@ -13,6 +13,7 @@ class FileSystem(models.Model):
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     id = models.UUIDField(primary_key=True, default=uuid7)
     path = models.TextField()
+    depth = models.IntegerField(null=True, blank=True)
     type = models.CharField(max_length=100, blank=True)
     ref = models.CharField(max_length=100, null=True, blank=True)
     href = models.TextField(null=True, blank=True)
@@ -67,6 +68,7 @@ class UnfiledFileSaver:
                 FileSystem(
                     team=self.team,
                     path=path,
+                    depth=len(split_path(path)),
                     type=FileSystemType.FEATURE_FLAG,
                     ref=str(flag.id),  # store the ID as a string
                     href=f"/feature_flags/{flag.id}",
@@ -108,6 +110,7 @@ class UnfiledFileSaver:
                 FileSystem(
                     team=self.team,
                     path=path,
+                    depth=len(split_path(path)),
                     type=FileSystemType.EXPERIMENT,
                     ref=str(experiment.id),
                     href=f"/experiments/{experiment.id}",
@@ -150,6 +153,7 @@ class UnfiledFileSaver:
                 FileSystem(
                     team=self.team,
                     path=path,
+                    depth=len(split_path(path)),
                     type=FileSystemType.INSIGHT,
                     ref=str(insight.short_id),  # short_id is a string
                     href=f"/insights/{insight.short_id}",
@@ -191,6 +195,7 @@ class UnfiledFileSaver:
                 FileSystem(
                     team=self.team,
                     path=path,
+                    depth=len(split_path(path)),
                     type=FileSystemType.DASHBOARD,
                     ref=str(dashboard.id),
                     href=f"/dashboard/{dashboard.id}",
@@ -233,6 +238,7 @@ class UnfiledFileSaver:
                 FileSystem(
                     team=self.team,
                     path=path,
+                    depth=len(split_path(path)),
                     type=FileSystemType.NOTEBOOK,
                     ref=str(notebook.id),
                     href=f"/notebooks/{notebook.id}",
@@ -259,7 +265,7 @@ class UnfiledFileSaver:
         Also checks self._in_memory_paths for collisions
         among newly generated paths in this run.
         """
-        desired = f"{base_folder}/{sanitize_filename(name)}"
+        desired = f"{base_folder}/{escape_path(name)}"
         path = desired
         index = 1
 
@@ -311,10 +317,37 @@ def save_unfiled_files(team: Team, user: User, file_type: Optional[FileSystemTyp
     return []
 
 
-def sanitize_filename(file: str) -> str:
-    """
-    Replaces \\ with \\ and / with \\/
-    """
-    sanitized = file.replace("\\", "\\\\")
-    sanitized = sanitized.replace("/", "\\/")
-    return sanitized
+def split_path(path: str) -> list[str]:
+    segments = []
+    current = ""
+    i = 0
+    while i < len(path):
+        # If we encounter a backslash, and the next char is either / or \
+        if path[i] == "\\" and i < len(path) - 1 and path[i + 1] in ["/", "\\"]:
+            current += path[i + 1]
+            i += 2
+            continue
+        elif path[i] == "/":
+            segments.append(current)
+            current = ""
+        else:
+            current += path[i]
+        i += 1
+
+    # Push any remaining part of the path into segments
+    segments.append(current)
+
+    # Filter out empty segments
+    return [s for s in segments if s != ""]
+
+
+def escape_path(path: str) -> str:
+    # Replace backslash with double-backslash, and forward slash with backslash-slash
+    path = path.replace("\\", "\\\\")
+    path = path.replace("/", "\\/")
+    return path
+
+
+def join_path(paths: list[str]) -> str:
+    # Join all segments using '/', while escaping each segment
+    return "/".join(escape_path(segment) for segment in paths)
