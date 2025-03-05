@@ -514,11 +514,11 @@ export function ReplayMaskingSettings(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
 
-    const handleMaskingChange = (level: string): void => {
+    const handleMaskingChange = (level: MaskingLevel): void => {
         updateCurrentTeam({
             session_recording_masking_config: {
                 ...currentTeam?.session_recording_masking_config,
-                maskAllInputs: level === MaskingLevel.FreeLove ? false : true,
+                maskAllInputs: level !== MaskingLevel.FreeLove,
                 maskTextSelector: level === MaskingLevel.TotalPrivacy ? '*' : undefined,
             },
         })
@@ -534,7 +534,7 @@ export function ReplayMaskingSettings(): JSX.Element {
     return (
         <div>
             <SupportedPlatforms web={true} />
-            <p>This controls how much data is masked during session recordings.</p>
+            <p>This controls what data is masked during session recordings.</p>
             <p>
                 You can configure more advanced settings or change masking for other platforms directly in code.{' '}
                 <Link to="https://posthog.com/docs/session-replay/privacy" target="_blank">
