@@ -37,6 +37,8 @@ jobs:
                       dockerfile: ./rust/Dockerfile-feature-flags
                     - image: batch-import-worker
                       dockerfile: ./rust/Dockerfile
+                    - image: e2e-lag-exporter
+                      dockerfile: ./rust/Dockerfile
         runs-on: depot-ubuntu-22.04-4
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
@@ -55,6 +57,7 @@ jobs:
             hook-migrator_digest: ${{ steps.digest.outputs.hook-migrator_digest }}
             cymbal_digest: ${{ steps.digest.outputs.cymbal_digest }}
             feature-flags_digest: ${{ steps.digest.outputs.feature-flags_digest }}
+            e2e-lag-exporter: ${{ steps.digest.outputs.e2e-lag-exporter }}
         defaults:
             run:
                 working-directory: rust

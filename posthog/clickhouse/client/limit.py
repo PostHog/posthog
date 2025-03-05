@@ -15,7 +15,7 @@ from posthog.utils import generate_short_id
 CONCURRENT_QUERY_LIMIT_EXCEEDED_COUNTER = Counter(
     "posthog_clickhouse_query_concurrency_limit_exceeded",
     "Number of times a ClickHouse query exceeded the concurrency limit",
-    ["task_name", "limit", "limit_name"],
+    ["task_name", "limit", "limit_name", "result"],
 )
 
 CONCURRENT_TASKS_LIMIT_EXCEEDED_COUNTER = Counter(
@@ -96,13 +96,19 @@ class RateLimit:
             )
             == 0
         ):
+            from posthog.rate_limit import team_is_allowed_to_bypass_throttle
+
+            bypass = team_is_allowed_to_bypass_throttle(kwargs.get("team_id", None))
+            result = "allow" if bypass else "block"
+
             CONCURRENT_QUERY_LIMIT_EXCEEDED_COUNTER.labels(
-                task_name=task_name, limit=self.max_concurrent_tasks, limit_name=self.limit_name
+                task_name=task_name, limit=self.max_concurrent_tasks, limit_name=self.limit_name, result=result
             ).inc()
 
-            raise ConcurrencyLimitExceeded(
-                f"Exceeded maximum concurrency limit: {self.max_concurrent_tasks} for key: {task_name} and task: {task_id}"
-            )
+            if not bypass:
+                raise ConcurrencyLimitExceeded(
+                    f"Exceeded maximum concurrency limit: {self.max_concurrent_tasks} for key: {task_name} and task: {task_id}"
+                )
 
         return running_tasks_key, task_id
 

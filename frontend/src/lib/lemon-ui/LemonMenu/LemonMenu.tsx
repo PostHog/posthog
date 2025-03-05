@@ -14,7 +14,16 @@ type KeyboardShortcut = Array<keyof KeyboardShortcutProps>
 export interface LemonMenuItemBase
     extends Pick<
         LemonButtonProps,
-        'icon' | 'sideIcon' | 'sideAction' | 'disabledReason' | 'tooltip' | 'active' | 'status' | 'data-attr' | 'size'
+        | 'icon'
+        | 'sideIcon'
+        | 'sideAction'
+        | 'disabledReason'
+        | 'tooltip'
+        | 'tooltipPlacement'
+        | 'active'
+        | 'status'
+        | 'data-attr'
+        | 'size'
     > {
     label: string | JSX.Element
     key?: React.Key
@@ -30,7 +39,7 @@ export interface LemonMenuItemNode extends LemonMenuItemBase {
 }
 
 export interface LemonMenuItemLeafCallback extends LemonMenuItemBase {
-    onClick: () => void
+    onClick?: () => void
     items?: never
     placement?: never
     keyboardShortcut?: KeyboardShortcut

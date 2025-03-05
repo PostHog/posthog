@@ -14,7 +14,7 @@ export interface UploadedLogoProps {
     entityId: number | string
     mediaId?: string | null
     /** @default 'medium' */
-    size?: 'xsmall' | 'medium' | 'xlarge'
+    size?: 'xsmall' | 'small' | 'medium' | 'xlarge'
     /** Use the outlined lettermark for signifying projects, to differentiate them from organizations. */
     outlinedLettermark?: boolean
 }
@@ -42,6 +42,8 @@ export const UploadedLogo = React.forwardRef<HTMLDivElement, UploadedLogoProps>(
                     ? 'size-16 rounded before:absolute before:inset-0 before:border before:rounded'
                     : size === 'medium'
                     ? 'size-6 rounded-sm'
+                    : size === 'small'
+                    ? 'size-5 rounded-sm'
                     : 'size-4 rounded-sm'
             )}
             ref={ref}
