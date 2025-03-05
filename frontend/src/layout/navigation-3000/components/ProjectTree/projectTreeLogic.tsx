@@ -1,5 +1,4 @@
-import { IconBook, IconUpload } from '@posthog/icons'
-import { Spinner } from '@posthog/lemon-ui'
+import { IconBook } from '@posthog/icons'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
@@ -36,15 +35,15 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         queueAction: (action: ProjectTreeAction) => ({ action }),
         removeQueuedAction: (action: ProjectTreeAction) => ({ action }),
         applyPendingActions: true,
+        cancelPendingActions: true,
         createSavedItem: (savedItem: FileSystemEntry) => ({ savedItem }),
         updateSavedItem: (savedItem: FileSystemEntry, oldPath: string) => ({ savedItem, oldPath }),
         deleteSavedItem: (savedItem: FileSystemEntry) => ({ savedItem }),
-        updateExpandedFolders: (folders: string[]) => ({ folders }),
-        updateActiveFolder: (folder: string | null) => ({ folder }),
-        updateLastViewedPath: (path: string) => ({ path }),
-        toggleFolder: (folder: string, isExpanded: boolean) => ({ folder, isExpanded }),
-        updateSelectedFolder: (folder: string) => ({ folder }),
+        updateExpandedFolders: (folderIds: string[]) => ({ folderIds }),
+        updateLastViewedId: (id: string) => ({ id }),
+        toggleFolderOpen: (folderId: string, isExpanded: boolean) => ({ folderId, isExpanded }),
         updateHelpNoticeVisibility: (visible: boolean) => ({ visible }),
+        toggleDragAndDrop: (enabled: boolean) => ({ enabled }),
         loadFolder: (folder: string) => ({ folder }),
         loadFolderStart: (folder: string) => ({ folder }),
         loadFolderSuccess: (folder: string, entries: FileSystemEntry[]) => ({ folder, entries }),
@@ -80,6 +79,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                             await api.fileSystem.delete(action.item.id)
                             actions.deleteSavedItem(action.item)
                         }
+                        actions.removeQueuedAction(action)
+                    }
+                    return true
+                },
+                cancelPendingActions: async () => {
+                    for (const action of values.pendingActions) {
                         actions.removeQueuedAction(action)
                     }
                     return true
@@ -144,30 +149,31 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             {
                 queueAction: (state, { action }) => [...state, action],
                 removeQueuedAction: (state, { action }) => state.filter((a) => a !== action),
+                cancelPendingActions: () => [],
             },
         ],
         expandedFolders: [
             [] as string[],
             {
-                updateExpandedFolders: (_, { folders }) => folders,
+                updateExpandedFolders: (_, { folderIds }) => folderIds,
             },
         ],
-        activeFolder: [
-            null as string | null,
-            {
-                updateActiveFolder: (_, { folder }) => folder,
-            },
-        ],
-        lastViewedPath: [
+        lastViewedId: [
             '',
             {
-                updateLastViewedPath: (_, { path }) => path,
+                updateLastViewedId: (_, { id }) => id,
             },
         ],
         helpNoticeVisible: [
             true,
             {
                 updateHelpNoticeVisibility: (_, { visible }) => visible,
+            },
+        ],
+        dragAndDropEnabled: [
+            false,
+            {
+                toggleDragAndDrop: (_, { enabled }) => enabled,
             },
         ],
     }),
@@ -303,27 +309,13 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 convertFileSystemEntryToTreeDataItem(getDefaultTree(groupNodes)),
         ],
         projectRow: [
-            (s) => [s.pendingActionsCount, s.pendingLoaderLoading],
-            (pendingActionsCount, pendingLoaderLoading): TreeDataItem[] => [
-                ...(pendingActionsCount > 0
-                    ? [
-                          {
-                              id: '__apply_pending_actions__',
-                              name: `--- Apply${
-                                  pendingLoaderLoading ? 'ing' : ''
-                              } ${pendingActionsCount} unsaved change${pendingActionsCount > 1 ? 's' : ''} ---`,
-                              icon: pendingLoaderLoading ? <Spinner /> : <IconUpload className="text-warning" />,
-                              onClick: !pendingLoaderLoading
-                                  ? () => projectTreeLogic.actions.applyPendingActions()
-                                  : undefined,
-                          },
-                      ]
-                    : [
-                          {
-                              id: '__separator__',
-                              name: '',
-                          },
-                      ]),
+            () => [],
+            (): TreeDataItem[] => [
+                {
+                    id: 'top-separator',
+                    name: '',
+                    type: 'separator',
+                },
                 {
                     id: 'project',
                     name: 'Default Project',
@@ -380,16 +372,18 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 newPath: folder,
             })
         },
-        toggleFolder: ({ folder, isExpanded }) => {
+        toggleFolderOpen: ({ folderId, isExpanded }) => {
             if (isExpanded) {
-                actions.updateExpandedFolders(values.expandedFolders.filter((f) => f !== folder))
+                actions.updateExpandedFolders(values.expandedFolders.filter((f) => f !== folderId))
             } else {
-                actions.updateExpandedFolders([...values.expandedFolders, folder])
+                actions.updateExpandedFolders([...values.expandedFolders, folderId])
             }
         },
-        updateSelectedFolder: ({ folder }) => {
-            actions.updateActiveFolder(folder)
-            actions.updateLastViewedPath(folder)
+        cancelPendingActions: () => {
+            // Clear all pending actions without applying them
+            for (const action of values.pendingActions) {
+                actions.removeQueuedAction(action)
+            }
         },
     })),
     afterMount(({ actions }) => {
