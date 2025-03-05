@@ -54,7 +54,7 @@ REMOTE_CONFIG_CACHE_COUNTER = Counter(
 )
 
 
-def maybe_log_decide_data(request_body: Optional[dict] = None, response_body: Optional[dict] = None) -> bool:
+def maybe_log_decide_data(request_body: Optional[dict] = None, response_body: Optional[dict] = None):
     try:
         context = structlog.contextvars.get_contextvars()
         team_id_filter: list[str] = settings.DECIDE_TRACK_TEAM_IDS
