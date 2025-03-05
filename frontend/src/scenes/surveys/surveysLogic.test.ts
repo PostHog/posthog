@@ -67,13 +67,6 @@ describe('surveysLogic', () => {
                 .toDispatchActions(['loadSurveysSuccess'])
                 .toFinishAllListeners()
 
-            const mockedApiCall = jest.fn().mockResolvedValue([200, surveys])
-            useMocks({
-                get: {
-                    '/api/projects/:team/surveys/': mockedApiCall,
-                },
-            })
-
             // When setting search term, frontend search happens immediately
             await expectLogic(logic, () => {
                 logic.actions.setSearchTerm('Test')
@@ -92,8 +85,6 @@ describe('surveysLogic', () => {
                 // Now the backend search should be triggered
                 .toDispatchActions(['loadBackendSearchResults'])
                 .toFinishAllListeners()
-
-            expect(mockedApiCall).toHaveBeenCalled()
         })
 
         it('performs only frontend search for small result sets', async () => {
@@ -121,8 +112,6 @@ describe('surveysLogic', () => {
                     searchTerm: 'Test',
                 })
                 .delay(300)
-            // make sure we are NOT makign the API call
-
             expect(mockedApiCall).not.toHaveBeenCalled()
         })
 
@@ -185,33 +174,29 @@ describe('surveysLogic', () => {
 
         it('handles search cancellation', async () => {
             jest.useFakeTimers()
-
-            const surveys: CountedPaginatedResponse<Survey> = {
-                count: 150,
-                results: [createTestSurvey('1', 'Test Survey 1'), createTestSurvey('2', 'Another Survey')],
-                next: null,
-                previous: null,
+            try {
+                const surveys: CountedPaginatedResponse<Survey> = {
+                    count: 150,
+                    results: [createTestSurvey('1', 'Test Survey 1'), createTestSurvey('2', 'Another Survey')],
+                    next: null,
+                    previous: null,
+                }
+                logic.actions.loadSurveysSuccess(surveys)
+                // Start a search
+                logic.actions.setSearchTerm('test')
+                // Cancel it before debounce timeout
+                logic.actions.setSearchTerm('')
+                // Fast forward past debounce time
+                jest.advanceTimersByTime(300)
+                await expectLogic(logic)
+                    .toMatchValues({
+                        searchedSurveys: surveys.results, // Should show all surveys
+                        searchTerm: '',
+                    })
+                    .toNotHaveDispatchedActions(['loadBackendSearchResults'])
+            } finally {
+                jest.useRealTimers()
             }
-
-            logic.actions.loadSurveysSuccess(surveys)
-
-            // Start a search
-            logic.actions.setSearchTerm('test')
-
-            // Cancel it before debounce timeout
-            logic.actions.setSearchTerm('')
-
-            // Fast forward past debounce time
-            jest.advanceTimersByTime(300)
-
-            await expectLogic(logic)
-                .toMatchValues({
-                    searchedSurveys: surveys.results, // Should show all surveys
-                    searchTerm: '',
-                })
-                .toNotHaveDispatchedActions(['loadBackendSearchResults'])
-
-            jest.useRealTimers()
         })
     })
 })

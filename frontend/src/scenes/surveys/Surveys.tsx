@@ -234,9 +234,12 @@ export function Surveys(): JSX.Element {
                                         <div className="flex justify-center p-1">
                                             <LemonButton
                                                 onClick={loadNextPage}
-                                                className="min-w-full flex justify-between"
+                                                className="min-w-full text-center"
+                                                disabledReason={surveysLoading ? 'Loading surveys' : ''}
                                             >
-                                                {surveysLoading ? 'Loading...' : 'Load more'}
+                                                <span className="text-center flex-1">
+                                                    {surveysLoading ? 'Loading...' : 'Load more'}
+                                                </span>
                                             </LemonButton>
                                         </div>
                                     )

@@ -34,6 +34,10 @@ export function getSurveyStatus(survey: Pick<Survey, 'start_date' | 'end_date'>)
     return ProgressStatus.Complete
 }
 
+function hasNextPage(surveys: CountedPaginatedResponse<Survey>): boolean {
+    return surveys.next !== null && surveys.next !== undefined
+}
+
 export interface SurveysFilters {
     status: string
     created_by: null | number
@@ -80,7 +84,7 @@ export const surveysLogic = kea<surveysLogicType>([
                 }
             },
             loadBackendSearchResults: async () => {
-                if (!values.searchTerm || values.surveys.count <= SURVEY_PAGE_SIZE) {
+                if (!values.searchTerm || !hasNextPage(values.surveys)) {
                     return values.surveys
                 }
 
@@ -144,8 +148,8 @@ export const surveysLogic = kea<surveysLogicType>([
         hasNextPage: [
             true as boolean,
             {
-                loadSurveysSuccess: (_, { surveys }) => surveys.next !== null && surveys.next !== undefined,
-                loadNextPageSuccess: (_, { surveys }) => surveys.next !== null && surveys.next !== undefined,
+                loadSurveysSuccess: (_, { surveys }) => hasNextPage(surveys),
+                loadNextPageSuccess: (_, { surveys }) => hasNextPage(surveys),
             },
         ],
     }),
