@@ -2419,18 +2419,15 @@ const api = {
 
     surveys: {
         async list(
-            limit: number = SURVEY_PAGE_SIZE,
-            offset: number = 0,
-            query: string | undefined = undefined
+            args: {
+                limit?: number
+                offset?: number
+                search?: string
+            } = {
+                limit: SURVEY_PAGE_SIZE,
+            }
         ): Promise<CountedPaginatedResponse<Survey>> {
-            return await new ApiRequest()
-                .surveys()
-                .withQueryString({
-                    limit,
-                    offset,
-                    search: query,
-                })
-                .get()
+            return await new ApiRequest().surveys().withQueryString(args).get()
         },
         async get(surveyId: Survey['id']): Promise<Survey> {
             return await new ApiRequest().survey(surveyId).get()

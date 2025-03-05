@@ -67,7 +67,7 @@ export const surveysLogic = kea<surveysLogicType>([
                 const limit = parseInt(url.searchParams.get('limit') || SURVEY_PAGE_SIZE.toString())
                 const offset = parseInt(url.searchParams.get('offset') || values.surveys.results.length.toString())
 
-                const response = await api.surveys.list(limit, offset)
+                const response = await api.surveys.list({ limit, offset })
 
                 // deduplicate results
                 const existingIds = new Set(values.surveys.results.map((s) => s.id))
@@ -83,7 +83,9 @@ export const surveysLogic = kea<surveysLogicType>([
                     return values.surveys
                 }
 
-                const response = await api.surveys.list(SURVEY_PAGE_SIZE, 0, values.searchTerm)
+                const response = await api.surveys.list({
+                    search: values.searchTerm,
+                })
 
                 const existingIds = new Set(values.surveys.results.map((s) => s.id))
                 const newResults = response.results.filter((s) => !existingIds.has(s.id))

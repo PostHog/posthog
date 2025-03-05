@@ -48,7 +48,6 @@ export const scene: SceneExport = {
 export function Surveys(): JSX.Element {
     const {
         surveys: { results: surveys },
-        totalCount,
         searchedSurveys,
         surveysLoading,
         surveysResponsesCount,
@@ -237,12 +236,7 @@ export function Surveys(): JSX.Element {
                                                 onClick={loadNextPage}
                                                 className="min-w-full flex justify-between"
                                             >
-                                                <span className="flex-1">
-                                                    {surveysLoading ? 'Loading...' : 'Load more'}
-                                                </span>
-                                                <span>
-                                                    {searchedSurveys.length} of {totalCount}
-                                                </span>
+                                                {surveysLoading ? 'Loading...' : 'Load more'}
                                             </LemonButton>
                                         </div>
                                     )
