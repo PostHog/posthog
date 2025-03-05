@@ -7,7 +7,7 @@ use axum::{
 use serde::Serialize;
 use thiserror::Error;
 
-#[derive(Clone, Error, Debug)]
+#[derive(Clone, Error, Debug, PartialEq, Eq)]
 pub enum ApiError {
     #[error("invalid request parameter: {0}")]
     InvalidRequestParam(String),

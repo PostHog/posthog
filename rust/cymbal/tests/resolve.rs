@@ -1,14 +1,14 @@
 use core::str;
 use std::sync::Arc;
 
+use common_symbol_data::{read_symbol_data, SourceAndMap};
 use common_types::ClickHouseEvent;
 use cymbal::{
     config::Config,
     frames::{Frame, RawFrame},
-    hack::js_data::JsData,
     symbol_store::{
         caching::{Caching, SymbolSetCache},
-        sourcemap::SourcemapProvider,
+        sourcemap::{OwnedSourceMapCache, SourcemapProvider},
         Catalog,
     },
     types::{RawErrProps, Stacktrace},
@@ -93,8 +93,8 @@ async fn sourcemap_nulls_dont_go_on_frames() {
     let frame: RawFrame = serde_json::from_str(content).unwrap();
 
     let jsdata_bytes = include_bytes!("static/sourcemap_with_nulls.jsdata").to_vec();
-    let data = JsData::from_bytes(jsdata_bytes).unwrap();
-    let smc = data.to_smc().unwrap();
+    let data: SourceAndMap = read_symbol_data(jsdata_bytes).unwrap();
+    let smc = OwnedSourceMapCache::from_source_and_map(data).unwrap();
     let c = smc.get_smc();
 
     let RawFrame::JavaScriptWeb(frame) = frame else {

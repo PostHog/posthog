@@ -83,6 +83,19 @@ export class SnappySessionRecorderMock {
             eventCount: this.chunks.length,
             startDateTime: this.startDateTime ?? DateTime.now(),
             endDateTime: this.endDateTime ?? DateTime.now(),
+            firstUrl: null,
+            urls: [],
+            clickCount: 0,
+            keypressCount: 0,
+            mouseActivityCount: 0,
+            activeMilliseconds: 0,
+            consoleLogCount: 0,
+            consoleWarnCount: 0,
+            consoleErrorCount: 0,
+            size: buffer.length,
+            messageCount: 0,
+            snapshotSource: null,
+            snapshotLibrary: null,
         }
     }
 }
@@ -493,13 +506,26 @@ describe('SessionBatchRecorder', () => {
 
             expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalledWith([
                 expect.objectContaining({
-                    blockLength: 100,
                     sessionId: 'session1',
                     teamId: 1,
                     distinctId: 'distinct_id',
                     startDateTime: DateTime.fromISO('2025-01-01T10:00:00.000Z'),
                     endDateTime: DateTime.fromISO('2025-01-01T10:00:02.000Z'),
                     blockUrl: 's3://test/file?range=bytes=0-99',
+                    blockLength: 100,
+                    firstUrl: null,
+                    urls: [],
+                    clickCount: 0,
+                    keypressCount: 0,
+                    mouseActivityCount: 0,
+                    activeMilliseconds: 0,
+                    consoleLogCount: 0,
+                    consoleWarnCount: 0,
+                    consoleErrorCount: 0,
+                    size: expect.any(Number),
+                    messageCount: 0,
+                    snapshotSource: null,
+                    snapshotLibrary: null,
                 }),
             ])
         })
@@ -561,6 +587,19 @@ describe('SessionBatchRecorder', () => {
                         endDateTime: DateTime.fromISO('2025-01-01T10:00:02.000Z'),
                         blockUrl: 's3://test/file?range=bytes=0-99',
                         blockLength: 100,
+                        firstUrl: null,
+                        urls: [],
+                        clickCount: 0,
+                        keypressCount: 0,
+                        mouseActivityCount: 0,
+                        activeMilliseconds: 0,
+                        consoleLogCount: 0,
+                        consoleWarnCount: 0,
+                        consoleErrorCount: 0,
+                        size: expect.any(Number),
+                        messageCount: 0,
+                        snapshotSource: null,
+                        snapshotLibrary: null,
                     }),
                     expect.objectContaining({
                         sessionId: 'session2',
@@ -569,6 +608,20 @@ describe('SessionBatchRecorder', () => {
                         startDateTime: DateTime.fromISO('2025-01-01T10:00:00.000Z'),
                         endDateTime: DateTime.fromISO('2025-01-01T10:00:02.000Z'),
                         blockUrl: 's3://test/file?range=bytes=0-99',
+                        blockLength: 100,
+                        firstUrl: null,
+                        urls: [],
+                        clickCount: 0,
+                        keypressCount: 0,
+                        mouseActivityCount: 0,
+                        activeMilliseconds: 0,
+                        consoleLogCount: 0,
+                        consoleWarnCount: 0,
+                        consoleErrorCount: 0,
+                        size: expect.any(Number),
+                        messageCount: 0,
+                        snapshotSource: null,
+                        snapshotLibrary: null,
                     }),
                 ])
             )
@@ -839,6 +892,78 @@ describe('SessionBatchRecorder', () => {
             expect(SessionBatchMetrics.incrementEventsFlushed).toHaveBeenCalledTimes(2)
             expect(SessionBatchMetrics.incrementSessionsFlushed).toHaveBeenLastCalledWith(1) // Only the new session
             expect(SessionBatchMetrics.incrementEventsFlushed).toHaveBeenLastCalledWith(1) // Only the new event
+        })
+    })
+
+    describe('metadata handling', () => {
+        it('should pass non-default metadata values to storeSessionBlocks', async () => {
+            // Create a custom mock implementation of SnappySessionRecorderMock that returns non-default values
+            const customRecorder = new SnappySessionRecorderMock('session_custom', 3)
+
+            // Override the end method to return non-default values
+            customRecorder.end = jest.fn().mockReturnValue({
+                buffer: Buffer.from('test'),
+                eventCount: 5,
+                startDateTime: DateTime.fromISO('2025-01-01T10:00:00.000Z'),
+                endDateTime: DateTime.fromISO('2025-01-01T10:00:10.000Z'),
+                firstUrl: 'https://example.com/start',
+                urls: ['https://example.com/start', 'https://example.com/page1', 'https://example.com/page2'],
+                clickCount: 10,
+                keypressCount: 25,
+                mouseActivityCount: 50,
+                activeMilliseconds: 8000,
+                consoleLogCount: 3,
+                consoleWarnCount: 2,
+                consoleErrorCount: 1,
+                size: 1024,
+                messageCount: 15,
+                snapshotSource: 'web',
+                snapshotLibrary: 'rrweb@1.0.0',
+            })
+
+            // Mock the SnappySessionRecorder constructor to return our custom recorder
+            jest.mocked(SnappySessionRecorder).mockImplementationOnce(
+                () => customRecorder as unknown as SnappySessionRecorder
+            )
+
+            // Create a message and record it
+            const message = createMessage('session_custom', [
+                {
+                    type: EventType.FullSnapshot,
+                    timestamp: 1000,
+                    data: { source: 1 },
+                },
+            ])
+
+            recorder = new SessionBatchRecorder(mockOffsetManager, mockStorage, mockMetadataStore)
+            recorder.record(message)
+            await recorder.flush()
+
+            // Verify that the metadata store received the non-default values
+            expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalledWith([
+                expect.objectContaining({
+                    sessionId: 'session_custom',
+                    teamId: 3,
+                    distinctId: 'distinct_id',
+                    startDateTime: DateTime.fromISO('2025-01-01T10:00:00.000Z'),
+                    endDateTime: DateTime.fromISO('2025-01-01T10:00:10.000Z'),
+                    blockUrl: 's3://test/file?range=bytes=0-99',
+                    blockLength: 100,
+                    firstUrl: 'https://example.com/start',
+                    urls: ['https://example.com/start', 'https://example.com/page1', 'https://example.com/page2'],
+                    clickCount: 10,
+                    keypressCount: 25,
+                    mouseActivityCount: 50,
+                    activeMilliseconds: 8000,
+                    consoleLogCount: 3,
+                    consoleWarnCount: 2,
+                    consoleErrorCount: 1,
+                    size: 1024,
+                    messageCount: 15,
+                    snapshotSource: 'web',
+                    snapshotLibrary: 'rrweb@1.0.0',
+                }),
+            ])
         })
     })
 

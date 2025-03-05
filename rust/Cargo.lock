@@ -1359,6 +1359,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-symbol-data"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "thiserror",
+]
+
+[[package]]
 name = "common-types"
 version = "0.1.0"
 dependencies = [
@@ -1633,6 +1641,7 @@ dependencies = [
  "common-dns",
  "common-kafka",
  "common-metrics",
+ "common-symbol-data",
  "common-types",
  "envconfig",
  "health",
@@ -1848,6 +1857,21 @@ name = "downcast"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1435fa1053d8b2fbbe9be7e97eca7f33d37b28409959813daefc1446a14247f1"
+
+[[package]]
+name = "e2e-lag-exporter"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "envconfig",
+ "futures",
+ "metrics",
+ "metrics-exporter-prometheus",
+ "rdkafka",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
 
 [[package]]
 name = "ecdsa"

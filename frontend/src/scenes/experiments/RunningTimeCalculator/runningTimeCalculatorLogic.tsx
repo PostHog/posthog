@@ -7,7 +7,7 @@ import { experimentLogic } from 'scenes/experiments/experimentLogic'
 
 import { performQuery } from '~/queries/query'
 import { ExperimentMetric, ExperimentMetricType, NodeKind, TrendsQueryResponse } from '~/queries/schema/schema-general'
-import { BaseMathType, CountPerActorMathType, Experiment, PropertyMathType } from '~/types'
+import { BaseMathType, CountPerActorMathType, Experiment, ExperimentMetricMathType, PropertyMathType } from '~/types'
 
 import type { runningTimeCalculatorLogicType } from './runningTimeCalculatorLogicType'
 
@@ -83,20 +83,22 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                     math: BaseMathType.UniqueUsers,
                 })
 
-                if (metric.metric_type === ExperimentMetricType.COUNT) {
-                    series.push({
-                        kind: kindField,
-                        event: eventField,
-                        math: CountPerActorMathType.Average,
-                    })
-                } else if (metric.metric_type === ExperimentMetricType.CONTINUOUS) {
-                    series.push({
-                        kind: kindField,
-                        event: eventField,
-                        math: PropertyMathType.Sum,
-                        math_property: metric.metric_config.math_property,
-                        math_property_type: TaxonomicFilterGroupType.NumericalEventProperties,
-                    })
+                if (metric.metric_type === ExperimentMetricType.MEAN) {
+                    if (metric.metric_config.math === ExperimentMetricMathType.Sum) {
+                        series.push({
+                            kind: kindField,
+                            event: eventField,
+                            math: PropertyMathType.Sum,
+                            math_property: metric.metric_config.math_property,
+                            math_property_type: TaxonomicFilterGroupType.NumericalEventProperties,
+                        })
+                    } else {
+                        series.push({
+                            kind: kindField,
+                            event: eventField,
+                            math: CountPerActorMathType.Average,
+                        })
+                    }
                 }
 
                 const query = {
@@ -115,10 +117,12 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
 
                 return {
                     uniqueUsers: result?.results?.[0]?.count ?? null,
-                    ...(metric.metric_type === ExperimentMetricType.COUNT
+                    ...(metric.metric_type === ExperimentMetricType.MEAN &&
+                    metric.metric_config.math === ExperimentMetricMathType.TotalCount
                         ? { averageEventsPerUser: result?.results?.[1]?.count ?? null }
                         : {}),
-                    ...(metric.metric_type === ExperimentMetricType.CONTINUOUS
+                    ...(metric.metric_type === ExperimentMetricType.MEAN &&
+                    metric.metric_config.math === ExperimentMetricMathType.Sum
                         ? { averagePropertyValuePerUser: result?.results?.[1]?.count ?? null }
                         : {}),
                 }
@@ -157,9 +161,15 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                     return null
                 }
 
-                if (metric.metric_type === ExperimentMetricType.COUNT) {
+                if (
+                    metric.metric_type === ExperimentMetricType.MEAN &&
+                    metric.metric_config.math === ExperimentMetricMathType.TotalCount
+                ) {
                     return VARIANCE_SCALING_FACTOR_COUNT * averageEventsPerUser
-                } else if (metric.metric_type === ExperimentMetricType.CONTINUOUS) {
+                } else if (
+                    metric.metric_type === ExperimentMetricType.MEAN &&
+                    metric.metric_config.math === ExperimentMetricMathType.Sum
+                ) {
                     return VARIANCE_SCALING_FACTOR_CONTINUOUS * averagePropertyValuePerUser ** 2
                 }
                 return null
@@ -195,9 +205,15 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
 
                 let d // Represents the absolute effect size (difference we want to detect)
 
-                if (metric.metric_type === ExperimentMetricType.COUNT) {
+                if (
+                    metric.metric_type === ExperimentMetricType.MEAN &&
+                    metric.metric_config.math === ExperimentMetricMathType.TotalCount
+                ) {
                     d = minimumDetectableEffectDecimal * averageEventsPerUser
-                } else if (metric.metric_type === ExperimentMetricType.CONTINUOUS) {
+                } else if (
+                    metric.metric_type === ExperimentMetricType.MEAN &&
+                    metric.metric_config.math === ExperimentMetricMathType.Sum
+                ) {
                     d = minimumDetectableEffectDecimal * averagePropertyValuePerUser
                 }
 
