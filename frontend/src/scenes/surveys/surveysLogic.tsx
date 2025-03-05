@@ -4,6 +4,7 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import api, { CountedPaginatedResponse } from 'lib/api'
+import { isURL } from 'lib/utils'
 import { Scene } from 'scenes/sceneTypes'
 import { SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 import { teamLogic } from 'scenes/teamLogic'
@@ -59,7 +60,7 @@ export const surveysLogic = kea<surveysLogicType>([
                 return await api.surveys.list()
             },
             loadNextPage: async () => {
-                if (!values.surveys.next) {
+                if (!values.surveys.next || !isURL(values.surveys.next)) {
                     return values.surveys
                 }
 
@@ -145,12 +146,6 @@ export const surveysLogic = kea<surveysLogicType>([
             {
                 loadSurveysSuccess: (_, { surveys }) => surveys.next !== null && surveys.next !== undefined,
                 loadNextPageSuccess: (_, { surveys }) => surveys.next !== null && surveys.next !== undefined,
-            },
-        ],
-        totalCount: [
-            0,
-            {
-                loadSurveysSuccess: (_, { surveys }) => surveys.count,
             },
         ],
     }),
