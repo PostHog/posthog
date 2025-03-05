@@ -6,14 +6,24 @@ import { humanFriendlyNumber } from 'lib/utils'
 import { experimentLogic } from '../experimentLogic'
 import { RunningTimeCalculatorModal } from '../RunningTimeCalculator/RunningTimeCalculatorModal'
 import { ExposureCriteria } from './ExposureCriteria'
+import { Exposures } from './Exposures'
 import { PreLaunchChecklist } from './PreLaunchChecklist'
 
-export function ExperimentHeader(): JSX.Element {
+function PreLaunchExperimentHeader(): JSX.Element {
+    return (
+        <>
+            <PreLaunchChecklist />
+        </>
+    )
+}
+
+function LaunchedExperimentHeader(): JSX.Element {
     const { experiment } = useValues(experimentLogic)
     const { openCalculateRunningTimeModal } = useActions(experimentLogic)
 
     return (
         <>
+            <Exposures />
             <div className="w-1/2 mt-8 xl:mt-0">
                 <div className="flex items-center gap-2 mb-1">
                     <h2 className="font-semibold text-lg m-0">Data collection</h2>
@@ -42,7 +52,16 @@ export function ExperimentHeader(): JSX.Element {
                     <ExposureCriteria />
                 </div>
             </div>
-            <PreLaunchChecklist />
+        </>
+    )
+}
+
+export function ExperimentHeader(): JSX.Element {
+    const { isExperimentRunning } = useValues(experimentLogic)
+
+    return (
+        <>
+            {isExperimentRunning ? <LaunchedExperimentHeader /> : <PreLaunchExperimentHeader />}
             <RunningTimeCalculatorModal />
         </>
     )

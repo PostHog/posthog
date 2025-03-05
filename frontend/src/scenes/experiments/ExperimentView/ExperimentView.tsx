@@ -13,7 +13,6 @@ import { VariantDeltaTimeseries } from '../MetricsView/VariantDeltaTimeseries'
 import { ExploreButton, LoadingState, PageHeaderCustom, ResultsQuery } from './components'
 import { DistributionModal, DistributionTable } from './DistributionTable'
 import { ExperimentHeader } from './ExperimentHeader'
-import { Exposures } from './Exposures'
 import { Info } from './Info'
 import { LegacyExperimentHeader } from './LegacyExperimentHeader'
 import { Overview } from './Overview'
@@ -77,10 +76,8 @@ const ResultsTab = (): JSX.Element => {
 }
 
 const VariantsTab = (): JSX.Element => {
-    const { shouldUseExperimentMetrics, isExperimentRunning } = useValues(experimentLogic)
     return (
         <div className="deprecated-space-y-8 mt-2">
-            {shouldUseExperimentMetrics && isExperimentRunning && <Exposures />}
             <ReleaseConditionsTable />
             <DistributionTable />
         </div>
