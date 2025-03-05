@@ -78,120 +78,125 @@ def export_query_logs(
         # This ensures proper Hive partitioning by date
         current_date = date_from
         while current_date <= date_to:
-            # Create the date-specific filename
-            date_s3_filename = f"{config.s3_path}/event_date={current_date.strftime('%Y-%m-%d')}/{hostname}_{context.run.run_id}.parquet"
+            for is_initial_query in [0, 1]:
+                date_s3_filename = f"{config.s3_path}/event_date={current_date.strftime('%Y-%m-%d')}/is_initial_query={is_initial_query}/{hostname}_{context.run.run_id}.parquet"
 
-            if DEBUG:
-                date_s3_path = f"{OBJECT_STORAGE_ENDPOINT}/{DAGSTER_DATA_EXPORT_S3_BUCKET}/{date_s3_filename}"
-                date_s3_function_args = (
-                    f"'{date_s3_path}', "
-                    f"'{OBJECT_STORAGE_ACCESS_KEY_ID}', "
-                    f"'{OBJECT_STORAGE_SECRET_ACCESS_KEY}', "
-                    f"'Parquet'"
+                if DEBUG:
+                    date_s3_path = f"{OBJECT_STORAGE_ENDPOINT}/{DAGSTER_DATA_EXPORT_S3_BUCKET}/{date_s3_filename}"
+                    date_s3_function_args = (
+                        f"'{date_s3_path}', "
+                        f"'{OBJECT_STORAGE_ACCESS_KEY_ID}', "
+                        f"'{OBJECT_STORAGE_SECRET_ACCESS_KEY}', "
+                        f"'Parquet'"
+                    )
+                else:
+                    date_s3_path = f"https://{DAGSTER_DATA_EXPORT_S3_BUCKET}.s3.amazonaws.com/{date_s3_filename}"
+                    date_s3_function_args = f"'{date_s3_path}', 'Parquet'"
+
+                # Construct the export query for this specific date
+                # Explicitly select all columns except transaction_id which contains a UUID that Parquet doesn't support
+                query = f"""
+                INSERT INTO FUNCTION s3({date_s3_function_args})
+                SELECT
+                    hostname,
+                    type,
+                    event_date,
+                    event_time,
+                    event_time_microseconds,
+                    query_start_time,
+                    query_start_time_microseconds,
+                    query_duration_ms,
+                    read_rows,
+                    read_bytes,
+                    written_rows,
+                    written_bytes,
+                    result_rows,
+                    result_bytes,
+                    memory_usage,
+                    current_database,
+                    query,
+                    formatted_query,
+                    normalized_query_hash,
+                    query_kind,
+                    databases,
+                    tables,
+                    columns,
+                    partitions,
+                    projections,
+                    views,
+                    exception_code,
+                    exception,
+                    stack_trace,
+                    is_initial_query,
+                    user,
+                    query_id,
+                    address,
+                    port,
+                    initial_user,
+                    initial_query_id,
+                    initial_address,
+                    initial_port,
+                    initial_query_start_time,
+                    initial_query_start_time_microseconds,
+                    interface,
+                    is_secure,
+                    os_user,
+                    client_hostname,
+                    client_name,
+                    client_revision,
+                    client_version_major,
+                    client_version_minor,
+                    client_version_patch,
+                    http_method,
+                    http_user_agent,
+                    http_referer,
+                    forwarded_for,
+                    quota_key,
+                    distributed_depth,
+                    revision,
+                    log_comment,
+                    thread_ids,
+                    peak_threads_usage,
+                    ProfileEvents,
+                    Settings,
+                    used_aggregate_functions,
+                    used_aggregate_function_combinators,
+                    used_database_engines,
+                    used_data_type_families,
+                    used_dictionaries,
+                    used_formats,
+                    used_functions,
+                    used_storages,
+                    used_table_functions,
+                    used_row_policies,
+                    used_privileges,
+                    missing_privileges,
+                    -- transaction_id is excluded because it contains a UUID which Parquet doesn't support
+                    query_cache_usage,
+                    asynchronous_read_counters,
+                    ProfileEvents.Names,
+                    ProfileEvents.Values,
+                    Settings.Names,
+                    Settings.Values,
+                    -- Extracted columns
+                    JSONExtractInt(log_comment, 'team_id') as team_id,
+                    JSONExtractString(log_comment, 'workload') as workload
+                FROM system.query_log
+                WHERE event_date = toDate(%(current_date)s) AND is_initial_query = {is_initial_query}
+                SETTINGS s3_truncate_on_insert=1
+                """
+
+                context.log.info(
+                    f"Exporting query logs for {current_date} to {date_s3_path} on host {hostname}, is_initial_query={is_initial_query}"
                 )
-            else:
-                date_s3_path = f"https://{DAGSTER_DATA_EXPORT_S3_BUCKET}.s3.amazonaws.com/{date_s3_filename}"
-                date_s3_function_args = f"'{date_s3_path}', 'Parquet'"
 
-            # Construct the export query for this specific date
-            # Explicitly select all columns except transaction_id which contains a UUID that Parquet doesn't support
-            query = f"""
-            INSERT INTO FUNCTION s3({date_s3_function_args})
-            SELECT
-                hostname,
-                type,
-                event_date,
-                event_time,
-                event_time_microseconds,
-                query_start_time,
-                query_start_time_microseconds,
-                query_duration_ms,
-                read_rows,
-                read_bytes,
-                written_rows,
-                written_bytes,
-                result_rows,
-                result_bytes,
-                memory_usage,
-                current_database,
-                query,
-                formatted_query,
-                normalized_query_hash,
-                query_kind,
-                databases,
-                tables,
-                columns,
-                partitions,
-                projections,
-                views,
-                exception_code,
-                exception,
-                stack_trace,
-                is_initial_query,
-                user,
-                query_id,
-                address,
-                port,
-                initial_user,
-                initial_query_id,
-                initial_address,
-                initial_port,
-                initial_query_start_time,
-                initial_query_start_time_microseconds,
-                interface,
-                is_secure,
-                os_user,
-                client_hostname,
-                client_name,
-                client_revision,
-                client_version_major,
-                client_version_minor,
-                client_version_patch,
-                http_method,
-                http_user_agent,
-                http_referer,
-                forwarded_for,
-                quota_key,
-                distributed_depth,
-                revision,
-                log_comment,
-                thread_ids,
-                peak_threads_usage,
-                ProfileEvents,
-                Settings,
-                used_aggregate_functions,
-                used_aggregate_function_combinators,
-                used_database_engines,
-                used_data_type_families,
-                used_dictionaries,
-                used_formats,
-                used_functions,
-                used_storages,
-                used_table_functions,
-                used_row_policies,
-                used_privileges,
-                missing_privileges,
-                -- transaction_id is excluded because it contains a UUID which Parquet doesn't support
-                query_cache_usage,
-                asynchronous_read_counters,
-                ProfileEvents.Names,
-                ProfileEvents.Values,
-                Settings.Names,
-                Settings.Values
-            FROM system.query_log
-            WHERE event_date = toDate(%(current_date)s)
-            SETTINGS s3_truncate_on_insert=1
-            """
-
-            context.log.info(f"Exporting query logs for {current_date} to {date_s3_path} on host {hostname}")
-
-            # Execute the query for this date
-            client.execute(
-                query,
-                {
-                    "current_date": current_date.strftime(DateRange.FORMAT),
-                },
-            )
+                # Execute the query for this date
+                client.execute(
+                    query,
+                    {
+                        "current_date": current_date.strftime(DateRange.FORMAT),
+                    },
+                )
 
             # Move to the next date
             current_date += datetime.timedelta(days=1)
