@@ -67,6 +67,13 @@ describe('surveysLogic', () => {
                 .toDispatchActions(['loadSurveysSuccess'])
                 .toFinishAllListeners()
 
+            const mockedApiCall = jest.fn().mockResolvedValue([200, surveys])
+            useMocks({
+                get: {
+                    '/api/projects/:team/surveys/': mockedApiCall,
+                },
+            })
+
             // When setting search term, frontend search happens immediately
             await expectLogic(logic, () => {
                 logic.actions.setSearchTerm('Test')
@@ -84,6 +91,9 @@ describe('surveysLogic', () => {
                 .delay(300)
                 // Now the backend search should be triggered
                 .toDispatchActions(['loadBackendSearchResults'])
+                .toFinishAllListeners()
+
+            expect(mockedApiCall).toHaveBeenCalled()
         })
 
         it('performs only frontend search for small result sets', async () => {
@@ -94,6 +104,14 @@ describe('surveysLogic', () => {
                 previous: null,
             }
 
+            // mock API call
+            const mockedApiCall = jest.fn()
+            useMocks({
+                get: {
+                    '/api/projects/:team/surveys/': mockedApiCall,
+                },
+            })
+
             await expectLogic(logic, () => {
                 logic.actions.loadSurveysSuccess(surveys)
                 logic.actions.setSearchTerm('Test')
@@ -102,7 +120,10 @@ describe('surveysLogic', () => {
                     searchedSurveys: [surveys.results[0]], // Only the matching survey
                     searchTerm: 'Test',
                 })
-                .toNotHaveDispatchedActions(['loadBackendSearchResults'])
+                .delay(300)
+            // make sure we are NOT makign the API call
+
+            expect(mockedApiCall).not.toHaveBeenCalled()
         })
 
         it('merges frontend and backend results without duplicates when backend search completes', async () => {
