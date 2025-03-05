@@ -1,6 +1,15 @@
 import type { ModelRow } from './types'
 
-export const costs: ModelRow[] = [
+export const costsOverrides: ModelRow[] = [
+    // OpenAI
+    {
+        model: 'gpt-4.5',
+        cost: {
+            prompt_token: 0.000075,
+            completion_token: 0.00015,
+        },
+    },
+    // Anthropic
     {
         model: 'claude-3-5-haiku',
         cost: {
