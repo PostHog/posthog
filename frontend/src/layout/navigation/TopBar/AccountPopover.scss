@@ -1,5 +1,3 @@
-@import '../../../styles/mixins';
-
 .AccountPopover {
     min-width: 16rem;
     max-width: 22rem;
@@ -18,7 +16,7 @@
 .AccountPopover__section {
     width: 100%;
     padding: 0.5rem 0;
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid var(--border-primary);
 
     &:first-child {
         padding-top: 0;

@@ -8,7 +8,7 @@ import { ErrorTrackingTile } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import { Query } from '~/queries/Query/Query'
-import { ErrorTrackingIssue } from '~/queries/schema'
+import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumnComponent } from '~/queries/types'
 
 export const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
@@ -22,7 +22,7 @@ export const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                     <div className="space-y-1">
                         <div className="line-clamp-1">{record.description}</div>
                         <div className="space-x-1">
-                            <TZLabel time={record.last_seen} className="border-dotted border-b" />
+                            <TZLabel time={record.last_seen as string} className="border-dotted border-b" />
                         </div>
                     </div>
                 }
@@ -66,7 +66,7 @@ export const WebAnalyticsErrorTrackingTile = ({ tile }: { tile: ErrorTrackingTil
             )}
         >
             <h2 className="m-0 mb-3">Error tracking</h2>
-            <div className="border rounded bg-bg-light flex-1 flex flex-col py-2 px-1">
+            <div className="border rounded bg-surface-primary flex-1 flex flex-col py-2 px-1">
                 <Query query={query} embedded={true} context={context} />
             </div>
             <div className="flex flex-row-reverse my-2">

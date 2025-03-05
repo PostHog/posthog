@@ -10,7 +10,7 @@ import temporalio.common
 import temporalio.workflow
 from django.conf import settings
 
-from posthog.temporal.batch_exports.base import PostHogWorkflow
+from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_internal_logger
 

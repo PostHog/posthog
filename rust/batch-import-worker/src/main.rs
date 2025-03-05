@@ -1,4 +1,8 @@
-use std::{future::ready, sync::Arc, time::Duration};
+use std::{
+    future::ready,
+    sync::{atomic::Ordering, Arc},
+    time::Duration,
+};
 
 use anyhow::Error;
 use axum::{routing::get, Router};
@@ -6,9 +10,11 @@ use batch_import_worker::{
     config::Config,
     context::AppContext,
     job::{model::JobModel, Job},
+    spawn_liveness_loop,
 };
 use common_metrics::{serve, setup_metrics_routes};
 use envconfig::Envconfig;
+
 use tokio::task::JoinHandle;
 use tracing::{error, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
@@ -58,10 +64,7 @@ pub async fn main() -> Result<(), Error> {
 
     start_health_liveness_server(&config, context.clone());
 
-    let liveness = context
-        .health_registry
-        .register("main-loop".to_string(), Duration::from_secs(30))
-        .await;
+    let liveness = context.worker_liveness.clone();
 
     while context.is_running() {
         liveness.report_healthy().await;
@@ -77,7 +80,10 @@ pub async fn main() -> Result<(), Error> {
 
         info!("Claimed job: {:?}", model.id);
 
+        let init_liveness_run = spawn_liveness_loop(liveness.clone());
         let mut next_step = Some(Job::new(model, context.clone()).await?);
+        init_liveness_run.store(false, Ordering::Relaxed);
+
         while let Some(job) = next_step {
             liveness.report_healthy().await;
             if !context.is_running() {

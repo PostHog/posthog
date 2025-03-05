@@ -3,6 +3,7 @@ import './InsightsTable.scss'
 import { useActions, useValues } from 'kea'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { compare as compareFn } from 'natural-orderby'
+import { useMemo } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
@@ -43,6 +44,7 @@ export interface InsightsTableProps {
     embedded?: boolean
     /** @default false */
     canEditSeriesNameInline?: boolean
+    seriesNameTooltip?: string
     /**
      * (Un)checking series updates the insight via the API, so it should be disabled if updates aren't desired.
      *  @default true
@@ -60,6 +62,7 @@ export function InsightsTable({
     isLegend = false,
     embedded = false,
     canEditSeriesNameInline = false,
+    seriesNameTooltip,
     canCheckUncheckSeries = true,
     isMainInsightView = false,
 }: InsightsTableProps): JSX.Element {
@@ -71,6 +74,7 @@ export function InsightsTable({
         isNonTimeSeriesDisplay,
         compareFilter,
         isTrends,
+        isStickiness,
         display,
         interval,
         breakdownFilter,
@@ -122,6 +126,7 @@ export function InsightsTable({
                     item={item}
                     indexedResults={indexedResults}
                     canEditSeriesNameInline={canEditSeriesNameInline}
+                    seriesNameTooltip={seriesNameTooltip}
                     handleEditClick={handleSeriesEditClick}
                     hasMultipleSeries={!isSingleSeries}
                     hasBreakdown={isValidBreakdown(breakdownFilter)}
@@ -245,28 +250,35 @@ export function InsightsTable({
         })
     }
 
-    if (indexedResults?.length > 0 && indexedResults[0].data) {
-        const valueColumns: LemonTableColumn<IndexedTrendResult, any>[] = indexedResults[0].data.map(
-            (__, index: number) => ({
-                title: (
-                    <ValueColumnTitle
-                        index={index}
-                        indexedResults={indexedResults}
-                        compare={!!compareFilter?.compare}
-                        interval={interval}
-                    />
-                ),
-                render: (_, item: IndexedTrendResult) => (
-                    <ValueColumnItem index={index} item={item} trendsFilter={trendsFilter} />
-                ),
-                key: `data-${index}`,
-                sorter: (a, b) => (a.data[index] ?? NaN) - (b.data[index] ?? NaN),
-                align: 'right',
-            })
-        )
+    const valueColumns: LemonTableColumn<IndexedTrendResult, any>[] = useMemo(() => {
+        const results = indexedResults?.[0]?.data
+        if (!results?.length) {
+            return []
+        }
 
-        columns.push(...valueColumns)
-    }
+        const capitalizeFirstLetter = (str: string): string => str.charAt(0).toUpperCase() + str.slice(1)
+
+        return results.map((_, index) => ({
+            title: isStickiness ? (
+                `${interval ? capitalizeFirstLetter(interval) : 'Day'} ${index + 1}`
+            ) : (
+                <ValueColumnTitle
+                    index={index}
+                    indexedResults={indexedResults}
+                    compare={compareFilter?.compare}
+                    interval={interval}
+                />
+            ),
+            render: (_, item: IndexedTrendResult) => (
+                <ValueColumnItem index={index} item={item} trendsFilter={trendsFilter} />
+            ),
+            key: `data-${index}`,
+            sorter: (a: IndexedTrendResult, b: IndexedTrendResult) => (a.data[index] ?? NaN) - (b.data[index] ?? NaN),
+            align: 'right',
+        }))
+    }, [indexedResults, trendsFilter, isStickiness, compareFilter?.compare, interval])
+
+    columns.push(...valueColumns)
 
     return (
         <LemonTable

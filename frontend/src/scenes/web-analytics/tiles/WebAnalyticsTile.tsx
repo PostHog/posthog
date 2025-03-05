@@ -1,4 +1,4 @@
-import { IconRewindPlay, IconTrending, IconWarning } from '@posthog/icons'
+import { IconChevronDown, IconTrending, IconWarning } from '@posthog/icons'
 import { Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -6,11 +6,11 @@ import { getColorVar } from 'lib/colors'
 import { IntervalFilterStandalone } from 'lib/components/IntervalFilter'
 import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { PropertyIcon } from 'lib/components/PropertyIcon'
 import { IconOpenInNew, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
-import { percentage, UnexpectedNeverError } from 'lib/utils'
-import { addProductIntentForCrossSell, ProductIntentContext } from 'lib/utils/product-intents'
+import { percentage, tryDecodeURIComponent, UnexpectedNeverError } from 'lib/utils'
 import { useCallback, useMemo } from 'react'
 import { NewActionButton } from 'scenes/actions/NewActionButton'
 import { countryCodeToFlag, countryCodeToName } from 'scenes/insights/views/WorldMap'
@@ -27,18 +27,15 @@ import {
     InsightVizNode,
     NodeKind,
     QuerySchema,
+    WebAnalyticsOrderByFields,
     WebStatsBreakdown,
     WebVitalsPathBreakdownQuery,
 } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
-import {
-    FilterLogicalOperator,
-    InsightLogicProps,
-    ProductKey,
-    PropertyFilterType,
-    PropertyOperator,
-    ReplayTabs,
-} from '~/types'
+import { InsightLogicProps, ProductKey, PropertyFilterType } from '~/types'
+
+import { HeatmapButton } from '../CrossSellButtons/HeatmapButton'
+import { ReplayButton } from '../CrossSellButtons/ReplayButton'
 
 const toUtcOffsetFormat = (value: number): string => {
     if (value === 0) {
@@ -196,9 +193,13 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
     switch (breakdownBy) {
         case WebStatsBreakdown.ExitPage:
         case WebStatsBreakdown.InitialPage:
-        case WebStatsBreakdown.Page:
-            return <>{source.doPathCleaning ? parseAliasToReadable(value as string) : value}</>
-
+        case WebStatsBreakdown.Page: {
+            if (typeof value !== 'string') {
+                return <>{value}</>
+            }
+            const decoded = tryDecodeURIComponent(value)
+            return <>{source.doPathCleaning ? parseAliasToReadable(decoded) : decoded}</>
+        }
         case WebStatsBreakdown.Viewport:
             if (Array.isArray(value)) {
                 const [width, height] = value
@@ -260,6 +261,36 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
                 )
             }
             break
+        case WebStatsBreakdown.DeviceType:
+            if (typeof value === 'string') {
+                return (
+                    <div className="flex items-center gap-2">
+                        <PropertyIcon property="$device_type" value={value} />
+                        <span>{value}</span>
+                    </div>
+                )
+            }
+            break
+        case WebStatsBreakdown.Browser:
+            if (typeof value === 'string') {
+                return (
+                    <div className="flex items-center gap-2">
+                        <PropertyIcon property="$browser" value={value} />
+                        <span>{value}</span>
+                    </div>
+                )
+            }
+            break
+        case WebStatsBreakdown.OS:
+            if (typeof value === 'string') {
+                return (
+                    <div className="flex items-center gap-2">
+                        <PropertyIcon property="$os" value={value} />
+                        <span>{value}</span>
+                    </div>
+                )
+            }
+            break
     }
 
     if (typeof value === 'string') {
@@ -267,6 +298,37 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
     }
     return null
 }
+
+const SortableCell = (name: string, orderByField: WebAnalyticsOrderByFields): QueryContextColumnTitleComponent =>
+    function SortableCell() {
+        const { tablesOrderBy } = useValues(webAnalyticsLogic)
+        const { setTablesOrderBy } = useActions(webAnalyticsLogic)
+
+        const isSortedByMyField = tablesOrderBy?.[0] === orderByField
+        const isAscending = tablesOrderBy?.[1] === 'ASC'
+
+        // Toggle between DESC, ASC, and no sort, in this order
+        const onClick = useCallback(() => {
+            if (!isSortedByMyField || isAscending) {
+                setTablesOrderBy(orderByField, 'DESC')
+            } else {
+                setTablesOrderBy(orderByField, 'ASC')
+            }
+        }, [isAscending, isSortedByMyField, setTablesOrderBy])
+
+        return (
+            <span onClick={onClick} className="group cursor-pointer inline-flex items-center">
+                {name}
+                <IconChevronDown
+                    fontSize="20px"
+                    className={clsx('-mr-1 ml-1 text-muted-alt opacity-0 group-hover:opacity-100', {
+                        'text-primary opacity-100': isSortedByMyField,
+                        'rotate-180': isSortedByMyField && isAscending,
+                    })}
+                />
+            </span>
+        )
+    }
 
 export const webStatsBreakdownToPropertyName = (
     breakdownBy: WebStatsBreakdown
@@ -330,68 +392,77 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
             render: BreakdownValueCell,
         },
         bounce_rate: {
-            title: <span className="pr-5">Bounce Rate</span>,
+            renderTitle: SortableCell('Bounce Rate', WebAnalyticsOrderByFields.BounceRate),
             render: VariationCell({ isPercentage: true, reverseColors: true }),
             align: 'right',
         },
         views: {
-            title: <span className="pr-5">Views</span>,
+            renderTitle: SortableCell('Views', WebAnalyticsOrderByFields.Views),
             render: VariationCell(),
             align: 'right',
         },
         clicks: {
-            title: <span className="pr-5">Clicks</span>,
+            renderTitle: SortableCell('Clicks', WebAnalyticsOrderByFields.Clicks),
             render: VariationCell(),
             align: 'right',
         },
         visitors: {
-            title: <span className="pr-5">Visitors</span>,
+            renderTitle: SortableCell('Visitors', WebAnalyticsOrderByFields.Visitors),
             render: VariationCell(),
             align: 'right',
         },
         average_scroll_percentage: {
-            title: <span className="pr-5">Average Scroll</span>,
+            renderTitle: SortableCell('Average Scroll', WebAnalyticsOrderByFields.AverageScrollPercentage),
             render: VariationCell({ isPercentage: true }),
             align: 'right',
         },
         scroll_gt80_percentage: {
-            title: <span className="pr-5">Deep Scroll Rate</span>,
+            renderTitle: SortableCell('Deep Scroll Rate', WebAnalyticsOrderByFields.ScrollGt80Percentage),
             render: VariationCell({ isPercentage: true }),
             align: 'right',
         },
         total_conversions: {
-            title: <span className="pr-5">Total Conversions</span>,
+            renderTitle: SortableCell('Total Conversions', WebAnalyticsOrderByFields.TotalConversions),
             render: VariationCell(),
             align: 'right',
         },
         unique_conversions: {
-            title: <span className="pr-5">Unique Conversions</span>,
+            renderTitle: SortableCell('Unique Conversions', WebAnalyticsOrderByFields.UniqueConversions),
             render: VariationCell(),
             align: 'right',
         },
         conversion_rate: {
-            title: <span className="pr-5">Conversion Rate</span>,
+            renderTitle: SortableCell('Conversion Rate', WebAnalyticsOrderByFields.ConversionRate),
             render: VariationCell({ isPercentage: true }),
             align: 'right',
         },
         converting_users: {
-            title: <span className="pr-5">Converting Users</span>,
+            renderTitle: SortableCell('Converting Users', WebAnalyticsOrderByFields.ConvertingUsers),
             render: VariationCell(),
             align: 'right',
         },
         action_name: {
             title: 'Action',
         },
-        replay_url: {
+        cross_sell: {
             title: ' ',
-            render: ({ record, query }: { record: any; query: DataTableNode | DataVisualizationNode }) => (
-                <RenderReplayButton
-                    date_from={(query.source as any)?.dateRange?.date_from}
-                    date_to={(query.source as any)?.dateRange?.date_to}
-                    breakdownBy={(query.source as any)?.breakdownBy}
-                    value={record[0] ?? ''}
-                />
-            ),
+            render: ({ record, query }: { record: any; query: DataTableNode | DataVisualizationNode }) => {
+                const dateRange = (query.source as any)?.dateRange
+                const breakdownBy = (query.source as any)?.breakdownBy
+                const value = record[0] ?? ''
+
+                return (
+                    <div className="flex flex-row items-center justify-end">
+                        <ReplayButton
+                            date_from={dateRange?.date_from}
+                            date_to={dateRange?.date_to}
+                            breakdownBy={breakdownBy}
+                            value={value}
+                        />
+                        <HeatmapButton breakdownBy={breakdownBy} value={value} />
+                    </div>
+                )
+            },
             align: 'right',
         },
     },
@@ -420,7 +491,7 @@ export const WebStatsTrendTile = ({
                 geographyTab: hasCountryFilter ? undefined : GeographyTab.REGIONS,
             })
         },
-        [togglePropertyFilter, worldMapPropertyName]
+        [togglePropertyFilter, worldMapPropertyName, hasCountryFilter]
     )
 
     const context = useMemo((): QueryContext => {
@@ -439,7 +510,7 @@ export const WebStatsTrendTile = ({
     }, [onWorldMapClick, insightProps])
 
     return (
-        <div className="border rounded bg-bg-light flex-1 flex flex-col">
+        <div className="border rounded bg-surface-primary flex-1 flex flex-col">
             {showIntervalTile && (
                 <div className="flex flex-row items-center justify-end m-2 mr-4">
                     <div className="flex flex-row items-center">
@@ -515,7 +586,7 @@ export const WebStatsTableTile = ({
     }, [onClick, insightProps])
 
     return (
-        <div className="border rounded bg-bg-light flex-1 flex flex-col">
+        <div className="border rounded bg-surface-primary flex-1 flex flex-col">
             {control != null && <div className="flex flex-row items-center justify-end m-2 mr-4">{control}</div>}
             <Query query={query} readOnly={true} context={context} />
         </div>
@@ -586,7 +657,7 @@ export const WebGoalsTile = ({ query, insightProps }: QueryWithInsightProps<Data
     }
 
     return (
-        <div className="border rounded bg-bg-light flex-1">
+        <div className="border rounded bg-surface-primary flex-1">
             <div className="flex flex-row-reverse p-2">
                 <LemonButton to={urls.actions()} sideIcon={<IconOpenInNew />} type="secondary" size="small">
                     Manage actions
@@ -604,7 +675,7 @@ export const WebExternalClicksTile = ({
     const { shouldStripQueryParams } = useValues(webAnalyticsLogic)
     const { setShouldStripQueryParams } = useActions(webAnalyticsLogic)
     return (
-        <div className="border rounded bg-bg-light flex-1 flex flex-col">
+        <div className="border rounded bg-surface-primary flex-1 flex flex-col">
             <div className="flex flex-row items-center justify-end m-2 mr-4">
                 <div className="flex flex-row items-center space-x-2">
                     <LemonSwitch
@@ -687,200 +758,4 @@ export const WebQuery = ({
     }
 
     return <Query query={query} readOnly={true} context={{ ...webAnalyticsDataTableQueryContext, insightProps }} />
-}
-
-/**
- * Map breakdown types to their corresponding property filter type
- * Outside the renderReplayButton function
- */
-const BREAKDOWN_TYPE_MAP: Partial<
-    Record<WebStatsBreakdown, PropertyFilterType.Event | PropertyFilterType.Person | PropertyFilterType.Session>
-> = {
-    [WebStatsBreakdown.DeviceType]: PropertyFilterType.Person,
-    [WebStatsBreakdown.InitialPage]: PropertyFilterType.Session,
-    [WebStatsBreakdown.ExitPage]: PropertyFilterType.Session,
-    [WebStatsBreakdown.Page]: PropertyFilterType.Event,
-    [WebStatsBreakdown.Browser]: PropertyFilterType.Person,
-    [WebStatsBreakdown.OS]: PropertyFilterType.Person,
-    [WebStatsBreakdown.InitialChannelType]: PropertyFilterType.Session,
-    [WebStatsBreakdown.InitialReferringDomain]: PropertyFilterType.Session,
-    [WebStatsBreakdown.InitialUTMSource]: PropertyFilterType.Session,
-    [WebStatsBreakdown.InitialUTMCampaign]: PropertyFilterType.Session,
-    [WebStatsBreakdown.InitialUTMMedium]: PropertyFilterType.Session,
-    [WebStatsBreakdown.InitialUTMContent]: PropertyFilterType.Session,
-    [WebStatsBreakdown.InitialUTMTerm]: PropertyFilterType.Session,
-}
-
-/**
- * Map breakdown types to their corresponding property filter key
- * Outside the renderReplayButton function
- */
-const BREAKDOWN_KEY_MAP: Partial<Record<WebStatsBreakdown, string>> = {
-    [WebStatsBreakdown.DeviceType]: '$device_type',
-    [WebStatsBreakdown.InitialPage]: '$entry_pathname',
-    [WebStatsBreakdown.ExitPage]: '$end_pathname',
-    [WebStatsBreakdown.Page]: '$pathname',
-    [WebStatsBreakdown.Browser]: '$browser',
-    [WebStatsBreakdown.OS]: '$os',
-    [WebStatsBreakdown.InitialChannelType]: '$channel_type',
-    [WebStatsBreakdown.InitialReferringDomain]: '$entry_referring_domain',
-    [WebStatsBreakdown.InitialUTMSource]: '$entry_utm_source',
-    [WebStatsBreakdown.InitialUTMCampaign]: '$entry_utm_campaign',
-    [WebStatsBreakdown.InitialUTMMedium]: '$entry_utm_medium',
-    [WebStatsBreakdown.InitialUTMContent]: '$entry_utm_content',
-    [WebStatsBreakdown.InitialUTMTerm]: '$entry_utm_term',
-}
-
-/**
- * Render a button that opens the recordings page with the correct filters
- *
- * @param date_from
- * @param date_to
- * @param breakdownBy
- * @param value
- * @returns JSX.Element
- */
-const RenderReplayButton = ({
-    date_from,
-    date_to,
-    breakdownBy,
-    value,
-}: {
-    date_from: string
-    date_to: string
-    breakdownBy: WebStatsBreakdown
-    value: string
-}): JSX.Element => {
-    const sharedButtonProps = {
-        icon: <IconRewindPlay />,
-        type: 'tertiary' as const,
-        size: 'xsmall' as const,
-        tooltip: 'View recordings',
-        className: 'float-right no-underline',
-        targetBlank: true,
-        onClick: (e: React.MouseEvent) => {
-            e.stopPropagation()
-            void addProductIntentForCrossSell({
-                from: ProductKey.WEB_ANALYTICS,
-                to: ProductKey.SESSION_REPLAY,
-                intent_context: ProductIntentContext.WEB_ANALYTICS_INSIGHT,
-            })
-        },
-    }
-
-    /** If value is null - just open session replay home page */
-    if (value === null) {
-        return <LemonButton {...sharedButtonProps} to={urls.replay(ReplayTabs.Home, { date_from, date_to })} />
-    }
-
-    /** View port is a unique case, so we need to handle it differently */
-    if (breakdownBy === WebStatsBreakdown.Viewport) {
-        return (
-            <LemonButton
-                {...sharedButtonProps}
-                to={urls.replay(ReplayTabs.Home, {
-                    date_from: date_from,
-                    date_to: date_to,
-                    filter_group: {
-                        type: FilterLogicalOperator.And,
-                        values: [
-                            {
-                                type: FilterLogicalOperator.And,
-                                values: [
-                                    {
-                                        key: '$viewport_width',
-                                        type: PropertyFilterType.Event,
-                                        value: [value[0]],
-                                        operator: PropertyOperator.Exact,
-                                    },
-                                    {
-                                        key: '$viewport_height',
-                                        type: PropertyFilterType.Event,
-                                        value: [value[1]],
-                                        operator: PropertyOperator.Exact,
-                                    },
-                                ],
-                            },
-                        ],
-                    },
-                })}
-            />
-        )
-    }
-
-    /** UTM source, medium, campaign is a unique case, so we need to handle it differently, as combining them with AND */
-    if (breakdownBy === WebStatsBreakdown.InitialUTMSourceMediumCampaign) {
-        const values = value.split(' / ')
-        return (
-            <LemonButton
-                {...sharedButtonProps}
-                to={urls.replay(ReplayTabs.Home, {
-                    date_from: date_from,
-                    date_to: date_to,
-                    filter_group: {
-                        type: FilterLogicalOperator.And,
-                        values: [
-                            {
-                                type: FilterLogicalOperator.And,
-                                values: [
-                                    {
-                                        key: '$entry_utm_source',
-                                        type: PropertyFilterType.Session,
-                                        value: [values[0] || ''],
-                                        operator: PropertyOperator.Exact,
-                                    },
-                                    {
-                                        key: '$entry_utm_medium',
-                                        type: PropertyFilterType.Session,
-                                        value: [values[1] || ''],
-                                        operator: PropertyOperator.Exact,
-                                    },
-                                    {
-                                        key: '$entry_utm_campaign',
-                                        type: PropertyFilterType.Session,
-                                        value: [values[2] || ''],
-                                        operator: PropertyOperator.Exact,
-                                    },
-                                ],
-                            },
-                        ],
-                    },
-                })}
-            />
-        )
-    }
-
-    const type = BREAKDOWN_TYPE_MAP[breakdownBy] || PropertyFilterType.Person
-    const key = BREAKDOWN_KEY_MAP[breakdownBy]
-    if (!key || !type) {
-        /** If the breakdown is not supported, return an empty element */
-        return <></>
-    }
-
-    /** Render the button */
-    return (
-        <LemonButton
-            {...sharedButtonProps}
-            to={urls.replay(ReplayTabs.Home, {
-                date_from: date_from,
-                date_to: date_to,
-                filter_group: {
-                    type: FilterLogicalOperator.And,
-                    values: [
-                        {
-                            type: FilterLogicalOperator.And,
-                            values: [
-                                {
-                                    key: key,
-                                    type: type,
-                                    value: [value],
-                                    operator: PropertyOperator.Exact,
-                                },
-                            ],
-                        },
-                    ],
-                },
-            })}
-        />
-    )
 }

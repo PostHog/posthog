@@ -41,6 +41,12 @@ jobs:
               uses: ./.github/actions/build-n-cache-image
               with:
                   actions-id-token-request-url: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
+                  push-image: true
+                  aws-access-key: ${{ secrets.AWS_ACCESS_KEY_ID }}
+                  aws-access-secret: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+                  dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
+                  dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
+                  pr-number: ${{ github.event.number }}
 
     deploy_preview:
         name: Deploy preview environment

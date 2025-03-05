@@ -29,7 +29,7 @@ import {
     AlertState,
     InsightThresholdType,
 } from '~/queries/schema/schema-general'
-import { InsightShortId, QueryBasedInsightModel } from '~/types'
+import { InsightLogicProps, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import { alertFormLogic, canCheckOngoingInterval } from '../alertFormLogic'
 import { alertLogic } from '../alertLogic'
@@ -42,7 +42,7 @@ export function AlertStateTable({ alert }: { alert: AlertType }): JSX.Element | 
     }
 
     return (
-        <div className="bg-bg-3000 p-4 mt-10 rounded-lg">
+        <div className="bg-primary p-4 mt-10 rounded-lg">
             <div className="flex flex-row gap-2 items-center mb-2">
                 <h3 className="m-0">Current status: </h3>
                 <AlertStateIndicator alert={alert} />
@@ -83,6 +83,7 @@ interface EditAlertModalProps {
     insightShortId: InsightShortId
     onEditSuccess: () => void
     onClose?: () => void
+    insightLogicProps?: InsightLogicProps
 }
 
 export function EditAlertModal({
@@ -92,6 +93,7 @@ export function EditAlertModal({
     insightShortId,
     onClose,
     onEditSuccess,
+    insightLogicProps,
 }: EditAlertModalProps): JSX.Element {
     const _alertLogic = alertLogic({ alertId })
     const { alert, alertLoading } = useValues(_alertLogic)
@@ -103,7 +105,12 @@ export function EditAlertModal({
         onEditSuccess()
     }, [loadAlert, onEditSuccess])
 
-    const formLogicProps = { alert, insightId, onEditSuccess: _onEditSuccess }
+    const formLogicProps = {
+        alert,
+        insightId,
+        onEditSuccess: _onEditSuccess,
+        insightVizDataLogicProps: insightLogicProps,
+    }
     const formLogic = alertFormLogic(formLogicProps)
     const { alertForm, isAlertFormSubmitting, alertFormChanged } = useValues(formLogic)
     const { deleteAlert, snoozeAlert, clearSnooze } = useActions(formLogic)
@@ -344,7 +351,7 @@ export function EditAlertModal({
                             </div>
 
                             <div className="space-y-2">
-                                <h3 className="text-muted-alt">Advanced</h3>
+                                <h3 className="text-secondary">Advanced</h3>
                                 <Group name={['config']}>
                                     <div className="flex gap-1">
                                         <LemonField name="check_ongoing_interval">

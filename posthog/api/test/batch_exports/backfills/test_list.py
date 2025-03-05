@@ -12,6 +12,7 @@ from posthog.api.test.batch_exports.fixtures import (
 from posthog.api.test.batch_exports.operations import list_batch_export_backfills_ok
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
+from posthog.batch_exports.models import BatchExportBackfill
 
 pytestmark = [pytest.mark.django_db]
 
@@ -28,7 +29,7 @@ def test_list_batch_export_backfills(client: HttpClient):
         batch_export,
         dt.datetime(2021, 1, 1, 0, 0, 0, tzinfo=dt.UTC),
         dt.datetime(2021, 1, 1, 1, 0, 0, tzinfo=dt.UTC),
-        "COMPLETED",
+        BatchExportBackfill.Status.COMPLETED,
         dt.datetime(2025, 1, 1, 1, 0, 0, tzinfo=dt.UTC),
     )
     create_backfill(
@@ -36,7 +37,7 @@ def test_list_batch_export_backfills(client: HttpClient):
         batch_export,
         dt.datetime(2021, 1, 1, 1, 0, 0, tzinfo=dt.UTC),
         dt.datetime(2021, 1, 1, 3, 0, 0, tzinfo=dt.UTC),
-        "COMPLETED",
+        BatchExportBackfill.Status.COMPLETED,
         dt.datetime(2025, 1, 1, 1, 0, 0, tzinfo=dt.UTC),
     )
 
@@ -60,7 +61,7 @@ def test_cannot_list_batch_export_backfills_for_other_organizations(client: Http
         batch_export,
         dt.datetime(2021, 1, 1, 0, 0, 0, tzinfo=dt.UTC),
         dt.datetime(2021, 1, 1, 1, 0, 0, tzinfo=dt.UTC),
-        "COMPLETED",
+        BatchExportBackfill.Status.COMPLETED,
         dt.datetime(2025, 1, 1, 1, 0, 0, tzinfo=dt.UTC),
     )
     create_backfill(
@@ -68,7 +69,7 @@ def test_cannot_list_batch_export_backfills_for_other_organizations(client: Http
         batch_export,
         dt.datetime(2021, 1, 1, 1, 0, 0, tzinfo=dt.UTC),
         dt.datetime(2021, 1, 1, 3, 0, 0, tzinfo=dt.UTC),
-        "COMPLETED",
+        BatchExportBackfill.Status.COMPLETED,
         dt.datetime(2025, 1, 1, 1, 0, 0, tzinfo=dt.UTC),
     )
 
@@ -103,7 +104,7 @@ def test_list_is_partitioned_by_team(client: HttpClient):
         batch_export,
         dt.datetime(2021, 1, 1, 0, 0, 0, tzinfo=dt.UTC),
         dt.datetime(2021, 1, 1, 1, 0, 0, tzinfo=dt.UTC),
-        "COMPLETED",
+        BatchExportBackfill.Status.COMPLETED,
         dt.datetime(2025, 1, 1, 1, 0, 0, tzinfo=dt.UTC),
     )
     create_backfill(
@@ -111,7 +112,7 @@ def test_list_is_partitioned_by_team(client: HttpClient):
         batch_export,
         dt.datetime(2021, 1, 1, 1, 0, 0, tzinfo=dt.UTC),
         dt.datetime(2021, 1, 1, 3, 0, 0, tzinfo=dt.UTC),
-        "COMPLETED",
+        BatchExportBackfill.Status.COMPLETED,
         dt.datetime(2025, 1, 1, 1, 0, 0, tzinfo=dt.UTC),
     )
 

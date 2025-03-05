@@ -4,7 +4,7 @@ You have access to the tools that are listed in the <tools> tag.
 
 Use a JSON blob to specify a tool by providing an action key (tool name) and an action_input key (tool input).
 
-Valid "action" values: {{tool_names}}
+Valid "action" values: {{{tool_names}}}
 
 Provide only ONE action per $JSON_BLOB, as shown:
 
@@ -95,54 +95,63 @@ Use the tool `ask_user_for_help` to ask the user.
 """.strip()
 
 REACT_FORMAT_REMINDER_PROMPT = """
-Reminder that you must ALWAYS respond with a valid JSON blob of a single action with a valid tool. Format is Thought, Action:```$JSON_BLOB```, then Observation.
+Reminder that you must ALWAYS respond with a valid JSON blob of a single action with a valid tool. Format is Thought: "Your thoughts here", Action:```$JSON_BLOB```, then Observation: "The user-provided observation".
 """.strip()
 
 REACT_DEFINITIONS_PROMPT = """
 Here are the event names.
-{{events}}
-"""
+{{{events}}}
+""".strip()
 
 REACT_SCRATCHPAD_PROMPT = """
-Thought: {{agent_scratchpad}}
-"""
+Thought: {{{agent_scratchpad}}}
+""".strip()
 
 REACT_USER_PROMPT = """
 Answer the following question as best you can.
-Question: What events, properties and/or property values should I use to answer this question "{{question}}"?{{#react_format_reminder}}
-{{react_format_reminder}}
+Question: What events, properties and/or property values should I use to answer this question "{{{question}}}"?{{#react_format_reminder}}
+{{{react_format_reminder}}}
 {{/react_format_reminder}}
-"""
+""".strip()
 
 REACT_FOLLOW_UP_PROMPT = """
-Improve the previously generated plan based on the feedback: {{feedback}}{{#react_format_reminder}}
-{{react_format_reminder}}
+Improve the previously generated plan based on the feedback: "{{{question}}}".{{#react_format_reminder}}
+{{{react_format_reminder}}}
 {{/react_format_reminder}}
-"""
+""".strip()
 
 REACT_MISSING_ACTION_PROMPT = """
 Your previous answer didn't output the `Action:` block. You must always follow the format described in the system prompt.
-"""
+""".strip()
 
 REACT_MISSING_ACTION_CORRECTION_PROMPT = """
-{{output}}
+{{{output}}}
 Action: I didn't output the `Action:` block.
-"""
+""".strip()
 
 REACT_MALFORMED_JSON_PROMPT = """
 Your previous answer had a malformed JSON. You must return a correct JSON response containing the `action` and `action_input` fields.
-"""
+""".strip()
 
 REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT = """
 The action input you previously provided didn't pass the validation and raised a Pydantic validation exception.
 
 <pydantic_exception>
-{{exception}}
+{{{exception}}}
 </pydantic_exception>
 
 You must fix the exception and try again.
-"""
+""".strip()
+
+REACT_HELP_REQUEST_PROMPT = """
+The agent has requested help from the user:
+{request}
+""".strip()
 
 CORE_MEMORY_INSTRUCTIONS = """
 You have access to the core memory in the <core_memory> tag, which stores information about the user's company and product. Use the core memory to answer the user's question.
+""".strip()
+
+REACT_REACHED_LIMIT_PROMPT = """
+The tool has reached the maximum number of iterations, a security measure to prevent infinite loops. To create this insight, you must request additional information from the user, such as specific events, properties, or property values.
 """.strip()

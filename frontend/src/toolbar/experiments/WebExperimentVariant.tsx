@@ -17,12 +17,12 @@ interface WebExperimentVariantProps {
 export function WebExperimentVariant({ variant }: WebExperimentVariantProps): JSX.Element {
     const { experimentForm, selectedExperimentId } = useValues(experimentsTabLogic)
     const [localTentativeValue, setLocalTentativeValue] = useState(variant)
-    const { addNewElement, setExperimentFormValue } = useActions(experimentsTabLogic)
+    const { addNewTransformation, setExperimentFormValue } = useActions(experimentsTabLogic)
     return (
         <div className="space-y-4">
             {selectedExperimentId === 'new' && experimentForm.variants && experimentForm.variants[variant].is_new && (
                 <div>
-                    <LemonLabel>Variant name</LemonLabel>
+                    <LemonLabel>Variant key</LemonLabel>
                     <LemonInput
                         key="variant-name-small"
                         className="mb-2"
@@ -45,51 +45,49 @@ export function WebExperimentVariant({ variant }: WebExperimentVariantProps): JS
                     />
                 </div>
             )}
+            <div className="flex items-center justify-between mb-2">
+                <LemonLabel>Transformations</LemonLabel>
+                <LemonButton
+                    type="secondary"
+                    size="xsmall"
+                    icon={<IconPlus />}
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        addNewTransformation(variant)
+                    }}
+                >
+                    Add transformation
+                </LemonButton>
+            </div>
             {experimentForm?.variants &&
             experimentForm?.variants[variant] &&
             experimentForm?.variants[variant].transforms &&
             experimentForm?.variants[variant].transforms?.length > 0 ? (
-                <div>
-                    <div className="flex items-center justify-between mb-2">
-                        <LemonLabel>Transformations</LemonLabel>
-                        <LemonButton
-                            type="secondary"
-                            size="xsmall"
-                            icon={<IconPlus />}
-                            onClick={(e) => {
-                                e.stopPropagation()
-                                addNewElement(variant)
-                            }}
-                        >
-                            Add transformation
-                        </LemonButton>
-                    </div>
-                    <LemonCollapse
-                        size="small"
-                        activeKey={experimentForm?.variants[variant].transforms.length === 1 ? 0 : undefined}
-                        panels={experimentForm?.variants[variant].transforms.map((transform, transformIndex) => {
-                            return {
-                                key: transformIndex,
-                                header: (
-                                    <WebExperimentTransformHeader
-                                        variant={variant}
-                                        transformIndex={transformIndex}
-                                        transform={transform}
-                                    />
-                                ),
-                                content: (
-                                    <WebExperimentTransformField
-                                        transformIndex={transformIndex}
-                                        variant={variant}
-                                        transform={transform}
-                                    />
-                                ),
-                            }
-                        })}
-                    />
-                </div>
+                <LemonCollapse
+                    size="small"
+                    activeKey={experimentForm?.variants[variant].transforms.length === 1 ? 0 : undefined}
+                    panels={experimentForm?.variants[variant].transforms.map((transform, transformIndex) => {
+                        return {
+                            key: transformIndex,
+                            header: (
+                                <WebExperimentTransformHeader
+                                    variant={variant}
+                                    transformIndex={transformIndex}
+                                    transform={transform}
+                                />
+                            ),
+                            content: (
+                                <WebExperimentTransformField
+                                    transformIndex={transformIndex}
+                                    variant={variant}
+                                    transform={transform}
+                                />
+                            ),
+                        }
+                    })}
+                />
             ) : (
-                <span className="m-2"> This experiment variant doesn't modify any elements. </span>
+                <span className="my-2"> This experiment variant doesn't modify any elements. </span>
             )}
         </div>
     )

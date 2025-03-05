@@ -5,16 +5,15 @@ from typing import Optional, cast
 
 from django.core.cache import cache
 from django.db import models
-from django.db.models.signals import post_delete, post_save, pre_delete
+from django.db.models.signals import post_delete, post_save
 from django.utils import timezone
-from sentry_sdk.api import capture_exception
+from posthog.exceptions_capture import capture_exception
 
 from posthog.constants import (
     ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER,
     PropertyOperatorType,
 )
 from posthog.models.cohort import Cohort, CohortOrEmpty
-from posthog.models.experiment import Experiment
 from posthog.models.property import GroupTypeIndex
 from posthog.models.property.property import Property, PropertyGroup
 from posthog.models.signals import mutable_receiver
@@ -40,6 +39,15 @@ class FeatureFlag(models.Model):
     deleted = models.BooleanField(default=False)
     active = models.BooleanField(default=True)
 
+    version = models.IntegerField(default=0, null=True)
+    last_modified_by = models.ForeignKey(
+        "User",
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="updated_feature_flags",
+        db_index=False,
+    )
+
     rollback_conditions = models.JSONField(null=True, blank=True)
     performed_rollback = models.BooleanField(null=True, blank=True)
 
@@ -55,6 +63,7 @@ class FeatureFlag(models.Model):
     has_enriched_analytics = models.BooleanField(default=False, null=True, blank=True)
 
     is_remote_configuration = models.BooleanField(default=False, null=True, blank=True)
+    has_encrypted_payloads = models.BooleanField(default=False, null=True, blank=True)
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=["team", "key"], name="unique key for team")]
@@ -327,6 +336,7 @@ class FeatureFlag(models.Model):
         context = {
             "request": http_request,
             "team_id": self.team_id,
+            "project_id": self.team.project_id,
         }
 
         serializer_data = {}
@@ -356,14 +366,9 @@ class FeatureFlag(models.Model):
         return False
 
 
-@mutable_receiver(pre_delete, sender=Experiment)
-def delete_experiment_flags(sender, instance, **kwargs):
-    FeatureFlag.objects.filter(experiment=instance).update(deleted=True)
-
-
 @mutable_receiver([post_save, post_delete], sender=FeatureFlag)
 def refresh_flag_cache_on_updates(sender, instance, **kwargs):
-    set_feature_flags_for_team_in_cache(instance.team_id)
+    set_feature_flags_for_team_in_cache(instance.team.project_id)
 
 
 class FeatureFlagHashKeyOverride(models.Model):
@@ -402,7 +407,7 @@ class FeatureFlagOverride(models.Model):
 
 
 def set_feature_flags_for_team_in_cache(
-    team_id: int,
+    project_id: int,
     feature_flags: Optional[list[FeatureFlag]] = None,
     using_database: str = "default",
 ) -> list[FeatureFlag]:
@@ -412,13 +417,15 @@ def set_feature_flags_for_team_in_cache(
         all_feature_flags = feature_flags
     else:
         all_feature_flags = list(
-            FeatureFlag.objects.db_manager(using_database).filter(team_id=team_id, active=True, deleted=False)
+            FeatureFlag.objects.db_manager(using_database).filter(
+                team__project_id=project_id, active=True, deleted=False
+            )
         )
 
     serialized_flags = MinimalFeatureFlagSerializer(all_feature_flags, many=True).data
 
     try:
-        cache.set(f"team_feature_flags_{team_id}", json.dumps(serialized_flags), FIVE_DAYS)
+        cache.set(f"team_feature_flags_{project_id}", json.dumps(serialized_flags), FIVE_DAYS)
     except Exception:
         # redis is unavailable
         logger.exception("Redis is unavailable")
@@ -427,9 +434,9 @@ def set_feature_flags_for_team_in_cache(
     return all_feature_flags
 
 
-def get_feature_flags_for_team_in_cache(team_id: int) -> Optional[list[FeatureFlag]]:
+def get_feature_flags_for_team_in_cache(project_id: int) -> Optional[list[FeatureFlag]]:
     try:
-        flag_data = cache.get(f"team_feature_flags_{team_id}")
+        flag_data = cache.get(f"team_feature_flags_{project_id}")
     except Exception:
         # redis is unavailable
         logger.exception("Redis is unavailable")

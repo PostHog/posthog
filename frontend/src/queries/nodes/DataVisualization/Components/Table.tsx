@@ -20,7 +20,7 @@ interface TableProps {
     cachedResults: HogQLQueryResponse | undefined
 }
 
-export const DEFAULT_PAGE_SIZE = 2000
+export const DEFAULT_PAGE_SIZE = 500
 
 export const Table = (props: TableProps): JSX.Element => {
     const { isDarkModeOn } = useValues(themeLogic)

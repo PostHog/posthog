@@ -14,13 +14,13 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, ProductKey } from '~/types'
 
-import { DataWarehouseSources } from './data-warehouse/sources'
+import { OnboardingUpgradeStep } from './billing/OnboardingUpgradeStep'
+import { OnboardingDataWarehouseSourcesStep } from './data-warehouse/OnboardingDataWarehouseSourcesStep'
 import { OnboardingBillingStep } from './OnboardingBillingStep'
 import { OnboardingInviteTeammates } from './OnboardingInviteTeammates'
 import { onboardingLogic, OnboardingStepKey } from './onboardingLogic'
 import { OnboardingProductConfiguration } from './OnboardingProductConfiguration'
 import { ProductConfigOption } from './onboardingProductConfigurationLogic'
-import { OnboardingProductIntroduction } from './OnboardingProductIntroduction'
 import { OnboardingReverseProxy } from './OnboardingReverseProxy'
 import { OnboardingSessionReplayConfiguration } from './OnboardingSessionReplayConfiguration'
 import { OnboardingDashboardTemplateConfigureStep } from './productAnalyticsSteps/DashboardTemplateConfigureStep'
@@ -32,6 +32,7 @@ import { SDKs } from './sdks/SDKs'
 import { sdksLogic } from './sdks/sdksLogic'
 import { SessionReplaySDKInstructions } from './sdks/session-replay/SessionReplaySDKInstructions'
 import { SurveysSDKInstructions } from './sdks/surveys/SurveysSDKInstructions'
+import { OnboardingWebAnalyticsAuthorizedDomainsStep } from './web-analytics/OnboardingWebAnalyticsAuthorizedDomainsStep'
 
 export const scene: SceneExport = {
     component: Onboarding,
@@ -47,22 +48,60 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
         currentOnboardingStep,
         shouldShowBillingStep,
         shouldShowReverseProxyStep,
+        shouldShowDataWarehouseStep,
         product,
-        includeIntro,
         waitForBilling,
     } = useValues(onboardingLogic)
     const { billing, billingLoading } = useValues(billingLogic)
     const { setAllOnboardingSteps } = useActions(onboardingLogic)
     const [allSteps, setAllSteps] = useState<JSX.Element[]>([])
 
+    const showNewPlansStep = useFeatureFlag('ONBOARDING_NEW_PLANS_STEP', 'test')
+
     useEffect(() => {
-        createAllSteps()
+        let steps = []
+        if (Array.isArray(children)) {
+            steps = [...children]
+        } else {
+            steps = [children as JSX.Element]
+        }
+
+        if (shouldShowDataWarehouseStep) {
+            const DataWarehouseStep = (
+                <OnboardingDataWarehouseSourcesStep
+                    usersAction="Data Warehouse"
+                    stepKey={OnboardingStepKey.LINK_DATA}
+                />
+            )
+            steps = [...steps, DataWarehouseStep]
+        }
+
+        if (shouldShowReverseProxyStep) {
+            const ReverseProxyStep = <OnboardingReverseProxy stepKey={OnboardingStepKey.REVERSE_PROXY} />
+            steps = [...steps, ReverseProxyStep]
+        }
+
+        const billingProduct = billing?.products.find((p) => p.type === productKey)
+        if (shouldShowBillingStep && billingProduct) {
+            const BillingStep = showNewPlansStep ? (
+                <OnboardingUpgradeStep product={billingProduct} stepKey={OnboardingStepKey.PLANS} />
+            ) : (
+                <OnboardingBillingStep product={billingProduct} stepKey={OnboardingStepKey.PLANS} />
+            )
+            steps = [...steps, BillingStep]
+        }
+
+        const inviteTeammatesStep = <OnboardingInviteTeammates stepKey={OnboardingStepKey.INVITE_TEAMMATES} />
+        steps = [...steps, inviteTeammatesStep].filter(Boolean)
+
+        setAllSteps(steps)
     }, [children, billingLoading])
 
     useEffect(() => {
         if (!allSteps.length || (billingLoading && waitForBilling)) {
             return
         }
+
         setAllOnboardingSteps(allSteps)
     }, [allSteps])
 
@@ -70,40 +109,15 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
         return <></>
     }
 
-    const createAllSteps = (): void => {
-        let steps = []
-        if (Array.isArray(children)) {
-            steps = [...children]
-        } else {
-            steps = [children as JSX.Element]
-        }
-        const billingProduct = billing?.products.find((p) => p.type === productKey)
-        if (includeIntro && billingProduct) {
-            const IntroStep = <OnboardingProductIntroduction stepKey={OnboardingStepKey.PRODUCT_INTRO} />
-            steps = [IntroStep, ...steps]
-        }
-        if (shouldShowReverseProxyStep) {
-            const ReverseProxyStep = <OnboardingReverseProxy stepKey={OnboardingStepKey.REVERSE_PROXY} />
-            steps = [...steps, ReverseProxyStep]
-        }
-        if (shouldShowBillingStep && billingProduct) {
-            const BillingStep = <OnboardingBillingStep product={billingProduct} stepKey={OnboardingStepKey.PLANS} />
-            steps = [...steps, BillingStep]
-        }
-        const inviteTeammatesStep = <OnboardingInviteTeammates stepKey={OnboardingStepKey.INVITE_TEAMMATES} />
-        steps = [...steps, inviteTeammatesStep].filter(Boolean)
-        setAllSteps(steps)
-    }
-
     if (!currentOnboardingStep) {
         return (
             <div className="flex items-center justify-center my-20">
-                <Spinner className="text-2xl text-muted w-10 h-10" />
+                <Spinner className="text-2xl text-secondary w-10 h-10" />
             </div>
         )
     }
 
-    return currentOnboardingStep || <></>
+    return currentOnboardingStep
 }
 
 const ProductAnalyticsOnboarding = (): JSX.Element => {
@@ -272,6 +286,7 @@ const WebAnalyticsOnboarding = (): JSX.Element => {
                 sdkInstructionMap={WebAnalyticsSDKInstructions}
                 stepKey={OnboardingStepKey.INSTALL}
             />
+            <OnboardingWebAnalyticsAuthorizedDomainsStep stepKey={OnboardingStepKey.AUTHORIZED_DOMAINS} />
             <OnboardingProductConfiguration stepKey={OnboardingStepKey.PRODUCT_CONFIGURATION} options={options} />
         </OnboardingWrapper>
     )
@@ -381,7 +396,7 @@ const SurveysOnboarding = (): JSX.Element => {
 const DataWarehouseOnboarding = (): JSX.Element => {
     return (
         <OnboardingWrapper>
-            <DataWarehouseSources usersAction="Data Warehouse" stepKey={OnboardingStepKey.LINK_DATA} />
+            <OnboardingDataWarehouseSourcesStep usersAction="Data Warehouse" stepKey={OnboardingStepKey.LINK_DATA} />
         </OnboardingWrapper>
     )
 }

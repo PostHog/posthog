@@ -5,7 +5,7 @@ import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { NotFound } from 'lib/components/NotFound'
-import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
+import { IconArrowDown, IconArrowUp, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { identifierToHuman, isObject, pluralize } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import React, { useEffect, useRef, useState } from 'react'
@@ -14,7 +14,7 @@ import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { LLMTrace, LLMTraceEvent } from '~/queries/schema'
+import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
 import { FeedbackTag } from './components/FeedbackTag'
 import { MetricTag } from './components/MetricTag'
@@ -29,6 +29,8 @@ import {
     formatLLMEventTitle,
     formatLLMLatency,
     formatLLMUsage,
+    getSessionID,
+    hasSessionID,
     isLLMTraceEvent,
     removeMilliseconds,
 } from './utils'
@@ -89,7 +91,7 @@ function Chip({
 }): JSX.Element {
     return (
         <Tooltip title={title}>
-            <LemonTag size="medium" className="bg-bg-light" icon={icon}>
+            <LemonTag size="medium" className="bg-surface-primary" icon={icon}>
                 <span className="sr-only">{title}</span>
                 {children}
             </LemonTag>
@@ -171,7 +173,7 @@ function TraceSidebar({
 
     return (
         <aside
-            className="border-border max-h-fit bg-bg-light border rounded overflow-hidden flex flex-col md:w-80"
+            className="border-border max-h-fit bg-surface-primary border rounded overflow-hidden flex flex-col md:w-80"
             ref={ref}
         >
             <h3 className="font-medium text-sm px-2 my-2">Tree</h3>
@@ -253,8 +255,8 @@ const TreeNode = React.memo(function TraceNode({
                     timestamp: removeMilliseconds(topLevelTrace.createdAt),
                 })}
                 className={classNames(
-                    'flex flex-col gap-1 p-1 text-xs rounded min-h-8 justify-center hover:bg-accent-primary-highlight',
-                    isSelected && 'bg-accent-primary-highlight'
+                    'flex flex-col gap-1 p-1 text-xs rounded min-h-8 justify-center hover:!bg-accent-primary-highlight',
+                    isSelected && '!bg-accent-primary-highlight'
                 )}
             >
                 <div className="flex flex-row items-center gap-1.5">
@@ -264,7 +266,7 @@ const TreeNode = React.memo(function TraceNode({
                     </Tooltip>
                 </div>
                 {hasChildren && (
-                    <div className="flex flex-row flex-wrap text-muted items-center gap-1.5">{children}</div>
+                    <div className="flex flex-row flex-wrap text-secondary items-center gap-1.5">{children}</div>
                 )}
             </Link>
         </li>
@@ -299,7 +301,7 @@ function TreeNodeChildren({
                 ))
             ) : (
                 <div
-                    className="text-muted hover:text-default text-xxs cursor-pointer p-1"
+                    className="text-secondary hover:text-default text-xxs cursor-pointer p-1"
                     onClick={() => setIsCollapsed(false)}
                 >
                     Show {pluralize(tree.length, 'collapsed child', 'collapsed children')}
@@ -354,7 +356,7 @@ function EventContentDisplay({
 
 const EventContent = React.memo(({ event }: { event: LLMTrace | LLMTraceEvent | null }): JSX.Element => {
     return (
-        <div className="flex-1 bg-bg-light max-h-fit border rounded flex flex-col border-border p-4 overflow-y-auto">
+        <div className="flex-1 bg-surface-primary max-h-fit border rounded flex flex-col border-border p-4 overflow-y-auto">
             {!event ? (
                 <InsightEmptyState heading="Event not found" detail="Check if the event ID is correct." />
             ) : (
@@ -384,6 +386,17 @@ const EventContent = React.memo(({ event }: { event: LLMTrace | LLMTraceEvent | 
                             />
                         )}
                         {isLLMTraceEvent(event) && <ParametersHeader eventProperties={event.properties} />}
+                        {hasSessionID(event) && (
+                            <div className="flex flex-row items-center gap-2">
+                                <Link
+                                    to={urls.replay(undefined, undefined, getSessionID(event) ?? '')}
+                                    className="flex flex-row gap-1 items-center"
+                                >
+                                    <IconOpenInNew />
+                                    <span>View session recording</span>
+                                </Link>
+                            </div>
+                        )}
                     </header>
                     {isLLMTraceEvent(event) ? (
                         event.event === '$ai_generation' ? (

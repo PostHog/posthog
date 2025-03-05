@@ -6,6 +6,7 @@ import {
     LemonSwitch,
     LemonTable,
     LemonTag,
+    LemonTagType,
     Link,
     Spinner,
     Tooltip,
@@ -42,11 +43,12 @@ interface SchemaTableProps {
     isLoading: boolean
 }
 
-const StatusTagSetting = {
+const StatusTagSetting: Record<string, LemonTagType> = {
     Running: 'primary',
     Completed: 'success',
     Error: 'danger',
     Failed: 'danger',
+    Suspended: 'warning',
     'Billing limits': 'danger',
 }
 
@@ -204,13 +206,22 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                     {
                         title: 'Status',
                         key: 'status',
-                        render: function RenderStatus(_, schema) {
+                        render: (_, schema) => {
                             if (!schema.status) {
                                 return null
                             }
-
-                            return (
-                                <LemonTag type={StatusTagSetting[schema.status] || 'default'}>{schema.status}</LemonTag>
+                            const isSuspended = schema.status === 'Error' && !schema.should_sync
+                            const tagContent = (
+                                <LemonTag
+                                    type={StatusTagSetting[isSuspended ? 'Suspended' : schema.status] || 'default'}
+                                >
+                                    {isSuspended ? 'Suspended' : schema.status}
+                                </LemonTag>
+                            )
+                            return schema.latest_error && schema.status === 'Error' ? (
+                                <Tooltip title={schema.latest_error}>{tagContent}</Tooltip>
+                            ) : (
+                                tagContent
                             )
                         },
                     },
@@ -296,7 +307,11 @@ const SyncMethodModal = ({ schema }: { schema: ExternalDataSourceSchema }): JSX.
 
     return (
         <LemonModal
-            title={`Sync method for ${currentSyncMethodModalSchema.name}`}
+            title={
+                <>
+                    Sync method for <span className="font-mono">{currentSyncMethodModalSchema.name}</span>
+                </>
+            }
             isOpen={syncMethodModalIsOpen}
             onClose={closeSyncMethodModal}
             footer={

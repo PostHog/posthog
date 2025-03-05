@@ -10,6 +10,7 @@ import { ProjectType } from '~/types'
 
 import { organizationLogic } from './organizationLogic'
 import type { projectLogicType } from './projectLogicType'
+import { urls } from './urls'
 import { userLogic } from './userLogic'
 
 export const projectLogic = kea<projectLogicType>([
@@ -132,7 +133,7 @@ export const projectLogic = kea<projectLogicType>([
         },
         createProjectSuccess: ({ currentProject }) => {
             if (currentProject) {
-                actions.switchTeam(currentProject.id)
+                actions.switchTeam(currentProject.id, urls.products())
             }
         },
 

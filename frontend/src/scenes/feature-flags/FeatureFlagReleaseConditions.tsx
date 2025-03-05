@@ -8,10 +8,11 @@ import { router } from 'kea-router'
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
-import { IconErrorOutline, IconOpenInNew, IconSubArrowRight } from 'lib/lemon-ui/icons'
+import { IconArrowDown, IconArrowUp, IconErrorOutline, IconOpenInNew, IconSubArrowRight } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -19,10 +20,10 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { getFilterLabel } from 'lib/taxonomy'
 import { capitalizeFirstLetter, dateFilterToText, dateStringToComponents, humanFriendlyNumber } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { AnyPropertyFilter, FeatureFlagGroupType, PropertyOperator } from '~/types'
 
@@ -32,13 +33,7 @@ import {
     FeatureFlagReleaseConditionsLogicProps,
 } from './FeatureFlagReleaseConditionsLogic'
 
-function PropertyValueComponent({
-    property,
-    cohortsById,
-}: {
-    property: AnyPropertyFilter
-    cohortsById: Record<string, any>
-}): JSX.Element {
+function PropertyValueComponent({ property }: { property: AnyPropertyFilter }): JSX.Element {
     if (property.type === 'cohort') {
         return (
             <LemonButton
@@ -48,7 +43,7 @@ function PropertyValueComponent({
                 sideIcon={<IconOpenInNew />}
                 targetBlank
             >
-                {(property.value && cohortsById[property.value]?.name) || `ID ${property.value}`}
+                {property.cohort_name || `ID ${property.value}`}
             </LemonButton>
         )
     }
@@ -75,8 +70,7 @@ function PropertyValueComponent({
                                   false,
                                   String(val).slice(-1) === 'h' ? 'MMMM D, YYYY HH:mm:ss' : 'MMMM D, YYYY',
                                   true
-                              )}{' '}
-                                                            )`
+                              )} )`
                             : ''}
                     </span>
                 </LemonSnack>
@@ -127,13 +121,14 @@ export function FeatureFlagReleaseConditions({
         duplicateConditionSet,
         removeConditionSet,
         addConditionSet,
+        moveConditionSetUp,
+        moveConditionSetDown,
     } = useActions(releaseConditionsLogic)
 
     const { showGroupsOptions, groupTypes, aggregationLabel } = useValues(groupsModel)
     const { earlyAccessFeaturesList, hasEarlyAccessFeatures, featureFlagKey, nonEmptyVariants } =
         useValues(featureFlagLogic)
 
-    const { cohortsById } = useValues(cohortsModel)
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
 
     const featureFlagVariants = nonEmptyFeatureFlagVariants || nonEmptyVariants
@@ -163,7 +158,7 @@ export function FeatureFlagReleaseConditions({
         return (
             <div className="w-full" key={`${index}-${filterGroups.length}`}>
                 {index > 0 && <div className="condition-set-separator">OR</div>}
-                <div className="mb-4 border rounded p-4 bg-bg-light">
+                <div className="mb-4 border rounded p-4 bg-surface-primary">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center">
                             <LemonSnack className="mr-2">Set {index + 1}</LemonSnack>
@@ -189,9 +184,33 @@ export function FeatureFlagReleaseConditions({
                         </div>
                         {!readOnly && (
                             <div className="flex">
+                                {filterGroups.length > 1 && (
+                                    <div className="flex mr-2">
+                                        <LemonButton
+                                            icon={<IconArrowDown />}
+                                            noPadding
+                                            tooltip="Move condition set down in precedence"
+                                            disabledReason={
+                                                index === filterGroups.length - 1
+                                                    ? 'Cannot move last condition set down'
+                                                    : null
+                                            }
+                                            onClick={() => moveConditionSetDown(index)}
+                                        />
+
+                                        <LemonButton
+                                            icon={<IconArrowUp />}
+                                            noPadding
+                                            tooltip="Move condition set up in precedence"
+                                            disabledReason={index === 0 ? 'Cannot move first condition set up' : null}
+                                            onClick={() => moveConditionSetUp(index)}
+                                        />
+                                    </div>
+                                )}
                                 <LemonButton
                                     icon={<IconCopy />}
                                     noPadding
+                                    tooltip="Duplicate condition set"
                                     onClick={() => duplicateConditionSet(index)}
                                 />
                                 {!isEarlyAccessFeatureCondition(group) &&
@@ -199,6 +218,7 @@ export function FeatureFlagReleaseConditions({
                                         <LemonButton
                                             icon={<IconTrash />}
                                             noPadding
+                                            tooltip="Remove condition set"
                                             onClick={() => {
                                                 removeConditionSet(index)
                                                 if (filterGroups.length === 1) {
@@ -235,12 +255,19 @@ export function FeatureFlagReleaseConditions({
                                     ) : (
                                         <LemonButton icon={<span className="text-sm">&</span>} size="small" />
                                     )}
+                                    {property?.type !== 'cohort' &&
+                                        getFilterLabel(
+                                            property.key,
+                                            property.type === 'person'
+                                                ? TaxonomicFilterGroupType.PersonProperties
+                                                : TaxonomicFilterGroupType.EventProperties
+                                        )}
                                     <LemonSnack>{property.type === 'cohort' ? 'Cohort' : property.key} </LemonSnack>
                                     {isPropertyFilterWithOperator(property) ? (
                                         <span>{allOperatorsToHumanName(property.operator)} </span>
                                     ) : null}
 
-                                    <PropertyValueComponent property={property} cohortsById={cohortsById} />
+                                    <PropertyValueComponent property={property} />
                                 </div>
                             ))}
                         </>
@@ -421,7 +448,7 @@ export function FeatureFlagReleaseConditions({
         return (
             <div className="w-full" key={`${index}-${filterGroups.length}`}>
                 {index > 0 && <div className="condition-set-separator">OR</div>}
-                <div className="mb-4 rounded p-4 bg-bg-light">
+                <div className="mb-4 rounded p-4 bg-surface-primary">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center">
                             <div>
@@ -487,9 +514,11 @@ export function FeatureFlagReleaseConditions({
                             {!excludeTitle && (
                                 <>
                                     <h3 className="l3">Release conditions</h3>
-                                    <div className="text-muted mb-4">
-                                        Specify {aggregationTargetName} for flag release. Condition sets roll out
-                                        independently.
+                                    <div className="text-secondary">
+                                        Specify {aggregationTargetName} for flag release. Condition sets are evaluated
+                                        from top to bottom. The first condition set that matches will be used.
+                                    </div>
+                                    <div className="text-secondary mb-4">
                                         {aggregationTargetName === 'users' && (
                                             <>
                                                 {' '}

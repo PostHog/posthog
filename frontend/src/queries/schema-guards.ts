@@ -1,6 +1,6 @@
 import Ajv from 'ajv'
 
-import { WebAnalyticsPropertyFilters } from '~/queries/schema'
+import { WebAnalyticsPropertyFilters } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, SessionPropertyFilter } from '~/types'
 
 import schema from './schema.json'

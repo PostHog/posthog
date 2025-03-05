@@ -45,10 +45,12 @@ from .event_property import EventProperty
 from .experiment import Experiment
 from .exported_asset import ExportedAsset
 from .feature_flag import FeatureFlag
-from .feedback.survey import Survey
+from .surveys.survey import Survey
+from .file_system import FileSystem
 from .filters import Filter, RetentionFilter
 from .group import Group
 from .group_type_mapping import GroupTypeMapping
+from .host_definition import HostDefinition
 from .hog_functions import HogFunction
 from .insight import Insight, InsightViewed
 from .insight_caching_state import InsightCachingState
@@ -125,10 +127,12 @@ __all__ = [
     "Experiment",
     "ExportedAsset",
     "FeatureFlag",
+    "FileSystem",
     "Filter",
     "Group",
     "GroupTypeMapping",
     "HogFunction",
+    "HostDefinition",
     "Insight",
     "InsightCachingState",
     "InsightVariable",

@@ -7,7 +7,7 @@ from typing import Optional
 from prometheus_client import Counter
 from rest_framework.throttling import SimpleRateThrottle, BaseThrottle, UserRateThrottle
 from rest_framework.request import Request
-from sentry_sdk.api import capture_exception
+from posthog.exceptions_capture import capture_exception
 from statshog.defaults.django import statsd
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.metrics import LABEL_PATH, LABEL_TEAM_ID
@@ -43,6 +43,14 @@ def get_team_allow_list(_ttl: int) -> list[str]:
     _ttl is passed an infrequently changing value to ensure the cache is invalidated after some delay
     """
     return get_list(get_instance_setting("RATE_LIMITING_ALLOW_LIST_TEAMS"))
+
+
+def team_is_allowed_to_bypass_throttle(team_id: Optional[int]) -> bool:
+    """
+    Check if a given team_id belongs to a throttle bypass allow list.
+    """
+    allow_list = get_team_allow_list(round(time.time() / 60))
+    return team_id is not None and str(team_id) in allow_list
 
 
 @lru_cache(maxsize=1)
@@ -121,7 +129,7 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
                 path = path_by_team_pattern.sub("/api/projects/TEAM_ID/", path)
                 path = path_by_org_pattern.sub("/api/organizations/ORG_ID/", path)
 
-            if self.team_is_allowed_to_bypass_throttle(team_id):
+            if team_is_allowed_to_bypass_throttle(team_id):
                 statsd.incr(
                     "team_allowed_to_bypass_rate_limit_exceeded",
                     tags={"team_id": team_id, "path": path},
@@ -179,10 +187,6 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
             ident = self.get_ident(request)
 
         return self.cache_format % {"scope": self.scope, "ident": ident}
-
-    def team_is_allowed_to_bypass_throttle(self, team_id: Optional[int]) -> bool:
-        allow_list = get_team_allow_list(round(time.time() / 60))
-        return team_id is not None and str(team_id) in allow_list
 
 
 class DecideRateThrottle(BaseThrottle):

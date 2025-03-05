@@ -22,7 +22,7 @@ import { urls } from 'scenes/urls'
 
 import { AccessControlPopoutCTA } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlPopoutCTA'
 import { isInsightVizNode } from '~/queries/utils'
-import { AvailableFeature, InsightShortId, QueryBasedInsightModel } from '~/types'
+import { AccessControlResourceType, AvailableFeature, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import { upgradeModalLogic } from '../UpgradeModal/upgradeModalLogic'
 import { sharingLogic } from './sharingLogic'
@@ -101,6 +101,7 @@ export function SharingModalContent({
             {insightShortId && newAccessControl ? (
                 <>
                     <AccessControlPopoutCTA
+                        resourceType={AccessControlResourceType.Insight}
                         callback={() => {
                             push(urls.insightView(insightShortId))
                         }}
@@ -193,7 +194,7 @@ export function SharingModalContent({
                                                             <span>Show PostHog branding</span>
                                                             {!whitelabelAvailable && (
                                                                 <Tooltip title="This is a premium feature, click to learn more.">
-                                                                    <IconLock className="ml-1.5 text-muted text-lg" />
+                                                                    <IconLock className="ml-1.5 text-secondary text-lg" />
                                                                 </Tooltip>
                                                             )}
                                                         </div>

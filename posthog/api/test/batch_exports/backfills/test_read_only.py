@@ -12,6 +12,7 @@ from posthog.api.test.batch_exports.fixtures import (
 )
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
+from posthog.batch_exports.models import BatchExportBackfill
 
 pytestmark = [pytest.mark.django_db]
 
@@ -30,7 +31,7 @@ def test_cannot_delete_batch_export_backfill(client: TestClient):
         batch_export,
         dt.datetime(2021, 1, 1, 0, 0, 0, tzinfo=dt.UTC),
         dt.datetime(2021, 1, 1, 1, 0, 0, tzinfo=dt.UTC),
-        "COMPLETED",
+        BatchExportBackfill.Status.COMPLETED,
         dt.datetime(2025, 1, 1, 1, 0, 0, tzinfo=dt.UTC),
     )
 
@@ -53,7 +54,7 @@ def test_cannot_update_batch_export_backfill(client: TestClient):
         batch_export,
         dt.datetime(2021, 1, 1, 0, 0, 0, tzinfo=dt.UTC),
         dt.datetime(2021, 1, 1, 1, 0, 0, tzinfo=dt.UTC),
-        "COMPLETED",
+        BatchExportBackfill.Status.COMPLETED,
         dt.datetime(2025, 1, 1, 1, 0, 0, tzinfo=dt.UTC),
     )
 

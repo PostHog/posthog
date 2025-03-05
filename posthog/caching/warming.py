@@ -8,7 +8,7 @@ from celery import shared_task
 from celery.canvas import chain
 from django.db.models import Q
 from prometheus_client import Counter, Gauge
-from sentry_sdk import capture_exception
+from posthog.exceptions_capture import capture_exception
 
 from posthog.api.services.query import process_query_dict
 from posthog.caching.utils import largest_teams
@@ -191,7 +191,7 @@ def schedule_warming_for_teams_task():
     ignore_result=True,
     expires=60 * 60,
     autoretry_for=(CHQueryErrorTooManySimultaneousQueries,),
-    retry_backoff=1,
+    retry_backoff=2,
     retry_backoff_max=3,
     max_retries=3,
 )

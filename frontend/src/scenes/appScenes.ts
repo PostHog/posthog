@@ -40,6 +40,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.FeatureFlag]: () => import('./feature-flags/FeatureFlag'),
     [Scene.ErrorTracking]: () => import('./error-tracking/ErrorTrackingScene'),
     [Scene.ErrorTrackingConfiguration]: () => import('./error-tracking/configuration/ErrorTrackingConfigurationScene'),
+    [Scene.ErrorTrackingAlert]: () => import('./error-tracking/configuration/alerting/ErrorTrackingAlert'),
     [Scene.ErrorTrackingIssue]: () => import('./error-tracking/ErrorTrackingIssueScene'),
     [Scene.Surveys]: () => import('./surveys/Surveys'),
     [Scene.Survey]: () => import('./surveys/Survey'),

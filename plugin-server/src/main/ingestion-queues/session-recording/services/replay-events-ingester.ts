@@ -1,4 +1,3 @@
-import { captureException } from '@sentry/node'
 import { randomUUID } from 'crypto'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
@@ -7,6 +6,7 @@ import { KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS } from '../../../../config/kafka
 import { findOffsetsToCommit } from '../../../../kafka/consumer'
 import { retryOnDependencyUnavailableError } from '../../../../kafka/error-handling'
 import { KafkaProducerWrapper } from '../../../../kafka/producer'
+import { captureException } from '../../../../utils/posthog'
 import { status } from '../../../../utils/status'
 import { captureIngestionWarning } from '../../../../worker/ingestion/utils'
 import { eventDroppedCounter } from '../../metrics'
@@ -128,7 +128,8 @@ export class ReplayEventsIngester {
                 event.distinct_id,
                 event.session_id,
                 rrwebEvents,
-                event.snapshot_source
+                event.snapshot_source,
+                event.snapshot_library
             )
 
             try {

@@ -3,8 +3,7 @@ import { ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
 import { randomBytes } from 'crypto'
 import { PassThrough } from 'stream'
 
-import { LegacyDestinationPlugin, LegacyDestinationPluginMeta } from '../../types'
-import metadata from './plugin.json'
+import { LegacyDestinationPluginMeta } from '../../types'
 
 type gcsMeta = LegacyDestinationPluginMeta & {
     global: {
@@ -14,9 +13,6 @@ type gcsMeta = LegacyDestinationPluginMeta & {
     config: {
         bucketName: string
         exportEventsToIgnore: string
-    }
-    jobs: {
-        exportEventsWithRetry: string[]
     }
     attachments: any
 }
@@ -68,7 +64,7 @@ function transformEventToRow(fullEvent: ProcessedPluginEvent): TableRow {
     }
 }
 
-const setupPlugin = async ({ attachments, global, config }: gcsMeta): Promise<void> => {
+export const setupPlugin = async ({ attachments, global, config }: gcsMeta): Promise<void> => {
     if (!attachments.googleCloudKeyJson) {
         throw new Error('Credentials JSON file not provided!')
     }
@@ -93,7 +89,7 @@ const setupPlugin = async ({ attachments, global, config }: gcsMeta): Promise<vo
     return Promise.resolve()
 }
 
-const onEvent = async (event: ProcessedPluginEvent, { global, logger }: gcsMeta) => {
+export const onEvent = async (event: ProcessedPluginEvent, { global, logger }: gcsMeta) => {
     if (global.eventsToIgnore.has(event.event.trim())) {
         return
     }
@@ -147,11 +143,4 @@ const onEvent = async (event: ProcessedPluginEvent, { global, logger }: gcsMeta)
         logger.error(`Failed to upload ${rows.length} event${rows.length > 1 ? 's' : ''} to GCS. Retrying later.`)
         throw new RetryError()
     }
-}
-
-export const gcsPlugin: LegacyDestinationPlugin = {
-    id: 'posthog-gcs-plugin',
-    metadata: metadata as any,
-    setupPlugin: setupPlugin as any,
-    onEvent,
 }

@@ -1,38 +1,30 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 import api from 'lib/api'
-import { Dayjs } from 'lib/dayjs'
+import { dayjs } from 'lib/dayjs'
+import posthog from 'posthog-js'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { ErrorTrackingIssue } from '~/queries/schema'
-import { Breadcrumb, EventType } from '~/types'
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import { ErrorTrackingIssue, ErrorTrackingIssueAssignee } from '~/queries/schema/schema-general'
+import { ActivityScope, Breadcrumb } from '~/types'
 
 import type { errorTrackingIssueSceneLogicType } from './errorTrackingIssueSceneLogicType'
 import { errorTrackingLogic } from './errorTrackingLogic'
 import { errorTrackingIssueEventsQuery, errorTrackingIssueQuery } from './queries'
 
-export interface ErrorTrackingEvent {
-    uuid: string
-    timestamp: Dayjs
-    properties: EventType['properties']
-    person: {
-        distinct_id: string
-        uuid?: string
-        created_at?: string
-        properties?: Record<string, any>
-    }
-}
-
 export interface ErrorTrackingIssueSceneLogicProps {
     id: ErrorTrackingIssue['id']
+    fingerprint?: string
 }
 
-export enum IssueTab {
-    Overview = 'overview',
-    Events = 'events',
-    Breakdowns = 'breakdowns',
+export enum EventsMode {
+    Latest = 'latest',
+    Earliest = 'earliest',
+    Recommended = 'recommended',
+    All = 'all',
 }
 
 export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType>([
@@ -41,42 +33,47 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     key((props) => props.id),
 
     connect({
-        values: [errorTrackingLogic, ['dateRange', 'filterTestAccounts', 'filterGroup']],
+        values: [errorTrackingLogic, ['dateRange', 'filterTestAccounts', 'filterGroup', 'customSparklineConfig']],
+        actions: [errorTrackingLogic, ['setDateRange', 'setFilterTestAccounts', 'setFilterGroup']],
     }),
 
     actions({
-        setTab: (tab: IssueTab) => ({ tab }),
-        setActiveEventUUID: (uuid: ErrorTrackingEvent['uuid']) => ({ uuid }),
+        initIssue: true,
         setIssue: (issue: ErrorTrackingIssue) => ({ issue }),
-        updateIssue: (issue: Partial<Pick<ErrorTrackingIssue, 'assignee' | 'status'>>) => ({ issue }),
+        setEventsMode: (mode: EventsMode) => ({ mode }),
+        updateIssue: (issue: Partial<Pick<ErrorTrackingIssue, 'status'>>) => ({ issue }),
+        assignIssue: (assignee: ErrorTrackingIssueAssignee | null) => ({ assignee }),
     }),
 
-    reducers(() => ({
-        tab: [
-            IssueTab.Overview as IssueTab,
+    reducers({
+        eventsMode: [
+            EventsMode.Latest as EventsMode,
             {
-                setTab: (_, { tab }) => tab,
+                setEventsMode: (_, { mode }) => mode,
             },
         ],
-        activeEventUUID: [
-            undefined as ErrorTrackingEvent['uuid'] | undefined,
-            {
-                setActiveEventUUID: (_, { uuid }) => uuid,
-            },
-        ],
-    })),
+    }),
 
     loaders(({ props, values }) => ({
         issue: [
             null as ErrorTrackingIssue | null,
             {
-                loadIssue: async () => {
+                loadRelationalIssue: async () => {
+                    const response = await api.errorTracking.getIssue(props.id, props.fingerprint)
+                    return { ...values.issue, ...response }
+                },
+                loadClickHouseIssue: async (firstSeen: string) => {
+                    const hasLastSeen = values.issue && values.issue.last_seen
+                    const lastSeen = hasLastSeen ? dayjs(values.issue?.last_seen).endOf('minute') : dayjs()
+
                     const response = await api.query(
                         errorTrackingIssueQuery({
                             issueId: props.id,
-                            dateRange: values.dateRange,
-                            filterTestAccounts: values.filterTestAccounts,
-                            filterGroup: values.filterGroup,
+                            dateRange: {
+                                date_from: dayjs(firstSeen).startOf('minute').toISOString(),
+                                date_to: lastSeen.toISOString(),
+                            },
+                            customVolume: values.customSparklineConfig,
                         }),
                         {},
                         undefined,
@@ -89,7 +86,13 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 },
                 updateIssue: async ({ issue }) => {
                     const response = await api.errorTracking.updateIssue(props.id, issue)
+                    posthog.capture('error_tracking_issue_status_updated', { ...issue, issue_id: props.id })
                     return { ...values.issue, ...response }
+                },
+                assignIssue: async ({ assignee }) => {
+                    await api.errorTracking.assignIssue(props.id, assignee)
+                    posthog.capture('error_tracking_issue_assigned', { issue_id: props.id })
+                    return values.issue ? { ...values.issue, assignee } : values.issue
                 },
                 setIssue: ({ issue }) => issue,
             },
@@ -115,14 +118,24 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             },
         ],
 
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            (_, p) => [p.id],
+            (issueId): SidePanelSceneContext => {
+                return {
+                    activity_scope: ActivityScope.ERROR_TRACKING_ISSUE,
+                    activity_item_id: issueId,
+                }
+            },
+        ],
+
         eventsQuery: [
-            (s, p) => [p.id, s.dateRange, s.filterTestAccounts, s.filterGroup],
-            (id, dateRange, filterTestAccounts, filterGroup) =>
+            (s) => [s.issue, s.filterTestAccounts, s.filterGroup, s.dateRange],
+            (issue, filterTestAccounts, filterGroup, dateRange) =>
                 errorTrackingIssueEventsQuery({
-                    issueId: id,
-                    dateRange: dateRange,
+                    issue,
                     filterTestAccounts: filterTestAccounts,
                     filterGroup: filterGroup,
+                    dateRange,
                 }),
         ],
 
@@ -132,31 +145,30 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         ],
     }),
 
-    listeners(({ actions }) => ({
-        setIssueSuccess: ({ issue }) => {
-            if (issue && !issue.earliest) {
-                actions.loadIssue()
+    listeners(({ values, actions }) => {
+        const loadIssue = (): void => {
+            if (!values.issueLoading) {
+                const issue = values.issue
+                if (!issue) {
+                    actions.loadRelationalIssue()
+                } else {
+                    actions.loadClickHouseIssue(issue.first_seen)
+                }
             }
-        },
-    })),
+        }
 
-    actionToUrl(({ values }) => ({
-        setTab: () => {
-            const searchParams = router.values.searchParams
-            if (values.tab == IssueTab.Overview) {
-                delete searchParams['tab']
-            } else {
-                searchParams['tab'] = values.tab
-            }
-            return [router.values.location.pathname, searchParams]
-        },
-    })),
-
-    urlToAction(({ actions }) => ({
-        [urls.errorTrackingIssue('*')]: (_, searchParams) => {
-            if (searchParams.tab) {
-                actions.setTab(searchParams.tab)
-            }
-        },
-    })),
+        return {
+            setIssueSuccess: loadIssue,
+            initIssue: loadIssue,
+            loadRelationalIssueSuccess: loadIssue,
+            loadRelationalIssueFailure: ({ errorObject: { status, data } }) => {
+                if (status == 308 && 'issue_id' in data) {
+                    router.actions.replace(urls.errorTrackingIssue(data.issue_id))
+                }
+            },
+            setDateRange: loadIssue,
+            setFilterTestAccounts: loadIssue,
+            setFilterGroup: loadIssue,
+        }
+    }),
 ])

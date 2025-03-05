@@ -6,7 +6,7 @@ import { Resizer } from 'lib/components/Resizer/Resizer'
 import { resizerLogic, ResizerLogicProps } from 'lib/components/Resizer/resizerLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter, splitKebabCase } from 'lib/utils'
 import { useRef } from 'react'
 
 import { SessionRecordingSidebarStacking, SessionRecordingSidebarTab } from '~/types'
@@ -37,7 +37,11 @@ export function PlayerSidebar(): JSX.Element {
 
     const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
 
-    const sidebarTabs = [SessionRecordingSidebarTab.OVERVIEW, SessionRecordingSidebarTab.INSPECTOR]
+    const sidebarTabs = [
+        SessionRecordingSidebarTab.OVERVIEW,
+        SessionRecordingSidebarTab.INSPECTOR,
+        SessionRecordingSidebarTab.NETWORK_WATERFALL,
+    ]
 
     if (window.IMPERSONATED_SESSION || featureFlags[FEATURE_FLAGS.SESSION_REPLAY_DOCTOR]) {
         sidebarTabs.push(SessionRecordingSidebarTab.DEBUGGER)
@@ -67,16 +71,16 @@ export function PlayerSidebar(): JSX.Element {
             />
             {sidebarOpen && (
                 <>
-                    <div className="flex bg-bg-light">
+                    <div className="flex bg-surface-primary">
                         <div className="w-2.5 border-b shrink-0" />
                         <LemonTabs
                             activeKey={activeTab}
                             onChange={(tabId) => setTab(tabId)}
                             tabs={sidebarTabs.map((tabId) => ({
                                 key: tabId,
-                                label: capitalizeFirstLetter(tabId),
+                                label: capitalizeFirstLetter(splitKebabCase(tabId)),
                             }))}
-                            barClassName="mb-0"
+                            barClassName="!mb-0"
                             size="small"
                         />
                         <div className="flex flex-1 border-b shrink-0" />

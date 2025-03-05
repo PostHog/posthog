@@ -1,3 +1,4 @@
+import { DateTime } from 'luxon'
 import snappy from 'snappy'
 
 import { ParsedMessageData } from '../kafka/types'
@@ -8,9 +9,35 @@ export interface EndResult {
     /** Number of events in the session block */
     eventCount: number
     /** Timestamp of the first event in the session block */
-    startTimestamp: number
+    startDateTime: DateTime
     /** Timestamp of the last event in the session block */
-    endTimestamp: number
+    endDateTime: DateTime
+    /** First URL of the session */
+    firstUrl?: string | null
+    /** All URLs visited in the session */
+    urls?: string[]
+    /** Number of clicks in the session */
+    clickCount?: number
+    /** Number of keypresses in the session */
+    keypressCount?: number
+    /** Number of mouse activity events in the session */
+    mouseActivityCount?: number
+    /** Active time in milliseconds */
+    activeMilliseconds?: number
+    /** Number of console log messages */
+    consoleLogCount?: number
+    /** Number of console warning messages */
+    consoleWarnCount?: number
+    /** Number of console error messages */
+    consoleErrorCount?: number
+    /** Size of the session data in bytes */
+    size?: number
+    /** Number of messages in the session */
+    messageCount?: number
+    /** Source of the snapshot (Web/Mobile) */
+    snapshotSource?: string | null
+    /** Library used for the snapshot */
+    snapshotLibrary?: string | null
 }
 
 /**
@@ -41,8 +68,9 @@ export class SnappySessionRecorder {
     private eventCount: number = 0
     private rawBytesWritten: number = 0
     private ended = false
-    private startTimestamp: number | null = null
-    private endTimestamp: number | null = null
+    private startDateTime: DateTime | null = null
+    private endDateTime: DateTime | null = null
+    private _distinctId: string | null = null
 
     constructor(public readonly sessionId: string, public readonly teamId: number) {}
 
@@ -59,18 +87,23 @@ export class SnappySessionRecorder {
             throw new Error('Cannot record message after end() has been called')
         }
 
+        // Store the distinctId from the first message if not already set
+        if (!this._distinctId) {
+            this._distinctId = message.distinct_id
+        }
+
         let rawBytesWritten = 0
 
         // Note: We don't need to check for zero timestamps here because:
         // 1. KafkaMessageParser filters out events with zero timestamps
         // 2. KafkaMessageParser drops messages with no events
         // Therefore, eventsRange.start and eventsRange.end will always be present and non-zero
-        this.startTimestamp =
-            this.startTimestamp === null
-                ? message.eventsRange.start
-                : Math.min(this.startTimestamp, message.eventsRange.start)
-        this.endTimestamp =
-            this.endTimestamp === null ? message.eventsRange.end : Math.max(this.endTimestamp, message.eventsRange.end)
+        if (!this.startDateTime || message.eventsRange.start < this.startDateTime) {
+            this.startDateTime = message.eventsRange.start
+        }
+        if (!this.endDateTime || message.eventsRange.end > this.endDateTime) {
+            this.endDateTime = message.eventsRange.end
+        }
 
         Object.entries(message.eventsByWindowId).forEach(([windowId, events]) => {
             events.forEach((event) => {
@@ -87,9 +120,19 @@ export class SnappySessionRecorder {
     }
 
     /**
-     * Finalizes and returns the compressed session block
+     * The distinct_id associated with this session recording
+     */
+    public get distinctId(): string {
+        if (!this._distinctId) {
+            throw new Error('No distinct_id set. No messages recorded yet.')
+        }
+        return this._distinctId
+    }
+
+    /**
+     * Finalizes the session recording and returns the compressed buffer with metadata
      *
-     * @returns The complete compressed session block and event count
+     * @returns The compressed session recording block with metadata
      * @throws If called more than once
      */
     public async end(): Promise<EndResult> {
@@ -105,8 +148,21 @@ export class SnappySessionRecorder {
         return {
             buffer,
             eventCount: this.eventCount,
-            startTimestamp: this.startTimestamp ?? 0,
-            endTimestamp: this.endTimestamp ?? 0,
+            startDateTime: this.startDateTime ?? DateTime.fromMillis(0),
+            endDateTime: this.endDateTime ?? DateTime.fromMillis(0),
+            firstUrl: null,
+            urls: [],
+            clickCount: 0,
+            keypressCount: 0,
+            mouseActivityCount: 0,
+            activeMilliseconds: 0,
+            consoleLogCount: 0,
+            consoleWarnCount: 0,
+            consoleErrorCount: 0,
+            size: buffer.length,
+            messageCount: 0,
+            snapshotSource: null,
+            snapshotLibrary: null,
         }
     }
 }

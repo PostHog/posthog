@@ -170,7 +170,7 @@ export function humanizePathsEventTypes(includeEventTypes: PathsFilter['includeE
             humanEventTypes = ['all events']
         }
         if (includeEventTypes.includes(PathType.HogQL)) {
-            humanEventTypes.push('HogQL expression')
+            humanEventTypes.push('SQL expression')
         }
     }
     return humanEventTypes
@@ -377,16 +377,16 @@ export function getResponseBytes(apiResponse: Response): number {
     return parseInt(apiResponse.headers.get('Content-Length') ?? '0')
 }
 
-export const insightTypeURL = {
-    TRENDS: urls.insightNew(InsightType.TRENDS),
-    STICKINESS: urls.insightNew(InsightType.STICKINESS),
-    LIFECYCLE: urls.insightNew(InsightType.LIFECYCLE),
-    FUNNELS: urls.insightNew(InsightType.FUNNELS),
-    RETENTION: urls.insightNew(InsightType.RETENTION),
-    PATHS: urls.insightNew(InsightType.PATHS),
-    JSON: urls.insightNew(undefined, undefined, examples.EventsTableFull),
-    HOG: urls.insightNew(undefined, undefined, examples.Hoggonacci),
-    SQL: urls.insightNew(undefined, undefined, examples.DataVisualization),
+export const INSIGHT_TYPE_URLS = {
+    TRENDS: urls.insightNew({ type: InsightType.TRENDS }),
+    STICKINESS: urls.insightNew({ type: InsightType.STICKINESS }),
+    LIFECYCLE: urls.insightNew({ type: InsightType.LIFECYCLE }),
+    FUNNELS: urls.insightNew({ type: InsightType.FUNNELS }),
+    RETENTION: urls.insightNew({ type: InsightType.RETENTION }),
+    PATHS: urls.insightNew({ type: InsightType.PATHS }),
+    JSON: urls.insightNew({ query: examples.EventsTableFull }),
+    HOG: urls.insightNew({ query: examples.Hoggonacci }),
+    SQL: urls.insightNew({ query: examples.DataVisualization }),
 }
 
 /** Combines a list of words, separating with the correct punctuation. For example: [a, b, c, d] -> "a, b, c, and d"  */
@@ -445,7 +445,7 @@ export function insightUrlForEvent(event: Pick<EventType, 'event' | 'properties'
         }
     }
 
-    return query ? urls.insightNew(undefined, undefined, query) : undefined
+    return query ? urls.insightNew({ query }) : undefined
 }
 
 export function getFunnelDatasetKey(dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics): string {
@@ -570,15 +570,28 @@ export function isQueryTooLarge(query: Node<Record<string, any>>): boolean {
     return queryLength > 1024 * 1024
 }
 
-export function parseDraftQueryFromLocalStorage(
-    query: string
-): { query: Node<Record<string, any>>; timestamp: number } | null {
+function parseAndMigrateQuery<T>(query: string): T | null {
     try {
-        return JSON.parse(query)
+        const parsedQuery = JSON.parse(query)
+        // We made a database migration to support weighted and simple mean in retention tables.
+        // To do this we created a new column meanRetentionCalculation and deprecated showMean.
+        // This ensures older URLs are parsed correctly.
+        const retentionFilter = parsedQuery?.source?.retentionFilter
+        if (retentionFilter && 'showMean' in retentionFilter && typeof retentionFilter.showMean === 'boolean') {
+            retentionFilter.meanRetentionCalculation = retentionFilter.showMean ? 'simple' : 'none'
+            delete retentionFilter.showMean
+        }
+        return parsedQuery
     } catch (e) {
         console.error('Error parsing query', e)
         return null
     }
+}
+
+export function parseDraftQueryFromLocalStorage(
+    query: string
+): { query: Node<Record<string, any>>; timestamp: number } | null {
+    return parseAndMigrateQuery(query)
 }
 
 export function crushDraftQueryForLocalStorage(query: Node<Record<string, any>>, timestamp: number): string {
@@ -586,12 +599,7 @@ export function crushDraftQueryForLocalStorage(query: Node<Record<string, any>>,
 }
 
 export function parseDraftQueryFromURL(query: string): Node<Record<string, any>> | null {
-    try {
-        return JSON.parse(query)
-    } catch (e) {
-        console.error('Error parsing query', e)
-        return null
-    }
+    return parseAndMigrateQuery(query)
 }
 
 export function crushDraftQueryForURL(query: Node<Record<string, any>>): string {

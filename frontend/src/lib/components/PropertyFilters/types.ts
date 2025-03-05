@@ -1,11 +1,12 @@
 import {
+    ExcludedProperties,
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
     TaxonomicFilterProps,
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
 
-import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema'
+import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, FilterLogicalOperator, PropertyGroupFilter } from '~/types'
 
 export interface PropertyFilterBaseProps {
@@ -29,6 +30,7 @@ export interface TaxonomicPropertyFilterLogicProps extends PropertyFilterBasePro
     setFilter: (index: number, property: AnyPropertyFilter) => void
     filterIndex: number
     eventNames?: string[]
+    excludedProperties?: ExcludedProperties
     propertyAllowList?: { [key in TaxonomicFilterGroupType]?: string[] }
 }
 
@@ -49,6 +51,7 @@ export interface PropertyFilterInternalProps {
     hasRowOperator?: boolean
     metadataSource?: AnyDataNode
     propertyAllowList?: { [key in TaxonomicFilterGroupType]?: string[] }
+    excludedProperties?: ExcludedProperties
     allowRelativeDateOptions?: boolean
     exactMatchFeatureFlagCohortOperators?: boolean
     hideBehavioralCohorts?: boolean

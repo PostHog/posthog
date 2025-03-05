@@ -1,5 +1,4 @@
 import { S3Client, S3ClientConfig } from '@aws-sdk/client-s3'
-import { captureException } from '@sentry/node'
 import {
     CODES,
     features,
@@ -16,6 +15,7 @@ import { PostgresRouter } from '~/src/utils/db/postgres'
 import { buildIntegerMatcher } from '../../../config/config'
 import { BatchConsumer } from '../../../kafka/batch-consumer'
 import { PluginServerService, PluginsServerConfig, ValueMatcher } from '../../../types'
+import { captureException } from '../../../utils/posthog'
 import { status as logger } from '../../../utils/status'
 import { captureIngestionWarning } from '../../../worker/ingestion/utils'
 import { runInstrumentedFunction } from '../../utils'
@@ -31,10 +31,12 @@ import { KafkaMessageParser } from './kafka/message-parser'
 import { KafkaOffsetManager } from './kafka/offset-manager'
 import { SessionRecordingIngesterMetrics } from './metrics'
 import { PromiseScheduler } from './promise-scheduler'
-import { BlackholeSessionBatchWriter } from './sessions/blackhole-session-batch-writer'
-import { S3SessionBatchWriter } from './sessions/s3-session-batch-writer'
+import { BlackholeSessionBatchFileStorage } from './sessions/blackhole-session-batch-writer'
+import { S3SessionBatchFileStorage } from './sessions/s3-session-batch-writer'
+import { SessionBatchFileStorage } from './sessions/session-batch-file-storage'
 import { SessionBatchManager } from './sessions/session-batch-manager'
 import { SessionBatchRecorder } from './sessions/session-batch-recorder'
+import { SessionMetadataStore } from './sessions/session-metadata-store'
 import { TeamFilter } from './teams/team-filter'
 import { TeamService } from './teams/team-service'
 import { MessageWithTeam } from './teams/types'
@@ -59,12 +61,14 @@ export class SessionRecordingIngester {
     private readonly kafkaParser: KafkaMessageParser
     private readonly teamFilter: TeamFilter
     private readonly libVersionMonitor?: LibVersionMonitor
+    private readonly fileStorage: SessionBatchFileStorage
 
     constructor(
         private config: PluginsServerConfig,
         private consumeOverflow: boolean,
         postgres: PostgresRouter,
         batchConsumerFactory: BatchConsumerFactory,
+        producer: KafkaProducerWrapper,
         ingestionWarningProducer?: KafkaProducerWrapper
     ) {
         this.topic = consumeOverflow
@@ -109,19 +113,22 @@ export class SessionRecordingIngester {
         }
 
         const offsetManager = new KafkaOffsetManager(this.commitOffsets.bind(this), this.topic)
-        const writer = s3Client
-            ? new S3SessionBatchWriter(
+        const metadataStore = new SessionMetadataStore(producer)
+        this.fileStorage = s3Client
+            ? new S3SessionBatchFileStorage(
                   s3Client,
-                  this.config.SESSION_RECORDING_V2_S3_BUCKET!,
-                  this.config.SESSION_RECORDING_V2_S3_PREFIX!
+                  this.config.SESSION_RECORDING_V2_S3_BUCKET,
+                  this.config.SESSION_RECORDING_V2_S3_PREFIX,
+                  this.config.SESSION_RECORDING_V2_S3_TIMEOUT_MS
               )
-            : new BlackholeSessionBatchWriter()
+            : new BlackholeSessionBatchFileStorage()
 
         this.sessionBatchManager = new SessionBatchManager({
-            maxBatchSizeBytes: (config.SESSION_RECORDING_MAX_BATCH_SIZE_KB ?? 1024) * 1024,
-            maxBatchAgeMs: config.SESSION_RECORDING_MAX_BATCH_AGE_MS ?? 1000,
+            maxBatchSizeBytes: this.config.SESSION_RECORDING_MAX_BATCH_SIZE_KB * 1024,
+            maxBatchAgeMs: this.config.SESSION_RECORDING_MAX_BATCH_AGE_MS,
             offsetManager,
-            writer,
+            fileStorage: this.fileStorage,
+            metadataStore,
         })
 
         this.consumerGroupId = this.consumeOverflow ? KAFKA_CONSUMER_GROUP_ID_OVERFLOW : KAFKA_CONSUMER_GROUP_ID
@@ -237,6 +244,10 @@ export class SessionRecordingIngester {
             librdKafkaVersion: librdkafkaVersion,
             kafkaCapabilities: features,
         })
+
+        // Check that the storage backend is healthy before starting the consumer
+        // This is especially important in local dev with minio
+        await this.fileStorage.checkHealth()
 
         this.batchConsumer = await this.batchConsumerFactory.createBatchConsumer(
             this.consumerGroupId,

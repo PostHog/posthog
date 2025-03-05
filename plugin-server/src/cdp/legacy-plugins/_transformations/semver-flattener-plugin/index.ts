@@ -1,7 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { LegacyTransformationPlugin, LegacyTransformationPluginMeta } from '../../types'
-import metadata from './plugin.json'
+import { LegacyTransformationPluginMeta } from '../../types'
 
 interface VersionParts {
     major: number
@@ -54,10 +53,4 @@ export function processEvent(event: PluginEvent, meta: LegacyTransformationPlugi
     }
 
     return event
-}
-
-export const semverFlattenerPlugin: LegacyTransformationPlugin = {
-    id: 'semver-flattener-plugin',
-    metadata,
-    processEvent,
 }

@@ -95,7 +95,7 @@ export function CohortSelectorField({
             }}
         >
             <span className="font-medium">
-                {currentOption?.label || <span className="text-muted">{placeholder}</span>}
+                {currentOption?.label || <span className="text-secondary">{placeholder}</span>}
             </span>
         </LemonButtonWithDropdown>
     )
@@ -140,7 +140,7 @@ export function CohortTaxonomicField({
                 value ? (
                     <PropertyKeyInfo value={value as string} type={groupType} />
                 ) : (
-                    <span className="text-muted">{placeholder}</span>
+                    <span className="text-secondary">{placeholder}</span>
                 )
             }
         />

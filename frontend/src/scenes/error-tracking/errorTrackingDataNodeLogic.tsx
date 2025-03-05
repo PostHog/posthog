@@ -1,8 +1,9 @@
 import { actions, connect, kea, listeners, path, props } from 'kea'
 import api from 'lib/api'
+import posthog from 'posthog-js'
 
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { ErrorTrackingIssue } from '~/queries/schema'
+import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
 import type { errorTrackingDataNodeLogicType } from './errorTrackingDataNodeLogicType'
 import { mergeIssues } from './utils'
@@ -48,6 +49,7 @@ export const errorTrackingDataNodeLogic = kea<errorTrackingDataNodeLogicType>([
                             mergedIssue.id === issue.id ? mergedIssue : issue
                         ),
                 })
+                posthog.capture('error_tracking_issue_merged', { primary: primaryIssue.id })
                 await api.errorTracking.mergeInto(primaryIssue.id, mergingIds)
                 actions.loadData(true)
             }

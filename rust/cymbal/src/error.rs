@@ -1,10 +1,10 @@
 use aws_sdk_s3::primitives::ByteStreamError;
+use common_kafka::kafka_producer::KafkaProduceError;
+use common_symbol_data::SymbolDataError;
 use rdkafka::error::KafkaError;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
-
-use crate::hack::js_data::JsDataError;
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -20,6 +20,8 @@ pub enum UnhandledError {
     ConfigError(#[from] envconfig::Error),
     #[error("Kafka error: {0}")]
     KafkaError(#[from] KafkaError),
+    #[error("Produce error: {0}")]
+    KafkaProduceError(#[from] KafkaProduceError),
     #[error("Sqlx error: {0}")]
     SqlxError(#[from] sqlx::Error),
     #[error("S3 error: {0}")]
@@ -28,6 +30,8 @@ pub enum UnhandledError {
     ByteStreamError(#[from] ByteStreamError), // AWS specific bytestream error. Idk
     #[error("Unhandled serde error: {0}")]
     SerdeError(#[from] serde_json::Error),
+    #[error("Unhandled error: {0}")]
+    Other(String),
 }
 
 // These are errors that occur during frame resolution. This excludes e.g. network errors,
@@ -50,9 +54,6 @@ pub enum JsResolveErr {
     // We failed to parse a found source map
     #[error("Invalid source map: {0}")]
     InvalidSourceMap(String),
-    // We failed to parse a found source map cache
-    #[error("Invalid source map cache: {0}")]
-    InvalidSourceMapCache(String),
     // We found and parsed the source map, but couldn't find our frames token in it
     #[error("Token not found for frame: {0}:{1}:{2}")]
     TokenNotFound(String, u32, u32),
@@ -86,7 +87,11 @@ pub enum JsResolveErr {
     #[error("Redirect error while fetching: {0}")]
     RedirectError(String),
     #[error("JSDataError: {0}")]
-    JSDataError(#[from] JsDataError),
+    JSDataError(#[from] SymbolDataError),
+    #[error("Invalid Source and Map")]
+    InvalidSourceAndMap,
+    #[error("Invalid data url found at {0}. {1}")]
+    InvalidDataUrl(String, String),
 }
 
 #[derive(Debug, Error)]
@@ -109,11 +114,11 @@ impl From<JsResolveErr> for Error {
     }
 }
 
-impl From<sourcemap::Error> for JsResolveErr {
-    fn from(e: sourcemap::Error) -> Self {
-        JsResolveErr::InvalidSourceMap(e.to_string())
-    }
-}
+// impl From<sourcemap::Error> for JsResolveErr {
+//     fn from(e: sourcemap::Error) -> Self {
+//         JsResolveErr::InvalidSourceMap(e.to_string())
+//     }
+// }
 
 impl From<reqwest::Error> for JsResolveErr {
     fn from(e: reqwest::Error) -> Self {

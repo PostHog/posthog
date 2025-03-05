@@ -9,6 +9,8 @@ from clickhouse_driver import Client as SyncClient
 from clickhouse_pool import ChPool
 from django.conf import settings
 
+from posthog.utils import patchable
+
 
 class Workload(Enum):
     # Default workload
@@ -52,7 +54,7 @@ class ProxyClient:
         if written_rows > 0:
             return written_rows
         if with_column_types:
-            column_types_driver_format = list(zip(result.column_names, result.column_types))
+            column_types_driver_format = [(a, b.name) for (a, b) in zip(result.column_names, result.column_types)]
             return result.result_set, column_types_driver_format
         return result.result_set
 
@@ -73,6 +75,7 @@ _clickhouse_http_pool_mgr = httputil.get_pool_manager(
 )
 
 
+@contextmanager
 def get_http_client(**overrides):
     kwargs = {
         "host": settings.QUERYSERVICE_HOST,
@@ -87,9 +90,10 @@ def get_http_client(**overrides):
         "pool_mgr": _clickhouse_http_pool_mgr,
         **overrides,
     }
-    return ProxyClient(get_client(**kwargs))
+    yield ProxyClient(get_client(**kwargs))
 
 
+@patchable
 def get_client_from_pool(workload: Workload = Workload.DEFAULT, team_id=None, readonly=False):
     """
     Returns the client for a given workload.

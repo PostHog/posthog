@@ -25,7 +25,7 @@ If the given website doesn't exist OR the URL is not a valid website OR the URL 
 Do NOT make speculative or assumptive statements, just output that sentence when lacking data.
 </format_instructions>
 
-The provided URL is "{{url}}".
+The provided URL is "{{{url}}}".
 """.strip()
 
 INITIALIZE_CORE_MEMORY_WITH_BUNDLE_IDS_PROMPT = """
@@ -64,7 +64,7 @@ SCRAPING_INITIAL_MESSAGE = (
 )
 
 FAILED_SCRAPING_MESSAGE = """
-Unfortunately, I couldn't find any information about your product. You could edit my initial memory in Settings. Let me help with your request.
+Unfortunately, I couldn't find any information about your product – but please tell me to remember specific information, and I'll do so. You can also edit my initial memory directly in Settings.
 """.strip()
 
 SCRAPING_VERIFICATION_MESSAGE = "Does this look like a good summary of what your product does?"
@@ -75,7 +75,9 @@ SCRAPING_REJECTION_MESSAGE = "No, not quite right"
 
 SCRAPING_TERMINATION_MESSAGE = "All right, let's skip this step then. You can always ask me to update my memory."
 
-SCRAPING_MEMORY_SAVED_MESSAGE = "Thanks! I've updated my initial memory. Let me help with your request."
+SCRAPING_MEMORY_SAVED_MESSAGE = (
+    "Thanks! I've updated my initial memory. Remember that you can always ask me to remember information!"
+)
 
 COMPRESSION_PROMPT = """
 Your goal is to shorten paragraphs in the given text to have only a single sentence for each paragraph, preserving the original meaning and maintaining the cohesiveness of the text. Remove all found headers. You must keep the original structure. Remove linking words. Do not use markdown or any other text formatting.
@@ -154,7 +156,7 @@ Do not return anything from the custom few shot example prompts provided above.
 - Reformulate user inputs into clear, factual statements about the product or company.
 - Save information the user explicitly asked to save using indicative verbs like "remember," "save," "note," etc even if it's not relevant to the product or company.
 - Do not use markdown or add notes.
-- Today's date is {{date}}.
+- Today's date is {{{date}}}.
 </remember>
 
 When you receive new information, begin your response with an information processing analysis, then proceed with the memory update if applicable, and conclude with "[Done]".

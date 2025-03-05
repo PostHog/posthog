@@ -17,6 +17,8 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
+import { editor as monacoEditor, MarkerSeverity } from 'monaco-editor'
+import { useRef } from 'react'
 
 import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
 import { hogFunctionTestLogic } from './hogFunctionTestLogic'
@@ -24,18 +26,91 @@ import { hogFunctionTestLogic } from './hogFunctionTestLogic'
 const HogFunctionTestEditor = ({
     value,
     onChange,
+    readOnly = false,
 }: {
     value: string
     onChange?: (value?: string) => void
+    readOnly?: boolean
 }): JSX.Element => {
+    const editorRef = useRef<monacoEditor.IStandaloneCodeEditor | null>(null)
+    const decorationsRef = useRef<string[]>([]) // Track decoration IDs
+
+    const handleValidation = (newValue: string): void => {
+        if (!editorRef.current?.getModel()) {
+            return
+        }
+        const model = editorRef.current.getModel()!
+
+        // First clear everything
+        monacoEditor.setModelMarkers(model, 'owner', [])
+
+        // Clear existing decorations and get new empty array of IDs
+        decorationsRef.current = editorRef.current.deltaDecorations(decorationsRef.current, [])
+
+        // Now validate with clean state
+        try {
+            JSON.parse(newValue)
+            // Valid JSON - keep decorations cleared
+        } catch (err: any) {
+            // Invalid JSON - add new decoration
+            const match = err.message.match(/position (\d+)/)
+            if (match) {
+                const position = parseInt(match[1], 10)
+                const pos = model.getPositionAt(position)
+
+                // Set error marker
+                monacoEditor.setModelMarkers(model, 'owner', [
+                    {
+                        startLineNumber: pos.lineNumber,
+                        startColumn: pos.column,
+                        endLineNumber: pos.lineNumber,
+                        endColumn: pos.column + 1,
+                        message: err.message,
+                        severity: MarkerSeverity.Error,
+                    },
+                ])
+
+                // Set new decoration and store the IDs
+                decorationsRef.current = editorRef.current.deltaDecorations(decorationsRef.current, [
+                    {
+                        range: {
+                            startLineNumber: pos.lineNumber,
+                            startColumn: 1,
+                            endLineNumber: pos.lineNumber,
+                            endColumn: model.getLineLength(pos.lineNumber) + 1,
+                        },
+                        options: {
+                            isWholeLine: true,
+                            className: 'bg-danger-highlight',
+                            glyphMarginClassName: 'text-danger flex items-center justify-center',
+                            glyphMarginHoverMessage: { value: err.message },
+                        },
+                    },
+                ])
+
+                // Scroll to error
+                editorRef.current.revealLineInCenter(pos.lineNumber)
+            }
+        }
+    }
+
     return (
         <CodeEditorResizeable
             language="json"
             value={value}
             height={400}
-            onChange={onChange}
+            onChange={(newValue) => {
+                if (!readOnly) {
+                    onChange?.(newValue)
+                    handleValidation(newValue ?? '')
+                }
+            }}
+            onMount={(editor) => {
+                editorRef.current = editor
+                handleValidation(value)
+            }}
             options={{
-                lineNumbers: 'off',
+                lineNumbers: 'on',
                 minimap: {
                     enabled: false,
                 },
@@ -49,10 +124,12 @@ const HogFunctionTestEditor = ({
                     showKeywords: false,
                 },
                 scrollbar: {
-                    vertical: 'hidden',
-                    verticalScrollbarSize: 0,
+                    vertical: 'auto',
+                    verticalScrollbarSize: 14,
                 },
                 folding: true,
+                glyphMargin: true,
+                readOnly: readOnly,
             }}
         />
     )
@@ -71,6 +148,8 @@ export function HogFunctionTest(): JSX.Element {
         testInvocation,
         testResultMode,
         sortedTestsResult,
+        jsonError,
+        fetchCancelled,
     } = useValues(hogFunctionTestLogic(logicProps))
     const {
         submitTestInvocation,
@@ -81,24 +160,41 @@ export function HogFunctionTest(): JSX.Element {
         setSampleGlobals,
         saveGlobals,
         setTestResultMode,
+        cancelSampleGlobalsLoading,
     } = useActions(hogFunctionTestLogic(logicProps))
+
+    const testResultsRef = useRef<HTMLDivElement>(null)
 
     return (
         <Form logic={hogFunctionTestLogic} props={logicProps} formKey="testInvocation" enableFormOnSubmit>
             <div
-                className={clsx('border rounded p-3 space-y-2', expanded ? 'bg-bg-light min-h-120' : 'bg-accent-3000')}
+                ref={testResultsRef}
+                className={clsx(
+                    'border rounded p-3 space-y-2',
+                    expanded ? 'bg-surface-secondary min-h-120' : 'bg-surface-primary'
+                )}
             >
                 <div className="flex items-center justify-end gap-2">
                     <div className="flex-1 space-y-2">
                         <h2 className="flex items-center gap-2 mb-0">
                             <span>Testing</span>
-                            {sampleGlobalsLoading ? <Spinner /> : null}
+                            {sampleGlobalsLoading && !fetchCancelled ? <Spinner /> : null}
                         </h2>
                         {!expanded && <p>Click here to test your function with an example event</p>}
                     </div>
 
                     {!expanded ? (
-                        <LemonButton data-attr="expand-hog-testing" type="secondary" onClick={() => toggleExpanded()}>
+                        <LemonButton
+                            data-attr="expand-hog-testing"
+                            type="secondary"
+                            onClick={() => {
+                                toggleExpanded()
+                                // Add a small delay to allow the content to expand
+                                setTimeout(() => {
+                                    testResultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                                }, 100)
+                            }}
+                        >
                             Start testing
                         </LemonButton>
                     ) : (
@@ -148,7 +244,7 @@ export function HogFunctionTest(): JSX.Element {
                                                 <LemonButton
                                                     fullWidth
                                                     onClick={loadSampleGlobals}
-                                                    loading={sampleGlobalsLoading}
+                                                    loading={sampleGlobalsLoading && !fetchCancelled}
                                                     tooltip="Find the last event matching filters, and use it to populate the globals below."
                                                 >
                                                     Fetch new event
@@ -223,7 +319,7 @@ export function HogFunctionTest(): JSX.Element {
                 {expanded && (
                     <>
                         {testResult ? (
-                            <div className="space-y-2">
+                            <div className="space-y-2" data-attr="test-results">
                                 <LemonBanner type={testResult.status === 'success' ? 'success' : 'error'}>
                                     {testResult.status === 'success' ? 'Success' : 'Error'}
                                 </LemonBanner>
@@ -337,11 +433,28 @@ export function HogFunctionTest(): JSX.Element {
                                                         ? 'The provider will be tested with this sample data:'
                                                         : 'Here are all the global variables you can use in your code:'}
                                                 </div>
+                                                {sampleGlobalsLoading && !fetchCancelled && (
+                                                    <div className="flex items-center gap-2 text-muted">
+                                                        <Spinner />
+                                                        <span>Fetching new event...</span>
+                                                        <LemonButton
+                                                            size="small"
+                                                            type="secondary"
+                                                            onClick={() => cancelSampleGlobalsLoading()}
+                                                        >
+                                                            Cancel
+                                                        </LemonButton>
+                                                    </div>
+                                                )}
                                                 {sampleGlobalsError ? (
                                                     <div className="text-warning">{sampleGlobalsError}</div>
                                                 ) : null}
                                             </div>
-                                            <HogFunctionTestEditor value={value} onChange={onChange} />
+                                            <HogFunctionTestEditor
+                                                value={value}
+                                                onChange={onChange}
+                                                readOnly={sampleGlobalsLoading}
+                                            />
                                         </>
                                     )}
                                 </LemonField>
@@ -350,6 +463,8 @@ export function HogFunctionTest(): JSX.Element {
                     </>
                 )}
             </div>
+
+            {jsonError && <LemonBanner type="error">JSON Error: {jsonError}</LemonBanner>}
         </Form>
     )
 }

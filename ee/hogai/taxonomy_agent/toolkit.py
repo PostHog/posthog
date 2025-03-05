@@ -60,14 +60,13 @@ class SingleArgumentTaxonomyAgentTool(BaseModel):
     arguments: str
 
 
-class TaxonomyAgentTool(
-    RootModel[
-        Union[SingleArgumentTaxonomyAgentTool, RetrieveEntityPropertiesValuesTool, RetrieveEventPropertiesValuesTool]
-    ]
-):
-    root: Union[
-        SingleArgumentTaxonomyAgentTool, RetrieveEntityPropertiesValuesTool, RetrieveEventPropertiesValuesTool
-    ] = Field(..., discriminator="name")
+TaxonomyAgentToolUnion = Union[
+    SingleArgumentTaxonomyAgentTool, RetrieveEntityPropertiesValuesTool, RetrieveEventPropertiesValuesTool
+]
+
+
+class TaxonomyAgentTool(RootModel[TaxonomyAgentToolUnion]):
+    root: TaxonomyAgentToolUnion = Field(..., discriminator="name")
 
 
 class TaxonomyAgentToolkit(ABC):
@@ -176,7 +175,7 @@ class TaxonomyAgentToolkit(ABC):
         for tool in self.tools:
             tool_tag = ET.SubElement(root, "tool")
             name_tag = ET.SubElement(tool_tag, "name")
-            name_tag.text = f'{tool["name"]}{tool["signature"]}'
+            name_tag.text = f"{tool['name']}{tool['signature']}"
             description_tag = ET.SubElement(tool_tag, "description")
             description_tag.text = tool["description"]
         return ET.tostring(root, encoding="unicode")

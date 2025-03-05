@@ -8,7 +8,8 @@ import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { Link } from 'lib/lemon-ui/Link'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { getAppContext } from 'lib/utils/getAppContext'
-import { useState } from 'react'
+import posthog from 'posthog-js'
+import { useEffect, useState } from 'react'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
@@ -29,6 +30,10 @@ export function NotFound({ object, caption }: NotFoundProps): JSX.Element {
     const nodeLogic = useNotebookNode()
 
     const appContext = getAppContext()
+
+    useEffect(() => {
+        posthog.capture('not_found_shown', { object })
+    }, [])
 
     return (
         <div className="NotFoundComponent">
@@ -92,7 +97,7 @@ export function LogInAsSuggestions({ suggestedUsers }: { suggestedUsers: UserBas
     const [successfulUserId, setSuccessfulUserId] = useState<number | null>(null)
 
     return (
-        <ScrollableShadows direction="vertical" className="bg-bg-light border rounded mt-1 max-h-64 *:p-1">
+        <ScrollableShadows direction="vertical" className="bg-surface-primary border rounded mt-1 max-h-64 *:p-1">
             <LemonMenuOverlay
                 items={suggestedUsers.map((user) => ({
                     icon: <ProfilePicture user={user} size="md" />,

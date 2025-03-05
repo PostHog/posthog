@@ -19,10 +19,7 @@ import {
     SessionRecordingPlaylistLogicProps,
     sessionRecordingsPlaylistLogic,
 } from './sessionRecordingsPlaylistLogic'
-import {
-    SessionRecordingPlaylistBottomSettings,
-    SessionRecordingsPlaylistTopSettings,
-} from './SessionRecordingsPlaylistSettings'
+import { SessionRecordingsPlaylistTopSettings } from './SessionRecordingsPlaylistSettings'
 import { SessionRecordingsPlaylistTroubleshooting } from './SessionRecordingsPlaylistTroubleshooting'
 
 export function SessionRecordingsPlaylist({
@@ -44,8 +41,9 @@ export function SessionRecordingsPlaylist({
         hasNext,
         allowFlagsFilters,
         allowHogQLFilters,
+        totalFiltersCount,
     } = useValues(logic)
-    const { maybeLoadSessionRecordings, setSelectedRecordingId, setFilters } = useActions(logic)
+    const { maybeLoadSessionRecordings, setSelectedRecordingId, setFilters, resetFilters } = useActions(logic)
 
     const { featureFlags } = useValues(featureFlagLogic)
     const isTestingSaved = featureFlags[FEATURE_FLAGS.SAVED_NOT_PINNED] === 'test'
@@ -86,7 +84,7 @@ export function SessionRecordingsPlaylist({
         render: ({ item, isActive }) => <SessionRecordingPreview recording={item} isActive={isActive} pinned={false} />,
         footer: (
             <div className="p-4">
-                <div className="h-10 flex items-center justify-center gap-2 text-muted-alt">
+                <div className="h-10 flex items-center justify-center gap-2 text-secondary">
                     {sessionRecordingsResponseLoading ? (
                         <>
                             <Spinner textColored /> Loading older recordings
@@ -110,12 +108,13 @@ export function SessionRecordingsPlaylist({
                     embedded={!!notebookNode}
                     sections={sections}
                     headerActions={<SessionRecordingsPlaylistTopSettings filters={filters} setFilters={setFilters} />}
-                    footerActions={<SessionRecordingPlaylistBottomSettings />}
                     filterActions={
                         notebookNode ? null : (
                             <RecordingsUniversalFilters
+                                resetFilters={resetFilters}
                                 filters={filters}
                                 setFilters={setFilters}
+                                totalFiltersCount={totalFiltersCount}
                                 className="border-b"
                                 allowReplayHogQLFilters={allowHogQLFilters}
                                 allowReplayFlagsFilters={allowFlagsFilters}
@@ -175,7 +174,7 @@ const ListEmptyState = (): JSX.Element => {
     const { setFilters } = useActions(sessionRecordingsPlaylistLogic)
 
     return (
-        <div className="p-3 text-sm text-muted-alt">
+        <div className="p-3 text-sm text-secondary">
             {sessionRecordingsAPIErrored ? (
                 <LemonBanner type="error">Error while trying to load recordings.</LemonBanner>
             ) : unusableEventsInFilter.length ? (

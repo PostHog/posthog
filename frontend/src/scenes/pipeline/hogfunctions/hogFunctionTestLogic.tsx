@@ -4,6 +4,7 @@ import { forms } from 'kea-forms'
 import api from 'lib/api'
 import { tryJsonParse } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { editor } from 'monaco-editor'
 
 import { groupsModel } from '~/models/groupsModel'
 import { HogFunctionInvocationGlobals, HogFunctionTestInvocationResult } from '~/types'
@@ -31,6 +32,9 @@ export type HogTransformationEvent = {
 const convertToTransformationEvent = (result: any): HogTransformationEvent => {
     const properties = result.properties ?? {}
     properties.$ip = properties.$ip ?? '89.160.20.129'
+    // We don't want to use these values given they will change in the test invocation
+    delete properties.$transformations_failed
+    delete properties.$transformations_succeeded
     return {
         event: result.event,
         uuid: result.uuid,
@@ -41,6 +45,8 @@ const convertToTransformationEvent = (result: any): HogTransformationEvent => {
 }
 
 const convertFromTransformationEvent = (result: HogTransformationEvent): Record<string, any> => {
+    delete result.properties.$transformations_failed
+    delete result.properties.$transformations_succeeded
     return {
         event: result.event,
         uuid: result.uuid,
@@ -48,6 +54,12 @@ const convertFromTransformationEvent = (result: HogTransformationEvent): Record<
         timestamp: result.timestamp,
         properties: result.properties,
     }
+}
+
+export interface CodeEditorValidation {
+    value: string
+    editor: editor.IStandaloneCodeEditor
+    decorations: string[]
 }
 
 export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
@@ -85,6 +97,11 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
         deleteSavedGlobals: (index: number) => ({ index }),
         setTestResultMode: (mode: 'raw' | 'diff') => ({ mode }),
         receiveExampleGlobals: (globals: HogFunctionInvocationGlobals | null) => ({ globals }),
+        setJsonError: (error: string | null) => ({ error }),
+        validateJson: (value: string, editor: editor.IStandaloneCodeEditor, decorations: string[]) =>
+            ({ value, editor, decorations } as CodeEditorValidation),
+        setDecorationIds: (decorationIds: string[]) => ({ decorationIds }),
+        cancelSampleGlobalsLoading: true,
     }),
     reducers({
         expanded: [
@@ -116,10 +133,36 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
                 deleteSavedGlobals: (state, { index }) => state.filter((_, i) => i !== index),
             },
         ],
+
+        jsonError: [
+            null as string | null,
+            {
+                setJsonError: (_, { error }) => error,
+            },
+        ],
+
+        currentDecorationIds: [
+            [] as string[],
+            {
+                setDecorationIds: (_, { decorationIds }) => decorationIds,
+                setJsonError: () => [], // Clear decorations when error state changes
+            },
+        ],
+
+        fetchCancelled: [
+            false as boolean,
+            {
+                loadSampleGlobals: () => false,
+                cancelSampleGlobalsLoading: () => true,
+                toggleExpanded: () => false,
+            },
+        ],
     }),
     listeners(({ values, actions }) => ({
         loadSampleGlobalsSuccess: () => {
-            actions.receiveExampleGlobals(values.sampleGlobals)
+            if (values.expanded && !values.fetchCancelled && values.sampleGlobals) {
+                actions.receiveExampleGlobals(values.sampleGlobals)
+            }
         },
         setSampleGlobals: ({ sampleGlobals }) => {
             actions.receiveExampleGlobals(sampleGlobals)
@@ -137,6 +180,92 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
             } else {
                 actions.setTestInvocationValue('globals', JSON.stringify(globals, null, 2))
             }
+        },
+
+        validateJson: ({ value, editor, decorations }: CodeEditorValidation) => {
+            if (!editor?.getModel()) {
+                return
+            }
+
+            const model = editor.getModel()!
+
+            try {
+                // Try parsing the JSON
+                JSON.parse(value)
+                // If valid, ensure everything is cleared
+                actions.setJsonError(null)
+                editor.removeDecorations(decorations)
+            } catch (err: any) {
+                actions.setJsonError(err.message)
+
+                const match = err.message.match(/position (\d+)/)
+                if (!match) {
+                    return
+                }
+
+                const position = parseInt(match[1], 10)
+                const pos = model.getPositionAt(position)
+
+                // Set single error marker
+                editor.createDecorationsCollection([
+                    {
+                        range: {
+                            startLineNumber: pos.lineNumber,
+                            startColumn: pos.column,
+                            endLineNumber: pos.lineNumber,
+                            endColumn: pos.column + 1,
+                        },
+                        options: {
+                            isWholeLine: true,
+                            className: 'bg-danger-highlight',
+                            glyphMarginClassName: 'text-danger flex items-center justify-center',
+                            glyphMarginHoverMessage: { value: err.message },
+                        },
+                    },
+                ])
+                // Scroll to error
+                editor.revealLineInCenter(pos.lineNumber)
+            }
+        },
+
+        setTestResult: ({ result }) => {
+            if (result) {
+                setTimeout(() => {
+                    // First try to scroll the test results container into view
+                    const testResults = document.querySelector('[data-attr="test-results"]')
+                    if (testResults) {
+                        testResults.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                    }
+
+                    // Find the Monaco editor and scroll to the first difference
+                    const editors = document.querySelectorAll('[data-attr="test-results"] .monaco-editor')
+                    if (editors.length > 0 && values.sortedTestsResult?.hasDiff) {
+                        const lastEditor = editors[editors.length - 1]
+                        const monacoEditor = lastEditor.querySelector('.monaco-scrollable-element')
+                        if (monacoEditor) {
+                            const inputLines = values.sortedTestsResult.input.split('\n')
+                            const outputLines = values.sortedTestsResult.output.split('\n')
+
+                            // Find the first line that differs
+                            let diffLineIndex = 0
+                            for (let i = 0; i < Math.max(inputLines.length, outputLines.length); i++) {
+                                if (inputLines[i] !== outputLines[i]) {
+                                    diffLineIndex = i
+                                    break
+                                }
+                            }
+
+                            // Calculate approximate scroll position for the diff, showing 2 lines of context above
+                            const lineHeight = 19 // Default Monaco line height
+                            monacoEditor.scrollTop = Math.max(0, (diffLineIndex - 2) * lineHeight)
+                        }
+                    }
+                }, 100)
+            }
+        },
+
+        cancelSampleGlobalsLoading: () => {
+            // Just mark as cancelled - we'll ignore any results that come back
         },
     })),
 
@@ -222,8 +351,6 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
     })),
 
     afterMount(({ actions, values }) => {
-        if (values.type === 'transformation') {
-            actions.receiveExampleGlobals(values.exampleInvocationGlobals)
-        }
+        actions.receiveExampleGlobals(values.exampleInvocationGlobals)
     }),
 ])
