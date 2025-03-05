@@ -239,6 +239,8 @@ export interface WebAnalyticsStatusCheck {
     hasAuthorizedUrls: boolean
 }
 
+export type TileVisualizationOption = 'table' | 'graph'
+
 export const webStatsBreakdownToPropertyName = (
     breakdownBy: WebStatsBreakdown
 ):
@@ -659,7 +661,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             },
         ],
         tileVisualizations: [
-            {} as Record<TileId, 'table' | 'graph'>,
+            {} as Record<TileId, TileVisualizationOption>,
             {
                 setTileVisualization: (state, { tileId, visualization }) => ({
                     ...state,
@@ -997,7 +999,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
                     // In case of a graph, we need to use the breakdownFilter and a InsightsVizNode,
                     // which will actually be handled by a WebStatsTrendTile instead of a WebStatsTableTile
-                    if (visualization === 'graph') {
+                    if (featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TREND_VIZ_TOGGLE] && visualization === 'graph') {
                         return {
                             ...baseTabProps,
                             query: {
@@ -1010,8 +1012,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     trendsFilter: {
                                         display: ChartDisplayType.ActionsLineGraph,
                                     },
-                                    breakdownFilter: getWebAnalyticsDateBreakdownFilter(breakdownBy),
-                                    compareFilter,
+                                    breakdownFilter: getWebAnalyticsBreakdownFilter(breakdownBy),
                                     filterTestAccounts,
                                     conversionGoal,
                                     properties: webAnalyticsFilters,
@@ -2418,8 +2419,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             }
             if (tile_visualizations && !objectsEqual(tile_visualizations, values.tileVisualizations)) {
                 for (const [tileId, visualization] of Object.entries(tile_visualizations)) {
-                    // we only save graph visualizations since they are not the default option
-                    actions.setTileVisualization(tileId as TileId, visualization as 'graph')
+                    actions.setTileVisualization(tileId as TileId, visualization as TileVisualizationOption)
                 }
             }
         }
