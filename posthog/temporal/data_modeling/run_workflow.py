@@ -265,11 +265,15 @@ async def handle_model_ready(model: ModelNode, team_id: int, queue: asyncio.Queu
             team = await database_sync_to_async(Team.objects.get)(id=team_id)
             # Get the workflow ID from the activity info
             workflow_id = temporalio.activity.info().workflow_id
-            key, delta_table, job_id = await materialize_model(model.label, team, workflow_id)
+
+            saved_query = await get_saved_query(team, model.label)
+            job = await start_job_modeling_run(team, workflow_id, saved_query)
+
+            key, delta_table, job_id = await materialize_model(model.label, team, workflow_id, saved_query, job)
     except Exception as err:
         await logger.aexception("Failed to materialize model %s due to error: %s", model.label, str(err))
 
-        if job_id:
+        if "job_id" in locals():
             job = await database_sync_to_async(DataModelingJob.objects.get)(id=job_id)
             job.status = DataModelingJob.Status.FAILED
             job.error = str(err)
@@ -283,16 +287,19 @@ async def handle_model_ready(model: ModelNode, team_id: int, queue: asyncio.Queu
         queue.task_done()
 
 
-async def materialize_model(model_label: str, team: Team, workflow_id: str) -> tuple[str, DeltaTable, uuid.UUID]:
-    """Materialize a given model by running its query in a dlt pipeline.
+async def start_job_modeling_run(team: Team, workflow_id: str, saved_query: DataWarehouseSavedQuery) -> DataModelingJob:
+    """Create a DataModelingJob record in an async-safe way."""
+    job_create = database_sync_to_async(DataModelingJob.objects.create)
+    return await job_create(
+        team=team,
+        saved_query=saved_query,
+        status=DataModelingJob.Status.RUNNING,
+        workflow_id=workflow_id,
+        created_by_id=saved_query.created_by_id,
+    )
 
-    Arguments:
-        model_label: A label representing the ID or the name of the model to materialize.
-            If it's a valid UUID, then we will assume it's the ID, otherwise we'll assume
-            it is the model's name.
-        team: The team the model belongs to.
-        workflow_id: The ID of the workflow running the materialization.
-    """
+
+async def get_saved_query(team: Team, model_label: str) -> DataWarehouseSavedQuery:
     filter_params: dict[str, str | uuid.UUID] = {}
     try:
         model_id = uuid.UUID(model_label)
@@ -301,21 +308,24 @@ async def materialize_model(model_label: str, team: Team, workflow_id: str) -> t
         model_name = model_label
         filter_params["name"] = model_name
 
-    saved_query = await database_sync_to_async(
+    return await database_sync_to_async(
         DataWarehouseSavedQuery.objects.prefetch_related("team").filter(team=team, **filter_params).get
     )()
 
-    if saved_query.created_by_id is not None:
-        created_by_id = saved_query.created_by_id
 
-    # Create a job record for this materialization event
-    job = await database_sync_to_async(DataModelingJob.objects.create)(
-        team=team,
-        saved_query=saved_query,
-        status=DataModelingJob.Status.RUNNING,
-        workflow_id=workflow_id,
-        created_by_id=created_by_id,
-    )
+async def materialize_model(
+    model_label: str, team: Team, workflow_id: str, saved_query: DataWarehouseSavedQuery, job: DataModelingJob
+) -> tuple[str, DeltaTable, uuid.UUID]:
+    """Materialize a given model by running its query in a dlt pipeline.
+
+    Arguments:
+        model_label: A label representing the ID or the name of the model to materialize.
+            If it's a valid UUID, then we will assume it's the ID, otherwise we'll assume
+            it is the model's name.
+        team: The team the model belongs to.
+        workflow_id: The ID of the workflow running the materialization.
+        saved_query: The saved query to materialize.
+    """
 
     query_columns = saved_query.columns
     if not query_columns:
@@ -376,12 +386,14 @@ async def materialize_model(model_label: str, team: Team, workflow_id: str) -> t
 
 def count_delta_table_rows(delta_table: DeltaTable) -> int:
     """
-    Count the number of rows in a Delta table using metadata.
+    Count the number of rows in a Delta table from its latest operation.
     """
-    count = 0
-    for batch in delta_table.to_pyarrow_dataset().to_batches():
-        count += len(batch)
-    return count
+    try:
+        latest_operation = delta_table.history(1)[0]
+        row_count = int(latest_operation["operationMetrics"].get("num_added_rows", 0))
+        return row_count
+    except Exception:
+        return 0
 
 
 async def update_table_row_count(saved_query: DataWarehouseSavedQuery, row_count: int) -> None:
@@ -396,7 +408,7 @@ async def update_table_row_count(saved_query: DataWarehouseSavedQuery, row_count
             await database_sync_to_async(table.save)()
             await logger.ainfo("Updated row count for table %s to %d", saved_query.name, row_count)
         else:
-            await logger.awarning("Could not find DataWarehouseTable record for saved query %s", saved_query.name)
+            await logger.aexception("Could not find DataWarehouseTable record for saved query %s", saved_query.name)
     except Exception as e:
         await logger.aexception("Failed to update row count for table %s: %s", saved_query.name, str(e))
 
