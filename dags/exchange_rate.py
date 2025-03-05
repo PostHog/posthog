@@ -6,7 +6,7 @@ from typing import Any
 import dagster
 
 from clickhouse_driver import Client
-from posthog.clickhouse.cluster import ClickhouseCluster, NodeRole
+from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.models.exchange_rate.sql import (
     EXCHANGE_RATE_DICTIONARY_NAME,
     EXCHANGE_RATE_DATA_BACKFILL_SQL,
@@ -147,7 +147,7 @@ def store_exchange_rates_in_clickhouse(
     date_str: str,
     exchange_rates: dict[str, Any],
     cluster: dagster.ResourceParam[ClickhouseCluster],
-) -> tuple[list[dict[str, Any]], list[str]]:
+) -> tuple[list[dict[str, Any]], list[tuple[str, str, Any]]]:
     """
     Stores exchange rates data in ClickHouse.
     """
@@ -168,23 +168,34 @@ def store_exchange_rates_in_clickhouse(
     # Execute the insert if there are values to insert
     if values:
         # Batch insert all values
-        def insert(client: Client):
+        def insert(client: Client) -> bool:
             try:
                 client.execute(EXCHANGE_RATE_DATA_BACKFILL_SQL(exchange_rates=values))
                 context.log.info("Successfully inserted exchange rates")
+                return True
             except Exception as e:
                 context.log.warning(f"Failed to insert exchange rates: {e}")
+                return False
 
         # Simply ask the dictionary to be reloaded with the new data
-        def reload_dict(client: Client):
+        def reload_dict(client: Client) -> bool:
             try:
                 client.execute(f"SYSTEM RELOAD DICTIONARY {EXCHANGE_RATE_DICTIONARY_NAME}")
                 context.log.info("Successfully reloaded exchange_rate_dict dictionary")
+                return True
             except Exception as e:
                 context.log.warning(f"Failed to reload exchange_rate_dict dictionary: {e}")
+                return False
 
-        cluster.map_hosts_by_role(insert, NodeRole.DATA).result()
-        cluster.map_hosts_by_role(reload_dict, NodeRole.DATA).result()
+        insert_results = cluster.map_all_hosts(insert).result()
+        reload_results = cluster.map_all_hosts(reload_dict).result()
+
+        if not all(insert_results.values()):
+            raise Exception("Failed to insert some exchange rates")
+
+        if not all(reload_results.values()):
+            raise Exception("Failed to reload some exchange_rate_dict dictionary")
+
     else:
         context.log.warning(f"No exchange rates to store for {date_str}")
 
