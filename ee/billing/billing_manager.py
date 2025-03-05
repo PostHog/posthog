@@ -148,7 +148,8 @@ class BillingManager:
 
         handle_billing_service_error(res)
 
-        available_product_features = res.json()
+        available_product_features_json = res.json()
+        available_product_features = available_product_features_json.get("available_product_features", [])
         organization.available_product_features = available_product_features
         organization.save()
 

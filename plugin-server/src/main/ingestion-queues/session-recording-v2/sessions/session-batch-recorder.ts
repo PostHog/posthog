@@ -158,7 +158,25 @@ export class SessionBatchRecorder {
         try {
             for (const sessions of this.partitionSessions.values()) {
                 for (const recorder of sessions.values()) {
-                    const { buffer, eventCount, startDateTime, endDateTime } = await recorder.end()
+                    const {
+                        buffer,
+                        eventCount,
+                        startDateTime,
+                        endDateTime,
+                        firstUrl,
+                        urls,
+                        clickCount,
+                        keypressCount,
+                        mouseActivityCount,
+                        activeMilliseconds,
+                        consoleLogCount,
+                        consoleWarnCount,
+                        consoleErrorCount,
+                        size,
+                        messageCount,
+                        snapshotSource,
+                        snapshotLibrary,
+                    } = await recorder.end()
                     const { bytesWritten, url } = await writer.writeSession(buffer)
 
                     // Track block metadata
@@ -170,6 +188,19 @@ export class SessionBatchRecorder {
                         startDateTime,
                         endDateTime,
                         blockUrl: url,
+                        firstUrl,
+                        urls,
+                        clickCount,
+                        keypressCount,
+                        mouseActivityCount,
+                        activeMilliseconds,
+                        consoleLogCount,
+                        consoleWarnCount,
+                        consoleErrorCount,
+                        size,
+                        messageCount,
+                        snapshotSource,
+                        snapshotLibrary,
                     })
 
                     totalEvents += eventCount
