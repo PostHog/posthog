@@ -662,7 +662,7 @@ export const WebExternalClicksTile = ({
     return (
         <div className="border rounded bg-surface-primary flex-1 flex flex-col">
             <div className="flex flex-row items-center justify-end m-2 mr-4">
-                <div className="flex flex-row items-center space-x-2">
+                <div className="flex flex-row items-center deprecated-space-x-2">
                     <LemonSwitch
                         label="Strip query parameters"
                         checked={shouldStripQueryParams}

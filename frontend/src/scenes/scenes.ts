@@ -440,6 +440,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         projectBased: true,
         name: 'Session attribution explorer (beta)',
     },
+    [Scene.Wizard]: {
+        projectBased: true,
+        name: 'Wizard',
+        layout: 'plain',
+    },
     ...productConfiguration,
 }
 
@@ -637,5 +642,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.moveToPostHogCloud()]: [Scene.MoveToPostHogCloud, 'moveToPostHogCloud'],
     [urls.heatmaps()]: [Scene.Heatmaps, 'heatmaps'],
     [urls.sessionAttributionExplorer()]: [Scene.SessionAttributionExplorer, 'sessionAttributionExplorer'],
+    [urls.wizard()]: [Scene.Wizard, 'wizard'],
     ...productRoutes,
 }

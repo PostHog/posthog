@@ -60,7 +60,7 @@ export function ConfirmOrganization(): JSX.Element {
                 logic={confirmOrganizationLogic}
                 formKey="confirmOrganization"
                 enableFormOnSubmit
-                className="space-y-4"
+                className="deprecated-space-y-4"
             >
                 <LemonField name="email" label="Email">
                     <LemonInput className="ph-ignore-input" value={email} disabled />
