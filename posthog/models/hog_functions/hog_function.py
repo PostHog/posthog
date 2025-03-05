@@ -40,17 +40,10 @@ class HogFunctionType(models.TextChoices):
     INTERNAL_DESTINATION = "internal_destination"
     SITE_APP = "site_app"
     TRANSFORMATION = "transformation"
-    EMAIL = "email"
-    SMS = "sms"
-    PUSH = "push"
-    ACTIVITY = "activity"
-    ALERT = "alert"
-    BROADCAST = "broadcast"
 
 
 TYPES_THAT_RELOAD_PLUGIN_SERVER = (
     HogFunctionType.DESTINATION,
-    HogFunctionType.EMAIL,
     HogFunctionType.TRANSFORMATION,
     HogFunctionType.INTERNAL_DESTINATION,
 )
