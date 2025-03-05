@@ -89,7 +89,7 @@ export function RevenueEventsSettings(): JSX.Element {
                             title: (
                                 <span>
                                     Revenue currency property
-                                    <Tooltip title="The currency of the revenue event. If not set, the account's default currency will be used.">
+                                    <Tooltip title="The currency of the revenue event. If not set, the account's default currency will be used. We'll soon convert revenue data from this currency to your base currency for reporting purposes.">
                                         <IconInfo className="ml-1" />
                                     </Tooltip>
                                 </span>
