@@ -105,6 +105,15 @@ async def test_get_actions_qs(mock_flag, actions):
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
+async def test_get_actions_qs_with_unapproved_organization(mock_flag, aorganization):
+    aorganization.is_ai_data_processing_approved = False
+    await aorganization.asave()
+    qs = await get_actions_qs(timezone.now())
+    assert await qs.acount() == 0
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
 async def test_get_approximate_actions_count(mock_flag, actions):
     res = await get_approximate_actions_count(GetApproximateActionsCountInputs(start_dt=timezone.now().isoformat()))
     assert res == 3

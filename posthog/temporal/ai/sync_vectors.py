@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 
 import cohere
 import posthoganalytics
+import structlog
 import temporalio.activity
 import temporalio.common
 import temporalio.exceptions
@@ -17,6 +18,8 @@ from posthog.models.ai.pg_embeddings import INSERT_BULK_PG_EMBEDDINGS_SQL
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.utils import get_scheduled_start_time
+
+logger = structlog.get_logger(__name__)
 
 
 async def _get_orgs_from_the_feature_flag() -> list[str]:
@@ -36,7 +39,7 @@ async def _get_orgs_from_the_feature_flag() -> list[str]:
 async def get_actions_qs(start_dt: datetime, offset: int | None = None, batch_size: int | None = None):
     orgs = await _get_orgs_from_the_feature_flag()
     actions_to_summarize = Action.objects.filter(
-        Q(team__organization__in=orgs)
+        Q(team__organization__in=orgs, team__organization__is_ai_data_processing_approved=True)
         & Q(updated_at__lte=start_dt)
         & (
             # Never summarized actions
@@ -80,6 +83,14 @@ async def batch_summarize_and_embed_actions(inputs: RetrieveActionsInputs):
     actions_to_summarize = await get_actions_qs(workflow_start_dt, inputs.offset, inputs.batch_size)
     actions = [action async for action in actions_to_summarize]
 
+    logger.info(
+        "Preparing to summarize actions",
+        offset=inputs.offset,
+        batch_size=inputs.batch_size,
+        start_dt=inputs.start_dt,
+        actions_count=len(actions),
+    )
+
     summaries = await abatch_summarize_actions(actions)
     models_to_update = []
     for action, maybe_summary in zip(actions, summaries):
@@ -89,6 +100,14 @@ async def batch_summarize_and_embed_actions(inputs: RetrieveActionsInputs):
         action.last_summarized_at = workflow_start_dt
         action.summary = maybe_summary
         models_to_update.append(action)
+
+    logger.info(
+        "Preparing to embed actions",
+        offset=inputs.offset,
+        batch_size=inputs.batch_size,
+        start_dt=inputs.start_dt,
+        actions_count=len(actions),
+    )
 
     cohere_client = get_cohere_client()
     embeddings_response = await cohere_client.embed(
@@ -147,6 +166,14 @@ async def sync_action_vectors_for_team(inputs: SyncActionVectorsForTeamInputs) -
 
     if not batch:
         return SyncActionVectorsForTeamOutputs(has_more=False)
+
+    logger.info(
+        "Syncing action vectors",
+        offset=inputs.offset,
+        batch_size=inputs.batch_size,
+        start_dt=inputs.start_dt,
+        actions_count=len(batch),
+    )
 
     async with get_client() as client:
         await client.execute_query(
