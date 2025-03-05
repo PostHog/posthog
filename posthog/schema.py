@@ -770,19 +770,14 @@ class ExperimentExposureTimeSeries(BaseModel):
     variant: str
 
 
-class ExperimentMetricMath(StrEnum):
+class ExperimentMetricMathType(StrEnum):
     TOTAL = "total"
     SUM = "sum"
-    AVG = "avg"
-    MEDIAN = "median"
-    MIN = "min"
-    MAX = "max"
 
 
 class ExperimentMetricType(StrEnum):
-    COUNT = "count"
-    CONTINUOUS = "continuous"
     FUNNEL = "funnel"
+    MEAN = "mean"
 
 
 class ExperimentSignificanceCode(StrEnum):
@@ -2291,7 +2286,7 @@ class ExperimentDataWarehouseMetricConfig(BaseModel):
     data_warehouse_join_key: str
     events_join_key: str
     kind: Literal["ExperimentDataWarehouseMetricConfig"] = "ExperimentDataWarehouseMetricConfig"
-    math: Optional[ExperimentMetricMath] = None
+    math: Optional[ExperimentMetricMathType] = None
     math_hogql: Optional[str] = None
     math_property: Optional[str] = None
     name: Optional[str] = None
@@ -3368,6 +3363,7 @@ class AssistantTrendsEventsNode(BaseModel):
             FunnelMathType,
             PropertyMathType,
             CountPerActorMathType,
+            ExperimentMetricMathType,
             Literal["unique_group"],
             Literal["hogql"],
         ]
@@ -4394,6 +4390,7 @@ class DataWarehouseNode(BaseModel):
             FunnelMathType,
             PropertyMathType,
             CountPerActorMathType,
+            ExperimentMetricMathType,
             Literal["unique_group"],
             Literal["hogql"],
         ]
@@ -4485,6 +4482,7 @@ class EntityNode(BaseModel):
             FunnelMathType,
             PropertyMathType,
             CountPerActorMathType,
+            ExperimentMetricMathType,
             Literal["unique_group"],
             Literal["hogql"],
         ]
@@ -4613,6 +4611,7 @@ class EventsNode(BaseModel):
             FunnelMathType,
             PropertyMathType,
             CountPerActorMathType,
+            ExperimentMetricMathType,
             Literal["unique_group"],
             Literal["hogql"],
         ]
@@ -4677,7 +4676,7 @@ class ExperimentActionMetricConfig(BaseModel):
     )
     action: float
     kind: Literal["ExperimentActionMetricConfig"] = "ExperimentActionMetricConfig"
-    math: Optional[ExperimentMetricMath] = None
+    math: Optional[ExperimentMetricMathType] = None
     math_hogql: Optional[str] = None
     math_property: Optional[str] = None
     name: Optional[str] = None
@@ -4733,7 +4732,7 @@ class ExperimentEventMetricConfig(BaseModel):
     )
     event: str
     kind: Literal["ExperimentEventMetricConfig"] = "ExperimentEventMetricConfig"
-    math: Optional[ExperimentMetricMath] = None
+    math: Optional[ExperimentMetricMathType] = None
     math_hogql: Optional[str] = None
     math_property: Optional[str] = None
     name: Optional[str] = None
@@ -4869,6 +4868,7 @@ class FunnelExclusionActionsNode(BaseModel):
             FunnelMathType,
             PropertyMathType,
             CountPerActorMathType,
+            ExperimentMetricMathType,
             Literal["unique_group"],
             Literal["hogql"],
         ]
@@ -4938,6 +4938,7 @@ class FunnelExclusionEventsNode(BaseModel):
             FunnelMathType,
             PropertyMathType,
             CountPerActorMathType,
+            ExperimentMetricMathType,
             Literal["unique_group"],
             Literal["hogql"],
         ]
@@ -6278,6 +6279,7 @@ class ActionsNode(BaseModel):
             FunnelMathType,
             PropertyMathType,
             CountPerActorMathType,
+            ExperimentMetricMathType,
             Literal["unique_group"],
             Literal["hogql"],
         ]
