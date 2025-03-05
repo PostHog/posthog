@@ -397,6 +397,9 @@ class MutationWaiter:
     table: str
     mutation_ids: Set[str]
 
+    def __call__(self, client: Client) -> None:
+        return self.wait(client)
+
     def is_done(self, client: Client) -> bool:
         # TODO: this should maybe raise if the number of commands per mutation is incorrect?
         rows = client.execute(
