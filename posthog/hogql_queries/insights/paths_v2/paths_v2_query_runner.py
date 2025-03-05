@@ -73,7 +73,7 @@ class PathsV2QueryRunner(QueryRunner):
 
         results = [
             PathsV2Item(step_index=step_index, source_step=source, target_step=target, event_count=count)
-            for step_index, source, target, count in response.results
+            for step_index, source, count, _row_number, target in response.results
         ]
 
         return PathsV2QueryResponse(
@@ -235,18 +235,18 @@ class PathsV2QueryRunner(QueryRunner):
             SELECT
                 step_in_session_index as step_index,
                 previous_path_item as source_step,
-                path_item as target_step,
-                COUNT(*) AS event_count
+                COUNT(*) AS event_count,
+                row_number() OVER (PARTITION BY step_index ORDER BY event_count DESC) AS row_number,
+                if(row_number <= {max_rows_per_step}, path_item, '$$_posthog_breakdown_other_$$') AS target_step
             FROM {paths_flattened_with_previous_item}
             WHERE source_step IS NOT NULL
             GROUP BY step_index,
                 source_step,
-                target_step
+                path_item
             ORDER BY step_index ASC,
                 event_count DESC,
                 source_step,
                 target_step
-            LIMIT {max_rows_per_step} BY step_index
         """,
             placeholders={
                 "paths_flattened_with_previous_item": self._paths_flattened_with_previous_item(),
