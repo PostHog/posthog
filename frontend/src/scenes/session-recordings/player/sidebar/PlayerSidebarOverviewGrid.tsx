@@ -12,7 +12,7 @@ export function PlayerSidebarOverviewGrid(): JSX.Element {
     return (
         <div className="rounded border bg-surface-primary">
             {loading ? (
-                <div className="flex flex-col space-y-1">
+                <div className="flex flex-col deprecated-space-y-1">
                     <LemonSkeleton.Row repeat={6} className="h-5" />
                 </div>
             ) : (
@@ -27,7 +27,7 @@ export function PlayerSidebarOverviewGrid(): JSX.Element {
                                 itemKeyTooltip={item.keyTooltip}
                                 fadeLabel
                             >
-                                <div className="flex flex-row items-center space-x-2 justify-start font-medium">
+                                <div className="flex flex-row items-center deprecated-space-x-2 justify-start font-medium">
                                     {item.type === 'property' && (
                                         <PropertyIcon property={item.property} value={item.value} />
                                     )}

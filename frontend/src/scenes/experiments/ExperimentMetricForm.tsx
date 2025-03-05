@@ -51,7 +51,7 @@ export function ExperimentMetricForm({
     const isDataWarehouseMetric = metric.metric_config.kind === NodeKind.ExperimentDataWarehouseMetricConfig
 
     return (
-        <div className="space-y-4">
+        <div className="deprecated-space-y-4">
             <div>
                 <LemonLabel className="mb-1">Type</LemonLabel>
                 <LemonRadio

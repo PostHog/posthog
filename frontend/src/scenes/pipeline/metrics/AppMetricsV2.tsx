@@ -33,7 +33,7 @@ export function AppMetricsV2({ id }: AppMetricsV2LogicProps): JSX.Element {
 
     return (
         <BindLogic logic={appMetricsV2Logic} props={{ id }}>
-            <div className="space-y-4">
+            <div className="deprecated-space-y-4">
                 <AppMetricsTotals />
 
                 <div className="flex items-center gap-2">
@@ -91,7 +91,7 @@ function AppMetricsTotals(): JSX.Element {
     const { appMetricsTotals, appMetricsTotalsLoading } = useValues(appMetricsV2Logic)
 
     return (
-        <div className="space-y-4">
+        <div className="deprecated-space-y-4">
             <div className="flex items-center gap-2 flex-wrap">
                 {Object.entries(METRICS_INFO).map(([key, value]) => (
                     <div key={key} className="flex flex-col h-30 min-w-30 flex-1 max-w-100">
