@@ -211,9 +211,13 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint=fingerprint)
         return issue
 
-    def create_events_and_issue(self, issue_id, fingerprint, distinct_ids, timestamp=None, exception_list=None):
+    def create_events_and_issue(self, issue_id, fingerprint, distinct_ids, timestamp, exception_list):
         self.create_issue(issue_id, fingerprint)
+        self.create_event(
+            distinct_ids, issue_id=issue_id, fingerprint=fingerprint, timestamp=timestamp, exception_list=exception_list
+        )
 
+    def create_event(self, distinct_ids, issue_id, fingerprint, timestamp=None, exception_list=None):
         event_properties = {"$exception_issue_id": issue_id, "$exception_fingerprint": fingerprint}
         if exception_list:
             event_properties["$exception_list"] = exception_list
@@ -230,7 +234,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
 
-        with freeze_time("2020-01-10 12:11:00"):
+        with freeze_time("2025-01-10 12:11:00"):
             _create_person(
                 team=self.team,
                 distinct_ids=[self.distinct_id_one],
@@ -544,6 +548,21 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         results = self._calculate(assignee={"type": "user_group", "id": str(user_group.id)})["results"]
         self.assertEqual([x["id"] for x in results], [issue_id])
+
+    # def test_first_seen_override(self):
+    #     with freeze_time("2024-01-10 12:11:00"):
+    #         self.create_event(
+    #             self,
+    #             distinct_ids=[self.distinct_id_one],
+    #             issue_id=self.issue_id_two,
+    #             fingerprint="issue_two_fingerprint",
+    #             timestamp=str(now()),
+    #         )
+
+    #     self.override_fingerprint("issue_two_fingerprint", self.issue_id_one)
+    #     results = self._calculate(orderBy="occurrences", issueId=self.issue_id_one)["results"]
+
+    #     self.assertEqual(results[0]["first_seen"], "2024-01-10 12:11:00")
 
 
 class TestSearchTokenizer(TestCase):
