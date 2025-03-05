@@ -13,6 +13,7 @@ import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 import { navigation3000Logic } from '../../navigationLogic'
 import { NavbarBottom } from '../NavbarBottom'
+import { ProjectDropdownMenu } from './ProjectDropdownMenu'
 import { projectTreeLogic } from './projectTreeLogic'
 import { joinPath, splitPath } from './utils'
 
@@ -61,6 +62,22 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
     return (
         <>
             <nav className={clsx('Navbar3000', !isNavShown && 'Navbar3000--hidden')} ref={containerRef}>
+                <div className="flex justify-between p-1 bg-surface-tertiary">
+                    <ProjectDropdownMenu />
+
+                    <div className="flex gap-1 items-center">
+                        <LemonButton
+                            size="small"
+                            type="secondary"
+                            tooltip="Create new root folder"
+                            onClick={() => createFolder('')}
+                            className="size-[30px] px-0"
+                            icon={<IconPlusSmall />}
+                        />
+                    </div>
+                </div>
+
+                <div className="border-b border-secondary h-px" />
                 <div
                     className="Navbar3000__content w-80"
                     // eslint-disable-next-line react/forbid-dom-props
