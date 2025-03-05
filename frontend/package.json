@@ -63,6 +63,8 @@
         "@posthog/rrweb-plugin-console-record": "0.0.8",
         "@posthog/rrweb-types": "0.0.8",
         "@radix-ui/react-accordion": "^1.2.2",
+        "@radix-ui/react-context-menu": "^2.2.6",
+        "@radix-ui/react-slot": "^1.1.2",
         "@react-hook/size": "^2.1.2",
         "@sentry/react": "7.112.1",
         "@stripe/react-stripe-js": "^2.8.0",
