@@ -4,7 +4,7 @@ use tracing::info;
 
 use crate::{
     types::Token,
-    utils::{ensure_homdir_exists, posthog_home_dir},
+    utils::{ensure_homedir_exists, posthog_home_dir},
 };
 
 pub trait CredentialProvider {
@@ -29,7 +29,7 @@ impl CredentialProvider for HomeDirProvider {
 
     fn store_credentials(&self, token: Token) -> Result<(), Error> {
         let home = posthog_home_dir();
-        ensure_homdir_exists()?;
+        ensure_homedir_exists()?;
         let file = home.join("credentials.json");
         let token = serde_json::to_string(&token).context("While trying to serialize token")?;
         std::fs::write(file.clone(), token).context(format!(
