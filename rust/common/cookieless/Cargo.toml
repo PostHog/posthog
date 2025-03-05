@@ -1,0 +1,12 @@
+[package]
+name = "common-cookieless"
+version = "0.1.0"
+edition = "2021"
+
+[lints]
+workspace = true
+
+[dependencies]
+redis = { workspace = true }
+reqwest = { workspace = true }
+tokio = { workspace = true }
