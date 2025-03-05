@@ -8,7 +8,7 @@ from dateutil.parser import isoparse
 from django.utils import timezone
 from rest_framework import serializers
 
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
 from posthog.models import Group

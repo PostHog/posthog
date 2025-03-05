@@ -544,7 +544,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
 
             page2 = self.client.get(response["next"]).json()
 
-            from posthog.client import sync_execute
+            from posthog.clickhouse.client import sync_execute
 
             self.assertEqual(
                 sync_execute(
@@ -594,7 +594,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
 
             page2 = self.client.get(response["next"]).json()
 
-            from posthog.client import sync_execute
+            from posthog.clickhouse.client import sync_execute
 
             self.assertEqual(
                 sync_execute(

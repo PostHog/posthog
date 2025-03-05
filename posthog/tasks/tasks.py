@@ -13,7 +13,7 @@ from prometheus_client import Gauge
 from redis import Redis
 from structlog import get_logger
 
-from posthog.clickhouse.client.limit import CeleryConcurrencyLimitExceeded, limit_concurrency
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, limit_concurrency, get_api_personal_rate_limiter
 from posthog.cloud_utils import is_cloud
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.hogql.constants import LimitContext
@@ -45,13 +45,14 @@ def redis_heartbeat() -> None:
     autoretry_for=(
         # Important: Only retry for things that might be okay on the next try
         CHQueryErrorTooManySimultaneousQueries,
-        CeleryConcurrencyLimitExceeded,
+        ConcurrencyLimitExceeded,
     ),
     retry_backoff=1,
     retry_backoff_max=10,
     max_retries=10,
     expires=60 * 10,  # Do not run queries that got stuck for more than this
     reject_on_worker_lost=True,
+    track_started=True,
 )
 @limit_concurrency(150, limit_name="global")  # Do not go above what CH can handle (max_concurrent_queries)
 @limit_concurrency(
@@ -64,21 +65,23 @@ def process_query_task(
     user_id: Optional[int],
     query_id: str,
     query_json: dict,
+    is_api: bool,
     limit_context: Optional[LimitContext] = None,
 ) -> None:
     """
     Kick off query
     Once complete save results to redis
     """
-    from posthog.client import execute_process_query
+    with get_api_personal_rate_limiter().run(is_api=is_api, team_id=team_id, task_id=query_id):
+        from posthog.clickhouse.client import execute_process_query
 
-    execute_process_query(
-        team_id=team_id,
-        user_id=user_id,
-        query_id=query_id,
-        query_json=query_json,
-        limit_context=limit_context,
-    )
+        execute_process_query(
+            team_id=team_id,
+            user_id=user_id,
+            query_id=query_id,
+            query_json=query_json,
+            limit_context=limit_context,
+        )
 
 
 @shared_task(ignore_result=True)
@@ -193,7 +196,7 @@ HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC = {"$heartbeat": "ingestion_api"}
 def ingestion_lag() -> None:
     from statshog.defaults.django import statsd
 
-    from posthog.client import sync_execute
+    from posthog.clickhouse.client import sync_execute
     from posthog.models.team.team import Team
 
     query = """
@@ -246,7 +249,7 @@ def replay_count_metrics() -> None:
     try:
         logger.info("[replay_count_metrics] running task")
 
-        from posthog.client import sync_execute
+        from posthog.clickhouse.client import sync_execute
 
         # ultimately I want to observe values by team id, but at the moment that would be lots of series, let's reduce the value first
         query = """
@@ -370,7 +373,7 @@ def graphile_worker_queue_size() -> None:
 def clickhouse_row_count() -> None:
     from statshog.defaults.django import statsd
 
-    from posthog.client import sync_execute
+    from posthog.clickhouse.client import sync_execute
 
     with pushed_metrics_registry("celery_clickhouse_row_count") as registry:
         row_count_gauge = Gauge(
@@ -404,7 +407,7 @@ def clickhouse_errors_count() -> None:
     225 - NO_ZOOKEEPER
     242 - TABLE_IS_READ_ONLY
     """
-    from posthog.client import sync_execute
+    from posthog.clickhouse.client import sync_execute
 
     QUERY = """
         select
@@ -437,7 +440,7 @@ def clickhouse_errors_count() -> None:
 def clickhouse_part_count() -> None:
     from statshog.defaults.django import statsd
 
-    from posthog.client import sync_execute
+    from posthog.clickhouse.client import sync_execute
 
     QUERY = """
         SELECT table, count(1) freq
@@ -468,7 +471,7 @@ def clickhouse_part_count() -> None:
 def clickhouse_mutation_count() -> None:
     from statshog.defaults.django import statsd
 
-    from posthog.client import sync_execute
+    from posthog.clickhouse.client import sync_execute
 
     QUERY = """
         SELECT
