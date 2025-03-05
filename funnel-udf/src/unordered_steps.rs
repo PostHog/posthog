@@ -115,10 +115,12 @@ impl AggregateFunnelRowUnordered {
             .iter()
             .min_by_key(|&&step| {
                 let step = step as usize;
-                vars.events_by_step[step-1]
-                    .back()
-                    .map(|e| e.timestamp)
-                    .unwrap_or(0.0);
+                ordered_float::OrderedFloat(
+                    vars.events_by_step[step - 1]
+                        .back()
+                        .map(|e| e.timestamp)
+                        .unwrap_or(0.0),
+                )
             })
             .unwrap() as usize;
 
@@ -130,10 +132,10 @@ impl AggregateFunnelRowUnordered {
             return;
         }
 
-        if vars.events_by_step[min_timestamp_step-1].is_empty() {
+        if vars.events_by_step[min_timestamp_step - 1].is_empty() {
             vars.num_steps_completed += 1;
         }
-        vars.events_by_step[min_timestamp_step-1].push_back(event.clone());
+        vars.events_by_step[min_timestamp_step - 1].push_back(event.clone());
 
         // 2. Delete all events that are out of the match window
         for index in 0..vars.events_by_step.len() {

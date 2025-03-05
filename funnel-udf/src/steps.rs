@@ -14,7 +14,7 @@ pub struct EnteredTimestamp {
     pub uuids: Vec<Uuid>,
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct Event {
     pub timestamp: f64,
     pub uuid: Uuid,

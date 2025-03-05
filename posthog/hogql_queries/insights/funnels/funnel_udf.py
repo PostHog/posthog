@@ -179,8 +179,6 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             for exclusion in funnelsFilter.exclusions or []:
                 if exclusion.funnelFromStep != 0 or exclusion.funnelToStep != max_steps - 1:
                     raise ValidationError("Partial Exclusions not allowed in unordered funnels")
-            if funnelsFilter.breakdownAttributionType == "step" and funnelsFilter.breakdownAttributionValue != 0:
-                raise ValidationError("Unordered Funnels only support first step attribution")
 
         inner_select = self._inner_aggregation_query()
 
