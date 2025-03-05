@@ -312,7 +312,7 @@ export function PersonScene(): JSX.Element | null {
                                           />
                                       </div>
                                       <LemonDivider className="mb-4" />
-                                      <RelatedFeatureFlags distinctId={distinctId || primaryDistinctId} />
+                                      <RelatedFeatureFlags distinctId={distinctId || person.distinct_ids[0]} />
                                   </>
                               ),
                           }
