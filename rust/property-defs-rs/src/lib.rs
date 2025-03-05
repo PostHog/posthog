@@ -5,10 +5,10 @@ use app_context::AppContext;
 use common_kafka::kafka_consumer::{RecvErr, SingleTopicConsumer};
 use config::{Config, TeamFilterMode, TeamList};
 use metrics_consts::{
-    BATCH_ACQUIRE_TIME, CACHE_CONSUMED, CHUNK_SIZE, COMPACTED_UPDATES, DUPLICATES_IN_BATCH,
-    EMPTY_EVENTS, EVENTS_RECEIVED, EVENT_PARSE_ERROR, FORCED_SMALL_BATCH, ISSUE_FAILED,
-    RECV_DEQUEUED, SKIPPED_DUE_TO_TEAM_FILTER, UPDATES_FILTERED_BY_CACHE, UPDATES_PER_EVENT,
-    UPDATES_SEEN, UPDATE_ISSUE_TIME, WORKER_BLOCKED,
+    BATCH_ACQUIRE_TIME, CACHE_CONSUMED, CACHE_REMOVAL, CHUNK_SIZE, COMPACTED_UPDATES,
+    DUPLICATES_IN_BATCH, EMPTY_EVENTS, EVENTS_RECEIVED, EVENT_PARSE_ERROR, FORCED_SMALL_BATCH,
+    ISSUE_FAILED, RECV_DEQUEUED, SKIPPED_DUE_TO_TEAM_FILTER, UPDATES_FILTERED_BY_CACHE,
+    UPDATES_PER_EVENT, UPDATES_SEEN, UPDATE_ISSUE_TIME, WORKER_BLOCKED,
 };
 use quick_cache::sync::Cache;
 use tokio::sync::mpsc::{self, error::TrySendError};
@@ -102,6 +102,7 @@ pub async fn update_consumer_loop(
                         // We clear any updates that were in this batch from the cache, so that
                         // if we see them again we'll try again to issue them.
                         chunk.iter().for_each(|u| {
+                            metrics::counter!(CACHE_REMOVAL).increment(1);
                             m_cache.remove(u);
                         });
                         return;

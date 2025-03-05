@@ -8,8 +8,9 @@ use crate::{
     api::v1::query::Manager,
     config::Config,
     metrics_consts::{
-        CACHE_WARMING_STATE, GROUP_TYPE_READS, GROUP_TYPE_RESOLVE_TIME, SINGLE_UPDATE_ISSUE_TIME,
-        UPDATES_SKIPPED, UPDATE_TRANSACTION_TIME,
+        CACHE_HIT, CACHE_INSERT, CACHE_MISS, CACHE_WARMING_STATE, GROUP_TYPE_READS,
+        GROUP_TYPE_RESOLVE_TIME, SINGLE_UPDATE_ISSUE_TIME, UPDATES_SKIPPED,
+        UPDATE_TRANSACTION_TIME,
     },
     types::{GroupType, Update},
 };
@@ -119,9 +120,12 @@ impl AppContext {
 
             let cached = self.group_type_cache.get(&cache_key);
             if let Some(index) = cached {
+                metrics::counter!(CACHE_HIT).increment(1);
                 update.group_type_index =
                     update.group_type_index.take().map(|gti| gti.resolve(index));
                 continue;
+            } else {
+                metrics::counter!(CACHE_MISS).increment(1);
             }
 
             metrics::counter!(GROUP_TYPE_READS).increment(1);
@@ -135,6 +139,7 @@ impl AppContext {
                 .await?;
 
             if let Some(index) = found {
+                metrics::counter!(CACHE_INSERT).increment(1);
                 self.group_type_cache.insert(cache_key, index);
                 update.group_type_index =
                     update.group_type_index.take().map(|gti| gti.resolve(index));
