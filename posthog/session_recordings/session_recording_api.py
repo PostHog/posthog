@@ -470,7 +470,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         """,
     )
     @action(methods=["GET"], detail=True)
-    def viewed(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+    def viewed(self, request: request.Request, *args: Any, **kwargs: Any) -> JsonResponse:
         recording: SessionRecording = self.get_object()
 
         if not recording:
