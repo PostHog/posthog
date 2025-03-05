@@ -54,7 +54,7 @@ export function RevenueEventsSettings(): JSX.Element {
             <div>
                 <h3>Base currency</h3>
                 <p>
-                    Posthog will convert all revenue values to this currency before displaying them to you. This is set
+                    PostHog will convert all revenue values to this currency before displaying them to you. This is set
                     to USD (American Dollar) by default.
                 </p>
                 <CurrencyDropdown
