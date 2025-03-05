@@ -5,6 +5,8 @@ import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableSh
 import { cn } from 'lib/utils/css-classes'
 import { forwardRef, HTMLAttributes, useCallback, useEffect, useRef, useState } from 'react'
 
+import { findInProjectTreeByPath } from '~/layout/navigation-3000/components/ProjectTree/utils'
+
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '../../ui/ContextMenu/ContextMenu'
 import { LemonButton, SideAction } from '../LemonButton'
 import { Spinner } from '../Spinner/Spinner'
@@ -147,18 +149,6 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                         )
                     }
 
-                    let cursorClass = 'cursor-pointer'
-
-                    if (enableDragAndDrop) {
-                        if (isItemDraggable?.(item)) {
-                            cursorClass = 'cursor-grab'
-                        } else {
-                            cursorClass = 'cursor-not-allowed'
-                        }
-                    } else {
-                        cursorClass = 'cursor-pointer'
-                    }
-
                     const content = (
                         <AccordionPrimitive.Root
                             type="multiple"
@@ -182,14 +172,14 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                 className={cn(
                                                     'group/lemon-tree-button',
                                                     'flex-1 flex items-center gap-2 font-normal',
-                                                    cursorClass,
+                                                    'cursor-pointer',
                                                     (focusedId === item.id || isContextMenuOpenForItem === item.id) &&
                                                         'ring-2 ring-inset ring-offset-[-1px] ring-accent-primary',
                                                     selectedId === item.id &&
                                                         'border-l-[4px] border-l-accent-primary rounded-tl-sm rounded-bl-sm'
                                                 )}
                                                 onClick={() => {
-                                                    if (!enableDragAndDrop) {
+                                                    if (!enableDragAndDrop || !isItemDraggable?.(item)) {
                                                         handleClick(item)
                                                     }
                                                 }}
@@ -211,7 +201,6 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                     expandedItemIds: expandedItemIds ?? [],
                                                     defaultNodeIcon,
                                                 })}
-                                                disabled={!isItemDraggable?.(item) && enableDragAndDrop}
                                                 tooltip={displayName}
                                                 tooltipPlacement="right"
                                                 style={{ paddingLeft: `${DEPTH_OFFSET}px` }}
@@ -802,7 +791,22 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
         }, [defaultSelectedFolderOrNodeId, hasFocusedContent])
 
         return (
-            <DndContext onDragEnd={onDragEnd}>
+            <DndContext
+                onDragStart={(dragEvent) => {
+                    const active = dragEvent.active?.id
+                    const item = findInProjectTreeByPath(String(active), Array.isArray(data) ? data : [data])
+                    handleClick(item)
+                }}
+                onDragEnd={(dragEvent) => {
+                    const active = dragEvent.active?.id
+                    const over = dragEvent.over?.id
+                    if (active && active === over) {
+                        dragEvent.activatorEvent.stopPropagation()
+                    } else {
+                        onDragEnd?.(dragEvent)
+                    }
+                }}
+            >
                 <ScrollableShadows
                     ref={containerRef}
                     direction="vertical"
