@@ -444,7 +444,7 @@ class MutationRunner(abc.ABC):
         if invalid_keys := {key for key in self.parameters.keys() if key.startswith("__")}:
             raise ValueError(f"invalid parameter names: {invalid_keys!r} (keys cannot start with double underscore)")
 
-    def find(self, client: Client) -> Mutation | None:
+    def _find(self, client: Client) -> Mutation | None:
         """Find the running mutation task, if one exists."""
         commands = [*self.get_commands()]
         mutations = client.execute(
@@ -495,7 +495,7 @@ class MutationRunner(abc.ABC):
 
     def enqueue(self, client: Client) -> Mutation:
         """Enqueue the mutation (or return the existing mutation if it is already running or has run.)"""
-        if task := self.find(client):
+        if task := self._find(client):
             return task
 
         client.execute(self.get_statement(), self.parameters, settings=self.settings)
@@ -503,7 +503,7 @@ class MutationRunner(abc.ABC):
         # mutations are not always immediately visible, so give it a bit of time to show up
         start = time.time()
         for _ in range(5):
-            if task := self.find(client):
+            if task := self._find(client):
                 return task
             time.sleep(1.0)
 

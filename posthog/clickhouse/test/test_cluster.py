@@ -141,7 +141,7 @@ def test_alter_mutation_single_command(cluster: ClickhouseCluster) -> None:
     )
 
     # nothing should be running yet
-    existing_mutations = cluster.map_all_hosts(runner.find).result()
+    existing_mutations = cluster.map_all_hosts(runner._find).result()
     assert all(mutation is None for mutation in existing_mutations.values())
 
     # start all mutations
@@ -203,7 +203,7 @@ def test_alter_mutation_multiple_commands(cluster: ClickhouseCluster) -> None:
         )
 
         # nothing should be running yet
-        existing_mutations = cluster.map_all_hosts(runner.find).result()
+        existing_mutations = cluster.map_all_hosts(runner._find).result()
         assert all(mutation is None for mutation in existing_mutations.values())
 
         # start all mutations
