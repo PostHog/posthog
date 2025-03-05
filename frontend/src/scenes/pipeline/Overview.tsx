@@ -37,12 +37,12 @@ export function Overview(): JSX.Element {
                     </div>
                 }
             />
-            <div className="space-y-4">
+            <div className="deprecated-space-y-4">
                 <div>
                     <Link to={urls.pipeline(PipelineTab.Sources)}>
                         <h2>Managed sources</h2>
                     </Link>
-                    <div className="space-y-2">
+                    <div className="deprecated-space-y-2">
                         <DataWarehouseManagedSourcesTable />
                     </div>
                 </div>
@@ -50,7 +50,7 @@ export function Overview(): JSX.Element {
                     <Link to={urls.pipeline(PipelineTab.Sources)}>
                         <h2>Self-managed sources</h2>
                     </Link>
-                    <div className="space-y-2">
+                    <div className="deprecated-space-y-2">
                         <DataWarehouseSelfManagedSourcesTable />
                     </div>
                 </div>

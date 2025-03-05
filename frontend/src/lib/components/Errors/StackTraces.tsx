@@ -50,9 +50,12 @@ export function ChainedStackTraces({
                     return (
                         <div
                             key={index}
-                            className={clsx('StackTrace flex flex-col space-y-2', embedded && 'StackTrace--embedded')}
+                            className={clsx(
+                                'StackTrace flex flex-col deprecated-space-y-2',
+                                embedded && 'StackTrace--embedded'
+                            )}
                         >
-                            <div className="space-y-0.5">
+                            <div className="deprecated-space-y-0_5">
                                 <h3 className="StackTrace__type mb-0">{type}</h3>
                                 <div className="StackTrace__value line-clamp-2 text-secondary italic text-xs">
                                     {value}
@@ -86,16 +89,16 @@ function Trace({
                 key: index,
                 header: (
                     <div className="flex flex-1 justify-between items-center">
-                        <div className="flex flex-wrap space-x-0.5">
+                        <div className="flex flex-wrap deprecated-space-x-0.5">
                             <span>{source}</span>
                             {resolved_name ? (
-                                <div className="flex space-x-0.5">
+                                <div className="flex deprecated-space-x-0.5">
                                     <span className="text-secondary">in</span>
                                     <span>{resolved_name}</span>
                                 </div>
                             ) : null}
                             {line ? (
-                                <div className="flex space-x-0.5">
+                                <div className="flex deprecated-space-x-0.5">
                                     <span className="text-secondary">@</span>
                                     <span>
                                         {line}
@@ -104,7 +107,7 @@ function Trace({
                                 </div>
                             ) : null}
                         </div>
-                        <div className="space-x-1">
+                        <div className="deprecated-space-x-1">
                             {in_app && <LemonTag>In App</LemonTag>}
                             {!resolved && (
                                 <Tooltip title={resolve_failure}>

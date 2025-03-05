@@ -42,7 +42,7 @@ export function RevenueEventsSettings(): JSX.Element {
     const buttonRef = useRef<HTMLButtonElement | null>(null)
 
     return (
-        <div className="space-y-4">
+        <div className="deprecated-space-y-4">
             <ProductIntroduction
                 productName="Revenue tracking"
                 thingName="revenue event"

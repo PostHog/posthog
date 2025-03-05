@@ -770,6 +770,26 @@ const config = {
     },
     plugins: [
         require('@tailwindcss/container-queries'),
+        plugin(({ addUtilities, theme }) => {
+            const spacing = theme("spacing");
+            const newUtilities = {};
+
+            for (const [key, value] of Object.entries(spacing)) {
+                // Convert decimal points to underscores for class names like deprecated-space-y-1.5 -> deprecated-space-y-1_5
+                // Our style lint complains about using 1.5 etc, so we can use this to convert them
+                // We don't have any spacing classes left using 1.5 etc, so this is just a lint fix
+                const safeKey = key.toString().replace('.', '_');
+
+                newUtilities[`.deprecated-space-y-${safeKey} > :not([hidden]) ~ :not([hidden])`] = {
+                    marginTop: value,
+                };
+                newUtilities[`.deprecated-space-x-${safeKey} > :not([hidden]) ~ :not([hidden])`] = {
+                    marginLeft: value,
+                };
+            }
+
+            addUtilities(newUtilities);
+        }),
     ],
 }
 
