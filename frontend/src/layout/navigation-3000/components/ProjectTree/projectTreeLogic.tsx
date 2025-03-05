@@ -43,7 +43,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         setLastViewedId: (id: string) => ({ id }),
         toggleFolderOpen: (folderId: string, isExpanded: boolean) => ({ folderId, isExpanded }),
         setHelpNoticeVisibility: (visible: boolean) => ({ visible }),
-        toggleDragAndDrop: (enabled: boolean) => ({ enabled }),
         loadFolder: (folder: string) => ({ folder }),
         loadFolderStart: (folder: string) => ({ folder }),
         loadFolderSuccess: (folder: string, entries: FileSystemEntry[]) => ({ folder, entries }),
@@ -170,12 +169,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             true,
             {
                 setHelpNoticeVisibility: (_, { visible }) => visible,
-            },
-        ],
-        dragAndDropEnabled: [
-            false,
-            {
-                toggleDragAndDrop: (_, { enabled }) => enabled,
             },
         ],
     }),
@@ -308,7 +301,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             (s) => [s.featureFlags, s.groupNodes],
             (_featureFlags, groupNodes: FileSystemImport[]) =>
                 // .filter(f => !f.flag || featureFlags[f.flag])
-                convertFileSystemEntryToTreeDataItem(getDefaultTree(groupNodes)),
+                convertFileSystemEntryToTreeDataItem(getDefaultTree(groupNodes), 'root'),
         ],
         projectRow: [
             () => [],
