@@ -114,3 +114,18 @@ export function joinPath(path: string[]): string {
 export function escapePath(path: string): string {
     return path.replace(/\\/g, '\\\\').replace(/\//g, '\\/')
 }
+
+export function findInProjectTree(itemId: string, projectTree: TreeDataItem[]): TreeDataItem | undefined {
+    for (const node of projectTree) {
+        if (node.id === itemId) {
+            return node
+        }
+        if (node.children) {
+            const found = findInProjectTree(itemId, node.children)
+            if (found) {
+                return found
+            }
+        }
+    }
+    return undefined
+}
