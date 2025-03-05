@@ -23,7 +23,7 @@ export const formatFlatRate = (flatRate: number, unit: string | null): string | 
         return `$${flatRate}`
     }
     return (
-        <span className="deprecated-space-x-0.5">
+        <span className="deprecated-space-x-0_5">
             <span>{humanFriendlyCurrency(flatRate)}</span>
             <span>/</span>
             <span>{unit}</span>
