@@ -17,7 +17,6 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     properties VARCHAR CODEC(ZSTD(3)),
     timestamp DateTime64(6, 'UTC') DEFAULT NOW('UTC'),
     is_deleted UInt8,
-    {index_clause}
 ) ENGINE = {engine}
 """
 
@@ -33,7 +32,7 @@ def PG_EMBEDDINGS_TABLE_SQL(on_cluster=True):
         PG_EMBEDDINGS_TABLE_BASE_SQL
         + """
     -- id for uniqueness
-    ORDER BY (team_id, domain, id)
+    ORDER BY (domain, team_id, id)
     SETTINGS index_granularity=512
     """
     ).format(
@@ -41,10 +40,6 @@ def PG_EMBEDDINGS_TABLE_SQL(on_cluster=True):
         table_name=PG_EMBEDDINGS_DATA_TABLE(),
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=PG_EMBEDDINGS_DATA_TABLE_ENGINE(),
-        index_clause="""
-        -- Faster skipping if we want to retrieve all embeddings for a domain
-        INDEX domain_idx domain TYPE set(0) GRANULARITY 1,
-        """,
     )
 
 
@@ -58,7 +53,7 @@ def WRITABLE_PG_EMBEDDINGS_TABLE_SQL(on_cluster=True):
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=Distributed(
             data_table=PG_EMBEDDINGS_DATA_TABLE(),
-            sharding_key="sipHash64(team_id)",
+            sharding_key="sipHash64(domain, team_id)",
         ),
         index_clause="",
     )
@@ -71,7 +66,7 @@ def DISTRIBUTED_PG_EMBEDDINGS_TABLE_SQL(on_cluster=True):
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=Distributed(
             data_table=PG_EMBEDDINGS_DATA_TABLE(),
-            sharding_key="sipHash64(team_id)",
+            sharding_key="sipHash64(domain, team_id)",
         ),
         index_clause="",
     )
