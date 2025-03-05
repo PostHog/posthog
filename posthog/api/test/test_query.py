@@ -1076,7 +1076,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 },
             },
             "client_query_id": "0c9aa03c-bf93-41c2-a00e-5cfb6a4044c4",
-            "refresh": "sync",
+            "refresh": "async",
             "filters_override": None,
             "variables_override": None,
         }
