@@ -1,3 +1,5 @@
+use std::string::FromUtf8Error;
+
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -17,4 +19,10 @@ pub enum Error {
     InvalidDataTypeForOperation(u32, String),
     #[error("Invalid utf8, got error: {0}")]
     InvalidUtf8(String),
+}
+
+impl From<FromUtf8Error> for Error {
+    fn from(e: FromUtf8Error) -> Self {
+        Error::InvalidUtf8(e.to_string())
+    }
 }
