@@ -527,13 +527,13 @@ class MutationRunner(abc.ABC):
 
 @dataclass
 class AlterTableMutationRunner(MutationRunner):
-    command: str  # the part after ALTER TABLE prefix, i.e. UPDATE, DELETE, MATERIALIZE, etc.
+    commands: Set[str]  # the part after ALTER TABLE prefix, i.e. UPDATE, DELETE, MATERIALIZE, etc.
 
     def get_statement(self) -> str:
-        return f"ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{self.table} {self.command}"
+        return f"ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{self.table} " + ", ".join(self.commands)
 
     def get_commands(self) -> Set[str]:
-        return {self.command}
+        return self.commands
 
 
 @dataclass

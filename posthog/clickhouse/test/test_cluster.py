@@ -31,7 +31,7 @@ def cluster(django_db_setup) -> Iterator[ClickhouseCluster]:
 
 def test_mutation_runner_rejects_invalid_parameters() -> None:
     with pytest.raises(ValueError):
-        AlterTableMutationRunner("table", "command", parameters={"__invalid_key": True})
+        AlterTableMutationRunner("table", {"command"}, parameters={"__invalid_key": True})
 
 
 def test_exception_summary(snapshot, cluster: ClickhouseCluster) -> None:
@@ -129,13 +129,13 @@ def test_mutations(cluster: ClickhouseCluster) -> None:
     sentinel_uuid = uuid.uuid1()  # unique to this test run to ensure we have a clean slate
     runner = AlterTableMutationRunner(
         table,
-        """
-        UPDATE
-            person_id = %(uuid)s,
-            properties = %(properties)s
-        -- this is a comment that will not appear in system.mutations
-        WHERE 1 = /* this will also be stripped out during formatting */ 01
-        """,
+        {
+            """
+            UPDATE person_id = %(uuid)s, properties = %(properties)s
+            -- this is a comment that will not appear in system.mutations
+            WHERE 1 = /* this will also be stripped out during formatting */ 01
+            """
+        },
         parameters={"uuid": sentinel_uuid, "properties": json.dumps({"uuid": sentinel_uuid.hex})},
     )
 

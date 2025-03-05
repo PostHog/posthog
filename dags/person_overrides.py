@@ -173,7 +173,9 @@ class PersonOverridesSnapshotDictionary:
     def person_id_update_mutation_runner(self) -> AlterTableMutationRunner:
         return AlterTableMutationRunner(
             EVENTS_DATA_TABLE(),
-            "UPDATE person_id = dictGet(%(name)s, 'person_id', (team_id, distinct_id)) WHERE dictHas(%(name)s, (team_id, distinct_id))",
+            {
+                "UPDATE person_id = dictGet(%(name)s, 'person_id', (team_id, distinct_id)) WHERE dictHas(%(name)s, (team_id, distinct_id))"
+            },
             parameters={"name": self.qualified_name},
         )
 
