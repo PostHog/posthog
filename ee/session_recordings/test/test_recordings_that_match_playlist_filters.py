@@ -6,6 +6,13 @@ from ee.session_recordings.playlist_counters.recordings_that_match_playlist_filt
     count_recordings_that_match_playlist_filters,
 )
 from posthog.redis import get_client
+from posthog.schema import (
+    FilterLogicalOperator,
+    PropertyOperator,
+    RecordingOrder,
+    RecordingPropertyFilter,
+    RecordingsQuery,
+)
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.session_recordings.session_recording_playlist_api import PLAYLIST_COUNT_REDIS_PREFIX
@@ -130,4 +137,79 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest):
 
         assert self.redis_client.get(f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist.short_id}").decode("utf-8") == json.dumps(
             existing_value
+        )
+
+    @patch("posthoganalytics.capture_exception")
+    @patch("ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query")
+    def test_matching_legacy_filters(
+        self, mock_list_recordings_from_query: MagicMock, mock_capture_exception: MagicMock
+    ):
+        """
+        This is a regression test, we have playlists with legacy filters that we want to make sure still work
+        """
+        legacy_filters = {
+            "events": [],
+            "actions": [],
+            "date_from": "-21d",
+            "properties": [],
+            "session_recording_duration": {"key": "duration", "type": "recording", "value": 60, "operator": "gt"},
+        }
+
+        playlist = SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            name="test",
+            filters=legacy_filters,
+        )
+        mock_list_recordings_from_query.return_value = ([], False, None)
+
+        count_recordings_that_match_playlist_filters(playlist.id)
+        mock_capture_exception.assert_not_called()
+
+        playlist.refresh_from_db()
+        assert playlist.filters == {
+            "date_from": "-21d",
+            "date_to": None,
+            "duration": [
+                {
+                    "key": "duration",
+                    "type": "recording",
+                    "value": 60,
+                    "operator": "gt",
+                }
+            ],
+            "filter_group": {
+                "type": FilterLogicalOperator.AND_,
+                "values": [
+                    {"type": FilterLogicalOperator.AND_, "values": []},
+                ],
+            },
+            "filter_test_accounts": False,
+            "order": RecordingOrder.START_TIME,
+        }
+
+        assert mock_list_recordings_from_query.call_args[0] == (
+            RecordingsQuery(
+                actions=[],
+                console_log_filters=[],
+                date_from="-21d",
+                date_to=None,
+                events=[],
+                filter_test_accounts=False,
+                having_predicates=[
+                    RecordingPropertyFilter(
+                        key="duration", label=None, operator=PropertyOperator.GT, type="recording", value=60.0
+                    )
+                ],
+                kind="RecordingsQuery",
+                limit=None,
+                modifiers=None,
+                offset=None,
+                operand=FilterLogicalOperator.AND_,
+                order=RecordingOrder.START_TIME,
+                person_uuid=None,
+                properties=[],
+                response=None,
+                session_ids=None,
+                user_modified_filters=None,
+            ),
         )

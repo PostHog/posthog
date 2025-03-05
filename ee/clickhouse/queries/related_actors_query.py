@@ -81,7 +81,7 @@ class RelatedActorsQuery:
                 f"""
             SELECT DISTINCT $group_{group_type_index} AS group_key
             FROM events e
-            {'' if self.is_aggregating_by_groups else self._distinct_ids_join}
+            {"" if self.is_aggregating_by_groups else self._distinct_ids_join}
             JOIN (
                 SELECT group_key
                 FROM groups

@@ -1,22 +1,22 @@
-from concurrent.futures import ThreadPoolExecutor
 import functools
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Optional, cast
 from unittest import mock
 
 import aioboto3
-from deltalake import DeltaTable
 import deltalake
 import posthoganalytics
 import psycopg
 import pytest
 import pytest_asyncio
+import s3fs
 from asgiref.sync import sync_to_async
+from deltalake import DeltaTable
 from django.conf import settings
 from django.test import override_settings
 from dlt.common.configuration.specs.aws_credentials import AwsCredentials
 from dlt.sources.helpers.rest_client.client import RESTClient
-import s3fs
 from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
@@ -141,9 +141,14 @@ async def _run(
         billable=billable if billable is not None else True,
     )
 
-    with mock.patch(
-        "posthog.temporal.data_imports.pipelines.pipeline.pipeline.trigger_compaction_job"
-    ) as mock_trigger_compaction_job:
+    with (
+        mock.patch(
+            "posthog.temporal.data_imports.pipelines.pipeline.pipeline.trigger_compaction_job"
+        ) as mock_trigger_compaction_job,
+        mock.patch(
+            "posthog.temporal.data_imports.external_data_job.get_data_import_finished_metric"
+        ) as mock_get_data_import_finished_metric,
+    ):
         await _execute_run(workflow_id, inputs, mock_data_response)
 
     if not ignore_assertions:
@@ -153,6 +158,9 @@ async def _run(
         assert run.status == ExternalDataJob.Status.COMPLETED
 
         mock_trigger_compaction_job.assert_called()
+        mock_get_data_import_finished_metric.assert_called_with(
+            source_type=source_type, status=ExternalDataJob.Status.COMPLETED.lower()
+        )
 
         await sync_to_async(schema.refresh_from_db)()
 

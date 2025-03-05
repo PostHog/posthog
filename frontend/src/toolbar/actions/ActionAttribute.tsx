@@ -71,7 +71,7 @@ export function ActionAttribute({
                 />
             )}
             <div className="text-secondary text-xl">{icon}</div>
-            <div className="grow">{text}</div>
+            <div className="text-primary grow">{text}</div>
         </div>
     )
 }
