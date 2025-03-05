@@ -313,7 +313,7 @@ def create_reporting_pending_person_deletions_table(
 def load_pending_person_deletions(
     context: dagster.OpExecutionContext,
     create_pending_person_deletions_table: PendingPersonEventDeletesTable,
-    cluster: ResourceParam[ClickhouseCluster],
+    cluster: dagster.ResourceParam[ClickhouseCluster],
     cleanup_delete_assets: bool | None = None,
 ) -> PendingPersonEventDeletesTable:
     """Query postgres using django ORM to get pending person deletions and insert directly into ClickHouse."""
