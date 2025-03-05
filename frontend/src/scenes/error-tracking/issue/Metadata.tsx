@@ -7,7 +7,7 @@ import { humanFriendlyLargeNumber } from 'lib/utils'
 import { errorTrackingIssueSceneLogic } from 'scenes/error-tracking/errorTrackingIssueSceneLogic'
 
 export const Metadata = (): JSX.Element => {
-    const { issue } = useValues(errorTrackingIssueSceneLogic)
+    const { issue, issueLoading } = useValues(errorTrackingIssueSceneLogic)
 
     const hasSessionCount = issue && issue.aggregations && issue.aggregations.sessions !== 0
 
@@ -38,7 +38,7 @@ export const Metadata = (): JSX.Element => {
                 <div className="flex items-end space-x-6">
                     <div>
                         <div className="text-muted text-xs">First seen</div>
-                        {issue ? (
+                        {issue && !issueLoading ? (
                             <TZLabel time={issue.first_seen} className="border-dotted border-b" />
                         ) : (
                             <LemonSkeleton />
@@ -46,7 +46,7 @@ export const Metadata = (): JSX.Element => {
                     </div>
                     <div>
                         <div className="text-muted text-xs">Last seen</div>
-                        {issue && issue.last_seen ? (
+                        {issue && !issueLoading && issue.last_seen ? (
                             <TZLabel time={issue.last_seen} className="border-dotted border-b" />
                         ) : (
                             <LemonSkeleton />
