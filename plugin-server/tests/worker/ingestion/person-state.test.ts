@@ -1,7 +1,9 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { Database, Hub, InternalPerson } from '../../../src/types'
+import { fetchTeam } from '~/src/worker/ingestion/team-manager'
+
+import { Database, Hub, InternalPerson, Team } from '../../../src/types'
 import { DependencyUnavailableError } from '../../../src/utils/db/error'
 import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { PostgresUse } from '../../../src/utils/db/postgres'
@@ -12,7 +14,7 @@ import { uuidFromDistinctId } from '../../../src/worker/ingestion/person-uuid'
 import { delayUntilEventIngested } from '../../helpers/clickhouse'
 import { createOrganization, createTeam, fetchPostgresPersons, insertRow } from '../../helpers/sql'
 
-jest.setTimeout(5000) // 5 sec timeout
+jest.setTimeout(30000)
 
 const timestamp = DateTime.fromISO('2020-01-01T12:00:05.200Z').toUTC()
 const timestamp2 = DateTime.fromISO('2020-02-02T12:00:05.200Z').toUTC()
@@ -22,6 +24,7 @@ describe('PersonState.update()', () => {
     let hub: Hub
 
     let teamId: number
+    let mainTeam: Team
     let organizationId: string
 
     // Common Distinct IDs (and their deterministic UUIDs) used in tests below.
@@ -43,6 +46,7 @@ describe('PersonState.update()', () => {
 
     beforeEach(async () => {
         teamId = await createTeam(hub.db.postgres, organizationId)
+        mainTeam = (await fetchTeam(hub.db.postgres, teamId))!
 
         newUserUuid = uuidFromDistinctId(teamId, newUserDistinctId)
         oldUserUuid = uuidFromDistinctId(teamId, oldUserDistinctId)
@@ -69,7 +73,8 @@ describe('PersonState.update()', () => {
         event: Partial<PluginEvent>,
         customHub?: Hub,
         processPerson = true,
-        timestampParam = timestamp
+        timestampParam = timestamp,
+        team = mainTeam
     ) {
         const fullEvent = {
             team_id: teamId,
@@ -79,7 +84,7 @@ describe('PersonState.update()', () => {
 
         return new PersonState(
             fullEvent as any,
-            teamId,
+            team,
             event.distinct_id!,
             timestampParam,
             processPerson,
@@ -126,12 +131,19 @@ describe('PersonState.update()', () => {
             }).updateProperties()
 
             const otherTeamId = await createTeam(hub.db.postgres, organizationId)
+            const otherTeam = (await fetchTeam(hub.db.postgres, otherTeamId))!
             teamId = otherTeamId
-            const [personOtherTeam, kafkaAcksOther] = await personState({
-                event: '$pageview',
-                distinct_id: newUserDistinctId,
-                uuid: event_uuid,
-            }).updateProperties()
+            const [personOtherTeam, kafkaAcksOther] = await personState(
+                {
+                    event: '$pageview',
+                    distinct_id: newUserDistinctId,
+                    uuid: event_uuid,
+                },
+                undefined,
+                true,
+                timestamp,
+                otherTeam
+            ).updateProperties()
 
             await hub.db.kafkaProducer.flush()
             await kafkaAcks
@@ -289,6 +301,50 @@ describe('PersonState.update()', () => {
                     force_upgrade: true,
                 })
             )
+        })
+
+        it('force_upgrade is ignored if team.person_processing_opt_out is true', async () => {
+            mainTeam.person_processing_opt_out = true
+            await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, oldUserUuid, [
+                { distinctId: oldUserDistinctId },
+            ])
+
+            const hubParam = undefined
+            let processPerson = true
+            const [_person, kafkaAcks] = await personState(
+                {
+                    event: '$identify',
+                    distinct_id: newUserDistinctId,
+                    properties: {
+                        $anon_distinct_id: oldUserDistinctId,
+                    },
+                },
+                hubParam,
+                processPerson
+            ).update()
+            await hub.db.kafkaProducer.flush()
+            await kafkaAcks
+
+            // Using the `distinct_id` again with `processPerson=false` results in
+            // `force_upgrade=true` and real Person `uuid` and `created_at`
+            processPerson = false
+            const event_uuid = new UUIDT().toString()
+            const timestampParam = timestamp.plus({ minutes: 5 }) // Event needs to happen after Person creation
+            const [fakePerson, kafkaAcks2] = await personState(
+                {
+                    event: '$pageview',
+                    distinct_id: newUserDistinctId,
+                    uuid: event_uuid,
+                    properties: { $set: { should_be_dropped: 100 } },
+                },
+                hubParam,
+                processPerson,
+                timestampParam
+            ).update()
+            await hub.db.kafkaProducer.flush()
+            await kafkaAcks2
+
+            expect(fakePerson.force_upgrade).toBeUndefined()
         })
 
         it('creates person if they are new', async () => {

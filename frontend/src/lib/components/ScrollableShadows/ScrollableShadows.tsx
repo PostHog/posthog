@@ -10,10 +10,16 @@ export type ScrollableShadowsProps = {
     className?: string
     innerClassName?: string
     scrollRef?: MutableRefObject<HTMLDivElement | null>
+    tabIndex?: number
+    role?: string
+    ariaLabel?: string
+    ariaActivedescendant?: string
+    onKeyDown?: (event: React.KeyboardEvent<HTMLDivElement>) => void
+    onBlur?: () => void
 }
 
 export const ScrollableShadows = React.forwardRef<HTMLDivElement, ScrollableShadowsProps>(function ScrollableShadows(
-    { children, direction, className, innerClassName, scrollRef },
+    { children, direction, className, innerClassName, scrollRef, ...props },
     ref
 ) {
     const {
@@ -37,6 +43,7 @@ export const ScrollableShadows = React.forwardRef<HTMLDivElement, ScrollableShad
                 className
             )}
             ref={ref}
+            {...props}
         >
             <div
                 className={clsx('ScrollableShadows__inner', innerClassName)}

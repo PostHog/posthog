@@ -9,6 +9,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { AvailableFeature, Breadcrumb, ProgressStatus, Survey, SurveyType } from '~/types'
 
 import type { surveysLogicType } from './surveysLogicType'
@@ -22,7 +23,7 @@ export enum SurveysTabs {
     Settings = 'settings',
 }
 
-export function getSurveyStatus(survey: Survey): ProgressStatus {
+export function getSurveyStatus(survey: Pick<Survey, 'start_date' | 'end_date'>): ProgressStatus {
     if (!survey.start_date) {
         return ProgressStatus.Draft
     } else if (!survey.end_date) {
@@ -61,6 +62,7 @@ export const surveysLogic = kea<surveysLogicType>([
             },
             updateSurvey: async ({ id, updatePayload }) => {
                 const updatedSurvey = await api.surveys.update(id, { ...updatePayload })
+
                 return values.surveys.map((survey) => (survey.id === id ? updatedSurvey : survey))
             },
         },
@@ -110,6 +112,15 @@ export const surveysLogic = kea<surveysLogicType>([
         },
         loadSurveysSuccess: () => {
             actions.loadCurrentTeam()
+
+            if (values.surveys.some((survey) => survey.start_date)) {
+                activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.LaunchSurvey)
+            }
+        },
+        loadResponsesCountSuccess: () => {
+            if (Object.values(values.surveysResponsesCount).some((count) => count > 0)) {
+                activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.CollectSurveyResponses)
+            }
         },
         setTab: ({ tab }) => {
             actions.setSurveysFilters({ ...values.filters, archived: tab === SurveysTabs.Archived })
@@ -128,6 +139,7 @@ export const surveysLogic = kea<surveysLogicType>([
                 if (searchTerm) {
                     searchedSurveys = new Fuse(searchedSurveys, {
                         keys: ['key', 'name'],
+                        ignoreLocation: true,
                         threshold: 0.3,
                     })
                         .search(searchTerm)

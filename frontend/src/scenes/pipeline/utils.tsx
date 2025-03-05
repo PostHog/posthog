@@ -201,7 +201,7 @@ export function LogLevelDisplay(level: LogEntryLevel): JSX.Element {
             color = 'text-text-3000'
             break
         case 'INFO':
-            color = 'text-primary'
+            color = 'text-accent-primary'
             break
         case 'WARNING':
         case 'WARN':
@@ -329,6 +329,8 @@ export function pipelinePluginBackedNodeMenuCommonItems(
                                   name: node.name,
                               },
                               callback: loadPluginConfigs,
+                          }).catch((e) => {
+                              lemonToast.error(`Failed to delete plugin: ${e.detail}`)
                           })
                       },
                       disabledReason: canConfigurePlugins ? undefined : 'You do not have permission to delete.',

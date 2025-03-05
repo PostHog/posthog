@@ -10,15 +10,20 @@
         "esModuleInterop": true,
         "allowJs": true,
         "sourceMap": true,
-        "baseUrl": "src/",
-        "rootDir": "src/",
         "outDir": "dist/",
         "types": ["node", "jest", "long"],
         "resolveJsonModule": true,
         "strict": true,
         "noImplicitAny": true,
-        "useUnknownInCatchVariables": false
+        "useUnknownInCatchVariables": false,
+        "paths": {
+            "~/*": ["./*"],
+            "main/*": ["./src/main/*"],
+            "worker/*": ["./src/worker/*"],
+            "utils/*": ["./src/utils/*"]
+        },
+        "skipLibCheck": true
     },
-    "include": ["src"],
+    "include": ["src", "tests"],
     "exclude": ["node_modules", "dist", "bin"]
 }

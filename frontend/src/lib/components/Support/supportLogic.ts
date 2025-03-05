@@ -46,6 +46,29 @@ function getSessionReplayLink(): string {
     return `\nSession: ${replayUrl}`
 }
 
+function getErrorTrackingLink(): string {
+    const filterGroup = encodeURIComponent(
+        JSON.stringify({
+            type: 'AND',
+            values: [
+                {
+                    type: 'AND',
+                    values: [
+                        {
+                            key: '$session_id',
+                            value: [posthog.get_session_id()],
+                            operator: 'exact',
+                            type: 'event',
+                        },
+                    ],
+                },
+            ],
+        })
+    )
+
+    return `\nExceptions: https://us.posthog.com/project/2/error_tracking?filterGroup=${filterGroup}`
+}
+
 function getDjangoAdminLink(
     user: UserType | null,
     cloudRegion: Region | null | undefined,
@@ -144,6 +167,11 @@ export const TARGET_AREA_TO_NAME = [
                 label: 'Data warehouse',
             },
             {
+                value: 'batch_exports',
+                'data-attr': `support-form-target-area-batch-exports`,
+                label: 'Batch exports',
+            },
+            {
                 value: 'feature_flags',
                 'data-attr': `support-form-target-area-feature_flags`,
                 label: 'Feature flags',
@@ -172,6 +200,11 @@ export const TARGET_AREA_TO_NAME = [
                 value: 'web_analytics',
                 'data-attr': `support-form-target-area-web_analytics`,
                 label: 'Web Analytics',
+            },
+            {
+                value: 'error_tracking',
+                'data-attr': `support-form-target-area-error_tracking`,
+                label: 'Error tracking',
             },
         ],
     },
@@ -206,6 +239,7 @@ export type SupportTicketTargetArea =
     | 'toolbar'
     | 'surveys'
     | 'web_analytics'
+    | 'error_tracking'
 export type SupportTicketSeverityLevel = keyof typeof SEVERITY_LEVEL_TO_NAME
 export type SupportTicketKind = keyof typeof SUPPORT_KIND_TO_SUBJECT
 
@@ -291,6 +325,8 @@ export const supportLogic = kea<supportLogicType>([
         updateUrlParams: true,
         openEmailForm: true,
         closeEmailForm: true,
+        openMaxChatInterface: true,
+        closeMaxChatInterface: true,
     })),
     reducers(() => ({
         isSupportFormOpen: [
@@ -298,6 +334,7 @@ export const supportLogic = kea<supportLogicType>([
             {
                 openSupportForm: () => true,
                 closeSupportForm: () => false,
+                openMaxChatInterface: () => false,
             },
         ],
         isEmailFormOpen: [
@@ -305,6 +342,14 @@ export const supportLogic = kea<supportLogicType>([
             {
                 openEmailForm: () => true,
                 closeEmailForm: () => false,
+            },
+        ],
+        isMaxChatInterfaceOpen: [
+            false,
+            {
+                openMaxChatInterface: () => true,
+                closeMaxChatInterface: () => false,
+                openEmailForm: () => false,
             },
         ],
     })),
@@ -441,6 +486,7 @@ export const supportLogic = kea<supportLogicType>([
                             `\nTarget area: ${target_area}` +
                             `\nReport event: http://go/ticketByUUID/${zendesk_ticket_uuid}` +
                             getSessionReplayLink() +
+                            getErrorTrackingLink() +
                             getCurrentLocationLink() +
                             getDjangoAdminLink(
                                 userLogic.values.user,
@@ -527,6 +573,19 @@ export const supportLogic = kea<supportLogicType>([
         },
 
         setSendSupportRequestValue: () => {
+            actions.updateUrlParams()
+        },
+        openMaxChatInterface: async () => {
+            const panelOptions = [
+                'max-chat',
+                '', // No target area needed for Max (yet)
+                '', // No severity level needed for Max
+                'false', // Make sure we don't open the email form instead
+            ].join(':')
+
+            if (values.sidePanelAvailable) {
+                actions.setSidePanelOptions(panelOptions)
+            }
             actions.updateUrlParams()
         },
     })),

@@ -1,9 +1,11 @@
 import { randomUUID } from 'crypto'
 import { Message } from 'node-rdkafka'
 
+import { CdpInternalEvent } from '../../src/cdp/schema'
 import {
     HogFunctionInvocation,
     HogFunctionInvocationGlobals,
+    HogFunctionInvocationGlobalsWithInputs,
     HogFunctionType,
     IntegrationType,
 } from '../../src/cdp/types'
@@ -22,7 +24,7 @@ export const createHogFunction = (hogFunction: Partial<HogFunctionType>) => {
         hog: '',
         bytecode: [],
         ...hogFunction,
-    }
+    } as HogFunctionType
 
     return item
 }
@@ -60,7 +62,7 @@ export const createIncomingEvent = (teamId: number, data: Partial<RawClickHouseE
     }
 }
 
-export const createMessage = (event: RawClickHouseEvent, overrides: Partial<Message> = {}): Message => {
+export const createKafkaMessage = (event: any, overrides: Partial<Message> = {}): Message => {
     return {
         partition: 1,
         topic: 'test',
@@ -69,6 +71,20 @@ export const createMessage = (event: RawClickHouseEvent, overrides: Partial<Mess
         size: 1,
         ...overrides,
         value: Buffer.from(JSON.stringify(event)),
+    }
+}
+
+export const createInternalEvent = (teamId: number, data: Partial<CdpInternalEvent>): CdpInternalEvent => {
+    return {
+        team_id: teamId,
+        event: {
+            timestamp: new Date().toISOString(),
+            properties: {},
+            uuid: randomUUID(),
+            event: '$pageview',
+            distinct_id: 'distinct_id',
+        },
+        ...data,
     }
 }
 
@@ -152,18 +168,17 @@ export const createInvocation = (
 ): HogFunctionInvocation => {
     const hogFunction = createHogFunction(_hogFunction)
     // Add the source of the trigger to the globals
-    let globals = createHogExecutionGlobals(_globals)
-    globals = {
-        ...globals,
-        source: {
-            name: hogFunction.name ?? `Hog function: ${hogFunction.id}`,
-            url: `${globals.project.url}/pipeline/destinations/hog-${hogFunction.id}/configuration/`,
-        },
+
+    const globals = createHogExecutionGlobals(_globals)
+    globals.source = {
+        name: hogFunction.name ?? `Hog function: ${hogFunction.id}`,
+        url: `${globals.project.url}/pipeline/destinations/hog-${hogFunction.id}/configuration/`,
     }
 
     return {
         id: new UUIDT().toString(),
-        globals,
+        // NOTE: This is due to some legacy code that checks for inputs and uses it. BW will fix later.
+        globals: globals as HogFunctionInvocationGlobalsWithInputs,
         teamId: hogFunction.team_id,
         hogFunction,
         queue: 'hog',

@@ -5,7 +5,7 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events_query'
-import recordingMetaJson from 'scenes/session-recordings/__mocks__/recording_meta.json'
+import { recordingMetaJson } from 'scenes/session-recordings/__mocks__/recording_meta'
 import { snapshotsAsJSONLines } from 'scenes/session-recordings/__mocks__/recording_snapshots'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
@@ -141,7 +141,7 @@ describe('sessionRecordingPlayerLogic', () => {
                     sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSourcesFailure,
                 ])
                 .toFinishAllListeners()
-                .toDispatchActions(['setErrorPlayerState'])
+                .toDispatchActions(['setPlayerError'])
 
             expect(logic.values).toMatchObject({
                 sessionPlayerData: {
@@ -149,7 +149,7 @@ describe('sessionRecordingPlayerLogic', () => {
                     snapshotsByWindowId: {},
                     bufferedToTime: 0,
                 },
-                isErrored: true,
+                playerError: 'loadSnapshotSourcesFailure',
             })
             resumeKeaLoadersErrors()
         })

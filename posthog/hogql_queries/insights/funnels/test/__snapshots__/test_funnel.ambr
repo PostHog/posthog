@@ -80,7 +80,7 @@
                           WHERE equals(person_distinct_id_overrides.team_id, 99999)
                           GROUP BY person_distinct_id_overrides.distinct_id
                           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-05-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-05-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.999999', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
            WHERE ifNull(equals(step_0, 1), 0)))
      GROUP BY aggregation_target,
               steps
@@ -98,12 +98,12 @@
 # ---
 # name: TestFOSSFunnel.test_funnel_conversion_window_seconds.1
   '''
-  SELECT persons.id,
-         persons.id AS id,
-         persons.created_at AS created_at,
+  SELECT source.id,
+         source.id AS id,
          1
   FROM
-    (SELECT aggregation_target AS actor_id
+    (SELECT aggregation_target AS actor_id,
+            actor_id AS id
      FROM
        (SELECT aggregation_target AS aggregation_target,
                steps AS steps,
@@ -176,7 +176,7 @@
                              WHERE equals(person_distinct_id_overrides.team_id, 99999)
                              GROUP BY person_distinct_id_overrides.distinct_id
                              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-                          WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-05-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2021-05-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
+                          WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.999999', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
@@ -184,16 +184,11 @@
                       and isNull(max(max_steps))))
      WHERE ifNull(in(steps, [2, 3]), 0)
      ORDER BY aggregation_target ASC) AS source
-  INNER JOIN
-    (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
-            person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 99999)
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
-  ORDER BY persons.created_at DESC
+  ORDER BY source.id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -293,7 +288,7 @@
                           WHERE equals(person_distinct_id_overrides.team_id, 99999)
                           GROUP BY person_distinct_id_overrides.distinct_id
                           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2011-12-25 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2012-01-01 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('$autocapture', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.999999', 6, 'UTC'))), in(e.event, tuple('$autocapture', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
            WHERE ifNull(equals(step_0, 1), 0)))
      GROUP BY aggregation_target,
               steps
@@ -380,7 +375,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-                 WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                 WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
            WHERE ifNull(equals(step_0, 1), 0)))
      GROUP BY aggregation_target,
               steps
@@ -488,7 +483,7 @@
                                                                                 WHERE equals(person.team_id, 99999)
                                                                                 GROUP BY person.id
                                                                                 HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-07-01 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('$pageview', 'user signed up')), or(and(ifNull(ilike(e__person.properties___email, '%.com%'), 0), ifNull(equals(e__person.properties___age, '20'), 0)), or(ifNull(ilike(e__person.properties___email, '%.org%'), 0), ifNull(equals(e__person.properties___age, '28'), 0)))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.999999', 6, 'UTC'))), in(e.event, tuple('$pageview', 'user signed up')), or(and(ifNull(ilike(toString(e__person.properties___email), '%.com%'), 0), ifNull(equals(e__person.properties___age, '20'), 0)), or(ifNull(ilike(toString(e__person.properties___email), '%.org%'), 0), ifNull(equals(e__person.properties___age, '28'), 0)))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
            WHERE ifNull(equals(step_0, 1), 0)))
      GROUP BY aggregation_target,
               steps
@@ -506,12 +501,12 @@
 # ---
 # name: TestFOSSFunnel.test_funnel_with_property_groups.1
   '''
-  SELECT persons.id,
-         persons.id AS id,
-         persons.created_at AS created_at,
+  SELECT source.id,
+         source.id AS id,
          1
   FROM
-    (SELECT aggregation_target AS actor_id
+    (SELECT aggregation_target AS actor_id,
+            actor_id AS id
      FROM
        (SELECT aggregation_target AS aggregation_target,
                steps AS steps,
@@ -595,7 +590,7 @@
                                                                                    WHERE equals(person.team_id, 99999)
                                                                                    GROUP BY person.id
                                                                                    HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-                          WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-07-01 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('$pageview', 'user signed up')), or(and(ifNull(ilike(e__person.properties___email, '%.com%'), 0), ifNull(equals(e__person.properties___age, '20'), 0)), or(ifNull(ilike(e__person.properties___email, '%.org%'), 0), ifNull(equals(e__person.properties___age, '28'), 0)))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
+                          WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.999999', 6, 'UTC'))), in(e.event, tuple('$pageview', 'user signed up')), or(and(ifNull(ilike(toString(e__person.properties___email), '%.com%'), 0), ifNull(equals(e__person.properties___age, '20'), 0)), or(ifNull(ilike(toString(e__person.properties___email), '%.org%'), 0), ifNull(equals(e__person.properties___age, '28'), 0)))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
@@ -603,16 +598,11 @@
                       and isNull(max(max_steps))))
      WHERE ifNull(in(steps, [1, 2, 3]), 0)
      ORDER BY aggregation_target ASC) AS source
-  INNER JOIN
-    (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
-            person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 99999)
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
-  ORDER BY persons.created_at DESC
+  ORDER BY source.id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -624,12 +614,12 @@
 # ---
 # name: TestFOSSFunnel.test_funnel_with_property_groups.2
   '''
-  SELECT persons.id,
-         persons.id AS id,
-         persons.created_at AS created_at,
+  SELECT source.id,
+         source.id AS id,
          1
   FROM
-    (SELECT aggregation_target AS actor_id
+    (SELECT aggregation_target AS actor_id,
+            actor_id AS id
      FROM
        (SELECT aggregation_target AS aggregation_target,
                steps AS steps,
@@ -713,7 +703,7 @@
                                                                                    WHERE equals(person.team_id, 99999)
                                                                                    GROUP BY person.id
                                                                                    HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-                          WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-07-01 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('$pageview', 'user signed up')), or(and(ifNull(ilike(e__person.properties___email, '%.com%'), 0), ifNull(equals(e__person.properties___age, '20'), 0)), or(ifNull(ilike(e__person.properties___email, '%.org%'), 0), ifNull(equals(e__person.properties___age, '28'), 0)))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
+                          WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.999999', 6, 'UTC'))), in(e.event, tuple('$pageview', 'user signed up')), or(and(ifNull(ilike(toString(e__person.properties___email), '%.com%'), 0), ifNull(equals(e__person.properties___age, '20'), 0)), or(ifNull(ilike(toString(e__person.properties___email), '%.org%'), 0), ifNull(equals(e__person.properties___age, '28'), 0)))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
@@ -721,16 +711,11 @@
                       and isNull(max(max_steps))))
      WHERE ifNull(in(steps, [2, 3]), 0)
      ORDER BY aggregation_target ASC) AS source
-  INNER JOIN
-    (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
-            person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 99999)
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
-  ORDER BY persons.created_at DESC
+  ORDER BY source.id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -742,12 +727,12 @@
 # ---
 # name: TestFOSSFunnel.test_funnel_with_property_groups.3
   '''
-  SELECT persons.id,
-         persons.id AS id,
-         persons.created_at AS created_at,
+  SELECT source.id,
+         source.id AS id,
          1
   FROM
-    (SELECT aggregation_target AS actor_id
+    (SELECT aggregation_target AS actor_id,
+            actor_id AS id
      FROM
        (SELECT aggregation_target AS aggregation_target,
                steps AS steps,
@@ -831,7 +816,7 @@
                                                                                    WHERE equals(person.team_id, 99999)
                                                                                    GROUP BY person.id
                                                                                    HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
-                          WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-07-01 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('$pageview', 'user signed up')), or(and(ifNull(ilike(e__person.properties___email, '%.com%'), 0), ifNull(equals(e__person.properties___age, '20'), 0)), or(ifNull(ilike(e__person.properties___email, '%.org%'), 0), ifNull(equals(e__person.properties___age, '28'), 0)))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
+                          WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.999999', 6, 'UTC'))), in(e.event, tuple('$pageview', 'user signed up')), or(and(ifNull(ilike(toString(e__person.properties___email), '%.com%'), 0), ifNull(equals(e__person.properties___age, '20'), 0)), or(ifNull(ilike(toString(e__person.properties___email), '%.org%'), 0), ifNull(equals(e__person.properties___age, '28'), 0)))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps
@@ -839,16 +824,11 @@
                       and isNull(max(max_steps))))
      WHERE ifNull(in(steps, [3]), 0)
      ORDER BY aggregation_target ASC) AS source
-  INNER JOIN
-    (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
-            person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 99999)
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
-  ORDER BY persons.created_at DESC
+  ORDER BY source.id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -918,7 +898,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-                 WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
+                 WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
            WHERE ifNull(equals(step_0, 1), 0)))
      GROUP BY aggregation_target,
               steps
@@ -1076,7 +1056,7 @@
                           WHERE equals(person_distinct_id_overrides.team_id, 99999)
                           GROUP BY person_distinct_id_overrides.distinct_id
                           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('buy', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))))
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.999999', 6, 'UTC'))), in(e.event, tuple('buy', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps,
@@ -1177,7 +1157,7 @@
                           WHERE equals(person_distinct_id_overrides.team_id, 99999)
                           GROUP BY person_distinct_id_overrides.distinct_id
                           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('buy', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))) ARRAY
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.999999', 6, 'UTC'))), in(e.event, tuple('buy', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))) ARRAY
                     JOIN prop_vals AS prop
                     WHERE ifNull(notEquals(prop, []), isNotNull(prop)
                                  or isNotNull([]))))
@@ -1277,7 +1257,7 @@
                           WHERE equals(person_distinct_id_overrides.team_id, 99999)
                           GROUP BY person_distinct_id_overrides.distinct_id
                           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('buy', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))))
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.999999', 6, 'UTC'))), in(e.event, tuple('buy', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps,
@@ -1698,7 +1678,7 @@
                                 WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                                 GROUP BY groups.group_type_index,
                                          groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-                             WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))))))
+                             WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.999999', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps,
@@ -1719,10 +1699,11 @@
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.1
   '''
-  SELECT persons.id,
-         persons.id AS id
+  SELECT source.id,
+         source.id AS id
   FROM
-    (SELECT aggregation_target AS actor_id
+    (SELECT aggregation_target AS actor_id,
+            actor_id AS id
      FROM
        (SELECT aggregation_target AS aggregation_target,
                steps AS steps,
@@ -1830,7 +1811,7 @@
                                 WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                                 GROUP BY groups.group_type_index,
                                          groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-                             WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))))))
+                             WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.999999', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps,
@@ -1840,15 +1821,11 @@
      WHERE and(ifNull(in(steps, [1, 2, 3]), 0), ifNull(equals(arrayFlatten(array(prop)), arrayFlatten(array('finance'))), isNull(arrayFlatten(array(prop)))
                                                        and isNull(arrayFlatten(array('finance')))))
      ORDER BY aggregation_target ASC) AS source
-  INNER JOIN
-    (SELECT person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 99999)
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
-  ORDER BY persons.id ASC
+  ORDER BY source.id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -1860,10 +1837,11 @@
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.2
   '''
-  SELECT persons.id,
-         persons.id AS id
+  SELECT source.id,
+         source.id AS id
   FROM
-    (SELECT aggregation_target AS actor_id
+    (SELECT aggregation_target AS actor_id,
+            actor_id AS id
      FROM
        (SELECT aggregation_target AS aggregation_target,
                steps AS steps,
@@ -1971,7 +1949,7 @@
                                 WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                                 GROUP BY groups.group_type_index,
                                          groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-                             WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))))))
+                             WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.999999', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps,
@@ -1981,15 +1959,11 @@
      WHERE and(ifNull(in(steps, [2, 3]), 0), ifNull(equals(arrayFlatten(array(prop)), arrayFlatten(array('finance'))), isNull(arrayFlatten(array(prop)))
                                                     and isNull(arrayFlatten(array('finance')))))
      ORDER BY aggregation_target ASC) AS source
-  INNER JOIN
-    (SELECT person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 99999)
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
-  ORDER BY persons.id ASC
+  ORDER BY source.id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -2001,10 +1975,11 @@
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.3
   '''
-  SELECT persons.id,
-         persons.id AS id
+  SELECT source.id,
+         source.id AS id
   FROM
-    (SELECT aggregation_target AS actor_id
+    (SELECT aggregation_target AS actor_id,
+            actor_id AS id
      FROM
        (SELECT aggregation_target AS aggregation_target,
                steps AS steps,
@@ -2112,7 +2087,7 @@
                                 WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                                 GROUP BY groups.group_type_index,
                                          groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-                             WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))))))
+                             WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.999999', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps,
@@ -2122,15 +2097,11 @@
      WHERE and(ifNull(in(steps, [1, 2, 3]), 0), ifNull(equals(arrayFlatten(array(prop)), arrayFlatten(array('technology'))), isNull(arrayFlatten(array(prop)))
                                                        and isNull(arrayFlatten(array('technology')))))
      ORDER BY aggregation_target ASC) AS source
-  INNER JOIN
-    (SELECT person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 99999)
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
-  ORDER BY persons.id ASC
+  ORDER BY source.id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
@@ -2142,10 +2113,11 @@
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.4
   '''
-  SELECT persons.id,
-         persons.id AS id
+  SELECT source.id,
+         source.id AS id
   FROM
-    (SELECT aggregation_target AS actor_id
+    (SELECT aggregation_target AS actor_id,
+            actor_id AS id
      FROM
        (SELECT aggregation_target AS aggregation_target,
                steps AS steps,
@@ -2253,7 +2225,7 @@
                                 WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                                 GROUP BY groups.group_type_index,
                                          groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-                             WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))))))
+                             WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp.999999', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps,
@@ -2263,15 +2235,11 @@
      WHERE and(ifNull(in(steps, [2, 3]), 0), ifNull(equals(arrayFlatten(array(prop)), arrayFlatten(array('technology'))), isNull(arrayFlatten(array(prop)))
                                                     and isNull(arrayFlatten(array('technology')))))
      ORDER BY aggregation_target ASC) AS source
-  INNER JOIN
-    (SELECT person.id AS id
-     FROM person
-     WHERE equals(person.team_id, 99999)
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
-  ORDER BY persons.id ASC
+  ORDER BY source.id ASC
   LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,

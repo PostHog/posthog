@@ -25,7 +25,7 @@ export function Login2FA(): JSX.Element {
         >
             <div className="space-y-2">
                 <h2>Two-Factor Authentication</h2>
-                <p>Enter a token from your authenticator app.</p>
+                <p>Enter a token from your authenticator app or a backup code.</p>
 
                 <Form logic={login2FALogic} formKey="twofactortoken" enableFormOnSubmit className="space-y-4">
                     {generalError && <LemonBanner type="error">{generalError.detail}</LemonBanner>}

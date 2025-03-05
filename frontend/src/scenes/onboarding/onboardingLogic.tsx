@@ -1,24 +1,22 @@
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
+import { replayLandingPageLogic } from 'scenes/session-recordings/replayLandingPageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import {
-    AvailableOnboardingProducts,
-    BillingProductV2AddonType,
-    Breadcrumb,
-    OnboardingProduct,
-    ProductKey,
-} from '~/types'
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { Breadcrumb, OnboardingProduct, ProductKey, ReplayTabs } from '~/types'
 
 import type { onboardingLogicType } from './onboardingLogicType'
+import { availableOnboardingProducts } from './utils'
 
 export interface OnboardingLogicProps {
     productKey: ProductKey | null
@@ -35,56 +33,11 @@ export enum OnboardingStepKey {
     INVITE_TEAMMATES = 'invite_teammates',
     DASHBOARD_TEMPLATE = 'dashboard_template',
     DASHBOARD_TEMPLATE_CONFIGURE = 'dashboard_template_configure',
+    SESSION_REPLAY = 'session_replay',
+    AUTHORIZED_DOMAINS = 'authorized_domains',
 }
 
 export const breadcrumbExcludeSteps = [OnboardingStepKey.DASHBOARD_TEMPLATE_CONFIGURE]
-
-export const availableOnboardingProducts: AvailableOnboardingProducts = {
-    [ProductKey.PRODUCT_ANALYTICS]: {
-        name: 'Product Analytics',
-        icon: 'IconGraph',
-        iconColor: 'blue',
-        url: urls.insights(),
-        scene: Scene.SavedInsights,
-    },
-    [ProductKey.WEB_ANALYTICS]: {
-        name: 'Web Analytics',
-        icon: 'IconPieChart',
-        iconColor: 'var(--warning)',
-        url: urls.webAnalytics(),
-        scene: Scene.WebAnalytics,
-    },
-    [ProductKey.DATA_WAREHOUSE]: {
-        name: 'Data Warehouse',
-        icon: 'IconDatabase',
-        iconColor: 'salmon',
-        breadcrumbsName: 'Data Warehouse',
-        url: urls.dataWarehouse(),
-        scene: Scene.DataWarehouse,
-    },
-    [ProductKey.SESSION_REPLAY]: {
-        name: 'Session Replay',
-        icon: 'IconRewindPlay',
-        iconColor: 'var(--warning)',
-        url: urls.replay(),
-        scene: Scene.Replay,
-    },
-    [ProductKey.FEATURE_FLAGS]: {
-        name: 'Feature Flags & Experiments',
-        breadcrumbsName: 'Feature Flags',
-        icon: 'IconToggle',
-        iconColor: 'seagreen',
-        url: urls.featureFlags(),
-        scene: Scene.FeatureFlags,
-    },
-    [ProductKey.SURVEYS]: {
-        name: 'Surveys',
-        icon: 'IconMessage',
-        iconColor: 'blue',
-        url: urls.surveys(),
-        scene: Scene.Surveys,
-    },
-}
 
 export const stepKeyToTitle = (stepKey?: OnboardingStepKey): undefined | string => {
     return (
@@ -100,12 +53,14 @@ export const stepKeyToTitle = (stepKey?: OnboardingStepKey): undefined | string 
 export type AllOnboardingSteps = OnboardingStep[]
 export type OnboardingStep = JSX.Element
 
-export const getProductUri = (productKey: ProductKey): string => {
+export const getProductUri = (productKey: ProductKey, replayLandingPage: ReplayTabs): string => {
     switch (productKey) {
         case ProductKey.PRODUCT_ANALYTICS:
             return urls.insightNew()
+        case ProductKey.WEB_ANALYTICS:
+            return urls.webAnalytics()
         case ProductKey.SESSION_REPLAY:
-            return urls.replay()
+            return urls.replay(replayLandingPage)
         case ProductKey.FEATURE_FLAGS:
             return urls.featureFlag('new')
         case ProductKey.SURVEYS:
@@ -126,18 +81,22 @@ export const onboardingLogic = kea<onboardingLogicType>([
             ['billing'],
             teamLogic,
             ['currentTeam'],
-            featureFlagLogic,
-            ['featureFlags'],
             userLogic,
             ['user'],
             preflightLogic,
             ['isCloudOrDev'],
+            replayLandingPageLogic,
+            ['replayLandingPage'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [
             billingLogic,
             ['loadBillingSuccess'],
             teamLogic,
             ['updateCurrentTeam', 'updateCurrentTeamSuccess', 'recordProductIntentOnboardingComplete'],
+            sidePanelStateLogic,
+            ['openSidePanel'],
         ],
     }),
     actions({
@@ -150,7 +109,6 @@ export const onboardingLogic = kea<onboardingLogicType>([
         setAllOnboardingSteps: (allOnboardingSteps: AllOnboardingSteps) => ({ allOnboardingSteps }),
         setStepKey: (stepKey: OnboardingStepKey) => ({ stepKey }),
         setSubscribedDuringOnboarding: (subscribedDuringOnboarding: boolean) => ({ subscribedDuringOnboarding }),
-        setIncludeIntro: (includeIntro: boolean) => ({ includeIntro }),
         setTeamPropertiesForProduct: (productKey: ProductKey) => ({ productKey }),
         setWaitForBilling: (waitForBilling: boolean) => ({ waitForBilling }),
         goToNextStep: (numStepsToAdvance?: number) => ({ numStepsToAdvance }),
@@ -189,12 +147,6 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 setSubscribedDuringOnboarding: (_, { subscribedDuringOnboarding }) => subscribedDuringOnboarding,
             },
         ],
-        includeIntro: [
-            true,
-            {
-                setIncludeIntro: (_, { includeIntro }) => includeIntro,
-            },
-        ],
         waitForBilling: [
             false,
             {
@@ -216,12 +168,13 @@ export const onboardingLogic = kea<onboardingLogicType>([
                     {
                         key: Scene.Onboarding,
                         name:
-                            availableOnboardingProducts[productKey as ProductKey].breadcrumbsName ??
-                            availableOnboardingProducts[productKey as ProductKey].name,
-                        path: availableOnboardingProducts[productKey as ProductKey].url,
+                            availableOnboardingProducts[productKey as keyof typeof availableOnboardingProducts]
+                                ?.breadcrumbsName ??
+                            availableOnboardingProducts[productKey as keyof typeof availableOnboardingProducts]?.name,
+                        path: availableOnboardingProducts[productKey as keyof typeof availableOnboardingProducts]?.url,
                     },
                     {
-                        key: availableOnboardingProducts[productKey as ProductKey].scene,
+                        key: availableOnboardingProducts[productKey as keyof typeof availableOnboardingProducts]?.scene,
                         name: stepKeyToTitle(stepKey),
                         path: urls.onboarding(productKey ?? '', stepKey),
                     },
@@ -229,12 +182,12 @@ export const onboardingLogic = kea<onboardingLogicType>([
             },
         ],
         onCompleteOnboardingRedirectUrl: [
-            (s) => [s.productKey, s.onCompleteOnboardingRedirectUrlOverride],
-            (productKey: string | null, onCompleteOnboardingRedirectUrlOverride) => {
+            (s) => [s.productKey, s.onCompleteOnboardingRedirectUrlOverride, s.replayLandingPage],
+            (productKey: string | null, onCompleteOnboardingRedirectUrlOverride, replayLandingPage) => {
                 if (onCompleteOnboardingRedirectUrlOverride) {
                     return onCompleteOnboardingRedirectUrlOverride
                 }
-                return productKey ? getProductUri(productKey as ProductKey) : urls.default()
+                return productKey ? getProductUri(productKey as ProductKey, replayLandingPage) : urls.default()
             },
         ],
         totalOnboardingSteps: [
@@ -272,16 +225,29 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 if (!isCloudOrDev || !billing?.products || !billingProduct) {
                     return false
                 }
-                const hasAllAddons = billingProduct?.addons?.every(
-                    (addon: BillingProductV2AddonType) => addon.subscribed
-                )
-                return !billingProduct?.subscribed || !hasAllAddons || subscribedDuringOnboarding
+
+                return !billingProduct?.subscribed || subscribedDuringOnboarding
             },
         ],
         shouldShowReverseProxyStep: [
             (s) => [s.productKey],
             (productKey) => {
-                return productKey && [ProductKey.FEATURE_FLAGS].includes(productKey as ProductKey)
+                return (
+                    productKey && [ProductKey.FEATURE_FLAGS, ProductKey.EXPERIMENTS].includes(productKey as ProductKey)
+                )
+            },
+        ],
+        shouldShowDataWarehouseStep: [
+            (s) => [s.productKey, s.featureFlags],
+            (productKey, featureFlags) => {
+                const dataWarehouseStepEnabled =
+                    featureFlags[FEATURE_FLAGS.ONBOARDING_DATA_WAREHOUSE_FOR_PRODUCT_ANALYTICS] === 'test'
+
+                if (!dataWarehouseStepEnabled) {
+                    return false
+                }
+
+                return productKey === ProductKey.PRODUCT_ANALYTICS
             },
         ],
         isStepKeyInvalid: [

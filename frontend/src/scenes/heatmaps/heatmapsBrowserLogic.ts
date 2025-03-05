@@ -18,7 +18,7 @@ import { objectsEqual } from 'lib/utils'
 import posthog from 'posthog-js'
 import { RefObject } from 'react'
 
-import { HogQLQuery, NodeKind } from '~/queries/schema'
+import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 
 import type { heatmapsBrowserLogicType } from './heatmapsBrowserLogicType'
@@ -31,6 +31,9 @@ export interface IFrameBanner {
     level: LemonBannerProps['type']
     message: string | JSX.Element
 }
+
+// team id is always available on window
+const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
 
 export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
     path(['scenes', 'heatmaps', 'heatmapsBrowserLogic']),
@@ -172,7 +175,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         ],
         browserUrl: [
             null as string | null,
-            { persist: true },
+            { persist: true, prefix: `${teamId}__` },
             {
                 setBrowserUrl: (_, { url }) => url,
             },

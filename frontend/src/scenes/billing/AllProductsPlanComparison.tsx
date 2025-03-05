@@ -28,7 +28,7 @@ export function PlanIcon({
     timeDenominator?: string
 }): JSX.Element {
     return (
-        <div className="flex items-center text-xs text-muted">
+        <div className="flex items-center text-xs text-secondary">
             {!feature ? (
                 <>
                     <IconX className={clsx('text-danger mx-4', className)} />
@@ -258,7 +258,7 @@ export const AllProductsPlanComparison = ({
                                 <td key={`${plan.plan_key}-basePrice`} className="px-4 py-2 text-sm font-medium">
                                     {getPlanDescription(plan)}
                                     {isProrated && (
-                                        <p className="text-xxs text-muted font-normal italic mt-2">
+                                        <p className="text-xxs text-secondary font-normal italic mt-2">
                                             {getProrationMessage(prorationAmount, plan.unit_amount_usd)}
                                         </p>
                                     )}
@@ -294,7 +294,7 @@ export const AllProductsPlanComparison = ({
                                     ?.features?.map((feature) => (
                                         // Inclusion product feature row
                                         <tr key={`tr-${feature.key}`} className="border-b">
-                                            <th className="text-muted py-3 pl-8 font-medium text-left">
+                                            <th className="text-secondary py-3 pl-8 font-medium text-left">
                                                 <Tooltip title={feature.description}>
                                                     <span>{feature.name}</span>
                                                 </Tooltip>
@@ -331,6 +331,7 @@ export const AllProductsPlanComparison = ({
             <h3>Product features breakdown:</h3>
             <LemonCollapse
                 defaultActiveKey={product.type}
+                size="large"
                 panels={
                     sortedProducts.map((currentProduct) => ({
                         header: (
@@ -341,7 +342,7 @@ export const AllProductsPlanComparison = ({
                                 </span>
                             </span>
                         ),
-                        className: 'bg-bg-3000',
+                        className: 'bg-primary',
                         key: currentProduct.type,
                         content: (
                             <table className="w-full table-fixed max-w-[920px]" ref={planComparisonRef}>
@@ -380,7 +381,7 @@ export const AllProductsPlanComparison = ({
                                                         : 'border-b'
                                                 )}
                                             >
-                                                <th className="text-muted py-3 pl-8 font-medium text-left">
+                                                <th className="text-secondary py-3 pl-8 font-medium text-left">
                                                     <Tooltip title={feature.description}>
                                                         <div
                                                             className={
@@ -453,7 +454,7 @@ export const AllProductsPlanComparison = ({
                                                                     </LemonTag>
                                                                 </Tooltip>
                                                             </p>
-                                                            <p className="ml-0 text-xs text-muted mt-1">
+                                                            <p className="ml-0 text-xs text-secondary mt-1">
                                                                 Priced per {addon.unit}
                                                             </p>
                                                         </th>
@@ -465,7 +466,7 @@ export const AllProductsPlanComparison = ({
                                                                         key={`${addon.name}-free-tiers-td`}
                                                                         className="p-4"
                                                                     >
-                                                                        <p className="text-muted text-xs">
+                                                                        <p className="text-secondary text-xs">
                                                                             Not available on this plan.
                                                                         </p>
                                                                     </td>
@@ -519,7 +520,7 @@ export const AllProductsPlanComparisonModal = ({
     return (
         <LemonModal isOpen={modalOpen} onClose={onClose}>
             <div className="PlanComparisonModal flex w-full h-full justify-center p-6">
-                <div className="text-left bg-bg-light rounded relative w-full">
+                <div className="text-left bg-surface-primary rounded relative w-full">
                     {title ? <h2>{title}</h2> : <h2>{product.name} plans</h2>}
                     <AllProductsPlanComparison product={product} includeAddons={includeAddons} />
                 </div>

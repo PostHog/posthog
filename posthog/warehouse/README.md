@@ -19,3 +19,5 @@ If the issue persists, install from source without cache again
 ```
 pip install --pre --no-binary :all: pymssql --no-cache
 ```
+
+See https://github.com/pymssql/pymssql/issues/769 for a full set of debugging opportunities.

@@ -6,7 +6,7 @@ from posthog.models.person_overrides.sql import (
 )
 
 operations = [
-    run_sql_with_exceptions(PERSON_OVERRIDES_CREATE_TABLE_SQL),
+    run_sql_with_exceptions(PERSON_OVERRIDES_CREATE_TABLE_SQL()),
     run_sql_with_exceptions(KAFKA_PERSON_OVERRIDES_TABLE_SQL),
     run_sql_with_exceptions(PERSON_OVERRIDES_CREATE_MATERIALIZED_VIEW_SQL),
 ]

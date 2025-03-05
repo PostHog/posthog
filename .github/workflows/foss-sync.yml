@@ -10,7 +10,7 @@ jobs:
     repo-sync:
         name: Sync posthog-foss with posthog
         if: github.repository == 'PostHog/posthog'
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         steps:
             - name: Sync repositories 1 to 1 - master branch
               uses: PostHog/git-sync@v3

@@ -2,7 +2,7 @@ import json
 from typing import TYPE_CHECKING, Optional
 
 from django.core.cache import cache
-from sentry_sdk import capture_exception
+from posthog.exceptions_capture import capture_exception
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -38,6 +38,8 @@ def get_team_in_cache(token: str) -> Optional["Team"]:
     if team_data:
         try:
             parsed_data = json.loads(team_data)
+            if "project_id" not in parsed_data:
+                parsed_data["project_id"] = parsed_data["id"]
             return Team(**parsed_data)
         except Exception as e:
             capture_exception(e)

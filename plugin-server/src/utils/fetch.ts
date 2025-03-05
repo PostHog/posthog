@@ -9,6 +9,8 @@ import net from 'node:net'
 import fetch, { type RequestInfo, type RequestInit, type Response, FetchError, Request } from 'node-fetch'
 import { URL } from 'url'
 
+export type { Response }
+
 import { runInSpan } from '../sentry'
 import { isProdEnv } from './env-utils'
 

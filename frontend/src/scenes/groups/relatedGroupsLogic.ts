@@ -26,7 +26,7 @@ export const relatedGroupsLogic = kea<relatedGroupsLogicType>([
             [] as ActorType[],
             {
                 loadRelatedActors: async () => {
-                    const url = `api/projects/${values.currentTeamId}/groups/related?${toParams({
+                    const url = `api/environments/${values.currentTeamId}/groups/related?${toParams({
                         group_type_index: props.groupTypeIndex,
                         id: props.id,
                     })}`

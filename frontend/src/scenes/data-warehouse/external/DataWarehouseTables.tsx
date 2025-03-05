@@ -13,7 +13,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
-import { DatabaseSchemaTable } from '~/queries/schema'
+import { DatabaseSchemaTable } from '~/queries/schema/schema-general'
 import { ExternalDataSourceType, InsightLogicProps } from '~/types'
 
 import { SOURCE_DETAILS } from '../new/sourceWizardLogic'
@@ -54,9 +54,10 @@ export const DataWarehouseTables = ({ insightProps }: DataWarehousetTablesProps)
 
 interface DatabaseTableTreeProps {
     inline?: boolean
+    collapsible?: boolean
 }
 
-export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): JSX.Element => {
+export const DatabaseTableTreeWithItems = ({ inline, collapsible = true }: DatabaseTableTreeProps): JSX.Element => {
     const {
         dataWarehouseTablesBySourceType,
         posthogTables,
@@ -186,7 +187,7 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
                             })),
                         })),
                     })),
-                    emptyLabel: <span className="text-muted">No tables found</span>,
+                    emptyLabel: <span className="text-secondary">No tables found</span>,
                     isLoading: databaseLoading,
                 },
                 {
@@ -215,7 +216,7 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
                             icon: <IconDatabase />,
                         })),
                     })),
-                    emptyLabel: <span className="text-muted">No views found</span>,
+                    emptyLabel: <span className="text-secondary">No views found</span>,
                     isLoading: databaseLoading || dataWarehouseSavedQueriesLoading,
                 },
                 ...(featureFlags[FEATURE_FLAGS.DATA_MODELING]
@@ -232,7 +233,7 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
                                       icon: <IconDatabase />,
                                   })),
                               })),
-                              emptyLabel: <span className="text-muted">No materialized views found</span>,
+                              emptyLabel: <span className="text-secondary">No materialized views found</span>,
                               isLoading: databaseLoading || dataWarehouseSavedQueriesLoading,
                           },
                       ]
@@ -252,7 +253,7 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
                         icon: <IconDatabase />,
                     })),
                 })),
-                emptyLabel: <span className="text-muted">No tables found</span>,
+                emptyLabel: <span className="text-secondary">No tables found</span>,
                 isLoading: databaseLoading,
             },
             {
@@ -269,7 +270,7 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
                     table: table,
                     icon: <IconBrackets />,
                 })),
-                emptyLabel: <span className="text-muted">No views found</span>,
+                emptyLabel: <span className="text-secondary">No views found</span>,
                 isLoading: databaseLoading || dataWarehouseSavedQueriesLoading,
             },
             ...(featureFlags[FEATURE_FLAGS.DATA_MODELING]
@@ -280,7 +281,7 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
                               table: table,
                               icon: <IconBrackets />,
                           })),
-                          emptyLabel: <span className="text-muted">No materialized views found</span>,
+                          emptyLabel: <span className="text-secondary">No materialized views found</span>,
                           isLoading: databaseLoading || dataWarehouseSavedQueriesLoading,
                       },
                   ]
@@ -293,13 +294,13 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
     return (
         <div
             className={clsx(
-                `bg-bg-light space-y-px rounded border p-2 overflow-y-auto`,
+                `bg-surface-primary rounded space-y-px border p-2 overflow-y-auto`,
                 !collapsed ? 'min-w-80 flex-1' : ''
             )}
         >
             {collapsed ? (
                 <LemonButton icon={<IconDatabase />} onClick={() => setCollapsed(false)} />
-            ) : (
+            ) : collapsible ? (
                 <>
                     <LemonButton
                         size="xsmall"
@@ -308,8 +309,13 @@ export const DatabaseTableTreeWithItems = ({ inline }: DatabaseTableTreeProps): 
                         icon={<IconDatabase />}
                         className="font-normal"
                     >
-                        <span className="uppercase text-muted-alt tracking-wider">Sources</span>
+                        <span className="uppercase text-secondary tracking-wider">Sources</span>
                     </LemonButton>
+                    <DatabaseTableTree onSelectRow={selectRow} items={treeItems()} selectedRow={selectedRow} />
+                </>
+            ) : (
+                <>
+                    <span className="text-secondary tracking-wider font-normal">Sources</span>
                     <DatabaseTableTree onSelectRow={selectRow} items={treeItems()} selectedRow={selectedRow} />
                 </>
             )}

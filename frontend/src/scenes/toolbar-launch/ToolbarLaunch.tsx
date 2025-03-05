@@ -1,9 +1,10 @@
 import './ToolbarLaunch.scss'
 
-import { IconFlag, IconSearch } from '@posthog/icons'
+import { IconFlag, IconPieChart, IconSearch, IconTestTube } from '@posthog/icons'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { PageHeader } from 'lib/components/PageHeader'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconGroupedEvents, IconHeatmap } from 'lib/lemon-ui/icons'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { Link } from 'lib/lemon-ui/Link'
@@ -14,7 +15,9 @@ export const scene: SceneExport = {
     component: ToolbarLaunch,
 }
 
-function ToolbarLaunch(): JSX.Element {
+export function ToolbarLaunch(): JSX.Element {
+    const isExperimentsEnabled = useFeatureFlag('WEB_EXPERIMENTS')
+
     const features: FeatureHighlightProps[] = [
         {
             title: 'Heatmaps',
@@ -36,6 +39,20 @@ function ToolbarLaunch(): JSX.Element {
             caption: 'Inspect clickable elements on your website.',
             icon: <IconSearch />,
         },
+        {
+            title: 'Web Vitals',
+            caption: "Measure your website's performance.",
+            icon: <IconPieChart />,
+        },
+        ...(isExperimentsEnabled
+            ? [
+                  {
+                      title: 'Experiments',
+                      caption: 'Run experiments and A/B test your website.',
+                      icon: <IconTestTube />,
+                  },
+              ]
+            : []),
     ]
 
     return (
@@ -48,11 +65,12 @@ function ToolbarLaunch(): JSX.Element {
             </h2>
             <p>
                 Click on the URL to launch the toolbar.{' '}
-                {window.location.host.includes('.posthog.com') && 'Remember to disable your adblocker.'}
+                {window.location.host.includes('.posthog.com') && <span>Remember to disable your adblocker.</span>}
             </p>
+
             <AuthorizedUrlList type={AuthorizedUrlListType.TOOLBAR_URLS} addText="Add authorized URL" />
 
-            <div className="footer-caption text-muted mt-4 text-center">
+            <div className="footer-caption text-secondary mt-4 text-center">
                 Make sure you're using the <Link to={`${urls.settings('project')}#snippet`}>HTML snippet</Link> or the
                 latest <code>posthog-js</code> version.
             </div>
@@ -75,9 +93,9 @@ interface FeatureHighlightProps {
 function FeatureHighlight({ title, caption, icon }: FeatureHighlightProps): JSX.Element {
     return (
         <div className="fh-item flex items-center mt-4">
-            <div className="fh-icon mr-4 text-muted-alt">{icon}</div>
+            <div className="fh-icon mr-4 text-secondary">{icon}</div>
             <div>
-                <h4 className="mb-0 text-muted-alt">{title}</h4>
+                <h4 className="mb-0 text-secondary">{title}</h4>
                 <div className="caption">{caption}</div>
             </div>
         </div>

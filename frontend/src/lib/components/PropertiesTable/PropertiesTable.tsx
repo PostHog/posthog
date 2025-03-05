@@ -166,7 +166,7 @@ function ValueDisplay({
                             }
                         >
                             <LemonTag
-                                className="font-mono uppercase ml-1"
+                                className="ml-1 font-mono uppercase"
                                 type={isTypeMismatched ? 'danger' : 'muted'}
                                 icon={isTypeMismatched ? <IconWarning /> : undefined}
                             >
@@ -222,8 +222,8 @@ export function PropertiesTable({
     parent,
 }: PropertiesTableType): JSX.Element {
     const [searchTerm, setSearchTerm] = useState('')
-    const { hidePostHogPropertiesInTable } = useValues(userPreferencesLogic)
-    const { setHidePostHogPropertiesInTable } = useActions(userPreferencesLogic)
+    const { hidePostHogPropertiesInTable, hideNullValues } = useValues(userPreferencesLogic)
+    const { setHidePostHogPropertiesInTable, setHideNullValues } = useActions(userPreferencesLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
 
     const objectProperties = useMemo(() => {
@@ -241,6 +241,7 @@ export function PropertiesTable({
                     [PropertyDefinitionType.Group]: TaxonomicFilterGroupType.GroupsPrefix,
                     [PropertyDefinitionType.Session]: TaxonomicFilterGroupType.SessionProperties,
                     [PropertyDefinitionType.LogEntry]: TaxonomicFilterGroupType.LogEntries,
+                    [PropertyDefinitionType.Meta]: TaxonomicFilterGroupType.Metadata,
                 }
 
                 const propertyType = propertyTypeMap[type] || TaxonomicFilterGroupType.EventProperties
@@ -282,11 +283,18 @@ export function PropertiesTable({
             })
         }
 
-        if (filterable && hidePostHogPropertiesInTable) {
-            entries = entries.filter(([key]) => {
-                const isPostHogProperty = key.startsWith('$') || PROPERTY_KEYS.includes(key)
-                const isNonDollarPostHogProperty = isCloudOrDev && CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS.includes(key)
-                return !isPostHogProperty && !isNonDollarPostHogProperty
+        if (filterable) {
+            entries = entries.filter(([key, value]) => {
+                if (hideNullValues && value === null) {
+                    return false
+                }
+                if (hidePostHogPropertiesInTable) {
+                    const isPostHogProperty = key.startsWith('$') || PROPERTY_KEYS.includes(key)
+                    const isNonDollarPostHogProperty =
+                        isCloudOrDev && CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS.includes(key)
+                    return !isPostHogProperty && !isNonDollarPostHogProperty
+                }
+                return true
             })
         }
 
@@ -298,23 +306,50 @@ export function PropertiesTable({
             })
         }
         return entries
-    }, [properties, sortProperties, searchTerm, hidePostHogPropertiesInTable])
+    }, [properties, sortProperties, searchTerm, hidePostHogPropertiesInTable, hideNullValues])
 
     if (Array.isArray(properties)) {
         return (
             <div>
                 {properties.length ? (
-                    properties.map((item, index) => (
-                        <PropertiesTable
-                            key={index}
-                            type={type}
-                            properties={item}
-                            nestingLevel={nestingLevel + 1}
-                            useDetectedPropertyType={
-                                ['$set', '$set_once'].some((s) => s === rootKey) ? false : useDetectedPropertyType
-                            }
-                        />
-                    ))
+                    <LemonTable
+                        columns={[
+                            {
+                                key: 'key',
+                                title: 'Index',
+                                render: function Key(_, item: any): JSX.Element {
+                                    return <div className="properties-table-key">{item[0]}</div>
+                                },
+                            },
+                            {
+                                key: 'value',
+                                title: (
+                                    <div className="flex justify-between w-full">
+                                        <div>Value</div>
+                                        <LemonTag type="muted" className="font-mono uppercase">
+                                            array
+                                        </LemonTag>
+                                    </div>
+                                ),
+                                fullWidth: true,
+                                render: function Value(_, item: any): JSX.Element {
+                                    return (
+                                        <PropertiesTable
+                                            type={type}
+                                            properties={item[1]}
+                                            nestingLevel={nestingLevel + 1}
+                                            useDetectedPropertyType={
+                                                ['$set', '$set_once'].some((s) => s === rootKey)
+                                                    ? false
+                                                    : useDetectedPropertyType
+                                            }
+                                        />
+                                    )
+                                },
+                            },
+                        ]}
+                        dataSource={properties.map((item, index) => [index, item])}
+                    />
                 ) : (
                     <LemonTag type="muted" className="font-mono uppercase">
                         Array (empty)
@@ -329,6 +364,8 @@ export function PropertiesTable({
             {
                 key: 'key',
                 title: 'Key',
+                // Minimize the width of the key column when nested
+                style: nestingLevel > 0 ? { width: '0px' } : undefined,
                 render: function Key(_, item: any): JSX.Element {
                     return (
                         <div className="properties-table-key">
@@ -423,7 +460,7 @@ export function PropertiesTable({
         return (
             <>
                 {(searchable || filterable) && (
-                    <div className="flex justify-between items-center gap-2 mb-2">
+                    <div className="flex items-center justify-between gap-2 mb-2">
                         <span className="flex justify-between gap-2">
                             {searchable && (
                                 <LemonInput
@@ -431,17 +468,26 @@ export function PropertiesTable({
                                     placeholder="Search property keys and values"
                                     value={searchTerm || ''}
                                     onChange={setSearchTerm}
-                                    className="max-w-full w-64"
+                                    className="w-64 max-w-full"
                                 />
                             )}
 
                             {filterable && (
-                                <LemonCheckbox
-                                    checked={hidePostHogPropertiesInTable}
-                                    label="Hide PostHog properties"
-                                    bordered
-                                    onChange={setHidePostHogPropertiesInTable}
-                                />
+                                <>
+                                    <LemonCheckbox
+                                        checked={hidePostHogPropertiesInTable}
+                                        label="Hide PostHog properties"
+                                        bordered
+                                        onChange={setHidePostHogPropertiesInTable}
+                                    />
+
+                                    <LemonCheckbox
+                                        checked={hideNullValues}
+                                        label="Hide null values"
+                                        bordered
+                                        onChange={setHideNullValues}
+                                    />
+                                </>
                             )}
                         </span>
 
@@ -466,6 +512,7 @@ export function PropertiesTable({
                                         onClick={() => {
                                             setSearchTerm('')
                                             setHidePostHogPropertiesInTable(false)
+                                            setHideNullValues(false)
                                         }}
                                     >
                                         Clear filters

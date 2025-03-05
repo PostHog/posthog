@@ -6,7 +6,7 @@ from posthog.schema import (
     ActionsNode,
     BreakdownFilter,
     DashboardFilter,
-    InsightDateRange,
+    DateRange,
     EventPropertyFilter,
     EventsNode,
     FilterLogicalOperator,
@@ -40,7 +40,7 @@ class TestTrendsDashboardFilters(BaseTest):
     ) -> TrendsQueryRunner:
         query_series: list[EventsNode | ActionsNode] = [EventsNode(event="$pageview")] if series is None else series
         query = TrendsQuery(
-            dateRange=InsightDateRange(date_from=date_from, date_to=date_to, explicitDate=explicit_date),
+            dateRange=DateRange(date_from=date_from, date_to=date_to, explicitDate=explicit_date),
             interval=interval,
             series=query_series,
             trendsFilter=trends_filters,
@@ -291,6 +291,39 @@ class TestTrendsDashboardFilters(BaseTest):
         query_runner.apply_dashboard_filters(DashboardFilter())
 
         assert query_runner.query.breakdownFilter == BreakdownFilter(breakdown="abc", breakdown_limit=50)
+
+    def test_dashboard_breakdown_filter_updates_breakdown_filter(self):
+        query_runner = self._create_query_runner(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            None,
+            breakdown=BreakdownFilter(breakdown="abc", breakdown_limit=5),
+        )
+
+        assert query_runner.query.dateRange is not None
+        assert query_runner.query.dateRange.date_from == "2020-01-09"
+        assert query_runner.query.dateRange.date_to == "2020-01-20"
+        assert query_runner.query.properties is None
+        assert query_runner.query.breakdownFilter == BreakdownFilter(breakdown="abc", breakdown_limit=5)
+        assert query_runner.query.trendsFilter is None
+
+        query_runner.apply_dashboard_filters(
+            DashboardFilter(
+                breakdown_filter=BreakdownFilter(
+                    breakdown="$feature/my-fabulous-feature", breakdown_type="event", breakdown_limit=10
+                )
+            )
+        )
+
+        assert query_runner.query.dateRange is not None
+        assert query_runner.query.dateRange.date_from == "2020-01-09"
+        assert query_runner.query.dateRange.date_to == "2020-01-20"
+        assert query_runner.query.properties is None
+        assert query_runner.query.breakdownFilter == BreakdownFilter(
+            breakdown="$feature/my-fabulous-feature", breakdown_type="event", breakdown_limit=10
+        )
+        assert query_runner.query.trendsFilter is None
 
     def test_compare_is_removed_for_all_time_range(self):
         query_runner = self._create_query_runner(

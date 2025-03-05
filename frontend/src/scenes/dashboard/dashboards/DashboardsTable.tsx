@@ -1,6 +1,7 @@
 import { IconHome, IconLock, IconPin, IconPinFilled, IconShare } from '@posthog/icons'
 import { LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { DashboardPrivilegeLevel } from 'lib/constants'
@@ -23,7 +24,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { dashboardsModel, nameCompareFunction } from '~/models/dashboardsModel'
-import { AvailableFeature, DashboardBasicType, DashboardMode, DashboardType } from '~/types'
+import { AccessControlResourceType, AvailableFeature, DashboardBasicType, DashboardMode, DashboardType } from '~/types'
 
 import { DASHBOARD_CANNOT_EDIT_MESSAGE } from '../DashboardHeader'
 
@@ -96,7 +97,7 @@ export function DashboardsTable({
                                 )}
                                 {!canEditDashboard && (
                                     <Tooltip title={DASHBOARD_CANNOT_EDIT_MESSAGE}>
-                                        <IconLock className="ml-1 text-base text-muted" />
+                                        <IconLock className="ml-1 text-base text-secondary" />
                                     </Tooltip>
                                 )}
                                 {isPrimary && (
@@ -131,7 +132,7 @@ export function DashboardsTable({
             ? {}
             : {
                   width: 0,
-                  render: function RenderActions(_, { id, name }: DashboardType) {
+                  render: function RenderActions(_, { id, name, user_access_level }: DashboardType) {
                       return (
                           <More
                               overlay={
@@ -149,7 +150,11 @@ export function DashboardsTable({
                                       >
                                           View
                                       </LemonButton>
-                                      <LemonButton
+
+                                      <AccessControlledLemonButton
+                                          userAccessLevel={user_access_level}
+                                          minAccessLevel="editor"
+                                          resourceType={AccessControlResourceType.Dashboard}
                                           to={urls.dashboard(id)}
                                           onClick={() => {
                                               dashboardLogic({ id }).mount()
@@ -161,7 +166,8 @@ export function DashboardsTable({
                                           fullWidth
                                       >
                                           Edit
-                                      </LemonButton>
+                                      </AccessControlledLemonButton>
+
                                       <LemonButton
                                           onClick={() => {
                                               showDuplicateDashboardModal(id, name)
@@ -170,9 +176,11 @@ export function DashboardsTable({
                                       >
                                           Duplicate
                                       </LemonButton>
+
                                       <LemonDivider />
+
                                       <LemonRow icon={<IconHome className="text-warning" />} fullWidth status="warning">
-                                          <span className="text-muted">
+                                          <span className="text-secondary">
                                               Change the default dashboard
                                               <br />
                                               from the <Link to={urls.projectHomepage()}>project home page</Link>.
@@ -180,7 +188,11 @@ export function DashboardsTable({
                                       </LemonRow>
 
                                       <LemonDivider />
-                                      <LemonButton
+
+                                      <AccessControlledLemonButton
+                                          userAccessLevel={user_access_level}
+                                          minAccessLevel="editor"
+                                          resourceType={AccessControlResourceType.Dashboard}
                                           onClick={() => {
                                               showDeleteDashboardModal(id)
                                           }}
@@ -188,7 +200,7 @@ export function DashboardsTable({
                                           status="danger"
                                       >
                                           Delete dashboard
-                                      </LemonButton>
+                                      </AccessControlledLemonButton>
                                   </>
                               }
                           />

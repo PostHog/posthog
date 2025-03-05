@@ -79,8 +79,8 @@ class ExternalDataSource(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
         from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 
         for schema in (
-            ExternalDataSchema.objects.exclude(deleted=True)
-            .filter(team_id=self.team.pk, source_id=self.id, should_sync=True)
+            ExternalDataSchema.objects.filter(team_id=self.team.pk, source_id=self.id, should_sync=True)
+            .exclude(deleted=True)
             .all()
         ):
             try:

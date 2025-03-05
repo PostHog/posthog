@@ -18,11 +18,11 @@ export type TestKafkaObserver = {
 
 export const createKafkaObserver = async (hub: Hub, topics: string[]): Promise<TestKafkaObserver> => {
     const consumer = await createKafkaConsumer({
-        ...createRdConnectionConfigFromEnvVars(hub),
+        ...createRdConnectionConfigFromEnvVars(hub, 'consumer'),
         'group.id': `test-group-${new UUIDT().toString()}`,
     })
 
-    const adminClient = createAdminClient(createRdConnectionConfigFromEnvVars(hub))
+    const adminClient = createAdminClient(createRdConnectionConfigFromEnvVars(hub, 'consumer'))
     await Promise.all(topics.map((topic) => ensureTopicExists(adminClient, topic, 1000)))
     adminClient.disconnect()
 

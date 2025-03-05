@@ -2,6 +2,7 @@ import { LemonSelect, Link } from '@posthog/lemon-ui'
 import {
     IconAndroidOS,
     IconAppleIOS,
+    IconFlutter,
     IconGolang,
     IconJavascript,
     IconNodeJS,
@@ -11,10 +12,11 @@ import {
 } from 'lib/lemon-ui/icons'
 import { useState } from 'react'
 
-import { Experiment, MultivariateFlagVariant } from '~/types'
+import { Experiment, MultivariateFlagVariant, SDKKey } from '~/types'
 
 import {
     AndroidSnippet,
+    FlutterSnippet,
     GolangSnippet,
     IOSSnippet,
     JSSnippet,
@@ -39,9 +41,10 @@ export enum LibraryType {
     Server = 'Server',
 }
 
-const OPTIONS = [
+export const OPTIONS = [
     {
         value: 'JavaScript',
+        key: SDKKey.JS_WEB,
         documentationLink: `${DOC_BASE_URL}libraries/js${UTM_TAGS}${FF_ANCHOR}`,
         Icon: IconJavascript,
         Snippet: JSSnippet,
@@ -49,6 +52,7 @@ const OPTIONS = [
     },
     {
         value: 'Android',
+        key: SDKKey.ANDROID,
         documentationLink: `${DOC_BASE_URL}libraries/android${UTM_TAGS}${FF_ANCHOR}`,
         Icon: IconAndroidOS,
         Snippet: AndroidSnippet,
@@ -56,13 +60,23 @@ const OPTIONS = [
     },
     {
         value: 'Go',
+        key: SDKKey.GO,
         documentationLink: `${DOC_BASE_URL}libraries/go${UTM_TAGS}${FF_ANCHOR}`,
         Icon: IconGolang,
         Snippet: GolangSnippet,
         type: LibraryType.Server,
     },
     {
+        value: 'Flutter',
+        key: SDKKey.FLUTTER,
+        documentationLink: `${DOC_BASE_URL}libraries/flutter${UTM_TAGS}${FF_ANCHOR}`,
+        Icon: IconFlutter,
+        Snippet: FlutterSnippet,
+        type: LibraryType.Client,
+    },
+    {
         value: 'iOS',
+        key: SDKKey.IOS,
         documentationLink: `${DOC_BASE_URL}libraries/ios${UTM_TAGS}${FF_ANCHOR}`,
         Icon: IconAppleIOS,
         Snippet: IOSSnippet,
@@ -70,6 +84,7 @@ const OPTIONS = [
     },
     {
         value: 'Node.js',
+        key: SDKKey.NODE_JS,
         documentationLink: `${DOC_BASE_URL}libraries/node${UTM_TAGS}${FF_ANCHOR}`,
         Icon: IconNodeJS,
         Snippet: NodeJSSnippet,
@@ -77,6 +92,7 @@ const OPTIONS = [
     },
     {
         value: 'PHP',
+        key: SDKKey.PHP,
         documentationLink: `${DOC_BASE_URL}libraries/php${UTM_TAGS}${FF_ANCHOR}`,
         Icon: IconPHP,
         Snippet: PHPSnippet,
@@ -84,6 +100,7 @@ const OPTIONS = [
     },
     {
         value: 'Python',
+        key: SDKKey.PYTHON,
         documentationLink: `${DOC_BASE_URL}libraries/python${UTM_TAGS}${FF_ANCHOR}`,
         Icon: IconPython,
         Snippet: PythonSnippet,
@@ -91,13 +108,15 @@ const OPTIONS = [
     },
     {
         value: 'React',
+        key: SDKKey.REACT,
         documentationLink: `${DOC_BASE_URL}libraries/react${UTM_TAGS}${FF_ANCHOR}`,
         Icon: IconJavascript,
         Snippet: ReactSnippet,
         type: LibraryType.Client,
     },
     {
-        value: 'React Native',
+        value: 'ReactNative',
+        key: SDKKey.REACT_NATIVE,
         documentationLink: `${DOC_BASE_URL}libraries/react-native${UTM_TAGS}${FF_ANCHOR}`,
         Icon: IconJavascript,
         Snippet: RNSnippet,
@@ -105,6 +124,7 @@ const OPTIONS = [
     },
     {
         value: 'Ruby',
+        key: SDKKey.RUBY,
         documentationLink: `${DOC_BASE_URL}libraries/ruby${UTM_TAGS}${FF_ANCHOR}`,
         Icon: IconRuby,
         Snippet: RubySnippet,
@@ -172,9 +192,9 @@ export function ExperimentImplementationDetails({ experiment }: ExperimentImplem
     }
 
     return (
-        <div>
+        <div className="mb-4">
             <h2 className="font-semibold text-lg mb-2">Implementation</h2>
-            <div className="border rounded bg-bg-light">
+            <div className="border rounded bg-surface-primary">
                 <div className="p-6 space-y-4">
                     <div className="flex justify-between">
                         <div className="flex items-center">

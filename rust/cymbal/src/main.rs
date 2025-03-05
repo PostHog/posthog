@@ -1,18 +1,16 @@
-use std::{collections::HashMap, future::ready, sync::Arc};
+use std::{future::ready, sync::Arc};
 
 use axum::{routing::get, Router};
-use common_kafka::kafka_consumer::RecvErr;
+use common_kafka::{kafka_consumer::RecvErr, kafka_producer::KafkaProduceError};
 use common_metrics::{serve, setup_metrics_routes};
 use common_types::ClickHouseEvent;
 use cymbal::{
     app_context::AppContext,
     config::Config,
-    error::Error,
-    fingerprinting,
-    metric_consts::{ERRORS, EVENT_RECEIVED, MAIN_LOOP_TIME, STACK_PROCESSED},
-    types::{ErrProps, Stacktrace},
+    handle_events,
+    metric_consts::{DROPPED_EVENTS, ERRORS, EVENT_PROCESSED, EVENT_RECEIVED, MAIN_LOOP_TIME},
 };
-use envconfig::Envconfig;
+use rdkafka::types::RDKafkaErrorCode;
 use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
@@ -51,114 +49,154 @@ fn start_health_liveness_server(config: &Config, context: Arc<AppContext>) -> Jo
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Error> {
+async fn main() {
     setup_tracing();
     info!("Starting up...");
 
-    let config = Config::init_from_env()?;
-    let context = Arc::new(AppContext::new(&config).await?);
+    let config = Config::init_with_defaults().unwrap();
+
+    match &config.posthog_api_key {
+        Some(key) => {
+            let ph_config = posthog_rs::ClientOptionsBuilder::default()
+                .api_key(key.clone())
+                .api_endpoint(config.posthog_endpoint.clone())
+                .build()
+                .unwrap();
+            posthog_rs::init_global(ph_config).await.unwrap();
+            info!("Posthog client initialized");
+        }
+        None => {
+            posthog_rs::disable_global();
+            warn!("Posthog client disabled");
+        }
+    }
+
+    let context = Arc::new(AppContext::new(&config).await.unwrap());
 
     start_health_liveness_server(&config, context.clone());
+
+    let batch_wait_time = std::time::Duration::from_secs(config.max_event_batch_wait_seconds);
+    let batch_size = config.max_events_per_batch;
 
     loop {
         let whole_loop = common_metrics::timing_guard(MAIN_LOOP_TIME, &[]);
         context.worker_liveness.report_healthy().await;
         // Just grab the event as a serde_json::Value and immediately drop it,
         // we can work out a real type for it later (once we're deployed etc)
-        let (event, offset): (ClickHouseEvent, _) = match context.kafka_consumer.json_recv().await {
-            Ok(r) => r,
-            Err(RecvErr::Kafka(e)) => {
-                return Err(e.into()); // Just die if we recieve a Kafka error
-            }
-            Err(err) => {
-                // If we failed to parse the message, or it was empty, just log and continue, our
-                // consumer has already stored the offset for us.
-                metrics::counter!(ERRORS, "cause" => "recv_err").increment(1);
-                error!("Error receiving message: {:?}", err);
-                continue;
-            }
-        };
-        metrics::counter!(EVENT_RECEIVED).increment(1);
+        let received: Vec<Result<(ClickHouseEvent, _), _>> = context
+            .kafka_consumer
+            .json_recv_batch(batch_size, batch_wait_time)
+            .await;
 
-        offset.store().unwrap();
+        let mut transactional_producer = context.transactional_producer.lock().await;
 
-        if event.event != "$exception" {
-            warn!("event of type {}", event.event);
-            continue;
-        }
-
-        let Some(properties) = &event.properties else {
-            metrics::counter!(ERRORS, "cause" => "no_properties").increment(1);
-            continue;
-        };
-
-        let properties: ErrProps = match serde_json::from_str(properties) {
-            Ok(r) => r,
-            Err(err) => {
-                metrics::counter!(ERRORS, "cause" => "invalid_exception_properties").increment(1);
-                error!(
-                    "Error parsing properties: {:?} from properties {:?}",
-                    err, properties
-                );
-                continue;
+        let txn = match transactional_producer.begin() {
+            Ok(txn) => txn,
+            Err(e) => {
+                error!("Failed to start kafka transaction, {:?}", e);
+                panic!("Failed to start kafka transaction: {:?}", e);
             }
         };
 
-        let Some(mut exception_list) = properties.exception_list else {
-            // Known issue that $exception_list didn't exist on old clients
-            metrics::counter!(ERRORS, "cause" => "no_exception_list").increment(1);
-            continue;
-        };
+        let mut to_process = Vec::with_capacity(received.len());
+        let mut offsets = Vec::with_capacity(received.len());
 
-        if exception_list.is_empty() {
-            metrics::counter!(ERRORS, "cause" => "no_exception_list").increment(1);
-            continue;
-        }
-
-        for exception in exception_list.iter_mut() {
-            let stack = std::mem::take(&mut exception.stack);
-            let Some(Stacktrace::Raw { frames }) = stack else {
-                continue;
+        for message in received {
+            match message {
+                Ok((event, offset)) => {
+                    to_process.push(event);
+                    offsets.push(offset);
+                }
+                Err(RecvErr::Kafka(e)) => {
+                    panic!("Kafka error: {}", e)
+                }
+                Err(err) => {
+                    // If we failed to parse the message, or it was empty, just log and continue, our
+                    // consumer has already stored the offset for us.
+                    metrics::counter!(ERRORS, "cause" => "recv_err").increment(1);
+                    error!("Error receiving message: {:?}", err);
+                    continue;
+                }
             };
+            metrics::counter!(EVENT_RECEIVED).increment(1);
+        }
 
-            if frames.is_empty() {
-                metrics::counter!(ERRORS, "cause" => "no_frames").increment(1);
-                continue;
+        let processed = match handle_events(context.clone(), to_process).await {
+            Ok(events) => events,
+            Err((index, e)) => {
+                let offset = &offsets[index];
+                error!("Error handling event: {:?}; offset: {:?}", e, offset);
+                panic!("Unhandled error: {:?}; offset: {:?}", e, offset);
             }
+        };
 
-            let team_id = event.team_id;
-            let mut results = Vec::with_capacity(frames.len());
+        metrics::counter!(EVENT_PROCESSED).increment(processed.len() as u64);
 
-            // Cluster the frames by symbol set
-            let mut groups = HashMap::new();
-            for (i, frame) in frames.into_iter().enumerate() {
-                let group = groups
-                    .entry(frame.symbol_set_ref())
-                    .or_insert_with(Vec::new);
-                group.push((i, frame.clone()));
-            }
+        let results = txn
+            .send_keyed_iter_to_kafka(
+                &context.config.events_topic,
+                |ev| Some(ev.uuid.to_string()),
+                &processed,
+            )
+            .await;
 
-            for (_, frames) in groups.into_iter() {
-                context.worker_liveness.report_healthy().await; // TODO - we shouldn't need to do this, but we do for now.
-                for (i, frame) in frames {
-                    let resolved_frame = context
-                        .resolver
-                        .resolve(&frame, team_id, &context.pool, &context.catalog)
-                        .await?;
-                    results.push((i, resolved_frame));
+        for (result, offset) in results.into_iter().zip(offsets.iter()) {
+            match result {
+                Ok(_) => {}
+                Err(KafkaProduceError::KafkaProduceError { error })
+                    if matches!(
+                        error.rdkafka_error_code(),
+                        Some(RDKafkaErrorCode::MessageSizeTooLarge)
+                    ) =>
+                {
+                    // If we got a message too large error, just commit the offset anyway and drop the exception, there's
+                    // nothing else we can do.
+                    error!(
+                        "Dropping exception at offset {:?} due to {:?}",
+                        offset, error
+                    );
+                    metrics::counter!(DROPPED_EVENTS, "cause" => "message_too_large").increment(1);
+                }
+                Err(e) => {
+                    error!(
+                        "Failed to send event to kafka: {:?}, related to offset {:?}",
+                        e, offset
+                    );
+                    panic!(
+                        "Failed to send event to kafka: {:?}, related to offset {:?}",
+                        e, offset
+                    );
                 }
             }
-
-            results.sort_unstable_by_key(|(i, _)| *i);
-
-            exception.stack = Some(Stacktrace::Resolved {
-                frames: results.into_iter().map(|(_, frame)| frame).collect(),
-            });
         }
 
-        let _fingerprint = fingerprinting::generate_fingerprint(&exception_list);
+        let metadata = context.kafka_consumer.metadata();
 
-        metrics::counter!(STACK_PROCESSED).increment(1);
+        // TODO - probably being over-explicit with the error handling here, and could instead
+        // let main return an error and use the question mark operator, but it's good
+        // to be explicit about places we drop things at the top level, so
+        match txn.associate_offsets(offsets, &metadata) {
+            Ok(_) => {}
+            Err(e) => {
+                error!(
+                    "Failed to associate offsets with kafka transaction, {:?}",
+                    e
+                );
+                panic!(
+                    "Failed to associate offsets with kafka transaction, {:?}",
+                    e
+                );
+            }
+        }
+
+        match txn.commit() {
+            Ok(_) => {}
+            Err(e) => {
+                error!("Failed to commit kafka transaction, {:?}", e);
+                panic!("Failed to commit kafka transaction, {:?}", e);
+            }
+        }
+
         whole_loop.label("finished", "true").fin();
     }
 }

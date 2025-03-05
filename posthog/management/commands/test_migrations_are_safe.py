@@ -75,6 +75,7 @@ def validate_migration_sql(sql) -> bool:
             and " NOT VALID" not in operation_sql
             # VALIDATE CONSTRAINT is a different, non-locking operation
             and " VALIDATE CONSTRAINT " not in operation_sql
+            and " DROP CONSTRAINT " not in operation_sql
             and (
                 table_being_altered not in tables_created_so_far
                 or _get_table("ALTER TABLE", operation_sql) not in new_tables  # Ignore for brand-new tables

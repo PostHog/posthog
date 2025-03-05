@@ -299,7 +299,7 @@ class TestSessionsV1(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, APIBaseT
 class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
     def test_all(self):
         results = get_lazy_session_table_properties_v1(None)
-        self.assertEqual(len(results), 19)
+        self.assertEqual(len(results), 22)
         self.assertEqual(
             results[0],
             {
@@ -347,3 +347,28 @@ class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
         results = get_lazy_session_table_properties_v1(None)
         for prop in results:
             get_lazy_session_table_values_v1(key=prop["id"], team=TEAM, search_term=None)
+
+    def test_custom_channel_types(self):
+        results = get_lazy_session_table_values_v1(key="$channel_type", team=self.team, search_term=None)
+        # the custom channel types should be first, there's should be no duplicates, and any custom rules for existing
+        # channel types should be bumped to the top
+        assert results == [
+            ["Cross Network"],
+            ["Paid Search"],
+            ["Paid Social"],
+            ["Paid Video"],
+            ["Paid Shopping"],
+            ["Paid Unknown"],
+            ["Direct"],
+            ["Organic Search"],
+            ["Organic Social"],
+            ["Organic Video"],
+            ["Organic Shopping"],
+            ["Push"],
+            ["SMS"],
+            ["Audio"],
+            ["Email"],
+            ["Referral"],
+            ["Affiliate"],
+            ["Unknown"],
+        ]

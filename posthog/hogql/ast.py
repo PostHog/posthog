@@ -1,3 +1,6 @@
+import dataclasses
+import inspect
+import sys
 from enum import StrEnum
 from typing import Any, Literal, Optional, Union, get_args
 from collections.abc import Sequence
@@ -567,7 +570,8 @@ class PropertyType(Type):
         if self.joined_subquery is not None and self.joined_subquery_field_name is not None:
             return self.joined_subquery.resolve_column_constant_type(self.joined_subquery_field_name, context)
 
-        return self.field_type.resolve_constant_type(context)
+        # PropertyTypes are always nullable
+        return dataclasses.replace(self.field_type.resolve_constant_type(context), nullable=True)
 
 
 @dataclass(kw_only=True)
@@ -798,6 +802,13 @@ class WindowFunction(Expr):
 
 
 @dataclass(kw_only=True)
+class LimitByExpr(Expr):
+    n: Expr
+    exprs: list[Expr]
+    offset_value: Optional[Expr] = None
+
+
+@dataclass(kw_only=True)
 class SelectQuery(Expr):
     # :TRICKY: When adding new fields, make sure they're handled in visitor.py and resolver.py
     type: Optional[SelectQueryType] = None
@@ -814,14 +825,14 @@ class SelectQuery(Expr):
     group_by: Optional[list[Expr]] = None
     order_by: Optional[list[OrderExpr]] = None
     limit: Optional[Expr] = None
-    limit_by: Optional[list[Expr]] = None
+    limit_by: Optional[LimitByExpr] = None
     limit_with_ties: Optional[bool] = None
     offset: Optional[Expr] = None
     settings: Optional[HogQLQuerySettings] = None
     view_name: Optional[str] = None
 
 
-SetOperator = Literal["UNION ALL", "INTERSECT", "EXCEPT"]
+SetOperator = Literal["UNION ALL", "UNION DISTINCT", "INTERSECT", "INTERSECT DISTINCT", "EXCEPT"]
 
 
 @dataclass(kw_only=True)
@@ -839,6 +850,9 @@ class SelectSetQuery(Expr):
     type: Optional[SelectSetQueryType] = None
     initial_select_query: Union[SelectQuery, "SelectSetQuery"]
     subsequent_select_queries: list[SelectSetNode]
+
+    def select_queries(self):
+        return [self.initial_select_query] + [node.select_query for node in self.subsequent_select_queries]
 
     @classmethod
     def create_from_queries(
@@ -881,3 +895,18 @@ class HogQLXTag(AST):
             "kind": self.kind,
             **{a.name: a.value for a in self.attributes},
         }
+
+
+def create_ast_classes_mapping() -> dict[str, AST]:
+    current_module = sys.modules[__name__]
+    ast_classes: dict[str, AST] = {}
+
+    for name, obj in inspect.getmembers(current_module, inspect.isclass):
+        if issubclass(obj, AST) and obj is not AST:
+            ast_classes[name] = obj
+
+    return ast_classes
+
+
+# Call the function to dynamically generate AST_CLASSES
+AST_CLASSES = create_ast_classes_mapping()

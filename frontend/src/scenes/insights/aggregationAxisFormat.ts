@@ -1,7 +1,7 @@
 import { LemonSelectOptionLeaf } from 'lib/lemon-ui/LemonSelect'
 import { humanFriendlyDuration, humanFriendlyNumber, percentage } from 'lib/utils'
 
-import { TrendsFilter } from '~/queries/schema'
+import { TrendsFilter } from '~/queries/schema/schema-general'
 import { ChartDisplayType, TrendsFilterType } from '~/types'
 
 const formats = ['numeric', 'duration', 'duration_ms', 'percentage', 'percentage_scaled'] as const
@@ -40,7 +40,7 @@ export const formatAggregationAxisValue = (
                 formattedValue = humanFriendlyDuration(value)
                 break
             case 'duration_ms':
-                formattedValue = humanFriendlyDuration(value / 1000)
+                formattedValue = humanFriendlyDuration(value / 1000, { secondsFixed: 1 })
                 break
             case 'percentage':
                 formattedValue = percentage(value / 100)

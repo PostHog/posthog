@@ -1,24 +1,37 @@
 use aws_sdk_s3::primitives::ByteStreamError;
+use common_kafka::kafka_producer::KafkaProduceError;
+use common_symbol_data::SymbolDataError;
 use rdkafka::error::KafkaError;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use uuid::Uuid;
 
 #[derive(Debug, Error)]
 pub enum Error {
-    #[error("Serde error: {0}")]
-    SerdeError(#[from] serde_json::Error),
+    #[error(transparent)]
+    UnhandledError(#[from] UnhandledError),
+    #[error(transparent)]
+    ResolutionError(#[from] FrameError),
+}
+
+#[derive(Debug, Error)]
+pub enum UnhandledError {
     #[error("Config error: {0}")]
     ConfigError(#[from] envconfig::Error),
     #[error("Kafka error: {0}")]
     KafkaError(#[from] KafkaError),
+    #[error("Produce error: {0}")]
+    KafkaProduceError(#[from] KafkaProduceError),
     #[error("Sqlx error: {0}")]
     SqlxError(#[from] sqlx::Error),
-    #[error(transparent)]
-    ResolutionError(#[from] ResolutionError),
-    #[error(transparent)]
-    S3Error(#[from] aws_sdk_s3::Error),
+    #[error("S3 error: {0}")]
+    S3Error(#[from] Box<aws_sdk_s3::Error>),
     #[error(transparent)]
     ByteStreamError(#[from] ByteStreamError), // AWS specific bytestream error. Idk
+    #[error("Unhandled serde error: {0}")]
+    SerdeError(#[from] serde_json::Error),
+    #[error("Unhandled error: {0}")]
+    Other(String),
 }
 
 // These are errors that occur during frame resolution. This excludes e.g. network errors,
@@ -28,7 +41,7 @@ pub enum Error {
 // some provider (e.g. we fail to look up a sourcemap), we can return the correct error in the future
 // without hitting their infra again (by storing it in PG).
 #[derive(Debug, Error, Serialize, Deserialize)]
-pub enum ResolutionError {
+pub enum FrameError {
     #[error(transparent)]
     JavaScript(#[from] JsResolveErr),
 }
@@ -73,19 +86,39 @@ pub enum JsResolveErr {
     // For redirect loops or too many redirects
     #[error("Redirect error while fetching: {0}")]
     RedirectError(String),
+    #[error("JSDataError: {0}")]
+    JSDataError(#[from] SymbolDataError),
+    #[error("Invalid Source and Map")]
+    InvalidSourceAndMap,
+    #[error("Invalid data url found at {0}. {1}")]
+    InvalidDataUrl(String, String),
+}
+
+#[derive(Debug, Error)]
+pub enum EventError {
+    #[error("Wrong event type: {0} for event {1}")]
+    WrongEventType(String, Uuid),
+    #[error("No properties: {0}")]
+    NoProperties(Uuid),
+    #[error("Invalid properties: {0}, serde error: {1}")]
+    InvalidProperties(Uuid, String),
+    #[error("No exception list: {0}")]
+    NoExceptionList(Uuid),
+    #[error("Empty exception list: {0}")]
+    EmptyExceptionList(Uuid),
 }
 
 impl From<JsResolveErr> for Error {
     fn from(e: JsResolveErr) -> Self {
-        ResolutionError::JavaScript(e).into()
+        FrameError::JavaScript(e).into()
     }
 }
 
-impl From<sourcemap::Error> for JsResolveErr {
-    fn from(e: sourcemap::Error) -> Self {
-        JsResolveErr::InvalidSourceMap(e.to_string())
-    }
-}
+// impl From<sourcemap::Error> for JsResolveErr {
+//     fn from(e: sourcemap::Error) -> Self {
+//         JsResolveErr::InvalidSourceMap(e.to_string())
+//     }
+// }
 
 impl From<reqwest::Error> for JsResolveErr {
     fn from(e: reqwest::Error) -> Self {
@@ -109,5 +142,11 @@ impl From<reqwest::Error> for JsResolveErr {
 
         // Fallback for any other errors
         JsResolveErr::NetworkError(e.to_string())
+    }
+}
+
+impl From<aws_sdk_s3::Error> for UnhandledError {
+    fn from(e: aws_sdk_s3::Error) -> Self {
+        UnhandledError::S3Error(Box::new(e))
     }
 }

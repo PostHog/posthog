@@ -18,7 +18,7 @@ class OrderedCsvRenderer(
             header = data.header
 
         if not data:
-            return []
+            return
 
         # First, flatten the data (i.e., convert it to a list of
         # dictionaries that are each exactly one level deep).  The key for

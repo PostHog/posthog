@@ -1,122 +1,15 @@
 import { buildIntegerMatcher } from '../../../src/config/config'
-import { Hub, ISOTimestamp, PluginConfig, PluginTaskType, PostIngestionEvent } from '../../../src/types'
-import { processError } from '../../../src/utils/db/error'
+import { Hub, ISOTimestamp, PluginConfig, PostIngestionEvent } from '../../../src/types'
 import { ActionMatcher } from '../../../src/worker/ingestion/action-matcher'
-import { runComposeWebhook, runOnEvent, runPluginTask } from '../../../src/worker/plugins/run'
+import { runComposeWebhook, runOnEvent } from '../../../src/worker/plugins/run'
 
 jest.mock('../../../src/utils/status')
 jest.mock('../../../src/utils/db/error')
 
-describe('runPluginTask()', () => {
-    let mockHub: any, exec: any, getTask: any
-
-    beforeEach(() => {
-        exec = jest.fn()
-        getTask = jest.fn()
-        mockHub = {
-            pluginConfigs: new Map([
-                [
-                    1,
-                    {
-                        team_id: 2,
-                        enabled: true,
-                        instance: {
-                            getTask,
-                        },
-                    },
-                ],
-                [
-                    2,
-                    {
-                        team_id: 2,
-                        enabled: false,
-                        instance: {
-                            getTask,
-                        },
-                    },
-                ],
-            ]),
-            appMetrics: {
-                queueMetric: jest.fn(),
-                queueError: jest.fn(),
-            },
-        }
-    })
-
-    it('calls tracked task and queues metric for scheduled task', async () => {
-        getTask.mockResolvedValue({ exec })
-
-        await runPluginTask(mockHub, 'some_task', PluginTaskType.Schedule, 1, { foo: 1 })
-
-        expect(exec).toHaveBeenCalledWith({ foo: 1 })
-        expect(mockHub.appMetrics.queueMetric).toHaveBeenCalledWith({
-            category: 'scheduledTask',
-            pluginConfigId: 1,
-            teamId: 2,
-            successes: 1,
-        })
-    })
-
-    it('calls tracked task for job', async () => {
-        getTask.mockResolvedValue({ exec })
-
-        await runPluginTask(mockHub, 'some_task', PluginTaskType.Job, 1)
-
-        expect(exec).toHaveBeenCalled()
-        expect(mockHub.appMetrics.queueMetric).not.toHaveBeenCalled()
-    })
-
-    it('does not queue metric for ignored scheduled task', async () => {
-        getTask.mockResolvedValue({ exec, __ignoreForAppMetrics: true })
-
-        await runPluginTask(mockHub, 'some_task', PluginTaskType.Schedule, 1, { foo: 1 })
-
-        expect(exec).toHaveBeenCalledWith({ foo: 1 })
-        expect(mockHub.appMetrics.queueMetric).not.toHaveBeenCalled()
-    })
-
-    it('tracks error if scheduled task failed', async () => {
-        getTask.mockResolvedValue({ exec })
-        exec.mockRejectedValue(new Error('Some error'))
-
-        await runPluginTask(mockHub, 'some_task', PluginTaskType.Schedule, 1)
-
-        expect(exec).toHaveBeenCalled()
-        expect(mockHub.appMetrics.queueMetric).not.toHaveBeenCalled()
-        expect(mockHub.appMetrics.queueError).toHaveBeenCalledWith(
-            {
-                category: 'scheduledTask',
-                pluginConfigId: 1,
-                teamId: 2,
-                failures: 1,
-            },
-            { error: new Error('Some error') }
-        )
-    })
-
-    it('calls processError if task not found', async () => {
-        await runPluginTask(mockHub, 'some_task', PluginTaskType.Schedule, -1)
-
-        expect(processError).toHaveBeenCalledWith(
-            mockHub,
-            null,
-            new Error('Task "some_task" not found for plugin "undefined" with config id -1')
-        )
-        expect(mockHub.appMetrics.queueError).not.toHaveBeenCalled()
-    })
-
-    it('skips the task if the pluginconfig is disabled', async () => {
-        await runPluginTask(mockHub, 'some_task', PluginTaskType.Schedule, 2)
-
-        expect(processError).not.toHaveBeenCalledWith()
-        expect(exec).not.toHaveBeenCalled()
-        expect(mockHub.appMetrics.queueMetric).not.toHaveBeenCalled()
-    })
-})
-
 describe('runOnEvent', () => {
     let mockHub: any, onEvent: jest.Mock
 
+    // @ts-expect-error TODO: Fix type error
     const createEvent = (data: Partial<PostIngestionEvent> = {}): PostIngestionEvent => ({
         eventUuid: 'uuid1',
         distinctId: 'my_id',
@@ -170,14 +63,14 @@ describe('runOnEvent', () => {
 
         expect(onEvent).toHaveBeenCalledTimes(2)
         expect(onEvent.mock.calls[0][0]).toMatchInlineSnapshot(`
-            Object {
+            {
               "$set": undefined,
               "$set_once": undefined,
               "distinct_id": "my_id",
-              "elements": Array [],
+              "elements": [],
               "event": "$autocapture",
               "ip": null,
-              "properties": Object {},
+              "properties": {},
               "team_id": 2,
               "timestamp": "2020-02-23T02:15:00.000Z",
               "uuid": "uuid1",
@@ -243,6 +136,7 @@ describe('runComposeWebhook', () => {
         mockActionManager: any,
         mockPostgres: any
 
+    // @ts-expect-error TODO: Fix type error
     const createEvent = (data: Partial<PostIngestionEvent> = {}): PostIngestionEvent => ({
         eventUuid: 'uuid1',
         distinctId: 'my_id',
@@ -277,7 +171,7 @@ describe('runComposeWebhook', () => {
                 queueMetric: jest.fn(),
                 queueError: jest.fn(),
             } as any,
-            actionMatcher: new ActionMatcher(mockPostgres, mockActionManager, {} as any),
+            actionMatcher: new ActionMatcher(mockPostgres, mockActionManager),
         }
     })
 
@@ -286,10 +180,10 @@ describe('runComposeWebhook', () => {
 
         expect(composeWebhook).toHaveBeenCalledTimes(1)
         expect(composeWebhook.mock.calls[0][0]).toMatchInlineSnapshot(`
-            Object {
+            {
               "distinct_id": "my_id",
               "event": "$autocapture",
-              "properties": Object {},
+              "properties": {},
               "team_id": 2,
               "timestamp": 2020-02-23T02:15:00.000Z,
               "uuid": "uuid1",

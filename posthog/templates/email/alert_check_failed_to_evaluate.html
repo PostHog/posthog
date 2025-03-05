@@ -1,0 +1,10 @@
+{% extends "email/base.html" %} {% load posthog_assets %} {% block section %}
+    <p>
+        The <a href="{% absolute_uri alert_url %}">{{ alert_name }}</a> alert failed to evaluate for insight <a
+            href="{% absolute_uri insight_url %}">{{ insight_name }}</> with the error, below. There could be something wrong with the alert or the insight config.
+    </p>
+    <p><i>{{ alert_error }}</i></p>
+    <div class="mb mt text-center">
+        <a class="button" href="{% absolute_uri alert_url %}">Manage alert</a>
+    </div>
+{% endblock %}{% load posthog_filters %}

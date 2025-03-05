@@ -1,17 +1,102 @@
-import { IconPlus } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDialog, LemonSwitch, LemonTag, Link } from '@posthog/lemon-ui'
+import { IconCheck, IconInfo, IconPlus, IconX } from '@posthog/icons'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonDialog,
+    LemonDivider,
+    LemonSwitch,
+    LemonTag,
+    Link,
+    Tooltip,
+} from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { EventSelect } from 'lib/components/EventSelect/EventSelect'
+import { InternalMultipleChoiceSurvey } from 'lib/components/InternalSurvey/InternalMultipleChoiceSurvey'
 import { PropertySelect } from 'lib/components/PropertySelect/PropertySelect'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { SESSION_RECORDING_OPT_OUT_SURVEY_ID } from 'lib/constants'
 import { IconSelectEvents } from 'lib/lemon-ui/icons'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { objectsEqual } from 'lib/utils'
+import { isObject, objectsEqual } from 'lib/utils'
+import { ReactNode, useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { SessionRecordingAIConfig } from '~/types'
+
+interface SupportedPlatformProps {
+    note?: ReactNode
+    label: string
+    supported: boolean
+}
+
+function SupportedPlatform(props: SupportedPlatformProps): JSX.Element {
+    const node = (
+        <div
+            className={clsx(
+                props.supported ? 'bg-fill-success-highlight' : 'bg-fill-error-highlight',
+                'px-1 py-0.5',
+                props.note && 'cursor-pointer'
+            )}
+        >
+            {props.note ? <IconInfo /> : props.supported ? <IconCheck /> : <IconX />} {props.label}
+        </div>
+    )
+    if (props.note) {
+        return <Tooltip title={props.note}>{node}</Tooltip>
+    }
+    return node
+}
+
+export function SupportedPlatforms(props: {
+    web?: boolean | { note?: ReactNode }
+    android?: boolean | { note?: ReactNode }
+    ios?: boolean | { note?: ReactNode }
+    reactNative?: boolean | { note?: ReactNode }
+    flutter?: boolean | { note?: ReactNode }
+}): JSX.Element {
+    return (
+        <div className="text-xs inline-flex flex-row bg-primary rounded items-center border overflow-hidden mb-2 w-fit">
+            <span className="px-1 py-0.5 font-semibold">Supported platforms:</span>
+            <LemonDivider vertical className="h-full" />
+            <SupportedPlatform
+                note={isObject(props.web) ? props.web.note : undefined}
+                label="Web"
+                supported={!!props.web}
+            />
+
+            <LemonDivider vertical className="h-full" />
+            <SupportedPlatform
+                note={isObject(props.android) ? props.android.note : undefined}
+                label="Android"
+                supported={!!props.android}
+            />
+
+            <LemonDivider vertical className="h-full" />
+            <SupportedPlatform
+                note={isObject(props.ios) ? props.ios.note : undefined}
+                label="iOS"
+                supported={!!props.ios}
+            />
+
+            <LemonDivider vertical className="h-full" />
+            <SupportedPlatform
+                note={isObject(props.reactNative) ? props.reactNative.note : undefined}
+                label="React Native"
+                supported={!!props.reactNative}
+            />
+
+            <LemonDivider vertical className="h-full" />
+            <SupportedPlatform
+                note={isObject(props.flutter) ? props.flutter.note : undefined}
+                label="Flutter"
+                supported={!!props.flutter}
+            />
+        </div>
+    )
+}
 
 function LogCaptureSettings(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
@@ -20,9 +105,17 @@ function LogCaptureSettings(): JSX.Element {
     return (
         <div>
             <h3>Log capture</h3>
+            <SupportedPlatforms android={true} ios={false} flutter={false} web={true} reactNative={true} />
             <p>
                 This setting controls if browser console logs will be captured as a part of recordings. The console logs
                 will be shown in the recording player to help you debug any issues.
+            </p>
+            <p>
+                Log capture is also available for{' '}
+                <Link to="https://posthog.com/docs/session-replay/console-log-recording" target="_blank">
+                    Mobile session replay
+                </Link>{' '}
+                , where they can be configured directly in code.
             </p>
             <LemonSwitch
                 data-attr="opt-in-capture-console-log-switch"
@@ -45,12 +138,26 @@ function CanvasCaptureSettings(): JSX.Element | null {
     return (
         <div>
             <h3>Canvas capture</h3>
+            <SupportedPlatforms
+                android={false}
+                ios={false}
+                flutter={{
+                    note: (
+                        <>
+                            If you're using the `canvaskit` renderer on Flutter Web, you must also enable canvas capture
+                        </>
+                    ),
+                }}
+                web={true}
+                reactNative={false}
+            />
             <p>
                 This setting controls if browser canvas elements will be captured as part of recordings.{' '}
                 <b>
                     <i>There is no way to mask canvas elements right now so please make sure they are free of PII.</i>
                 </b>
             </p>
+            <p>Canvas capture is only available for JavaScript Web.</p>
             <LemonSwitch
                 data-attr="opt-in-capture-canvas-switch"
                 onChange={(checked) => {
@@ -103,9 +210,23 @@ export function NetworkCaptureSettings(): JSX.Element {
 
     return (
         <>
+            <SupportedPlatforms
+                android={true}
+                ios={true}
+                flutter={false}
+                web={true}
+                reactNative={{ note: <>RN network capture is only supported on iOS</> }}
+            />
             <p>
                 This setting controls if performance and network information will be captured alongside recordings. The
                 network requests and timings will be shown in the recording player to help you debug any issues.
+            </p>
+            <p>
+                Network capture is also available for{' '}
+                <Link to="https://posthog.com/docs/session-replay/network-recording" target="_blank">
+                    Mobile session replay
+                </Link>{' '}
+                , where they can be configured directly in code.
             </p>
             <LemonSwitch
                 data-attr="opt-in-capture-performance-switch"
@@ -128,6 +249,7 @@ export function NetworkCaptureSettings(): JSX.Element {
                 <LemonBanner type="info" className="mb-4">
                     <PayloadWarning />
                 </LemonBanner>
+                <SupportedPlatforms android={false} ios={false} flutter={false} web={true} reactNative={false} />
                 <div className="flex flex-row space-x-2">
                     <LemonSwitch
                         data-attr="opt-in-capture-network-headers-switch"
@@ -201,13 +323,19 @@ export function NetworkCaptureSettings(): JSX.Element {
     )
 }
 
+/**
+ * @deprecated use ReplayTriggers instead, this is only presented to teams that have these settings set
+ * @constructor
+ */
 export function ReplayAuthorizedDomains(): JSX.Element {
     return (
         <div className="space-y-2">
+            <SupportedPlatforms android={false} ios={false} flutter={false} web={true} reactNative={false} />
             <p>
                 Use the settings below to restrict the domains where recordings will be captured. If no domains are
                 selected, then there will be no domain restriction.
             </p>
+            <p>Authorized domains is only available for JavaScript Web.</p>
             <p>
                 Domains and wildcard subdomains are allowed (e.g. <code>https://*.example.com</code>). However,
                 wildcarded top-level domains cannot be used (for security reasons).
@@ -378,10 +506,25 @@ export function ReplayAISettings(): JSX.Element | null {
 export function ReplayGeneral(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
+    const [showSurvey, setShowSurvey] = useState<boolean>(false)
+
+    /**
+     * Handle the opt in change
+     * @param checked
+     */
+    const handleOptInChange = (checked: boolean): void => {
+        updateCurrentTeam({
+            session_recording_opt_in: checked,
+        })
+
+        //If the user opts out, we show the survey
+        setShowSurvey(!checked)
+    }
 
     return (
         <div className="flex flex-col gap-4">
             <div>
+                <SupportedPlatforms android={true} ios={true} flutter={true} web={true} reactNative={true} />
                 <p>
                     Watch recordings of how users interact with your web app to see what can be improved.{' '}
                     <Link
@@ -394,16 +537,13 @@ export function ReplayGeneral(): JSX.Element {
                 <LemonSwitch
                     data-attr="opt-in-session-recording-switch"
                     onChange={(checked) => {
-                        updateCurrentTeam({
-                            // when switching replay on or off,
-                            // we set defaults for some of the other settings
-                            session_recording_opt_in: checked,
-                        })
+                        handleOptInChange(checked)
                     }}
                     label="Record user sessions"
                     bordered
                     checked={!!currentTeam?.session_recording_opt_in}
                 />
+                {showSurvey && <InternalMultipleChoiceSurvey surveyId={SESSION_RECORDING_OPT_OUT_SURVEY_ID} />}
             </div>
             <LogCaptureSettings />
             <CanvasCaptureSettings />

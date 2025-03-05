@@ -98,6 +98,8 @@ class HedgeboxMatrix(Matrix):
 
     def set_project_up(self, team, user):
         super().set_project_up(team, user)
+        team.project.product_description = "Dropbox for hedgehogs. We're a file sharing and collaboration platform. Free for limited personal use, with paid plans available."
+        team.autocapture_web_vitals_opt_in = True
 
         # Actions
         interacted_with_file_action = Action.objects.create(
@@ -172,6 +174,7 @@ class HedgeboxMatrix(Matrix):
             ],
         )
         team.test_account_filters = [{"key": "id", "type": "cohort", "value": real_users_cohort.pk}]
+        team.revenue_tracking_config = {"events": [{"eventName": EVENT_PAID_BILL, "revenueProperty": "amount_usd"}]}
 
         # Dashboard: Key metrics (project home)
         key_metrics_dashboard = Dashboard.objects.create(
@@ -767,7 +770,7 @@ class HedgeboxMatrix(Matrix):
                             )
                         ),
                     )
-                    for insight in Insight.objects.filter(team=team)
+                    for insight in Insight.objects.filter(team__project_id=team.project_id)
                 ),
             )
         except IntegrityError:
@@ -882,6 +885,3 @@ class HedgeboxMatrix(Matrix):
             )
         except IntegrityError:
             pass  # This can happen if demo data generation is re-run for the same project
-
-        # autocapture
-        team.autocapture_web_vitals_opt_in = True

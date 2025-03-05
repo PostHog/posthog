@@ -41,6 +41,8 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
         deleteViewLink: (table, column) => ({ table, column }),
         setError: (error: string) => ({ error }),
         setFieldName: (fieldName: string) => ({ fieldName }),
+        setExperimentsOptimized: (experimentsOptimized: boolean) => ({ experimentsOptimized }),
+        selectExperimentsTimestampKey: (experimentsTimestampKey: string | null) => ({ experimentsTimestampKey }),
         clearModalFields: true,
     })),
     reducers({
@@ -101,6 +103,22 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                 clearModalFields: () => '',
             },
         ],
+        experimentsOptimized: [
+            false as boolean,
+            {
+                setExperimentsOptimized: (_, { experimentsOptimized }) => experimentsOptimized,
+                toggleEditJoinModal: (_, { join }) => join.configuration?.experiments_optimized ?? false,
+                clearModalFields: () => false,
+            },
+        ],
+        experimentsTimestampKey: [
+            null as string | null,
+            {
+                selectExperimentsTimestampKey: (_, { experimentsTimestampKey }) => experimentsTimestampKey,
+                toggleEditJoinModal: (_, { join }) => join.configuration?.experiments_timestamp_key ?? null,
+                clearModalFields: () => null,
+            },
+        ],
         isJoinTableModalOpen: [
             false,
             {
@@ -136,6 +154,10 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                             joining_table_name,
                             joining_table_key: values.selectedJoiningKey ?? undefined,
                             field_name: values.fieldName,
+                            configuration: {
+                                experiments_optimized: values.experimentsOptimized,
+                                experiments_timestamp_key: values.experimentsTimestampKey ?? undefined,
+                            },
                         })
 
                         actions.toggleJoinTableModal()
@@ -156,6 +178,10 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                             joining_table_name,
                             joining_table_key: values.selectedJoiningKey ?? undefined,
                             field_name: values.fieldName,
+                            configuration: {
+                                experiments_optimized: values.experimentsOptimized,
+                                experiments_timestamp_key: values.experimentsTimestampKey ?? undefined,
+                            },
                         })
 
                         actions.toggleJoinTableModal()
@@ -174,6 +200,16 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
     listeners(({ actions }) => ({
         toggleEditJoinModal: ({ join }) => {
             actions.setViewLinkValues(join)
+        },
+        setExperimentsOptimized: ({ experimentsOptimized }) => {
+            if (!experimentsOptimized) {
+                actions.selectExperimentsTimestampKey(null)
+            }
+        },
+        selectExperimentsTimestampKey: ({ experimentsTimestampKey }) => {
+            if (experimentsTimestampKey) {
+                actions.setExperimentsOptimized(true)
+            }
         },
     })),
     selectors({

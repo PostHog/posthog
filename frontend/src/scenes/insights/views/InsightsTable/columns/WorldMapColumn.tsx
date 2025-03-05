@@ -12,5 +12,5 @@ type WorldMapColumnItemProps = {
 }
 
 export function WorldMapColumnItem({ item }: WorldMapColumnItemProps): JSX.Element {
-    return countryCodeToName[item.breakdown_value as string] || 'none'
+    return <>{countryCodeToName[item.breakdown_value as string] || 'none'}</>
 }

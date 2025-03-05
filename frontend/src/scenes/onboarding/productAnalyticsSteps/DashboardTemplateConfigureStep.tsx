@@ -52,8 +52,8 @@ const UrlInput = ({ iframeRef }: { iframeRef: React.RefObject<HTMLIFrameElement>
     return (
         <div className="w-full flex gap-x-2 border-b border-1 border-border-bold p-2">
             <LemonInput
-                size="small"
-                className="grow font-mono text-sm"
+                size="medium"
+                className="grow font-mono text-sm pl-0.5"
                 defaultValue={currentPath}
                 value={inputValue}
                 onChange={(v) => setInputValue(v)}
@@ -62,7 +62,7 @@ const UrlInput = ({ iframeRef }: { iframeRef: React.RefObject<HTMLIFrameElement>
                 }}
                 prefix={
                     <span className="-mr-2 flex items-center">
-                        <div className="bg-bg-3000 rounded">
+                        <div className="bg-primary rounded">
                             <LemonInputSelect
                                 mode="single"
                                 value={[browserUrl || 'my-website.com']}
@@ -136,13 +136,13 @@ export const SiteChooser = (): JSX.Element => {
                     ) : combinedSnippetAndLiveEventsHosts.length > 0 ? (
                         <>
                             <p>
-                                Not seeing the site you want? Try clikcing around on your site to trigger a few events.
+                                Not seeing the site you want? Try clicking around on your site to trigger a few events.
                                 If you haven't yet,{' '}
                                 <Link onClick={() => setStepKey(OnboardingStepKey.INSTALL)}>install posthog-js</Link> or
                                 the HTML snippet wherever you want to track events, then come back here.
                             </p>
                             {isCloud && (
-                                <p className="text-muted italic">
+                                <p className="text-secondary italic">
                                     Note: Sites must be served over HTTPS to be selected.
                                 </p>
                             )}
@@ -165,13 +165,13 @@ export const SiteChooser = (): JSX.Element => {
                         </>
                     ) : (
                         <>
-                            <p className="text-muted">
+                            <p className="text-secondary">
                                 Hm, it looks like you haven't ingested any events from a website yet. To select actions
                                 from your site, head back to the{' '}
                                 <Link onClick={() => setStepKey(OnboardingStepKey.INSTALL)}>install step</Link> to
                                 install posthog-js in your frontend.
                             </p>
-                            <p className="text-muted">
+                            <p className="text-secondary">
                                 You can still create a dashboard using custom event names, though it's not quite as fun.
                             </p>
                             <LemonButton onClick={() => setStepKey(OnboardingStepKey.INSTALL)} type="primary">

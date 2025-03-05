@@ -83,8 +83,8 @@ export const PayGateMiniLimitFeatureOther = (): JSX.Element => {
                         ...meCurrent.organization,
                         available_product_features: [
                             {
-                                key: 'recordings_playlists',
-                                name: 'Recordings Playlists',
+                                key: 'advanced_permissions',
+                                name: 'Advanced Permissions',
                                 limit: 3,
                             },
                         ],
@@ -93,7 +93,7 @@ export const PayGateMiniLimitFeatureOther = (): JSX.Element => {
             ],
         },
     })
-    return <Template feature={AvailableFeature.RECORDINGS_PLAYLISTS} currentUsage={3} />
+    return <Template feature={AvailableFeature.ADVANCED_PERMISSIONS} currentUsage={3} />
 }
 
 export const PayGateMiniLimitFeatureProjects = (): JSX.Element => {

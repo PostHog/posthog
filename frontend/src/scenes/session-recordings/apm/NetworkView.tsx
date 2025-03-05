@@ -15,6 +15,7 @@ import { NetworkBar } from 'scenes/session-recordings/apm/waterfall/NetworkBar'
 
 import { PerformanceEvent } from '~/types'
 
+import { sessionRecordingPlayerLogic } from '../player/sessionRecordingPlayerLogic'
 import { networkViewLogic } from './networkViewLogic'
 
 function SimpleURL({ name, entryType }: { name: string | undefined; entryType: string | undefined }): JSX.Element {
@@ -116,7 +117,7 @@ function WaterfallMeta(): JSX.Element | null {
                             <CopyToClipboardInline
                                 description={pageUrl}
                                 explicitValue={pageUrl}
-                                iconStyle={{ color: 'var(--muted-alt)' }}
+                                iconStyle={{ color: 'var(--text-secondary)' }}
                                 selectable={true}
                             />
                         </span>
@@ -135,8 +136,9 @@ function WaterfallMeta(): JSX.Element | null {
     )
 }
 
-export function NetworkView({ sessionRecordingId }: { sessionRecordingId: string }): JSX.Element {
-    const logic = networkViewLogic({ sessionRecordingId })
+export function NetworkView(): JSX.Element {
+    const { logicProps } = useValues(sessionRecordingPlayerLogic)
+    const logic = networkViewLogic({ sessionRecordingId: logicProps.sessionRecordingId })
     const { isLoading, currentPage, hasPageViews } = useValues(logic)
 
     if (isLoading) {
@@ -148,11 +150,11 @@ export function NetworkView({ sessionRecordingId }: { sessionRecordingId: string
     }
 
     return (
-        <BindLogic logic={networkViewLogic} props={{ sessionRecordingId }}>
-            <div className="NetworkView overflow-auto py-2">
+        <BindLogic logic={networkViewLogic} props={{ sessionRecordingId: logicProps.sessionRecordingId }}>
+            <div className="NetworkView overflow-auto py-2 px-4">
                 <WaterfallMeta />
                 <LemonDivider />
-                <div className="space-y-1 px-4">
+                <div className="space-y-1 px-0">
                     <LemonTable
                         className="NetworkView__table"
                         size="small"

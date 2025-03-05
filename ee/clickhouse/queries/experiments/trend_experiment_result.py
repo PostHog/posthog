@@ -233,7 +233,11 @@ class ClickhouseTrendExperimentResult:
         insight_results = self.insight.run(self.query_filter, self.team)
         exposure_results = self.insight.run(self.exposure_filter, self.team)
 
-        basic_result_props = {"insight": insight_results, "filters": self.query_filter.to_dict()}
+        basic_result_props = {
+            "insight": insight_results,
+            "filters": self.query_filter.to_dict(),
+            "exposure_filters": self.exposure_filter.to_dict(),
+        }
 
         try:
             validate_event_variants(insight_results, self.variants)

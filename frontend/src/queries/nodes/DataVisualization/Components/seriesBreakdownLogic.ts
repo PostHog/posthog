@@ -56,7 +56,7 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
         addSeriesBreakdown: (columnName: string | null) => ({ columnName, response: values.response }),
         deleteSeriesBreakdown: () => ({}),
     })),
-    reducers({
+    reducers(({ values }) => ({
         showSeriesBreakdown: [
             false as boolean,
             {
@@ -66,14 +66,14 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
             },
         ],
         selectedSeriesBreakdownColumn: [
-            null as string | null,
+            values.query?.chartSettings?.seriesBreakdownColumn ?? (null as string | null),
             {
                 clearAxis: () => null,
                 addSeriesBreakdown: (_, { columnName }) => columnName,
                 deleteSeriesBreakdown: () => null,
             },
         ],
-    }),
+    })),
     selectors({
         breakdownColumnValues: [
             (state) => [state.selectedSeriesBreakdownColumn, state.response, state.columns],

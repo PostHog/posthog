@@ -1,13 +1,21 @@
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
 import signal
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 
+from django.conf import settings
 from temporalio.runtime import PrometheusConfig, Runtime, TelemetryConfig
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.sentry import SentryInterceptor
+
+
+def _debug_pyarrows():
+    if settings.PYARROW_DEBUG_LOGGING:
+        import pyarrow as pa
+
+        pa.log_memory_allocations(enable=True)
 
 
 async def start_worker(
@@ -21,8 +29,12 @@ async def start_worker(
     server_root_ca_cert=None,
     client_cert=None,
     client_key=None,
+    max_concurrent_workflow_tasks=None,
+    max_concurrent_activities=None,
 ):
-    runtime = Runtime(telemetry=TelemetryConfig(metrics=PrometheusConfig(bind_address="0.0.0.0:%d" % metrics_port)))
+    _debug_pyarrows()
+
+    runtime = Runtime(telemetry=TelemetryConfig(metrics=PrometheusConfig(bind_address=f"0.0.0.0:{metrics_port:d}")))
     client = await connect(
         host,
         port,
@@ -32,6 +44,7 @@ async def start_worker(
         client_key,
         runtime=runtime,
     )
+
     worker = Worker(
         client,
         task_queue=task_queue,
@@ -40,8 +53,9 @@ async def start_worker(
         workflow_runner=UnsandboxedWorkflowRunner(),
         graceful_shutdown_timeout=timedelta(minutes=5),
         interceptors=[SentryInterceptor()],
-        activity_executor=ThreadPoolExecutor(max_workers=50),
-        max_concurrent_activities=50,
+        activity_executor=ThreadPoolExecutor(max_workers=max_concurrent_activities or 50),
+        max_concurrent_activities=max_concurrent_activities or 50,
+        max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
     )
 
     # catch the TERM signal, and stop the worker gracefully

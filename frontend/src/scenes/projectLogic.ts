@@ -8,7 +8,9 @@ import { getAppContext } from 'lib/utils/getAppContext'
 
 import { ProjectType } from '~/types'
 
+import { organizationLogic } from './organizationLogic'
 import type { projectLogicType } from './projectLogicType'
+import { urls } from './urls'
 import { userLogic } from './userLogic'
 
 export const projectLogic = kea<projectLogicType>([
@@ -17,9 +19,15 @@ export const projectLogic = kea<projectLogicType>([
         deleteProject: (project: ProjectType) => ({ project }),
         deleteProjectSuccess: true,
         deleteProjectFailure: true,
+        moveProject: (project: ProjectType, organizationId: string) => ({ project, organizationId }),
     }),
     connect(() => ({
-        actions: [userLogic, ['loadUser', 'switchTeam']],
+        actions: [
+            userLogic,
+            ['loadUser', 'switchTeam', 'updateCurrentOrganization'],
+            organizationLogic,
+            ['loadCurrentOrganization'],
+        ],
     })),
     reducers({
         projectBeingDeleted: [
@@ -51,12 +59,14 @@ export const projectLogic = kea<projectLogicType>([
                         throw new Error('Current project has not been loaded yet, so it cannot be updated!')
                     }
 
-                    const patchedProject = (await api.update(
+                    const patchedProject = await api.update<ProjectType>(
                         `api/projects/${values.currentProject.id}`,
                         payload
-                    )) as ProjectType
+                    )
                     breakpoint()
 
+                    // We need to reload current org (which lists its projects) in organizationLogic AND in userLogic
+                    actions.loadCurrentOrganization()
                     actions.loadUser()
 
                     Object.keys(payload).map((property) => {
@@ -84,11 +94,26 @@ export const projectLogic = kea<projectLogicType>([
                 },
             },
         ],
+
+        projectBeingMoved: [
+            null as ProjectType | null,
+            {
+                moveProject: async ({ project, organizationId }) => {
+                    const res = await api.create<ProjectType>(`api/projects/${project.id}/change_organization`, {
+                        organization_id: organizationId,
+                    })
+
+                    await api.update('api/users/@me/', { set_current_organization: organizationId })
+
+                    return res
+                },
+            },
+        ],
     })),
     selectors({
         currentProjectId: [(s) => [s.currentProject], (currentProject) => currentProject?.id || null],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions }) => ({
         loadCurrentProjectSuccess: ({ currentProject }) => {
             if (currentProject) {
                 ApiConfig.setCurrentProjectId(currentProject.id)
@@ -107,9 +132,14 @@ export const projectLogic = kea<projectLogicType>([
             lemonToast.success('Project has been deleted')
         },
         createProjectSuccess: ({ currentProject }) => {
-            if (currentProject && currentProject.id !== values.currentProject?.id) {
-                actions.switchTeam(currentProject.id)
+            if (currentProject) {
+                actions.switchTeam(currentProject.id, urls.products())
             }
+        },
+
+        moveProjectSuccess: () => {
+            lemonToast.success('Project has been moved. Redirecting...')
+            window.location.reload()
         },
     })),
     afterMount(({ actions }) => {

@@ -1,5 +1,11 @@
 import { eachMessageWebhooksHandlers } from '../../../src/main/ingestion-queues/batch-processing/each-batch-webhooks'
-import { ClickHouseTimestamp, ClickHouseTimestampSecondPrecision, Hub, RawKafkaEvent } from '../../../src/types'
+import {
+    ClickHouseTimestamp,
+    ClickHouseTimestampSecondPrecision,
+    Hub,
+    ProjectId,
+    RawKafkaEvent,
+} from '../../../src/types'
 import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { PostgresUse } from '../../../src/utils/db/postgres'
 import { ActionManager } from '../../../src/worker/ingestion/action-manager'
@@ -23,7 +29,7 @@ const kafkaEvent: RawKafkaEvent = {
     elements_chain: '',
     timestamp: '2020-02-23 02:15:00.00' as ClickHouseTimestamp,
     team_id: 2,
-    project_id: 1,
+    project_id: 2 as ProjectId,
     distinct_id: 'my_id',
     created_at: '2020-02-23 02:15:00.00' as ClickHouseTimestamp,
     person_id: 'F99FA0A1-E0C2-4CFE-A09A-4C3C4327A4CC',
@@ -78,7 +84,7 @@ describe('eachMessageWebhooksHandlers', () => {
 
     it('calls runWebhooksHandlersEventPipeline', async () => {
         const actionManager = new ActionManager(hub.postgres, hub)
-        const actionMatcher = new ActionMatcher(hub.postgres, actionManager, hub.teamManager)
+        const actionMatcher = new ActionMatcher(hub.postgres, actionManager)
         const hookCannon = new HookCommander(
             hub.postgres,
             hub.teamManager,
@@ -88,7 +94,7 @@ describe('eachMessageWebhooksHandlers', () => {
             hub.EXTERNAL_REQUEST_TIMEOUT_MS
         )
         const groupTypeManager = new GroupTypeManager(hub.postgres, hub.teamManager)
-        groupTypeManager['groupTypesCache'].set(2, [
+        groupTypeManager['groupTypesCache'].set(2 as ProjectId, [
             {
                 organization: 0,
             },
@@ -115,6 +121,7 @@ describe('eachMessageWebhooksHandlers', () => {
                     is_calculating: false,
                     steps: [
                         {
+                            // @ts-expect-error TODO revisit this, but fixing TS for now
                             id: 913,
                             action_id: 69,
                             tag_name: null,
@@ -151,16 +158,16 @@ describe('eachMessageWebhooksHandlers', () => {
         // on hookCannon, but that would require a little more setup, and it
         // is at the least testing a little bit more than we were before.
         expect(matchSpy.mock.calls[0][0]).toMatchInlineSnapshot(`
-            Object {
+            {
               "distinctId": "my_id",
               "elementsList": undefined,
               "event": "$pageview",
               "eventUuid": "uuid1",
-              "groups": Object {
-                "organization": Object {
+              "groups": {
+                "organization": {
                   "index": 0,
                   "key": "org_posthog",
-                  "properties": Object {
+                  "properties": {
                     "name": "PostHog",
                   },
                   "type": "organization",
@@ -168,10 +175,10 @@ describe('eachMessageWebhooksHandlers', () => {
               },
               "person_created_at": "2020-02-20T02:15:00.000Z",
               "person_id": "F99FA0A1-E0C2-4CFE-A09A-4C3C4327A4CC",
-              "person_properties": Object {},
-              "projectId": 1,
-              "properties": Object {
-                "$groups": Object {
+              "person_properties": {},
+              "projectId": 2,
+              "properties": {
+                "$groups": {
                   "organization": "org_posthog",
                 },
                 "$ip": "127.0.0.1",
@@ -183,8 +190,8 @@ describe('eachMessageWebhooksHandlers', () => {
 
         expect(postWebhookSpy).toHaveBeenCalledTimes(1)
         expect(JSON.parse(postWebhookSpy.mock.calls[0][0].webhook.body)).toMatchInlineSnapshot(`
-            Object {
-              "text": "[Test Action](/project/2/action/1) was triggered by [my\\\\_id](/project/2/person/my\\\\_id) in organization [PostHog](/project/2/groups/0/org\\\\_posthog)",
+            {
+              "text": "[Test Action](/project/2/action/1) was triggered by [my\\_id](/project/2/person/my\\_id) in organization [PostHog](/project/2/groups/0/org\\_posthog)",
             }
         `)
     })

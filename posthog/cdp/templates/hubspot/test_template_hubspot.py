@@ -1,7 +1,7 @@
 import pytest
 from inline_snapshot import snapshot
 
-from hogvm.python.utils import UncaughtHogVMException
+from common.hogvm.python.utils import UncaughtHogVMException
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.cdp.templates.hubspot.template_hubspot import (
     template as template_hubspot,
@@ -249,7 +249,13 @@ class TestTemplateHubspotEvent(BaseHogFunctionTemplateTest):
             inputs=self._inputs(include_all_properties=True, event="purchase"),
             globals={
                 "event": {
-                    "properties": {"price": 50, "currency": "USD", "expressDelivery": True, "location": "Planet Earth"},
+                    "properties": {
+                        "price": 50,
+                        "currency": "USD",
+                        "expressDelivery": True,
+                        "location": "Planet Earth",
+                        "timestamp": "2024-11-11T17:25:59.812Z",
+                    },
                 },
             },
         )
@@ -298,6 +304,22 @@ class TestTemplateHubspotEvent(BaseHogFunctionTemplateTest):
 
         assert self.get_mock_fetch_calls()[3] == snapshot(
             (
+                "https://api.hubapi.com/events/v3/event-definitions/purchase/property",
+                {
+                    "method": "POST",
+                    "headers": {"Authorization": "Bearer TOKEN", "Content-Type": "application/json"},
+                    "body": {
+                        "name": "timestamp",
+                        "label": "timestamp",
+                        "type": "datetime",
+                        "description": "timestamp - (created by PostHog)",
+                    },
+                },
+            )
+        )
+
+        assert self.get_mock_fetch_calls()[4] == snapshot(
+            (
                 "https://api.hubapi.com/events/v3/send",
                 {
                     "method": "POST",
@@ -311,6 +333,7 @@ class TestTemplateHubspotEvent(BaseHogFunctionTemplateTest):
                             "currency": "USD",
                             "expressDelivery": True,
                             "location": "Planet Earth",
+                            "timestamp": "2024-11-11T17:25:59.812Z",
                         },
                     },
                 },

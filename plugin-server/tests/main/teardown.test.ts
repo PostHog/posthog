@@ -1,16 +1,13 @@
 import ClickHouse from '@posthog/clickhouse'
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { waitForExpect } from '../../functional_tests/expectations'
 import { startPluginsServer } from '../../src/main/pluginsServer'
 import { Hub, LogLevel, PluginLogEntry, PluginLogEntrySource, PluginLogEntryType } from '../../src/types'
 import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
-import { EventsProcessor } from '../../src/worker/ingestion/process-event'
-import { makePiscina } from '../../src/worker/piscina'
+import { waitForExpect } from '../helpers/expectations'
 import { pluginConfig39 } from '../helpers/plugins'
 import { resetTestDatabase } from '../helpers/sql'
 
-jest.mock('../../src/utils/status')
 jest.setTimeout(60000) // 60 sec timeout
 
 const defaultEvent: PluginEvent = {
@@ -37,7 +34,7 @@ async function getLogEntriesForPluginConfig(hub: Hub, pluginConfigId: number) {
 
 describe('teardown', () => {
     const processEvent = async (hub: Hub, event: PluginEvent) => {
-        const result = await new EventPipelineRunner(hub, event, new EventsProcessor(hub)).runEventPipeline(event)
+        const result = await new EventPipelineRunner(hub, event).runEventPipeline(event)
         const resultEvent = result.args[0]
         return resultEvent
     }
@@ -56,11 +53,9 @@ describe('teardown', () => {
 
         const { hub, stop } = await startPluginsServer(
             {
-                WORKER_CONCURRENCY: 2,
                 LOG_LEVEL: LogLevel.Log,
             },
-            makePiscina,
-            undefined
+            { ingestionV2: true }
         )
 
         await processEvent(hub!, defaultEvent)
@@ -102,11 +97,9 @@ describe('teardown', () => {
         `)
         const { hub, stop } = await startPluginsServer(
             {
-                WORKER_CONCURRENCY: 2,
                 LOG_LEVEL: LogLevel.Log,
             },
-            makePiscina,
-            undefined
+            { ingestionV2: true }
         )
 
         await stop!()

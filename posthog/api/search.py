@@ -1,7 +1,5 @@
-import functools
 import re
-from typing import Any
-from django.contrib.postgres.search import SearchQuery, SearchRank, SearchVector
+from typing import Any, Literal, TypedDict
 from django.db.models import Model, Value, CharField, F, QuerySet
 from django.db.models.functions import Cast, JSONObject
 from django.http import HttpResponse
@@ -10,13 +8,20 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.helpers.full_text_search import build_rank, process_query
 from posthog.models import Action, Cohort, Insight, Dashboard, FeatureFlag, Experiment, EventDefinition, Survey
 from posthog.models.notebook.notebook import Notebook
 
 LIMIT = 25
 
 
-ENTITY_MAP = {
+class EntityConfig(TypedDict):
+    klass: type[Model]
+    search_fields: dict[str, Literal["A", "B", "C"]]
+    extra_fields: list[str]
+
+
+ENTITY_MAP: dict[str, EntityConfig] = {
     "insight": {
         "klass": Insight,
         "search_fields": {"name": "A", "description": "C"},
@@ -73,7 +78,10 @@ class QuerySerializer(serializers.Serializer):
     entities = serializers.MultipleChoiceField(required=False, choices=list(ENTITY_MAP.keys()))
 
     def validate_q(self, value: str):
-        return process_query(value)
+        # gracefully handle invalid queries
+        if process_query(value) is None:
+            return None
+        return value
 
 
 class SearchViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
@@ -99,12 +107,14 @@ class SearchViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         # add entities
         for entity_meta in [ENTITY_MAP[entity] for entity in entities]:
+            assert entity_meta is not None
             klass_qs, entity_name = class_queryset(
-                klass=entity_meta.get("klass"),
+                view=self,
+                klass=entity_meta["klass"],
                 project_id=self.project_id,
                 query=query,
-                search_fields=entity_meta.get("search_fields"),
-                extra_fields=entity_meta.get("extra_fields"),
+                search_fields=entity_meta["search_fields"],
+                extra_fields=entity_meta["extra_fields"],
             )
             qs = qs.union(klass_qs)
             counts[entity_name] = klass_qs.count()
@@ -116,35 +126,20 @@ class SearchViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return Response({"results": qs[:LIMIT], "counts": counts})
 
 
-UNSAFE_CHARACTERS = r"[\'&|!<>():]"
-"""Characters unsafe in a `tsquery`."""
-
-
-def process_query(query: str):
-    """
-    Converts a query string into a to_tsquery compatible string, where
-    the last word is a prefix match. This allows searching as you type.
-    """
-    query = re.sub(UNSAFE_CHARACTERS, " ", query).strip()
-    query = re.sub(r"\s+", " & ", query)  # combine words with &
-    if len(query) == 0:
-        return None
-    query += ":*"  # prefix match last word
-    return query
-
-
 def class_queryset(
+    view: TeamAndOrgViewSetMixin,
     klass: type[Model],
     project_id: int,
     query: str | None,
-    search_fields: dict[str, str],
-    extra_fields: dict | None,
+    search_fields: dict[str, Literal["A", "B", "C"]],
+    extra_fields: list[str] | None,
 ):
     """Builds a queryset for the class."""
     entity_type = class_to_entity_name(klass)
     values = ["type", "result_id", "extra_fields"]
 
     qs: QuerySet[Any] = klass.objects.filter(team__project_id=project_id)  # filter team
+    qs = view.user_access_control.filter_queryset_by_access_level(qs)  # filter access level
     # :TRICKY: can't use an annotation here as `type` conflicts with a field on some models
     qs = qs.extra(select={"type": f"'{entity_type}'"})  # entity type
 
@@ -154,6 +149,10 @@ def class_queryset(
     else:
         qs = qs.annotate(result_id=Cast("pk", CharField()))
 
+    # Exclude generated dashboards
+    if entity_type == "dashboard":
+        qs = qs.exclude(creation_mode="template")
+
     # extra fields
     if extra_fields:
         qs = qs.annotate(extra_fields=JSONObject(**{field: field for field in extra_fields}))
@@ -162,11 +161,7 @@ def class_queryset(
 
     # full-text search rank
     if query:
-        search_vectors = [SearchVector(key, weight=value, config="simple") for key, value in search_fields.items()]
-        combined_vector = functools.reduce(lambda a, b: a + b, search_vectors)
-        qs = qs.annotate(
-            rank=SearchRank(combined_vector, SearchQuery(query, config="simple", search_type="raw")),
-        )
+        qs = qs.annotate(rank=build_rank(search_fields, query, config="simple"))
         qs = qs.filter(rank__gt=0.05)
         values.append("rank")
         qs.annotate(rank=F("rank"))

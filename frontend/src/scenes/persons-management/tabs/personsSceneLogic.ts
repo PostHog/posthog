@@ -1,7 +1,7 @@
 import { actions, kea, path, reducers } from 'kea'
 
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { DataTableNode, NodeKind } from '~/queries/schema'
+import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 
 import type { personsSceneLogicType } from './personsSceneLogicType'
 

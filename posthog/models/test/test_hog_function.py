@@ -2,9 +2,10 @@ import json
 from django.test import TestCase
 from inline_snapshot import snapshot
 
-from hogvm.python.operation import HOGQL_BYTECODE_VERSION
+from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
 from posthog.models.action.action import Action
-from posthog.models.hog_functions.hog_function import HogFunction
+from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
+from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.test.base import QueryMatchingTest
 
@@ -34,13 +35,14 @@ class TestHogFunction(TestCase):
         assert json_filters["bytecode"] == ["_H", HOGQL_BYTECODE_VERSION, 29]  # TRUE
 
     def test_hog_function_filters_compilation(self):
+        action = Action.objects.create(team=self.team, name="Test Action")
         item = HogFunction.objects.create(
             name="Test",
-            type="destination",
+            type=HogFunctionType.DESTINATION,
             team=self.team,
             filters={
                 "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
-                "actions": [{"id": "9", "name": "Test Action", "type": "actions", "order": 1}],
+                "actions": [{"id": str(action.pk), "name": "Test Action", "type": "actions", "order": 1}],
                 "filter_test_accounts": True,
             },
         )
@@ -49,7 +51,7 @@ class TestHogFunction(TestCase):
         json_filters = to_dict(item.filters)
         assert json_filters == {
             "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
-            "actions": [{"id": "9", "name": "Test Action", "type": "actions", "order": 1}],
+            "actions": [{"id": str(action.pk), "name": "Test Action", "type": "actions", "order": 1}],
             "filter_test_accounts": True,
             "bytecode": [
                 "_H",
@@ -103,11 +105,7 @@ class TestHogFunction(TestCase):
                 35,
                 33,
                 1,
-                33,
-                2,
-                33,
-                1,
-                11,
+                29,
                 3,
                 2,
                 4,
@@ -278,7 +276,8 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
             {"key": "$pageview", "operator": "regex", "value": "test"},
         ]
         # 1 update team, 1 load hog functions, 1 update hog functions
-        with self.assertNumQueries(3):
+        # 7 unrelated due to RemoteConfig refresh
+        with self.assertNumQueries(3 + 7):
             self.team.save()
         hog_function_1.refresh_from_db()
         hog_function_2.refresh_from_db()
@@ -291,3 +290,24 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
             f'["_H", {HOGQL_BYTECODE_VERSION}, 32, "$host", 32, "properties", 1, 2, 2, "toString", 1, 32, "^(localhost|127\\\\.0\\\\.0\\\\.1)($|:)", 2, "match", 2, 47, 3, 35, 33, 0, 32, "$pageview", 32, "properties", 1, 2, 2, "toString", 1, 32, "test", 2, "match", 2, 47, 3, 35, 33, 0, 32, "$pageview", 32, "event", 1, 1, 11, 3, 3, 4, 1]'
         )
         assert json.dumps(hog_function_3.filters["bytecode"]) == snapshot(f'["_H", {HOGQL_BYTECODE_VERSION}, 29]')
+
+    def test_geoip_transformation_created_when_enabled(self):
+        with self.settings(DISABLE_MMDB=False):
+            team = Team.objects.create_with_data(organization=self.org, name="Test Team", initiating_user=self.user)
+
+        transformations = HogFunction.objects.filter(team=team, type="transformation")
+        assert transformations.count() == 1
+        geoip = transformations.first()
+        assert geoip
+        assert geoip.name == "GeoIP"
+        assert geoip.description == "Enrich events with GeoIP data"
+        assert geoip.icon_url == "/static/transformations/geoip.png"
+        assert geoip.enabled
+        assert geoip.execution_order == 1
+        assert geoip.template_id == "plugin-posthog-plugin-geoip"
+
+    def test_geoip_transformation_not_created_when_disabled(self):
+        with self.settings(DISABLE_MMDB=True):
+            team = Team.objects.create_with_data(organization=self.org, name="Test Team", initiating_user=self.user)
+        transformations = HogFunction.objects.filter(team=team, type="transformation")
+        assert transformations.count() == 0

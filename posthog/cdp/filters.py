@@ -1,6 +1,6 @@
 from typing import Optional
 from posthog.models.action.action import Action
-from posthog.hogql.bytecode import create_bytecode
+from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, property_to_expr, ast
 from posthog.models.team.team import Team
@@ -40,7 +40,10 @@ def hog_function_filters_to_expr(filters: dict, team: Team, actions: dict[int, A
         # Actions
         if filter.get("type") == "actions":
             try:
-                action = actions[int(filter["id"])]
+                action_id = int(filter["id"])
+                action = actions.get(action_id, None)
+                if not action:
+                    action = Action.objects.get(id=action_id, team__project_id=team.project_id)
                 exprs.append(action_to_expr(action))
             except KeyError:
                 # If an action doesn't exist, we want to return no events
@@ -56,10 +59,9 @@ def hog_function_filters_to_expr(filters: dict, team: Team, actions: dict[int, A
         all_filters_exprs.append(ast.And(exprs=exprs))
 
     if all_filters_exprs:
-        final_expr = ast.Or(exprs=all_filters_exprs)
-        return final_expr
-    else:
-        return ast.Constant(value=True)
+        return ast.Or(exprs=all_filters_exprs)
+
+    return ast.Constant(value=True)
 
 
 def filter_action_ids(filters: Optional[dict]) -> list[int]:
@@ -77,7 +79,9 @@ def compile_filters_expr(filters: Optional[dict], team: Team, actions: Optional[
     if actions is None:
         # If not provided as an optimization we fetch all actions
         actions_list = (
-            Action.objects.select_related("team").filter(team_id=team.id).filter(id__in=filter_action_ids(filters))
+            Action.objects.select_related("team")
+            .filter(team__project_id=team.project_id)
+            .filter(id__in=filter_action_ids(filters))
         )
         actions = {action.id: action for action in actions_list}
 

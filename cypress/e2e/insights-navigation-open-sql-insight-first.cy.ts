@@ -40,13 +40,13 @@ describe('Insights', () => {
 
             it('can open a new funnels insight', () => {
                 insight.clickTab('FUNNELS')
-                cy.get('.funnels-empty-state__title').should('exist')
+                cy.get('[data-attr="insight-empty-state"]').find('h2').should('exist')
             })
 
             it('can open a new retention insight', () => {
                 insight.clickTab('RETENTION')
                 cy.get('.RetentionContainer canvas').should('exist')
-                cy.get('.RetentionTable__Tab').should('have.length', 66)
+                cy.get('.RetentionTable__Tab').should('have.length', 44)
             })
 
             it('can open a new paths insight', () => {
@@ -56,6 +56,9 @@ describe('Insights', () => {
 
             it('can open a new stickiness insight', () => {
                 insight.clickTab('STICKINESS')
+                // this test flaps, so check for a parent element, that is present even when failing
+                // in the hope that it slows the test down a little and stops it flapping
+                cy.get('.InsightVizDisplay--type-stickiness').should('exist')
                 cy.get('.TrendsInsight canvas').should('exist')
             })
 

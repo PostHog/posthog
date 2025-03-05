@@ -17,7 +17,7 @@ from posthog.schema import (
     FunnelsFilter,
     FunnelVizType,
     BreakdownAttributionType,
-    InsightDateRange,
+    DateRange,
     IntervalType,
 )
 from posthog.test.base import _create_person, _create_event
@@ -120,7 +120,7 @@ class TestFunnelTrendsUDF(BaseTestFunnelTrends):
         funnels_query = FunnelsQuery(
             series=[EventsNode(event="first"), EventsNode(event="second")],
             breakdownFilter=BreakdownFilter(breakdown="bd"),
-            dateRange=InsightDateRange(date_from="2024-01-01", date_to="2024-01-08"),
+            dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-08"),
             interval=IntervalType.DAY,
             funnelsFilter=FunnelsFilter(funnelOrderType=FunnelOrderType.STRICT, funnelVizType=FunnelVizType.TRENDS),
         )

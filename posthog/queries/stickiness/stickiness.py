@@ -23,7 +23,7 @@ class Stickiness:
         response = []
         for entity in filter.entities:
             if entity.type == TREND_FILTER_TYPE_ACTIONS and entity.id is not None:
-                entity.name = Action.objects.only("name").get(team=team, pk=entity.id).name
+                entity.name = Action.objects.only("name").get(team__project_id=team.project_id, pk=entity.id).name
 
             entity_resp = handle_compare(filter=filter, func=self._serialize_entity, team=team, entity=entity)
             response.extend(entity_resp)

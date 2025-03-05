@@ -67,7 +67,7 @@ export const signupLogic = kea<signupLogicType>([
                 password: !values.preflight?.demo
                     ? !password
                         ? 'Please enter your password to continue'
-                        : values.validatedPassword.feedback
+                        : values.validatedPassword.feedback || undefined
                     : undefined,
             }),
             submit: async () => {
@@ -83,8 +83,9 @@ export const signupLogic = kea<signupLogicType>([
                 role_at_organization: '',
                 referral_source: '',
             } as SignupForm,
-            errors: ({ name }) => ({
+            errors: ({ name, role_at_organization }) => ({
                 name: !name ? 'Please enter your name' : undefined,
+                role_at_organization: !role_at_organization ? 'Please select your role in the organization' : undefined,
             }),
             submit: async (payload, breakpoint) => {
                 breakpoint()

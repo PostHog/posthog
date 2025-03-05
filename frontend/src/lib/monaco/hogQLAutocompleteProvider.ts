@@ -3,7 +3,12 @@ import type { codeEditorLogicType } from 'lib/monaco/codeEditorLogicType'
 import { languages } from 'monaco-editor'
 
 import { performQuery } from '~/queries/query'
-import { AutocompleteCompletionItemKind, HogLanguage, HogQLAutocomplete, NodeKind } from '~/queries/schema'
+import {
+    AutocompleteCompletionItemKind,
+    HogLanguage,
+    HogQLAutocomplete,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 
 const convertCompletionItemKind = (kind: AutocompleteCompletionItemKind): languages.CompletionItemKind => {
     switch (kind) {

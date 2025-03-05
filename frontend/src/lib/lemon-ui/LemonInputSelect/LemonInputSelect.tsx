@@ -39,6 +39,7 @@ export type LemonInputSelectProps = Pick<
     disableFiltering?: boolean
     mode: 'multiple' | 'single'
     allowCustomValues?: boolean
+    emptyStateComponent?: React.ReactNode
     onChange?: (newValue: string[]) => void
     onBlur?: () => void
     onFocus?: () => void
@@ -56,6 +57,7 @@ export function LemonInputSelect({
     options = [],
     value,
     loading,
+    emptyStateComponent,
     onChange,
     onInputChange,
     onFocus,
@@ -249,22 +251,25 @@ export function LemonInputSelect({
     }
 
     const _onBlur = (): void => {
-        // We need to add a delay as a click could be in the popover or the input wrapper which refocuses
-        setTimeout(() => {
-            if (popoverFocusRef.current) {
-                popoverFocusRef.current = false
-                inputRef.current?.focus()
-                _onFocus()
-                return
-            }
-            if (allowCustomValues && inputValue.trim() && !values.includes(inputValue)) {
+        const hasSelectedAutofilledValue = selectedIndex > 0
+        const hasCustomValue =
+            !hasSelectedAutofilledValue && allowCustomValues && inputValue.trim() && !values.includes(inputValue)
+        if (popoverFocusRef.current) {
+            popoverFocusRef.current = false
+            inputRef.current?.focus()
+            _onFocus()
+            if (hasCustomValue) {
                 _onActionItem(inputValue.trim(), null)
-            } else {
-                setInputValue('')
             }
-            setShowPopover(false)
-            onBlur?.()
-        }, 100)
+            return
+        }
+        if (hasCustomValue) {
+            _onActionItem(inputValue.trim(), null)
+        } else {
+            setInputValue('')
+        }
+        setShowPopover(false)
+        onBlur?.()
     }
 
     const _onFocus = (): void => {
@@ -433,11 +438,17 @@ export function LemonInputSelect({
                             ))}
                         </>
                     ) : (
-                        <p className="text-muted italic p-1">
-                            {allowCustomValues
-                                ? 'Start typing and press Enter to add options'
-                                : `No options matching "${inputValue}"`}
-                        </p>
+                        <>
+                            {emptyStateComponent ? (
+                                emptyStateComponent
+                            ) : (
+                                <p className="text-secondary italic p-1">
+                                    {allowCustomValues
+                                        ? 'Start typing and press Enter to add options'
+                                        : `No options matching "${inputValue}"`}
+                                </p>
+                            )}
+                        </>
                     )}
                 </div>
             }
@@ -465,7 +476,7 @@ export function LemonInputSelect({
                 autoFocus={autoFocus}
                 transparentBackground={transparentBackground}
                 className={clsx(
-                    'h-auto leading-7', // leading-7 means line height aligned with LemonSnack height
+                    '!h-auto leading-7', // leading-7 means line height aligned with LemonSnack height
                     // Putting button-like text styling on the single-select unfocused placeholder
                     // NOTE: We need font-medium on both the input (for autosizing) and its placeholder (for display)
                     mode === 'multiple' && 'flex-wrap',

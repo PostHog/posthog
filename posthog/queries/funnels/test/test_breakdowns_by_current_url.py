@@ -171,7 +171,6 @@ class TestBreakdownsByCurrentURL(ClickhouseTestMixin, APIBaseTest):
                         funnel_step["breakdown"],
                     )
                 )
-
         assert actual == [
             ("watched movie", 2, ["/"]),
             ("terminate funnel", 2, ["/"]),

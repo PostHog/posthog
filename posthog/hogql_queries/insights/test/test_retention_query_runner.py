@@ -6,7 +6,6 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from django.test import override_settings
-from rest_framework import status
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.constants import (
@@ -53,6 +52,23 @@ def _date(day, hour=5, month=0, minute=0):
 
 def pluck(list_of_dicts, key, child_key=None):
     return [pluck(d[key], child_key) if child_key else d[key] for d in list_of_dicts]
+
+
+def pad(retention_result: list[list[int]]) -> list[list[int]]:
+    """
+    changes the old 'triangle' format to the new 'matrix' format
+    after retention updates
+    """
+    result = []
+    max_length = max(len(row) for row in retention_result)
+
+    for row in retention_result:
+        if len(row) < max_length:
+            row.extend([0] * (max_length - len(row)))
+
+        result.append(row)
+
+    return result
 
 
 def _create_events(team, user_and_timestamps, event="$pageview"):
@@ -118,22 +134,30 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        result = self.run_query(query={})
+        result = self.run_query(
+            query={
+                "retentionFilter": {
+                    "totalIntervals": 11,
+                }
+            }
+        )
         self.assertEqual(
             pluck(result, "values", "count"),
-            [
-                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0],
-                [0, 0, 0, 0],
-                [0, 0, 0],
-                [0, 0],
-                [0],
-            ],
+            pad(
+                [
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0],
+                    [0, 0],
+                    [0],
+                ]
+            ),
         )
 
     def test_day_interval(self):
@@ -157,7 +181,14 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         )
 
         # even if set to hour 6 it should default to beginning of day and include all pageviews above
-        result = self.run_query(query={"dateRange": {"date_to": _date(10, hour=6)}})
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(10, hour=6)},
+                "retentionFilter": {
+                    "totalIntervals": 11,
+                },
+            }
+        )
         self.assertEqual(len(result), 11)
         self.assertEqual(
             pluck(result, "label"),
@@ -179,19 +210,21 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             pluck(result, "values", "count"),
-            [
-                [1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0],
-                [2, 2, 1, 0, 1, 2, 0, 0, 0, 0],
-                [2, 1, 0, 1, 2, 0, 0, 0, 0],
-                [1, 0, 0, 1, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0, 0],
-                [1, 1, 0, 0, 0, 0],
-                [2, 0, 0, 0, 0],
-                [0, 0, 0, 0],
-                [0, 0, 0],
-                [0, 0],
-                [0],
-            ],
+            pad(
+                [
+                    [1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0],
+                    [2, 2, 1, 0, 1, 2, 0, 0, 0, 0],
+                    [2, 1, 0, 1, 2, 0, 0, 0, 0],
+                    [1, 0, 0, 1, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 0, 0, 0, 0],
+                    [2, 0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0],
+                    [0, 0],
+                    [0],
+                ]
+            ),
         )
 
     def test_month_interval(self):
@@ -253,19 +286,21 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             pluck(result, "values", "count"),
-            [
-                [2, 2, 2, 0, 1, 2, 1, 0, 1, 0, 1],
-                [2, 2, 0, 1, 2, 1, 0, 1, 0, 1],
-                [2, 0, 1, 2, 1, 0, 1, 0, 1],
-                [0, 0, 0, 0, 0, 0, 0, 0],
-                [1, 1, 0, 0, 1, 0, 0],
-                [2, 1, 0, 1, 0, 1],
-                [1, 0, 0, 0, 1],
-                [0, 0, 0, 0],
-                [1, 0, 0],
-                [0, 0],
-                [1],
-            ],
+            pad(
+                [
+                    [2, 2, 2, 0, 1, 2, 1, 0, 1, 0, 1],
+                    [2, 2, 0, 1, 2, 1, 0, 1, 0, 1],
+                    [2, 0, 1, 2, 1, 0, 1, 0, 1],
+                    [0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 0, 0, 1, 0, 0],
+                    [2, 1, 0, 1, 0, 1],
+                    [1, 0, 0, 0, 1],
+                    [0, 0, 0, 0],
+                    [1, 0, 0],
+                    [0, 0],
+                    [1],
+                ]
+            ),
         )
 
         self.assertEqual(
@@ -428,19 +463,21 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         # We expect 1s across the board due to the override set up from person1 to person2, making them the same person
         self.assertEqual(
             pluck(result, "values", "count"),
-            [
-                [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-                [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-                [1, 1, 1, 1, 1, 1, 1, 1, 1],
-                [1, 1, 1, 1, 1, 1, 1, 1],
-                [1, 1, 1, 1, 1, 1, 1],
-                [1, 1, 1, 1, 1, 1],
-                [1, 1, 1, 1, 1],
-                [1, 1, 1, 1],
-                [1, 1, 1],
-                [1, 1],
-                [1],
-            ],
+            pad(
+                [
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1, 1],
+                    [1, 1, 1, 1, 1],
+                    [1, 1, 1, 1],
+                    [1, 1, 1],
+                    [1, 1],
+                    [1],
+                ]
+            ),
         )
 
         self.assertEqual(
@@ -508,15 +545,17 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             pluck(result_sunday, "values", "count"),
-            [
-                [2, 2, 1, 2, 2, 0, 1],
-                [2, 1, 2, 2, 0, 1],
-                [1, 1, 1, 0, 0],
-                [2, 2, 0, 1],
-                [2, 0, 1],
-                [0, 0],
-                [1],
-            ],
+            pad(
+                [
+                    [2, 2, 1, 2, 2, 0, 1],
+                    [2, 1, 2, 2, 0, 1],
+                    [1, 1, 1, 0, 0],
+                    [2, 2, 0, 1],
+                    [2, 0, 1],
+                    [0, 0],
+                    [1],
+                ]
+            ),
         )
 
         self.assertEqual(
@@ -545,15 +584,17 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             pluck(result_monday, "values", "count"),
-            [
-                [2, 2, 1, 2, 2, 0, 1],
-                [2, 1, 2, 2, 0, 1],
-                [1, 1, 1, 0, 0],
-                [2, 2, 0, 1],
-                [2, 0, 1],
-                [0, 0],
-                [1],
-            ],
+            pad(
+                [
+                    [2, 2, 1, 2, 2, 0, 1],
+                    [2, 1, 2, 2, 0, 1],
+                    [1, 1, 1, 0, 0],
+                    [2, 2, 0, 1],
+                    [2, 0, 1],
+                    [0, 0],
+                    [1],
+                ]
+            ),
         )
 
         self.assertEqual(
@@ -628,19 +669,21 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             pluck(result, "values", "count"),
-            [
-                [2, 2, 2, 0, 1, 2, 1, 0, 1, 0, 1],
-                [2, 2, 0, 1, 2, 1, 0, 1, 0, 1],
-                [2, 0, 1, 2, 1, 0, 1, 0, 1],
-                [0, 0, 0, 0, 0, 0, 0, 0],
-                [1, 1, 0, 0, 1, 0, 0],
-                [2, 1, 0, 1, 0, 1],
-                [1, 0, 0, 0, 1],
-                [0, 0, 0, 0],
-                [1, 0, 0],
-                [0, 0],
-                [1],
-            ],
+            pad(
+                [
+                    [2, 2, 2, 0, 1, 2, 1, 0, 1, 0, 1],
+                    [2, 2, 0, 1, 2, 1, 0, 1, 0, 1],
+                    [2, 0, 1, 2, 1, 0, 1, 0, 1],
+                    [0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 0, 0, 1, 0, 0],
+                    [2, 1, 0, 1, 0, 1],
+                    [1, 0, 0, 0, 1],
+                    [0, 0, 0, 0],
+                    [1, 0, 0],
+                    [0, 0],
+                    [1],
+                ]
+            ),
         )
 
         self.assertEqual(
@@ -722,19 +765,21 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             pluck(result, "values", "count"),
-            [
-                [2, 2, 2, 0, 1, 2, 1, 0, 1, 0, 1],
-                [2, 2, 0, 1, 2, 1, 0, 1, 0, 1],
-                [2, 0, 1, 2, 1, 0, 1, 0, 1],
-                [0, 0, 0, 0, 0, 0, 0, 0],
-                [1, 1, 0, 0, 1, 0, 0],
-                [2, 1, 0, 1, 0, 1],
-                [1, 0, 0, 0, 1],
-                [0, 0, 0, 0],
-                [1, 0, 0],
-                [0, 0],
-                [1],
-            ],
+            pad(
+                [
+                    [2, 2, 2, 0, 1, 2, 1, 0, 1, 0, 1],
+                    [2, 2, 0, 1, 2, 1, 0, 1, 0, 1],
+                    [2, 0, 1, 2, 1, 0, 1, 0, 1],
+                    [0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 0, 0, 1, 0, 0],
+                    [2, 1, 0, 1, 0, 1],
+                    [1, 0, 0, 0, 1],
+                    [0, 0, 0, 0],
+                    [1, 0, 0],
+                    [0, 0],
+                    [1],
+                ]
+            ),
         )
 
         self.assertEqual(
@@ -802,15 +847,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             pluck(result, "values", "count"),
-            [
-                [2, 2, 1, 2, 2, 0, 1],
-                [2, 1, 2, 2, 0, 1],
-                [1, 1, 1, 0, 0],
-                [2, 2, 0, 1],
-                [2, 0, 1],
-                [0, 0],
-                [1],
-            ],
+            pad([[2, 2, 1, 2, 2, 0, 1], [2, 1, 2, 2, 0, 1], [1, 1, 1, 0, 0], [2, 2, 0, 1], [2, 0, 1], [0, 0], [1]]),
         )
 
         self.assertEqual(
@@ -852,6 +889,8 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         result = self.run_query(
             query={
+                # _date(0) is ignored
+                # day 0 is _date(1)
                 "dateRange": {"date_to": _date(5, hour=6)},
                 "retentionFilter": {
                     "cumulative": True,
@@ -863,7 +902,64 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(
             pluck(result, "values", "count"),
-            [[2, 1, 1, 0, 0], [1, 1, 0, 0], [3, 2, 0], [3, 0], [0]],
+            pad([[2, 1, 1, 0, 0], [1, 1, 0, 0], [3, 2, 0], [3, 0], [0]]),
+        )
+
+    def test_rolling_retention_doesnt_double_count_same_user(self):
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person3"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person4"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person5"])
+
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(0)),
+                ("person1", _date(3)),
+                ("person1", _date(4)),
+                ("person2", _date(0)),
+                ("person2", _date(1)),
+                ("person3", _date(1)),
+                ("person3", _date(2)),
+                ("person3", _date(3)),
+                ("person4", _date(3)),
+                ("person4", _date(4)),
+                ("person5", _date(4)),
+            ],
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(5, hour=6)},
+                "retentionFilter": {
+                    "cumulative": True,
+                    "totalIntervals": 6,
+                    "targetEntity": {"id": None, "name": "All events"},
+                    "returningEntity": {"id": None, "name": "All events"},
+                },
+            }
+        )
+
+        self.assertEqual(
+            pluck(result, "values", "count"),
+            pad(
+                [
+                    # first row, [2, 2, 1, 1, 0, 0], is explained below
+                    # day 0 is person 1, 2 -> 2
+                    # day 1 is person 2, 3 -> 1 (but we see person 1 later) so becomes 2
+                    # day 2 is person 3 -> 0 (but we see person 1 later) so becomes 1
+                    # day 3 is person 1, 3, 4 -> 1 (won't double count person 1 even though we see them again later)
+                    # day 4 is person 1, 4, 5 -> 1
+                    # day 5 is no one -> 0
+                    [2, 2, 1, 1, 1, 0],
+                    [2, 1, 1, 0, 0],
+                    [1, 1, 0, 0],
+                    [3, 2, 0],
+                    [3, 0],
+                    [0],
+                ]
+            ),
         )
 
     def test_all_events(self):
@@ -890,6 +986,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             query={
                 "dateRange": {"date_to": _date(10, hour=6)},
                 "retentionFilter": {
+                    "totalIntervals": 11,
                     "targetEntity": {"id": None, "name": "All events"},
                     "returningEntity": {"id": "$pageview", "type": "events"},
                 },
@@ -897,19 +994,21 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(
             pluck(result, "values", "count"),
-            [
-                [1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0],
-                [2, 2, 1, 0, 1, 2, 0, 0, 0, 0],
-                [2, 1, 0, 1, 2, 0, 0, 0, 0],
-                [1, 0, 0, 1, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0, 0],
-                [1, 1, 0, 0, 0, 0],
-                [2, 0, 0, 0, 0],
-                [0, 0, 0, 0],
-                [0, 0, 0],
-                [0, 0],
-                [0],
-            ],
+            pad(
+                [
+                    [1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0],
+                    [2, 2, 1, 0, 1, 2, 0, 0, 0, 0],
+                    [2, 1, 0, 1, 2, 0, 0, 0, 0],
+                    [1, 0, 0, 1, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 0, 0, 0, 0],
+                    [2, 0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0],
+                    [0, 0],
+                    [0],
+                ]
+            ),
         )
 
         action = Action.objects.create(
@@ -925,6 +1024,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             query={
                 "dateRange": {"date_to": _date(10, hour=6)},
                 "retentionFilter": {
+                    "totalIntervals": 11,
                     "targetEntity": {"id": action.id, "type": TREND_FILTER_TYPE_ACTIONS},
                     "returningEntity": {"id": "$pageview", "type": "events"},
                 },
@@ -932,19 +1032,21 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(
             pluck(result, "values", "count"),
-            [
-                [1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0],
-                [2, 2, 1, 0, 1, 2, 0, 0, 0, 0],
-                [2, 1, 0, 1, 2, 0, 0, 0, 0],
-                [1, 0, 0, 1, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0, 0],
-                [1, 1, 0, 0, 0, 0],
-                [2, 0, 0, 0, 0],
-                [0, 0, 0, 0],
-                [0, 0, 0],
-                [0, 0],
-                [0],
-            ],
+            pad(
+                [
+                    [1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0],
+                    [2, 2, 1, 0, 1, 2, 0, 0, 0, 0],
+                    [2, 1, 0, 1, 2, 0, 0, 0, 0],
+                    [1, 0, 0, 1, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 0, 0, 0, 0],
+                    [2, 0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0],
+                    [0, 0],
+                    [0],
+                ]
+            ),
         )
 
     def test_all_events_target_first_time(self):
@@ -995,12 +1097,14 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             pluck(result_specific_event, "values", "count"),
-            [
-                [0, 0, 0, 0],
-                [0, 0, 0],
-                [0, 0],
-                [1],
-            ],
+            pad(
+                [
+                    [0, 0, 0, 0],
+                    [0, 0, 0],
+                    [0, 0],
+                    [1],
+                ]
+            ),
         )
 
         self.assertEqual(result_specific_event, result_all_events)
@@ -1030,6 +1134,9 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             interval=0,
             query={
                 "dateRange": {"date_to": _date(10, hour=6)},
+                "retentionFilter": {
+                    "totalIntervals": 11,
+                },
             },
         )
         self.assertEqual(len(result), 1, result)
@@ -1040,6 +1147,9 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             interval=0,
             query={
                 "dateRange": {"date_to": _date(10, hour=6)},
+                "retentionFilter": {
+                    "totalIntervals": 11,
+                },
             },
             select=["day_0", "day_1", "day_2", "day_3", "day_4"],
         )
@@ -1062,6 +1172,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                     "targetEntity": {"id": "$user_signed_up", "type": TREND_FILTER_TYPE_EVENTS},
                     "returningEntity": {"id": "$pageview", "type": "events"},
                     "retentionType": RETENTION_FIRST_TIME,
+                    "totalIntervals": 11,
                 },
             },
         )
@@ -1082,40 +1193,6 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(len(result), 0)
-
-    def test_retention_people_paginated(self):
-        for i in range(150):
-            person_id = "person{}".format(i)
-            _create_person(team_id=self.team.pk, distinct_ids=[person_id])
-            _create_events(
-                self.team,
-                [
-                    (person_id, _date(0)),
-                    (person_id, _date(1)),
-                    (person_id, _date(2)),
-                    (person_id, _date(5)),
-                ],
-            )
-
-        # even if set to hour 6 it should default to beginning of day and include all pageviews above
-        result = self.client.get(
-            "/api/person/retention",
-            data={"date_to": _date(10, hour=6), "selected_interval": 2},
-        ).json()
-
-        self.assertEqual(len(result["result"]), 100)
-
-        second_result = self.client.get(result["next"]).json()
-        self.assertEqual(len(second_result["result"]), 50)
-
-    def test_retention_invalid_properties(self):
-        response = self.client.get("/api/person/retention", data={"properties": "invalid_json"})
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertDictEqual(
-            response.json(),
-            self.validation_error_response("Properties are unparsable!", "invalid_input"),
-        )
 
     def test_retention_people_in_period(self):
         person1 = _create_person(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
@@ -1143,6 +1220,9 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             interval=2,
             query={
                 "dateRange": {"date_to": _date(10, hour=6)},
+                "retentionFilter": {
+                    "totalIntervals": 11,
+                },
             },
         )
 
@@ -1186,6 +1266,9 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             interval=2,
             query={
                 "dateRange": {"date_to": _date(10, hour=6)},
+                "retentionFilter": {
+                    "totalIntervals": 11,
+                },
             },
             search="test",
         )
@@ -1202,6 +1285,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                     "targetEntity": {"id": "$user_signed_up", "type": TREND_FILTER_TYPE_EVENTS},
                     "returningEntity": {"id": "$pageview", "type": "events"},
                     "retentionType": RETENTION_FIRST_TIME,
+                    "totalIntervals": 11,
                 },
             },
         )
@@ -1257,15 +1341,17 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             pluck(result, "values", "count"),
-            [
-                [2, 0, 0, 0, 0, 2, 1],
-                [2, 0, 0, 0, 2, 1],
-                [2, 0, 0, 2, 1],
-                [2, 0, 2, 1],
-                [0, 0, 0],
-                [1, 0],
-                [0],
-            ],
+            pad(
+                [
+                    [2, 0, 0, 0, 0, 2, 1],
+                    [2, 0, 0, 0, 2, 1],
+                    [2, 0, 0, 2, 1],
+                    [2, 0, 2, 1],
+                    [0, 0, 0],
+                    [1, 0],
+                    [0],
+                ]
+            ),
         )
 
     def test_retention_any_event(self):
@@ -1315,15 +1401,17 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             pluck(result, "values", "count"),
-            [
-                [2, 2, 2, 2, 0, 2, 1],
-                [2, 2, 2, 0, 2, 1],
-                [2, 2, 0, 2, 1],
-                [2, 0, 2, 1],
-                [0, 0, 0],
-                [3, 1],
-                [1],
-            ],
+            pad(
+                [
+                    [2, 2, 2, 2, 0, 2, 1],
+                    [2, 2, 2, 0, 2, 1],
+                    [2, 2, 0, 2, 1],
+                    [2, 0, 2, 1],
+                    [0, 0, 0],
+                    [3, 1],
+                    [1],
+                ]
+            ),
         )
 
     @snapshot_clickhouse_queries
@@ -1376,15 +1464,17 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             pluck(result, "values", "count"),
-            [
-                [2, 0, 0, 1, 0, 1, 0],
-                [2, 0, 1, 0, 1, 0],
-                [2, 1, 0, 1, 0],
-                [2, 0, 1, 0],
-                [0, 0, 0],
-                [0, 0],
-                [0],
-            ],
+            pad(
+                [
+                    [2, 0, 0, 1, 0, 1, 0],
+                    [2, 0, 1, 0, 1, 0],
+                    [2, 1, 0, 1, 0],
+                    [2, 0, 1, 0],
+                    [0, 0, 0],
+                    [0, 0],
+                    [0],
+                ]
+            ),
         )
 
     def test_first_time_retention(self):
@@ -1415,15 +1505,17 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             pluck(result, "values", "count"),
-            [
-                [2, 1, 2, 2, 1, 0, 1],
-                [1, 1, 0, 1, 1, 1],
-                [0, 0, 0, 0, 0],
-                [1, 1, 0, 1],
-                [0, 0, 0],
-                [0, 0],
-                [0],
-            ],
+            pad(
+                [
+                    [2, 1, 2, 2, 1, 0, 1],
+                    [1, 1, 0, 1, 1, 1],
+                    [0, 0, 0, 0, 0],
+                    [1, 1, 0, 1],
+                    [0, 0, 0],
+                    [0, 0],
+                    [0],
+                ]
+            ),
         )
 
     def test_first_time_retention_weeks(self):
@@ -1450,15 +1542,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             pluck(result, "values", "count"),
-            [
-                [0, 0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0],
-                [0, 0, 0, 0],
-                [1, 0, 0],
-                [4, 4],
-                [0],
-            ],
+            pad([[0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0], [1, 0, 0], [4, 4], [0]]),
         )
 
     def test_retention_with_properties(self):
@@ -1484,6 +1568,9 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         result = self.run_query(
             query={
                 "dateRange": {"date_to": _date(10, hour=0)},
+                "retentionFilter": {
+                    "totalIntervals": 11,
+                },
                 "properties": {
                     "type": "AND",
                     "values": [
@@ -1522,19 +1609,335 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             pluck(result, "values", "count"),
+            pad(
+                [
+                    [1, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0],
+                    [1, 0, 1, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 0, 0, 1, 0, 0, 0, 0, 0],
+                    [1, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0],
+                    [1, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0],
+                    [0, 0],
+                    [0],
+                ]
+            ),
+        )
+
+    def test_retention_with_properties_on_start_event(self):
+        _create_person(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+
+        # only even indexed events have $some_property set
+        _create_events(
+            self.team,
             [
-                [1, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0],
-                [1, 0, 1, 0, 0, 0, 0, 0, 0, 0],
-                [1, 0, 0, 1, 0, 0, 0, 0, 0],
-                [1, 0, 0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0, 0],
-                [1, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0],
-                [0, 0, 0, 0],
-                [0, 0, 0],
-                [0, 0],
-                [0],
+                ("person1", _date(0), {"$target_event_property": "value"}),
+                ("person1", _date(1)),
+                ("person1", _date(2)),
+                ("person1", _date(5)),
+                ("alias1", _date(5, 9)),
+                ("person1", _date(6)),
+                ("person2", _date(1)),
+                ("person2", _date(2)),
+                ("person2", _date(3)),
+                ("person2", _date(6)),
             ],
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(10, hour=0)},
+                "retentionFilter": {
+                    "targetEntity": {
+                        "id": "$pageview",
+                        "properties": [
+                            {
+                                "key": "$target_event_property",
+                                "type": "event",
+                                "operator": "exact",
+                                "value": ["value"],
+                            }
+                        ],
+                    },
+                    "totalIntervals": 11,
+                },
+            }
+        )
+        self.assertEqual(len(result), 11)
+        self.assertEqual(
+            pluck(result, "label"),
+            [
+                "Day 0",
+                "Day 1",
+                "Day 2",
+                "Day 3",
+                "Day 4",
+                "Day 5",
+                "Day 6",
+                "Day 7",
+                "Day 8",
+                "Day 9",
+                "Day 10",
+            ],
+        )
+        self.assertEqual(result[0]["date"], datetime(2020, 6, 10, 0, tzinfo=ZoneInfo("UTC")))
+
+        self.assertEqual(
+            pluck(result, "values", "count"),
+            pad(
+                [
+                    [1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0],
+                    [0, 0],
+                    [0],
+                ]
+            ),
+        )
+
+    def test_retention_with_properties_on_start_event_for_first_time(self):
+        _create_person(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+
+        # only even indexed events have $some_property set
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(0)),
+                ("person1", _date(1)),
+                ("person1", _date(2), {"$target_event_property": "value"}),
+                ("person1", _date(5), {"$target_event_property": "value"}),
+                ("alias1", _date(5, 9)),
+                ("person1", _date(6)),
+                ("person2", _date(1)),
+                ("person2", _date(2)),
+                ("person2", _date(3)),
+                ("person2", _date(6)),
+            ],
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(10, hour=0)},
+                "retentionFilter": {
+                    "retentionType": "retention_first_time",
+                    "totalIntervals": 11,
+                    "targetEntity": {
+                        "id": "$pageview",
+                        "properties": [
+                            {
+                                "key": "$target_event_property",
+                                "type": "event",
+                                "operator": "exact",
+                                "value": ["value"],
+                            }
+                        ],
+                    },
+                },
+            }
+        )
+        self.assertEqual(len(result), 11)
+        self.assertEqual(
+            pluck(result, "label"),
+            [
+                "Day 0",
+                "Day 1",
+                "Day 2",
+                "Day 3",
+                "Day 4",
+                "Day 5",
+                "Day 6",
+                "Day 7",
+                "Day 8",
+                "Day 9",
+                "Day 10",
+            ],
+        )
+        self.assertEqual(result[0]["date"], datetime(2020, 6, 10, 0, tzinfo=ZoneInfo("UTC")))
+
+        self.assertEqual(
+            pluck(result, "values", "count"),
+            pad(
+                [
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 0, 0, 1, 1, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0],
+                    [0, 0],
+                    [0],
+                ]
+            ),
+        )
+
+    def test_retention_with_properties_on_return_event(self):
+        _create_person(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+
+        # only even indexed events have $some_property set
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(0)),
+                ("person1", _date(1), {"$target_event_property": "value"}),
+                ("person1", _date(2)),
+                ("person1", _date(5)),
+                ("alias1", _date(5, 9)),
+                ("person1", _date(6)),
+                ("person2", _date(1)),
+                ("person2", _date(2)),
+                ("person2", _date(3)),
+                ("person2", _date(6)),
+            ],
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(10, hour=0)},
+                "retentionFilter": {
+                    "totalIntervals": 11,
+                    "returningEntity": {
+                        "id": "$pageview",
+                        "properties": [
+                            {
+                                "key": "$target_event_property",
+                                "type": "event",
+                                "operator": "exact",
+                                "value": ["value"],
+                            }
+                        ],
+                    },
+                },
+            }
+        )
+        self.assertEqual(len(result), 11)
+        self.assertEqual(
+            pluck(result, "label"),
+            [
+                "Day 0",
+                "Day 1",
+                "Day 2",
+                "Day 3",
+                "Day 4",
+                "Day 5",
+                "Day 6",
+                "Day 7",
+                "Day 8",
+                "Day 9",
+                "Day 10",
+            ],
+        )
+        self.assertEqual(result[0]["date"], datetime(2020, 6, 10, 0, tzinfo=ZoneInfo("UTC")))
+
+        self.assertEqual(
+            pluck(result, "values", "count"),
+            pad(
+                [
+                    [1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],  # only one match, 1 day after for person 1
+                    [2, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [2, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0],
+                    [1, 0, 0, 0, 0, 0],
+                    [2, 0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0],
+                    [0, 0],
+                    [0],
+                ]
+            ),
+        )
+
+    def test_retention_with_properties_on_return_event_with_first_time(self):
+        _create_person(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+
+        # only even indexed events have $some_property set
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(0)),
+                ("person1", _date(1)),
+                ("person1", _date(2)),
+                ("person1", _date(5), {"$target_event_property": "value"}),
+                ("alias1", _date(5, 9)),
+                ("person1", _date(6)),
+                ("person2", _date(1)),
+                ("person2", _date(2)),
+                ("person2", _date(3)),
+                ("person2", _date(6)),
+            ],
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(10, hour=0)},
+                "retentionFilter": {
+                    "retentionType": "retention_first_time",
+                    "totalIntervals": 11,
+                    "returningEntity": {
+                        "id": "$pageview",
+                        "properties": [
+                            {
+                                "key": "$target_event_property",
+                                "type": "event",
+                                "operator": "exact",
+                                "value": ["value"],
+                            }
+                        ],
+                    },
+                },
+            }
+        )
+        self.assertEqual(len(result), 11)
+        self.assertEqual(
+            pluck(result, "label"),
+            [
+                "Day 0",
+                "Day 1",
+                "Day 2",
+                "Day 3",
+                "Day 4",
+                "Day 5",
+                "Day 6",
+                "Day 7",
+                "Day 8",
+                "Day 9",
+                "Day 10",
+            ],
+        )
+        self.assertEqual(result[0]["date"], datetime(2020, 6, 10, 0, tzinfo=ZoneInfo("UTC")))
+
+        self.assertEqual(
+            pluck(result, "values", "count"),
+            pad(
+                [
+                    [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0],  # only one match, 5 days after for person 1
+                    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0],
+                    [0, 0],
+                    [0],
+                ]
+            ),
         )
 
     def test_retention_with_user_properties(self):
@@ -1598,15 +2001,17 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result[0]["date"], datetime(2020, 6, 10, 0, tzinfo=ZoneInfo("UTC")))
         self.assertEqual(
             pluck(result, "values", "count"),
-            [
-                [1, 1, 1, 0, 0, 1, 1],
-                [1, 1, 0, 0, 1, 1],
-                [1, 0, 0, 1, 1],
-                [0, 0, 0, 0],
-                [0, 0, 0],
-                [1, 1],
-                [1],
-            ],
+            pad(
+                [
+                    [1, 1, 1, 0, 0, 1, 1],
+                    [1, 1, 0, 0, 1, 1],
+                    [1, 0, 0, 1, 1],
+                    [0, 0, 0, 0],
+                    [0, 0, 0],
+                    [1, 1],
+                    [1],
+                ]
+            ),
         )
 
     @snapshot_clickhouse_queries
@@ -1668,15 +2073,17 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result[0]["date"], datetime(2020, 6, 10, 0, tzinfo=ZoneInfo("UTC")))
         self.assertEqual(
             pluck(result, "values", "count"),
-            [
-                [1, 1, 1, 0, 0, 1, 1],
-                [1, 1, 0, 0, 1, 1],
-                [1, 0, 0, 1, 1],
-                [0, 0, 0, 0],
-                [0, 0, 0],
-                [1, 1],
-                [1],
-            ],
+            pad(
+                [
+                    [1, 1, 1, 0, 0, 1, 1],
+                    [1, 1, 0, 0, 1, 1],
+                    [1, 0, 0, 1, 1],
+                    [0, 0, 0, 0],
+                    [0, 0, 0],
+                    [1, 1],
+                    [1],
+                ]
+            ),
         )
 
     def test_retention_action_start_point(self):
@@ -1720,15 +2127,17 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             pluck(result, "values", "count"),
-            [
-                [1, 1, 1, 0, 0, 1, 1],
-                [2, 2, 1, 0, 1, 2],
-                [2, 1, 0, 1, 2],
-                [1, 0, 0, 1],
-                [0, 0, 0],
-                [1, 1],
-                [2],
-            ],
+            pad(
+                [
+                    [1, 1, 1, 0, 0, 1, 1],
+                    [2, 2, 1, 0, 1, 2],
+                    [2, 1, 0, 1, 2],
+                    [1, 0, 0, 1],
+                    [0, 0, 0],
+                    [1, 1],
+                    [2],
+                ]
+            ),
         )
 
     def test_filter_test_accounts(self):
@@ -1759,6 +2168,9 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             query={
                 "dateRange": {"date_to": _date(10, hour=6)},
                 "filterTestAccounts": True,
+                "retentionFilter": {
+                    "totalIntervals": 11,
+                },
             }
         )
         self.assertEqual(len(result), 11)
@@ -1782,19 +2194,21 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             pluck(result, "values", "count"),
-            [
-                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                [1, 1, 1, 0, 0, 1, 0, 0, 0, 0],
-                [1, 1, 0, 0, 1, 0, 0, 0, 0],
-                [1, 0, 0, 1, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0],
-                [1, 0, 0, 0, 0],
-                [0, 0, 0, 0],
-                [0, 0, 0],
-                [0, 0],
-                [0],
-            ],
+            pad(
+                [
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 1, 0, 0, 1, 0, 0, 0, 0],
+                    [1, 1, 0, 0, 1, 0, 0, 0, 0],
+                    [1, 0, 0, 1, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [1, 0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0],
+                    [0, 0],
+                    [0],
+                ]
+            ),
         )
 
     def _create_first_time_retention_events(self):
@@ -1872,12 +2286,26 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        result = self.run_query(query={"dateRange": {"date_to": _date(10, hour=6)}})
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(10, hour=6)},
+                "retentionFilter": {
+                    "totalIntervals": 11,
+                },
+            }
+        )
 
         self.team.timezone = "US/Pacific"
         self.team.save()
 
-        result_pacific = self.run_query(query={"dateRange": {"date_to": _date(10, hour=6)}})
+        result_pacific = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(10, hour=6)},
+                "retentionFilter": {
+                    "totalIntervals": 11,
+                },
+            }
+        )
 
         self.assertEqual(
             pluck(result_pacific, "label"),
@@ -1904,36 +2332,40 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             pluck(result, "values", "count"),
-            [
-                [1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                [1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0],
-                [1, 0, 0, 0, 0],  # person 2
-                [0, 0, 0, 0],
-                [0, 0, 0],
-                [0, 0],
-                [0],
-            ],
+            pad(
+                [
+                    [1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [1, 0, 0, 0, 0],  # person 2
+                    [0, 0, 0, 0],
+                    [0, 0, 0],
+                    [0, 0],
+                    [0],
+                ]
+            ),
         )
 
         self.assertEqual(
             pluck(result_pacific, "values", "count"),
-            [
-                [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0, 0],
-                [1, 1, 0, 0, 0, 0],  # person 2 is across two dates in US/Pacific
-                [1, 0, 0, 0, 0],
-                [0, 0, 0, 0],
-                [0, 0, 0],
-                [0, 0],
-                [0],
-            ],
+            pad(
+                [
+                    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 0, 0, 0, 0],  # person 2 is across two dates in US/Pacific
+                    [1, 0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0],
+                    [0, 0],
+                    [0],
+                ]
+            ),
         )
 
     @snapshot_clickhouse_queries
@@ -1962,6 +2394,9 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             query={
                 "dateRange": {"date_to": _date(10, hour=6)},
                 "samplingFactor": 1,
+                "retentionFilter": {
+                    "totalIntervals": 11,
+                },
             }
         )
         self.assertEqual(len(result), 11)
@@ -1985,19 +2420,21 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             pluck(result, "values", "count"),
-            [
-                [1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0],
-                [2, 2, 1, 0, 1, 2, 0, 0, 0, 0],
-                [2, 1, 0, 1, 2, 0, 0, 0, 0],
-                [1, 0, 0, 1, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0, 0, 0],
-                [1, 1, 0, 0, 0, 0],
-                [2, 0, 0, 0, 0],
-                [0, 0, 0, 0],
-                [0, 0, 0],
-                [0, 0],
-                [0],
-            ],
+            pad(
+                [
+                    [1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0],
+                    [2, 2, 1, 0, 1, 2, 0, 0, 0, 0],
+                    [2, 1, 0, 1, 2, 0, 0, 0, 0],
+                    [1, 0, 0, 1, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 0, 0, 0, 0],
+                    [2, 0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0],
+                    [0, 0],
+                    [0],
+                ]
+            ),
         )
 
 
@@ -2107,15 +2544,17 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(
             pluck(result, "values", "count"),
-            [
-                [2, 2, 1, 2, 2, 0, 1],
-                [2, 1, 2, 2, 0, 1],
-                [1, 1, 1, 0, 0],
-                [2, 2, 0, 1],
-                [2, 0, 1],
-                [0, 0],
-                [1],
-            ],
+            pad(
+                [
+                    [2, 2, 1, 2, 2, 0, 1],
+                    [2, 1, 2, 2, 0, 1],
+                    [1, 1, 1, 0, 0],
+                    [2, 2, 0, 1],
+                    [2, 0, 1],
+                    [0, 0],
+                    [1],
+                ]
+            ),
         )
 
         actor_result = self.run_actors_query(
@@ -2144,15 +2583,17 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(
             pluck(result, "values", "count"),
-            [
-                [1, 0, 0, 1, 0, 0, 1],
-                [0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0],
-                [1, 0, 0, 1],
-                [0, 0, 0],
-                [0, 0],
-                [1],
-            ],
+            pad(
+                [
+                    [1, 0, 0, 1, 0, 0, 1],
+                    [0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0],
+                    [1, 0, 0, 1],
+                    [0, 0, 0],
+                    [0, 0],
+                    [1],
+                ]
+            ),
         )
 
     def test_groups_in_period(self):
@@ -2193,15 +2634,17 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(
             pluck(result, "values", "count"),
-            [
-                [2, 2, 1, 2, 2, 0, 1],
-                [2, 1, 2, 2, 0, 1],
-                [1, 1, 1, 0, 0],
-                [2, 2, 0, 1],
-                [2, 0, 1],
-                [0, 0],
-                [1],
-            ],
+            pad(
+                [
+                    [2, 2, 1, 2, 2, 0, 1],
+                    [2, 1, 2, 2, 0, 1],
+                    [1, 1, 1, 0, 0],
+                    [2, 2, 0, 1],
+                    [2, 0, 1],
+                    [0, 0],
+                    [1],
+                ]
+            ),
         )
 
         actor_result = self.run_actors_query(
@@ -2231,15 +2674,17 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(
             pluck(result, "values", "count"),
-            [
-                [1, 0, 0, 1, 0, 0, 1],
-                [0, 0, 0, 0, 0, 0],
-                [0, 0, 0, 0, 0],
-                [1, 0, 0, 1],
-                [0, 0, 0],
-                [0, 0],
-                [1],
-            ],
+            pad(
+                [
+                    [1, 0, 0, 1, 0, 0, 1],
+                    [0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0],
+                    [1, 0, 0, 1],
+                    [0, 0, 0],
+                    [0, 0],
+                    [1],
+                ]
+            ),
         )
 
     @patch("posthog.hogql.query.sync_execute", wraps=sync_execute)

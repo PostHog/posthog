@@ -15,9 +15,11 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     _create_event,
     _create_person,
+    snapshot_clickhouse_queries,
 )
 
 
+@snapshot_clickhouse_queries
 class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def _create_events(self, data, event="$autocapture"):
         person_result = []
@@ -101,8 +103,8 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             [
-                ["https://www.example.com/", 2, 2],
-                ["https://www.example.com/login", 1, 1],
+                ["https://www.example.com/", (2, 0), (2, 0)],
+                ["https://www.example.com/login", (1, 0), (1, 0)],
             ],
             results,
         )
@@ -129,9 +131,9 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             [
-                ["https://www.example.com/", 2, 2],
-                ["https://www.example.com/docs", 1, 1],
-                ["https://www.example.com/login", 1, 1],
+                ["https://www.example.com/", (2, 0), (2, 0)],
+                ["https://www.example.com/docs", (1, 0), (1, 0)],
+                ["https://www.example.com/login", (1, 0), (1, 0)],
             ],
             results,
         )
@@ -176,7 +178,7 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._run_external_clicks_table_query("2023-12-01", "2023-12-03", filter_test_accounts=False).results
 
         self.assertEqual(
-            [["https://www.example.com/", 1, 1], ["https://www.example.com/login", 1, 1]],
+            [["https://www.example.com/", (1, 0), (1, 0)], ["https://www.example.com/login", (1, 0), (1, 0)]],
             results,
         )
 
@@ -200,7 +202,7 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ).results
 
         self.assertEqual(
-            [["https://www.example.com/login", 1, 2]],
+            [["https://www.example.com/login", (1, 0), (2, 0)]],
             results_strip,
         )
 
@@ -209,7 +211,10 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ).results
 
         self.assertEqual(
-            [["https://www.example.com/login#bar", 1, 1], ["https://www.example.com/login?test=1#foo", 1, 1]],
+            [
+                ["https://www.example.com/login#bar", (1, 0), (1, 0)],
+                ["https://www.example.com/login?test=1#foo", (1, 0), (1, 0)],
+            ],
             results_no_strip,
         )
 
@@ -233,7 +238,7 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             [
-                ["https://other.com/", 1, 1],
+                ["https://other.com/", (1, 0), (1, 0)],
             ],
             results,
         )
@@ -259,7 +264,7 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             [
-                ["https://other.com/", 1, 1],
+                ["https://other.com/", (1, 0), (1, 0)],
             ],
             results,
         )

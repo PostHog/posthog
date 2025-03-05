@@ -10,6 +10,7 @@ import { ActionStepType } from '~/types'
 import { ActionStepPropertyKey } from './actions/ActionStep'
 
 export const TOOLBAR_ID = '__POSTHOG_TOOLBAR__'
+export const TOOLBAR_CONTAINER_CLASS = 'toolbar-global-fade-container'
 export const LOCALSTORAGE_KEY = '_postHogToolbarParams'
 
 export function getSafeText(el: HTMLElement): string {

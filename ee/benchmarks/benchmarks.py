@@ -4,9 +4,9 @@ from .helpers import benchmark_clickhouse, no_materialized_columns, now
 from datetime import timedelta
 from ee.clickhouse.materialized_columns.analyze import (
     backfill_materialized_columns,
-    get_materialized_columns,
     materialize,
 )
+from ee.clickhouse.materialized_columns.columns import MaterializedColumn
 from ee.clickhouse.queries.stickiness import ClickhouseStickiness
 from ee.clickhouse.queries.funnels.funnel_correlation import FunnelCorrelation
 from posthog.queries.funnels import ClickhouseFunnel
@@ -18,23 +18,25 @@ from posthog.queries.trends.trends import Trends
 from posthog.queries.session_recordings.session_recording_list import (
     SessionRecordingList,
 )
-from ee.clickhouse.queries.retention import ClickhouseRetention
 from posthog.queries.util import get_earliest_timestamp
 from posthog.models import Action, Cohort, Team, Organization
-from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.filter import Filter
 from posthog.models.property import PropertyName, TableWithProperties
 from posthog.constants import FunnelCorrelationType
 
-MATERIALIZED_PROPERTIES: list[tuple[TableWithProperties, PropertyName]] = [
-    ("events", "$host"),
-    ("events", "$current_url"),
-    ("events", "$event_type"),
-    ("person", "email"),
-    ("person", "$browser"),
-]
+MATERIALIZED_PROPERTIES: dict[TableWithProperties, list[PropertyName]] = {
+    "events": [
+        "$current_url",
+        "$event_type",
+        "$host",
+    ],
+    "person": [
+        "$browser",
+        "email",
+    ],
+}
 
 DATE_RANGE = {"date_from": "2021-01-01", "date_to": "2021-10-01", "interval": "week"}
 SHORT_DATE_RANGE = {
@@ -528,111 +530,6 @@ class QuerySuite:
 
         SessionRecordingList(filter, self.team).run()
 
-    @benchmark_clickhouse
-    def track_retention(self):
-        filter = RetentionFilter(
-            data={
-                "insight": "RETENTION",
-                "target_event": {"id": "$pageview"},
-                "returning_event": {"id": "$pageview"},
-                "total_intervals": 14,
-                "retention_type": "retention_first_time",
-                "period": "Week",
-                **DATE_RANGE,
-            },
-            team=self.team,
-        )
-
-        ClickhouseRetention().run(filter, self.team)
-
-    @benchmark_clickhouse
-    def track_retention_with_person_breakdown(self):
-        filter = RetentionFilter(
-            data={
-                "insight": "RETENTION",
-                "target_event": {"id": "$pageview"},
-                "returning_event": {"id": "$pageview"},
-                "total_intervals": 14,
-                "retention_type": "retention_first_time",
-                "breakdown_type": "person",
-                "breakdowns": [
-                    {"type": "person", "property": "$browser"},
-                    {"type": "person", "property": "$browser_version"},
-                ],
-                "period": "Week",
-                **DATE_RANGE,
-            },
-            team=self.team,
-        )
-
-        with no_materialized_columns():
-            ClickhouseRetention().run(filter, self.team)
-
-    @benchmark_clickhouse
-    def track_retention_filter_by_person_property(self):
-        filter = RetentionFilter(
-            data={
-                "insight": "RETENTION",
-                "target_event": {"id": "$pageview"},
-                "returning_event": {"id": "$pageview"},
-                "total_intervals": 14,
-                "retention_type": "retention_first_time",
-                "period": "Week",
-                "properties": [
-                    {
-                        "key": "email",
-                        "operator": "icontains",
-                        "value": ".com",
-                        "type": "person",
-                    }
-                ],
-                **DATE_RANGE,
-            },
-            team=self.team,
-        )
-
-        with no_materialized_columns():
-            ClickhouseRetention().run(filter, self.team)
-
-    @benchmark_clickhouse
-    def track_retention_filter_by_person_property_materialized(self):
-        filter = RetentionFilter(
-            data={
-                "insight": "RETENTION",
-                "target_event": {"id": "$pageview"},
-                "returning_event": {"id": "$pageview"},
-                "total_intervals": 14,
-                "retention_type": "retention_first_time",
-                "period": "Week",
-                "properties": [
-                    {
-                        "key": "email",
-                        "operator": "icontains",
-                        "value": ".com",
-                        "type": "person",
-                    }
-                ],
-                **DATE_RANGE,
-            },
-            team=self.team,
-        )
-
-        ClickhouseRetention().run(filter, self.team)
-
-    @benchmark_clickhouse
-    def track_lifecycle(self):
-        filter = Filter(
-            data={
-                "insight": "LIFECYCLE",
-                "events": [{"id": "$pageview", "type": "events"}],
-                "interval": "week",
-                "shown_as": "Lifecycle",
-                "date_from": "-14d",
-                **DATE_RANGE,
-            },
-            team=self.team,
-        )
-
         Trends().run(filter, self.team)
 
     @benchmark_clickhouse
@@ -766,14 +663,18 @@ class QuerySuite:
         get_person_property_values_for_key("$browser", self.team)
 
     def setup(self):
-        for table, property in MATERIALIZED_PROPERTIES:
-            if (property, "properties") not in get_materialized_columns(table):
+        for table, properties in MATERIALIZED_PROPERTIES.items():
+            columns = [
                 materialize(table, property)
-                backfill_materialized_columns(
-                    table,
-                    [(property, "properties")],
-                    backfill_period=timedelta(days=1_000),
+                for property in (
+                    set(properties) - {column.details.property_name for column in MaterializedColumn.get_all(table)}
                 )
+            ]
+            backfill_materialized_columns(
+                table,
+                columns,
+                backfill_period=timedelta(days=1_000),
+            )
 
         # :TRICKY: Data in benchmark servers has ID=2
         team = Team.objects.filter(id=2).first()

@@ -6,7 +6,6 @@ import { ServerInstance, startPluginsServer } from '../../../src/main/pluginsSer
 import { LogLevel, PluginsServerConfig } from '../../../src/types'
 import { Hub } from '../../../src/types'
 import { UUIDT } from '../../../src/utils/utils'
-import { makePiscina } from '../../../src/worker/piscina'
 import { createPosthog, DummyPostHog } from '../../../src/worker/vm/extensions/posthog'
 import { writeToFile } from '../../../src/worker/vm/extensions/test-utils'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../helpers/clickhouse'
@@ -20,7 +19,6 @@ jest.mock('../../../src/utils/status')
 jest.setTimeout(70000) // 60 sec timeout
 
 const extraServerConfig: Partial<PluginsServerConfig> = {
-    WORKER_CONCURRENCY: 1,
     KAFKA_CONSUMPTION_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
     LOG_LEVEL: LogLevel.Log,
 }
@@ -40,8 +38,8 @@ describe.skip('IngestionConsumer', () => {
         testConsole.reset()
         await resetTestDatabase()
         await resetTestDatabaseClickhouse(extraServerConfig)
-        pluginServer = await startPluginsServer(extraServerConfig, makePiscina)
-        hub = pluginServer.hub
+        pluginServer = await startPluginsServer(extraServerConfig)
+        hub = pluginServer.hub!
         stopServer = pluginServer.stop
         posthog = createPosthog(hub, pluginConfig39)
     })

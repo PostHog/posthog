@@ -121,7 +121,7 @@ use bullet points to identify the themes, and highlights of quotes to bring them
 we're trying to identify what to work on
             use as concise and simple language as is possible.
             generate no text other than the summary.
-            the aim is to let people see themes in the responses received. return the text in github flavoured markdown format""",
+            the aim is to let people see themes in the responses received. return the text in markdown format without using any paragraph formatting""",
                 },
             ],
             user=f"{instance_region}/{user.pk}",
@@ -130,6 +130,8 @@ we're trying to identify what to work on
         usage = result.usage.prompt_tokens if result.usage else None
         if usage:
             TOKENS_IN_PROMPT_HISTOGRAM.observe(usage)
+
+    logger.info("survey_summary_response", result=result)
 
     content: str = result.choices[0].message.content or ""
     return {"content": content, "timings": timer.get_all_timings()}

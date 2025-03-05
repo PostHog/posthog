@@ -33,12 +33,12 @@ class TeamAdmin(admin.ModelAdmin):
         "id",
         "uuid",
         "organization",
+        "project",
         "primary_dashboard",
         "test_account_filters",
         "created_at",
         "updated_at",
     ]
-    autocomplete_fields = ["project"]
 
     inlines = [GroupTypeMappingInline, ActionInline]
     fieldsets = [
@@ -88,6 +88,7 @@ class TeamAdmin(admin.ModelAdmin):
                     "session_recording_sample_rate",
                     "session_recording_minimum_duration_milliseconds",
                     "session_recording_linked_flag",
+                    "api_query_rate_limit",
                     "data_attributes",
                     "session_recording_version",
                     "access_control",

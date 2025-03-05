@@ -19,7 +19,7 @@ from drf_spectacular.views import (
     SpectacularRedocView,
     SpectacularSwaggerView,
 )
-from revproxy.views import ProxyView
+
 from sentry_sdk import last_event_id
 from two_factor.urls import urlpatterns as tf_urls
 
@@ -29,6 +29,7 @@ from posthog.api import (
     capture,
     decide,
     hog_function_template,
+    remote_config,
     router,
     sharing,
     signup,
@@ -39,7 +40,7 @@ from posthog.api import (
 )
 from .api.web_experiment import web_experiments
 from .api.utils import hostname_in_allowed_url_list
-from posthog.api.early_access_feature import early_access_features
+from products.early_access_features.backend.api import early_access_features
 from posthog.api.survey import surveys
 from posthog.constants import PERMITTED_FORUM_DOMAINS
 from posthog.demo.legacy import demo_route
@@ -57,6 +58,7 @@ from .views import (
     stats,
 )
 from .year_in_posthog import year_in_posthog
+from posthog.api.query import query_awaited
 
 logger = structlog.get_logger(__name__)
 
@@ -170,6 +172,7 @@ urlpatterns = [
     # ee
     *ee_urlpatterns,
     # api
+    path("api/environments/<int:team_id>/query_awaited/", query_awaited),
     path("api/unsubscribe", unsubscribe.unsubscribe),
     path("api/", include(router.urls)),
     path("", include(tf_urls)),
@@ -210,6 +213,9 @@ urlpatterns = [
         sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"}),
     ),
     path("site_app/<int:id>/<str:token>/<str:hash>/", site_app.get_site_app),
+    path("array/<str:token>/config", remote_config.RemoteConfigAPIView.as_view()),
+    path("array/<str:token>/config.js", remote_config.RemoteConfigJSAPIView.as_view()),
+    path("array/<str:token>/array.js", remote_config.RemoteConfigArrayJSAPIView.as_view()),
     re_path(r"^demo.*", login_required(demo_route)),
     # ingestion
     # NOTE: When adding paths here that should be public make sure to update ALWAYS_ALLOWED_ENDPOINTS in middleware.py
@@ -233,6 +239,8 @@ urlpatterns = [
     path("year_in_posthog/2022/<str:user_uuid>/", year_in_posthog.render_2022),
     path("year_in_posthog/2023/<str:user_uuid>", year_in_posthog.render_2023),
     path("year_in_posthog/2023/<str:user_uuid>/", year_in_posthog.render_2023),
+    path("year_in_posthog/2024/<str:user_uuid>", year_in_posthog.render_2024),
+    path("year_in_posthog/2024/<str:user_uuid>/", year_in_posthog.render_2024),
 ]
 
 if settings.DEBUG:
@@ -242,15 +250,12 @@ if settings.DEBUG:
     # what we do.
     urlpatterns.append(path("_metrics", ExportToDjangoView))
 
-    # Reverse-proxy all of /i/* to capture-rs on port 3000 when running the local devenv
-    urlpatterns.append(re_path(r"(?P<path>^i/.*)", ProxyView.as_view(upstream="http://localhost:3000")))
-
 
 if settings.TEST:
     # Used in posthog-js e2e tests
     @csrf_exempt
     def delete_events(request):
-        from posthog.client import sync_execute
+        from posthog.clickhouse.client import sync_execute
         from posthog.models.event.sql import TRUNCATE_EVENTS_TABLE_SQL
 
         sync_execute(TRUNCATE_EVENTS_TABLE_SQL())

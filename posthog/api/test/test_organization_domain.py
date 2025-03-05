@@ -1,5 +1,5 @@
 import datetime
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 from zoneinfo import ZoneInfo
 
 import dns.resolver
@@ -84,7 +84,8 @@ class TestOrganizationDomainsAPI(APIBaseTest):
 
     # Create domains
 
-    def test_create_domain(self):
+    @patch("posthoganalytics.capture")
+    def test_create_domain(self, mock_capture):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization.available_product_features = [
             {"key": "automatic_provisioning", "name": "automatic_provisioning"}
@@ -115,6 +116,18 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         self.assertEqual(instance.verified_at, None)
         self.assertEqual(instance.last_verification_retry, None)
         self.assertEqual(instance.sso_enforcement, "")
+
+        # Verify the domain creation capture event was called
+        mock_capture.assert_any_call(
+            self.user.distinct_id,
+            "organization domain created",
+            properties={
+                "domain": "the.posthog.com",
+                "jit_provisioning_enabled": False,
+                "sso_enforcement": None,
+            },
+            groups={"instance": ANY, "organization": str(self.organization.id)},
+        )
 
     def test_cant_create_domain_without_feature(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -439,7 +452,8 @@ class TestOrganizationDomainsAPI(APIBaseTest):
 
     # Delete domains
 
-    def test_admin_can_delete_domain(self):
+    @patch("posthoganalytics.capture")
+    def test_admin_can_delete_domain(self, mock_capture):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
@@ -448,6 +462,20 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         self.assertEqual(response.content, b"")
 
         self.assertFalse(OrganizationDomain.objects.filter(id=self.domain.id).exists())
+
+        # Verify the domain deletion capture event was called
+        mock_capture.assert_any_call(
+            self.user.distinct_id,
+            "organization domain deleted",
+            properties={
+                "domain": "myposthog.com",
+                "is_verified": False,
+                "had_saml": False,
+                "had_jit_provisioning": False,
+                "had_sso_enforcement": False,
+            },
+            groups={"instance": ANY, "organization": str(self.organization.id)},
+        )
 
     def test_only_admin_can_delete_domain(self):
         response = self.client.delete(f"/api/organizations/@current/domains/{self.domain.id}")

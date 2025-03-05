@@ -1,0 +1,88 @@
+{
+    "name": "Salesforce Export Plugin",
+    "url": "",
+    "description": "Relay PostHog events to Salesforce",
+    "main": "src/index.ts",
+    "posthogVersion": ">= 1.27.0",
+    "config": [
+        {
+            "key": "salesforceHost",
+            "name": "Salesforce Service Host",
+            "type": "string",
+            "hint": "Usually in the format of https://<org name>.my.salesforce.com",
+            "required": true
+        },
+        {
+            "key": "username",
+            "name": "Username",
+            "type": "string",
+            "required": true
+        },
+        {
+            "key": "password",
+            "name": "Password",
+            "type": "string",
+            "required": false,
+            "secret": true
+        },
+        {
+            "key": "consumerKey",
+            "name": "Consumer key",
+            "type": "string",
+            "required": true,
+            "secret": true
+        },
+        {
+            "key": "consumerSecret",
+            "name": "Consumer secret",
+            "type": "string",
+            "required": true,
+            "secret": true
+        },
+        {
+            "key": "eventsToInclude",
+            "name": "Events to include",
+            "type": "string",
+            "hint": "Comma separated list of events to include. If not set, no events will be sent"
+        },
+        {
+            "key": "eventPath",
+            "name": "Path of the url where events will go to. No leading forward slash",
+            "type": "string"
+        },
+        {
+            "key": "eventMethodType",
+            "name": "The type of method for the event url",
+            "default": "POST",
+            "type": "string"
+        },
+        {
+            "key": "propertiesToInclude",
+            "name": "Properties to include",
+            "type": "string",
+            "hint": "Comma separated list of properties to include. If not set, all properties of the event will be sent"
+        },
+        {
+            "key": "eventEndpointMapping",
+            "name": "Event endpoint mapping",
+            "type": "json",
+            "hint": "⚠️ For advanced uses only ⚠️ Allows you to map events to different SalesForce endpoints. See https://github.com/PostHog/salesforce-plugin/blob/main/README.md for an example.",
+            "default": ""
+        },
+        {
+            "key": "fieldMappings",
+            "name": "Event to salesforce field mapping",
+            "type": "json",
+            "hint": "SalesForce can be strict about field names, if your posthog event property names don't match then you can map them using this. See https://github.com/PostHog/salesforce-plugin/blob/main/README.md for an example.",
+            "default": ""
+        },
+        {
+            "key": "debugLogging",
+            "name": "Enable debug logging",
+            "type": "choice",
+            "hint": "turn on debug logging to get _much_ more logging",
+            "choices": ["debug logging on", "debug logging off"],
+            "default": "debug logging off"
+        }
+    ]
+}

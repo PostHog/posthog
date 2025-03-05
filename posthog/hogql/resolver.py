@@ -1,3 +1,4 @@
+import dataclasses
 from datetime import date, datetime
 from typing import Any, Literal, Optional, cast
 from uuid import UUID
@@ -19,16 +20,20 @@ from posthog.hogql.errors import ImpossibleASTError, QueryError, ResolutionError
 from posthog.hogql.functions import find_hogql_posthog_function
 from posthog.hogql.functions.action import matches_action
 from posthog.hogql.functions.cohort import cohort_query_node
-from posthog.hogql.functions.mapping import HOGQL_CLICKHOUSE_FUNCTIONS, compare_types, validate_function_args
+from posthog.hogql.functions.mapping import (
+    HOGQL_CLICKHOUSE_FUNCTIONS,
+    compare_types,
+    validate_function_args,
+)
 from posthog.hogql.functions.recording_button import recording_button
 from posthog.hogql.functions.sparkline import sparkline
 from posthog.hogql.hogqlx import HOGQLX_COMPONENTS, convert_to_hx
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver_utils import (
     expand_hogqlx_query,
+    extract_select_queries,
     lookup_cte_by_name,
     lookup_field_by_name,
-    extract_select_queries,
 )
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 from posthog.models.utils import UUIDT
@@ -147,7 +152,6 @@ class Resolver(CloningVisitor):
 
     def visit_select_query(self, node: ast.SelectQuery):
         """Visit each SELECT query or subquery."""
-
         # This "SelectQueryType" is also a new scope for variables in the SELECT query.
         # We will add fields to it when we encounter them. This is used to resolve fields later.
         node_type = ast.SelectQueryType()
@@ -191,7 +195,7 @@ class Resolver(CloningVisitor):
         for expr in node.select or []:
             new_expr = self.visit(expr)
             if isinstance(new_expr.type, ast.AsteriskType):
-                columns = self._asterisk_columns(new_expr.type)
+                columns = self._asterisk_columns(new_expr.type, chain_prefix=new_expr.chain[:-1])
                 select_nodes.extend([self.visit(expr) for expr in columns])
             else:
                 select_nodes.append(new_expr)
@@ -238,8 +242,7 @@ class Resolver(CloningVisitor):
             new_node.group_by = [self.visit(expr) for expr in node.group_by]
         if node.order_by:
             new_node.order_by = [self.visit(expr) for expr in node.order_by]
-        if node.limit_by:
-            new_node.limit_by = [self.visit(expr) for expr in node.limit_by]
+        new_node.limit_by = self.visit(node.limit_by)
         new_node.limit = self.visit(node.limit)
         new_node.limit_with_ties = node.limit_with_ties
         new_node.offset = self.visit(node.offset)
@@ -254,12 +257,15 @@ class Resolver(CloningVisitor):
 
         return new_node
 
-    def _asterisk_columns(self, asterisk: ast.AsteriskType) -> list[ast.Expr]:
-        """Expand an asterisk. Mutates `select_query.select` and `select_query.type.columns` with the new fields"""
+    def _asterisk_columns(self, asterisk: ast.AsteriskType, chain_prefix: list[str]) -> list[ast.Field]:
+        """Expand an asterisk. Mutates `select_query.select` and `select_query.type.columns` with the new fields.
+
+        If we have a chain prefix (for example, in the case of a table alias), we prepend it to the chain of the new fields.
+        """
         if isinstance(asterisk.table_type, ast.BaseTableType):
             table = asterisk.table_type.resolve_database_table(self.context)
             database_fields = table.get_asterisk()
-            return [ast.Field(chain=[key]) for key in database_fields.keys()]
+            return [ast.Field(chain=[*chain_prefix, key]) for key in database_fields.keys()]
         elif (
             isinstance(asterisk.table_type, ast.SelectSetQueryType)
             or isinstance(asterisk.table_type, ast.SelectQueryType)
@@ -272,7 +278,7 @@ class Resolver(CloningVisitor):
             if isinstance(select, ast.SelectSetQueryType):
                 select = select.types[0]
             if isinstance(select, ast.SelectQueryType):
-                return [ast.Field(chain=[key]) for key in select.columns.keys()]
+                return [ast.Field(chain=[*chain_prefix, key]) for key in select.columns.keys()]
             else:
                 raise QueryError("Can't expand asterisk (*) on subquery")
         else:
@@ -496,12 +502,8 @@ class Resolver(CloningVisitor):
             signatures = HOGQL_CLICKHOUSE_FUNCTIONS[node.name].signatures
             if signatures:
                 for sig_arg_types, sig_return_type in signatures:
-                    if sig_arg_types is None:
-                        return_type = sig_return_type
-                        break
-
-                    if compare_types(arg_types, sig_arg_types):
-                        return_type = sig_return_type
+                    if sig_arg_types is None or compare_types(arg_types, sig_arg_types):
+                        return_type = dataclasses.replace(sig_return_type)
                         break
 
         if return_type is None:
@@ -669,7 +671,10 @@ class Resolver(CloningVisitor):
                 new_node: ast.Expr = ast.Alias(alias=node.type.name, expr=new_expr, hidden=True)
 
                 if node.type.isolate_scope:
-                    self.scopes.append(ast.SelectQueryType(tables={node.type.name: node.type.table_type}))
+                    table_type = node.type.table_type
+                    while isinstance(table_type, ast.VirtualTableType):
+                        table_type = table_type.table_type
+                    self.scopes.append(ast.SelectQueryType(tables={node.type.name: table_type}))
 
                 new_node = self.visit(new_node)
 

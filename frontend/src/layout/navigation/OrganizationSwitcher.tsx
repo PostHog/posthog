@@ -1,4 +1,4 @@
-import { IconPlus } from '@posthog/icons'
+import { IconPlusSmall } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -57,7 +57,7 @@ export function NewOrganizationButton(): JSX.Element {
 
     return (
         <LemonButton
-            icon={<IconPlus />}
+            icon={<IconPlusSmall />}
             onClick={() =>
                 guardAvailableFeature(
                     AvailableFeature.ORGANIZATIONS_PROJECTS,

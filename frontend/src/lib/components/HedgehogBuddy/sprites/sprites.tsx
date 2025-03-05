@@ -134,7 +134,7 @@ const standardAnimations: Record<AnimationName, SpriteInfo> = {
     },
     action: {
         img: 'action',
-        frames: 8,
+        frames: 16,
         maxIteration: 3,
         randomChance: 1,
     },

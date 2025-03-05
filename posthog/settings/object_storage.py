@@ -6,7 +6,7 @@ from posthog.settings.base_variables import DEBUG, TEST
 from posthog.utils import str_to_bool
 
 if TEST or DEBUG:
-    OBJECT_STORAGE_ENDPOINT = os.getenv("OBJECT_STORAGE_ENDPOINT", "http://localhost:19000")
+    OBJECT_STORAGE_ENDPOINT = os.getenv("OBJECT_STORAGE_ENDPOINT", "http://objectstorage:19000")
     OBJECT_STORAGE_ACCESS_KEY_ID: Optional[str] = os.getenv("OBJECT_STORAGE_ACCESS_KEY_ID", "object_storage_root_user")
     OBJECT_STORAGE_SECRET_ACCESS_KEY: Optional[str] = os.getenv(
         "OBJECT_STORAGE_SECRET_ACCESS_KEY", "object_storage_root_password"
@@ -31,5 +31,5 @@ OBJECT_STORAGE_SESSION_RECORDING_LTS_FOLDER = os.getenv(
 OBJECT_STORAGE_EXPORTS_FOLDER = os.getenv("OBJECT_STORAGE_EXPORTS_FOLDER", "exports")
 OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER = os.getenv("OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER", "media_uploads")
 OBJECT_STORAGE_ERROR_TRACKING_SOURCE_MAPS_FOLDER = os.getenv(
-    "OBJECT_STORAGE_ERROR_TRACKING_SOURCE_MAPS_FOLDER", "error_tracking_source_maps"
+    "OBJECT_STORAGE_ERROR_TRACKING_SOURCE_MAPS_FOLDER", "symbolsets"
 )

@@ -3,7 +3,7 @@ from typing import Union
 import requests
 import structlog
 from posthog.redis import get_client
-from posthog.settings import CDP_FUNCTION_EXECUTOR_API_URL, PLUGINS_RELOAD_PUBSUB_CHANNEL, PLUGINS_RELOAD_REDIS_URL
+from posthog.settings import CDP_API_URL, PLUGINS_RELOAD_PUBSUB_CHANNEL, PLUGINS_RELOAD_REDIS_URL
 from posthog.models.utils import UUIDT
 
 
@@ -61,32 +61,24 @@ def populate_plugin_capabilities_on_workers(plugin_id: str):
     publish_message("populate-plugin-capabilities", {"plugin_id": plugin_id})
 
 
-def create_hog_invocation_test(
-    team_id: int,
-    hog_function_id: UUIDT,
-    globals: dict,
-    configuration: dict,
-    mock_async_functions: bool,
-) -> requests.Response:
+def create_hog_invocation_test(team_id: int, hog_function_id: str, payload: dict) -> requests.Response:
     logger.info(f"Creating hog invocation test for hog function {hog_function_id} on workers")
     return requests.post(
-        CDP_FUNCTION_EXECUTOR_API_URL + f"/api/projects/{team_id}/hog_functions/{hog_function_id}/invocations",
-        json={
-            "globals": globals,
-            "configuration": configuration,
-            "mock_async_functions": mock_async_functions,
-        },
+        CDP_API_URL + f"/api/projects/{team_id}/hog_functions/{hog_function_id}/invocations",
+        json=payload,
     )
 
 
 def get_hog_function_status(team_id: int, hog_function_id: UUIDT) -> requests.Response:
-    return requests.get(
-        CDP_FUNCTION_EXECUTOR_API_URL + f"/api/projects/{team_id}/hog_functions/{hog_function_id}/status"
-    )
+    return requests.get(CDP_API_URL + f"/api/projects/{team_id}/hog_functions/{hog_function_id}/status")
 
 
 def patch_hog_function_status(team_id: int, hog_function_id: UUIDT, state: int) -> requests.Response:
     return requests.patch(
-        CDP_FUNCTION_EXECUTOR_API_URL + f"/api/projects/{team_id}/hog_functions/{hog_function_id}/status",
+        CDP_API_URL + f"/api/projects/{team_id}/hog_functions/{hog_function_id}/status",
         json={"state": state},
     )
+
+
+def get_hog_function_templates() -> requests.Response:
+    return requests.get(CDP_API_URL + f"/api/hog_function_templates")

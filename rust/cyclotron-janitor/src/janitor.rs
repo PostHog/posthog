@@ -94,8 +94,10 @@ impl Janitor {
                 .map(aggregated_delete_to_app_metric2),
         )
         .await
+        .into_iter()
+        .collect::<Result<Vec<_>, _>>()
         {
-            Ok(()) => {}
+            Ok(_) => {}
             Err(KafkaProduceError::SerializationError { error }) => {
                 error!("Failed to serialize app_metrics2: {error}");
             }

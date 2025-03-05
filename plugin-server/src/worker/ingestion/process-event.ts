@@ -1,9 +1,9 @@
 import ClickHouse from '@posthog/clickhouse'
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
-import * as Sentry from '@sentry/node'
 import { DateTime } from 'luxon'
 import { Counter, Summary } from 'prom-client'
 
+import { KafkaProducerWrapper } from '../../kafka/producer'
 import {
     Element,
     GroupTypeIndex,
@@ -12,15 +12,17 @@ import {
     Person,
     PersonMode,
     PreIngestionEvent,
+    ProjectId,
     RawKafkaEvent,
     Team,
+    TeamId,
     TimestampFormat,
 } from '../../types'
 import { DB, GroupId } from '../../utils/db/db'
 import { elementsToString, extractElements } from '../../utils/db/elements-chain'
 import { MessageSizeTooLarge } from '../../utils/db/error'
-import { KafkaProducerWrapper } from '../../utils/db/kafka-producer-wrapper'
 import { safeClickhouseString, sanitizeEventName, timeoutGuard } from '../../utils/db/utils'
+import { captureException } from '../../utils/posthog'
 import { status } from '../../utils/status'
 import { castTimestampOrNow } from '../../utils/utils'
 import { GroupTypeManager, MAX_GROUP_TYPES_PER_TEAM } from './group-type-manager'
@@ -71,7 +73,7 @@ export class EventsProcessor {
         teamId: number,
         timestamp: DateTime,
         eventUuid: string,
-        processPerson: boolean
+        processPerson: boolean = false
     ): Promise<PreIngestionEvent> {
         const singleSaveTimer = new Date()
         const timeout = timeoutGuard(
@@ -162,7 +164,7 @@ export class EventsProcessor {
                     properties
                 )
             } catch (err) {
-                Sentry.captureException(err, { tags: { team_id: team.id } })
+                captureException(err, { tags: { team_id: team.id } })
                 status.warn('⚠️', 'Failed to update property definitions for an event', {
                     event,
                     properties,
@@ -202,18 +204,14 @@ export class EventsProcessor {
         return res
     }
 
-    createEvent(
-        preIngestionEvent: PreIngestionEvent,
-        person: Person,
-        processPerson: boolean
-    ): [RawKafkaEvent, Promise<void>] {
+    createEvent(preIngestionEvent: PreIngestionEvent, person: Person, processPerson: boolean): RawKafkaEvent {
         const { eventUuid: uuid, event, teamId, projectId, distinctId, properties, timestamp } = preIngestionEvent
 
         let elementsChain = ''
         try {
             elementsChain = this.getElementsChain(properties)
         } catch (error) {
-            Sentry.captureException(error, { tags: { team_id: teamId } })
+            captureException(error, { tags: { team_id: teamId } })
             status.warn('⚠️', 'Failed to process elements', {
                 uuid,
                 teamId: teamId,
@@ -262,32 +260,33 @@ export class EventsProcessor {
             person_mode: personMode,
         }
 
-        const ack = this.kafkaProducer
+        return rawEvent
+    }
+
+    emitEvent(rawEvent: RawKafkaEvent): Promise<void> {
+        return this.kafkaProducer
             .produce({
                 topic: this.pluginsServer.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
-                key: uuid,
+                key: rawEvent.uuid,
                 value: Buffer.from(JSON.stringify(rawEvent)),
-                waitForAck: true,
             })
             .catch(async (error) => {
                 // Some messages end up significantly larger than the original
                 // after plugin processing, person & group enrichment, etc.
                 if (error instanceof MessageSizeTooLarge) {
-                    await captureIngestionWarning(this.db.kafkaProducer, teamId, 'message_size_too_large', {
-                        eventUuid: uuid,
-                        distinctId: distinctId,
+                    await captureIngestionWarning(this.db.kafkaProducer, rawEvent.team_id, 'message_size_too_large', {
+                        eventUuid: rawEvent.uuid,
+                        distinctId: rawEvent.distinct_id,
                     })
                 } else {
                     throw error
                 }
             })
-
-        return [rawEvent, ack]
     }
 
     private async upsertGroup(
-        teamId: number,
-        projectId: number,
+        teamId: TeamId,
+        projectId: ProjectId,
         properties: Properties,
         timestamp: DateTime
     ): Promise<void> {

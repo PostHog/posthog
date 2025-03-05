@@ -9,6 +9,7 @@ import { mswDecorator } from '~/mocks/browser'
 import featureFlags from './__mocks__/feature_flags.json'
 
 const meta: Meta = {
+    tags: ['ff'],
     title: 'Scenes-App/Feature Flags',
     parameters: {
         layout: 'fullscreen',
@@ -32,6 +33,13 @@ const meta: Meta = {
                 '/api/projects/:team_id/feature_flags/:flagId/': (req) => [
                     200,
                     featureFlags.results.find((r) => r.id === Number(req.params['flagId'])),
+                ],
+                '/api/projects/:team_id/feature_flags/:flagId/status': () => [
+                    200,
+                    {
+                        status: 'active',
+                        reason: 'Feature flag is active',
+                    },
                 ],
             },
             post: {
@@ -70,6 +78,20 @@ export function EditFeatureFlag(): JSX.Element {
 export function EditMultiVariateFeatureFlag(): JSX.Element {
     useEffect(() => {
         router.actions.push(urls.featureFlag(1502))
+    }, [])
+    return <App />
+}
+
+export function EditRemoteConfigFeatureFlag(): JSX.Element {
+    useEffect(() => {
+        router.actions.push(urls.featureFlag(1738))
+    }, [])
+    return <App />
+}
+
+export function EditEncryptedRemoteConfigFeatureFlag(): JSX.Element {
+    useEffect(() => {
+        router.actions.push(urls.featureFlag(1739))
     }, [])
     return <App />
 }

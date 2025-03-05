@@ -13,7 +13,7 @@ from ee.clickhouse.queries.related_actors_query import RelatedActorsQuery
 from posthog.api.documentation import extend_schema
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.models.group import Group
 from posthog.models.group_type_mapping import GroupTypeMapping
 
@@ -35,7 +35,9 @@ class GroupsTypesViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets
     @action(detail=False, methods=["PATCH"], name="Update group types metadata")
     def update_metadata(self, request: request.Request, *args, **kwargs):
         for row in cast(list[dict], request.data):
-            instance = GroupTypeMapping.objects.get(team=self.team, group_type_index=row["group_type_index"])
+            instance = GroupTypeMapping.objects.get(
+                project_id=self.team.project_id, group_type_index=row["group_type_index"]
+            )
             serializer = self.get_serializer(instance, data=row)
             serializer.is_valid(raise_exception=True)
             serializer.save()

@@ -1,5 +1,5 @@
 from posthog.test.base import BaseTest, ClickhouseTestMixin
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from ee.clickhouse.materialized_columns.analyze import materialize_properties_task
 
 from unittest.mock import patch, call
@@ -49,9 +49,9 @@ class TestMaterializedColumnsAnalyze(ClickhouseTestMixin, BaseTest):
         materialize_properties_task()
         patch_materialize.assert_has_calls(
             [
-                call("events", "materialize_me", table_column="properties"),
-                call("events", "materialize_me2", table_column="properties"),
-                call("events", "materialize_person_prop", table_column="person_properties"),
-                call("events", "materialize_me3", table_column="properties"),
+                call("events", "materialize_me", table_column="properties", is_nullable=False),
+                call("events", "materialize_me2", table_column="properties", is_nullable=False),
+                call("events", "materialize_person_prop", table_column="person_properties", is_nullable=False),
+                call("events", "materialize_me3", table_column="properties", is_nullable=False),
             ]
         )

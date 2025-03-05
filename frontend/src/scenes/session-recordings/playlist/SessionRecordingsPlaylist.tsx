@@ -1,17 +1,15 @@
-import { IconGear } from '@posthog/icons'
-import { LemonButton, LemonSelect, LemonSelectSection, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, Link, Spinner } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
-import { Playlist, PlaylistSection } from 'lib/components/Playlist/Playlist'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
+import { Playlist, PlaylistSection } from 'scenes/session-recordings/playlist/Playlist'
 import { urls } from 'scenes/urls'
 
-import { RecordingOrder } from '~/queries/schema'
-import { RecordingUniversalFilters, ReplayTabs, SessionRecordingType } from '~/types'
+import { ReplayTabs } from '~/types'
 
 import { RecordingsUniversalFilters } from '../filters/RecordingsUniversalFilters'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
@@ -21,85 +19,13 @@ import {
     SessionRecordingPlaylistLogicProps,
     sessionRecordingsPlaylistLogic,
 } from './sessionRecordingsPlaylistLogic'
-import { SessionRecordingsPlaylistSettings } from './SessionRecordingsPlaylistSettings'
+import { SessionRecordingsPlaylistTopSettings } from './SessionRecordingsPlaylistSettings'
 import { SessionRecordingsPlaylistTroubleshooting } from './SessionRecordingsPlaylistTroubleshooting'
 
-function SortedBy({
-    filters,
-    setFilters,
-}: {
-    filters: RecordingUniversalFilters
-    setFilters: (filters: Partial<RecordingUniversalFilters>) => void
-}): JSX.Element {
-    const simpleSortingOptions: LemonSelectSection<RecordingOrder> = {
-        options: [
-            {
-                value: 'start_time',
-                label: 'Latest',
-            },
-            {
-                value: 'activity_score',
-                label: 'Activity',
-            },
-            {
-                value: 'console_error_count',
-                label: 'Most errors',
-            },
-        ],
-    }
-    const detailedSortingOptions: LemonSelectSection<RecordingOrder> = {
-        options: [
-            {
-                label: 'Longest',
-                options: [
-                    {
-                        value: 'duration',
-                        label: 'Total duration',
-                    },
-                    {
-                        value: 'active_seconds',
-                        label: 'Active duration',
-                    },
-                    {
-                        value: 'inactive_seconds',
-                        label: 'Inactive duration',
-                    },
-                ],
-            },
-            {
-                label: 'Most active',
-                options: [
-                    {
-                        value: 'click_count',
-                        label: 'Clicks',
-                    },
-                    {
-                        value: 'keypress_count',
-                        label: 'Key presses',
-                    },
-                    {
-                        value: 'mouse_activity_count',
-                        label: 'Mouse activity',
-                    },
-                ],
-            },
-        ],
-    }
-    return (
-        <div className="px-2 py-1 justify-end flex flex-row gap-2 w-full items-center">
-            <span className="font-medium">sorted by</span>
-            <LemonSelect
-                allowClear={false}
-                options={[simpleSortingOptions, detailedSortingOptions]}
-                size="xsmall"
-                value={filters.order}
-                onChange={(order) => setFilters({ order })}
-            />
-        </div>
-    )
-}
-
-export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicProps): JSX.Element {
+export function SessionRecordingsPlaylist({
+    showContent = true,
+    ...props
+}: SessionRecordingPlaylistLogicProps & { showContent?: boolean }): JSX.Element {
     const logicProps: SessionRecordingPlaylistLogicProps = {
         ...props,
         autoPlay: props.autoPlay ?? true,
@@ -113,8 +39,11 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
         otherRecordings,
         activeSessionRecordingId,
         hasNext,
+        allowFlagsFilters,
+        allowHogQLFilters,
+        totalFiltersCount,
     } = useValues(logic)
-    const { maybeLoadSessionRecordings, setSelectedRecordingId, setFilters, setShowOtherRecordings } = useActions(logic)
+    const { maybeLoadSessionRecordings, setSelectedRecordingId, setFilters, resetFilters } = useActions(logic)
 
     const { featureFlags } = useValues(featureFlagLogic)
     const isTestingSaved = featureFlags[FEATURE_FLAGS.SAVED_NOT_PINNED] === 'test'
@@ -123,12 +52,17 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
 
     const notebookNode = useNotebookNode()
 
-    const sections: PlaylistSection<SessionRecordingType>[] = []
+    const sections: PlaylistSection[] = []
 
     if (pinnedRecordings.length) {
         sections.push({
             key: 'pinned',
-            title: `${pinnedDescription} recordings`,
+            title: (
+                <div className="flex flex-row space-x-1 items-center">
+                    <span>{pinnedDescription} recordings</span>
+                    <LemonBadge.Number count={pinnedRecordings.length} status="muted" size="small" />
+                </div>
+            ),
             items: pinnedRecordings,
             render: ({ item, isActive }) => (
                 <SessionRecordingPreview recording={item} isActive={isActive} pinned={true} />
@@ -139,12 +73,18 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
 
     sections.push({
         key: 'other',
-        title: 'Other recordings',
+        title: (
+            <div className="flex flex-row space-x-1 items-center">
+                <span>Results</span>
+                <LemonBadge.Number count={otherRecordings.length} status="muted" size="small" />
+            </div>
+        ),
         items: otherRecordings,
+        initiallyOpen: !pinnedRecordings.length,
         render: ({ item, isActive }) => <SessionRecordingPreview recording={item} isActive={isActive} pinned={false} />,
         footer: (
             <div className="p-4">
-                <div className="h-10 flex items-center justify-center gap-2 text-muted-alt">
+                <div className="h-10 flex items-center justify-center gap-2 text-secondary">
                     {sessionRecordingsResponseLoading ? (
                         <>
                             <Spinner textColored /> Loading older recordings
@@ -162,25 +102,25 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
     return (
         <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
             <div className="h-full space-y-2">
-                {!notebookNode && (
-                    <RecordingsUniversalFilters filters={filters} setFilters={setFilters} className="border" />
-                )}
                 <Playlist
                     data-attr="session-recordings-playlist"
-                    controls={filters && setFilters ? <SortedBy filters={filters} setFilters={setFilters} /> : null}
                     notebooksHref={urls.replay(ReplayTabs.Home, filters)}
-                    title="Recordings"
                     embedded={!!notebookNode}
                     sections={sections}
-                    onChangeSections={(activeSections) => setShowOtherRecordings(activeSections.includes('other'))}
-                    headerActions={[
-                        {
-                            key: 'settings',
-                            tooltip: 'Playlist settings',
-                            content: <SessionRecordingsPlaylistSettings />,
-                            icon: <IconGear />,
-                        },
-                    ]}
+                    headerActions={<SessionRecordingsPlaylistTopSettings filters={filters} setFilters={setFilters} />}
+                    filterActions={
+                        notebookNode ? null : (
+                            <RecordingsUniversalFilters
+                                resetFilters={resetFilters}
+                                filters={filters}
+                                setFilters={setFilters}
+                                totalFiltersCount={totalFiltersCount}
+                                className="border-b"
+                                allowReplayHogQLFilters={allowHogQLFilters}
+                                allowReplayFlagsFilters={allowFlagsFilters}
+                            />
+                        )
+                    }
                     loading={sessionRecordingsResponseLoading}
                     onScrollListEdge={(edge) => {
                         if (edge === 'top') {
@@ -193,7 +133,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
                     onSelect={(item) => setSelectedRecordingId(item.id)}
                     activeItemId={activeSessionRecordingId}
                     content={({ activeItem }) =>
-                        activeItem ? (
+                        showContent && activeItem ? (
                             <SessionRecordingPlayer
                                 playerKey={props.logicKey ?? 'playlist'}
                                 sessionRecordingId={activeItem.id}
@@ -234,7 +174,7 @@ const ListEmptyState = (): JSX.Element => {
     const { setFilters } = useActions(sessionRecordingsPlaylistLogic)
 
     return (
-        <div className="p-3 text-sm text-muted-alt">
+        <div className="p-3 text-sm text-secondary">
             {sessionRecordingsAPIErrored ? (
                 <LemonBanner type="error">Error while trying to load recordings.</LemonBanner>
             ) : unusableEventsInFilter.length ? (
@@ -261,8 +201,10 @@ const ListEmptyState = (): JSX.Element => {
     )
 }
 
-function UnusableEventsWarning(props: { unusableEventsInFilter: string[] }): JSX.Element {
-    // TODO add docs on how to enrich custom events with session_id and link to it from here
+/**
+ * TODO add docs on how to enrich custom events with session_id and link to it from here
+ */
+const UnusableEventsWarning = (props: { unusableEventsInFilter: string[] }): JSX.Element => {
     return (
         <LemonBanner type="warning">
             <p>Cannot use these events to filter for session recordings:</p>
@@ -278,8 +220,8 @@ function UnusableEventsWarning(props: { unusableEventsInFilter: string[] }): JSX
                     the Web SDK
                 </Link>
                 ,{' '}
-                <Link to="https://posthog.com/docs/libraries/android" target="_blank">
-                    the Android SDK
+                <Link to="https://posthog.com/docs/libraries" target="_blank">
+                    and the Mobile SDKs (Android, iOS, React Native and Flutter)
                 </Link>
             </p>
         </LemonBanner>

@@ -1,4 +1,5 @@
 import dataclasses
+from django.db import close_old_connections
 from temporalio import activity
 
 
@@ -16,6 +17,7 @@ class CheckBillingLimitsActivityInputs:
 @activity.defn
 def check_billing_limits_activity(inputs: CheckBillingLimitsActivityInputs) -> bool:
     logger = bind_temporal_worker_logger_sync(team_id=inputs.team_id)
+    close_old_connections()
 
     team: Team = Team.objects.get(id=inputs.team_id)
 

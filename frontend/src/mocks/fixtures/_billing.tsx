@@ -923,15 +923,6 @@ export const billingJson: BillingType = {
                             note: null,
                         },
                         {
-                            key: 'recordings_playlists',
-                            name: 'Recording playlists',
-                            description:
-                                'Create playlists of certain session recordings to easily find and watch them again in the future.',
-                            unit: 'playlists',
-                            limit: 5,
-                            note: null,
-                        },
-                        {
                             key: 'session_replay_data_retention',
                             name: 'Data retention',
                             description: 'Keep a historical record of your data.',
@@ -1037,15 +1028,6 @@ export const billingJson: BillingType = {
                             key: 'console_logs',
                             name: 'Console logs',
                             description: "Debug issues faster by browsing the user's console.",
-                            unit: null,
-                            limit: null,
-                            note: null,
-                        },
-                        {
-                            key: 'recordings_playlists',
-                            name: 'Recording playlists',
-                            description:
-                                'Create playlists of certain session recordings to easily find and watch them again in the future.',
                             unit: null,
                             limit: null,
                             note: null,
@@ -1293,15 +1275,6 @@ export const billingJson: BillingType = {
             contact_support: false,
             inclusion_only: false,
             features: [
-                {
-                    key: 'recordings_playlists',
-                    name: 'Recording playlists',
-                    description:
-                        'Create playlists of certain session recordings to easily find and watch them again in the future.',
-                    images: null,
-                    icon_key: null,
-                    type: null,
-                },
                 {
                     key: 'session_replay_data_retention',
                     name: 'Data retention',
@@ -2954,14 +2927,6 @@ export const billingJson: BillingType = {
                             note: null,
                         },
                         {
-                            key: 'project_based_permissioning',
-                            name: 'Project permissions',
-                            description: 'Restrict access to data within the organization to only those who need it.',
-                            unit: null,
-                            limit: null,
-                            note: null,
-                        },
-                        {
                             key: 'role_based_access',
                             name: 'Role-based access',
                             description:
@@ -3176,15 +3141,6 @@ export const billingJson: BillingType = {
                                     note: null,
                                 },
                                 {
-                                    key: 'project_based_permissioning',
-                                    name: 'Project permissions',
-                                    description:
-                                        'Restrict access to data within the organization to only those who need it.',
-                                    unit: null,
-                                    limit: null,
-                                    note: null,
-                                },
-                                {
                                     key: 'advanced_permissions',
                                     name: 'Advanced permissions',
                                     description:
@@ -3327,14 +3283,6 @@ export const billingJson: BillingType = {
                             type: null,
                         },
                         {
-                            key: 'project_based_permissioning',
-                            name: 'Project permissions',
-                            description: 'Restrict access to data within the organization to only those who need it.',
-                            images: null,
-                            icon_key: null,
-                            type: null,
-                        },
-                        {
                             key: 'advanced_permissions',
                             name: 'Advanced permissions',
                             description:
@@ -3466,14 +3414,6 @@ export const billingJson: BillingType = {
                     name: 'Role-based access',
                     description:
                         'Control access to features like experiments, session recordings, and feature flags with custom roles.',
-                    images: null,
-                    icon_key: null,
-                    type: null,
-                },
-                {
-                    key: 'project_based_permissioning',
-                    name: 'Project permissions',
-                    description: 'Restrict access to data within the organization to only those who need it.',
                     images: null,
                     icon_key: null,
                     type: null,

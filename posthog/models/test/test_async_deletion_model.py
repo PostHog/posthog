@@ -1,7 +1,7 @@
 from uuid import UUID, uuid4
 import datetime as dt
 
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.models import AsyncDeletion, DeletionType, Team, User
 from posthog.models.async_deletion.delete_cohorts import AsyncCohortDeletion
 from posthog.models.async_deletion.delete_events import AsyncEventDeletion
@@ -365,7 +365,7 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
             group_key="org:5",
             properties={},
         )
-        insert_static_cohort([uuid4()], 0, self.teams[0])
+        insert_static_cohort([uuid4()], 0, team_id=self.teams[0].pk)
         self._insert_cohortpeople_row(self.teams[0], uuid4(), 3)
         create_plugin_log_entry(
             team_id=self.teams[0].pk,
@@ -403,7 +403,7 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
             group_key="org:5",
             properties={},
         )
-        insert_static_cohort([uuid4()], 0, self.teams[1])
+        insert_static_cohort([uuid4()], 0, team_id=self.teams[1].pk)
         self._insert_cohortpeople_row(self.teams[1], uuid4(), 3)
         create_plugin_log_entry(
             team_id=self.teams[1].pk,

@@ -2,7 +2,6 @@ import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../src/config/kafka-topics'
 import { startPluginsServer } from '../src/main/pluginsServer'
 import { Hub, LogLevel, PluginsServerConfig } from '../src/types'
 import { delay, UUIDT } from '../src/utils/utils'
-import { makePiscina } from '../src/worker/piscina'
 import { createPosthog, DummyPostHog } from '../src/worker/vm/extensions/posthog'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from './helpers/clickhouse'
 import { resetKafka } from './helpers/kafka'
@@ -13,7 +12,6 @@ jest.setTimeout(60000) // 60 sec timeout
 
 const extraServerConfig: Partial<PluginsServerConfig> = {
     TASK_TIMEOUT: 2,
-    WORKER_CONCURRENCY: 2,
     KAFKA_CONSUMPTION_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
     LOG_LEVEL: LogLevel.Log,
 }
@@ -40,8 +38,8 @@ describe('e2e ingestion timeout', () => {
             }
         `)
         await resetTestDatabaseClickhouse(extraServerConfig)
-        const startResponse = await startPluginsServer(extraServerConfig, makePiscina, { ingestion: true })
-        hub = startResponse.hub
+        const startResponse = await startPluginsServer(extraServerConfig, { ingestionV2: true })
+        hub = startResponse.hub!
         stopServer = startResponse.stop
         posthog = createPosthog(hub, pluginConfig39)
     })

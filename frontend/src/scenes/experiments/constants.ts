@@ -1,7 +1,23 @@
-import { InsightShortId } from '~/types'
+import { BaseMathType, GroupMathType, HogQLMathType, PropertyMathType } from '~/types'
 
-// :TRICKY: `new-` prefix indicates an unsaved insight and slightly alters
-// behaviour of insight related logics
-export const EXPERIMENT_INSIGHT_ID = 'new-experiment-insight' as InsightShortId
-export const EXPERIMENT_EXPOSURE_INSIGHT_ID = 'new-experiment-exposure-insight' as InsightShortId
-export const SECONDARY_METRIC_INSIGHT_ID = 'new-secondary-metric-insight' as InsightShortId
+export enum MetricInsightId {
+    Trends = 'new-experiment-trends-metric',
+    TrendsExposure = 'new-experiment-trends-exposure',
+    Funnels = 'new-experiment-funnels-metric',
+    SecondaryTrends = 'new-experiment-secondary-trends',
+    SecondaryFunnels = 'new-experiment-secondary-funnels',
+}
+
+export const LEGACY_EXPERIMENT_ALLOWED_MATH_TYPES = [
+    BaseMathType.TotalCount,
+    BaseMathType.UniqueUsers,
+    BaseMathType.UniqueSessions,
+    BaseMathType.WeeklyActiveUsers,
+    BaseMathType.MonthlyActiveUsers,
+    BaseMathType.FirstTimeForUser,
+    GroupMathType.UniqueGroup,
+    PropertyMathType.Sum,
+    HogQLMathType.HogQL,
+] as const
+
+export const EXPERIMENT_VARIANT_MULTIPLE = '$multiple'

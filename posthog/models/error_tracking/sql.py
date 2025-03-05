@@ -77,3 +77,7 @@ WHERE version > 0 -- only store updated rows, not newly inserted ones
 TRUNCATE_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL = (
     f"TRUNCATE TABLE IF EXISTS {ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE} ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
 )
+
+INSERT_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES = """
+INSERT INTO error_tracking_issue_fingerprint_overrides (fingerprint, issue_id, team_id, is_deleted, version, _timestamp, _offset, _partition) SELECT %(fingerprint)s, %(issue_id)s, %(team_id)s, %(is_deleted)s, %(version)s, now(), 0, 0 VALUES
+"""

@@ -196,7 +196,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
     const { preflight } = useValues(preflightLogic)
 
     const { precheck } = useActions(loginLogic)
-    const { precheckResponse, precheckResponseLoading, login } = useValues(loginLogic)
+    const { precheckResponse, precheckResponseLoading } = useValues(loginLogic)
 
     const areExtraFieldsHidden = precheckResponse.sso_enforcement
 
@@ -215,7 +215,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                 </>
             }
             leftContainerContent={
-                <div className="mb-8 text-muted">
+                <div className="mb-8 text-secondary">
                     <div className="font-semibold flex flex-col gap-2 text-center items-center text-lg">
                         <span>You've been invited to join</span>
                         <span className="text-4xl font-bold border-b border-dashed pb-2">
@@ -290,7 +290,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                 {precheckResponse.sso_enforcement && (
                     <SSOEnforcedLoginButton
                         provider={precheckResponse.sso_enforcement}
-                        email={login.email}
+                        email={invite?.target_email}
                         actionText="Continue"
                         extraQueryParams={invite ? { invite_id: invite.id } : undefined}
                     />
@@ -300,16 +300,16 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                 {precheckResponse.saml_available && !precheckResponse.sso_enforcement && (
                     <SSOEnforcedLoginButton
                         provider="saml"
-                        email={login.email}
+                        email={invite?.target_email}
                         actionText="Continue"
                         extraQueryParams={invite ? { invite_id: invite.id } : undefined}
                     />
                 )}
             </Form>
-            <div className="mt-4 text-center text-muted">
+            <div className="mt-4 text-center text-secondary">
                 Already have an account? <Link to="/login">Log in</Link>
             </div>
-            <div className="mt-4 text-center text-muted">
+            <div className="mt-4 text-center text-secondary">
                 By clicking continue you agree to our{' '}
                 <Link to="https://posthog.com/terms" target="_blank">
                     Terms of Service

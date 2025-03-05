@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 
 from rest_framework import status
+from unittest.mock import ANY, patch
 
 from posthog.models import WebExperiment
 from posthog.test.base import APIBaseTest
@@ -30,7 +31,8 @@ class TestWebExperiment(APIBaseTest):
             format="json",
         )
 
-    def test_can_create_basic_web_experiment(self):
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_can_create_basic_web_experiment(self, mock_capture):
         response = self._create_web_experiment()
         response_data = response.json()
         assert response.status_code == status.HTTP_201_CREATED, response_data
@@ -49,10 +51,30 @@ class TestWebExperiment(APIBaseTest):
         assert variants[1].get("key") == "test"
         assert variants[1].get("rollout_percentage") == 30
 
+        assert web_experiment.created_by == self.user
+
+        assert web_experiment.get_stats_config("version") == 2
+
         assert web_experiment.variants is not None
         assert web_experiment.type == "web"
         assert web_experiment.variants.get("control") is not None
         assert web_experiment.variants.get("test") is not None
+        mock_capture.assert_called_once_with(
+            ANY,
+            "feature flag created",
+            {
+                "groups_count": 1,
+                "has_variants": True,
+                "variants_count": 2,
+                "has_rollout_percentage": True,
+                "has_filters": False,
+                "filter_count": 0,
+                "created_at": linked_flag.created_at,
+                "aggregating_by_groups": False,
+                "payload_count": 0,
+                "creation_context": "web_experiments",
+            },
+        )
 
     def test_can_list_active_web_experiments(self):
         response = self._create_web_experiment("active_web_experiment")

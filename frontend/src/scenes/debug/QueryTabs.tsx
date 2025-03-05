@@ -8,7 +8,7 @@ import { useState } from 'react'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { Timings } from '~/queries/nodes/DataNode/ElapsedTime'
 import { Query } from '~/queries/Query/Query'
-import { HogQLMetadataResponse, InsightVizNode, Node, NodeKind, QueryTiming } from '~/queries/schema'
+import { HogQLMetadataResponse, InsightVizNode, Node, NodeKind, QueryTiming } from '~/queries/schema/schema-general'
 import { isDataTableNode, isInsightQueryNode, isInsightVizNode } from '~/queries/utils'
 
 function toLineColumn(hogql: string, position: number): { line: number; column: number } {

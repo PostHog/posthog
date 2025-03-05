@@ -5,12 +5,15 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
 import { router } from 'kea-router'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyCurrency, toSentenceCase } from 'lib/utils'
 import { useEffect } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -21,6 +24,7 @@ import { BillingCTAHero } from './BillingCTAHero'
 import { billingLogic } from './billingLogic'
 import { BillingProduct } from './BillingProduct'
 import { CreditCTAHero } from './CreditCTAHero'
+import { PaymentEntryModal } from './PaymentEntryModal'
 import { UnsubscribeCard } from './UnsubscribeCard'
 
 export const scene: SceneExport = {
@@ -34,6 +38,13 @@ export function Billing(): JSX.Element {
     const { reportBillingShown } = useActions(billingLogic)
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
+
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const restrictionReason = useRestrictedArea({
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+        scope: RestrictionScope.Organization,
+    })
 
     if (preflight && !isCloudOrDev) {
         router.actions.push(urls.default())
@@ -55,6 +66,20 @@ export function Billing(): JSX.Element {
             <>
                 <SpinnerOverlay sceneLevel />
             </>
+        )
+    }
+
+    if (restrictionReason) {
+        return (
+            <div className="space-y-4">
+                <h1>Billing</h1>
+                <LemonBanner type="warning">{restrictionReason}</LemonBanner>
+                <div className="flex">
+                    <LemonButton type="primary" to={urls.default()}>
+                        Go back home
+                    </LemonButton>
+                </div>
+            </div>
         )
     }
 
@@ -82,6 +107,8 @@ export function Billing(): JSX.Element {
     const platformAndSupportProduct = products?.find((product) => product.type === 'platform_and_support')
     return (
         <div ref={ref}>
+            <PaymentEntryModal />
+
             {showLicenseDirectInput && (
                 <>
                     <Form logic={billingLogic} formKey="activateLicense" enableFormOnSubmit className="space-y-4">
@@ -163,6 +190,27 @@ export function Billing(): JSX.Element {
                                                               humanFriendlyCurrency(billing.current_total_amount_usd)}
                                                     </div>
                                                 </div>
+                                                {featureFlags[FEATURE_FLAGS.PROJECTED_TOTAL_AMOUNT] &&
+                                                    billing?.projected_total_amount_usd &&
+                                                    parseFloat(billing?.projected_total_amount_usd) > 0 && (
+                                                        <div>
+                                                            <LemonLabel
+                                                                info="This is roughly calculated based on your current bill and the remaining time left in this billing period. This number updates once daily."
+                                                                className="text-secondary"
+                                                            >
+                                                                Projected total
+                                                            </LemonLabel>
+                                                            <div className="font-semibold text-2xl text-secondary">
+                                                                {billing.discount_percent
+                                                                    ? humanFriendlyCurrency(
+                                                                          billing.projected_total_amount_usd_after_discount
+                                                                      )
+                                                                    : humanFriendlyCurrency(
+                                                                          billing?.projected_total_amount_usd
+                                                                      )}
+                                                            </div>
+                                                        </div>
+                                                    )}
                                                 {billing?.discount_amount_usd && (
                                                     <div>
                                                         <LemonLabel
@@ -172,11 +220,11 @@ export function Billing(): JSX.Element {
                                                                       billing?.amount_off_expires_at?.format('LL')
                                                                     : null
                                                             }`}
-                                                            className="text-muted"
+                                                            className="text-secondary"
                                                         >
                                                             Available credits
                                                         </LemonLabel>
-                                                        <div className="font-semibold text-2xl text-muted">
+                                                        <div className="font-semibold text-2xl text-secondary">
                                                             {humanFriendlyCurrency(billing?.discount_amount_usd, 0)}
                                                         </div>
                                                     </div>
@@ -185,11 +233,11 @@ export function Billing(): JSX.Element {
                                                     <div>
                                                         <LemonLabel
                                                             info="The discount applied to your current bill, reflected in the total amount."
-                                                            className="text-muted"
+                                                            className="text-secondary"
                                                         >
                                                             Applied discount
                                                         </LemonLabel>
-                                                        <div className="font-semibold text-2xl text-muted">
+                                                        <div className="font-semibold text-2xl text-secondary">
                                                             {billing.discount_percent}%
                                                         </div>
                                                     </div>
@@ -206,7 +254,7 @@ export function Billing(): JSX.Element {
                                             remaining)
                                         </p>
                                         {!billing.has_active_subscription && (
-                                            <p className="italic ml-0 text-muted mb-0">
+                                            <p className="italic ml-0 text-secondary mb-0">
                                                 Monthly free allocation resets at the end of the cycle.
                                             </p>
                                         )}

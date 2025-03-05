@@ -1,8 +1,10 @@
 from datetime import date, datetime
+import sys
 from enum import StrEnum
-from typing import Optional, Literal, TypeAlias
+from typing import Literal, Optional, TypeAlias
 from uuid import UUID
-from pydantic import ConfigDict, BaseModel
+
+from pydantic import BaseModel, ConfigDict
 
 ConstantDataType: TypeAlias = Literal[
     "int",
@@ -53,6 +55,7 @@ class LimitContext(StrEnum):
     EXPORT = "export"
     COHORT_CALCULATION = "cohort_calculation"
     HEATMAPS = "heatmaps"
+    SAVED_QUERY = "saved_query"
 
 
 def get_max_limit_for_context(limit_context: LimitContext) -> int:
@@ -62,6 +65,8 @@ def get_max_limit_for_context(limit_context: LimitContext) -> int:
         return MAX_SELECT_HEATMAPS_LIMIT  # 1M
     elif limit_context == LimitContext.COHORT_CALCULATION:
         return MAX_SELECT_COHORT_CALCULATION_LIMIT  # 1b
+    elif limit_context == LimitContext.SAVED_QUERY:
+        return sys.maxsize  # Max python int
     else:
         raise ValueError(f"Unexpected LimitContext value: {limit_context}")
 
@@ -76,6 +81,8 @@ def get_default_limit_for_context(limit_context: LimitContext) -> int:
         return MAX_SELECT_HEATMAPS_LIMIT  # 1M
     elif limit_context == LimitContext.COHORT_CALCULATION:
         return MAX_SELECT_COHORT_CALCULATION_LIMIT  # 1b
+    elif limit_context == LimitContext.SAVED_QUERY:
+        return sys.maxsize  # Max python int
     else:
         raise ValueError(f"Unexpected LimitContext value: {limit_context}")
 
@@ -94,6 +101,7 @@ class HogQLQuerySettings(BaseModel):
     optimize_aggregation_in_order: Optional[bool] = None
     date_time_output_format: Optional[str] = None
     date_time_input_format: Optional[str] = None
+    join_algorithm: Optional[str] = None
 
 
 # Settings applied on top of all HogQL queries.

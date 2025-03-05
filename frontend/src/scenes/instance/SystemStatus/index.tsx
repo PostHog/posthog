@@ -4,11 +4,9 @@ import { IconInfo } from '@posthog/icons'
 import { LemonBanner, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { InternalMetricsTab } from 'scenes/instance/SystemStatus/InternalMetricsTab'
 import { OverviewTab } from 'scenes/instance/SystemStatus/OverviewTab'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -16,7 +14,6 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
 
 import { InstanceConfigTab } from './InstanceConfigTab'
-import { KafkaInspectorTab } from './KafkaInspectorTab'
 import { StaffUsersTab } from './StaffUsersTab'
 import { InstanceStatusTabName, systemStatusLogic } from './systemStatusLogic'
 
@@ -30,7 +27,6 @@ export function SystemStatus(): JSX.Element {
     const { setTab } = useActions(systemStatusLogic)
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
     const { user } = useValues(userLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     let tabs = [
         {
@@ -58,7 +54,7 @@ export function SystemStatus(): JSX.Element {
                 label: (
                     <>
                         Settings{' '}
-                        <LemonTag type="warning" className="uppercase ml-1">
+                        <LemonTag type="warning" className="ml-1 uppercase">
                             Beta
                         </LemonTag>
                     </>
@@ -71,21 +67,6 @@ export function SystemStatus(): JSX.Element {
                 content: <StaffUsersTab />,
             },
         ])
-
-        if (featureFlags[FEATURE_FLAGS.KAFKA_INSPECTOR]) {
-            tabs.push({
-                key: 'kafka_inspector',
-                label: (
-                    <>
-                        Kafka Inspector{' '}
-                        <LemonTag type="warning" className="uppercase ml-1">
-                            Beta
-                        </LemonTag>
-                    </>
-                ),
-                content: <KafkaInspectorTab />,
-            })
-        }
     }
 
     return (

@@ -1,4 +1,4 @@
-// go:generate mockery
+//go:generate mockery
 package main
 
 import (

@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
 
 class FieldOrTable(BaseModel):
-    pass
+    hidden: bool = False
 
 
 class DatabaseField(FieldOrTable):
@@ -26,7 +26,6 @@ class DatabaseField(FieldOrTable):
     name: str
     array: Optional[bool] = None
     nullable: Optional[bool] = None
-    hidden: bool = False
 
     def is_nullable(self) -> bool:
         return not not self.nullable

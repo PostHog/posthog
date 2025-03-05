@@ -37,7 +37,7 @@ class PersonalAPIKeyScheme(OpenApiAuthenticationExtension):
         for permission in auto_schema.view.get_permissions():
             if isinstance(permission, APIScopePermission):
                 try:
-                    scopes = permission.get_required_scopes(request, view)
+                    scopes = permission._get_required_scopes(request, view)
                     return [{self.name: scopes}]
                 except (PermissionDenied, ImproperlyConfigured):
                     # NOTE: This should never happen - it indicates that we shouldn't be including it in the docs
@@ -161,6 +161,7 @@ All of the below are property aggregations, and require `math_property` to be se
 - `min`: min of a numeric property.
 - `max`: max of a numeric property.
 - `median`: median of a numeric property.
+- `p75`: 75th percentile of a numeric property.
 - `p90`: 90th percentile of a numeric property.
 - `p95` 95th percentile of a numeric property.
 - `p99`: 99th percentile of a numeric property.

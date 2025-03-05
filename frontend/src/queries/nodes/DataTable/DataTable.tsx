@@ -50,7 +50,8 @@ import {
     HogQLQuery,
     PersonsNode,
     SessionAttributionExplorerQuery,
-} from '~/queries/schema'
+    TracesQuery,
+} from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import {
     isActorsQuery,
@@ -58,6 +59,7 @@ import {
     isHogQlAggregation,
     isHogQLQuery,
     isInsightActorsQuery,
+    isRevenueExampleEventsQuery,
     taxonomicEventFilterToHogQL,
     taxonomicPersonFilterToHogQL,
 } from '~/queries/utils'
@@ -77,6 +79,10 @@ interface DataTableProps {
     // Override the data logic node key if needed
     dataNodeLogicKey?: string
     readOnly?: boolean
+    /*
+     Set a data-attr on the LemonTable component
+    */
+    dataAttr?: string
 }
 
 const eventGroupTypes = [
@@ -96,6 +102,7 @@ export function DataTable({
     context,
     cachedResults,
     readOnly,
+    dataAttr,
 }: DataTableProps): JSX.Element {
     const [uniqueNodeKey] = useState(() => uniqueNode++)
     const [dataKey] = useState(() => `DataNode.${uniqueKey || uniqueNodeKey}`)
@@ -388,8 +395,16 @@ export function DataTable({
     ].filter((column) => !query.hiddenColumns?.includes(column.dataIndex) && column.dataIndex !== '*')
 
     const setQuerySource = useCallback(
-        (source: EventsNode | EventsQuery | PersonsNode | ActorsQuery | HogQLQuery | SessionAttributionExplorerQuery) =>
-            setQuery?.({ ...query, source }),
+        (
+            source:
+                | EventsNode
+                | EventsQuery
+                | PersonsNode
+                | ActorsQuery
+                | HogQLQuery
+                | SessionAttributionExplorerQuery
+                | TracesQuery
+        ) => setQuery?.({ ...query, source }),
         [setQuery, query]
     )
 
@@ -410,7 +425,7 @@ export function DataTable({
         showDateRange && sourceFeatures.has(QueryFeature.dateRangePicker) ? (
             <DateRange
                 key="date-range"
-                query={query.source as HogQLQuery | EventsQuery | SessionAttributionExplorerQuery}
+                query={query.source as HogQLQuery | EventsQuery | SessionAttributionExplorerQuery | TracesQuery}
                 setQuery={setQuerySource}
             />
         ) : null,
@@ -423,7 +438,7 @@ export function DataTable({
         showPropertyFilter && sourceFeatures.has(QueryFeature.eventPropertyFilters) ? (
             <EventPropertyFilters
                 key="event-property"
-                query={query.source as EventsQuery | HogQLQuery | SessionAttributionExplorerQuery}
+                query={query.source as EventsQuery | HogQLQuery | SessionAttributionExplorerQuery | TracesQuery}
                 setQuery={setQuerySource}
                 taxonomicGroupTypes={Array.isArray(showPropertyFilter) ? showPropertyFilter : undefined}
             />
@@ -490,7 +505,7 @@ export function DataTable({
                         <HogQLQueryEditor query={query.source} setQuery={setQuerySource} embedded={embedded} />
                     ) : null}
                     {showFirstRow && (
-                        <div className="flex gap-4 items-center flex-wrap">
+                        <div className="flex gap-x-4 gap-y-2 items-center flex-wrap">
                             {firstRowLeft}
                             {firstRowLeft.length > 0 && firstRowRight.length > 0 ? <div className="flex-1" /> : null}
                             {firstRowRight}
@@ -508,6 +523,7 @@ export function DataTable({
                     ) : null}
                     {showResultsTable && (
                         <LemonTable
+                            data-attr={dataAttr}
                             className="DataTable"
                             loading={responseLoading && !nextDataLoading && !newDataLoading}
                             columns={lemonColumns}
@@ -551,7 +567,11 @@ export function DataTable({
                                 expandable && columnsInResponse?.includes('*')
                                     ? {
                                           expandedRowRender: function renderExpand({ result }) {
-                                              if (isEventsQuery(query.source) && Array.isArray(result)) {
+                                              if (
+                                                  (isEventsQuery(query.source) ||
+                                                      isRevenueExampleEventsQuery(query.source)) &&
+                                                  Array.isArray(result)
+                                              ) {
                                                   return (
                                                       <EventDetails
                                                           event={result[columnsInResponse.indexOf('*')] ?? {}}
@@ -564,12 +584,6 @@ export function DataTable({
                                           },
                                           rowExpandable: ({ result }) => !!result,
                                           noIndent: true,
-                                          expandedRowClassName: ({ result }) => {
-                                              const record = Array.isArray(result) ? result[0] : result
-                                              return record && record['event'] === '$exception'
-                                                  ? 'border border-x-danger-dark bg-danger-highlight'
-                                                  : null
-                                          },
                                       }
                                     : undefined
                             }
@@ -578,7 +592,10 @@ export function DataTable({
                                     'DataTable__row--highlight_once': result && highlightedRows.has(result),
                                     'DataTable__row--category_row': !!label,
                                     'border border-x-danger-dark bg-danger-highlight':
-                                        result && result[0] && result[0]['event'] === '$exception',
+                                        sourceFeatures.has(QueryFeature.highlightExceptionEventRows) &&
+                                        result &&
+                                        result[0] &&
+                                        result[0]['event'] === '$exception',
                                 })
                             }
                             footer={

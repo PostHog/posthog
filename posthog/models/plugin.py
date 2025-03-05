@@ -20,9 +20,9 @@ from posthog.constants import FROZEN_POSTHOG_VERSION
 from posthog.models.organization import Organization
 from posthog.models.signals import mutable_receiver
 from posthog.models.team import Team
-from posthog.plugins.access import can_configure_plugins, can_install_plugins
+from posthog.plugins.access import can_install_plugins
 from posthog.plugins.plugin_server_api import populate_plugin_capabilities_on_workers, reload_plugins_on_workers
-from posthog.plugins.site import get_decide_site_apps
+from posthog.plugins.site import get_decide_site_apps, get_decide_site_functions
 from posthog.plugins.utils import (
     download_plugin_archive,
     extract_plugin_code,
@@ -34,7 +34,7 @@ from posthog.plugins.utils import (
 from .utils import UUIDModel, sane_repr
 
 try:
-    from posthog.client import sync_execute
+    from posthog.clickhouse.client import sync_execute
 except ImportError:
     pass
 
@@ -274,6 +274,18 @@ class PluginAttachment(models.Model):
     file_size = models.IntegerField()
     contents = models.BinaryField()
 
+    def parse_contents(self) -> str | None:
+        contents: bytes | None = self.contents
+        if not contents:
+            return None
+
+        try:
+            if self.content_type == "application/json" or self.content_type == "text/plain":
+                return contents.decode("utf-8")
+            return None
+        except Exception:
+            return None
+
 
 class PluginStorage(models.Model):
     plugin_config = models.ForeignKey("PluginConfig", on_delete=models.CASCADE)
@@ -303,10 +315,14 @@ class PluginLogEntryType(StrEnum):
     ERROR = "ERROR"
 
 
+class TranspilerError(Exception):
+    pass
+
+
 def transpile(input_string: str, type: Literal["site", "frontend"] = "site") -> Optional[str]:
     from posthog.settings.base_variables import BASE_DIR
 
-    transpiler_path = os.path.join(BASE_DIR, "plugin-transpiler/dist/index.js")
+    transpiler_path = os.path.join(BASE_DIR, "common/plugin_transpiler/dist/index.js")
     if type not in ["site", "frontend"]:
         raise Exception('Invalid type. Must be "site" or "frontend".')
 
@@ -317,7 +333,7 @@ def transpile(input_string: str, type: Literal["site", "frontend"] = "site") -> 
 
     if process.returncode != 0:
         error = stderr.decode()
-        raise Exception(error)
+        raise TranspilerError(error)
     return stdout.decode()
 
 
@@ -506,7 +522,7 @@ def fetch_plugin_log_entries(
         clickhouse_kwargs["types"] = type_filter
     clickhouse_query = f"""
         SELECT id, team_id, plugin_id, plugin_config_id, timestamp, source, type, message, instance_id FROM plugin_log_entries
-        WHERE {' AND '.join(clickhouse_where_parts)} ORDER BY timestamp DESC {f'LIMIT {limit}' if limit else ''}
+        WHERE {" AND ".join(clickhouse_where_parts)} ORDER BY timestamp DESC {f"LIMIT {limit}" if limit else ""}
     """
     return [PluginLogEntry(*result) for result in cast(list, sync_execute(clickhouse_query, clickhouse_kwargs))]
 
@@ -552,19 +568,6 @@ def preinstall_plugins_for_new_organization(sender, instance: Organization, crea
                 )
 
 
-@receiver(models.signals.post_save, sender=Team)
-def enable_preinstalled_plugins_for_new_team(sender, instance: Team, created: bool, **kwargs):
-    if created and can_configure_plugins(instance.organization):
-        for order, preinstalled_plugin in enumerate(Plugin.objects.filter(is_preinstalled=True)):
-            PluginConfig.objects.create(
-                team=instance,
-                plugin=preinstalled_plugin,
-                enabled=True,
-                order=order,
-                config=preinstalled_plugin.get_default_config(),
-            )
-
-
 @mutable_receiver([post_save, post_delete], sender=Plugin)
 def plugin_reload_needed(sender, instance, created=None, **kwargs):
     # Newly created plugins don't have a config yet, so no need to reload
@@ -584,7 +587,7 @@ def plugin_config_reload_needed(sender, instance, created=None, **kwargs):
 
 
 def sync_team_inject_web_apps(team: Team):
-    inject_web_apps = len(get_decide_site_apps(team)) > 0
+    inject_web_apps = len(get_decide_site_apps(team)) > 0 or len(get_decide_site_functions(team)) > 0
     if inject_web_apps != team.inject_web_apps:
         team.inject_web_apps = inject_web_apps
         team.save(update_fields=["inject_web_apps"])

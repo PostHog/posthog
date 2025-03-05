@@ -20,7 +20,9 @@ export type FormState = 'collapsed' | 'active' | 'complete'
 
 export const proxyLogic = kea<proxyLogicType>([
     path(['scenes', 'project', 'Settings', 'proxyLogic']),
-    connect({ values: [organizationLogic, ['currentOrganization']] }),
+    connect({
+        values: [organizationLogic, ['currentOrganization']],
+    }),
     actions(() => ({
         collapseForm: true,
         showForm: true,
@@ -83,6 +85,8 @@ export const proxyLogic = kea<proxyLogicType>([
                     ? 'Domains cannot include wildcards'
                     : !isDomain('http://' + domain)
                     ? 'Do not include the protocol e.g. https://'
+                    : !domain.match(/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/)
+                    ? "Invalid domain. Please provide a lowercase RFC 1123 subdomain. It must consist of lower case alphanumeric characters, '-' or '.', and must start and end with an alphanumeric character"
                     : undefined,
             }),
             submit: ({ domain }) => {

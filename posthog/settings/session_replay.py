@@ -1,5 +1,6 @@
 from posthog.settings import get_from_env, get_list
 from posthog.utils import str_to_bool
+from django.conf import settings
 
 # TRICKY: we saw unusual memory usage behavior in EU clickhouse cluster
 # when allowing use of denormalized properties in some session replay event queries
@@ -16,17 +17,6 @@ REALTIME_SNAPSHOTS_FROM_REDIS_ATTEMPT_TIMEOUT_SECONDS = get_from_env(
     "REALTIME_SNAPSHOTS_FROM_REDIS_ATTEMPT_TIMEOUT_SECONDS", 0.2, type_cast=float
 )
 
-REPLAY_EMBEDDINGS_ALLOWED_TEAMS: list[str] = get_list(get_from_env("REPLAY_EMBEDDINGS_ALLOWED_TEAM", "", type_cast=str))
-REPLAY_EMBEDDINGS_BATCH_SIZE = get_from_env("REPLAY_EMBEDDINGS_BATCH_SIZE", 10, type_cast=int)
-REPLAY_EMBEDDINGS_MIN_DURATION_SECONDS = get_from_env("REPLAY_EMBEDDINGS_MIN_DURATION_SECONDS", 30, type_cast=int)
-REPLAY_EMBEDDINGS_CALCULATION_CELERY_INTERVAL_SECONDS = get_from_env(
-    "REPLAY_EMBEDDINGS_CALCULATION_CELERY_INTERVAL_SECONDS", 150, type_cast=int
-)
-REPLAY_EMBEDDINGS_CLUSTERING_DBSCAN_EPS = get_from_env("REPLAY_EMBEDDINGS_CLUSTERING_DBSCAN_EPS", 0.2, type_cast=float)
-REPLAY_EMBEDDINGS_CLUSTERING_DBSCAN_MIN_SAMPLES = get_from_env(
-    "REPLAY_EMBEDDINGS_CLUSTERING_DBSCAN_MIN_SAMPLES", 10, type_cast=int
-)
-
 REPLAY_MESSAGE_TOO_LARGE_SAMPLE_RATE = get_from_env("REPLAY_MESSAGE_TOO_LARGE_SAMPLE_RATE", 0, type_cast=float)
 REPLAY_MESSAGE_TOO_LARGE_SAMPLE_BUCKET = get_from_env(
     "REPLAY_MESSAGE_TOO_LARGE_SAMPLE_BUCKET", "posthog-cloud-prod-us-east-1-k8s-replay-samples"
@@ -41,3 +31,28 @@ REPLAY_MESSAGE_TOO_LARGE_SAMPLE_BUCKET = get_from_env(
 # gzip is the current default in production
 # TODO we can clean this up once we've tested the new gzip-in-capture compression and don't need a setting
 SESSION_RECORDING_KAFKA_COMPRESSION = get_from_env("SESSION_RECORDING_KAFKA_COMPRESSION", "gzip")
+
+# can be used to provide an alternative script _name_ from the decide endpoint
+# posthog.js will use this script name to load the rrweb script from its configured asset location
+# intended to allow testing of new releases of rrweb or our lazy loaded recording script
+SESSION_REPLAY_RRWEB_SCRIPT = get_from_env("SESSION_REPLAY_RRWEB_SCRIPT", None, optional=True)
+
+# a list of teams that are allowed to use the SESSION_REPLAY_RRWEB_SCRIPT
+# can be a comma separated list of team ids or '*' to allow all teams
+SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS = get_list(get_from_env("SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS", ""))
+
+# a AI model to use for session recording filters
+SESSION_REPLAY_AI_DEFAULT_MODEL = get_from_env("SESSION_REPLAY_AI_DEFAULT_MODEL", "gpt-4o")
+SESSION_REPLAY_AI_REGEX_MODEL = get_from_env("SESSION_REPLAY_AI_REGEX_MODEL", "gpt-4o-mini")
+
+PLAYLIST_COUNTER_PROCESSING_MAX_ALLOWED_TEAM_ID = get_from_env(
+    "PLAYLIST_COUNTER_PROCESSING_MAX_ALLOWED_TEAM_ID", default=2 if settings.DEBUG else 0, type_cast=int
+)
+
+PLAYLIST_COUNTER_PROCESSING_SCHEDULE_SECONDS = get_from_env(
+    "PLAYLIST_COUNTER_PROCESSING_SCHEDULE_SECONDS", default=60 if settings.DEBUG else 3600, type_cast=int
+)
+
+PLAYLIST_COUNTER_PROCESSING_COOLDOWN_SECONDS = get_from_env(
+    "PLAYLIST_COUNTER_PROCESSING_COOLDOWN_SECONDS", 3600, type_cast=int
+)

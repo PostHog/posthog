@@ -8,7 +8,7 @@ import {
     metaEvent,
     mutationData,
     removedNodeMutation,
-} from '@rrweb/types'
+} from '@posthog/rrweb-types'
 import { captureMessage } from '@sentry/react'
 import { isObject } from 'lib/utils'
 import { PLACEHOLDER_SVG_DATA_IMAGE_URL } from 'scenes/session-recordings/player/rrweb'

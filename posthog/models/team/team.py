@@ -33,6 +33,7 @@ from posthog.models.utils import (
     UUIDClassicModel,
     generate_random_token_project,
     sane_repr,
+    validate_rate_limit,
 )
 from posthog.settings.utils import get_list
 from posthog.utils import GenericEmails
@@ -40,6 +41,8 @@ from posthog.utils import GenericEmails
 from ...hogql.modifiers import set_default_modifier_values
 from ...schema import HogQLQueryModifiers, PathCleaningFilter, PersonsOnEventsMode
 from .team_caching import get_team_in_cache, set_team_in_cache
+from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
+from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLISTS
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -109,6 +112,14 @@ class TeamManager(models.Manager):
         create_dashboard_from_template("DEFAULT_APP", dashboard)
         team.primary_dashboard = dashboard
 
+        # Create default session recording playlists
+        for playlist in DEFAULT_PLAYLISTS:
+            SessionRecordingPlaylist.objects.create(
+                team=team,
+                name=str(playlist["name"]),
+                filters=playlist["filters"],
+                description=str(playlist.get("description", "")),
+            )
         team.save()
         return team
 
@@ -177,12 +188,18 @@ class WeekStartDay(models.IntegerChoices):
         return "3" if self == WeekStartDay.MONDAY else "0"
 
 
+class CookielessServerHashMode(models.IntegerChoices):
+    DISABLED = 0, "Disabled"
+    STATELESS = 1, "Stateless"
+    STATEFUL = 2, "Stateful"
+
+
 class Team(UUIDClassicModel):
-    """Team means "environment" (historically it meant "project", but now we have the Project model for that)."""
+    """Team means "environment" (historically it meant "project", but now we have the parent Project model for that)."""
 
     class Meta:
-        verbose_name = "team (soon to be environment)"
-        verbose_name_plural = "teams (soon to be environments)"
+        verbose_name = "environment (aka team)"
+        verbose_name_plural = "environments (aka teams)"
         constraints = [
             models.CheckConstraint(
                 name="project_id_is_not_null",
@@ -220,6 +237,7 @@ class Team(UUIDClassicModel):
     anonymize_ips = models.BooleanField(default=False)
     completed_snippet_onboarding = models.BooleanField(default=False)
     has_completed_onboarding_for = models.JSONField(null=True, blank=True)
+    onboarding_tasks = models.JSONField(null=True, blank=True)
     ingested_event = models.BooleanField(default=False)
     autocapture_opt_out = models.BooleanField(null=True, blank=True)
     autocapture_web_vitals_opt_in = models.BooleanField(null=True, blank=True)
@@ -243,11 +261,15 @@ class Team(UUIDClassicModel):
     )
     session_recording_linked_flag = models.JSONField(null=True, blank=True)
     session_recording_network_payload_capture_config = models.JSONField(null=True, blank=True)
+    session_recording_masking_config = models.JSONField(null=True, blank=True)
     session_recording_url_trigger_config = ArrayField(
         models.JSONField(null=True, blank=True), default=list, blank=True, null=True
     )
     session_recording_url_blocklist_config = ArrayField(
         models.JSONField(null=True, blank=True), default=list, blank=True, null=True
+    )
+    session_recording_event_trigger_config = ArrayField(
+        models.TextField(null=True, blank=True), default=list, blank=True, null=True
     )
     session_replay_config = models.JSONField(null=True, blank=True)
     survey_config = models.JSONField(null=True, blank=True)
@@ -256,6 +278,7 @@ class Team(UUIDClassicModel):
     capture_dead_clicks = models.BooleanField(null=True, blank=True, default=False)
     surveys_opt_in = models.BooleanField(null=True, blank=True)
     heatmaps_opt_in = models.BooleanField(null=True, blank=True)
+    flags_persistence_default = models.BooleanField(null=True, blank=True, default=False)
     session_recording_version = models.CharField(null=True, blank=True, max_length=24)
     signup_token = models.CharField(max_length=200, null=True, blank=True)
     is_demo = models.BooleanField(default=False)
@@ -273,6 +296,11 @@ class Team(UUIDClassicModel):
     person_display_name_properties: ArrayField = ArrayField(models.CharField(max_length=400), null=True, blank=True)
     live_events_columns: ArrayField = ArrayField(models.TextField(), null=True, blank=True)
     recording_domains: ArrayField = ArrayField(models.CharField(max_length=200, null=True), blank=True, null=True)
+    human_friendly_comparison_periods = models.BooleanField(default=False, null=True, blank=True)
+    cookieless_server_hash_mode = models.SmallIntegerField(
+        default=CookielessServerHashMode.DISABLED, choices=CookielessServerHashMode.choices, null=True
+    )
+    revenue_tracking_config = models.JSONField(null=True, blank=True)
 
     primary_dashboard = models.ForeignKey(
         "posthog.Dashboard",
@@ -281,6 +309,8 @@ class Team(UUIDClassicModel):
         related_name="primary_dashboard_teams",
         blank=True,
     )  # Dashboard shown on project homepage
+
+    default_data_theme = models.IntegerField(null=True, blank=True)
 
     # Generic field for storing any team-specific context that is more temporary in nature and thus
     # likely doesn't deserve a dedicated column. Can be used for things like settings and overrides
@@ -318,6 +348,14 @@ class Team(UUIDClassicModel):
     event_properties_numerical = models.JSONField(default=list, blank=True)
     external_data_workspace_id = models.CharField(max_length=400, null=True, blank=True)
     external_data_workspace_last_synced_at = models.DateTimeField(null=True, blank=True)
+
+    api_query_rate_limit = models.CharField(
+        max_length=32,
+        null=True,
+        blank=True,
+        help_text="Custom rate limit for HogQL API queries in #requests/{sec,min,hour,day}",
+        validators=[validate_rate_limit],
+    )
 
     objects: TeamManager = TeamManager()
 
@@ -406,7 +444,7 @@ class Team(UUIDClassicModel):
 
     @cached_property
     def persons_seen_so_far(self) -> int:
-        from posthog.client import sync_execute
+        from posthog.clickhouse.client import sync_execute
         from posthog.queries.person_query import PersonQuery
 
         filter = Filter(data={"full": "true"})
@@ -423,7 +461,7 @@ class Team(UUIDClassicModel):
 
     @lru_cache(maxsize=5)
     def groups_seen_so_far(self, group_type_index: GroupTypeIndex) -> int:
-        from posthog.client import sync_execute
+        from posthog.clickhouse.client import sync_execute
 
         return sync_execute(
             f"""
@@ -516,7 +554,7 @@ class Team(UUIDClassicModel):
             return ", ".join(self.app_urls)
         return str(self.pk)
 
-    __repr__ = sane_repr("uuid", "name", "api_token")
+    __repr__ = sane_repr("id", "uuid", "project_id", "name", "api_token")
 
 
 @mutable_receiver(post_save, sender=Team)

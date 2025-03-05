@@ -1,3 +1,1 @@
-"""Sql Database source settings and constants"""
-
-DEFAULT_CHUNK_SIZE = 5000
+DEFAULT_CHUNK_SIZE = 20_000

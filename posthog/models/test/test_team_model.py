@@ -12,7 +12,7 @@ class TestTeam(BaseTest):
 
         all_user_with_access_ids = list(self.team.all_users_with_access().values_list("id", flat=True))
 
-        assert all_user_with_access_ids == [self.user.id, another_user.id]
+        assert sorted(all_user_with_access_ids) == sorted([self.user.id, another_user.id])
 
     def test_all_users_with_access_simple_org_membership_and_redundant_team_one(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -22,7 +22,9 @@ class TestTeam(BaseTest):
 
         all_user_with_access_ids = list(self.team.all_users_with_access().values_list("id", flat=True))
 
-        assert all_user_with_access_ids == [self.user.id, another_user.id]  # self.user should only be listed once
+        assert sorted(all_user_with_access_ids) == sorted(
+            [self.user.id, another_user.id]
+        )  # self.user should only be listed once
 
     def test_all_users_with_access_while_access_control_org_membership(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN

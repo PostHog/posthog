@@ -1,0 +1,35 @@
+try {
+    try {
+      throw HogError('FishError', 'You forgot to feed your fish')
+    } catch (e: FoodError) {
+      print(f'Problem with your food: {e.message}')
+    }
+} catch (e: FishError) {
+    print(f'FishError: {e.message}')
+} catch (e: Error) {
+    print(f'Error: {e.message}')
+}
+
+try {
+    try {
+      throw HogError('FunkyError', 'You forgot to feed your fish')
+    } catch (e: FoodError) {
+      print(f'Problem with your food: {e.message}')
+    }
+} catch (e: FishError) {
+    print(f'FishError: {e.message}')
+} catch (e: Error) {
+    print(f'Error of type {e.type}: {e.message}')
+}
+
+try {
+    try {
+      throw HogError('FishError', 'You forgot to feed your fish')
+    } catch (e: FoodError) {
+      print(f'Problem with your food: {e.message}')
+    }
+} catch (e: Error) {
+    print(f'Error of type {e.type}: {e.message}')
+} catch (e: FishError) {
+    print(f'FishError: {e.message}')
+}

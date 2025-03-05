@@ -20,11 +20,11 @@ export function HogFunctionTemplateList({
     )
     const { loadHogFunctionTemplates, setFilters, resetFilters } = useActions(hogFunctionTemplateListLogic(props))
 
-    useEffect(() => loadHogFunctionTemplates(), [])
+    useEffect(() => loadHogFunctionTemplates(), [props.type, props.subTemplateId])
 
     return (
         <>
-            <div className="flex items-center mb-2 gap-2">
+            <div className="flex items-center gap-2 mb-2">
                 {!props.forceFilters?.search && (
                     <LemonInput
                         type="search"

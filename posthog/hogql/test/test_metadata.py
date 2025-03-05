@@ -1,10 +1,11 @@
 from typing import Optional
 
-from posthog.hogql.metadata import get_hogql_metadata
-from posthog.models import PropertyDefinition, Cohort
-from posthog.schema import HogQLMetadata, HogQLMetadataResponse, HogQLQuery, HogLanguage
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from django.test import override_settings
+
+from posthog.hogql.metadata import get_hogql_metadata
+from posthog.models import Cohort, PropertyDefinition
+from posthog.schema import HogLanguage, HogQLMetadata, HogQLMetadataResponse, HogQLQuery
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 
 class TestMetadata(ClickhouseTestMixin, APIBaseTest):
@@ -383,3 +384,132 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "errors": [{"end": 17, "fix": None, "message": "Hog function `NONO` is not implemented", "start": 11}],
             },
         )
+
+    def test_is_valid_view_when_all_fields_have_aliases(self):
+        metadata = self._select("SELECT event AS event FROM events")
+        self.assertEqual(
+            metadata.dict(),
+            metadata.dict()
+            | {
+                "isValid": True,
+                "isValidView": True,
+                "query": "SELECT event AS event FROM events",
+                "errors": [],
+            },
+        )
+
+    def test_is_valid_view_is_true_when_not_all_fields_have_aliases(self):
+        metadata = self._select("SELECT event AS event, uuid FROM events")
+        self.assertEqual(
+            metadata.dict(),
+            metadata.dict()
+            | {
+                "isValid": True,
+                "isValidView": True,
+                "query": "SELECT event AS event, uuid FROM events",
+                "errors": [],
+            },
+        )
+
+    def test_is_valid_view_is_false_when_fields_that_are_transformations_dont_have_aliases(self):
+        metadata = self._select("SELECT toDate(timestamp), count() FROM events GROUP BY toDate(timestamp)")
+        self.assertEqual(
+            metadata.dict(),
+            metadata.dict()
+            | {
+                "isValid": True,
+                "isValidView": False,
+                "query": "SELECT toDate(timestamp), count() FROM events GROUP BY toDate(timestamp)",
+                "errors": [],
+            },
+        )
+
+    def test_is_valid_view_is_true_when_fields_that_are_transformations_have_aliases(self):
+        metadata = self._select(
+            "SELECT toDate(timestamp) as timestamp, count() as total_count FROM events GROUP BY timestamp"
+        )
+        self.assertEqual(
+            metadata.dict(),
+            metadata.dict()
+            | {
+                "isValid": True,
+                "isValidView": True,
+                "query": "SELECT toDate(timestamp) as timestamp, count() as total_count FROM events GROUP BY timestamp",
+                "errors": [],
+            },
+        )
+
+    def test_is_valid_view_is_false_when_using_asterisk(self):
+        metadata = self._select("SELECT * FROM events")
+        self.assertEqual(
+            metadata.dict(),
+            metadata.dict()
+            | {
+                "isValid": True,
+                "isValidView": False,
+                "query": "SELECT * FROM events",
+                "errors": [],
+            },
+        )
+
+    def test_is_valid_view_is_false_when_using_scoped_asterisk(self):
+        metadata = self._select("SELECT e.* FROM events e")
+        self.assertEqual(
+            metadata.dict(),
+            metadata.dict()
+            | {
+                "isValid": True,
+                "isValidView": False,
+                "query": "SELECT e.* FROM events e",
+                "errors": [],
+            },
+        )
+
+    def test_table_collector_basic_select(self):
+        metadata = self._select("SELECT event FROM events")
+        self.assertEqual(metadata.table_names, ["events"])
+
+    def test_table_collector_multiple_tables(self):
+        metadata = self._select(
+            "SELECT events.event, persons.name FROM events JOIN persons ON events.person_id = persons.id"
+        )
+        self.assertEqual(sorted(metadata.table_names or []), sorted(["events", "persons"]))
+
+    def test_table_collector_with_cte(self):
+        metadata = self._select("""
+            WITH events_count AS (
+                SELECT count(*) as count FROM events
+            )
+            SELECT * FROM events_count
+        """)
+        self.assertEqual(sorted(metadata.table_names or []), sorted(["events"]))
+
+    def test_table_collector_subquery(self):
+        metadata = self._select("""
+            SELECT * FROM (
+                SELECT event FROM events
+                UNION ALL
+                SELECT event FROM events_summary
+            )
+        """)
+        self.assertEqual(sorted(metadata.table_names or []), sorted(["events", "events_summary"]))
+
+    def test_table_in_filter(self):
+        metadata = self._select("SELECT * FROM events WHERE event IN (SELECT event FROM events_summary)")
+        self.assertEqual(sorted(metadata.table_names or []), sorted(["events", "events_summary"]))
+
+    def test_table_collector_complex_query(self):
+        metadata = self._select("""
+            WITH user_counts AS (
+                SELECT person_id, count(*) as count
+                FROM events
+                GROUP BY person_id
+            )
+            SELECT
+                p.name,
+                uc.count
+            FROM persons p
+            LEFT JOIN user_counts uc ON p.id = uc.person_id
+            LEFT JOIN cohorts c ON p.cohort_id = c.id
+        """)
+        self.assertEqual(sorted(metadata.table_names or []), sorted(["events", "persons", "cohorts"]))

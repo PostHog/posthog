@@ -19,7 +19,22 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.data_modeling.run_workflow import RunWorkflowInputs, Selector
-from posthog.warehouse.models import DataWarehouseJoin, DataWarehouseModelPath, DataWarehouseSavedQuery
+from posthog.warehouse.models import (
+    CLICKHOUSE_HOGQL_MAPPING,
+    DataWarehouseJoin,
+    DataWarehouseModelPath,
+    DataWarehouseSavedQuery,
+    clean_type,
+)
+from posthog.warehouse.models.external_data_schema import (
+    sync_frequency_to_sync_frequency_interval,
+    sync_frequency_interval_to_sync_frequency,
+)
+from posthog.warehouse.data_load.saved_query_service import (
+    saved_query_workflow_exists,
+    sync_saved_query_workflow,
+    delete_saved_query_schedule,
+)
 import uuid
 
 
@@ -29,6 +44,7 @@ logger = structlog.get_logger(__name__)
 class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     columns = serializers.SerializerMethodField(read_only=True)
+    sync_frequency = serializers.SerializerMethodField()
 
     class Meta:
         model = DataWarehouseSavedQuery
@@ -39,6 +55,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             "query",
             "created_by",
             "created_at",
+            "sync_frequency",
             "columns",
             "status",
             "last_run_at",
@@ -47,7 +64,11 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
 
     def get_columns(self, view: DataWarehouseSavedQuery) -> list[SerializedField]:
         team_id = self.context["team_id"]
-        context = HogQLContext(team_id=team_id, database=create_hogql_database(team_id=team_id))
+        database = self.context.get("database", None)
+        if not database:
+            database = create_hogql_database(team_id=team_id)
+
+        context = HogQLContext(team_id=team_id, database=database)
 
         fields = serialize_fields(view.hogql_definition().fields, context, view.name, table_type="external")
         return [
@@ -63,21 +84,37 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             for field in fields
         ]
 
+    def get_sync_frequency(self, schema: DataWarehouseSavedQuery):
+        return sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval)
+
     def create(self, validated_data):
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = self.context["request"].user
 
         view = DataWarehouseSavedQuery(**validated_data)
+
         # The columns will be inferred from the query
         try:
-            view.columns = view.get_columns()
+            client_types = self.context["request"].data.get("types", [])
+            if len(client_types) == 0:
+                view.columns = view.get_columns()
+            else:
+                columns = {
+                    str(item[0]): {
+                        "hogql": CLICKHOUSE_HOGQL_MAPPING[clean_type(str(item[1]))].__name__,
+                        "clickhouse": item[1],
+                        "valid": True,
+                    }
+                    for item in client_types
+                }
+                view.columns = columns
+
             view.external_tables = view.s3_tables
         except Exception as err:
             raise serializers.ValidationError(str(err))
 
         with transaction.atomic():
             view.save()
-
             try:
                 DataWarehouseModelPath.objects.create_from_saved_query(view)
             except Exception:
@@ -89,7 +126,20 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
         return view
 
     def update(self, instance: Any, validated_data: Any) -> Any:
+        sync_frequency = self.context["request"].data.get("sync_frequency", None)
+        was_sync_frequency_updated = False
+
         with transaction.atomic():
+            if sync_frequency == "never":
+                delete_saved_query_schedule(str(instance.id))
+                instance.sync_frequency_interval = None
+                validated_data["sync_frequency_interval"] = None
+            elif sync_frequency:
+                sync_frequency_interval = sync_frequency_to_sync_frequency_interval(sync_frequency)
+                validated_data["sync_frequency_interval"] = sync_frequency_interval
+                was_sync_frequency_updated = True
+                instance.sync_frequency_interval = sync_frequency_interval
+
             view: DataWarehouseSavedQuery = super().update(instance, validated_data)
 
             try:
@@ -98,7 +148,6 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
                 view.status = DataWarehouseSavedQuery.Status.MODIFIED
             except RecursionError:
                 raise serializers.ValidationError("Model contains a cycle")
-
             except Exception as err:
                 raise serializers.ValidationError(str(err))
 
@@ -108,6 +157,10 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
                 DataWarehouseModelPath.objects.update_from_saved_query(view)
             except Exception:
                 logger.exception("Failed to update model path when updating view %s", view.name)
+
+        if was_sync_frequency_updated:
+            schedule_exists = saved_query_workflow_exists(str(instance.id))
+            sync_saved_query_workflow(view, create=not schedule_exists)
 
         return view
 
@@ -151,11 +204,18 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
     search_fields = ["name"]
     ordering = "-created_at"
 
+    def get_serializer_context(self) -> dict[str, Any]:
+        context = super().get_serializer_context()
+        context["database"] = create_hogql_database(team_id=self.team_id)
+        return context
+
     def safely_get_queryset(self, queryset):
         return queryset.prefetch_related("created_by").exclude(deleted=True).order_by(self.ordering)
 
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         instance: DataWarehouseSavedQuery = self.get_object()
+
+        delete_saved_query_schedule(str(instance.id))
 
         for join in DataWarehouseJoin.objects.filter(
             Q(team_id=instance.team_id) & (Q(source_table_name=instance.name) | Q(joining_table_name=instance.name))
@@ -165,7 +225,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         if instance.table is not None:
             instance.table.soft_delete()
 
-        self.perform_destroy(instance)
+        instance.soft_delete()
 
         return response.Response(status=status.HTTP_204_NO_CONTENT)
 

@@ -9,28 +9,19 @@ import {
     LemonModal,
     LemonTextArea,
     Link,
+    Tooltip,
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { HeartHog } from 'lib/components/hedgehogs'
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { useState } from 'react'
 
 import { BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
 import { billingLogic } from './billingLogic'
-import { billingProductLogic } from './billingProductLogic'
+import { billingProductLogic, randomizeReasons, UNSUBSCRIBE_REASONS } from './billingProductLogic'
 import { ExportsUnsubscribeTable, exportsUnsubscribeTableLogic } from './ExportsUnsubscribeTable'
-
-const UNSUBSCRIBE_REASONS = [
-    'Too expensive',
-    'Not getting enough value',
-    'Not using the product',
-    'Found a better alternative',
-    'Poor customer support',
-    'Too difficult to use',
-    'Not enough hedgehogs',
-    'Other (let us know below!)',
-]
 
 export const UnsubscribeSurveyModal = ({
     product,
@@ -39,7 +30,7 @@ export const UnsubscribeSurveyModal = ({
 }): JSX.Element | null => {
     const { trigger, HogfettiComponent } = useHogfetti()
 
-    const { surveyID, surveyResponse, isAddonProduct, unsubscribeModalStep } = useValues(
+    const { surveyID, surveyResponse, isAddonProduct, unsubscribeModalStep, unsubscribeReasonQuestions } = useValues(
         billingProductLogic({ product, hogfettiTrigger: trigger })
     )
     const {
@@ -55,6 +46,9 @@ export const UnsubscribeSurveyModal = ({
     const { unsubscribeError, billingLoading, billing } = useValues(billingLogic)
     const { unsubscribeDisabledReason, itemsToDisable } = useValues(exportsUnsubscribeTableLogic)
     const { openSupportForm } = useActions(supportLogic)
+    const [randomizedReasons] = useState(
+        process?.env.STORYBOOK ? UNSUBSCRIBE_REASONS : randomizeReasons(UNSUBSCRIBE_REASONS)
+    )
 
     const textAreaNotEmpty = surveyResponse['$survey_response']?.length > 0
     const includesPipelinesAddon =
@@ -84,7 +78,7 @@ export const UnsubscribeSurveyModal = ({
         <div className="flex flex-col gap-4">
             <div className="text-center">
                 <h3 className="text-lg mb-2">How about now? Was that enough hedgehogs?</h3>
-                <p className="text-muted mb-4">Look at all these adorable hedgehogs dancing just for you! 🦔✨</p>
+                <p className="text-secondary mb-4">Look at all these adorable hedgehogs dancing just for you! 🦔✨</p>
                 <div className="flex justify-center items-center">
                     <HeartHog width="100" height="100" />
                 </div>
@@ -152,7 +146,15 @@ export const UnsubscribeSurveyModal = ({
                             </LemonButton>
                             <LemonButton
                                 type={textAreaNotEmpty ? 'primary' : 'secondary'}
-                                disabledReason={includesPipelinesAddon && unsubscribeDisabledReason}
+                                disabledReason={
+                                    surveyResponse['$survey_response_2'].length === 0
+                                        ? 'Please select a reason'
+                                        : !textAreaNotEmpty
+                                        ? 'Please share your feedback'
+                                        : includesPipelinesAddon
+                                        ? unsubscribeDisabledReason
+                                        : undefined
+                                }
                                 onClick={handleUnsubscribe}
                                 loading={billingLoading}
                             >
@@ -191,31 +193,36 @@ export const UnsubscribeSurveyModal = ({
                             {billing?.subscription_level === 'paid'
                                 ? `Why are you ${actionVerb}?`
                                 : `Why are you ${actionVerb} from ${product.name}?`}{' '}
-                            <i className="text-muted">(you can select multiple)</i>
+                            <i className="text-secondary">(you can select multiple)</i>
+                            <Tooltip title="Required">
+                                <span className="text-danger">*</span>
+                            </Tooltip>
                         </LemonLabel>
                         <div className="grid grid-cols-2 gap-2">
-                            {UNSUBSCRIBE_REASONS.map((reason) => (
+                            {randomizedReasons.map((reason) => (
                                 <LemonCheckbox
                                     bordered
-                                    key={reason}
-                                    label={reason}
-                                    dataAttr={`unsubscribe-reason-${reason.toLowerCase().replace(' ', '-')}`}
-                                    checked={surveyResponse['$survey_response_2'].includes(reason)}
-                                    onChange={() => toggleSurveyReason(reason)}
+                                    key={reason.reason}
+                                    label={reason.reason}
+                                    dataAttr={`unsubscribe-reason-${reason.reason.toLowerCase().replace(' ', '-')}`}
+                                    checked={surveyResponse['$survey_response_2'].includes(reason.reason)}
+                                    onChange={() => toggleSurveyReason(reason.reason)}
                                     className="w-full"
                                     labelClassName="w-full"
                                 />
                             ))}
                         </div>
 
-                        <LemonTextArea
-                            data-attr="unsubscribe-reason-survey-textarea"
-                            placeholder="Share your feedback here so we can improve PostHog!"
-                            value={surveyResponse['$survey_response']}
-                            onChange={(value) => {
-                                setSurveyResponse('$survey_response', value)
-                            }}
-                        />
+                        {surveyResponse['$survey_response_2'].length > 0 && (
+                            <LemonTextArea
+                                data-attr="unsubscribe-reason-survey-textarea"
+                                placeholder={unsubscribeReasonQuestions}
+                                value={surveyResponse['$survey_response']}
+                                onChange={(value) => {
+                                    setSurveyResponse('$survey_response', value)
+                                }}
+                            />
+                        )}
 
                         <LemonBanner type="info">
                             <p>

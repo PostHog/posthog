@@ -2,9 +2,11 @@ from .async_deletion_admin import AsyncDeletionAdmin
 from .cohort_admin import CohortAdmin
 from .dashboard_admin import DashboardAdmin
 from .dashboard_template_admin import DashboardTemplateAdmin
+from .data_color_theme_admin import DataColorThemeAdmin
 from .data_warehouse_table_admin import DataWarehouseTableAdmin
 from .experiment_admin import ExperimentAdmin
 from .feature_flag_admin import FeatureFlagAdmin
+from .group_type_mapping_admin import GroupTypeMappingAdmin
 from .insight_admin import InsightAdmin
 from .instance_setting_admin import InstanceSettingAdmin
 from .organization_admin import OrganizationAdmin

@@ -59,13 +59,6 @@ def get_funnel_ok(client: Client, team_id: int, request: FunnelRequest) -> dict[
     return final
 
 
-def get_funnel_actors_ok(client: Client, url: str):
-    response = client.get(url)
-
-    assert response.status_code == 200, response.content
-    return response.json()["results"][0]["people"]
-
-
 def get_funnel_correlation(client: Client, team_id: int, request: FunnelCorrelationRequest):
     return client.get(
         f"/api/projects/{team_id}/insights/funnel/correlation",

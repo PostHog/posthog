@@ -7,9 +7,11 @@ from typing import Any, Literal, Optional
 from urllib.parse import urlencode
 
 from django.db import models
+from prometheus_client import Counter
 import requests
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
+from posthog.exceptions_capture import capture_exception
 from slack_sdk import WebClient
 from google.oauth2 import service_account
 from google.auth.transport.requests import Request as GoogleRequest
@@ -26,8 +28,14 @@ from posthog.warehouse.util import database_sync_to_async
 
 logger = structlog.get_logger(__name__)
 
+oauth_refresh_counter = Counter(
+    "integration_oauth_refresh", "Number of times an oauth refresh has been attempted", labelnames=["kind", "result"]
+)
+
 
 def dot_get(d: Any, path: str, default: Any = None) -> Any:
+    if path in d and d[path] is not None:
+        return d[path]
     for key in path.split("."):
         if not isinstance(d, dict):
             return default
@@ -46,6 +54,9 @@ class Integration(models.Model):
         GOOGLE_PUBSUB = "google-pubsub"
         GOOGLE_CLOUD_STORAGE = "google-cloud-storage"
         GOOGLE_ADS = "google-ads"
+        SNAPCHAT = "snapchat"
+        LINKEDIN_ADS = "linkedin-ads"
+        INTERCOM = "intercom"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
@@ -112,8 +123,11 @@ class OauthConfig:
 
 
 class OauthIntegration:
-    supported_kinds = ["slack", "salesforce", "hubspot", "google-ads"]
+    supported_kinds = ["slack", "salesforce", "hubspot", "google-ads", "snapchat", "linkedin-ads", "intercom"]
     integration: Integration
+
+    def __str__(self) -> str:
+        return f"OauthIntegration(integration={self.integration.id}, kind={self.integration.kind}, team={self.integration.team_id})"
 
     def __init__(self, integration: Integration) -> None:
         self.integration = integration
@@ -163,15 +177,19 @@ class OauthIntegration:
                 authorize_url="https://app.hubspot.com/oauth/authorize",
                 token_url="https://api.hubapi.com/oauth/v1/token",
                 token_info_url="https://api.hubapi.com/oauth/v1/access-tokens/:access_token",
-                token_info_config_fields=["hub_id", "hub_domain", "user", "user_id"],
+                token_info_config_fields=["hub_id", "hub_domain", "user", "user_id", "scopes"],
                 client_id=settings.HUBSPOT_APP_CLIENT_ID,
                 client_secret=settings.HUBSPOT_APP_CLIENT_SECRET,
-                scope="tickets crm.objects.contacts.write sales-email-read crm.objects.companies.read crm.objects.deals.read crm.objects.contacts.read crm.objects.quotes.read analytics.behavioral_events.send behavioral_events.event_definitions.read_write",
+                scope="tickets crm.objects.contacts.write sales-email-read crm.objects.companies.read crm.objects.deals.read crm.objects.contacts.read crm.objects.quotes.read crm.objects.companies.write",
+                additional_authorize_params={
+                    # NOTE: these scopes are only available on certain hubspot plans and as such are optional
+                    "optional_scope": "analytics.behavioral_events.send behavioral_events.event_definitions.read_write"
+                },
                 id_path="hub_id",
                 name_path="hub_domain",
             )
         elif kind == "google-ads":
-            if not settings.SOCIAL_AUTH_GOOGLE_OAUTH2_KEY or not settings.SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET:
+            if not settings.GOOGLE_ADS_APP_CLIENT_ID or not settings.GOOGLE_ADS_APP_CLIENT_SECRET:
                 raise NotImplementedError("Google Ads app not configured")
 
             return OauthConfig(
@@ -181,10 +199,55 @@ class OauthIntegration:
                 token_info_url="https://openidconnect.googleapis.com/v1/userinfo",
                 token_info_config_fields=["sub", "email"],
                 token_url="https://oauth2.googleapis.com/token",
-                client_id=settings.SOCIAL_AUTH_GOOGLE_OAUTH2_KEY,
-                client_secret=settings.SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET,
-                scope="https://www.googleapis.com/auth/adwords email",
+                client_id=settings.GOOGLE_ADS_APP_CLIENT_ID,
+                client_secret=settings.GOOGLE_ADS_APP_CLIENT_SECRET,
+                scope="https://www.googleapis.com/auth/adwords https://www.googleapis.com/auth/userinfo.email",
                 id_path="sub",
+                name_path="email",
+            )
+        elif kind == "snapchat":
+            if not settings.SNAPCHAT_APP_CLIENT_ID or not settings.SNAPCHAT_APP_CLIENT_SECRET:
+                raise NotImplementedError("Snapchat app not configured")
+
+            return OauthConfig(
+                authorize_url="https://accounts.snapchat.com/accounts/oauth2/auth",
+                token_url="https://accounts.snapchat.com/accounts/oauth2/token",
+                token_info_url="https://adsapi.snapchat.com/v1/me",
+                token_info_config_fields=["me.id", "me.email"],
+                client_id=settings.SNAPCHAT_APP_CLIENT_ID,
+                client_secret=settings.SNAPCHAT_APP_CLIENT_SECRET,
+                scope="snapchat-offline-conversions-api snapchat-marketing-api",
+                id_path="me.id",
+                name_path="me.email",
+            )
+        elif kind == "linkedin-ads":
+            if not settings.LINKEDIN_APP_CLIENT_ID or not settings.LINKEDIN_APP_CLIENT_SECRET:
+                raise NotImplementedError("LinkedIn Ads app not configured")
+
+            return OauthConfig(
+                authorize_url="https://www.linkedin.com/oauth/v2/authorization",
+                token_info_url="https://api.linkedin.com/v2/userinfo",
+                token_info_config_fields=["sub", "email"],
+                token_url="https://www.linkedin.com/oauth/v2/accessToken",
+                client_id=settings.LINKEDIN_APP_CLIENT_ID,
+                client_secret=settings.LINKEDIN_APP_CLIENT_SECRET,
+                scope="r_ads rw_conversions openid profile email",
+                id_path="sub",
+                name_path="email",
+            )
+        elif kind == "intercom":
+            if not settings.INTERCOM_APP_CLIENT_ID or not settings.INTERCOM_APP_CLIENT_SECRET:
+                raise NotImplementedError("Intercom app not configured")
+
+            return OauthConfig(
+                authorize_url="https://app.intercom.com/oauth",
+                token_url="https://api.intercom.io/auth/eagle/token",
+                token_info_url="https://api.intercom.io/me",
+                token_info_config_fields=["id", "email", "app.region"],
+                client_id=settings.INTERCOM_APP_CLIENT_ID,
+                client_secret=settings.INTERCOM_APP_CLIENT_SECRET,
+                scope="",
+                id_path="id",
                 name_path="email",
             )
 
@@ -196,7 +259,7 @@ class OauthIntegration:
         return f"{settings.SITE_URL.replace('http://', 'https://')}/integrations/{kind}/callback"
 
     @classmethod
-    def authorize_url(cls, kind: str, next="") -> str:
+    def authorize_url(cls, kind: str, token: str, next="") -> str:
         oauth_config = cls.oauth_config_for_kind(kind)
 
         query_params = {
@@ -204,7 +267,7 @@ class OauthIntegration:
             "scope": oauth_config.scope,
             "redirect_uri": cls.redirect_uri(kind),
             "response_type": "code",
-            "state": urlencode({"next": next}),
+            "state": urlencode({"next": next, "token": token}),
             **(oauth_config.additional_authorize_params or {}),
         }
 
@@ -316,12 +379,14 @@ class OauthIntegration:
         if res.status_code != 200 or not config.get("access_token"):
             logger.warning(f"Failed to refresh token for {self}", response=res.text)
             self.integration.errors = ERROR_TOKEN_REFRESH_FAILED
+            oauth_refresh_counter.labels(self.integration.kind, "failed").inc()
         else:
             logger.info(f"Refreshed access token for {self}")
             self.integration.sensitive_config["access_token"] = config["access_token"]
             self.integration.config["expires_in"] = config.get("expires_in")
             self.integration.config["refreshed_at"] = int(time.time())
             reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
+            oauth_refresh_counter.labels(self.integration.kind, "success").inc()
         self.integration.save()
 
 
@@ -342,23 +407,28 @@ class SlackIntegration:
     def client(self) -> WebClient:
         return WebClient(self.integration.sensitive_config["access_token"])
 
-    def list_channels(self) -> list[dict]:
+    def list_channels(self, authed_user) -> list[dict]:
         # NOTE: Annoyingly the Slack API has no search so we have to load all channels...
         # We load public and private channels separately as when mixed, the Slack API pagination is buggy
-        public_channels = self._list_channels_by_type("public_channel")
-        private_channels = self._list_channels_by_type("private_channel")
+        public_channels = self._list_channels_by_type("public_channel", authed_user)
+        private_channels = self._list_channels_by_type("private_channel", authed_user)
         channels = public_channels + private_channels
 
         return sorted(channels, key=lambda x: x["name"])
 
-    def _list_channels_by_type(self, type: Literal["public_channel", "private_channel"]) -> list[dict]:
+    def _list_channels_by_type(self, type: Literal["public_channel", "private_channel"], authed_user) -> list[dict]:
         max_page = 20
         channels = []
         cursor = None
 
         while max_page > 0:
             max_page -= 1
-            res = self.client.conversations_list(exclude_archived=True, types=type, limit=200, cursor=cursor)
+            if type == "public_channel":
+                res = self.client.conversations_list(exclude_archived=True, types=type, limit=200, cursor=cursor)
+            else:
+                res = self.client.users_conversations(
+                    exclude_archived=True, types=type, limit=200, cursor=cursor, user=authed_user
+                )
 
             channels.extend(res["channels"])
             cursor = res["response_metadata"]["next_cursor"]
@@ -412,6 +482,85 @@ class SlackIntegration:
         )
 
         return config
+
+
+class GoogleAdsIntegration:
+    integration: Integration
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != "google-ads":
+            raise Exception("GoogleAdsIntegration init called with Integration with wrong 'kind'")
+
+        self.integration = integration
+
+    @property
+    def client(self) -> WebClient:
+        return WebClient(self.integration.sensitive_config["access_token"])
+
+    def list_google_ads_conversion_actions(self, customer_id) -> list[dict]:
+        response = requests.request(
+            "POST",
+            f"https://googleads.googleapis.com/v18/customers/{customer_id}/googleAds:searchStream",
+            json={"query": "SELECT conversion_action.id, conversion_action.name FROM conversion_action"},
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
+                "developer-token": settings.GOOGLE_ADS_DEVELOPER_TOKEN,
+            },
+        )
+
+        if response.status_code != 200:
+            capture_exception(
+                Exception(f"GoogleAdsIntegration: Failed to list ads conversion actions: {response.text}")
+            )
+            raise Exception(f"There was an internal error")
+
+        return response.json()
+
+    def list_google_ads_accessible_accounts(self) -> list[dict[str, str]]:
+        response = requests.request(
+            "GET",
+            f"https://googleads.googleapis.com/v18/customers:listAccessibleCustomers",
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
+                "developer-token": settings.GOOGLE_ADS_DEVELOPER_TOKEN,
+            },
+        )
+
+        if response.status_code != 200:
+            capture_exception(Exception(f"GoogleAdsIntegration: Failed to list accessible accounts: {response.text}"))
+            raise Exception(f"There was an internal error")
+
+        accounts = response.json()
+        accounts_with_name = []
+
+        for account in accounts["resourceNames"]:
+            response = requests.request(
+                "POST",
+                f"https://googleads.googleapis.com/v18/customers/{account.split('/')[1]}/googleAds:searchStream",
+                json={
+                    "query": "SELECT customer_client.descriptive_name, customer_client.client_customer FROM customer_client WHERE customer_client.level <= 1"
+                },
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
+                    "developer-token": settings.GOOGLE_ADS_DEVELOPER_TOKEN,
+                },
+            )
+
+            if response.status_code != 200:
+                continue
+
+            data = response.json()
+            accounts_with_name.append(
+                {
+                    "id": account.split("/")[1],
+                    "name": data[0]["results"][0]["customerClient"].get("descriptiveName", "Google Ads account"),
+                }
+            )
+
+        return accounts_with_name
 
 
 class GoogleCloudIntegration:
@@ -492,3 +641,43 @@ class GoogleCloudIntegration:
         reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
 
         logger.info(f"Refreshed access token for {self}")
+
+
+class LinkedInAdsIntegration:
+    integration: Integration
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != "linkedin-ads":
+            raise Exception("LinkedInAdsIntegration init called with Integration with wrong 'kind'")
+
+        self.integration = integration
+
+    @property
+    def client(self) -> WebClient:
+        return WebClient(self.integration.sensitive_config["access_token"])
+
+    def list_linkedin_ads_conversion_rules(self, account_id):
+        response = requests.request(
+            "GET",
+            f"https://api.linkedin.com/rest/conversions?q=account&account=urn%3Ali%3AsponsoredAccount%3A{account_id}&fields=conversionMethod%2Cenabled%2Ctype%2Cname%2Cid%2Ccampaigns%2CattributionType",
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
+                "LinkedIn-Version": "202409",
+            },
+        )
+
+        return response.json()
+
+    def list_linkedin_ads_accounts(self) -> dict:
+        response = requests.request(
+            "GET",
+            "https://api.linkedin.com/v2/adAccountsV2?q=search",
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
+                "LinkedIn-Version": "202409",
+            },
+        )
+
+        return response.json()

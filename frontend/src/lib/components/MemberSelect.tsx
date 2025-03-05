@@ -1,4 +1,11 @@
-import { LemonButton, LemonDropdown, LemonDropdownProps, LemonInput, ProfilePicture } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonButtonProps,
+    LemonDropdown,
+    LemonDropdownProps,
+    LemonInput,
+    ProfilePicture,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { fullName } from 'lib/utils'
 import { useEffect, useMemo, useState } from 'react'
@@ -8,24 +15,35 @@ import { UserBasicType } from '~/types'
 
 export type MemberSelectProps = {
     defaultLabel?: string
+    allowNone?: boolean
     // NOTE: Trying to cover a lot of different cases - if string we assume uuid, if number we assume id
     value: string | number | null
+    excludedMembers?: (string | number)[]
     onChange: (value: UserBasicType | null) => void
     children?: (selectedUser: UserBasicType | null) => LemonDropdownProps['children']
 }
 
-export function MemberSelect({ defaultLabel = 'Any user', value, onChange, children }: MemberSelectProps): JSX.Element {
+export function MemberSelect({
+    defaultLabel = 'Any user',
+    allowNone = true,
+    value,
+    excludedMembers = [],
+    onChange,
+    children,
+    ...buttonProps
+}: MemberSelectProps & Pick<LemonButtonProps, 'type' | 'size'>): JSX.Element {
     const { meFirstMembers, filteredMembers, search, membersLoading } = useValues(membersLogic)
     const { ensureAllMembersLoaded, setSearch } = useActions(membersLogic)
     const [showPopover, setShowPopover] = useState(false)
+
+    const propToCompare = typeof value === 'string' ? 'uuid' : 'id'
 
     const selectedMemberAsUser = useMemo(() => {
         if (!value) {
             return null
         }
-        const propToCompare = typeof value === 'string' ? 'uuid' : 'id'
         return meFirstMembers.find((member) => member.user[propToCompare] === value)?.user ?? null
-    }, [value, meFirstMembers])
+    }, [value, meFirstMembers, propToCompare])
 
     const _onChange = (value: UserBasicType | null): void => {
         setShowPopover(false)
@@ -37,6 +55,8 @@ export function MemberSelect({ defaultLabel = 'Any user', value, onChange, child
             ensureAllMembersLoaded()
         }
     }, [showPopover])
+
+    const selectableMembers = filteredMembers.filter((m) => !excludedMembers.includes(m.user[propToCompare]))
 
     return (
         <LemonDropdown
@@ -56,13 +76,15 @@ export function MemberSelect({ defaultLabel = 'Any user', value, onChange, child
                         fullWidth
                     />
                     <ul className="space-y-px">
-                        <li>
-                            <LemonButton fullWidth role="menuitem" size="small" onClick={() => _onChange(null)}>
-                                {defaultLabel}
-                            </LemonButton>
-                        </li>
+                        {allowNone && (
+                            <li>
+                                <LemonButton fullWidth role="menuitem" size="small" onClick={() => _onChange(null)}>
+                                    {defaultLabel}
+                                </LemonButton>
+                            </li>
+                        )}
 
-                        {filteredMembers.map((member) => (
+                        {selectableMembers.map((member) => (
                             <li key={member.user.uuid}>
                                 <LemonButton
                                     fullWidth
@@ -73,7 +95,7 @@ export function MemberSelect({ defaultLabel = 'Any user', value, onChange, child
                                 >
                                     <span className="flex items-center justify-between gap-2 flex-1">
                                         <span>{fullName(member.user)}</span>
-                                        <span className="text-muted-alt">
+                                        <span className="text-secondary">
                                             {meFirstMembers[0] === member && `(you)`}
                                         </span>
                                     </span>
@@ -82,9 +104,9 @@ export function MemberSelect({ defaultLabel = 'Any user', value, onChange, child
                         ))}
 
                         {membersLoading ? (
-                            <div className="p-2 text-muted-alt italic truncate border-t">Loading...</div>
-                        ) : filteredMembers.length === 0 ? (
-                            <div className="p-2 text-muted-alt italic truncate border-t">
+                            <div className="p-2 text-secondary italic truncate border-t">Loading...</div>
+                        ) : selectableMembers.length === 0 ? (
+                            <div className="p-2 text-secondary italic truncate border-t">
                                 {search ? <span>No matches</span> : <span>No users</span>}
                             </div>
                         ) : null}
@@ -95,7 +117,7 @@ export function MemberSelect({ defaultLabel = 'Any user', value, onChange, child
             {children ? (
                 children(selectedMemberAsUser)
             ) : (
-                <LemonButton size="small" type="secondary">
+                <LemonButton size="small" type="secondary" {...buttonProps}>
                     {selectedMemberAsUser ? (
                         <span>
                             {fullName(selectedMemberAsUser)}

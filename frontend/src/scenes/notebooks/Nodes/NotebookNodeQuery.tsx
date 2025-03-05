@@ -1,5 +1,5 @@
 import { Query } from '~/queries/Query/Query'
-import { DataTableNode, InsightQueryNode, InsightVizNode, NodeKind, QuerySchema } from '~/queries/schema'
+import { DataTableNode, InsightQueryNode, InsightVizNode, NodeKind, QuerySchema } from '~/queries/schema/schema-general'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { InsightLogicProps, InsightShortId, NotebookNodeType } from '~/types'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
@@ -235,11 +235,11 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
             default: DEFAULT_QUERY,
         },
     },
-    href: (attrs) =>
-        attrs.query.kind === NodeKind.SavedInsightNode
-            ? urls.insightView(attrs.query.shortId)
-            : isInsightVizNode(attrs.query)
-            ? urls.insightNew(undefined, undefined, attrs.query)
+    href: ({ query }) =>
+        query.kind === NodeKind.SavedInsightNode
+            ? urls.insightView(query.shortId)
+            : isInsightVizNode(query)
+            ? urls.insightNew({ query })
             : undefined,
     Settings,
     pasteOptions: {

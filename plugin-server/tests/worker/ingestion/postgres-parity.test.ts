@@ -11,7 +11,6 @@ import {
 } from '../../../src/types'
 import { PostgresUse } from '../../../src/utils/db/postgres'
 import { castTimestampOrNow, UUIDT } from '../../../src/utils/utils'
-import { makePiscina } from '../../../src/worker/piscina'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../helpers/clickhouse'
 import { resetKafka } from '../../helpers/kafka'
 import { createUserTeamAndOrganization, resetTestDatabase } from '../../helpers/sql'
@@ -20,7 +19,6 @@ jest.mock('../../../src/utils/status')
 jest.setTimeout(60000) // 60 sec timeout
 
 const extraServerConfig: Partial<PluginsServerConfig> = {
-    WORKER_CONCURRENCY: 2,
     LOG_LEVEL: LogLevel.Log,
 }
 
@@ -45,8 +43,8 @@ describe('postgres parity', () => {
         `)
         await resetTestDatabaseClickhouse(extraServerConfig)
         console.log('[TEST] Starting plugins server')
-        const startResponse = await startPluginsServer(extraServerConfig, makePiscina, { ingestion: true })
-        hub = startResponse.hub
+        const startResponse = await startPluginsServer(extraServerConfig, { ingestionV2: true })
+        hub = startResponse.hub!
         stopServer = startResponse.stop
         teamId++
         console.log('[TEST] Setting up seed data')
@@ -181,10 +179,7 @@ describe('postgres parity', () => {
             is_identified: true,
         })
 
-        await hub.db.kafkaProducer.queueMessages({
-            kafkaMessages,
-            waitForAck: true,
-        })
+        await hub.db.kafkaProducer.queueMessages(kafkaMessages)
 
         await delayUntilEventIngested(async () =>
             (await hub.db.fetchPersons(Database.ClickHouse)).filter((p) => p.is_identified)
@@ -212,10 +207,7 @@ describe('postgres parity', () => {
             is_identified: false,
         })
 
-        await hub.db.kafkaProducer.queueMessages({
-            kafkaMessages: kafkaMessages2,
-            waitForAck: true,
-        })
+        await hub.db.kafkaProducer.queueMessages(kafkaMessages2)
 
         expect(updatedPerson.version).toEqual(2)
 
@@ -355,7 +347,7 @@ describe('postgres parity', () => {
         // move distinct ids from person to to anotherPerson
 
         const kafkaMessages = await hub.db.moveDistinctIds(person, anotherPerson)
-        await hub.db!.kafkaProducer!.queueMessages({ kafkaMessages, waitForAck: true })
+        await hub.db!.kafkaProducer!.queueMessages(kafkaMessages)
         await delayUntilEventIngested(() => hub.db.fetchDistinctIdValues(anotherPerson, Database.ClickHouse), 2)
 
         // it got added
@@ -411,7 +403,7 @@ describe('postgres parity', () => {
         // delete person
         await hub.db.postgres.transaction(PostgresUse.COMMON_WRITE, '', async (client) => {
             const deletePersonMessage = await hub.db.deletePerson(person, client)
-            await hub.db!.kafkaProducer!.queueMessage({ kafkaMessage: deletePersonMessage[0], waitForAck: true })
+            await hub.db!.kafkaProducer!.queueMessages(deletePersonMessage[0])
         })
 
         await delayUntilEventIngested(async () =>

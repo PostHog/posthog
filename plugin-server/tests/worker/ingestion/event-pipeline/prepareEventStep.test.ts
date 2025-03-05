@@ -1,7 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { Hub, Person, Team } from '../../../../src/types'
+import { Hub, Person, ProjectId, Team } from '../../../../src/types'
 import { closeHub, createHub } from '../../../../src/utils/db/hub'
 import { UUIDT } from '../../../../src/utils/utils'
 import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipeline/prepareEventStep'
@@ -26,6 +26,7 @@ const pluginEvent: PluginEvent = {
 }
 
 const person: Person = {
+    // @ts-expect-error TODO: Fix underlying type
     id: 123,
     team_id: 2,
     properties: {},
@@ -38,9 +39,10 @@ const person: Person = {
     version: 0,
 }
 
+// @ts-expect-error TODO: Fix underlying type
 const teamTwo: Team = {
     id: 2,
-    project_id: 1,
+    project_id: 1 as ProjectId,
     uuid: 'af95d312-1a0a-4208-b80f-562ddafc9bcd',
     organization_id: '66f3f7bf-44e2-45dd-9901-5dbd93744e3a',
     name: 'testTeam',
@@ -63,6 +65,8 @@ describe('prepareEventStep()', () => {
         await hub.db.createPerson(person.created_at, {}, {}, {}, pluginEvent.team_id, null, false, person.uuid, [
             { distinctId: 'my_id' },
         ])
+
+        // @ts-expect-error TODO: Check existence of queueMessage
         hub.db.kafkaProducer!.queueMessage = jest.fn()
 
         // eslint-disable-next-line @typescript-eslint/require-await
@@ -81,7 +85,7 @@ describe('prepareEventStep()', () => {
     })
 
     it('goes to `createEventStep` for normal events', async () => {
-        const response = await prepareEventStep(runner, pluginEvent)
+        const response = await prepareEventStep(runner as EventPipelineRunner, pluginEvent, false)
 
         expect(response).toEqual({
             distinctId: 'my_id',
@@ -94,15 +98,19 @@ describe('prepareEventStep()', () => {
             projectId: 1,
             timestamp: '2020-02-23T02:15:00.000Z',
         })
+
+        // @ts-expect-error TODO: Check existence of queueMessage
         expect(hub.db.kafkaProducer!.queueMessage).not.toHaveBeenCalled()
     })
 
     it('scrubs IPs when team.anonymize_ips=true', async () => {
         jest.mocked(runner.hub.teamManager.fetchTeam).mockReturnValue({
             ...teamTwo,
+            // @ts-expect-error TODO: Check if prop is necessary
             anonymize_ips: true,
         })
-        const response = await prepareEventStep(runner, pluginEvent)
+
+        const response = await prepareEventStep(runner as EventPipelineRunner, pluginEvent, false)
 
         expect(response).toEqual({
             distinctId: 'my_id',
@@ -113,14 +121,16 @@ describe('prepareEventStep()', () => {
             projectId: 1,
             timestamp: '2020-02-23T02:15:00.000Z',
         })
+
+        // @ts-expect-error TODO: Check existence of queueMessage
         expect(hub.db.kafkaProducer!.queueMessage).not.toHaveBeenCalled()
     })
 
     // Tests combo of prepareEvent + createEvent
     it('extracts elements_chain from properties', async () => {
         const event: PluginEvent = { ...pluginEvent, ip: null, properties: { $elements_chain: 'random string', a: 1 } }
-        const preppedEvent = await prepareEventStep(runner, event)
-        const [chEvent, _] = runner.eventsProcessor.createEvent(preppedEvent, person)
+        const preppedEvent = await prepareEventStep(runner as EventPipelineRunner, event, false)
+        const chEvent = runner.eventsProcessor.createEvent(preppedEvent, person, false)
 
         expect(chEvent.elements_chain).toEqual('random string')
         expect(chEvent.properties).toEqual('{"a":1}')
@@ -136,8 +146,8 @@ describe('prepareEventStep()', () => {
                 $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: 'text' }],
             },
         }
-        const preppedEvent = await prepareEventStep(runner, event)
-        const [chEvent, _] = runner.eventsProcessor.createEvent(preppedEvent, person)
+        const preppedEvent = await prepareEventStep(runner as EventPipelineRunner, event, false)
+        const chEvent = runner.eventsProcessor.createEvent(preppedEvent, person, false)
 
         expect(chEvent.elements_chain).toEqual('random string')
         expect(chEvent.properties).toEqual('{"a":1}')
@@ -150,8 +160,8 @@ describe('prepareEventStep()', () => {
             ip: null,
             properties: { a: 1, $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: 'text' }] },
         }
-        const preppedEvent = await prepareEventStep(runner, event)
-        const [chEvent, _] = runner.eventsProcessor.createEvent(preppedEvent, person)
+        const preppedEvent = await prepareEventStep(runner as EventPipelineRunner, event, false)
+        const chEvent = runner.eventsProcessor.createEvent(preppedEvent, person, false)
 
         expect(chEvent.elements_chain).toEqual('div:nth-child="1"nth-of-type="2"text="text"')
         expect(chEvent.properties).toEqual('{"a":1}')

@@ -14,14 +14,19 @@ import {
     LemonTextArea,
     Tooltip,
 } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorInline, CodeEditorInlineProps } from 'lib/monaco/CodeEditorInline'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
-import { capitalizeFirstLetter } from 'lib/utils'
-import { useEffect, useState } from 'react'
+import { capitalizeFirstLetter, objectsEqual } from 'lib/utils'
+import { useEffect, useRef, useState } from 'react'
 
-import { HogFunctionInputSchemaType, HogFunctionInputType } from '~/types'
+import {
+    HogFunctionConfigurationType,
+    HogFunctionInputSchemaType,
+    HogFunctionInputType,
+    HogFunctionMappingType,
+} from '~/types'
 
 import { EmailTemplater } from './email-templater/EmailTemplater'
 import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
@@ -35,7 +40,14 @@ export type HogFunctionInputProps = {
     disabled?: boolean
 }
 
+export interface HogFunctionInputsProps {
+    configuration: HogFunctionConfigurationType | HogFunctionMappingType
+    setConfigurationValue: (key: string, value: any) => void
+}
+
 export type HogFunctionInputWithSchemaProps = {
+    configuration: HogFunctionConfigurationType | HogFunctionMappingType
+    setConfigurationValue: (key: string, value: any) => void
     schema: HogFunctionInputSchemaType
 }
 
@@ -46,11 +58,12 @@ function JsonConfigField(props: {
     className?: string
     autoFocus?: boolean
     value?: string
+    templating?: boolean
 }): JSX.Element {
     const { globalsWithInputs } = useValues(hogFunctionConfigurationLogic)
     return (
         <CodeEditorResizeable
-            language="hogJson"
+            language={props.templating ? 'hogJson' : 'json'}
             value={typeof props.value !== 'string' ? JSON.stringify(props.value, null, 2) : props.value}
             onChange={(v) => props.onChange?.(v ?? '')}
             options={{
@@ -63,7 +76,7 @@ function JsonConfigField(props: {
                     verticalScrollbarSize: 0,
                 },
             }}
-            globals={globalsWithInputs}
+            globals={props.templating ? globalsWithInputs : undefined}
         />
     )
 }
@@ -84,19 +97,49 @@ function EmailTemplateField({ schema }: { schema: HogFunctionInputSchemaType }):
     )
 }
 
-function HogFunctionTemplateInput(props: Omit<CodeEditorInlineProps, 'globals'>): JSX.Element {
+function HogFunctionTemplateInput(
+    props: Omit<CodeEditorInlineProps, 'globals'> & {
+        templating: boolean
+        onChange?: (value: string) => void
+        value?: string
+    }
+): JSX.Element {
     const { globalsWithInputs } = useValues(hogFunctionConfigurationLogic)
+
+    if (!props.templating) {
+        return <LemonInput type="text" value={props.value} onChange={props.onChange} />
+    }
+
     return <CodeEditorInline {...props} globals={globalsWithInputs} />
 }
 
-function DictionaryField({ onChange, value }: { onChange?: (value: any) => void; value: any }): JSX.Element {
+function DictionaryField({
+    onChange,
+    value,
+    templating,
+}: {
+    onChange?: (value: any) => void
+    value: any
+    templating: boolean
+}): JSX.Element {
     const [entries, setEntries] = useState<[string, string][]>(Object.entries(value ?? {}))
+    const prevFilteredEntriesRef = useRef<[string, string][]>(entries)
 
     useEffect(() => {
         // NOTE: Filter out all empty entries as fetch will throw if passed in
-        const val = Object.fromEntries(entries.filter(([key, val]) => key.trim() !== '' || val.trim() !== ''))
+        const filteredEntries = entries.filter(([key, val]) => key.trim() !== '' || val.trim() !== '')
+
+        // Compare with previous filtered entries to avoid unnecessary updates
+        if (objectsEqual(filteredEntries, prevFilteredEntriesRef.current)) {
+            return
+        }
+
+        // Update the ref with current filtered entries
+        prevFilteredEntriesRef.current = filteredEntries
+
+        const val = Object.fromEntries(filteredEntries)
         onChange?.(val)
-    }, [entries])
+    }, [entries, onChange])
 
     return (
         <div className="space-y-2">
@@ -114,7 +157,7 @@ function DictionaryField({ onChange, value }: { onChange?: (value: any) => void;
                     />
 
                     <HogFunctionTemplateInput
-                        className="flex-2 overflow-hidden"
+                        className="overflow-hidden flex-2"
                         value={val}
                         language="hogTemplate"
                         onChange={(val) => {
@@ -122,6 +165,7 @@ function DictionaryField({ onChange, value }: { onChange?: (value: any) => void;
                             newEntries[index] = [newEntries[index][0], val ?? '']
                             setEntries(newEntries)
                         }}
+                        templating={templating}
                     />
 
                     <LemonButton
@@ -150,6 +194,7 @@ function DictionaryField({ onChange, value }: { onChange?: (value: any) => void;
 }
 
 export function HogFunctionInputRenderer({ value, onChange, schema, disabled }: HogFunctionInputProps): JSX.Element {
+    const templating = schema.templating ?? true
     switch (schema.type) {
         case 'string':
             return (
@@ -158,10 +203,13 @@ export function HogFunctionInputRenderer({ value, onChange, schema, disabled }: 
                     value={value}
                     onChange={disabled ? () => {} : onChange}
                     className="ph-no-capture"
+                    templating={templating}
                 />
             )
         case 'json':
-            return <JsonConfigField value={value} onChange={onChange} className="ph-no-capture" />
+            return (
+                <JsonConfigField value={value} onChange={onChange} className="ph-no-capture" templating={templating} />
+            )
         case 'choice':
             return (
                 <LemonSelect
@@ -174,7 +222,7 @@ export function HogFunctionInputRenderer({ value, onChange, schema, disabled }: 
                 />
             )
         case 'dictionary':
-            return <DictionaryField value={value} onChange={onChange} />
+            return <DictionaryField value={value} onChange={onChange} templating={templating} />
         case 'boolean':
             return <LemonSwitch checked={value} onChange={(checked) => onChange?.(checked)} disabled={disabled} />
         case 'integration':
@@ -196,18 +244,29 @@ type HogFunctionInputSchemaControlsProps = {
     value: HogFunctionInputSchemaType
     onChange: (value: HogFunctionInputSchemaType | null) => void
     onDone: () => void
+    supportsSecrets: boolean
 }
 
-function HogFunctionInputSchemaControls({ value, onChange, onDone }: HogFunctionInputSchemaControlsProps): JSX.Element {
+function HogFunctionInputSchemaControls({
+    value,
+    onChange,
+    onDone,
+    supportsSecrets,
+}: HogFunctionInputSchemaControlsProps): JSX.Element {
     const _onChange = (data: Partial<HogFunctionInputSchemaType> | null): void => {
+        if (data?.key?.length === 0) {
+            setLocalVariableError('Input variable name cannot be empty')
+            return
+        }
         onChange(data ? { ...value, ...data } : null)
     }
 
     const [localVariableValue, setLocalVariableValue] = useState(value.key)
+    const [localVariableError, setLocalVariableError] = useState<string | null>(null)
 
     return (
         <div className="flex flex-col gap-2">
-            <div className="flex-1 flex items-center gap-2 flex-wrap">
+            <div className="flex flex-wrap items-center flex-1 gap-2">
                 <LemonSelect
                     size="small"
                     options={typeList.map((type) => ({
@@ -225,20 +284,22 @@ function HogFunctionInputSchemaControls({ value, onChange, onDone }: HogFunction
                     label="Required"
                     bordered
                 />
-                <LemonCheckbox
-                    size="small"
-                    checked={value.secret}
-                    onChange={(secret) => _onChange({ secret })}
-                    label="Secret"
-                    bordered
-                />
+                {supportsSecrets ? (
+                    <LemonCheckbox
+                        size="small"
+                        checked={value.secret}
+                        onChange={(secret) => _onChange({ secret })}
+                        label="Secret"
+                        bordered
+                    />
+                ) : null}
                 <div className="flex-1" />
                 <LemonButton status="danger" icon={<IconTrash />} size="small" onClick={() => onChange(null)} />
                 <LemonButton type="secondary" size="small" onClick={() => onDone()}>
                     Done
                 </LemonButton>
             </div>
-            <div className="flex-1 flex gap-2 flex-wrap">
+            <div className="flex flex-wrap flex-1 gap-2">
                 <LemonField.Pure label="Display label">
                     <LemonInput
                         className="min-w-60"
@@ -248,7 +309,7 @@ function HogFunctionInputSchemaControls({ value, onChange, onDone }: HogFunction
                         placeholder="Display label"
                     />
                 </LemonField.Pure>
-                <LemonField.Pure label="Input variable name">
+                <LemonField.Pure label="Input variable name" error={localVariableError}>
                     <LemonInput
                         size="small"
                         value={localVariableValue}
@@ -309,11 +370,14 @@ function HogFunctionInputSchemaControls({ value, onChange, onDone }: HogFunction
     )
 }
 
-export function HogFunctionInputWithSchema({ schema }: HogFunctionInputWithSchemaProps): JSX.Element {
+export function HogFunctionInputWithSchema({
+    schema,
+    configuration,
+    setConfigurationValue,
+}: HogFunctionInputWithSchemaProps): JSX.Element {
     const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: schema.key })
-    const { showSource, configuration } = useValues(hogFunctionConfigurationLogic)
-    const { setConfigurationValue } = useActions(hogFunctionConfigurationLogic)
-    const [editing, setEditing] = useState(showSource)
+    const { showSource } = useValues(hogFunctionConfigurationLogic)
+    const [editing, setEditing] = useState(false)
 
     const value = configuration.inputs?.[schema.key]
 
@@ -343,7 +407,9 @@ export function HogFunctionInputWithSchema({ schema }: HogFunctionInputWithSchem
         }
     }, [showSource])
 
-    const supportsTemplating = ['string', 'json', 'dictionary', 'email'].includes(schema.type)
+    const supportsTemplating =
+        ['string', 'json', 'dictionary', 'email'].includes(schema.type) && schema.templating !== false
+    const supportsSecrets = 'type' in configuration // no secrets for mapping inputs
 
     return (
         <div
@@ -390,10 +456,10 @@ export function HogFunctionInputWithSchema({ schema }: HogFunctionInputWithSchem
                                     {supportsTemplating && (
                                         <LemonButton
                                             size="xsmall"
-                                            to="https://posthog.com/docs/cdp/destinations#input-formatting"
+                                            to="https://posthog.com/docs/cdp/destinations/customizing-destinations#customizing-payload"
                                             sideIcon={<IconInfo />}
                                             noPadding
-                                            className=" opacity-0 group-hover:opacity-100 p-1 transition-opacity"
+                                            className="p-1 transition-opacity opacity-0 group-hover:opacity-100"
                                         >
                                             Supports templating
                                         </LemonButton>
@@ -408,8 +474,8 @@ export function HogFunctionInputWithSchema({ schema }: HogFunctionInputWithSchem
                                     )}
                                 </div>
                                 {value?.secret ? (
-                                    <div className="border border-dashed rounded p-1 flex gap-2 items-center">
-                                        <span className="flex-1 text-muted-alt italic p-1">
+                                    <div className="flex items-center gap-2 p-1 border border-dashed rounded">
+                                        <span className="flex-1 p-1 italic text-secondary">
                                             This value is secret and is not displayed here.
                                         </span>
                                         <LemonButton
@@ -434,11 +500,12 @@ export function HogFunctionInputWithSchema({ schema }: HogFunctionInputWithSchem
                     }}
                 </LemonField>
             ) : (
-                <div className="border rounded p-2 border-dashed space-y-4">
+                <div className="p-2 space-y-4 border border-dashed rounded">
                     <HogFunctionInputSchemaControls
                         value={schema}
                         onChange={onSchemaChange}
                         onDone={() => setEditing(false)}
+                        supportsSecrets={supportsSecrets}
                     />
                 </div>
             )}
@@ -446,12 +513,18 @@ export function HogFunctionInputWithSchema({ schema }: HogFunctionInputWithSchem
     )
 }
 
-export function HogFunctionInputs(): JSX.Element {
-    const { showSource, configuration } = useValues(hogFunctionConfigurationLogic)
-    const { setConfigurationValue } = useActions(hogFunctionConfigurationLogic)
+export function HogFunctionInputs({
+    configuration,
+    setConfigurationValue,
+}: HogFunctionInputsProps): JSX.Element | null {
+    const { showSource } = useValues(hogFunctionConfigurationLogic)
 
     if (!configuration?.inputs_schema?.length) {
-        return <span className="italic text-muted-alt">This function does not require any input variables.</span>
+        if (!('type' in configuration)) {
+            // If this is a mapping, don't show any error message.
+            return null
+        }
+        return <span className="italic text-secondary">This function does not require any input variables.</span>
     }
 
     const inputSchemas = configuration.inputs_schema
@@ -471,9 +544,18 @@ export function HogFunctionInputs(): JSX.Element {
                 }}
             >
                 <SortableContext disabled={!showSource} items={inputSchemaIds} strategy={verticalListSortingStrategy}>
-                    {configuration.inputs_schema?.map((schema) => {
-                        return <HogFunctionInputWithSchema key={schema.key} schema={schema} />
-                    })}
+                    {configuration.inputs_schema
+                        ?.filter((i) => !i.hidden)
+                        .map((schema) => {
+                            return (
+                                <HogFunctionInputWithSchema
+                                    key={schema.key}
+                                    schema={schema}
+                                    configuration={configuration}
+                                    setConfigurationValue={setConfigurationValue}
+                                />
+                            )
+                        })}
                 </SortableContext>
             </DndContext>
         </>

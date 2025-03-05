@@ -1,7 +1,7 @@
 import { Properties } from '@posthog/plugin-scaffold'
 import { Summary } from 'prom-client'
 
-import { Team } from '../../types'
+import { ProjectId, Team, TeamId } from '../../types'
 import { DB } from '../../utils/db/db'
 import { timeoutGuard } from '../../utils/db/utils'
 import { GroupTypeManager } from './group-type-manager'
@@ -28,8 +28,8 @@ export class GroupAndFirstEventManager {
     }
 
     public async updateGroupsAndFirstEvent(
-        teamId: number,
-        projectId: number,
+        teamId: TeamId,
+        projectId: ProjectId,
         event: string,
         properties: Properties
     ): Promise<void> {

@@ -1,7 +1,7 @@
 import { LemonBanner, LemonButton, LemonInputSelect, LemonInputSelectOption, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { IconSlackExternal } from 'lib/lemon-ui/icons'
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 
 import { IntegrationType, SlackChannelType } from '~/types'
 
@@ -13,8 +13,8 @@ const getSlackChannelOptions = (slackChannels?: SlackChannelType[] | null): Lemo
               key: `${x.id}|#${x.name}`,
               labelComponent: (
                   <span className="flex items-center">
-                      {x.is_private ? `🔒${x.name}` : `#${x.name}`}
-                      {x.is_ext_shared ? <IconSlackExternal className="ml-2" /> : null}
+                      <span>{x.is_private ? `🔒${x.name}` : `#${x.name}`}</span>
+                      <span>{x.is_ext_shared ? <IconSlackExternal className="ml-2" /> : null}</span>
                   </span>
               ),
               label: `${x.id} #${x.name}`,
@@ -53,6 +53,12 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
         return value
     }, [value, slackChannels])
 
+    useEffect(() => {
+        if (!disabled) {
+            loadSlackChannels()
+        }
+    }, [loadSlackChannels, disabled])
+
     return (
         <>
             <LemonInputSelect
@@ -63,6 +69,14 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                 mode="single"
                 data-attr="select-slack-channel"
                 placeholder="Select a channel..."
+                emptyStateComponent={
+                    <p className="text-secondary italic p-1">
+                        No channels found. Make sure the PostHog Slack App is installed in the channel.{' '}
+                        <Link to="https://posthog.com/docs/cdp/destinations/slack" target="_blank">
+                            See the docs for more information.
+                        </Link>
+                    </p>
+                }
                 options={
                     slackChannelOptions ??
                     (modifiedValue

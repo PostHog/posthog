@@ -3,18 +3,17 @@ import LRU from 'lru-cache'
 
 import { ONE_MINUTE } from '../../config/constants'
 import { TeamIDWithConfig } from '../../main/ingestion-queues/session-recording/session-recordings-consumer'
-import { PipelineEvent, PluginsServerConfig, Team, TeamId } from '../../types'
+import { PipelineEvent, ProjectId, Team, TeamId } from '../../types'
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
 import { timeoutGuard } from '../../utils/db/utils'
-import { posthog } from '../../utils/posthog'
+import { captureTeamEvent } from '../../utils/posthog'
 
 export class TeamManager {
     postgres: PostgresRouter
     teamCache: LRU<TeamId, Team | null>
     tokenToTeamIdCache: LRU<string, TeamId | null>
-    instanceSiteUrl: string
 
-    constructor(postgres: PostgresRouter, serverConfig: PluginsServerConfig) {
+    constructor(postgres: PostgresRouter) {
         this.postgres = postgres
 
         this.teamCache = new LRU({
@@ -27,7 +26,6 @@ export class TeamManager {
             maxAge: 5 * ONE_MINUTE, // Expiration for negative lookups, positive lookups will expire via teamCache first
             updateAgeOnGet: false, // Make default behaviour explicit
         })
-        this.instanceSiteUrl = serverConfig.SITE_URL || 'unknown'
     }
 
     public async getTeamForEvent(event: PipelineEvent): Promise<Team | null> {
@@ -132,21 +130,16 @@ export class TeamManager {
             )
             const distinctIds: { distinct_id: string }[] = organizationMembers.rows
             for (const { distinct_id } of distinctIds) {
-                posthog.capture({
-                    distinctId: distinct_id,
-                    event: 'first team event ingested',
-                    properties: {
-                        team: team.uuid,
+                captureTeamEvent(
+                    team,
+                    'first team event ingested',
+                    {
                         sdk: properties.$lib,
                         realm: properties.realm,
                         host: properties.$host,
                     },
-                    groups: {
-                        project: team.uuid,
-                        organization: team.organization_id,
-                        instance: this.instanceSiteUrl,
-                    },
-                })
+                    distinct_id
+                )
             }
         }
     }
@@ -170,7 +163,9 @@ export async function fetchTeam(client: PostgresRouter, teamId: Team['id']): Pro
                 heatmaps_opt_in,
                 ingested_event,
                 person_display_name_properties,
-                test_account_filters
+                test_account_filters,
+                cookieless_server_hash_mode,
+                timezone
             FROM posthog_team
             WHERE id = $1
             `,
@@ -182,7 +177,7 @@ export async function fetchTeam(client: PostgresRouter, teamId: Team['id']): Pro
     }
     // pg returns int8 as a string, since it can be larger than JS's max safe integer,
     // but this is not a problem for project_id, which is a long long way from that limit.
-    selectResult.rows[0].project_id = parseInt(selectResult.rows[0].project_id as unknown as string)
+    selectResult.rows[0].project_id = Number(selectResult.rows[0].project_id) as ProjectId
     return selectResult.rows[0]
 }
 
@@ -203,7 +198,10 @@ export async function fetchTeamByToken(client: PostgresRouter, token: string): P
                 person_processing_opt_out,
                 heatmaps_opt_in,
                 ingested_event,
-                test_account_filters
+                person_display_name_properties,
+                test_account_filters,
+                cookieless_server_hash_mode,
+                timezone
             FROM posthog_team
             WHERE api_token = $1
             LIMIT 1
@@ -216,7 +214,7 @@ export async function fetchTeamByToken(client: PostgresRouter, token: string): P
     }
     // pg returns int8 as a string, since it can be larger than JS's max safe integer,
     // but this is not a problem for project_id, which is a long long way from that limit.
-    selectResult.rows[0].project_id = parseInt(selectResult.rows[0].project_id as unknown as string)
+    selectResult.rows[0].project_id = Number(selectResult.rows[0].project_id) as ProjectId
     return selectResult.rows[0]
 }
 

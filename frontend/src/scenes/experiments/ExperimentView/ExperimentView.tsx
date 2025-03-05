@@ -1,66 +1,90 @@
-import '../Experiment.scss'
-
-import { LemonDivider, LemonTabs } from '@posthog/lemon-ui'
+import { IconCalculator } from '@posthog/icons'
+import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { humanFriendlyNumber } from 'lib/utils'
 import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
 
 import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
 import { experimentLogic } from '../experimentLogic'
-import {
-    ExperimentLoadingAnimation,
-    LoadingState,
-    NoResultsEmptyState,
-    PageHeaderCustom,
-    ResultsHeader,
-} from './components'
+import { ExperimentMetricModal } from '../Metrics/ExperimentMetricModal'
+import { LegacyMetricModal } from '../Metrics/LegacyMetricModal'
+import { MetricSourceModal } from '../Metrics/MetricSourceModal'
+import { SharedMetricModal } from '../Metrics/SharedMetricModal'
+import { MetricsView } from '../MetricsView/MetricsView'
+import { VariantDeltaTimeseries } from '../MetricsView/VariantDeltaTimeseries'
+import { RunningTimeCalculatorModal } from '../RunningTimeCalculator/RunningTimeCalculatorModal'
+import { ExploreButton, LoadingState, PageHeaderCustom, ResultsQuery } from './components'
 import { DataCollection } from './DataCollection'
 import { DistributionModal, DistributionTable } from './DistributionTable'
-import { ExperimentExposureModal, ExperimentGoalModal, Goal } from './Goal'
+import { ExposureCriteria } from './ExposureCriteria'
+import { Exposures } from './Exposures'
 import { Info } from './Info'
 import { Overview } from './Overview'
+import { PreLaunchChecklist } from './PreLaunchChecklist'
 import { ReleaseConditionsModal, ReleaseConditionsTable } from './ReleaseConditionsTable'
-import { Results } from './Results'
-import { SecondaryMetricsTable } from './SecondaryMetricsTable'
+import { SummaryTable } from './SummaryTable'
 
 const ResultsTab = (): JSX.Element => {
-    const { experiment, experimentResults } = useValues(experimentLogic)
-    const { updateExperimentSecondaryMetrics } = useActions(experimentLogic)
+    const {
+        experiment,
+        metricResults,
+        firstPrimaryMetric,
+        primaryMetricsLengthWithSharedMetrics,
+        metricResultsLoading,
+    } = useValues(experimentLogic)
+    const hasSomeResults = metricResults?.some((result) => result?.insight)
 
-    const hasResultsInsight = experimentResults && experimentResults.insight
+    const hasSinglePrimaryMetric = primaryMetricsLengthWithSharedMetrics === 1
 
     return (
-        <div className="space-y-8">
-            {hasResultsInsight ? (
-                <Results />
-            ) : (
+        <>
+            {!hasSomeResults && !metricResultsLoading && (
                 <>
                     {experiment.type === 'web' ? (
                         <WebExperimentImplementationDetails experiment={experiment} />
                     ) : (
                         <ExperimentImplementationDetails experiment={experiment} />
                     )}
-
-                    {experiment.start_date && (
-                        <div>
-                            <ResultsHeader />
-                            <NoResultsEmptyState />
-                        </div>
-                    )}
                 </>
             )}
-            <SecondaryMetricsTable
-                experimentId={experiment.id}
-                onMetricsChange={(metrics) => updateExperimentSecondaryMetrics(metrics)}
-                initialMetrics={experiment.secondary_metrics}
-                defaultAggregationType={experiment.parameters?.aggregation_group_type_index}
-            />
-        </div>
+            {/* Show overview if there's only a single primary metric */}
+            {hasSinglePrimaryMetric && (
+                <div className="mb-4 mt-2">
+                    <Overview />
+                </div>
+            )}
+            <MetricsView isSecondary={false} />
+            {/* Show detailed results if there's only a single primary metric */}
+            {hasSomeResults && hasSinglePrimaryMetric && firstPrimaryMetric && (
+                <div>
+                    <div className="pb-4">
+                        <SummaryTable metric={firstPrimaryMetric} metricIndex={0} isSecondary={false} />
+                    </div>
+                    {/* TODO: Only show explore button results viz if the metric is a trends or funnels query. Not supported yet with new query runner */}
+                    {metricResults?.[0] &&
+                        (metricResults[0].kind === 'ExperimentTrendsQuery' ||
+                            metricResults[0].kind === 'ExperimentFunnelsQuery') && (
+                            <>
+                                <div className="flex justify-end">
+                                    <ExploreButton result={metricResults[0]} size="xsmall" />
+                                </div>
+                                <div className="pb-4">
+                                    <ResultsQuery result={metricResults?.[0] || null} showTable={true} />
+                                </div>
+                            </>
+                        )}
+                </div>
+            )}
+            <MetricsView isSecondary={true} />
+        </>
     )
 }
 
 const VariantsTab = (): JSX.Element => {
+    const { shouldUseExperimentMetrics, isExperimentRunning } = useValues(experimentLogic)
     return (
-        <div className="space-y-8">
+        <div className="space-y-8 mt-2">
+            {shouldUseExperimentMetrics && isExperimentRunning && <Exposures />}
             <ReleaseConditionsTable />
             <DistributionTable />
         </div>
@@ -68,12 +92,10 @@ const VariantsTab = (): JSX.Element => {
 }
 
 export function ExperimentView(): JSX.Element {
-    const { experimentLoading, experimentResultsLoading, experimentId, experimentResults, tabKey } =
+    const { experiment, experimentLoading, experimentId, tabKey, shouldUseExperimentMetrics } =
         useValues(experimentLogic)
 
-    const { setTabKey } = useActions(experimentLogic)
-
-    const hasResultsInsight = experimentResults && experimentResults.insight
+    const { setTabKey, openCalculateRunningTimeModal } = useActions(experimentLogic)
 
     return (
         <>
@@ -84,47 +106,93 @@ export function ExperimentView(): JSX.Element {
                 ) : (
                     <>
                         <Info />
-                        {experimentResultsLoading ? (
-                            <ExperimentLoadingAnimation />
+                        <div className="xl:flex">
+                            {shouldUseExperimentMetrics ? (
+                                <>
+                                    <div className="w-1/2 mt-8 xl:mt-0">
+                                        <div className="flex items-center gap-2 mb-1">
+                                            <h2 className="font-semibold text-lg m-0">Data collection</h2>
+                                            <LemonButton
+                                                icon={<IconCalculator />}
+                                                type="secondary"
+                                                size="xsmall"
+                                                onClick={openCalculateRunningTimeModal}
+                                                tooltip="Calculate running time"
+                                            />
+                                        </div>
+                                        <div>
+                                            <span className="card-secondary">Sample size:</span>{' '}
+                                            <span className="font-semibold">
+                                                {humanFriendlyNumber(
+                                                    experiment.parameters.recommended_sample_size || 0,
+                                                    0
+                                                )}{' '}
+                                                persons
+                                            </span>
+                                        </div>
+                                        <div>
+                                            <span className="card-secondary">Running time:</span>{' '}
+                                            <span className="font-semibold">
+                                                {humanFriendlyNumber(
+                                                    experiment.parameters.recommended_running_time || 0,
+                                                    0
+                                                )}
+                                            </span>{' '}
+                                            days
+                                        </div>
+                                        <div className="mt-4">
+                                            <ExposureCriteria />
+                                        </div>
+                                    </div>
+                                    <PreLaunchChecklist />
+                                </>
+                            ) : (
+                                <div className="w-1/2 mt-8 xl:mt-0">
+                                    <DataCollection />
+                                </div>
+                            )}
+                        </div>
+                        <LemonTabs
+                            activeKey={tabKey}
+                            onChange={(key) => setTabKey(key)}
+                            tabs={[
+                                {
+                                    key: 'results',
+                                    label: 'Results',
+                                    content: <ResultsTab />,
+                                },
+                                {
+                                    key: 'variants',
+                                    label: 'Variants',
+                                    content: <VariantsTab />,
+                                },
+                            ]}
+                        />
+
+                        <MetricSourceModal experimentId={experimentId} isSecondary={true} />
+                        <MetricSourceModal experimentId={experimentId} isSecondary={false} />
+
+                        {shouldUseExperimentMetrics ? (
+                            <>
+                                <ExperimentMetricModal experimentId={experimentId} isSecondary={true} />
+                                <ExperimentMetricModal experimentId={experimentId} isSecondary={false} />
+                            </>
                         ) : (
                             <>
-                                {hasResultsInsight ? (
-                                    <div>
-                                        <Overview />
-                                        <LemonDivider className="mt-4" />
-                                    </div>
-                                ) : null}
-                                <div className="xl:flex">
-                                    <div className="w-1/2 pr-2">
-                                        <Goal />
-                                    </div>
-
-                                    <div className="w-1/2 xl:pl-2 mt-8 xl:mt-0">
-                                        <DataCollection />
-                                    </div>
-                                </div>
-                                <LemonTabs
-                                    activeKey={tabKey}
-                                    onChange={(key) => setTabKey(key)}
-                                    tabs={[
-                                        {
-                                            key: 'results',
-                                            label: 'Results',
-                                            content: <ResultsTab />,
-                                        },
-                                        {
-                                            key: 'variants',
-                                            label: 'Variants',
-                                            content: <VariantsTab />,
-                                        },
-                                    ]}
-                                />
+                                <LegacyMetricModal experimentId={experimentId} isSecondary={true} />
+                                <LegacyMetricModal experimentId={experimentId} isSecondary={false} />
                             </>
                         )}
-                        <ExperimentGoalModal experimentId={experimentId} />
-                        <ExperimentExposureModal experimentId={experimentId} />
+
+                        <RunningTimeCalculatorModal />
+
+                        <SharedMetricModal experimentId={experimentId} isSecondary={true} />
+                        <SharedMetricModal experimentId={experimentId} isSecondary={false} />
+
                         <DistributionModal experimentId={experimentId} />
                         <ReleaseConditionsModal experimentId={experimentId} />
+
+                        <VariantDeltaTimeseries />
                     </>
                 )}
             </div>

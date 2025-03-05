@@ -5,14 +5,12 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
+from posthog.hogql_queries.insights.funnels.test.test_funnel import PseudoFunnelActors
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 
 from posthog.models.action import Action
 from posthog.models.filters import Filter
 from posthog.models.property_definition import PropertyDefinition
-from posthog.queries.funnels.funnel_unordered_persons import (
-    ClickhouseFunnelUnorderedActors,
-)
 from posthog.hogql_queries.insights.funnels.test.conversion_time_cases import (
     funnel_conversion_time_test_factory,
 )
@@ -49,7 +47,7 @@ class TestFunnelUnorderedStepsBreakdown(
     ClickhouseTestMixin,
     funnel_breakdown_test_factory(  # type: ignore
         FunnelOrderType.UNORDERED,
-        ClickhouseFunnelUnorderedActors,
+        PseudoFunnelActors,
         _create_action,
         _create_person,
     ),
@@ -638,7 +636,7 @@ class TestUnorderedFunnelGroupBreakdown(
     ClickhouseTestMixin,
     funnel_breakdown_group_test_factory(  # type: ignore
         FunnelOrderType.UNORDERED,
-        ClickhouseFunnelUnorderedActors,
+        PseudoFunnelActors,
     ),
 ):
     pass
@@ -648,7 +646,7 @@ class TestFunnelUnorderedStepsConversionTime(
     ClickhouseTestMixin,
     funnel_conversion_time_test_factory(  # type: ignore
         FunnelOrderType.UNORDERED,
-        ClickhouseFunnelUnorderedActors,
+        PseudoFunnelActors,
     ),
 ):
     maxDiff = None
@@ -659,7 +657,7 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
     def _get_actor_ids_at_step(self, filter, funnel_step, breakdown_value=None):
         filter = Filter(data=filter, team=self.team)
         person_filter = filter.shallow_clone({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
-        _, serialized_result, _ = ClickhouseFunnelUnorderedActors(person_filter, self.team).get_actors()
+        _, serialized_result, _ = PseudoFunnelActors(person_filter, self.team).get_actors()
 
         return [val["id"] for val in serialized_result]
 

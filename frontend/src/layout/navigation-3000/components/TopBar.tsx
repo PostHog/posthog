@@ -6,6 +6,8 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { EditableField } from 'lib/components/EditableField/EditableField'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { MetalyticsSummary } from 'lib/components/Metalytics/MetalyticsSummary'
 import { IconMenu } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
@@ -101,7 +103,12 @@ export function TopBar(): JSX.Element | null {
                     )}
                     <Here breadcrumb={breadcrumbs[breadcrumbs.length - 1]} isOnboarding={isOnboarding} />
                 </div>
-                <div className="TopBar3000__actions" ref={setActionsContainer} />
+                <FlaggedFeature flag="metalytics">
+                    <div className="shrink-1">
+                        <MetalyticsSummary />
+                    </div>
+                </FlaggedFeature>
+                <div className="TopBar3000__actions border-danger" ref={setActionsContainer} />
             </div>
         </div>
     ) : null

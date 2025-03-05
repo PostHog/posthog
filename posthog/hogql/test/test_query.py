@@ -28,6 +28,7 @@ from posthog.test.base import (
     _create_person,
     flush_persons_and_events,
 )
+from unittest.mock import patch
 
 
 class TestQuery(ClickhouseTestMixin, APIBaseTest):
@@ -79,7 +80,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             random_uuid = self._create_random_events()
 
             response = execute_hogql_query(
-                "select count, event from (select count() as count, event from events where properties.random_uuid = {random_uuid} group by event) group by count, event",
+                "select cnt, event from (select count() as cnt, event from events where properties.random_uuid = {random_uuid} group by event) group by cnt, event",
                 placeholders={"random_uuid": ast.Constant(value=random_uuid)},
                 team=self.team,
                 pretty=False,
@@ -93,7 +94,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             random_uuid = self._create_random_events()
 
             response = execute_hogql_query(
-                "select count, event from (select count(*) as count, event from events where properties.random_uuid = {random_uuid} group by event) as c group by count, event",
+                "select cnt, event from (select count(*) as cnt, event from events where properties.random_uuid = {random_uuid} group by event) as c group by cnt, event",
                 placeholders={"random_uuid": ast.Constant(value=random_uuid)},
                 team=self.team,
                 pretty=False,
@@ -1375,6 +1376,42 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             response = execute_hogql_query(query, team=self.team, filters=filters, placeholders=placeholders)
             self.assertEqual(len(response.results), 1)
 
+    def test_clickhouse_timestamp_handling(self):
+        query = """
+            SELECT
+                issue_id AS id,
+                count(DISTINCT uuid) AS occurrences,
+                count(DISTINCT nullIf($session_id, '')) AS sessions,
+                count(DISTINCT distinct_id) AS users,
+                max(timestamp) AS last_seen,
+                min(timestamp) AS first_seen,
+                reverse(arrayMap(x -> countEqual(groupArray(dateDiff('hour', toStartOfHour(timestamp), toStartOfHour(now()))), x), range(24))) AS volumeDay,
+                reverse(arrayMap(x -> countEqual(groupArray(dateDiff('day', toStartOfDay(timestamp), toStartOfDay(now()))), x), range(31))) AS volumeMonth,
+                reverse(arrayMap(x -> countEqual(groupArray(dateDiff('hour', toStartOfHour(timestamp), toStartOfHour(now()))), x), range(168))) AS customVolume
+            FROM
+                events
+            WHERE
+                and(
+                    equals(event, '$exception'),
+                    isNotNull(issue_id),
+                    or(
+                        and(greater(timestamp, toDateTime('2025-02-10 23:53:03.175952+02:30')), less(timestamp, toDateTime('2025-02-11 23:53'))),
+                        and(greater(timestamp, toDateTime('2025-02-12 23:53:03')), less(timestamp, toDateTime('2025-02-13 23:53:03.175952')))
+                    )
+                )
+            GROUP BY
+                issue_id
+            ORDER BY
+                occurrences DESC
+            LIMIT 51
+            OFFSET 0
+        """
+
+        with freeze_time("2025-02-15 22:52:00"):
+            response = execute_hogql_query(query, team=self.team, pretty=False)
+            self.assertEqual(response.results, [])
+            assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
+
     def test_hogql_query_filters_empty_true(self):
         query = "SELECT event from events where {filters}"
         response = execute_hogql_query(
@@ -1535,3 +1572,12 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             (session_id, 600),
             (session_id, 600),
         ]
+
+    def test_db_created_once(self):
+        # This test will start failing when we cache the DB creation - that's fine, just delete or change it.
+        # In the ideal future, most queries will not need to create the DB.
+        # In the present (your past), this test was added because we were creating it twice per query.
+        query = "SELECT 1"
+        with patch("posthog.hogql.printer.create_hogql_database") as printer_create_hogql_database_mock:
+            execute_hogql_query(query, team=self.team)
+            printer_create_hogql_database_mock.assert_called_once()

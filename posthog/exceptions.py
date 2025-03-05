@@ -5,7 +5,7 @@ from django.http.request import HttpRequest
 from django.http.response import JsonResponse
 from rest_framework import status
 from rest_framework.exceptions import APIException
-from sentry_sdk import capture_exception
+from posthog.exceptions_capture import capture_exception
 
 from posthog.cloud_utils import is_cloud
 

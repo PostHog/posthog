@@ -9,7 +9,7 @@ from django.test import TestCase, SimpleTestCase
 from django.db import transaction
 
 from posthog.clickhouse.client import execute_async as client
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.models import Organization, Team
 from posthog.models.user import User
@@ -220,7 +220,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         except Exception as e:
             self.assertEqual(str(e), f"Query {query_id} not found for team {wrong_team}")
 
-    @patch("posthog.client.execute_process_query")
+    @patch("posthog.clickhouse.client.execute_process_query")
     def test_async_query_client_is_lazy(self, execute_process_query_mock):
         query = build_query("SELECT 4 + 4")
         query_id = uuid.uuid4().hex
@@ -241,7 +241,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         # Assert that we only called clickhouse once
         execute_process_query_mock.assert_called_once()
 
-    @patch("posthog.client.execute_process_query")
+    @patch("posthog.clickhouse.client.execute_process_query")
     def test_async_query_client_is_lazy_but_not_too_lazy(self, execute_process_query_mock):
         query = build_query("SELECT 8 + 8")
         query_id = uuid.uuid4().hex
@@ -262,7 +262,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         # Assert that we called clickhouse twice
         self.assertEqual(execute_process_query_mock.call_count, 2)
 
-    @patch("posthog.client.execute_process_query")
+    @patch("posthog.clickhouse.client.execute_process_query")
     def test_async_query_client_manual_query_uuid(self, execute_process_query_mock):
         # This is a unique test because technically in the test pattern `SELECT 8 + 8` is already
         # in redis. This tests to make sure it is treated as a unique run of that query
@@ -285,7 +285,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         # Assert that we called clickhouse twice
         self.assertEqual(execute_process_query_mock.call_count, 2)
 
-    @patch("posthog.client.execute_process_query")
+    @patch("posthog.clickhouse.client.execute_process_query")
     @patch("posthog.api.services.query.process_query_dict")
     def test_async_query_refreshes_if_requested(self, process_query_dict_mock, execute_process_query_mock):
         query = build_query("SELECT 8 + 8")
@@ -358,12 +358,12 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
             # request routing information for debugging purposes
             self.assertIn(f"/* user_id:{self.user_id} request:1 */", first_query)
 
-    @patch("posthog.clickhouse.client.execute.get_pool")
-    def test_offline_workload_if_personal_api_key(self, mock_get_pool):
+    @patch("posthog.clickhouse.client.execute.get_client_from_pool")
+    def test_offline_workload_if_personal_api_key(self, mock_get_client):
         from posthog.clickhouse.query_tagging import tag_queries
 
         with self.capture_select_queries():
             tag_queries(kind="request", id="1", access_method="personal_api_key")
             sync_execute("select 1")
 
-            self.assertEqual(mock_get_pool.call_args[0][0], Workload.OFFLINE)
+            self.assertEqual(mock_get_client.call_args[0][0], Workload.OFFLINE)

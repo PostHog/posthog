@@ -1,10 +1,7 @@
-import { LemonButton, Link } from '@posthog/lemon-ui'
-import { useActions } from 'kea'
+import { Link } from '@posthog/lemon-ui'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { Sparkline } from 'lib/components/Sparkline'
-import { IconPlayCircle } from 'lib/lemon-ui/icons'
-import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
-import { urls } from 'scenes/urls'
+import ViewRecordingButton from 'lib/components/ViewRecordingButton'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 
@@ -24,36 +21,12 @@ export function parseHogQLX(value: any): any {
     return value.map((v) => parseHogQLX(v))
 }
 
-function ViewRecordingModalButton({ sessionId }: { sessionId: string }): JSX.Element {
-    const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
-    return (
-        <ErrorBoundary>
-            <LemonButton
-                type="primary"
-                size="xsmall"
-                sideIcon={<IconPlayCircle />}
-                data-attr="hog-ql-view-recording-button"
-                to={urls.replaySingle(sessionId)}
-                onClick={(e) => {
-                    e.preventDefault()
-                    if (sessionId) {
-                        openSessionPlayer({ id: sessionId })
-                    }
-                }}
-                className="inline-block"
-            >
-                View recording
-            </LemonButton>
-        </ErrorBoundary>
-    )
-}
-
 export function renderHogQLX(value: any): JSX.Element {
     const object = parseHogQLX(value)
 
     if (typeof object === 'object') {
         if (Array.isArray(object)) {
-            return <JSONViewer src={object} name={null} collapsed={object.length > 10 ? 0 : 1} />
+            return <>{object.map((obj) => renderHogQLX(obj))}</>
         }
 
         const { __hx_tag: tag, ...rest } = object
@@ -68,28 +41,39 @@ export function renderHogQLX(value: any): JSX.Element {
             )
         } else if (tag === 'RecordingButton') {
             const { sessionId, ...props } = rest
-            return <ViewRecordingModalButton sessionId={sessionId} {...props} />
-        } else if (tag === 'a') {
-            const { href, source, target } = rest
             return (
                 <ErrorBoundary>
-                    <Link to={href} target={target ?? '_self'}>
-                        {source ? renderHogQLX(source) : href}
+                    <ViewRecordingButton
+                        inModal
+                        sessionId={sessionId}
+                        type="primary"
+                        size="xsmall"
+                        data-attr="hog-ql-view-recording-button"
+                        className="inline-block"
+                        {...props}
+                        disabledReason={sessionId ? undefined : 'No session id associated with this event'}
+                    />
+                </ErrorBoundary>
+            )
+        } else if (tag === 'a') {
+            const { href, children, source, target } = rest
+            return (
+                <ErrorBoundary>
+                    <Link to={href} target={target ?? undefined}>
+                        {children ?? source ? renderHogQLX(children ?? source) : href}
                     </Link>
                 </ErrorBoundary>
             )
         } else if (tag === 'strong') {
-            const { source } = rest
             return (
                 <ErrorBoundary>
-                    <strong>{renderHogQLX(source)}</strong>
+                    <strong>{renderHogQLX(rest.children ?? rest.source)}</strong>
                 </ErrorBoundary>
             )
         } else if (tag === 'em') {
-            const { source } = rest
             return (
                 <ErrorBoundary>
-                    <em>{renderHogQLX(source)}</em>
+                    <em>{renderHogQLX(rest.children ?? rest.source)}</em>
                 </ErrorBoundary>
             )
         }

@@ -1,4 +1,5 @@
 @import '../../../styles/mixins';
+@import '../../../styles/vars';
 
 .FunnelBarVertical {
     position: relative;
@@ -19,7 +20,7 @@
         > tbody {
             > tr {
                 &:first-child {
-                    border-bottom: 1px solid var(--border);
+                    border-bottom: 1px solid var(--border-primary);
 
                     > td {
                         padding-top: var(--bar-padding-top);
@@ -42,10 +43,10 @@
     align-items: flex-end;
     height: calc(var(--bar-row-height) - var(--bar-padding-top) - var(--bar-padding-bottom));
     padding: 0 1rem;
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid var(--border-primary);
 
     &:not(.StepBars--first) {
-        border-left: 1px dashed var(--border);
+        border-left: 1px dashed var(--border-primary);
     }
 }
 
@@ -64,7 +65,7 @@
     flex-grow: 1;
 
     &.StepBars__gridline--horizontal {
-        border-top: 1px dashed var(--border);
+        border-top: 1px dashed var(--border-primary);
     }
 }
 
@@ -164,13 +165,14 @@
 .StepBarLabels__label {
     font-size: 0.75rem;
     font-weight: 500;
+    color: var(--text-secondary);
     transform: translateY(-50%);
 }
 
 .StepLegend {
     height: 100%;
     white-space: nowrap;
-    border-left: 1px solid var(--border);
+    border-left: 1px solid var(--border-primary);
 
     > .LemonRow {
         min-height: 1.5rem;

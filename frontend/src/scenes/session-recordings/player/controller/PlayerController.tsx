@@ -1,38 +1,17 @@
 import { IconPause, IconPlay } from '@posthog/icons'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { IconSync } from 'lib/lemon-ui/icons'
+import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
+import { IconFullScreen, IconSync } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
-import {
-    PLAYBACK_SPEEDS,
-    sessionRecordingPlayerLogic,
-} from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { PlayerUpNext } from 'scenes/session-recordings/player/PlayerUpNext'
+import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { SessionPlayerState } from '~/types'
 
-import { PlayerMetaLinks } from '../PlayerMetaLinks'
-import { PlayerSettings } from '../PlayerSettings'
 import { SeekSkip, Timestamp } from './PlayerControllerTime'
 import { Seekbar } from './Seekbar'
-
-function SetPlaybackSpeed(): JSX.Element {
-    const { speed } = useValues(sessionRecordingPlayerLogic)
-    const { setSpeed } = useActions(sessionRecordingPlayerLogic)
-    return (
-        <LemonMenu
-            data-attr="session-recording-speed-select"
-            items={PLAYBACK_SPEEDS.map((speedToggle) => ({
-                label: `${speedToggle}x`,
-                onClick: () => setSpeed(speedToggle),
-            }))}
-        >
-            <LemonButton size="small" tooltip="Playback speed" sideIcon={null}>
-                {speed}x
-            </LemonButton>
-        </LemonMenu>
-    )
-}
 
 function PlayPauseButton(): JSX.Element {
     const { playingState, endReached } = useValues(sessionRecordingPlayerLogic)
@@ -42,7 +21,8 @@ function PlayPauseButton(): JSX.Element {
 
     return (
         <LemonButton
-            size="small"
+            size="large"
+            noPadding={true}
             onClick={togglePlayPause}
             tooltip={
                 <div className="flex gap-1">
@@ -62,22 +42,48 @@ function PlayPauseButton(): JSX.Element {
     )
 }
 
-export function PlayerController({ iconsOnly }: { iconsOnly: boolean }): JSX.Element {
+function FullScreen(): JSX.Element {
+    const { isFullScreen } = useValues(sessionRecordingPlayerLogic)
+    const { setIsFullScreen } = useActions(sessionRecordingPlayerLogic)
     return (
-        <div className="bg-bg-light flex flex-col select-none">
+        <LemonButton
+            size="xsmall"
+            onClick={() => setIsFullScreen(!isFullScreen)}
+            tooltip={
+                <>
+                    {!isFullScreen ? 'Go' : 'Exit'} full screen <KeyboardShortcut f />
+                </>
+            }
+        >
+            <IconFullScreen className={clsx('text-2xl', isFullScreen ? 'text-link' : 'text-primary-alt')} />
+        </LemonButton>
+    )
+}
+
+export function PlayerController(): JSX.Element {
+    const { playlistLogic } = useValues(sessionRecordingPlayerLogic)
+
+    const { ref, size } = useResizeBreakpoints({
+        0: 'small',
+        600: 'normal',
+    })
+
+    return (
+        <div className="bg-surface-primary flex flex-col select-none">
             <Seekbar />
-            <div className="flex justify-between h-8 gap-2 m-2 mt-1">
-                <div className="flex gap-2">
-                    <Timestamp />
-                    <div className="flex gap-0.5">
-                        <SeekSkip direction="backward" />
-                        <PlayPauseButton />
-                        <SeekSkip direction="forward" />
-                        <SetPlaybackSpeed />
-                        <PlayerSettings />
-                    </div>
+            <div className="w-full px-2 py-1 relative flex items-center justify-center" ref={ref}>
+                <div className="absolute left-2">
+                    <Timestamp size={size} />
                 </div>
-                <PlayerMetaLinks iconsOnly={iconsOnly} />
+                <div className="flex gap-0.5 items-center justify-center">
+                    <SeekSkip direction="backward" />
+                    <PlayPauseButton />
+                    <SeekSkip direction="forward" />
+                </div>
+                <div className="absolute right-2 flex justify-end items-center">
+                    {playlistLogic ? <PlayerUpNext playlistLogic={playlistLogic} /> : undefined}
+                    <FullScreen />
+                </div>
             </div>
         </div>
     )

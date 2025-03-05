@@ -1,4 +1,5 @@
 import { PipelineEvent, Team } from '../../../../src/types'
+import { createEventsToDropByToken } from '../../../../src/utils/db/hub'
 import { UUIDT } from '../../../../src/utils/utils'
 import { populateTeamDataStep } from '../../../../src/worker/ingestion/event-pipeline/populateTeamDataStep'
 import { getMetricValues, resetMetrics } from '../../../helpers/metrics'
@@ -14,6 +15,7 @@ const pipelineEvent: PipelineEvent = {
     uuid: new UUIDT().toString(),
 }
 
+// @ts-expect-error TODO: fix underlying type
 const teamTwo: Team = {
     id: 2,
     uuid: 'af95d312-1a0a-4208-b80f-562ddafc9bcd',
@@ -34,6 +36,7 @@ beforeEach(() => {
     resetMetrics()
     runner = {
         hub: {
+            eventsToSkipPersonsProcessingByToken: createEventsToDropByToken('2:distinct_id_to_drop'),
             teamManager: {
                 getTeamByToken: jest.fn((token) => {
                     return token === teamTwoToken ? teamTwo : null
@@ -85,7 +88,7 @@ describe('populateTeamDataStep()', () => {
     it('event with a valid token gets assigned a team_id keeps its ip', async () => {
         const response = await populateTeamDataStep(runner, { ...pipelineEvent, token: teamTwoToken })
 
-        expect(response).toEqual({ ...pipelineEvent, token: teamTwoToken, team_id: 2, ip: '127.0.0.1' })
+        expect(response?.eventWithTeam).toEqual({ ...pipelineEvent, token: teamTwoToken, team_id: 2, ip: '127.0.0.1' })
         expect(await getMetricValues('ingestion_event_dropped_total')).toEqual([])
     })
 
@@ -95,20 +98,27 @@ describe('populateTeamDataStep()', () => {
         jest.mocked(runner.hub.teamManager.getTeamByToken).mockReturnValue({ ...teamTwo, anonymize_ips: true })
         const response = await populateTeamDataStep(runner, { ...pipelineEvent, token: teamTwoToken })
 
-        expect(response).toEqual({ ...pipelineEvent, token: teamTwoToken, team_id: 2, ip: '127.0.0.1' })
+        expect(response?.eventWithTeam).toEqual({ ...pipelineEvent, token: teamTwoToken, team_id: 2, ip: '127.0.0.1' })
         expect(await getMetricValues('ingestion_event_dropped_total')).toEqual([])
     })
 
     it('event with a team_id value is returned unchanged', async () => {
         const input = { ...pipelineEvent, team_id: 2 }
         const response = await populateTeamDataStep(runner, input)
-        expect(response).toEqual(input)
+        expect(response?.eventWithTeam).toEqual(input)
     })
 
     it('event with a team_id whose team is opted-out from person processing', async () => {
         const input = { ...pipelineEvent, team_id: 3 }
         const response = await populateTeamDataStep(runner, input)
-        expect(response.properties.$process_person_profile).toBe(false)
+        expect(response?.team.person_processing_opt_out).toBe(true)
+        expect(response?.eventWithTeam.properties?.$process_person_profile).toBe(false)
+    })
+
+    it('event that is in the skip list', async () => {
+        const input = { ...pipelineEvent, team_id: 2, distinct_id: 'distinct_id_to_drop' }
+        const response = await populateTeamDataStep(runner, input)
+        expect(response?.eventWithTeam.properties?.$process_person_profile).toBe(false)
     })
 
     it('PG errors are propagated up to trigger retries', async () => {

@@ -101,7 +101,7 @@ class EventsQueryRunner(QueryRunner):
                 if self.query.actionId:
                     with self.timings.measure("action_id"):
                         try:
-                            action = Action.objects.get(pk=self.query.actionId, team_id=self.team.pk)
+                            action = Action.objects.get(pk=self.query.actionId, team__project_id=self.team.project_id)
                         except Action.DoesNotExist:
                             raise Exception("Action does not exist")
                         if not action.steps:
@@ -250,7 +250,7 @@ class EventsQueryRunner(QueryRunner):
         return EventsQueryResponse(
             results=self.paginator.results,
             columns=self.columns(query_result.columns),
-            types=[t for _, t in query_result.types] if query_result.types else None,
+            types=[t for _, t in query_result.types] if query_result.types else [],
             timings=self.timings.to_list(),
             hogql=query_result.hogql,
             modifiers=self.modifiers,

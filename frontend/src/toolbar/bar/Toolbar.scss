@@ -1,10 +1,11 @@
-@import '../../styles/vars';
+@import '../../styles/base';
 
 #button-toolbar {
     position: fixed;
     top: 0;
     left: 0;
-    z-index: 2147483020;
+    z-index: 2147483021;
+    color-scheme: light dark;
     user-select: none; // Make the app feel less page-like and more app-like - apps scarcely allow text selection
     opacity: 1;
     transition: opacity ease 0.5s;
@@ -16,7 +17,7 @@
         }
 
         ::-webkit-scrollbar-track {
-            background: var(--accent-3000);
+            background: var(--bg-surface-primary);
         }
 
         ::-webkit-scrollbar-thumb {
@@ -33,21 +34,20 @@
         z-index: 2147483020;
     }
 
+    &[theme='light'] {
+        color-scheme: light;
+    }
+
     &[theme='dark'] {
         // override the mark value so that feature flag overrides are visible _and legible_ in dark mode
         --mark: var(--secondary-3000-hover-dark);
 
-        @include dark-mode-3000-variables;
+        color-scheme: dark;
     }
 
     & .ReactModalPortal {
         color: var(--text-3000);
     }
-
-    @include common-variables;
-
-    // default to light theme
-    @include light-mode-3000-variables;
 }
 
 .ToolbarMenu {
@@ -61,13 +61,13 @@
         bottom: 0;
         display: flex;
         flex-direction: column;
-        width: 30rem;
+        width: 35rem;
         max-height: 0;
         margin-left: -15rem;
         overflow: hidden;
         overflow-y: auto;
         color: var(--text-3000);
-        background-color: var(--bg-3000);
+        background-color: var(--bg-primary);
         filter: drop-shadow(0 5px 10px var(--trace-3000));
         border-radius: var(--radius);
         transition: opacity 150ms ease, max-height 150ms ease;
@@ -103,7 +103,7 @@
     --toolbar-button-x: 0;
     --toolbar-button-y: 0;
     --toolbar-width-minimized: 40px;
-    --toolbar-width-expanded: 292px;
+    --toolbar-width-expanded: 334px;
     --toolbar-translate: translate(calc(var(--toolbar-button-x) - 50%), calc(var(--toolbar-button-y) - 50%));
 
     position: fixed;
@@ -115,8 +115,8 @@
     // fixed width so that animations work when changing width
     width: var(--toolbar-width-expanded);
     overflow: hidden;
-    color: var(--text-3000);
-    background-color: var(--bg-3000);
+    color: var(--text-primary);
+    background-color: var(--bg-primary);
     filter: drop-shadow(0 5px 10px var(--trace-3000));
     border: 1px solid var(--border-bold-3000);
     border-radius: var(--radius);
@@ -140,7 +140,7 @@
     }
 
     &--with-experiments {
-        --toolbar-width-expanded: 334px;
+        --toolbar-width-expanded: 376px;
     }
 
     &--minimized {

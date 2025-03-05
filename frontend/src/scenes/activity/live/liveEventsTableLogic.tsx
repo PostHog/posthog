@@ -1,3 +1,4 @@
+import { fetchEventSource } from '@microsoft/fetch-event-source'
 import { lemonToast, Spinner } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
@@ -95,7 +96,7 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
                     if (!state.includes(eventHost)) {
                         return [...state, eventHost]
                     }
-                    return state
+                    return state ?? []
                 },
             },
         ],
@@ -119,8 +120,8 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
             actions.updateEventsConnection()
         },
         updateEventsConnection: async () => {
-            if (cache.eventsSource) {
-                cache.eventsSource.close()
+            if (cache.eventSourceController) {
+                cache.eventSourceController.abort()
             }
 
             if (values.streamPaused) {
@@ -137,41 +138,40 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
                 url.searchParams.append('eventType', eventType)
             }
 
-            const source = new window.EventSourcePolyfill(url.toString(), {
+            cache.batch = []
+            cache.eventSourceController = new AbortController()
+
+            await fetchEventSource(url.toString(), {
                 headers: {
                     Authorization: `Bearer ${values.currentTeam.live_events_token}`,
                 },
+                signal: cache.eventSourceController.signal,
+                onmessage: (event) => {
+                    lemonToast.dismiss(ERROR_TOAST_ID)
+                    const eventData = JSON.parse(event.data)
+                    cache.batch.push(eventData)
+                    // If the batch is 10 or more events, or if it's been more than 300ms since the last batch
+                    if (cache.batch.length >= 10 || performance.now() - (values.lastBatchTimestamp || 0) > 300) {
+                        actions.addEvents(cache.batch)
+                        cache.batch.length = 0
+                    }
+                },
+                onerror: (error) => {
+                    if (!cache.hasShownLiveStreamErrorToast && props.showLiveStreamErrorToast) {
+                        console.error('Failed to poll events. You likely have no events coming in.', error)
+                        lemonToast.error(`No live events found. Continuing to retry in the background…`, {
+                            icon: <Spinner />,
+                            toastId: ERROR_TOAST_ID,
+                            autoClose: false,
+                        })
+                        cache.hasShownLiveStreamErrorToast = true // Only show once
+                    }
+                },
             })
-
-            cache.batch = []
-            source.onmessage = function (event: any) {
-                lemonToast.dismiss(ERROR_TOAST_ID)
-                const eventData = JSON.parse(event.data)
-                cache.batch.push(eventData)
-                // If the batch is 10 or more events, or if it's been more than 300ms since the last batch
-                if (cache.batch.length >= 10 || performance.now() - (values.lastBatchTimestamp || 0) > 300) {
-                    actions.addEvents(cache.batch)
-                    cache.batch.length = 0
-                }
-            }
-
-            source.onerror = function (e) {
-                if (!cache.hasShownLiveStreamErrorToast && props.showLiveStreamErrorToast) {
-                    console.error('Failed to poll events. You likely have no events coming in.', e)
-                    lemonToast.error(`No live events found. Continuing to retry in the background…`, {
-                        icon: <Spinner />,
-                        toastId: ERROR_TOAST_ID,
-                        autoClose: false,
-                    })
-                    cache.hasShownLiveStreamErrorToast = true // Only show once
-                }
-            }
-
-            cache.eventsSource = source
         },
         pauseStream: () => {
-            if (cache.eventsSource) {
-                cache.eventsSource.close()
+            if (cache.eventSourceController) {
+                cache.eventSourceController.abort()
             }
         },
         resumeStream: () => {
@@ -192,6 +192,10 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
                 actions.setStats(data)
             } catch (error) {
                 console.error('Failed to poll stats:', error)
+            } finally {
+                cache.statsTimer = setTimeout(() => {
+                    actions.pollStats()
+                }, 1500)
             }
         },
         addEvents: ({ events }) => {
@@ -209,16 +213,14 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
     events(({ actions, cache }) => ({
         afterMount: () => {
             actions.updateEventsConnection()
-            cache.statsInterval = setInterval(() => {
-                actions.pollStats()
-            }, 1500)
+            actions.pollStats()
         },
         beforeUnmount: () => {
-            if (cache.eventsSource) {
-                cache.eventsSource.close()
+            if (cache.eventSourceController) {
+                cache.eventSourceController.abort()
             }
-            if (cache.statsInterval) {
-                clearInterval(cache.statsInterval)
+            if (cache.statsTimer) {
+                clearTimeout(cache.statsTimer)
             }
         },
     })),

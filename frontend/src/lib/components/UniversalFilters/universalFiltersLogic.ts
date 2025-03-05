@@ -39,7 +39,9 @@ export type UniversalFiltersLogicProps = {
 export const universalFiltersLogic = kea<universalFiltersLogicType>([
     path((key) => ['lib', 'components', 'UniversalFilters', 'universalFiltersLogic', key]),
     props({} as UniversalFiltersLogicProps),
-    key((props) => props.rootKey),
+    key((props) => {
+        return `${props.rootKey}-${JSON.stringify(props.group)}`
+    }),
 
     connect(() => ({
         values: [propertyDefinitionsModel, ['describeProperty']],
@@ -132,7 +134,7 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
                 newValues.push(newFeatureFlagFilter)
             } else {
                 const propertyType =
-                    item.propertyFilterType ?? taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type)
+                    item?.propertyFilterType ?? taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type)
                 if (propertyKey && propertyType) {
                     const newPropertyFilter = createDefaultPropertyFilter(
                         {},

@@ -16,6 +16,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import ActivityLog, EarlyAccessFeature
 from posthog.models.async_deletion.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.dashboard import Dashboard
+from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
@@ -27,6 +28,8 @@ from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import describe_schedule
 from posthog.test.base import APIBaseTest
 from posthog.utils import get_instance_realm
+
+from ee.models.rbac.access_control import AccessControl
 
 
 def team_api_test_factory():
@@ -86,6 +89,26 @@ def team_api_test_factory():
             self.assertNotIn("event_properties_numerical", response_data)
             self.assertNotIn("event_names_with_usage", response_data)
             self.assertNotIn("event_properties_with_usage", response_data)
+
+        def test_retrieve_team_has_group_types(self):
+            other_team = Team.objects.create(organization=self.organization, project=self.project)
+
+            response = self.client.get("/api/environments/@current/")
+            response_data = response.json()
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response_data)
+            self.assertEqual(response_data["has_group_types"], False)
+
+            # Creating a group type in the same project, but different team
+            GroupTypeMapping.objects.create(
+                project=self.project, team=other_team, group_type="person", group_type_index=0
+            )
+
+            response = self.client.get("/api/environments/@current/")
+            response_data = response.json()
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response_data)
+            self.assertEqual(response_data["has_group_types"], True)  # Irreleveant that group type has different `team`
 
         def test_cant_retrieve_team_from_another_org(self):
             org = Organization.objects.create(name="New Org")
@@ -437,7 +460,10 @@ def team_api_test_factory():
         def test_delete_batch_exports(self):
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
-
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.DATA_PIPELINES, "name": AvailableFeature.DATA_PIPELINES}
+            ]
+            self.organization.save()
             team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
 
             destination_data = {
@@ -465,16 +491,16 @@ def team_api_test_factory():
                     json.dumps(batch_export_data),
                     content_type="application/json",
                 )
-                self.assertEqual(response.status_code, 201)
+                assert response.status_code == 201, response.json()
 
                 batch_export = response.json()
                 batch_export_id = batch_export["id"]
 
                 response = self.client.delete(f"/api/environments/{team.id}")
-                self.assertEqual(response.status_code, 204)
+                assert response.status_code == 204, response.json()
 
                 response = self.client.get(f"/api/environments/{team.id}/batch_exports/{batch_export_id}")
-                self.assertEqual(response.status_code, 404)
+                assert response.status_code == 404, response.json()
 
                 with self.assertRaises(RPCError):
                     describe_schedule(temporal, batch_export_id)
@@ -1052,7 +1078,7 @@ def team_api_test_factory():
             )
 
         @patch("posthog.api.team.calculate_product_activation.delay", MagicMock())
-        @patch("posthog.models.product_intent.ProductIntent.check_and_update_activation")
+        @patch("posthog.models.product_intent.ProductIntent.check_and_update_activation", return_value=False)
         @patch("posthog.api.project.report_user_action")
         @patch("posthog.api.team.report_user_action")
         @freeze_time("2024-01-01T00:00:00Z")
@@ -1062,6 +1088,10 @@ def team_api_test_factory():
             mock_report_user_action_legacy_endpoint: MagicMock,
             mock_check_and_update_activation: MagicMock,
         ) -> None:
+            """
+            Intent already exists, but hasn't been activated yet. It should update the intent
+            and send a new event for the user showing the intent.
+            """
             intent = ProductIntent.objects.create(team=self.team, product_type="product_analytics")
             original_created_at = intent.created_at
             assert original_created_at == datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
@@ -1155,6 +1185,105 @@ def team_api_test_factory():
                 },
                 team=self.team,
             )
+
+        @patch("posthog.api.project.report_user_action")
+        @patch("posthog.api.team.report_user_action")
+        def test_can_complete_product_onboarding_as_member(
+            self, mock_report_user_action: MagicMock, mock_report_user_action_legacy_endpoint: MagicMock
+        ) -> None:
+            from ee.models import ExplicitTeamMembership
+
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
+            self.team.access_control = True
+            self.team.save()
+            ExplicitTeamMembership.objects.create(
+                team=self.team,
+                parent_membership=self.organization_membership,
+                level=ExplicitTeamMembership.Level.MEMBER,
+            )
+
+            if self.client_class is EnvironmentToProjectRewriteClient:
+                mock_report_user_action = mock_report_user_action_legacy_endpoint
+            with freeze_time("2024-01-01T00:00:00Z"):
+                product_intent = ProductIntent.objects.create(team=self.team, product_type="product_analytics")
+            assert product_intent.created_at == datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
+            assert product_intent.onboarding_completed_at is None
+            with freeze_time("2024-01-05T00:00:00Z"):
+                response = self.client.patch(
+                    f"/api/environments/{self.team.id}/complete_product_onboarding/",
+                    {"product_type": "product_analytics"},
+                    headers={"Referer": "https://posthogtest.com/my-url", "X-Posthog-Session-Id": "test_session_id"},
+                )
+            assert response.status_code == status.HTTP_200_OK
+            product_intent = ProductIntent.objects.get(team=self.team, product_type="product_analytics")
+            assert product_intent.onboarding_completed_at == datetime(2024, 1, 5, 0, 0, 0, tzinfo=UTC)
+            mock_report_user_action.assert_called_once_with(
+                self.user,
+                "product onboarding completed",
+                {
+                    "product_key": "product_analytics",
+                    "$current_url": "https://posthogtest.com/my-url",
+                    "$session_id": "test_session_id",
+                    "intent_context": None,
+                    "intent_created_at": datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
+                    "intent_updated_at": datetime(2024, 1, 5, 0, 0, 0, tzinfo=UTC),
+                    "realm": get_instance_realm(),
+                },
+                team=self.team,
+            )
+
+        def _create_other_org_and_team(
+            self, membership_level: OrganizationMembership.Level = OrganizationMembership.Level.ADMIN
+        ):
+            other_org, other_org_membership, _ = Organization.objects.bootstrap(self.user)
+            if not other_org_membership:
+                raise Exception("Failed to create other org and team")
+            other_org_membership.level = membership_level
+            other_org_membership.save()
+            return other_org, other_org_membership
+
+        def test_cant_change_organization_if_not_admin_of_target_org(self):
+            other_org, _ = self._create_other_org_and_team(OrganizationMembership.Level.MEMBER)
+            res = self.client.post(
+                f"/api/projects/{self.team.project.id}/change_organization/", {"organization_id": other_org.id}
+            )
+
+            assert res.status_code == status.HTTP_400_BAD_REQUEST
+            assert (
+                res.json()["detail"]
+                == "You must be an admin of both the source and target organizations to move a project."
+            )
+
+        def test_cant_change_organization_if_not_admin_of_source_org(self):
+            other_org, _ = self._create_other_org_and_team(OrganizationMembership.Level.OWNER)
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
+            res = self.client.post(
+                f"/api/projects/{self.team.project.id}/change_organization/", {"organization_id": other_org.id}
+            )
+
+            assert res.status_code == status.HTTP_400_BAD_REQUEST
+            assert (
+                res.json()["detail"]
+                == "You must be an admin of both the source and target organizations to move a project."
+            )
+
+        def test_can_change_organization(self):
+            other_org, _ = self._create_other_org_and_team(OrganizationMembership.Level.ADMIN)
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+            res = self.client.post(
+                f"/api/projects/{self.team.project.id}/change_organization/", {"organization_id": other_org.id}
+            )
+
+            assert res.status_code == status.HTTP_200_OK, res.json()
+            assert res.json()["id"] == self.team.id
+            assert res.json()["organization"] == str(other_org.id)
+            self.project.refresh_from_db()
+            self.team.refresh_from_db()
+            assert self.project.organization == other_org
+            assert self.team.organization == other_org
 
         def _assert_replay_config_is(self, expected: dict[str, Any] | None) -> HttpResponse:
             return self._assert_config_is("session_replay_config", expected)
@@ -1344,3 +1473,183 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         response = self.client.post("/api/projects/@current/environments/", {"name": "New Project 2"})
         self.assertEqual(response.status_code, 201)
         self.assertEqual(Team.objects.count(), 3)
+
+    def test_team_member_can_write_to_team_config_with_member_access_control(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        self.organization.available_product_features = [
+            {
+                "key": AvailableFeature.ADVANCED_PERMISSIONS,
+                "name": AvailableFeature.ADVANCED_PERMISSIONS,
+            },
+        ]
+        self.organization.save()
+
+        # Default access control to member for team
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=self.team.id,
+            access_level="admin",
+        )
+
+        response = self.client.patch(
+            "/api/environments/@current/",
+            {"timezone": "Europe/Lisbon", "session_recording_opt_in": True},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_data = response.json()
+        self.assertEqual(response_data["timezone"], "Europe/Lisbon")
+        self.assertEqual(response_data["session_recording_opt_in"], True)
+
+        # Verify changes were made
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.timezone, "Europe/Lisbon")
+        self.assertEqual(self.team.session_recording_opt_in, True)
+
+    def test_team_member_cannot_write_to_team_config_with_no_access_access_control(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        self.organization.available_product_features = [
+            {
+                "key": AvailableFeature.ADVANCED_PERMISSIONS,
+                "name": AvailableFeature.ADVANCED_PERMISSIONS,
+            },
+        ]
+        self.organization.save()
+
+        # Default access control to member for team
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=self.team.id,
+            access_level="none",
+        )
+
+        response = self.client.patch(
+            "/api/environments/@current/",
+            {"timezone": "Europe/Lisbon", "session_recording_opt_in": True},
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        # Verify changes were made
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.timezone, "UTC")
+        self.assertEqual(self.team.session_recording_opt_in, False)
+
+    def test_team_member_can_write_to_team_config_without_access_control(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        self.organization.available_product_features = [
+            {
+                "key": AvailableFeature.ADVANCED_PERMISSIONS,
+                "name": AvailableFeature.ADVANCED_PERMISSIONS,
+            },
+        ]
+        self.organization.save()
+
+        response = self.client.patch(
+            "/api/environments/@current/",
+            {"timezone": "Europe/Lisbon", "session_recording_opt_in": True},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_data = response.json()
+        self.assertEqual(response_data["timezone"], "Europe/Lisbon")
+        self.assertEqual(response_data["session_recording_opt_in"], True)
+
+        # Verify changes were made
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.timezone, "Europe/Lisbon")
+        self.assertEqual(self.team.session_recording_opt_in, True)
+
+    def test_team_admin_can_write_to_team_patch_with_access_control(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        self.organization.available_product_features = [
+            {
+                "key": AvailableFeature.ADVANCED_PERMISSIONS,
+                "name": AvailableFeature.ADVANCED_PERMISSIONS,
+            },
+        ]
+        self.organization.save()
+
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=self.team.id,
+            access_level="none",
+        )
+
+        response = self.client.patch(
+            "/api/environments/@current/",
+            {"timezone": "Europe/Lisbon", "session_recording_opt_in": True},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_data = response.json()
+        self.assertEqual(response_data["timezone"], "Europe/Lisbon")
+        self.assertEqual(response_data["session_recording_opt_in"], True)
+
+        # Verify changes were made
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.timezone, "Europe/Lisbon")
+        self.assertEqual(self.team.session_recording_opt_in, True)
+
+    def test_team_member_cannot_write_to_team_patch_with_access_control(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        self.organization.available_product_features = [
+            {
+                "key": AvailableFeature.ADVANCED_PERMISSIONS,
+                "name": AvailableFeature.ADVANCED_PERMISSIONS,
+            },
+        ]
+        self.organization.save()
+
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=self.team.id,
+            access_level="none",
+        )
+
+        response = self.client.patch(
+            "/api/environments/@current/",
+            {"timezone": "Europe/Lisbon", "session_recording_opt_in": True},
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        # Verify no changes were made
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.timezone, "UTC")
+        self.assertEqual(self.team.session_recording_opt_in, False)
+
+    def test_team_member_can_write_to_team_patch_without_access_control(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        self.organization.available_product_features = [
+            {
+                "key": AvailableFeature.ADVANCED_PERMISSIONS,
+                "name": AvailableFeature.ADVANCED_PERMISSIONS,
+            },
+        ]
+        self.organization.save()
+
+        response = self.client.patch(
+            "/api/environments/@current/",
+            {"timezone": "Europe/Lisbon", "session_recording_opt_in": True},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Verify changes were made
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.timezone, "Europe/Lisbon")
+        self.assertEqual(self.team.session_recording_opt_in, True)

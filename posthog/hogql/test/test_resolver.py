@@ -1,9 +1,9 @@
-from datetime import datetime, date, UTC
+from datetime import UTC, date, datetime
 from typing import Any, Optional, cast
-import pytest
-from django.test import override_settings
 from uuid import UUID
 
+import pytest
+from django.test import override_settings
 from freezegun import freeze_time
 
 from posthog.hogql import ast
@@ -11,18 +11,18 @@ from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.database.models import (
+    DateTimeDatabaseField,
     ExpressionField,
     FieldTraverser,
-    StringJSONDatabaseField,
     StringDatabaseField,
-    DateTimeDatabaseField,
+    StringJSONDatabaseField,
 )
 from posthog.hogql.errors import QueryError
-from posthog.hogql.test.utils import pretty_dataclasses
-from posthog.hogql.visitor import clone_expr
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast, print_prepared_ast
 from posthog.hogql.resolver import ResolutionError, resolve_types
+from posthog.hogql.test.utils import pretty_dataclasses
+from posthog.hogql.visitor import clone_expr
 from posthog.test.base import BaseTest
 
 
@@ -358,6 +358,21 @@ class TestResolver(BaseTest):
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     @pytest.mark.usefixtures("unittest_snapshot")
+    def test_asterisk_expander_multiple_table_with_scope(self):
+        node = self._select(
+            "select x.* from (select 1 as a, 2 as b) x left join (select 1 as a, 2 as b) y on x.a = y.a"
+        )
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        assert pretty_dataclasses(node) == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_asterisk_expander_multiple_base_table_with_scope(self):
+        node = self._select("select e.* from session_replay_events e join sessions s on s.session_id=e.session_id")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        assert pretty_dataclasses(node) == self.snapshot
+
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
+    @pytest.mark.usefixtures("unittest_snapshot")
     def test_asterisk_expander_select_union(self):
         self.setUp()  # rebuild self.database with PERSON_ON_EVENTS_OVERRIDE=False
         node = self._select("select * from (select * from events union all select * from events)")
@@ -382,23 +397,25 @@ class TestResolver(BaseTest):
         self.database.events.fields["poe"].fields["created_at"] = FieldTraverser(
             chain=["..", "pdi", "person", "created_at"]
         )
-        self.database.events.fields["poe"].fields["properties"] = StringJSONDatabaseField(name="person_properties")
+        self.database.events.fields["poe"].fields["properties"] = StringJSONDatabaseField(
+            name="person_properties", nullable=False
+        )
 
         node = self._select("SELECT event, person.id, person.properties, person.created_at FROM events")
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
 
         # all columns resolve to a type in the end
         assert cast(ast.FieldType, node.select[0].type).resolve_database_field(self.context) == StringDatabaseField(
-            name="event", array=None, nullable=None
+            name="event", array=None, nullable=False
         )
         assert cast(ast.FieldType, node.select[1].type).resolve_database_field(self.context) == StringDatabaseField(
-            name="person_id", array=None, nullable=None
+            name="person_id", array=None, nullable=False
         )
         assert cast(ast.FieldType, node.select[2].type).resolve_database_field(self.context) == StringJSONDatabaseField(
-            name="person_properties"
+            name="person_properties", nullable=False
         )
         assert cast(ast.FieldType, node.select[3].type).resolve_database_field(self.context) == DateTimeDatabaseField(
-            name="created_at", array=None, nullable=None
+            name="created_at", array=None, nullable=False
         )
 
     def test_visit_hogqlx_tag(self):
