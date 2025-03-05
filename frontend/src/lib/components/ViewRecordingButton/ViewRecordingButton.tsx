@@ -10,7 +10,6 @@ import { urls } from 'scenes/urls'
 import { EventType, MatchedRecording } from '~/types'
 
 import { sessionRecordingViewedLogic } from './sessionRecordingViewedLogic'
-// import { useEffect } from 'react'
 
 export default function ViewRecordingButton({
     sessionId,

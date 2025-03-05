@@ -24,6 +24,10 @@ export const sessionRecordingViewedLogic = kea<sessionRecordingViewedLogicType>(
     loaders(({ props, values }) => ({
         recordingViewed: {
             loadRecordingViewed: async () => {
+                if (!props.sessionRecordingId || !values.currentTeamId || props.sessionRecordingId === '') {
+                    return { viewed: false, otherViewers: 0 }
+                }
+
                 const response = await api.get(
                     `/api/projects/${values.currentTeamId}/session_recordings/${props.sessionRecordingId}/viewed`
                 )
