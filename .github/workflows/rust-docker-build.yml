@@ -50,7 +50,7 @@ jobs:
                       project: 4ppc15q4bv
                     - image: e2e-lag-exporter
                       dockerfile: ./rust/Dockerfile
-                      project: c1bwj4j4qg # Just use the legacy builder here
+                      project: c1bwj4j4qg # Just use the hook-legacy project here
         runs-on: depot-ubuntu-22.04
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
