@@ -14,6 +14,7 @@ from rest_framework import status
 from posthog import redis
 from posthog.models import SessionRecording, SessionRecordingPlaylistItem, Team
 from posthog.models.user import User
+from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.models.session_recording_playlist import (
     SessionRecordingPlaylist,
     SessionRecordingPlaylistViewed,
@@ -71,11 +72,20 @@ class TestSessionRecordingPlaylist(APIBaseTest):
     def test_list_playlists_when_there_are_some_playlists(self):
         playlist_one = self._create_playlist({"name": "test"})
         playlist_two = self._create_playlist({"name": "test2"})
+
+        # set some saved filter counts up
+        SessionRecordingViewed.objects.create(
+            team=self.team,
+            user=self.user,
+            session_id="a",
+        )
         redis.get_client().set(
             f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist_two.json()['short_id']}",
-            json.dumps({"session_ids": ["a", "b"], "has_more": False}),
+            json.dumps({"session_ids": ["a", "b"], "has_more": False, "previous_ids": ["b"]}),
         )
+
         response = self.client.get(f"/api/projects/{self.team.id}/session_recording_playlists")
+
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {
             "count": 2,
@@ -115,9 +125,16 @@ class TestSessionRecordingPlaylist(APIBaseTest):
                     "name": "test2",
                     "pinned": False,
                     "recordings_counts": {
-                        "has_more": False,
-                        "pinned_count": 0,
-                        "query_count": 2,
+                        "collection": {
+                            "count": None,
+                            "watched_count": None,
+                        },
+                        "saved_filters": {
+                            "count": 2,
+                            "has_more": False,
+                            "watched_count": 1,
+                            "increased": True,
+                        },
                     },
                     "short_id": playlist_two.json()["short_id"],
                 },
@@ -154,9 +171,16 @@ class TestSessionRecordingPlaylist(APIBaseTest):
                     "name": "test",
                     "pinned": False,
                     "recordings_counts": {
-                        "has_more": None,
-                        "pinned_count": 0,
-                        "query_count": None,
+                        "collection": {
+                            "count": None,
+                            "watched_count": None,
+                        },
+                        "saved_filters": {
+                            "count": None,
+                            "has_more": None,
+                            "watched_count": None,
+                            "increased": None,
+                        },
                     },
                     "short_id": playlist_one.json()["short_id"],
                 },
@@ -180,9 +204,16 @@ class TestSessionRecordingPlaylist(APIBaseTest):
             "last_modified_at": mock.ANY,
             "last_modified_by": response.json()["last_modified_by"],
             "recordings_counts": {
-                "query_count": None,
-                "pinned_count": 0,
-                "has_more": None,
+                "collection": {
+                    "count": None,
+                    "watched_count": None,
+                },
+                "saved_filters": {
+                    "count": None,
+                    "has_more": None,
+                    "watched_count": None,
+                    "increased": None,
+                },
             },
         }
 

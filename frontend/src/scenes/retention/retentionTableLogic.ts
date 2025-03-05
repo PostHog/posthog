@@ -91,7 +91,9 @@ export const retentionTableLogic = kea<retentionTableLogicType>([
                             firstColumn = currentDate.format('MMM D')
                     }
 
-                    const secondColumn = hideSizeColumn ? [] : [currentResult.values[0].count]
+                    const secondColumn = hideSizeColumn
+                        ? []
+                        : [currentResult.values[0] ? currentResult.values[0].count : 0]
                     const otherColumns = currentResult.values
 
                     return [firstColumn, ...secondColumn, ...otherColumns]

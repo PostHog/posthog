@@ -23,7 +23,7 @@ import { ValueOnSeriesFilter } from 'scenes/insights/EditorFilters/ValueOnSeries
 import { InsightDateFilter } from 'scenes/insights/filters/InsightDateFilter'
 import { RetentionChartPicker } from 'scenes/insights/filters/RetentionChartPicker'
 import { RetentionDashboardDisplayPicker } from 'scenes/insights/filters/RetentionDashboardDisplayPicker'
-import { RetentionMeanCheckbox } from 'scenes/insights/filters/RetentionMeanCheckbox'
+import { RetentionMeanDropdown } from 'scenes/insights/filters/RetentionMeanDropdown'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { RetentionDatePicker } from 'scenes/insights/RetentionDatePicker'
@@ -190,7 +190,7 @@ export function InsightDisplayConfig(): JSX.Element {
                 {!!isRetention && (
                     <ConfigFilter>
                         <RetentionDatePicker />
-                        <RetentionMeanCheckbox />
+                        <RetentionMeanDropdown />
                         {breakdownFilter && <RetentionBreakdownFilter />}
                     </ConfigFilter>
                 )}

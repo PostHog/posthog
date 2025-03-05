@@ -1,8 +1,9 @@
 import './RetentionTable.scss'
 
 import clsx from 'clsx'
-import { mean } from 'd3'
+import { mean, sum } from 'd3'
 import { useActions, useValues } from 'kea'
+import { RETENTION_MEAN_NONE } from 'lib/constants'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { gradateColor, range } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -19,7 +20,7 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
     const { openModal } = useActions(retentionModalLogic(insightProps))
     const backgroundColor = theme?.['preset-1'] || '#000000' // Default to black if no color found
     const backgroundColorMean = theme?.['preset-2'] || '#000000' // Default to black if no color found
-    const showMean = retentionFilter?.showMean || false
+    const meanRetentionCalculation = retentionFilter?.meanRetentionCalculation ?? RETENTION_MEAN_NONE
 
     return (
         <table
@@ -39,7 +40,54 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                     ))}
                 </tr>
 
-                {showMean && tableRows.length > 0 ? (
+                {meanRetentionCalculation === 'weighted' && tableRows.length > 0 ? (
+                    <tr className="border-b" key={-2}>
+                        {range(0, tableRows[0].length).map((columnIndex) => (
+                            <td key={columnIndex} className="pb-2">
+                                {columnIndex <= (hideSizeColumn ? 0 : 1) ? (
+                                    columnIndex == 0 ? (
+                                        <span className="RetentionTable__TextTab">Weighted Mean</span>
+                                    ) : null
+                                ) : (
+                                    <CohortDay
+                                        percentage={
+                                            (() => {
+                                                const validRows = tableRows.filter((row) => {
+                                                    return !(
+                                                        (columnIndex >= row.length - 1 &&
+                                                            (row[columnIndex] as ProcessedRetentionValue)
+                                                                ?.isCurrentPeriod) ||
+                                                        !row[columnIndex] ||
+                                                        (row[columnIndex] as ProcessedRetentionValue)?.count <= 0
+                                                    )
+                                                })
+                                                if (validRows.length === 0) {
+                                                    return 0
+                                                }
+                                                const weights = validRows.map((row) =>
+                                                    parseInt((row[1] as number)?.toString() || '0')
+                                                )
+                                                const weightedSum = sum(
+                                                    validRows.map(
+                                                        (row, i) =>
+                                                            ((row[columnIndex] as ProcessedRetentionValue)
+                                                                ?.percentage || 0) * weights[i]
+                                                    )
+                                                )
+                                                const totalWeight = sum(weights)
+                                                return totalWeight > 0 ? weightedSum / totalWeight : 0
+                                            })() || 0
+                                        }
+                                        clickable={false}
+                                        backgroundColor={backgroundColorMean}
+                                    />
+                                )}
+                            </td>
+                        ))}
+                    </tr>
+                ) : undefined}
+
+                {meanRetentionCalculation === 'simple' && tableRows.length > 0 ? (
                     <tr className="border-b" key={-1}>
                         {range(0, tableRows[0].values.length).map((columnIndex) => (
                             <td key={columnIndex} className="pb-2">
@@ -56,17 +104,19 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                                                         return null
                                                     }
 
-                                                    // Stop before the last item in a row, which is an incomplete time period
+                                                    // Don't include the last item in a row, which is an incomplete time period
+                                                    // Also don't include the percentage if the cohort size (count) is 0 or less
                                                     if (
                                                         (columnIndex >= row.length - 1 &&
                                                             (row[columnIndex] as ProcessedRetentionValue)
-                                                                .isCurrentPeriod) ||
-                                                        !row[columnIndex]
+                                                                ?.isCurrentPeriod) ||
+                                                        !row[columnIndex] ||
+                                                        (row[columnIndex] as ProcessedRetentionValue)?.count <= 0
                                                     ) {
                                                         return null
                                                     }
 
-                                                    return (row[columnIndex] as ProcessedRetentionValue).percentage
+                                                    return (row[columnIndex] as ProcessedRetentionValue)?.percentage
                                                 })
                                             ) || 0
                                         }
@@ -89,7 +139,10 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                         }}
                     >
                         {row.map((column, columnIndex) => (
-                            <td key={columnIndex} className={clsx({ 'pt-2': rowIndex === 0 && showMean })}>
+                            <td
+                                key={columnIndex}
+                                className={clsx({ 'pt-2': rowIndex === 0 && meanRetentionCalculation !== 'none' })}
+                            >
                                 {columnIndex <= (hideSizeColumn ? 0 : 1) ? (
                                     <span className="RetentionTable__TextTab">{column}</span>
                                 ) : (
