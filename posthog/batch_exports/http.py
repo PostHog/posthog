@@ -49,6 +49,7 @@ from posthog.models import (
     Team,
     User,
 )
+from posthog.temporal.batch_exports.destination_tests import get_destination_test
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import relative_date_parse
 
@@ -528,8 +529,6 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
 
     @action(methods=["POST"], detail=False, required_scopes=["INTERNAL"])
     def test(self, request: request.Request, *args, **kwargs) -> response.Response:
-        from posthog.temporal.batch_exports.destination_tests import get_destination_test
-
         destination = request.data.pop("destination", None)
         if not destination:
             return response.Response(status=status.HTTP_400_BAD_REQUEST)
@@ -543,8 +542,6 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
 
     @action(methods=["POST"], detail=False, required_scopes=["INTERNAL"])
     def run_test_step(self, request: request.Request, *args, **kwargs) -> response.Response:
-        from posthog.temporal.batch_exports.destination_tests import get_destination_test
-
         test_step = request.data.pop("step", 0)
 
         serializer = self.get_serializer(data=request.data)
