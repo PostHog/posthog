@@ -5,7 +5,7 @@ import { RetentionReferencePicker } from '../filters/RetentionReferencePicker'
 
 export function RetentionOptions(): JSX.Element {
     return (
-        <div className="space-y-3" data-attr="retention-options">
+        <div className="deprecated-space-y-3" data-attr="retention-options">
             <div className="flex items-center gap-2">
                 <div>Retention relative to</div>
                 <RetentionReferencePicker />

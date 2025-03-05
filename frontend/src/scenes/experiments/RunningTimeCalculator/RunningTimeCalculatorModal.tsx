@@ -61,9 +61,9 @@ export function RunningTimeCalculatorModal(): JSX.Element {
                 </div>
             }
         >
-            <div className="space-y-6">
+            <div className="deprecated-space-y-6">
                 {/* Step 1: Metric selection */}
-                <div className="rounded bg-light p-4 space-y-3">
+                <div className="rounded bg-light p-4 deprecated-space-y-3">
                     <div className="flex items-center gap-2">
                         <span className="rounded-full bg-muted text-white w-6 h-6 flex items-center justify-center font-semibold">
                             1
@@ -74,7 +74,7 @@ export function RunningTimeCalculatorModal(): JSX.Element {
                         Choose a metric to analyze. We'll use historical data from this metric to estimate the
                         experiment duration.
                     </p>
-                    <div className="space-y-2">
+                    <div className="deprecated-space-y-2">
                         <div className="mb-4">
                             <div className="card-secondary mb-2">Experiment metric</div>
                             <LemonSelect
@@ -145,7 +145,7 @@ export function RunningTimeCalculatorModal(): JSX.Element {
                 {!metricResultLoading && uniqueUsers !== null && (
                     <>
                         {/* Step 2: MDE configuration */}
-                        <div className="rounded bg-light p-4 space-y-3">
+                        <div className="rounded bg-light p-4 deprecated-space-y-3">
                             <div className="flex items-center gap-2">
                                 <span className="rounded-full bg-muted text-white w-6 h-6 flex items-center justify-center font-semibold">
                                     2
@@ -176,7 +176,7 @@ export function RunningTimeCalculatorModal(): JSX.Element {
 
                         {/* Step 3: Results */}
                         {recommendedSampleSize !== null && recommendedRunningTime !== null && (
-                            <div className="rounded bg-light p-4 space-y-3">
+                            <div className="rounded bg-light p-4 deprecated-space-y-3">
                                 <div className="flex items-center gap-2">
                                     <span className="rounded-full bg-muted text-white w-6 h-6 flex items-center justify-center font-semibold">
                                         3

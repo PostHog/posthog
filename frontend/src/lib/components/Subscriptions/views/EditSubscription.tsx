@@ -94,10 +94,10 @@ export function EditSubscription({
                 </div>
             </LemonModal.Header>
 
-            <LemonModal.Content className="space-y-2">
+            <LemonModal.Content className="deprecated-space-y-2">
                 {!subscription ? (
                     subscriptionLoading ? (
-                        <div className="space-y-4">
+                        <div className="deprecated-space-y-4">
                             <LemonSkeleton className="w-1/2 h-4" />
                             <LemonSkeleton.Row />
                             <LemonSkeleton className="w-1/2 h-4" />

@@ -45,7 +45,7 @@ export function SelfManagedTable({ table, updateTable, editingTable }: Props): J
                     </LemonButton>
                 }
             />
-            <div className="space-y-4">
+            <div className="deprecated-space-y-4">
                 <DatawarehouseTableForm
                     onUpdate={() =>
                         updateTable({
