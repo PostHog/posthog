@@ -13,6 +13,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
 from posthog.schema import (
     CachedPathsV2QueryResponse,
+    ConversionWindowIntervalUnit,
     HogQLQueryModifiers,
     PathsV2Filter,
     PathsV2Item,
@@ -42,6 +43,12 @@ class PathsV2QueryRunner(QueryRunner):
         self.max_steps: int = self.query.pathsV2Filter.maxSteps or PathsV2Filter.model_fields["maxSteps"].default
         self.max_rows_per_step: int = (
             self.query.pathsV2Filter.maxRowsPerStep or PathsV2Filter.model_fields["maxRowsPerStep"].default
+        )
+        self.interval: int = (
+            self.query.pathsV2Filter.windowInterval or PathsV2Filter.model_fields["windowInterval"].default
+        )
+        self.interval_unit: ConversionWindowIntervalUnit = (
+            self.query.pathsV2Filter.windowIntervalUnit or PathsV2Filter.model_fields["windowIntervalUnit"].default
         )
 
     @cached_property
