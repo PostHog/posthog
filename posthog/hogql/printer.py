@@ -434,14 +434,17 @@ class _Printer(Visitor):
             else:
                 limit = ast.Constant(value=MAX_SELECT_RETURNED_ROWS)
 
+        if node.limit_by is not None:
+            clauses.append(
+                f"LIMIT {self.visit(node.limit_by.n)} {f'OFFSET {self.visit(node.limit_by.offset_value)}' if node.limit_by.offset_value else ''} BY {', '.join([self.visit(expr) for expr in node.limit_by.exprs])}"
+            )
+
         if limit is not None:
             clauses.append(f"LIMIT {self.visit(limit)}")
             if node.limit_with_ties:
                 clauses.append("WITH TIES")
             if node.offset is not None:
                 clauses.append(f"OFFSET {self.visit(node.offset)}")
-            if node.limit_by is not None:
-                clauses.append(f"BY {', '.join([self.visit(expr) for expr in node.limit_by])}")
 
         if self.context.output_format and self.dialect == "clickhouse" and is_top_level_query:
             clauses.append(f"FORMAT{space}{self.context.output_format}")

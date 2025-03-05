@@ -74,14 +74,9 @@ export enum KafkaSaslMechanism {
 }
 
 export enum PluginServerMode {
-    ingestion = 'ingestion',
     ingestion_v2 = 'ingestion-v2',
-    ingestion_overflow = 'ingestion-overflow',
-    ingestion_historical = 'ingestion-historical',
-    events_ingestion = 'events-ingestion',
     async_onevent = 'async-onevent',
     async_webhooks = 'async-webhooks',
-    analytics_ingestion = 'analytics-ingestion',
     recordings_blob_ingestion = 'recordings-blob-ingestion',
     recordings_blob_ingestion_overflow = 'recordings-blob-ingestion-overflow',
     recordings_blob_ingestion_v2 = 'recordings-blob-ingestion-v2',
@@ -340,6 +335,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     SESSION_RECORDING_V2_S3_REGION: string
     SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: string
     SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: string
+    SESSION_RECORDING_V2_S3_TIMEOUT_MS: number
 
     // Destination Migration Diffing
     DESTINATION_MIGRATION_DIFFING_ENABLED: boolean
@@ -393,10 +389,6 @@ export interface Hub extends PluginsServerConfig {
 export interface PluginServerCapabilities {
     // Warning: when adding more entries, make sure to update worker/vm/capabilities.ts
     // and the shouldSetupPluginInServer() test accordingly.
-    ingestion?: boolean
-    ingestionOverflow?: boolean
-    ingestionHistorical?: boolean
-    eventsIngestionPipelines?: boolean
     ingestionV2Combined?: boolean
     ingestionV2?: boolean
     processAsyncOnEventHandlers?: boolean

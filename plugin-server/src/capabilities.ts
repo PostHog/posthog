@@ -37,38 +37,6 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 ingestionV2: true,
                 ...sharedCapabilities,
             }
-        case PluginServerMode.ingestion:
-            // NOTE: this mode will be removed in the future and replaced with
-            // `analytics-ingestion` and `recordings-ingestion` modes.
-            return {
-                mmdb: true,
-                ingestion: true,
-                ...sharedCapabilities,
-            }
-        case PluginServerMode.ingestion_overflow:
-            return {
-                mmdb: true,
-                ingestionOverflow: true,
-                ...sharedCapabilities,
-            }
-        case PluginServerMode.ingestion_historical:
-            return {
-                mmdb: true,
-                ingestionHistorical: true,
-                ...sharedCapabilities,
-            }
-        case PluginServerMode.events_ingestion:
-            return {
-                mmdb: true,
-                eventsIngestionPipelines: true,
-                ...sharedCapabilities,
-            }
-        case PluginServerMode.analytics_ingestion:
-            return {
-                mmdb: true,
-                ingestion: true,
-                ...sharedCapabilities,
-            }
         case PluginServerMode.recordings_blob_ingestion:
             return {
                 sessionRecordingBlobIngestion: true,
@@ -133,9 +101,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
         case PluginServerMode.functional_tests:
             return {
                 mmdb: true,
-                ingestion: true,
-                ingestionHistorical: true,
-                eventsIngestionPipelines: true,
+                ingestionV2Combined: true,
                 processAsyncOnEventHandlers: true,
                 processAsyncWebhooksHandlers: true,
                 sessionRecordingBlobIngestion: true,
