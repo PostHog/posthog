@@ -47,7 +47,7 @@ export const scene: SceneExport = {
 
 export function Surveys(): JSX.Element {
     const {
-        surveys,
+        surveys: { results: surveys },
         searchedSurveys,
         surveysLoading,
         surveysResponsesCount,
@@ -57,9 +57,11 @@ export function Surveys(): JSX.Element {
         showSurveysDisabledBanner,
         tab,
         globalSurveyAppearanceConfigAvailable,
+        hasNextPage,
     } = useValues(surveysLogic)
 
-    const { deleteSurvey, updateSurvey, setSearchTerm, setSurveysFilters, setTab } = useActions(surveysLogic)
+    const { deleteSurvey, updateSurvey, setSearchTerm, setSurveysFilters, setTab, loadNextPage } =
+        useActions(surveysLogic)
 
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -227,6 +229,15 @@ export function Surveys(): JSX.Element {
                                     tab === SurveysTabs.Active ? 'No surveys. Create a new survey?' : 'No surveys found'
                                 }
                                 loading={surveysLoading}
+                                footer={
+                                    hasNextPage && (
+                                        <div className="flex justify-center p-1">
+                                            <LemonButton onClick={loadNextPage} className="w-full">
+                                                {surveysLoading ? 'Loading...' : 'Load more'}
+                                            </LemonButton>
+                                        </div>
+                                    )
+                                }
                                 columns={[
                                     {
                                         dataIndex: 'name',

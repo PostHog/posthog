@@ -3,8 +3,9 @@ import Fuse from 'fuse.js'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
-import api from 'lib/api'
+import api, { CountedPaginatedResponse } from 'lib/api'
 import { Scene } from 'scenes/sceneTypes'
+import { SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -48,22 +49,66 @@ export const surveysLogic = kea<surveysLogicType>([
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setSurveysFilters: (filters: Partial<SurveysFilters>, replace?: boolean) => ({ filters, replace }),
         setTab: (tab: SurveysTabs) => ({ tab }),
+        loadNextPage: true,
+        loadBackendSearchResults: true,
     }),
     loaders(({ values }) => ({
         surveys: {
-            __default: [] as Survey[],
+            __default: { results: [], count: 0 } as CountedPaginatedResponse<Survey>,
             loadSurveys: async () => {
-                const responseSurveys = await api.surveys.list()
-                return responseSurveys.results
+                return await api.surveys.list()
+            },
+            loadNextPage: async () => {
+                if (!values.surveys.next) {
+                    return values.surveys
+                }
+
+                // http://localhost:8010/api/projects/2/surveys?limit=10&offset=10
+                // which is from values.next
+                // get limit / offset from query params
+                const url = new URL(values.surveys.next)
+                const limit = parseInt(url.searchParams.get('limit') || SURVEY_PAGE_SIZE.toString())
+                const offset = parseInt(url.searchParams.get('offset') || values.surveys.results.length.toString())
+
+                const response = await api.surveys.list(limit, offset)
+
+                // deduplicate results
+                const existingIds = new Set(values.surveys.results.map((s) => s.id))
+                const newResults = response.results.filter((s) => !existingIds.has(s.id))
+
+                return {
+                    ...response,
+                    results: [...values.surveys.results, ...newResults],
+                }
+            },
+            loadBackendSearchResults: async () => {
+                if (!values.searchTerm || values.surveys.count <= SURVEY_PAGE_SIZE) {
+                    return values.surveys
+                }
+
+                const response = await api.surveys.list(SURVEY_PAGE_SIZE, 0, values.searchTerm)
+
+                const existingIds = new Set(values.surveys.results.map((s) => s.id))
+                const newResults = response.results.filter((s) => !existingIds.has(s.id))
+
+                return {
+                    ...values.surveys,
+                    results: [...values.surveys.results, ...newResults],
+                }
             },
             deleteSurvey: async (id) => {
                 await api.surveys.delete(id)
-                return values.surveys.filter((survey) => survey.id !== id)
+                return {
+                    ...values.surveys,
+                    results: values.surveys.results.filter((survey) => survey.id !== id),
+                }
             },
             updateSurvey: async ({ id, updatePayload }) => {
                 const updatedSurvey = await api.surveys.update(id, { ...updatePayload })
-
-                return values.surveys.map((survey) => (survey.id === id ? updatedSurvey : survey))
+                return {
+                    ...values.surveys,
+                    results: values.surveys.results.map((survey) => (survey.id === id ? updatedSurvey : survey)),
+                }
             },
         },
         surveysResponsesCount: {
@@ -96,6 +141,22 @@ export const surveysLogic = kea<surveysLogicType>([
                 },
             },
         ],
+        hasNextPage: [
+            true as boolean,
+            {
+                loadSurveysSuccess: (_, { surveys }) => surveys.next !== null && surveys.next !== undefined,
+                loadNextPageSuccess: (_, { surveys }) => surveys.next !== null && surveys.next !== undefined,
+                loadBackendSearchResultsSuccess: (_, { surveys }) =>
+                    surveys.next !== null && surveys.next !== undefined,
+            },
+        ],
+        totalCount: [
+            0,
+            {
+                loadSurveysSuccess: (_, { surveys }) => surveys.results.length,
+                loadNextPageSuccess: (_, { surveys }) => surveys.results.length,
+            },
+        ],
     }),
     listeners(({ actions, values }) => ({
         deleteSurveySuccess: () => {
@@ -113,7 +174,7 @@ export const surveysLogic = kea<surveysLogicType>([
         loadSurveysSuccess: () => {
             actions.loadCurrentTeam()
 
-            if (values.surveys.some((survey) => survey.start_date)) {
+            if (values.surveys.results.some((survey) => survey.start_date)) {
                 activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.LaunchSurvey)
             }
         },
@@ -125,12 +186,18 @@ export const surveysLogic = kea<surveysLogicType>([
         setTab: ({ tab }) => {
             actions.setSurveysFilters({ ...values.filters, archived: tab === SurveysTabs.Archived })
         },
+        setSearchTerm: async ({ searchTerm }, breakpoint) => {
+            await breakpoint(300) // Debounce for 300ms
+            if (searchTerm && values.surveys.count > SURVEY_PAGE_SIZE) {
+                actions.loadBackendSearchResults()
+            }
+        },
     })),
     selectors({
         searchedSurveys: [
             (selectors) => [selectors.surveys, selectors.searchTerm, selectors.filters],
             (surveys, searchTerm, filters) => {
-                let searchedSurveys = surveys
+                let searchedSurveys = surveys.results
 
                 if (!searchTerm && Object.keys(filters).length === 0) {
                     return searchedSurveys
@@ -148,16 +215,16 @@ export const surveysLogic = kea<surveysLogicType>([
 
                 const { status, created_by, archived } = filters
                 if (status !== 'any') {
-                    searchedSurveys = searchedSurveys.filter((survey) => getSurveyStatus(survey) === status)
+                    searchedSurveys = searchedSurveys.filter((survey: Survey) => getSurveyStatus(survey) === status)
                 }
                 if (created_by) {
-                    searchedSurveys = searchedSurveys.filter((survey) => survey.created_by?.id === created_by)
+                    searchedSurveys = searchedSurveys.filter((survey: Survey) => survey.created_by?.id === created_by)
                 }
 
                 if (archived) {
-                    searchedSurveys = searchedSurveys.filter((survey) => survey.archived)
+                    searchedSurveys = searchedSurveys.filter((survey: Survey) => survey.archived)
                 } else {
-                    searchedSurveys = searchedSurveys.filter((survey) => !survey.archived)
+                    searchedSurveys = searchedSurveys.filter((survey: Survey) => !survey.archived)
                 }
 
                 return searchedSurveys
@@ -209,7 +276,7 @@ export const surveysLogic = kea<surveysLogicType>([
                     !currentTeamLoading &&
                     currentTeam &&
                     !currentTeam.surveys_opt_in &&
-                    surveys.some((s) => s.start_date && !s.end_date && s.type !== SurveyType.API)
+                    surveys.results.some((s) => s.start_date && !s.end_date && s.type !== SurveyType.API)
                 )
             },
         ],
