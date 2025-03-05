@@ -15,7 +15,7 @@ import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { getDefaultTree } from './defaultTree'
 import type { projectTreeLogicType } from './projectTreeLogicType'
 import { FileSystemImport, ProjectTreeAction } from './types'
-import { convertFileSystemEntryToTreeDataItem, joinPath, splitPath } from './utils'
+import { convertFileSystemEntryToTreeDataItem, findInProjectTree, joinPath, splitPath } from './utils'
 
 export const projectTreeLogic = kea<projectTreeLogicType>([
     path(['layout', 'navigation-3000', 'components', 'projectTreeLogic']),
@@ -39,15 +39,17 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         createSavedItem: (savedItem: FileSystemEntry) => ({ savedItem }),
         updateSavedItem: (savedItem: FileSystemEntry, oldPath: string) => ({ savedItem, oldPath }),
         deleteSavedItem: (savedItem: FileSystemEntry) => ({ savedItem }),
-        updateExpandedFolders: (folderIds: string[]) => ({ folderIds }),
-        updateLastViewedId: (id: string) => ({ id }),
+        setExpandedFolders: (folderIds: string[]) => ({ folderIds }),
+        setLastViewedId: (id: string) => ({ id }),
         toggleFolderOpen: (folderId: string, isExpanded: boolean) => ({ folderId, isExpanded }),
-        updateHelpNoticeVisibility: (visible: boolean) => ({ visible }),
+        setHelpNoticeVisibility: (visible: boolean) => ({ visible }),
         toggleDragAndDrop: (enabled: boolean) => ({ enabled }),
         loadFolder: (folder: string) => ({ folder }),
         loadFolderStart: (folder: string) => ({ folder }),
         loadFolderSuccess: (folder: string, entries: FileSystemEntry[]) => ({ folder, entries }),
         loadFolderFailure: (folder: string, error: string) => ({ folder, error }),
+        rename: (path: string) => ({ path }),
+        createFolder: (parentPath: string) => ({ parentPath }),
     }),
     loaders(({ actions, values }) => ({
         allUnfiledItems: [
@@ -155,19 +157,19 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         expandedFolders: [
             [] as string[],
             {
-                updateExpandedFolders: (_, { folderIds }) => folderIds,
+                setExpandedFolders: (_, { folderIds }) => folderIds,
             },
         ],
         lastViewedId: [
             '',
             {
-                updateLastViewedId: (_, { id }) => id,
+                setLastViewedId: (_, { id }) => id,
             },
         ],
         helpNoticeVisible: [
             true,
             {
-                updateHelpNoticeVisibility: (_, { visible }) => visible,
+                setHelpNoticeVisibility: (_, { visible }) => visible,
             },
         ],
         dragAndDropEnabled: [
@@ -372,17 +374,40 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 newPath: folder,
             })
         },
-        toggleFolderOpen: ({ folderId, isExpanded }) => {
-            if (isExpanded) {
-                actions.updateExpandedFolders(values.expandedFolders.filter((f) => f !== folderId))
+        toggleFolderOpen: ({ folderId }) => {
+            if (values.expandedFolders.find((f) => f === folderId)) {
+                actions.setExpandedFolders(values.expandedFolders.filter((f) => f !== folderId))
             } else {
-                actions.updateExpandedFolders([...values.expandedFolders, folderId])
+                actions.setExpandedFolders([...values.expandedFolders, folderId])
+                if (values.folderStates[folderId] !== 'loaded' && values.folderStates[folderId] !== 'loading') {
+                    const folder = findInProjectTree(folderId, values.projectTree)
+                    folder && actions.loadFolder(folder.record?.path)
+                }
             }
         },
         cancelPendingActions: () => {
             // Clear all pending actions without applying them
             for (const action of values.pendingActions) {
                 actions.removeQueuedAction(action)
+            }
+        },
+        rename: ({ path }) => {
+            const splits = splitPath(path)
+            if (splits.length > 0) {
+                const currentName = splits[splits.length - 1].replace(/\\/g, '')
+                const folder = prompt('New name?', currentName)
+                if (folder) {
+                    actions.moveItem(path, joinPath([...splits.slice(0, -1), folder]))
+                }
+            }
+        },
+        createFolder: ({ parentPath }) => {
+            const promptMessage = parentPath ? `Create a folder under "${parentPath}":` : 'Create a new folder:'
+            const folder = prompt(promptMessage, '')
+            if (folder) {
+                const parentSplits = parentPath ? splitPath(parentPath) : []
+                const newPath = joinPath([...parentSplits, folder])
+                actions.addFolder(newPath)
             }
         },
     })),

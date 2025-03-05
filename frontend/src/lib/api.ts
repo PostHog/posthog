@@ -847,13 +847,13 @@ class ApiRequest {
 
     public integrationGoogleAdsConversionActions(
         id: IntegrationType['id'],
-        customerId: string,
+        params: { customerId: string; parentId: string },
         teamId?: TeamType['id']
     ): ApiRequest {
         return this.integrations(teamId)
             .addPathComponent(id)
             .addPathComponent('google_conversion_actions')
-            .withQueryString({ customerId })
+            .withQueryString(params)
     }
 
     public integrationLinkedInAdsAccounts(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
@@ -1954,7 +1954,8 @@ const api = {
                 .hogFunctions()
                 .withQueryString({
                     filters,
-                    ...(types ? { types: types.join(',') } : {}),
+                    // NOTE: The API expects "type" as thats the DB level name
+                    ...(types ? { type: types.join(',') } : {}),
                 })
                 .get()
         },
@@ -2701,14 +2702,14 @@ const api = {
         },
         async googleAdsAccounts(
             id: IntegrationType['id']
-        ): Promise<{ accessibleAccounts: { id: string; name: string }[] }> {
+        ): Promise<{ accessibleAccounts: { id: string; name: string; level: string; parent_id: string }[] }> {
             return await new ApiRequest().integrationGoogleAdsAccounts(id).get()
         },
         async googleAdsConversionActions(
             id: IntegrationType['id'],
-            customerId: string
+            params: { customerId: string; parentId: string }
         ): Promise<{ conversionActions: GoogleAdsConversionActionType[] }> {
-            return await new ApiRequest().integrationGoogleAdsConversionActions(id, customerId).get()
+            return await new ApiRequest().integrationGoogleAdsConversionActions(id, params).get()
         },
         async linkedInAdsAccounts(id: IntegrationType['id']): Promise<{ adAccounts: LinkedInAdsAccountType[] }> {
             return await new ApiRequest().integrationLinkedInAdsAccounts(id).get()
