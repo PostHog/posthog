@@ -70,7 +70,7 @@ export interface LemonButtonPropsBase
     /** Whether to truncate the button's text if necessary */
     truncate?: boolean
     /** Wrap the main button element with a container element */
-    buttonWrapper?: (button: React.ReactNode) => React.ReactNode
+    buttonWrapper?: (button: JSX.Element) => JSX.Element
 }
 
 export type SideAction = Pick<
@@ -209,7 +209,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 buttonProps['aria-label'] = tooltip
             }
 
-            let workingButton: React.ReactNode = (
+            let workingButton: JSX.Element = (
                 <ButtonComponent
                     ref={ref as any}
                     className={clsx(

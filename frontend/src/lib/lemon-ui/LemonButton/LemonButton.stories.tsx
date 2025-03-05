@@ -327,6 +327,24 @@ export const WithSideAction = (): JSX.Element => {
     )
 }
 
+export const WithButtonWrapper = (): JSX.Element => {
+    return (
+        <div className="space-y-2">
+            <div className="border rounded-lg flex flex-col p-2 space-y-1">
+                <LemonButton buttonWrapper={(button) => <div className="opacity-0.5">{button}</div>} active>
+                    Active item
+                </LemonButton>
+                <LemonButton buttonWrapper={(button) => <div className="opacity-0.25">{button}</div>}>
+                    Item 1
+                </LemonButton>
+                <LemonButton buttonWrapper={(button) => <div className="opacity-0.75">{button}</div>}>
+                    Item 2
+                </LemonButton>
+            </div>
+        </div>
+    )
+}
+
 export const AsLinks = (): JSX.Element => {
     return (
         <div className="space-y-2">
