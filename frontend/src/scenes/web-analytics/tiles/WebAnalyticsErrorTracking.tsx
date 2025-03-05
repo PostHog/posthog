@@ -15,13 +15,13 @@ export const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
     const record = props.record as ErrorTrackingIssue
 
     return (
-        <div className="flex items-start space-x-1.5 group">
+        <div className="flex items-start deprecated-space-x-1.5 group">
             <LemonTableLink
                 title={record.name || 'Unknown Type'}
                 description={
-                    <div className="space-y-1">
+                    <div className="deprecated-space-y-1">
                         <div className="line-clamp-1">{record.description}</div>
-                        <div className="space-x-1">
+                        <div className="deprecated-space-x-1">
                             <TZLabel time={record.last_seen as string} className="border-dotted border-b" />
                         </div>
                     </div>

@@ -115,7 +115,9 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
                 showIntervalSelect={showIntervalSelect}
             />
 
-            {buttonsRow.length > 0 ? <div className="flex justify-end my-2 space-x-2">{buttonsRow}</div> : null}
+            {buttonsRow.length > 0 ? (
+                <div className="flex justify-end my-2 deprecated-space-x-2">{buttonsRow}</div>
+            ) : null}
         </div>
     )
 }
@@ -248,7 +250,9 @@ export const WebTabs = ({
                 />
             </div>
             <div className="flex-1 flex flex-col">{activeTab?.content}</div>
-            {buttonsRow.length > 0 ? <div className="flex justify-end my-2 space-x-2">{buttonsRow}</div> : null}
+            {buttonsRow.length > 0 ? (
+                <div className="flex justify-end my-2 deprecated-space-x-2">{buttonsRow}</div>
+            ) : null}
         </div>
     )
 }

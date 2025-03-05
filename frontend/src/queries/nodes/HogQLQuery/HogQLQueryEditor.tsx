@@ -93,7 +93,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
             <div
                 data-attr="hogql-query-editor"
                 className={clsx(
-                    'flex flex-col rounded space-y-2 w-full overflow-hidden',
+                    'flex flex-col rounded deprecated-space-y-2 w-full overflow-hidden',
                     !props.embedded && 'p-2 border'
                 )}
             >

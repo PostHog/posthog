@@ -123,7 +123,7 @@ export function DestinationsTable({
     const showPriorityColumn = types.includes('transformation')
 
     return (
-        <div className="space-y-4">
+        <div className="deprecated-space-y-4">
             <DestinationsFilters
                 types={types}
                 hideFeedback={hideFeedback}

@@ -85,7 +85,7 @@ export function InstanceConfigSaveModal({ onClose, isOpen }: { onClose: () => vo
                 </>
             }
         >
-            <div className="space-y-2">
+            <div className="deprecated-space-y-2">
                 {isChangingEnabledEmailSettings && (
                     <LemonBanner type="info">
                         As you are changing email settings and {isEnablingEmail ? 'enabling email' : 'email is enabled'}

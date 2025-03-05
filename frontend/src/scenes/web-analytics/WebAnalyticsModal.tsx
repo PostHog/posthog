@@ -32,7 +32,7 @@ export const WebAnalyticsModal = (): JSX.Element | null => {
             fullScreen={false}
             closable={true}
         >
-            <div className="WebAnalyticsModal space-y-4">
+            <div className="WebAnalyticsModal deprecated-space-y-4">
                 <div className="flex flex-row flex-wrap gap-2">
                     <WebPropertyFilters />
                     <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />

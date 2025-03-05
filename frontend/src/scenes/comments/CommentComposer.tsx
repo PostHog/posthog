@@ -22,7 +22,7 @@ export const CommentComposer = (props: CommentsLogicProps): JSX.Element => {
     }, [key])
 
     return (
-        <div className="space-y-2">
+        <div className="deprecated-space-y-2">
             <LemonTextAreaMarkdown
                 data-attr="comment-composer"
                 placeholder={placeholder}

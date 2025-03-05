@@ -232,7 +232,7 @@ export function IngestionWarningsView(): JSX.Element {
 
     return (
         <div data-attr="manage-events-table">
-            <div className="flex flex-col space-y-2">
+            <div className="flex flex-col deprecated-space-y-2">
                 <div>Data ingestion related warnings from past 30 days.</div>
                 <LemonInput
                     fullWidth

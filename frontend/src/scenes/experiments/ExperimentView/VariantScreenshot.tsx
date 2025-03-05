@@ -93,7 +93,7 @@ export function VariantScreenshot({
     const widthClass = getThumbnailWidth()
 
     return (
-        <div className="space-y-4">
+        <div className="deprecated-space-y-4">
             <div className="flex gap-4 items-start">
                 {mediaIds.map((mediaId, index) => (
                     <div key={mediaId} className="relative">

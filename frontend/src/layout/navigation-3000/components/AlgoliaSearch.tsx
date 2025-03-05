@@ -20,10 +20,10 @@ const rowRenderer = ({ key, index, style, hits, activeOption }: any): JSX.Elemen
             <LemonButton
                 active={activeOption === index}
                 to={`https://posthog.com/${slug}`}
-                className="[&_>span>span]:flex-col [&_>span>span]:items-start [&_>span>span]:space-y-1"
+                className="[&_>span>span]:flex-col [&_>span>span]:items-start [&_>span>span]:deprecated-space-y-1"
             >
                 <span>
-                    <span className="flex space-x-2 items-center">
+                    <span className="flex deprecated-space-x-2 items-center">
                         <p className="m-0 font-bold font-sans line-clamp-1">{title}</p>
                         {type === 'question' && resolved && (
                             <IconCheckCircle className="text-success size-4 flex-shrink-0" />
@@ -137,7 +137,7 @@ const Tags = ({
     }
 
     return (
-        <ul className="list-none m-0 p-0 flex space-x-1 mt-1 mb-0.5 pb-1.5 border-b px-2">
+        <ul className="list-none m-0 p-0 flex deprecated-space-x-1 mt-1 mb-0.5 pb-1.5 border-b px-2">
             {tags.map((tag) => {
                 const { type } = tag
                 return (

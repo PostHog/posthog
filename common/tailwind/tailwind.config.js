@@ -1,4 +1,5 @@
 /** @type {import('tailwindcss').Config} */
+const plugin = require('tailwindcss/plugin')
 
 const commonColors = {
     'inherit': 'inherit',
@@ -307,15 +308,14 @@ const deprecatedColors = {
 
 const config = {
     content: [
-        // Starting all paths with '.." to share this between frontend/, cypress/, playwright/ and common/storybook/
-        // Update common/storybook/tailwind.config.js if you change this
-        '../frontend/src/**/*.{ts,tsx}',
-        '../ee/frontend/**/*.{ts,tsx}',
-        '../frontend/src/index.html',
-        '../products/**/frontend/**/*.{ts,tsx}',
-        '../common/**/src/**/*.{ts,tsx}',
-        '../common/**/frontend/**/*.{ts,tsx}',
-        '!../frontend/src/**/*Type.ts',
+        // Starting all paths with '../.." to share this between frontend/, cypress/, playwright/ and common/storybook/
+        '../../frontend/src/**/*.{ts,tsx}',
+        '../../ee/frontend/**/*.{ts,tsx}',
+        '../../frontend/src/index.html',
+        '../../products/**/frontend/**/*.{ts,tsx}',
+        '../../common/**/src/**/*.{ts,tsx}',
+        '../../common/**/frontend/**/*.{ts,tsx}',
+        '!../../frontend/src/**/*Type.ts',
     ],
     darkMode: ['selector', '[theme="dark"]'],
     important: true,
@@ -781,6 +781,26 @@ const config = {
     },
     plugins: [
         require('@tailwindcss/container-queries'),
+        plugin(({ addUtilities, theme }) => {
+            const spacing = theme("spacing");
+            const newUtilities = {};
+
+            for (const [key, value] of Object.entries(spacing)) {
+                // Convert decimal points to underscores for class names like space-y-1.5 -> space-y-1_5
+                // Our style lint complains about using 1.5 etc, so we can use this to convert them
+                // We don't have any spacing classes left using 1.5 etc, so this is just a lint fix
+                const safeKey = key.toString().replace('.', '_');
+                
+                newUtilities[`.deprecated-space-y-${safeKey} > :not([hidden]) ~ :not([hidden])`] = {
+                    marginTop: value,
+                };
+                newUtilities[`.deprecated-space-x-${safeKey} > :not([hidden]) ~ :not([hidden])`] = {
+                    marginLeft: value,
+                };
+            }
+
+            addUtilities(newUtilities);
+        }),
     ],
 }
 

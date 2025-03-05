@@ -504,7 +504,7 @@ function StatusRow({ item }: { item: PerformanceEvent }): JSX.Element | null {
 
     return methodRow || statusRow ? (
         <p>
-            <div className="text-xs space-y-1 max-w-full">
+            <div className="text-xs deprecated-space-y-1 max-w-full">
                 {methodRow}
                 {statusRow}
             </div>

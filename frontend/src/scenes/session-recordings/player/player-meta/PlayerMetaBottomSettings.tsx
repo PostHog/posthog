@@ -32,7 +32,7 @@ function SetPlaybackSpeed(): JSX.Element {
             data-attr="session-recording-speed-select"
             items={PLAYBACK_SPEEDS.map((speedToggle) => ({
                 label: (
-                    <div className="flex w-full space-x-2 justify-between">
+                    <div className="flex w-full deprecated-space-x-2 justify-between">
                         <span>{speedToggle}x</span>
                         <span>({humanFriendlyDuration(sessionPlayerData.durationMs / speedToggle / 1000)})</span>
                     </div>

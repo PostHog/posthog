@@ -47,7 +47,7 @@ const SkeletonLog = (): JSX.Element => {
     return (
         <div className="ActivityLogRow items-start">
             <LemonSkeleton.Circle />
-            <div className="details space-y-4 mt-2">
+            <div className="details deprecated-space-y-4 mt-2">
                 <LemonSkeleton className="w-1/2 h-4" />
                 <LemonSkeleton />
             </div>
@@ -72,11 +72,11 @@ const ActivityLogDiff = ({ logItem }: { logItem: HumanizedActivityLogItem }): JS
     const changes = logItem.unprocessed?.detail.changes
 
     return (
-        <div className="flex flex-col space-y-2 px-2 py-1">
-            <div className="flex flex-col space-y-2">
+        <div className="flex flex-col deprecated-space-y-2 px-2 py-1">
+            <div className="flex flex-col deprecated-space-y-2">
                 {changes?.length ? (
                     changes.map((change, i) => (
-                        <div key={i} className="flex flex-col space-y-2">
+                        <div key={i} className="flex flex-col deprecated-space-y-2">
                             <h2>{change.field}</h2>
                             <MonacoDiffEditor
                                 original={JSON.stringify(change.before, null, 2)}
@@ -98,7 +98,9 @@ export const ActivityLogRow = ({ logItem }: { logItem: HumanizedActivityLogItem 
     const [activeTab, setActiveTab] = useState<ActivityLogTabs>('diff')
     return (
         <div className={clsx('flex flex-col px-1 py-0.5', isExpanded && 'border rounded')}>
-            <div className={clsx('ActivityLogRow flex space-x-2', logItem.unread && 'ActivityLogRow--unread')}>
+            <div
+                className={clsx('ActivityLogRow flex deprecated-space-x-2', logItem.unread && 'ActivityLogRow--unread')}
+            >
                 <ProfilePicture
                     showName={false}
                     user={{
@@ -191,7 +193,7 @@ export const ActivityLog = ({ scope, id, caption, startingPage = 1 }: ActivityLo
                     <Empty scope={scope} />
                 ) : (
                     <>
-                        <div className="space-y-2">
+                        <div className="deprecated-space-y-2">
                             {humanizedActivity.map((logItem, index) => (
                                 <ActivityLogRow key={index} logItem={logItem} />
                             ))}

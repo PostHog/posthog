@@ -303,7 +303,7 @@ export function DeltaChart({
                     className="p-2 overflow-auto"
                 >
                     <div className="text-xs font-semibold whitespace-nowrap overflow-hidden">
-                        <div className="space-y-1">
+                        <div className="deprecated-space-y-1">
                             <div className="flex items-center gap-2">
                                 <div className="cursor-default text-xs font-semibold whitespace-nowrap overflow-hidden text-ellipsis flex-grow flex items-center">
                                     <span className="mr-1">{metricIndex + 1}.</span>
@@ -329,7 +329,7 @@ export function DeltaChart({
                                     }}
                                 />
                             </div>
-                            <div className="space-x-1">
+                            <div className="deprecated-space-x-1">
                                 <LemonTag type="muted" size="small">
                                     {getMetricTag(metric)}
                                 </LemonTag>

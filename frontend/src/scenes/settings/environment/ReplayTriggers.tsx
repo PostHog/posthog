@@ -121,7 +121,7 @@ function UrlConfigRow({
                 <span>{trigger.matching === 'regex' ? 'Matches regex: ' : ''}</span>
                 <span>{trigger.url}</span>
             </span>
-            <div className="Actions flex space-x-1 shrink-0">
+            <div className="Actions flex deprecated-space-x-1 shrink-0">
                 <LemonButton icon={<IconPencil />} onClick={() => onEdit(index)} tooltip="Edit" center />
                 <LemonButton
                     icon={<IconTrash />}
@@ -166,7 +166,7 @@ function UrlConfigSection({
     onRemove: (index: number) => void
 }): JSX.Element {
     return (
-        <div className="flex flex-col space-y-2 mt-4">
+        <div className="flex flex-col deprecated-space-y-2 mt-4">
             <div className="flex items-center gap-2 justify-between">
                 <LemonLabel className="text-base">{title}</LemonLabel>
                 <LemonButton
@@ -253,7 +253,7 @@ function EventTriggerOptions(): JSX.Element | null {
     const { updateEventTriggerConfig } = useActions(replayTriggersLogic)
 
     return (
-        <div className="flex flex-col space-y-2 mt-4">
+        <div className="flex flex-col deprecated-space-y-2 mt-4">
             <div className="flex items-center gap-2 justify-between">
                 <LemonLabel className="text-base">Event emitted</LemonLabel>
             </div>
@@ -280,7 +280,7 @@ function EventTriggerOptions(): JSX.Element | null {
 
 export function ReplayTriggers(): JSX.Element {
     return (
-        <div className="space-y-2">
+        <div className="deprecated-space-y-2">
             <SupportedPlatforms android={false} ios={false} flutter={false} web={true} reactNative={false} />
             <p>
                 Use the settings below to control when recordings are started or paused. If no triggers are selected,

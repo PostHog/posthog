@@ -45,8 +45,8 @@ const ExperimentFormFields = (): JSX.Element => {
                     Fill out the details below to create your experiment based off of the insight.
                 </LemonBanner>
             )}
-            <div className="space-y-8">
-                <div className="space-y-6 max-w-120">
+            <div className="deprecated-space-y-8">
+                <div className="deprecated-space-y-6 max-w-120">
                     <LemonField name="name" label="Name">
                         <LemonInput placeholder="Pricing page conversion" data-attr="experiment-name" />
                     </LemonField>
@@ -54,7 +54,7 @@ const ExperimentFormFields = (): JSX.Element => {
                         name="feature_flag_key"
                         label="Feature flag key"
                         help={
-                            <div className="flex items-center space-x-2">
+                            <div className="flex items-center deprecated-space-x-2">
                                 <span>
                                     Each experiment is backed by a feature flag. Create a new one by entering a key, or
                                     choose an existing feature flag with multiple variants.
@@ -120,7 +120,7 @@ const ExperimentFormFields = (): JSX.Element => {
                         <LemonDivider />
                         <LemonRadio
                             value={experiment.type}
-                            className="space-y-2 -mt-2"
+                            className="deprecated-space-y-2 -mt-2"
                             onChange={(type) => {
                                 setExperimentType(type)
                             }}
@@ -248,7 +248,9 @@ const ExperimentFormFields = (): JSX.Element => {
                                             <Group key={index} name={['parameters', 'feature_flag_variants', index]}>
                                                 <div
                                                     key={`variant-${index}`}
-                                                    className={`flex items-center space-x-2 ${index > 1 && 'mt-2'}`}
+                                                    className={`flex items-center deprecated-space-x-2 ${
+                                                        index > 1 && 'mt-2'
+                                                    }`}
                                                 >
                                                     <ExperimentVariantNumber
                                                         index={index}
@@ -352,7 +354,7 @@ export function ExperimentForm(): JSX.Element {
                 formKey="experiment"
                 props={props}
                 enableFormOnSubmit
-                className="space-y-6 experiment-form"
+                className="deprecated-space-y-6 experiment-form"
             >
                 <ExperimentFormFields />
             </Form>
@@ -390,7 +392,7 @@ const SelectExistingFeatureFlagModal = ({
 
     return (
         <LemonModal isOpen={isOpen} onClose={onClose} title="Choose an existing feature flag">
-            <div className="space-y-2">
+            <div className="deprecated-space-y-2">
                 <div className="text-muted mb-2 max-w-xl">
                     Select an existing feature flag to use with this experiment. The feature flag must use multiple
                     variants with <code>'control'</code> as the first, and not be associated with an existing

@@ -197,8 +197,8 @@ export function ChannelTypeEditor({
             initialItems={initialCustomChannelTypeRules}
             renderContainerItem={(rule, { updateContainerItem }) => {
                 return (
-                    <div className="flex flex-col space-y-2">
-                        <div className="flex flex-row items-center space-x-2">
+                    <div className="flex flex-col deprecated-space-y-2">
+                        <div className="flex flex-row items-center deprecated-space-x-2">
                             <span>Set Channel type to</span>
                             <LemonInputSelect
                                 className="flex-1"
@@ -220,7 +220,7 @@ export function ChannelTypeEditor({
                                 {rule.items.length == 1 ? (
                                     'when this condition is met'
                                 ) : (
-                                    <div className="flex flex-row items-center space-x-2">
+                                    <div className="flex flex-row items-center deprecated-space-x-2">
                                         <span>When</span>
                                         <LemonSelect
                                             value={rule.combiner}
@@ -237,8 +237,8 @@ export function ChannelTypeEditor({
             }}
             renderChildItem={(rule, { updateChildItem }) => {
                 return (
-                    <div className="w-full space-y-2">
-                        <div className="flex flex-row space-x-2">
+                    <div className="w-full deprecated-space-y-2">
+                        <div className="flex flex-row deprecated-space-x-2">
                             <LemonSelect<CustomChannelField>
                                 value={rule.key}
                                 options={keyOptions}

@@ -83,7 +83,7 @@ const ResultsTab = (): JSX.Element => {
 const VariantsTab = (): JSX.Element => {
     const { shouldUseExperimentMetrics, isExperimentRunning } = useValues(experimentLogic)
     return (
-        <div className="space-y-8 mt-2">
+        <div className="deprecated-space-y-8 mt-2">
             {shouldUseExperimentMetrics && isExperimentRunning && <Exposures />}
             <ReleaseConditionsTable />
             <DistributionTable />
@@ -100,7 +100,7 @@ export function ExperimentView(): JSX.Element {
     return (
         <>
             <PageHeaderCustom />
-            <div className="space-y-8 experiment-view">
+            <div className="deprecated-space-y-8 experiment-view">
                 {experimentLoading ? (
                     <LoadingState />
                 ) : (
