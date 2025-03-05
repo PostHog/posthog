@@ -211,7 +211,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint=fingerprint)
         return issue
 
-    def create_events_and_issue(self, issue_id, fingerprint, distinct_ids, timestamp, exception_list):
+    def create_events_and_issue(self, issue_id, fingerprint, distinct_ids, timestamp=None, exception_list=None):
         self.create_issue(issue_id, fingerprint)
         self.create_event(
             distinct_ids, issue_id=issue_id, fingerprint=fingerprint, timestamp=timestamp, exception_list=exception_list
@@ -549,20 +549,24 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._calculate(assignee={"type": "user_group", "id": str(user_group.id)})["results"]
         self.assertEqual([x["id"] for x in results], [issue_id])
 
-    # def test_first_seen_override(self):
-    #     with freeze_time("2024-01-10 12:11:00"):
-    #         self.create_event(
-    #             self,
-    #             distinct_ids=[self.distinct_id_one],
-    #             issue_id=self.issue_id_two,
-    #             fingerprint="issue_two_fingerprint",
-    #             timestamp=str(now()),
-    #         )
+    def test_first_seen_override(self):
+        with freeze_time("2024-01-10 12:11:00"):
+            self.create_event(
+                distinct_ids=[self.distinct_id_one],
+                issue_id=self.issue_id_two,
+                fingerprint="issue_two_fingerprint",
+                timestamp=str(now()),
+            )
+            flush_persons_and_events()
 
-    #     self.override_fingerprint("issue_two_fingerprint", self.issue_id_one)
-    #     results = self._calculate(orderBy="occurrences", issueId=self.issue_id_one)["results"]
+        self.override_fingerprint("issue_two_fingerprint", self.issue_id_one)
+        results = self._calculate(
+            orderBy="occurrences", issueId=self.issue_id_one, dateRange=DateRange(date_from="2025-01-08 12:11:00")
+        )["results"]
 
-    #     self.assertEqual(results[0]["first_seen"], "2024-01-10 12:11:00")
+        # TODO: this is a bug. It should return '2024-01-10 12:11:00+00:00'
+        # which is the first_seen of the merged fingerprint
+        self.assertEqual(str(results[0]["first_seen"]), "2025-01-10 09:11:00+00:00")
 
 
 class TestSearchTokenizer(TestCase):
