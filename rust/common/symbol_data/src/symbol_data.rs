@@ -1,6 +1,6 @@
 use crate::{error::Error, utils::assert_at_least_as_long_as};
 
-const MAGIC: &'static [u8] = b"posthog_error_tracking";
+const MAGIC: &[u8] = b"posthog_error_tracking";
 const VERSION: u32 = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
