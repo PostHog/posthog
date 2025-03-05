@@ -344,10 +344,6 @@ class FunnelBase(ABC):
             name = step.event
             action_id = step.event
             type = "events"
-        elif isinstance(step, DataWarehouseNode):
-            raise ValidationError(
-                "Data warehouse tables are not supported in funnels just yet. For now, please try this funnel without the data warehouse-based step."
-            )
         else:
             action = Action.objects.get(pk=step.id, team__project_id=self.context.team.project_id)
             name = action.name
