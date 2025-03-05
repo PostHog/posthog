@@ -1,13 +1,13 @@
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
-import { createIncomingEvent, insertHogFunction as _insertHogFunction } from '~/tests/cdp/fixtures'
+import { insertHogFunction as _insertHogFunction } from '~/tests/cdp/fixtures'
 import { mockProducer } from '~/tests/helpers/mocks/producer.mock'
 import { resetTestDatabase } from '~/tests/helpers/sql'
 
 import { ClickHouseEvent, Hub, PropertyType, RawClickHouseEvent, TimestampFormat } from '../types'
 import { closeHub, createHub } from '../utils/db/hub'
-import { castTimestampOrNow, clickHouseTimestampSecondPrecisionToISO } from '../utils/utils'
+import { castTimestampOrNow } from '../utils/utils'
 import { getPropertyType, PropertyDefsConsumer } from './property-defs-consumer'
 
 const DEFAULT_TEST_TIMEOUT = 5000
@@ -192,7 +192,11 @@ describe('PropertyDefsConsumer', () => {
         })
 
         it('should write property defs to the DB', async () => {
-            const events = [createClickHouseEvent({})]
+            const events = await ingester.handleKafkaBatch(createKafkaMessages([createClickHouseEvent({})]))
+
+            // NOTE: Currently we just process without doing anything
+
+            expect(events).toEqual(undefined)
         })
     })
 })
