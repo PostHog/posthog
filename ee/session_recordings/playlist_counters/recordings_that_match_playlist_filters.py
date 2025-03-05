@@ -45,6 +45,12 @@ REPLAY_TEAM_PLAYLIST_COUNT_SKIPPED = Counter(
     "when a count task for a playlist is skipped because the cooldown period has not passed",
 )
 
+REPLAY_PLAYLIST_LEGACY_FILTERS_CONVERTED = Counter(
+    "replay_playlist_legacy_filters_converted",
+    "when a count task for a playlist converts legacy filters to universal filters",
+)
+
+
 REPLAY_PLAYLIST_COUNT_TIMER = Histogram(
     "replay_playlist_with_filters_count_timer_seconds",
     "Time spent loading session recordings that match filters in a playlist in seconds",
@@ -155,6 +161,7 @@ def convert_filters_to_recordings_query(playlist: SessionRecordingPlaylist) -> R
             filters = convert_legacy_filters_to_universal_filters(filters)
             playlist.filters = filters
             playlist.save(update_fields=["filters"])
+            REPLAY_PLAYLIST_LEGACY_FILTERS_CONVERTED.inc()
 
     # Extract filters from the filter group
     extracted_filters = []
