@@ -71,6 +71,7 @@ const playlist = (playlistId: string): SessionRecordingPlaylistType => {
 
 const meta: Meta = {
     title: 'Replay/Player/Success',
+    tags: ['test-skip'],
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
