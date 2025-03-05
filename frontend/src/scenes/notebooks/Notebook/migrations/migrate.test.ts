@@ -260,6 +260,7 @@ describe('migrate()', () => {
                                         order: 0,
                                     },
                                     retentionReference: 'total',
+                                    meanRetentionCalculation: 'simple',
                                 },
                                 aggregation_group_type_index: 0,
                             },

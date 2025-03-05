@@ -1114,6 +1114,7 @@ export type RetentionFilter = {
 
     //frontend only
     showMean?: RetentionFilterLegacy['show_mean']
+    meanRetentionCalculation?: RetentionFilterLegacy['mean_retention_calculation']
     /** controls the display of the retention graph */
     display?: ChartDisplayType
     dashboardDisplay?: RetentionDashboardDisplayType
@@ -1901,7 +1902,7 @@ export interface ExperimentEventExposureConfig {
 export enum ExperimentMetricType {
     COUNT = 'count',
     CONTINUOUS = 'continuous',
-    BINOMIAL = 'binomial',
+    FUNNEL = 'funnel',
 }
 
 export type ExperimentMetricMath = 'total' | 'sum' | 'avg' | 'median' | 'min' | 'max'
@@ -1912,6 +1913,7 @@ export interface ExperimentMetric {
     metric_type: ExperimentMetricType
     inverse?: boolean
     metric_config: ExperimentEventMetricConfig | ExperimentActionMetricConfig | ExperimentDataWarehouseMetricConfig
+    time_window_hours?: number
 }
 
 export interface ExperimentEventMetricConfig {
