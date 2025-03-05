@@ -1381,6 +1381,30 @@ def team_api_test_factory():
             self.assertEqual(updated_data["host"], get_api_host())
             self.assertEqual(updated_data["user_distinct_id"], self.user.distinct_id)
 
+        @override_settings(
+            CACHES={
+                "default": {
+                    "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                },
+            }
+        )
+        @patch("posthog.rate_limit.SetupWizardAuthenticationRateThrottle.rate", new="2/day")
+        def test_authenticate_wizard_rate_limited(self):
+            cache_key = f"{SETUP_WIZARD_CACHE_PREFIX}valid_hash"
+            cache.set(cache_key, {}, SETUP_WIZARD_CACHE_TIMEOUT)
+
+            url = f"/api/environments/{self.team.id}/authenticate_wizard"
+            data = {"hash": "valid_hash"}
+
+            response_1 = self.client.post(url, data=data, format="json")
+            self.assertEqual(response_1.status_code, status.HTTP_200_OK)
+
+            response_2 = self.client.post(url, data=data, format="json")
+            self.assertEqual(response_2.status_code, status.HTTP_200_OK)
+
+            response_3 = self.client.post(url, data=data, format="json")
+            self.assertEqual(response_3.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
     return TestTeamAPI
 
 
