@@ -16,7 +16,7 @@ pub fn posthog_home_dir() -> PathBuf {
 
 pub fn ensure_homdir_exists() -> Result<(), Error> {
     let home = posthog_home_dir();
-    std::fs::create_dir_all(home.clone())
+    std::fs::create_dir_all(&home)
         .context(format!("While trying to create directory {:?}", home))?;
     Ok(())
 }
