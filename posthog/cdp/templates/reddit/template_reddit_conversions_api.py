@@ -18,7 +18,7 @@ common_inputs = [
 ]
 
 template_reddit_conversions_api: HogFunctionTemplate = HogFunctionTemplate(
-    free=True,
+    free=False,
     status="alpha",  # due to rate limiting on the API, we will need the CDP to implement event batching before releasing this to users with more than 10 events/second, see https://ads-api.reddit.com/docs/v2/#section/Best-practices
     type="destination",
     id="template-reddit-conversions-api",
