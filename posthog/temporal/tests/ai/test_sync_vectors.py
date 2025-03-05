@@ -1,4 +1,5 @@
 import json
+import uuid
 from datetime import datetime, timedelta
 from typing import Annotated
 from unittest.mock import patch
@@ -7,8 +8,13 @@ import cohere
 import pytest
 import pytest_asyncio
 from cohere import EmbeddingsByTypeEmbedResponse
+from django.conf import settings
 from django.utils import timezone
 from pydantic import BaseModel, PlainValidator
+from temporalio import activity
+from temporalio.client import WorkflowFailureError
+from temporalio.testing import WorkflowEnvironment
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Action
@@ -17,6 +23,9 @@ from posthog.temporal.ai.sync_vectors import (
     GetApproximateActionsCountInputs,
     RetrieveActionsInputs,
     SyncActionVectorsForTeamInputs,
+    SyncActionVectorsForTeamOutputs,
+    SyncVectorsInputs,
+    SyncVectorsWorkflow,
     batch_summarize_and_embed_actions,
     get_actions_qs,
     get_approximate_actions_count,
@@ -368,11 +377,13 @@ async def test_sync_action_vectors_for_team_last_summarized_at_filter(mock_flag,
 async def test_sync_action_vectors_for_team_batches(mock_flag, summarized_actions, ateam):
     """Test that sync_action_vectors_for_team handles valid inputs correctly."""
     start_dt = timezone.now()
-    for _ in range(3):
-        result = await sync_action_vectors_for_team(
-            SyncActionVectorsForTeamInputs(batch_size=1, start_dt=start_dt.isoformat())
-        )
-    assert result.has_more is False
+    inputs = SyncActionVectorsForTeamInputs(batch_size=1, start_dt=start_dt.isoformat())
+    for i in range(4):
+        result = await sync_action_vectors_for_team(inputs)
+        if i == 3:
+            assert result.has_more is False
+        else:
+            assert result.has_more is True
 
     embeddings = sync_execute("SELECT * FROM pg_embeddings ORDER BY id")
     assert len(embeddings) == 3
@@ -391,3 +402,144 @@ async def test_sync_action_vectors_for_team_batches(mock_flag, summarized_action
         for action in summarized_actions
     ]
     assert expected_result == parse_records(embeddings)
+
+
+@pytest.mark.asyncio
+async def test_actions_basic_workflow():
+    call_count = [0, 0, 0]
+
+    @activity.defn(name="get_approximate_actions_count")
+    async def get_approximate_actions_count_mocked(inputs: GetApproximateActionsCountInputs) -> int:
+        call_count[0] += 1
+        return 3
+
+    @activity.defn(name="batch_summarize_and_embed_actions")
+    async def batch_summarize_and_embed_actions_mocked(inputs: RetrieveActionsInputs) -> None:
+        call_count[1] += 1
+
+    @activity.defn(name="sync_action_vectors_for_team")
+    async def sync_action_vectors_for_team_mocked(
+        inputs: SyncActionVectorsForTeamInputs,
+    ) -> SyncActionVectorsForTeamOutputs:
+        call_count[2] += 1
+        if call_count[2] == 4 or inputs.batch_size != 1:
+            return SyncActionVectorsForTeamOutputs(has_more=False)
+        else:
+            return SyncActionVectorsForTeamOutputs(has_more=True)
+
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[SyncVectorsWorkflow],
+            activities=[
+                get_approximate_actions_count_mocked,
+                batch_summarize_and_embed_actions_mocked,
+                sync_action_vectors_for_team_mocked,
+            ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            await activity_environment.client.execute_workflow(
+                SyncVectorsWorkflow.run,
+                SyncVectorsInputs(start_dt=timezone.now().isoformat()),
+                id=str(uuid.uuid4()),
+                task_queue=settings.TEMPORAL_TASK_QUEUE,
+            )
+            assert call_count == [1, 1, 1]
+
+            call_count = [0, 0, 0]
+            await activity_environment.client.execute_workflow(
+                SyncVectorsWorkflow.run,
+                SyncVectorsInputs(start_dt=timezone.now().isoformat(), batch_size=1, sync_batch_size=1),
+                id=str(uuid.uuid4()),
+                task_queue=settings.TEMPORAL_TASK_QUEUE,
+            )
+            assert call_count == [1, 3, 4]
+
+
+@pytest.mark.asyncio
+async def test_actions_workflow_retries_on_errors():
+    call_count = [0, 0, 0]
+
+    @activity.defn(name="get_approximate_actions_count")
+    async def get_approximate_actions_count_mocked(inputs: GetApproximateActionsCountInputs) -> int:
+        call_count[0] += 1
+        if call_count[0] < 3:
+            raise Exception("Test error")
+        return 3
+
+    @activity.defn(name="batch_summarize_and_embed_actions")
+    async def batch_summarize_and_embed_actions_mocked(inputs: RetrieveActionsInputs) -> None:
+        call_count[1] += 1
+        if call_count[1] < 3:
+            raise Exception("Test error")
+
+    @activity.defn(name="sync_action_vectors_for_team")
+    async def sync_action_vectors_for_team_mocked(
+        inputs: SyncActionVectorsForTeamInputs,
+    ) -> SyncActionVectorsForTeamOutputs:
+        call_count[2] += 1
+        if call_count[2] < 3:
+            raise Exception("Test error")
+        return SyncActionVectorsForTeamOutputs(has_more=False)
+
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[SyncVectorsWorkflow],
+            activities=[
+                get_approximate_actions_count_mocked,
+                batch_summarize_and_embed_actions_mocked,
+                sync_action_vectors_for_team_mocked,
+            ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            await activity_environment.client.execute_workflow(
+                SyncVectorsWorkflow.run,
+                SyncVectorsInputs(start_dt=timezone.now().isoformat()),
+                id=str(uuid.uuid4()),
+                task_queue=settings.TEMPORAL_TASK_QUEUE,
+            )
+            assert call_count == [3, 3, 3]
+
+
+@pytest.mark.asyncio
+async def test_actions_workflow_cancels():
+    call_count = [0, 0, 0]
+
+    @activity.defn(name="get_approximate_actions_count")
+    async def get_approximate_actions_count_mocked(inputs: GetApproximateActionsCountInputs) -> int:
+        call_count[0] += 1
+        raise Exception("Test error")
+
+    @activity.defn(name="batch_summarize_and_embed_actions")
+    async def batch_summarize_and_embed_actions_mocked(inputs: RetrieveActionsInputs) -> None:
+        pass
+
+    @activity.defn(name="sync_action_vectors_for_team")
+    async def sync_action_vectors_for_team_mocked(
+        inputs: SyncActionVectorsForTeamInputs,
+    ) -> SyncActionVectorsForTeamOutputs:
+        return SyncActionVectorsForTeamOutputs(has_more=False)
+
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[SyncVectorsWorkflow],
+            activities=[
+                get_approximate_actions_count_mocked,
+                batch_summarize_and_embed_actions_mocked,
+                sync_action_vectors_for_team_mocked,
+            ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await activity_environment.client.execute_workflow(
+                    SyncVectorsWorkflow.run,
+                    SyncVectorsInputs(start_dt=timezone.now().isoformat()),
+                    id=str(uuid.uuid4()),
+                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                )
+            assert call_count == [3, 0, 0]

@@ -10,7 +10,9 @@ import temporalio.activity
 import temporalio.common
 import temporalio.exceptions
 import temporalio.workflow
+from cohere.core.api_error import ApiError as CohereApiError
 from django.db.models import F, Q
+from openai import APIError as OpenAIAPIError
 
 from ee.hogai.summarizers.chains import abatch_summarize_actions
 from posthog.models import Action, FeatureFlag
@@ -62,6 +64,10 @@ class GetApproximateActionsCountInputs:
 
 @temporalio.activity.defn
 async def get_approximate_actions_count(inputs: GetApproximateActionsCountInputs) -> int:
+    """
+    Retrieves the approximate count of actions to summarize. The action count can change
+    during the sync (updated_at > start_dt). The count is needed for batch summarization.
+    """
     qs = await get_actions_qs(datetime.fromisoformat(inputs.start_dt))
     return await qs.acount()
 
@@ -79,6 +85,9 @@ class RetrieveActionsInputs:
 
 @temporalio.activity.defn
 async def batch_summarize_and_embed_actions(inputs: RetrieveActionsInputs):
+    """
+    Summarizes and embeds actions in batches.
+    """
     workflow_start_dt = datetime.fromisoformat(inputs.start_dt)
     actions_to_summarize = await get_actions_qs(workflow_start_dt, inputs.offset, inputs.batch_size)
     actions = [action async for action in actions_to_summarize]
@@ -94,8 +103,12 @@ async def batch_summarize_and_embed_actions(inputs: RetrieveActionsInputs):
     summaries = await abatch_summarize_actions(actions)
     models_to_update = []
     for action, maybe_summary in zip(actions, summaries):
+        # If a few actions across the batch fail, we don't want to fail the entire workflow.
         if isinstance(maybe_summary, BaseException):
-            posthoganalytics.capture_exception(maybe_summary, context={"action_id": action.id})
+            # Avoid capturing OpenAI API errors, as they are expected, but capture SDK errors.
+            if not isinstance(maybe_summary, OpenAIAPIError):
+                posthoganalytics.capture_exception(maybe_summary, properties={"action_id": action.id, "tag": "max_ai"})
+            logger.exception("Error summarizing actions", error=maybe_summary, action_id=action.id)
             continue
         action.last_summarized_at = workflow_start_dt
         action.summary = maybe_summary
@@ -109,13 +122,22 @@ async def batch_summarize_and_embed_actions(inputs: RetrieveActionsInputs):
         actions_count=len(actions),
     )
 
-    cohere_client = get_cohere_client()
-    embeddings_response = await cohere_client.embed(
-        texts=[action.summary for action in models_to_update],
-        model="embed-english-v3.0",
-        input_type="search_document",
-        embedding_types=["float"],
-    )
+    try:
+        cohere_client = get_cohere_client()
+        embeddings_response = await cohere_client.embed(
+            texts=[action.summary for action in models_to_update],
+            model="embed-english-v3.0",
+            input_type="search_document",
+            embedding_types=["float"],
+        )
+    # Retry on Cohere API errors.
+    except CohereApiError:
+        raise
+    # Do not retry on any other errors.
+    except Exception as e:
+        logger.exception("Error embedding actions", error=e)
+        raise temporalio.exceptions.ApplicationError(f"Error embedding actions", non_retryable=True) from e
+
     if not embeddings_response.embeddings.float_:
         raise ValueError("No embeddings found")
 
@@ -149,7 +171,7 @@ async def sync_action_vectors_for_team(inputs: SyncActionVectorsForTeamInputs) -
         )
         .order_by("id", "team_id", "updated_at")
         .values("team_id", "id", "embedding", "summary", "name", "description", "deleted")
-    )
+    )[: inputs.batch_size]
 
     batch = [
         (
@@ -169,7 +191,6 @@ async def sync_action_vectors_for_team(inputs: SyncActionVectorsForTeamInputs) -
 
     logger.info(
         "Syncing action vectors",
-        offset=inputs.offset,
         batch_size=inputs.batch_size,
         start_dt=inputs.start_dt,
         actions_count=len(batch),
@@ -191,7 +212,7 @@ async def sync_action_vectors_for_team(inputs: SyncActionVectorsForTeamInputs) -
 
 @dataclass
 class SyncVectorsInputs:
-    start_dt: datetime | None = None
+    start_dt: str | None = None
     batch_size: int = 96
     max_parallel_requests: int = 4
     sync_batch_size: int = 50000
@@ -209,8 +230,7 @@ class SyncVectorsWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: SyncVectorsInputs):
-        start_dt = inputs.start_dt or get_scheduled_start_time()
-        start_dt_str = start_dt.isoformat()
+        start_dt_str = inputs.start_dt or get_scheduled_start_time().isoformat()
 
         approximate_count = await temporalio.workflow.execute_activity(
             get_approximate_actions_count,
@@ -243,7 +263,7 @@ class SyncVectorsWorkflow(PostHogWorkflow):
         while True:
             res = await temporalio.workflow.execute_activity(
                 sync_action_vectors_for_team,
-                SyncActionVectorsForTeamInputs(inputs.batch_size, start_dt_str),
+                SyncActionVectorsForTeamInputs(inputs.sync_batch_size, start_dt_str),
                 start_to_close_timeout=timedelta(minutes=1),
                 retry_policy=temporalio.common.RetryPolicy(initial_interval=timedelta(seconds=30), maximum_attempts=3),
             )
