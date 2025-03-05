@@ -27,7 +27,7 @@ export const sessionRecordingViewedLogic = kea<sessionRecordingViewedLogicType>(
                 const response = await api.get(
                     `/api/projects/${values.currentTeamId}/session_recordings/${props.sessionRecordingId}/viewed`
                 )
-                return response.data as SessionRecordingViewedResult
+                return response as SessionRecordingViewedResult
             },
             userClickedThrough: async () => {
                 return { viewed: true, otherViewers: values.isViewed?.otherViewers ?? 0 }
