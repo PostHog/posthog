@@ -30,18 +30,27 @@ export default function ViewRecordingButton({
     matchingEvents?: MatchedRecording[]
 }): JSX.Element {
     const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
-    const { isViewed, isViewedLoading } = useValues(
+    const { recordingViewed, recordingViewedLoading } = useValues(
         sessionRecordingViewedLogic({ sessionRecordingId: sessionId ?? '' })
     )
-    const { checkViewed, userClickedThrough } = useActions(
+    const { loadRecordingViewed, userClickedThrough } = useActions(
         sessionRecordingViewedLogic({ sessionRecordingId: sessionId ?? '' })
     )
 
     useEffect(() => {
-        if (checkIfViewed && checkViewed) {
-            checkViewed()
+        if (checkIfViewed && loadRecordingViewed) {
+            loadRecordingViewed()
         }
-    }, [checkIfViewed, checkViewed])
+    }, [checkIfViewed, loadRecordingViewed])
+
+    let maybeUnwatchedIndicator = null
+    if (checkIfViewed) {
+        if (recordingViewedLoading) {
+            maybeUnwatchedIndicator = <Spinner />
+        } else if (!recordingViewed?.viewed) {
+            maybeUnwatchedIndicator = <UnwatchedIndicator otherViewersCount={recordingViewed?.otherViewers || 0} />
+        }
+    }
 
     return (
         <LemonButton
@@ -62,11 +71,7 @@ export default function ViewRecordingButton({
         >
             <div className="flex items-center gap-2">
                 <span>{label ? label : 'View recording'}</span>
-                {isViewedLoading ? (
-                    <Spinner />
-                ) : isViewed ? null : (
-                    <UnwatchedIndicator otherViewersCount={isViewed?.otherViewers || 0} />
-                )}
+                {maybeUnwatchedIndicator}
             </div>
         </LemonButton>
     )
