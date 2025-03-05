@@ -463,6 +463,28 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         )
         return response
 
+    @extend_schema(
+        exclude=True,
+        description="""
+        Returns only viewed metadata about the recording.
+        """,
+    )
+    @action(methods=["GET"], detail=True)
+    def viewed(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        recording: SessionRecording = self.get_object()
+
+        if not recording:
+            raise exceptions.NotFound("Recording not found")
+
+        if not request.user.is_anonymous:
+            viewed = current_user_viewed([str(recording.session_id)], cast(User, request.user), self.team)
+            other_viewers = _other_users_viewed([str(recording.session_id)], cast(User, request.user), self.team)
+
+            recording.viewed = str(recording.session_id) in viewed
+            recording.viewers = other_viewers.get(str(recording.session_id), [])
+
+        return JsonResponse({"viewed": recording.viewed, "other_viewers": len(recording.viewers or [])})
+
     # Returns metadata about the recording
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         recording = self.get_object()

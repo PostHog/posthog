@@ -152,11 +152,11 @@ function RecordingOngoingIndicator(): JSX.Element {
     )
 }
 
-function UnwatchedIndicator({ otherViewers }: { otherViewers: SessionRecordingType['viewers'] }): JSX.Element {
-    const tooltip = otherViewers.length ? (
+export function UnwatchedIndicator({ otherViewersCount }: { otherViewersCount: number }): JSX.Element {
+    const tooltip = otherViewersCount ? (
         <span>
-            You have not watched this recording yet. {otherViewers.length} other{' '}
-            {otherViewers.length === 1 ? 'person has' : 'people have'}.
+            You have not watched this recording yet. {otherViewersCount} other{' '}
+            {otherViewersCount === 1 ? 'person has' : 'people have'}.
         </span>
     ) : (
         <span>Nobody has watched this recording yet.</span>
@@ -167,10 +167,10 @@ function UnwatchedIndicator({ otherViewers }: { otherViewers: SessionRecordingTy
             <div
                 className={clsx(
                     'UnwatchedIndicator w-2 h-2 rounded-full',
-                    otherViewers.length ? 'UnwatchedIndicator--secondary' : 'UnwatchedIndicator--primary'
+                    otherViewersCount ? 'UnwatchedIndicator--secondary' : 'UnwatchedIndicator--primary'
                 )}
                 aria-label={
-                    otherViewers.length ? 'unwatched-recording-by-you-label' : 'unwatched-recording-by-everyone-label'
+                    otherViewersCount ? 'unwatched-recording-by-you-label' : 'unwatched-recording-by-everyone-label'
                 }
             />
         </Tooltip>
@@ -280,7 +280,9 @@ export function SessionRecordingPreview({
                 >
                     {recording.ongoing ? <RecordingOngoingIndicator /> : null}
                     {pinned ? <PinnedIndicator /> : null}
-                    {!recording.viewed ? <UnwatchedIndicator otherViewers={recording.viewers} /> : null}
+                    {!recording.viewed ? (
+                        <UnwatchedIndicator otherViewersCount={recording.viewers?.length || 0} />
+                    ) : null}
                 </div>
             </div>
         </DraggableToNotebook>
