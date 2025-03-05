@@ -14,7 +14,7 @@ import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { navigation3000Logic } from '../../navigationLogic'
 import { NavbarBottom } from '../NavbarBottom'
 import { projectTreeLogic } from './projectTreeLogic'
-import { escapePath, joinPath, splitPath } from './utils'
+import { joinPath, splitPath } from './utils'
 
 export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLElement> }): JSX.Element {
     const { theme } = useValues(themeLogic)
@@ -69,8 +69,7 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                 const currentName = splits[splits.length - 1].replace(/\\/g, '')
                 const folder = prompt('New name?', currentName)
                 if (folder) {
-                    const escapedFolder = escapePath(folder)
-                    moveItem(path, joinPath([...splits.slice(0, -1), escapedFolder]))
+                    moveItem(path, joinPath([...splits.slice(0, -1), folder]))
                 }
             }
         }
