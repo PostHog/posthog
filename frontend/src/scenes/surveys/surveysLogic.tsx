@@ -63,9 +63,6 @@ export const surveysLogic = kea<surveysLogicType>([
                     return values.surveys
                 }
 
-                // http://localhost:8010/api/projects/2/surveys?limit=10&offset=10
-                // which is from values.next
-                // get limit / offset from query params
                 const url = new URL(values.surveys.next)
                 const limit = parseInt(url.searchParams.get('limit') || SURVEY_PAGE_SIZE.toString())
                 const offset = parseInt(url.searchParams.get('offset') || values.surveys.results.length.toString())
@@ -146,15 +143,12 @@ export const surveysLogic = kea<surveysLogicType>([
             {
                 loadSurveysSuccess: (_, { surveys }) => surveys.next !== null && surveys.next !== undefined,
                 loadNextPageSuccess: (_, { surveys }) => surveys.next !== null && surveys.next !== undefined,
-                loadBackendSearchResultsSuccess: (_, { surveys }) =>
-                    surveys.next !== null && surveys.next !== undefined,
             },
         ],
         totalCount: [
             0,
             {
-                loadSurveysSuccess: (_, { surveys }) => surveys.results.length,
-                loadNextPageSuccess: (_, { surveys }) => surveys.results.length,
+                loadSurveysSuccess: (_, { surveys }) => surveys.count,
             },
         ],
     }),
