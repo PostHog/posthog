@@ -506,7 +506,7 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                 // Update focusedId when clicking
                 setFocusedId(item?.id)
 
-                const isFolder = item?.children && item?.children?.length >= 0
+                const isFolder = (item?.children && item?.children?.length >= 0) || item?.record?.type === 'folder'
 
                 // Handle click on a node
                 if (!isFolder) {

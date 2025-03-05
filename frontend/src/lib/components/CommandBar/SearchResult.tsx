@@ -62,7 +62,7 @@ export const SearchResult = ({ result, resultIndex, focused }: SearchResultProps
                 }}
                 ref={ref}
             >
-                <div className="px-2 py-3 w-full flex flex-col gap-0.5 items-start">
+                <div className="px-2 py-3 w-full deprecated-space-y-0_5 flex flex-col items-start">
                     <span className="text-muted-3000 text-xs">
                         {result.type !== 'group'
                             ? tabToName[result.type]
@@ -78,7 +78,7 @@ export const SearchResult = ({ result, resultIndex, focused }: SearchResultProps
 }
 
 export const SearchResultSkeleton = (): JSX.Element => (
-    <div className="px-5 py-4 w-full flex flex-col gap-1.5 items-start bg-surface-primary border-b">
+    <div className="px-5 py-4 w-full deprecated-space-y-1_5 flex flex-col items-start bg-surface-primary border-b">
         <LemonSkeleton className="w-16 opacity-75 h-3" />
         <LemonSkeleton className="w-40 h-3.5" />
     </div>

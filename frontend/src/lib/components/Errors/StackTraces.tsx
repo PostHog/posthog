@@ -89,16 +89,16 @@ function Trace({
                 key: index,
                 header: (
                     <div className="flex flex-1 justify-between items-center">
-                        <div className="flex flex-wrap deprecated-space-x-0.5">
+                        <div className="flex flex-wrap deprecated-space-x-0_5">
                             <span>{source}</span>
                             {resolved_name ? (
-                                <div className="flex deprecated-space-x-0.5">
+                                <div className="flex deprecated-space-x-0_5">
                                     <span className="text-secondary">in</span>
                                     <span>{resolved_name}</span>
                                 </div>
                             ) : null}
                             {line ? (
-                                <div className="flex deprecated-space-x-0.5">
+                                <div className="flex deprecated-space-x-0_5">
                                     <span className="text-secondary">@</span>
                                     <span>
                                         {line}

@@ -32,7 +32,7 @@ function AssigneeRenderer({ assignee }: { assignee: ErrorTrackingIssueAssignee }
     return (
         <AssigneeDisplay assignee={assignee}>
             {({ displayAssignee }) => (
-                <span className="deprecated-space-x-0.5">
+                <span className="deprecated-space-x-0_5">
                     {displayAssignee.icon}
                     <span>{displayAssignee.displayName}</span>
                 </span>
