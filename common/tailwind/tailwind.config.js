@@ -769,6 +769,23 @@ const config = {
     },
     plugins: [
         require('@tailwindcss/container-queries'),
+        function ({ addUtilities, theme }) {
+            const spacing = theme("spacing");
+            const newUtilities = {};
+
+            for (const [key, value] of Object.entries(spacing)) {
+                // Why... tailwind v4 changed how spacing utilities worked, and so this is adding backward compatibility
+                // for the old way of doing things.
+                newUtilities[`.deprecated-space-y-${key} > :not([hidden]) ~ :not([hidden])`] = {
+                    marginTop: value,
+                };
+                newUtilities[`.deprecated-space-x-${key} > :not([hidden]) ~ :not([hidden])`] = {
+                    marginLeft: value,
+                };
+            }
+
+            addUtilities(newUtilities);
+        },
     ],
 }
 
