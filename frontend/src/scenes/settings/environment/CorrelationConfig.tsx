@@ -44,7 +44,7 @@ export function CorrelationConfig(): JSX.Element {
                 why your users dropped off and what makes them convert.
             </LemonBanner>
             {currentTeam && (
-                <div className="mt-4 space-y-2">
+                <div className="mt-4 deprecated-space-y-2">
                     <div>
                         <h3 className="flex items-center gap-2">
                             <IconSelectProperties className="text-lg" />

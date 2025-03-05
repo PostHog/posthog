@@ -178,7 +178,11 @@ const Component = (props: NodeViewProps): JSX.Element => {
             as="span"
             className={clsx('Backlink', isViewing && 'Backlink--active', props.selected && 'Backlink--selected')}
         >
-            <Link to={href} onClick={() => void openNotebook(shortId, NotebookTarget.Popover)} className="space-x-1">
+            <Link
+                to={href}
+                onClick={() => void openNotebook(shortId, NotebookTarget.Popover)}
+                className="deprecated-space-x-1"
+            >
                 <span>{backLinkConfig?.icon || <IconLogomark />}</span>
                 <span className="Backlink__label">{derivedText}</span>
             </Link>
