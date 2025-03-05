@@ -1,4 +1,5 @@
 /** @type {import('tailwindcss').Config} */
+const plugin = require('tailwindcss/plugin')
 
 const commonColors = {
     'inherit': 'inherit',
@@ -781,6 +782,28 @@ const config = {
     },
     plugins: [
         require('@tailwindcss/container-queries'),
+        plugin(({ addUtilities, theme }) => {
+            const spacing = theme("spacing");
+            const newUtilities = {};
+
+            // Standard spacing utilities for backwards compatibility
+            for (const [key, value] of Object.entries(spacing)) {
+                const safeKey = key.toString().replace('.', '_');
+                
+                newUtilities[`.deprecated-space-y-${safeKey} > :not([hidden]) ~ :not([hidden])`] = {
+                    '--tw-space-y-reverse': '0',
+                    'margin-top': `calc(${value} * calc(1 - var(--tw-space-y-reverse)))`,
+                    'margin-bottom': `calc(${value} * var(--tw-space-y-reverse))`,
+                };
+                newUtilities[`.deprecated-space-x-${safeKey} > :not([hidden]) ~ :not([hidden])`] = {
+                    '--tw-space-x-reverse': '0',
+                    'margin-right': `calc(${value} * var(--tw-space-x-reverse))`,
+                    'margin-left': `calc(${value} * calc(1 - var(--tw-space-x-reverse)))`,
+                };
+            }
+
+            addUtilities(newUtilities);
+        }),
     ],
 }
 
