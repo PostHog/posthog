@@ -16,11 +16,13 @@ from functools import partial
 import uuid
 from django.utils import timezone
 
+from dags.common import JobOwners
 from posthog.clickhouse.cluster import (
     ClickhouseCluster,
     Mutation,
     LightweightDeleteMutationRunner,
     NodeRole,
+    Query,
 )
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.event.sql import EVENTS_DATA_TABLE
@@ -316,41 +318,30 @@ def create_reporting_pending_person_deletions_table(
 def load_pending_person_deletions(
     context: OpExecutionContext,
     create_pending_person_deletions_table: PendingPersonEventDeletesTable,
+    cluster: ResourceParam[ClickhouseCluster],
     cleanup_delete_assets: bool | None = None,
 ) -> PendingPersonEventDeletesTable:
     """Query postgres using django ORM to get pending person deletions and insert directly into ClickHouse."""
 
-    if create_pending_person_deletions_table.is_reporting:
-        pending_deletions = AsyncDeletion.objects.all().iterator()
-    else:
-        if not create_pending_person_deletions_table.team_id:
-            pending_deletions = AsyncDeletion.objects.filter(
-                deletion_type=DeletionType.Person,
-                delete_verified_at__isnull=True,
-                created_at__lte=create_pending_person_deletions_table.timestamp,
-            ).iterator()
-        else:
-            pending_deletions = AsyncDeletion.objects.filter(
-                deletion_type=DeletionType.Person,
+    pending_deletions = AsyncDeletion.objects.all()
+
+    if not create_pending_person_deletions_table.is_reporting:
+        pending_deletions = pending_deletions.filter(
+            deletion_type=DeletionType.Person,
+            delete_verified_at__isnull=True,
+            created_at__lte=create_pending_person_deletions_table.timestamp,
+        )
+        if create_pending_person_deletions_table.team_id:
+            pending_deletions = pending_deletions.filter(
                 team_id=create_pending_person_deletions_table.team_id,
-                delete_verified_at__isnull=True,
-                created_at__lte=create_pending_person_deletions_table.timestamp,
-            ).iterator()
+            )
 
     # Process and insert in chunks
     chunk_size = 10000
     current_chunk = []
     total_rows = 0
 
-    client = Client(
-        host=settings.CLICKHOUSE_HOST,
-        user=settings.CLICKHOUSE_USER,
-        password=settings.CLICKHOUSE_PASSWORD,
-        secure=settings.CLICKHOUSE_SECURE,
-        verify=settings.CLICKHOUSE_VERIFY,
-    )
-
-    for deletion in pending_deletions:
+    for deletion in pending_deletions.iterator():
         current_chunk.append(
             {
                 "id": deletion.id,
@@ -365,19 +356,19 @@ def load_pending_person_deletions(
         )
 
         if len(current_chunk) >= chunk_size:
-            client.execute(
-                create_pending_person_deletions_table.populate_query,
-                current_chunk,
-            )
+            cluster.any_host_by_role(
+                Query(create_pending_person_deletions_table.populate_query, current_chunk),
+                NodeRole.DATA,
+            ).result()
             total_rows += len(current_chunk)
             current_chunk = []
 
     # Insert any remaining records
     if current_chunk:
-        client.execute(
-            create_pending_person_deletions_table.populate_query,
-            current_chunk,
-        )
+        cluster.any_host_by_role(
+            Query(create_pending_person_deletions_table.populate_query, current_chunk),
+            NodeRole.DATA,
+        ).result()
         total_rows += len(current_chunk)
 
     context.add_output_metadata(
@@ -522,7 +513,7 @@ def cleanup_delete_assets(
     return True
 
 
-@job
+@job(tags={"owner": JobOwners.TEAM_CLICKHOUSE.value})
 def deletes_job():
     """Job that handles deletion of person events."""
     oldest_override_timestamp = get_oldest_person_override_timestamp()

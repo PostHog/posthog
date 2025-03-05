@@ -8,6 +8,7 @@ import dagster
 import pydantic
 from clickhouse_driver import Client
 
+from dags.common import JobOwners
 from posthog import settings
 from posthog.clickhouse.cluster import (
     ClickhouseCluster,
@@ -371,7 +372,7 @@ def cleanup_snapshot_resources(dictionary: PersonOverridesSnapshotDictionary) ->
 # Job Definition
 
 
-@dagster.job
+@dagster.job(tags={"owner": JobOwners.TEAM_CLICKHOUSE.value})
 def squash_person_overrides():
     prepared_snapshot_table = wait_for_snapshot_table_replication(populate_snapshot_table(create_snapshot_table()))
     prepared_dictionary = load_and_verify_snapshot_dictionary(create_snapshot_dictionary(prepared_snapshot_table))
@@ -382,7 +383,7 @@ def squash_person_overrides():
     cleanup_snapshot_resources(dictionary_after_override_delete_mutations)
 
 
-@dagster.job
+@dagster.job(tags={"owner": JobOwners.TEAM_CLICKHOUSE.value})
 def cleanup_orphaned_person_overrides_snapshot():
     """
     Cleans up overrides snapshot resources after an irrecoverable job failure. This should only be run manually when the

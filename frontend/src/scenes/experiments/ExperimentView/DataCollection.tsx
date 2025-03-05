@@ -16,7 +16,7 @@ export function DataCollection(): JSX.Element {
     const {
         experimentId,
         experiment,
-        getMetricType,
+        getInsightType,
         funnelResultsPersonsTotal,
         actualRunningTime,
         minimumDetectableEffect,
@@ -25,13 +25,13 @@ export function DataCollection(): JSX.Element {
 
     const { openExperimentCollectionGoalModal } = useActions(experimentLogic)
 
-    const metricType = getMetricType(firstPrimaryMetric)
+    const insightType = getInsightType(firstPrimaryMetric)
 
     const recommendedRunningTime = experiment?.parameters?.recommended_running_time || 1
     const recommendedSampleSize = experiment?.parameters?.recommended_sample_size || 100
 
     const experimentProgressPercent =
-        metricType === InsightType.FUNNELS
+        insightType === InsightType.FUNNELS
             ? (funnelResultsPersonsTotal(0) / recommendedSampleSize) * 100
             : (actualRunningTime / recommendedRunningTime) * 100
 
@@ -83,7 +83,7 @@ export function DataCollection(): JSX.Element {
                         size="medium"
                         percent={experimentProgressPercent}
                     />
-                    {metricType === InsightType.TRENDS && (
+                    {insightType === InsightType.TRENDS && (
                         <div className="flex justify-between mt-0">
                             <span className="flex items-center text-xs">
                                 Completed&nbsp;
@@ -103,7 +103,7 @@ export function DataCollection(): JSX.Element {
                             </span>
                         </div>
                     )}
-                    {metricType === InsightType.FUNNELS && (
+                    {insightType === InsightType.FUNNELS && (
                         <div className="flex justify-between mt-0">
                             <div className="space-x-1 flex items-center text-xs">
                                 <span>
@@ -172,7 +172,7 @@ export function DataCollection(): JSX.Element {
 export function DataCollectionGoalModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
     const {
         isExperimentCollectionGoalModalOpen,
-        getMetricType,
+        getInsightType,
         firstPrimaryMetric,
         trendMetricInsightLoading,
         funnelMetricInsightLoading,
@@ -181,7 +181,7 @@ export function DataCollectionGoalModal({ experimentId }: { experimentId: Experi
         useActions(experimentLogic({ experimentId }))
 
     const isInsightLoading =
-        getMetricType(firstPrimaryMetric) === InsightType.TRENDS
+        getInsightType(firstPrimaryMetric) === InsightType.TRENDS
             ? trendMetricInsightLoading
             : funnelMetricInsightLoading
 

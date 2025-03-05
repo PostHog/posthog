@@ -160,7 +160,6 @@ export function renderColumn(
                 : '#'
             return (
                 <Link
-                    className="ph-no-capture"
                     to={newUrl}
                     onClick={(e) => {
                         e.preventDefault()
@@ -207,7 +206,6 @@ export function renderColumn(
                 : '#'
             return (
                 <Link
-                    className="ph-no-capture"
                     to={newUrl}
                     onClick={(e) => {
                         e.preventDefault()
