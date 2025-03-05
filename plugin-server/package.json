@@ -31,10 +31,7 @@
         "services:clean": "cd .. && docker compose -f docker-compose.dev.yml rm -v",
         "services": "pnpm services:stop && pnpm services:clean && pnpm services:start",
         "build:cyclotron": "pnpm --filter=@posthog/cyclotron package",
-        "update-ai-costs": "ts-node scripts/update-ai-costs.ts"
-    },
-    "graphile-worker": {
-        "maxContiguousErrors": 300
+        "update-ai-costs": "ts-node src/ingestion/ai-costs/scripts/update-ai-costs.ts"
     },
     "bin": {
         "posthog-plugin-server": "bin/posthog-plugin-server"
@@ -75,7 +72,6 @@
         "fastpriorityqueue": "^0.7.5",
         "fernet-nodejs": "^1.0.6",
         "generic-pool": "^3.7.1",
-        "graphile-worker": "0.13.0",
         "husky": "^7.0.4",
         "ioredis": "^4.27.6",
         "ipaddr.js": "^2.1.0",
@@ -121,6 +117,7 @@
         "@types/generic-pool": "^3.1.9",
         "@types/ioredis": "^4.26.4",
         "@types/jest": "^29.5.14",
+        "@types/kafkajs-snappy": "^1.0.0",
         "@types/long": "4.x.x",
         "@types/luxon": "^3.4.2",
         "@types/node-fetch": "^2.5.10",

@@ -347,28 +347,21 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
     const [feedbackInputStatus, setFeedbackInputStatus] = useState<'hidden' | 'pending' | 'submitted'>('hidden')
 
     function submitRating(newRating: 'good' | 'bad'): void {
-        if (rating) {
+        if (rating || !traceId) {
             return // Already rated
         }
         setRating(newRating)
-        posthog.capture('$ai_metric', {
-            $ai_metric_name: 'quality',
-            $ai_metric_value: newRating,
-            $ai_trace_id: traceId,
-        })
+        posthog.captureTraceMetric(traceId, 'quality', newRating)
         if (newRating === 'bad') {
             setFeedbackInputStatus('pending')
         }
     }
 
     function submitFeedback(): void {
-        if (!feedback) {
+        if (!feedback || !traceId) {
             return // Input is empty
         }
-        posthog.capture('$ai_feedback', {
-            $ai_feedback_text: feedback,
-            $ai_trace_id: traceId,
-        })
+        posthog.captureTraceFeedback(traceId, feedback)
         setFeedbackInputStatus('submitted')
     }
 

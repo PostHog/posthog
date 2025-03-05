@@ -361,6 +361,17 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
+    if kind == "RevenueExampleEventsQuery":
+        from .web_analytics.revenue_example_events import RevenueExampleEventsQueryRunner
+
+        return RevenueExampleEventsQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
     if kind == "ErrorTrackingQuery":
         from .error_tracking_query_runner import ErrorTrackingQueryRunner
 
@@ -712,7 +723,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             results = self.handle_cache_and_async_logic(
                 execution_mode=execution_mode, cache_manager=cache_manager, user=user
             )
-            if results is not None:
+            if results:
                 return results
 
         last_refresh = datetime.now(UTC)

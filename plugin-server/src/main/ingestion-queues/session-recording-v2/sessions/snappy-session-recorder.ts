@@ -12,6 +12,32 @@ export interface EndResult {
     startDateTime: DateTime
     /** Timestamp of the last event in the session block */
     endDateTime: DateTime
+    /** First URL of the session */
+    firstUrl?: string | null
+    /** All URLs visited in the session */
+    urls?: string[]
+    /** Number of clicks in the session */
+    clickCount?: number
+    /** Number of keypresses in the session */
+    keypressCount?: number
+    /** Number of mouse activity events in the session */
+    mouseActivityCount?: number
+    /** Active time in milliseconds */
+    activeMilliseconds?: number
+    /** Number of console log messages */
+    consoleLogCount?: number
+    /** Number of console warning messages */
+    consoleWarnCount?: number
+    /** Number of console error messages */
+    consoleErrorCount?: number
+    /** Size of the session data in bytes */
+    size?: number
+    /** Number of messages in the session */
+    messageCount?: number
+    /** Source of the snapshot (Web/Mobile) */
+    snapshotSource?: string | null
+    /** Library used for the snapshot */
+    snapshotLibrary?: string | null
 }
 
 /**
@@ -104,9 +130,9 @@ export class SnappySessionRecorder {
     }
 
     /**
-     * Finalizes and returns the compressed session block
+     * Finalizes the session recording and returns the compressed buffer with metadata
      *
-     * @returns The complete compressed session block and event count
+     * @returns The compressed session recording block with metadata
      * @throws If called more than once
      */
     public async end(): Promise<EndResult> {
@@ -124,6 +150,19 @@ export class SnappySessionRecorder {
             eventCount: this.eventCount,
             startDateTime: this.startDateTime ?? DateTime.fromMillis(0),
             endDateTime: this.endDateTime ?? DateTime.fromMillis(0),
+            firstUrl: null,
+            urls: [],
+            clickCount: 0,
+            keypressCount: 0,
+            mouseActivityCount: 0,
+            activeMilliseconds: 0,
+            consoleLogCount: 0,
+            consoleWarnCount: 0,
+            consoleErrorCount: 0,
+            size: buffer.length,
+            messageCount: 0,
+            snapshotSource: null,
+            snapshotLibrary: null,
         }
     }
 }

@@ -14,11 +14,6 @@ export enum TimestampFormat {
     Device = 'device',
 }
 
-export enum PlaybackMode {
-    Recording = 'recording',
-    Waterfall = 'waterfall',
-}
-
 export type HideViewedRecordingsOptions = 'current-user' | 'any-user' | false
 
 // This logic contains player settings that should persist across players
@@ -37,7 +32,6 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setTimestampFormat: (format: TimestampFormat) => ({ format }),
         setPlaylistTimestampFormat: (format: TimestampFormat) => ({ format }),
         setPreferredSidebarStacking: (stacking: SessionRecordingSidebarStacking) => ({ stacking }),
-        setPlaybackMode: (mode: PlaybackMode) => ({ mode }),
         setSidebarOpen: (open: boolean) => ({ open }),
         setPlaylistOpen: (open: boolean) => ({ open }),
         setShowMouseTail: (showMouseTail: boolean) => ({ showMouseTail }),
@@ -54,13 +48,6 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             { persist: true },
             {
                 setPreferredSidebarStacking: (_, { stacking }) => stacking,
-            },
-        ],
-        playbackMode: [
-            PlaybackMode.Recording as PlaybackMode,
-            { persist: true },
-            {
-                setPlaybackMode: (_, { mode }) => mode,
             },
         ],
         quickFilterProperties: [

@@ -145,8 +145,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$feature_enrollment_update": {
             "label": "Feature Enrollment",
-            "description": "When a user enrolls with a feature.",
-            "ignored_in_assistant": True,  # Specific to EarlyAccessFeatureEnrollment, niche
+            "description": "When a user opts in or out of a beta feature. This event is specific to the PostHog Early Access Features product, and is only relevant if the project is using this product.",
         },
         "$capture_metrics": {
             "label": "Capture Metrics",
@@ -272,6 +271,41 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
     },
     "event_properties": {
+        "$python_runtime": {
+            "label": "Python Runtime",
+            "description": "The Python runtime that was used to capture the event.",
+            "examples": ["CPython"],
+            "system": True,
+            "ignored_in_assistant": True,
+        },
+        "$python_version": {
+            "label": "Python Version",
+            "description": "The Python version that was used to capture the event.",
+            "examples": ["3.11.5"],
+            "system": True,
+            "ignored_in_assistant": True,
+        },
+        "$sdk_debug_replay_internal_buffer_length": {
+            "label": "Replay internal buffer length",
+            "description": "Useful for debugging. The internal buffer length for replay.",
+            "examples": ["100"],
+            "system": True,
+            "ignored_in_assistant": True,
+        },
+        "$sdk_debug_replay_internal_buffer_size": {
+            "label": "Replay internal buffer size",
+            "description": "Useful for debugging. The internal buffer size for replay.",
+            "examples": ["100"],
+            "system": True,
+            "ignored_in_assistant": True,
+        },
+        "$sdk_debug_retry_queue_size": {
+            "label": "Retry queue size",
+            "description": "Useful for debugging. The size of the retry queue.",
+            "examples": ["100"],
+            "system": True,
+            "ignored_in_assistant": True,
+        },
         "$last_posthog_reset": {
             "label": "Timestamp of last call to `Reset` in the web sdk",
             "description": "The timestamp of the last call to `Reset` in the web SDK. This can be useful for debugging.",

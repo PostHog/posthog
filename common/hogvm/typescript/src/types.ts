@@ -57,7 +57,7 @@ export interface ExecOptions {
         /** NodeJS crypto */
         crypto?: typeof crypto
     }
-    /** Collecte telemetry data */
+    /** Collect telemetry data */
     telemetry?: boolean
     /** Repl mode: does not pop the last value */
     repl?: boolean

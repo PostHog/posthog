@@ -168,7 +168,7 @@ async def minio_client(bucket_name):
 
         yield minio_client
 
-        await delete_all_from_s3(minio_client, bucket_name, key_prefix="/")
+        await delete_all_from_s3(minio_client, bucket_name, key_prefix="")
 
         await minio_client.delete_bucket(Bucket=bucket_name)
 

@@ -802,6 +802,13 @@ class WindowFunction(Expr):
 
 
 @dataclass(kw_only=True)
+class LimitByExpr(Expr):
+    n: Expr
+    exprs: list[Expr]
+    offset_value: Optional[Expr] = None
+
+
+@dataclass(kw_only=True)
 class SelectQuery(Expr):
     # :TRICKY: When adding new fields, make sure they're handled in visitor.py and resolver.py
     type: Optional[SelectQueryType] = None
@@ -818,7 +825,7 @@ class SelectQuery(Expr):
     group_by: Optional[list[Expr]] = None
     order_by: Optional[list[OrderExpr]] = None
     limit: Optional[Expr] = None
-    limit_by: Optional[list[Expr]] = None
+    limit_by: Optional[LimitByExpr] = None
     limit_with_ties: Optional[bool] = None
     offset: Optional[Expr] = None
     settings: Optional[HogQLQuerySettings] = None

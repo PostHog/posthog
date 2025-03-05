@@ -7,7 +7,7 @@ from inline_snapshot import snapshot
 import pytest
 from posthog.models.action.action import Action
 from posthog.models.feature_flag.feature_flag import FeatureFlag
-from posthog.models.feedback.survey import Survey
+from posthog.models.surveys.survey import Survey
 from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from posthog.models.plugin import Plugin, PluginConfig, PluginSourceFile
 from posthog.models.project import Project
@@ -65,6 +65,7 @@ class TestRemoteConfig(_RemoteConfigBase):
                     "eventTriggers": [],
                     "recorderVersion": "v2",
                     "networkPayloadCapture": None,
+                    "masking": None,
                     "consoleLogRecordingEnabled": True,
                     "minimumDurationMilliseconds": None,
                 },
@@ -218,7 +219,9 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
                 "name": "Basic survey",
                 "type": "popover",
                 "end_date": None,
-                "questions": [{"type": "open", "question": "What's a survey?"}],
+                "questions": [
+                    {"id": str(survey_basic.questions[0]["id"]), "type": "open", "question": "What's a survey?"}
+                ],
                 "appearance": None,
                 "conditions": None,
                 "start_date": None,
@@ -231,7 +234,9 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
                 "name": "Survey with flags",
                 "type": "popover",
                 "end_date": None,
-                "questions": [{"type": "open", "question": "What's a hedgehog?"}],
+                "questions": [
+                    {"id": str(survey_with_flags.questions[0]["id"]), "type": "open", "question": "What's a hedgehog?"}
+                ],
                 "appearance": None,
                 "conditions": None,
                 "start_date": None,
@@ -247,7 +252,9 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
                 "name": "survey with actions",
                 "type": "popover",
                 "end_date": None,
-                "questions": [{"type": "open", "question": "Why's a hedgehog?"}],
+                "questions": [
+                    {"id": str(survey_with_actions.questions[0]["id"]), "type": "open", "question": "Why's a hedgehog?"}
+                ],
                 "appearance": None,
                 "conditions": {
                     "actions": {
@@ -308,6 +315,7 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
                     "minimumDurationMilliseconds": None,
                     "linkedFlag": None,
                     "networkPayloadCapture": None,
+                    "masking": None,
                     "urlTriggers": [],
                     "urlBlocklist": [],
                     "eventTriggers": [],
@@ -326,7 +334,7 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
 (function() {
   window._POSTHOG_REMOTE_CONFIG = window._POSTHOG_REMOTE_CONFIG || {};
   window._POSTHOG_REMOTE_CONFIG['phc_12345'] = {
-    config: {"token": "phc_12345", "supportedCompression": ["gzip", "gzip-js"], "hasFeatureFlags": false, "captureDeadClicks": false, "capturePerformance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "autocaptureExceptions": false, "analytics": {"endpoint": "/i/v0/e/"}, "elementsChainAsString": true, "sessionRecording": {"endpoint": "/s/", "consoleLogRecordingEnabled": true, "recorderVersion": "v2", "sampleRate": null, "minimumDurationMilliseconds": null, "linkedFlag": null, "networkPayloadCapture": null, "urlTriggers": [], "urlBlocklist": [], "eventTriggers": [], "scriptConfig": null}, "heatmaps": false, "surveys": [], "defaultIdentifiedOnly": true},
+    config: {"token": "phc_12345", "supportedCompression": ["gzip", "gzip-js"], "hasFeatureFlags": false, "captureDeadClicks": false, "capturePerformance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "autocaptureExceptions": false, "analytics": {"endpoint": "/i/v0/e/"}, "elementsChainAsString": true, "sessionRecording": {"endpoint": "/s/", "consoleLogRecordingEnabled": true, "recorderVersion": "v2", "sampleRate": null, "minimumDurationMilliseconds": null, "linkedFlag": null, "networkPayloadCapture": null, "masking": null, "urlTriggers": [], "urlBlocklist": [], "eventTriggers": [], "scriptConfig": null}, "heatmaps": false, "surveys": [], "defaultIdentifiedOnly": true},
     siteApps: []
   }
 })();\
@@ -341,7 +349,7 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
 (function() {
   window._POSTHOG_REMOTE_CONFIG = window._POSTHOG_REMOTE_CONFIG || {};
   window._POSTHOG_REMOTE_CONFIG['phc_12345'] = {
-    config: {"token": "phc_12345", "supportedCompression": ["gzip", "gzip-js"], "hasFeatureFlags": false, "captureDeadClicks": false, "capturePerformance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "autocaptureExceptions": false, "analytics": {"endpoint": "/i/v0/e/"}, "elementsChainAsString": true, "sessionRecording": {"endpoint": "/s/", "consoleLogRecordingEnabled": true, "recorderVersion": "v2", "sampleRate": null, "minimumDurationMilliseconds": null, "linkedFlag": null, "networkPayloadCapture": null, "urlTriggers": [], "urlBlocklist": [], "eventTriggers": [], "scriptConfig": null}, "heatmaps": false, "surveys": [], "defaultIdentifiedOnly": true},
+    config: {"token": "phc_12345", "supportedCompression": ["gzip", "gzip-js"], "hasFeatureFlags": false, "captureDeadClicks": false, "capturePerformance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "autocaptureExceptions": false, "analytics": {"endpoint": "/i/v0/e/"}, "elementsChainAsString": true, "sessionRecording": {"endpoint": "/s/", "consoleLogRecordingEnabled": true, "recorderVersion": "v2", "sampleRate": null, "minimumDurationMilliseconds": null, "linkedFlag": null, "networkPayloadCapture": null, "masking": null, "urlTriggers": [], "urlBlocklist": [], "eventTriggers": [], "scriptConfig": null}, "heatmaps": false, "surveys": [], "defaultIdentifiedOnly": true},
     siteApps: []
   }
 })();\
@@ -431,6 +439,7 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
                     "minimumDurationMilliseconds": None,
                     "linkedFlag": None,
                     "networkPayloadCapture": None,
+                    "masking": None,
                     "urlTriggers": [],
                     "urlBlocklist": [],
                     "eventTriggers": [],
@@ -495,7 +504,7 @@ class TestRemoteConfigJS(_RemoteConfigBase):
 (function() {
   window._POSTHOG_REMOTE_CONFIG = window._POSTHOG_REMOTE_CONFIG || {};
   window._POSTHOG_REMOTE_CONFIG['phc_12345'] = {
-    config: {"token": "phc_12345", "supportedCompression": ["gzip", "gzip-js"], "hasFeatureFlags": false, "captureDeadClicks": false, "capturePerformance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "autocaptureExceptions": false, "analytics": {"endpoint": "/i/v0/e/"}, "elementsChainAsString": true, "sessionRecording": {"endpoint": "/s/", "consoleLogRecordingEnabled": true, "recorderVersion": "v2", "sampleRate": null, "minimumDurationMilliseconds": null, "linkedFlag": null, "networkPayloadCapture": null, "urlTriggers": [], "urlBlocklist": [], "eventTriggers": [], "scriptConfig": null}, "heatmaps": false, "surveys": [], "defaultIdentifiedOnly": true},
+    config: {"token": "phc_12345", "supportedCompression": ["gzip", "gzip-js"], "hasFeatureFlags": false, "captureDeadClicks": false, "capturePerformance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "autocaptureExceptions": false, "analytics": {"endpoint": "/i/v0/e/"}, "elementsChainAsString": true, "sessionRecording": {"endpoint": "/s/", "consoleLogRecordingEnabled": true, "recorderVersion": "v2", "sampleRate": null, "minimumDurationMilliseconds": null, "linkedFlag": null, "networkPayloadCapture": null, "masking": null, "urlTriggers": [], "urlBlocklist": [], "eventTriggers": [], "scriptConfig": null}, "heatmaps": false, "surveys": [], "defaultIdentifiedOnly": true},
     siteApps: []
   }
 })();\
@@ -541,7 +550,7 @@ class TestRemoteConfigJS(_RemoteConfigBase):
 (function() {
   window._POSTHOG_REMOTE_CONFIG = window._POSTHOG_REMOTE_CONFIG || {};
   window._POSTHOG_REMOTE_CONFIG['phc_12345'] = {
-    config: {"token": "phc_12345", "supportedCompression": ["gzip", "gzip-js"], "hasFeatureFlags": false, "captureDeadClicks": false, "capturePerformance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "autocaptureExceptions": false, "analytics": {"endpoint": "/i/v0/e/"}, "elementsChainAsString": true, "sessionRecording": {"endpoint": "/s/", "consoleLogRecordingEnabled": true, "recorderVersion": "v2", "sampleRate": null, "minimumDurationMilliseconds": null, "linkedFlag": null, "networkPayloadCapture": null, "urlTriggers": [], "urlBlocklist": [], "eventTriggers": [], "scriptConfig": null}, "heatmaps": false, "surveys": [], "defaultIdentifiedOnly": true},
+    config: {"token": "phc_12345", "supportedCompression": ["gzip", "gzip-js"], "hasFeatureFlags": false, "captureDeadClicks": false, "capturePerformance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "autocaptureExceptions": false, "analytics": {"endpoint": "/i/v0/e/"}, "elementsChainAsString": true, "sessionRecording": {"endpoint": "/s/", "consoleLogRecordingEnabled": true, "recorderVersion": "v2", "sampleRate": null, "minimumDurationMilliseconds": null, "linkedFlag": null, "networkPayloadCapture": null, "masking": null, "urlTriggers": [], "urlBlocklist": [], "eventTriggers": [], "scriptConfig": null}, "heatmaps": false, "surveys": [], "defaultIdentifiedOnly": true},
     siteApps: [    
     {
       id: 'tokentoken',
@@ -611,7 +620,7 @@ class TestRemoteConfigJS(_RemoteConfigBase):
 (function() {
   window._POSTHOG_REMOTE_CONFIG = window._POSTHOG_REMOTE_CONFIG || {};
   window._POSTHOG_REMOTE_CONFIG['phc_12345'] = {
-    config: {"token": "phc_12345", "supportedCompression": ["gzip", "gzip-js"], "hasFeatureFlags": false, "captureDeadClicks": false, "capturePerformance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "autocaptureExceptions": false, "analytics": {"endpoint": "/i/v0/e/"}, "elementsChainAsString": true, "sessionRecording": {"endpoint": "/s/", "consoleLogRecordingEnabled": true, "recorderVersion": "v2", "sampleRate": null, "minimumDurationMilliseconds": null, "linkedFlag": null, "networkPayloadCapture": null, "urlTriggers": [], "urlBlocklist": [], "eventTriggers": [], "scriptConfig": null}, "heatmaps": false, "surveys": [], "defaultIdentifiedOnly": true},
+    config: {"token": "phc_12345", "supportedCompression": ["gzip", "gzip-js"], "hasFeatureFlags": false, "captureDeadClicks": false, "capturePerformance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "autocaptureExceptions": false, "analytics": {"endpoint": "/i/v0/e/"}, "elementsChainAsString": true, "sessionRecording": {"endpoint": "/s/", "consoleLogRecordingEnabled": true, "recorderVersion": "v2", "sampleRate": null, "minimumDurationMilliseconds": null, "linkedFlag": null, "networkPayloadCapture": null, "masking": null, "urlTriggers": [], "urlBlocklist": [], "eventTriggers": [], "scriptConfig": null}, "heatmaps": false, "surveys": [], "defaultIdentifiedOnly": true},
     siteApps: [    
     {
       id: 'SITE_DESTINATION_ID',

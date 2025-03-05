@@ -5,6 +5,7 @@ import { HTMLElementsDisplay } from 'lib/components/HTMLElementsDisplay/HTMLElem
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { dayjs } from 'lib/dayjs'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTableProps } from 'lib/lemon-ui/LemonTable'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -14,6 +15,7 @@ import { pluralize } from 'lib/utils'
 import { AutocaptureImageTab, autocaptureToImage } from 'lib/utils/event-property-utls'
 import { ConversationDisplay } from 'products/llm_observability/frontend/ConversationDisplay/ConversationDisplay'
 import { useState } from 'react'
+import { urls } from 'scenes/urls'
 
 import { EventType, PropertyDefinitionType } from '~/types'
 
@@ -144,7 +146,18 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
             key: 'conversation',
             label: 'Conversation',
             content: (
-                <div className="mx-3 -mt-2 mb-2 space-y-2">
+                <div className="mx-3 -mt-2 mb-2 deprecated-space-y-2">
+                    {event.properties.$session_id ? (
+                        <div className="flex flex-row items-center gap-2">
+                            <Link
+                                to={urls.replay(undefined, undefined, event.properties.$session_id)}
+                                className="flex flex-row gap-1 items-center"
+                            >
+                                <IconOpenInNew />
+                                <span>View session recording</span>
+                            </Link>
+                        </div>
+                    ) : null}
                     <ConversationDisplay eventProperties={event.properties} />
                 </div>
             ),

@@ -5,17 +5,23 @@ import { useState } from 'react'
 
 import { ErrorTrackingFilters } from '../ErrorTrackingFilters'
 import { errorTrackingIssueSceneLogic, EventsMode } from '../errorTrackingIssueSceneLogic'
-import { getExceptionAttributes, hasStacktrace } from '../utils'
+import { getExceptionAttributes, hasStacktrace, isThirdPartyScriptError } from '../utils'
 import { Overview } from './Overview'
 import RecordingPanel from './panels/RecordingPanel'
 import StackTracePanel from './panels/StacktracePanel'
 import { EventsTab } from './tabs/EventsTab'
 
+export type ErrorTrackingIssueEventContent = {
+    hasStack: boolean
+    hasRecording: boolean
+    isThirdPartyScript: boolean
+}
+
 export type ErrorTrackingIssueEventsPanel = {
     key: 'stacktrace' | 'recording'
-    Content: () => JSX.Element
-    Header: string | (({ active }: { active: boolean }) => JSX.Element)
-    hasContent: ({ hasStack, hasRecording }: { hasStack: boolean; hasRecording: boolean }) => boolean
+    Content: (props: ErrorTrackingIssueEventContent) => JSX.Element | null
+    Header: string | (({ active }: { active: boolean } & ErrorTrackingIssueEventContent) => JSX.Element | null)
+    hasContent: (props: ErrorTrackingIssueEventContent) => boolean
     className?: string
 }
 
@@ -26,19 +32,20 @@ export const Events = (): JSX.Element => {
     const { setEventsMode } = useActions(errorTrackingIssueSceneLogic)
     const [activeKeys, setActiveKeys] = useState<ErrorTrackingIssueEventsPanel['key'][]>(['stacktrace'])
 
-    const { exceptionList } = getExceptionAttributes(issueProperties)
+    const { value, exceptionList } = getExceptionAttributes(issueProperties)
 
-    const hasStack = hasStacktrace(exceptionList)
-    const hasRecording = issueProperties['$session_id'] && issueProperties['$recording_status'] === 'active'
+    const props = {
+        hasStack: hasStacktrace(exceptionList),
+        hasRecording: issueProperties['$session_id'] && issueProperties['$recording_status'] === 'active',
+        isThirdPartyScript: isThirdPartyScriptError(value),
+    }
 
-    const panels = PANELS.filter(({ hasContent }) => hasContent({ hasStack, hasRecording })).map(
-        ({ key, Header, Content, className }) => ({
-            key,
-            content: <Content />,
-            header: typeof Header === 'string' ? Header : <Header active={activeKeys.includes(key)} />,
-            className,
-        })
-    )
+    const panels = PANELS.filter(({ hasContent }) => hasContent(props)).map(({ key, Header, Content, className }) => ({
+        key,
+        content: <Content {...props} />,
+        header: typeof Header === 'string' ? Header : <Header active={activeKeys.includes(key)} {...props} />,
+        className,
+    }))
 
     return (
         <>
