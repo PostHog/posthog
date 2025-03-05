@@ -18,9 +18,9 @@ pub struct HomeDirProvider;
 impl CredentialProvider for HomeDirProvider {
     fn get_credentials(&self) -> Result<Token, Error> {
         let home = posthog_home_dir();
-        let file = format!("{}/credentials.json", home);
+        let file = home.join("credentials.json");
         let token = std::fs::read_to_string(file.clone()).context(format!(
-            "While trying to read credentials from file {}",
+            "While trying to read credentials from file {:?}",
             file
         ))?;
         let token = serde_json::from_str(&token).context("While trying to parse token")?;
@@ -30,17 +30,20 @@ impl CredentialProvider for HomeDirProvider {
     fn store_credentials(&self, token: Token) -> Result<(), Error> {
         let home = posthog_home_dir();
         ensure_homdir_exists()?;
-        let file = format!("{}/credentials.json", home);
+        let file = home.join("credentials.json");
         let token = serde_json::to_string(&token).context("While trying to serialize token")?;
         std::fs::write(file.clone(), token).context(format!(
-            "While trying to write credentials to file {}",
+            "While trying to write credentials to file {:?}",
             file
         ))?;
         Ok(())
     }
 
     fn report_location(&self) -> String {
-        format!("{}/credentials.json", posthog_home_dir())
+        posthog_home_dir()
+            .join("credentials.json")
+            .to_string_lossy()
+            .to_string()
     }
 }
 
