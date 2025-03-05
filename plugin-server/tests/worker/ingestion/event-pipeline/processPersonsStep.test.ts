@@ -1,13 +1,14 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { Hub } from '../../../../src/types'
+import { Hub, Team } from '../../../../src/types'
 import { closeHub, createHub } from '../../../../src/utils/db/hub'
 import { UUIDT } from '../../../../src/utils/utils'
 import { normalizeEventStep } from '../../../../src/worker/ingestion/event-pipeline/normalizeEventStep'
 import { processPersonsStep } from '../../../../src/worker/ingestion/event-pipeline/processPersonsStep'
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
 import { EventsProcessor } from '../../../../src/worker/ingestion/process-event'
+import { fetchTeam } from '../../../../src/worker/ingestion/team-manager'
 import { createOrganization, createTeam, fetchPostgresPersons, resetTestDatabase } from '../../../helpers/sql'
 
 describe('processPersonsStep()', () => {
@@ -16,6 +17,7 @@ describe('processPersonsStep()', () => {
 
     let uuid: string
     let teamId: number
+    let team: Team
     let pluginEvent: PluginEvent
     let timestamp: DateTime
 
@@ -28,6 +30,7 @@ describe('processPersonsStep()', () => {
         }
         const organizationId = await createOrganization(runner.hub.db.postgres)
         teamId = await createTeam(runner.hub.db.postgres, organizationId)
+        team = (await fetchTeam(runner.hub.db.postgres, teamId))!
         uuid = new UUIDT().toString()
 
         pluginEvent = {
@@ -56,6 +59,7 @@ describe('processPersonsStep()', () => {
         const [resEvent, resPerson] = await processPersonsStep(
             runner as EventPipelineRunner,
             pluginEvent,
+            team,
             timestamp,
             processPerson
         )
@@ -93,6 +97,7 @@ describe('processPersonsStep()', () => {
         const [resEvent, resPerson] = await processPersonsStep(
             runner as EventPipelineRunner,
             normalizedEvent,
+            team,
             timestamp,
             processPerson
         )

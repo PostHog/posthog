@@ -3831,6 +3831,7 @@ export type IntegrationKind =
     | 'google-ads'
     | 'linkedin-ads'
     | 'snapchat'
+    | 'intercom'
 
 export interface IntegrationType {
     id: number
@@ -4690,6 +4691,7 @@ export interface SourceConfig {
     fields: SourceFieldConfig[]
     disabledReason?: string | null
     oauthPayload?: string[]
+    existingSource?: boolean
 }
 
 export interface ProductPricingTierSubrows {
