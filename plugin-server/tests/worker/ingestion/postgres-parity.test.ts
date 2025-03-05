@@ -1,5 +1,7 @@
 import { DateTime } from 'luxon'
 
+import { closeHub, createHub } from '~/src/utils/db/hub'
+
 import { PluginServer } from '../../../src/server'
 import {
     Database,
@@ -23,19 +25,14 @@ const extraServerConfig: Partial<PluginsServerConfig> = {
     LOG_LEVEL: LogLevel.Log,
 }
 
-describe('postgres parity', () => {
+describe('postgres parity with clickhouse', () => {
     let hub: Hub
-    let server: PluginServer
+    // let server: PluginServer
     let teamId = 10 // Incremented every test. Avoids late ingestion causing issues
 
     beforeAll(async () => {
-        console.log('[TEST] Resetting kafka')
         await resetKafka(extraServerConfig)
-    })
-
-    beforeEach(async () => {
         jest.spyOn(process, 'exit').mockImplementation()
-        console.log('[TEST] Resetting tests databases')
         await resetTestDatabase(`
             async function processEvent (event) {
                 event.properties.processed = 'hell yes'
@@ -44,14 +41,17 @@ describe('postgres parity', () => {
             }
         `)
         await resetTestDatabaseClickhouse(extraServerConfig)
-        console.log('[TEST] Starting plugins server')
-        server = new PluginServer({
-            PLUGIN_SERVER_MODE: PluginServerMode.ingestion_v2,
-        })
-        await server.start()
-        hub = server.hub!
+
+        // server = new PluginServer({
+        //     PLUGIN_SERVER_MODE: PluginServerMode.ingestion_v2,
+        // })
+        // await server.start()
+        // hub = server.hub!
+        hub = await createHub(extraServerConfig)
+    })
+
+    beforeEach(async () => {
         teamId++
-        console.log('[TEST] Setting up seed data')
         await createUserTeamAndOrganization(
             hub.db.postgres,
             teamId,
@@ -60,12 +60,10 @@ describe('postgres parity', () => {
             new UUIDT().toString(),
             new UUIDT().toString()
         )
-        console.log('[TEST] BeforeEach complete')
     })
 
-    afterEach(async () => {
-        console.log('[TEST] Stopping server')
-        await server.stop()
+    afterAll(async () => {
+        await closeHub(hub)
     })
 
     test('createPerson', async () => {

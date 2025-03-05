@@ -6,6 +6,19 @@ import { PluginsServerConfig } from '../../src/types'
 import { status } from '../../src/utils/status'
 import { delay } from '../../src/utils/utils'
 
+const clickhouse = new ClickHouse({
+    // We prefer to run queries on the offline cluster.
+    host: process.env.CLICKHOUSE_HOST ?? 'localhost',
+    port: process.env.CLICKHOUSE_SECURE ? 8443 : 8123,
+    protocol: process.env.CLICKHOUSE_SECURE ? 'https:' : 'http:',
+    user: process.env.CLICKHOUSE_USER ?? 'default',
+    password: process.env.CLICKHOUSE_PASSWORD || undefined,
+    dataObjects: true,
+    queryOptions: {
+        database: process.env.CLICKHOUSE_DATABASE ?? 'posthog_test',
+        output_format_json_quote_64bit_integers: false,
+    },
+})
 export async function resetTestDatabaseClickhouse(extraServerConfig?: Partial<PluginsServerConfig>): Promise<void> {
     const config = { ...defaultConfig, ...extraServerConfig }
     const clickhouse = new ClickHouse({
@@ -57,4 +70,16 @@ export async function delayUntilEventIngested<T extends any[] | number>(
     }
 
     throw Error(`Failed to get data in time, got ${JSON.stringify(data)}`)
+}
+
+
+
+export async function clickhouseQuery<R extends Record<string, any> = Record<string, any>>(
+    query: string,
+    options?: ClickHouse.QueryOptions
+): Promise<ClickHouse.ObjectQueryResult<R>> {
+    const queryResult = await clickhouse.querying(query, options)
+    // This is annoying to type, because the result depends on contructor and query options provided
+    // at runtime. However, with our options we can safely assume ObjectQueryResult<R>
+    return queryResult as unknown as ClickHouse.ObjectQueryResult<R>
 }

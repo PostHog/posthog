@@ -139,6 +139,14 @@ export const POSTGRES_UNAVAILABLE_ERROR_MESSAGES = [
     'query_wait_timeout', // Waiting on PG bouncer to give us a slot
 ]
 
+export const toPerson = (row: RawPerson): InternalPerson => {
+    return {
+        ...row,
+        created_at: DateTime.fromISO(row.created_at).toUTC(),
+        version: Number(row.version || 0),
+    }
+}
+
 /** The recommended way of accessing the database. */
 export class DB {
     /** Postgres connection router for database access. */
@@ -456,14 +464,6 @@ export class DB {
         )
     }
 
-    private toPerson(row: RawPerson): InternalPerson {
-        return {
-            ...row,
-            created_at: DateTime.fromISO(row.created_at).toUTC(),
-            version: Number(row.version || 0),
-        }
-    }
-
     public async fetchPersons(database?: Database.Postgres): Promise<InternalPerson[]>
     public async fetchPersons(database: Database.ClickHouse): Promise<ClickHousePerson[]>
     public async fetchPersons(database: Database = Database.Postgres): Promise<InternalPerson[] | ClickHousePerson[]> {
@@ -492,7 +492,7 @@ export class DB {
         } else if (database === Database.Postgres) {
             return await this.postgres
                 .query<RawPerson>(PostgresUse.COMMON_WRITE, 'SELECT * FROM posthog_person', undefined, 'fetchPersons')
-                .then(({ rows }) => rows.map(this.toPerson))
+                .then(({ rows }) => rows.map(toPerson))
         } else {
             throw new Error(`Can't fetch persons for database: ${database}`)
         }
@@ -538,7 +538,7 @@ export class DB {
         )
 
         if (rows.length > 0) {
-            return this.toPerson(rows[0])
+            return toPerson(rows[0])
         }
     }
 
@@ -615,7 +615,7 @@ export class DB {
             ],
             'insertPerson'
         )
-        const person = this.toPerson(rows[0])
+        const person = toPerson(rows[0])
 
         const kafkaMessages = [generateKafkaPersonUpdateMessage(person)]
 
@@ -678,7 +678,7 @@ export class DB {
                 `Person with team_id="${person.team_id}" and uuid="${person.uuid} couldn't be updated`
             )
         }
-        const updatedPerson = this.toPerson(rows[0])
+        const updatedPerson = toPerson(rows[0])
 
         // Track the disparity between the version on the database and the version of the person we have in memory
         // Without races, the returned person (updatedPerson) should have a version that's only +1 the person in memory
