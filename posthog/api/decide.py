@@ -74,7 +74,7 @@ def maybe_log_decide_data(request_body: Optional[dict] = None, response_body: Op
                 "Decide response data", request_id=request_id, team_id=team_id_as_string, response_body=response_body
             )
     except:
-        pass
+        logger.warn("Failed to log decide data", team_id=team_id_as_string)
 
 
 def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool = False) -> dict:
@@ -302,8 +302,11 @@ def get_decide(request: HttpRequest):
         flags_response = get_feature_flags_response(request, data, team, token, api_version)
         response = get_base_config(token, team, request, skip_db=flags_response.get("errorsWhileComputingFlags", False))
 
-        request_id = structlog.get_context(logger).get("request_id")
-        response["requestId"] = request_id
+        try:
+            request_id = structlog.get_context(logger).get("request_id")
+            response["requestId"] = request_id
+        except:
+            logger.warn("Failed to get request_id from logger context", team_id=team.id)
 
         # For remote config, we need to ensure quota limiting is reflected
         if flags_response.get("quotaLimited"):
