@@ -91,7 +91,6 @@ class ErrorTrackingQueryRunner(QueryRunner):
                 alias="users", expr=ast.Call(name="count", distinct=True, args=[ast.Field(chain=["distinct_id"])])
             ),
             ast.Alias(alias="last_seen", expr=ast.Call(name="max", args=[ast.Field(chain=["timestamp"])])),
-            ast.Alias(alias="first_seen", expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])),
         ]
 
         for alias, config in self.sparklineConfigs.items():
@@ -235,7 +234,6 @@ class ErrorTrackingQueryRunner(QueryRunner):
                     results.append(
                         issue
                         | {
-                            "first_seen": result_dict.get("first_seen"),
                             "last_seen": result_dict.get("last_seen"),
                             "earliest": result_dict.get("earliest") if self.query.issueId else None,
                             "aggregations": self.extract_aggregations(result_dict),
@@ -268,7 +266,9 @@ class ErrorTrackingQueryRunner(QueryRunner):
 
     def error_tracking_issues(self, ids):
         status = self.query.status
-        queryset = ErrorTrackingIssue.objects.select_related("assignment").filter(team=self.team, id__in=ids)
+        queryset = (
+            ErrorTrackingIssue.objects.with_first_seen().select_related("assignment").filter(team=self.team, id__in=ids)
+        )
 
         if self.query.issueId:
             queryset = queryset.filter(id=self.query.issueId)
@@ -283,7 +283,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
             )
 
         issues = queryset.values(
-            "id", "status", "name", "description", "assignment__user_id", "assignment__user_group_id"
+            "id", "status", "name", "description", "first_seen", "assignment__user_id", "assignment__user_group_id"
         )
 
         results = {}
@@ -293,6 +293,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
                 "name": issue["name"],
                 "status": issue["status"],
                 "description": issue["description"],
+                "first_seen": issue["first_seen"],
                 "assignee": None,
             }
 
