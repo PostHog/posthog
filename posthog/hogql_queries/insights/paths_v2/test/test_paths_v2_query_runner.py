@@ -21,31 +21,36 @@ def create_sequences(team: Team) -> None:
         events_by_person={
             # User 1 (Full Funnel)
             "person1": [
-                {"event": "Landing Page"},
-                {"event": "Product View"},
-                {"event": "Add to Cart"},
-                {"event": "Checkout"},
-                {"event": "Purchase"},
+                {"event": "Landing Page", "timestamp": "2023-03-10 12:00:00"},
+                {"event": "Product View", "timestamp": "2023-03-10 12:05:00"},
+                {"event": "Add to Cart", "timestamp": "2023-03-10 12:10:00"},
+                {"event": "Checkout", "timestamp": "2023-03-10 12:15:00"},
+                {"event": "Purchase", "timestamp": "2023-03-10 12:20:00"},
             ],
             # User 2 (Search before purchase)
             "person2": [
-                {"event": "Landing Page"},
-                {"event": "Search"},
-                {"event": "Product View"},
-                {"event": "Add to Cart"},
-                {"event": "Checkout"},
-                {"event": "Purchase"},
+                {"event": "Landing Page", "timestamp": "2023-03-11 11:30:00"},
+                {"event": "Search", "timestamp": "2023-03-11 11:32:00"},
+                {"event": "Product View", "timestamp": "2023-03-11 11:35:00"},
+                {"event": "Add to Cart", "timestamp": "2023-03-11 11:38:00"},
+                {"event": "Checkout", "timestamp": "2023-03-11 11:42:00"},
+                {"event": "Purchase", "timestamp": "2023-03-11 11:45:00"},
             ],
             # User 3 (Abandoned Cart)
-            "person3": [{"event": "Landing Page"}, {"event": "Product View"}, {"event": "Add to Cart"}],
+            "person3": [
+                {"event": "Landing Page", "timestamp": "2023-03-12 10:00:00"},
+                {"event": "Product View", "timestamp": "2023-03-12 10:02:00"},
+                {"event": "Add to Cart", "timestamp": "2023-03-12 10:05:00"},
+            ],
             # User 4 (Bounced)
-            "person4": [{"event": "Landing Page"}],
+            "person4": [
+                {"event": "Landing Page", "timestamp": "2023-03-13 09:00:00"},
+            ],
         },
     )
 
 
 class SharedSetup(ClickhouseTestMixin, APIBaseTest, ABC):
-
     def _get_query_runner(self) -> PathsV2QueryRunner:
         query = PathsV2Query()
         return PathsV2QueryRunner(team=self.team, query=query)

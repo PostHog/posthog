@@ -8,6 +8,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
+from posthog.hogql_queries.insights.paths_v2.utils import interval_unit_to_sql
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
@@ -156,9 +157,9 @@ class PathsV2QueryRunner(QueryRunner):
 
     def _paths_per_actor_and_session_as_tuple_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         """
-        - Combines the timestamp and path item arrays into an array of tuples, including the difference of the current and last path item's timestamp.
-        - Uses this difference to split the array into sessions.
-        - Keeps only the first n steps of each session.
+        - Combines the timestamp and path item arrays into an array of tuples, including the previous step's timestamp.
+        - Compares the two timestamps with the session interval to split the array into sessions.
+        - Keeps only the first `max_steps` steps of each session.
         - Flattens the sessions, annotated by a session index.
 
         Example:
@@ -171,15 +172,16 @@ class PathsV2QueryRunner(QueryRunner):
                 /* Combines the two arrays into an array of tuples, where each tuple contains:
                 1. The timestamp.
                 2. The path item.
-                3. The time difference between the current and previous timestamp. */
+                3. The previous step's timestamp. */
                 arrayZip(
                     timestamp_array,
                     path_item_array,
-                    arrayDifference(timestamp_array)
+                    arrayPopBack(arrayPushFront(timestamp_array, NULL))
                 ) as paths_array,
 
-                /* Splits the tuple array if the time difference is greater than the session window. */
-                arraySplit(x->if(x.3 < (1800), 0, 1), paths_array) as paths_array_session_split,
+                /* Splits the tuple array if the difference between the current and the
+                previous timestamp is greater than the session window. */
+                arraySplit(x->if(x.1 < x.3 + {session_interval}, 0, 1), paths_array) as paths_array_session_split,
 
                 /* Returns the first n events per session. */
                 arraySlice(paths_array_per_session, 1, {max_steps}) as limited_paths_array_per_session
@@ -190,6 +192,10 @@ class PathsV2QueryRunner(QueryRunner):
             placeholders={
                 "paths_per_actor_as_array_query": self._paths_per_actor_as_array_query(),
                 "max_steps": ast.Constant(value=self.max_steps),
+                "session_interval": ast.Call(
+                    name=interval_unit_to_sql(self.interval_unit),
+                    args=[ast.Constant(value=self.interval)],
+                ),
             },
         )
 
@@ -211,7 +217,6 @@ class PathsV2QueryRunner(QueryRunner):
                     limited_paths_array_per_session,
                     step_in_session_index - 1
                 ).2 as previous_path_item,
-                path_tuple.3 AS duration
             FROM {paths_per_actor_and_session_as_tuple_query}
             ARRAY JOIN limited_paths_array_per_session AS path_tuple,
                 arrayEnumerate(limited_paths_array_per_session) AS step_in_session_index
