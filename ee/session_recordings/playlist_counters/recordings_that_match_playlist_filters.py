@@ -45,6 +45,12 @@ REPLAY_TEAM_PLAYLIST_COUNT_SKIPPED = Counter(
     "when a count task for a playlist is skipped because the cooldown period has not passed",
 )
 
+REPLAY_PLAYLIST_LEGACY_FILTERS_CONVERTED = Counter(
+    "replay_playlist_legacy_filters_converted",
+    "when a count task for a playlist converts legacy filters to universal filters",
+)
+
+
 REPLAY_PLAYLIST_COUNT_TIMER = Histogram(
     "replay_playlist_with_filters_count_timer_seconds",
     "Time spent loading session recordings that match filters in a playlist in seconds",
@@ -132,11 +138,13 @@ def convert_legacy_filters_to_universal_filters(filters: Optional[dict[str, Any]
     }
 
 
-def convert_filters_to_recordings_query(filters: dict[str, Any]) -> RecordingsQuery:
+def convert_filters_to_recordings_query(playlist: SessionRecordingPlaylist) -> RecordingsQuery:
     """
     Convert universal filters to a RecordingsQuery object.
     This is the Python equivalent of the frontend's convertUniversalFiltersToRecordingsQuery function.
     """
+
+    filters = playlist.filters
 
     # we used to send `version` and it's not part of query, so we pop to make sure
     filters.pop("version", None)
@@ -151,6 +159,9 @@ def convert_filters_to_recordings_query(filters: dict[str, Any]) -> RecordingsQu
             # then we have a legacy filter
             # because we know we don't have a query
             filters = convert_legacy_filters_to_universal_filters(filters)
+            playlist.filters = filters
+            playlist.save(update_fields=["filters"])
+            REPLAY_PLAYLIST_LEGACY_FILTERS_CONVERTED.inc()
 
     # Extract filters from the filter group
     extracted_filters = []
@@ -256,7 +267,7 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
                     REPLAY_TEAM_PLAYLIST_COUNT_SKIPPED.inc()
                     return
 
-            query = convert_filters_to_recordings_query(playlist.filters)
+            query = convert_filters_to_recordings_query(playlist)
             (recordings, more_recordings_available, _) = list_recordings_from_query(
                 query, user=None, team=playlist.team
             )
