@@ -59,7 +59,7 @@ OVERRIDE_TIMESTAMP_TEAM_IDS: dict[int, int] = dict(
 
 CLICKHOUSE_MAX_EXECUTION_TIME: int = get_from_env("CLICKHOUSE_MAX_EXECUTION_TIME", 0, type_cast=int)
 CLICKHOUSE_MAX_MEMORY_USAGE: int = get_from_env(
-    "CLICKHOUSE_MAX_MEMORY_USAGE", 100 * 1000 * 1000 * 1000 * 1.5, type_cast=int
+    "CLICKHOUSE_MAX_MEMORY_USAGE", 150 * 1000 * 1000 * 1000, type_cast=int
 )  # 150GB
 CLICKHOUSE_MAX_BLOCK_SIZE_DEFAULT: int = get_from_env("CLICKHOUSE_MAX_BLOCK_SIZE_DEFAULT", 10000, type_cast=int)
 # Comma separated list of overrides in the format "team_id:block_size"
