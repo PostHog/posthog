@@ -723,7 +723,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             results = self.handle_cache_and_async_logic(
                 execution_mode=execution_mode, cache_manager=cache_manager, user=user
             )
-            if results is not None:
+            if results:
                 return results
 
         last_refresh = datetime.now(UTC)

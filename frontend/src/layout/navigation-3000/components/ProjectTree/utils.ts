@@ -4,7 +4,7 @@ import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { iconForType } from './defaultTree'
 import { FileSystemImport } from './types'
 
-export function convertFileSystemEntryToTreeDataItem(imports: FileSystemImport[]): TreeDataItem[] {
+export function convertFileSystemEntryToTreeDataItem(imports: FileSystemImport[], root = 'project'): TreeDataItem[] {
     // The top-level nodes for our project tree
     const rootNodes: TreeDataItem[] = []
 
@@ -13,9 +13,9 @@ export function convertFileSystemEntryToTreeDataItem(imports: FileSystemImport[]
         let folderNode: TreeDataItem | undefined = nodes.find((node) => node.record?.path === fullPath)
         if (!folderNode) {
             folderNode = {
-                id: 'project/' + fullPath,
+                id: `${root}/${fullPath}`,
                 name: folderName,
-                record: { type: 'folder', id: 'project/' + fullPath, path: fullPath },
+                record: { type: 'folder', id: `${root}/${fullPath}`, path: fullPath },
                 children: [],
             }
             nodes.push(folderNode)
@@ -52,7 +52,7 @@ export function convertFileSystemEntryToTreeDataItem(imports: FileSystemImport[]
 
         // Create the actual item node.
         const node: TreeDataItem = {
-            id: 'project/' + (item.id || item.path),
+            id: `${root}/${item.id || item.path}`,
             name: itemName,
             icon: item.icon || iconForType(item.type),
             record: item,
@@ -113,4 +113,34 @@ export function joinPath(path: string[]): string {
 
 export function escapePath(path: string): string {
     return path.replace(/\\/g, '\\\\').replace(/\//g, '\\/')
+}
+
+export function findInProjectTree(itemId: string, projectTree: TreeDataItem[]): TreeDataItem | undefined {
+    for (const node of projectTree) {
+        if (node.id === itemId) {
+            return node
+        }
+        if (node.children) {
+            const found = findInProjectTree(itemId, node.children)
+            if (found) {
+                return found
+            }
+        }
+    }
+    return undefined
+}
+
+export function findInProjectTreeByPath(path: string, projectTree: TreeDataItem[]): TreeDataItem | undefined {
+    for (const node of projectTree) {
+        if (node.record?.path === path) {
+            return node
+        }
+        if (node.children) {
+            const found = findInProjectTreeByPath(path, node.children)
+            if (found) {
+                return found
+            }
+        }
+    }
+    return undefined
 }

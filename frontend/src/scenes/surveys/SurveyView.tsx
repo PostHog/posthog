@@ -506,7 +506,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
     } = useValues(surveyLogic)
 
     return (
-        <div className="space-y-4">
+        <div className="deprecated-space-y-4">
             <SurveyResponseFilters />
             {isAnyResultsLoading && (
                 <div className="flex gap-1">
@@ -518,7 +518,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
             {survey.questions.map((question, i) => {
                 if (question.type === SurveyQuestionType.Rating) {
                     return (
-                        <div key={`survey-q-${i}`} className="space-y-2">
+                        <div key={`survey-q-${i}`} className="deprecated-space-y-2">
                             {question.scale === 10 && (
                                 <SurveyNPSResults
                                     survey={survey as Survey}
@@ -626,13 +626,13 @@ function SurveyNPSResults({
                         Latest NPS Score
                     </div>
                     {npsBreakdown && (
-                        <div className="space-y-2 mt-2 mb-4">
+                        <div className="deprecated-space-y-2 mt-2 mb-4">
                             <NPSStackedBar npsBreakdown={npsBreakdown} />
                         </div>
                     )}
                 </>
             )}
-            <div className="space-y-2 bg-surface-primary p-2 rounded">
+            <div className="deprecated-space-y-2 bg-surface-primary p-2 rounded">
                 <div className="flex items-center justify-between gap-2">
                     <h4 className="text-lg font-semibold">NPS Trend</h4>
                     <div className="flex items-center gap-2">

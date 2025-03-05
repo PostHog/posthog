@@ -16,6 +16,7 @@ import {
     PluginsAccessLevel,
     PROPERTY_MATCH_TYPE,
     RETENTION_FIRST_TIME,
+    RETENTION_MEAN_NONE,
     RETENTION_RECURRING,
     ShownAsValue,
     TeamMembershipLevel,
@@ -2490,7 +2491,8 @@ export interface RetentionFilterType extends FilterType {
     cumulative?: boolean
 
     //frontend only
-    show_mean?: boolean
+    show_mean?: boolean // deprecated
+    mean_retention_calculation?: 'simple' | 'weighted' | typeof RETENTION_MEAN_NONE
 }
 export interface LifecycleFilterType extends FilterType {
     /** @deprecated */
@@ -3722,6 +3724,11 @@ export enum GroupMathType {
     UniqueGroup = 'unique_group',
 }
 
+export enum ExperimentMetricMathType {
+    TotalCount = 'total',
+    Sum = 'sum',
+}
+
 export enum ActorGroupType {
     Person = 'person',
     GroupPrefix = 'group',
@@ -3824,6 +3831,7 @@ export type IntegrationKind =
     | 'google-ads'
     | 'linkedin-ads'
     | 'snapchat'
+    | 'intercom'
 
 export interface IntegrationType {
     id: number
@@ -4171,6 +4179,7 @@ export interface DataWarehouseSavedQuery {
     last_run_at?: string
     sync_frequency: string
     status?: string
+    latest_error: string | null
 }
 
 export interface DataWarehouseViewLink {
@@ -4683,6 +4692,7 @@ export interface SourceConfig {
     fields: SourceFieldConfig[]
     disabledReason?: string | null
     oauthPayload?: string[]
+    existingSource?: boolean
 }
 
 export interface ProductPricingTierSubrows {

@@ -63,14 +63,16 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                     return { ...values.issue, ...response }
                 },
                 loadClickHouseIssue: async (firstSeen: string) => {
-                    const dateRange = {
-                        date_from: firstSeen,
-                        date_to: values.issue?.last_seen || dayjs().toISOString(),
-                    }
+                    const hasLastSeen = values.issue && values.issue.last_seen
+                    const lastSeen = hasLastSeen ? dayjs(values.issue?.last_seen).endOf('minute') : dayjs()
+
                     const response = await api.query(
                         errorTrackingIssueQuery({
                             issueId: props.id,
-                            dateRange: dateRange,
+                            dateRange: {
+                                date_from: dayjs(firstSeen).startOf('minute').toISOString(),
+                                date_to: lastSeen.toISOString(),
+                            },
                             customVolume: values.customSparklineConfig,
                         }),
                         {},

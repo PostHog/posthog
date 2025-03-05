@@ -206,7 +206,6 @@ export const FEATURE_FLAGS = {
     EXPERIMENTS_HOGQL: 'experiments-hogql', // owner: @jurajmajerik #team-experiments
     ROLE_BASED_ACCESS_CONTROL: 'role-based-access-control', // owner: @zach
     MESSAGING: 'messaging', // owner @mariusandra #team-cdp
-    BILLING_TRIAL_FLOW: 'billing-trial-flow', // owner: @zach
     EDIT_DWH_SOURCE_CONFIG: 'edit_dwh_source_config', // owner: @Gilbert09 #team-data-warehouse
     AI_SURVEY_RESPONSE_SUMMARY: 'ai-survey-response-summary', // owner: #team-surveys
     SELF_SERVE_CREDIT_OVERRIDE: 'self-serve-credit-override', // owner: @zach
@@ -235,7 +234,6 @@ export const FEATURE_FLAGS = {
     EXPERIMENT_INTERVAL_TIMESERIES: 'experiments-interval-timeseries', // owner: @jurajmajerik #team-experiments
     EXPERIMENT_P_VALUE: 'experiment-p-value', // owner: @jurajmajerik #team-experiments
     WEB_ANALYTICS_IMPROVED_PATH_CLEANING: 'web-analytics-improved-path-cleaning', // owner: @rafaeelaudibert #team-web-analytics
-    ONBOARDING_NEW_PLANS_STEP: 'onboarding-new-plans-step', // owner: @joshsny #team-growth
     EXPERIMENTAL_DASHBOARD_ITEM_RENDERING: 'experimental-dashboard-item-rendering', // owner: @thmsobrmlr #team-product-analytics
     RECORDINGS_AI_FILTER: 'recordings-ai-filter', // owner: @veryayskiy #team-replay
     PATHS_V2: 'paths-v2', // owner: @thmsobrmlr #team-product-analytics
@@ -247,6 +245,7 @@ export const FEATURE_FLAGS = {
     DELAYED_LOADING_ANIMATION: 'delayed-loading-animation', // owner: @raquelmsmith
     PROJECTED_TOTAL_AMOUNT: 'projected-total-amount', // owner: @zach
     SESSION_RECORDINGS_PLAYLIST_COUNT_COLUMN: 'session-recordings-playlist-count-column', // owner: @pauldambra #team-replay
+    WEB_ANALYTICS_TREND_VIZ_TOGGLE: 'web-analytics-trend-viz-toggle', // owner: @lricoy #team-web-analytics
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
@@ -259,6 +258,8 @@ export enum FunnelLayout {
 }
 
 export const BIN_COUNT_AUTO = 'auto' as const
+
+export const RETENTION_MEAN_NONE = 'none' as const
 
 // Cohort types
 export enum CohortTypeEnum {

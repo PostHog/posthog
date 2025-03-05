@@ -3,7 +3,7 @@ import fs from 'fs/promises'
 import * as schedule from 'node-schedule'
 import { Counter } from 'prom-client'
 
-import { Hub, PluginsServerConfig } from '../types'
+import { PluginsServerConfig } from '../types'
 import { isTestEnv } from './env-utils'
 import { status } from './status'
 
@@ -11,19 +11,13 @@ export type GeoIp = {
     city: (ip: string) => City | null
 }
 
-export const geoipCompareCounter = new Counter({
-    name: 'cdp_geoip_compare_count',
-    help: 'Number of times we compare the MMDB file to the local file',
-    labelNames: ['result'],
-})
-
-export const geoipLoadCounter = new Counter({
+const geoipLoadCounter = new Counter({
     name: 'cdp_geoip_load_count',
     help: 'Number of times we load the MMDB file',
     labelNames: ['reason'],
 })
 
-export const geoipBackgroundRefreshCounter = new Counter({
+const geoipBackgroundRefreshCounter = new Counter({
     name: 'cdp_geoip_background_refresh_count',
     help: 'Number of times we tried to refresh the MMDB file',
     labelNames: ['result'],
@@ -125,17 +119,8 @@ export class GeoIPService {
         this._mmdbMetadata = metadata
     }
 
-    async get(hub: Hub): Promise<GeoIp> {
-        // NOTE: There is a lot of code here just testing that the values are the same as before.
-        // Once released we don't need the Hub and can simplify this.
-        try {
-            await this.ensureMmdbLoaded()
-        } catch (e) {
-            if (!this.config.MMDB_COMPARE_MODE) {
-                // If we aren't comparing then we should fail hard
-                throw e
-            }
-        }
+    async get(): Promise<GeoIp> {
+        await this.ensureMmdbLoaded()
 
         return {
             city: (ip: string) => {
@@ -143,33 +128,11 @@ export class GeoIPService {
                     return null
                 }
 
-                let newGeoipResult: City | null = null
-                let oldGeoipResult: City | null = null
-
                 try {
-                    if (this.config.MMDB_COMPARE_MODE) {
-                        oldGeoipResult = hub.mmdb?.city(ip) ?? null
-                    }
-                } catch {}
-
-                try {
-                    newGeoipResult = this._mmdb?.city(ip) ?? null
-                } catch {}
-
-                if (this.config.MMDB_COMPARE_MODE) {
-                    if (oldGeoipResult?.city?.geonameId !== newGeoipResult?.city?.geonameId) {
-                        status.warn('🌎', 'New GeoIP result was different', {
-                            ip,
-                            oldGeoipResult: JSON.stringify(oldGeoipResult?.city),
-                            newGeoipResult: JSON.stringify(newGeoipResult?.city),
-                        })
-                        geoipCompareCounter.inc({ result: 'different' })
-                    } else {
-                        geoipCompareCounter.inc({ result: 'same' })
-                    }
+                    return this._mmdb?.city(ip) ?? null
+                } catch {
+                    return null
                 }
-
-                return oldGeoipResult ? oldGeoipResult : newGeoipResult
             },
         }
     }
