@@ -1,5 +1,4 @@
-import { useDraggable, useDroppable } from '@dnd-kit/core'
-import { CSS } from '@dnd-kit/utilities'
+import { useDroppable } from '@dnd-kit/core'
 import { IconChevronRight } from '@posthog/icons'
 import { cn } from 'lib/utils/css-classes'
 
@@ -17,7 +16,7 @@ type IconProps = {
 export function getIcon({ item, expandedItemIds, defaultNodeIcon }: IconProps): JSX.Element {
     const ICON_CLASSES = 'size-6 aspect-square flex place-items-center'
 
-    const isOpen = expandedItemIds.includes(item.id)
+    const isOpen = expandedItemIds.includes(item.record?.path ?? item.id)
     const isFolder = item.record?.type === 'folder'
     const isFile = item.record?.type === 'file'
 
@@ -71,38 +70,6 @@ export function getIcon({ item, expandedItemIds, defaultNodeIcon }: IconProps): 
 type DragAndDropProps = {
     id: string
     children: React.ReactNode
-}
-type DraggableProps = DragAndDropProps & {
-    enableDragging: boolean
-    className?: string
-}
-
-export const TreeNodeDraggable = (props: DraggableProps): JSX.Element => {
-    const { attributes, listeners, setNodeRef, transform } = useDraggable({
-        id: props.id,
-    })
-    const style = transform
-        ? {
-              transform: CSS.Translate.toString(transform),
-              zIndex: props.enableDragging ? 10 : undefined,
-              opacity: props.enableDragging ? 0.5 : 1,
-          }
-        : undefined
-
-    return (
-        // Apply transform to the entire container and make it the drag reference
-        <div
-            className={cn('relative', props.className)}
-            ref={setNodeRef}
-            // eslint-disable-next-line react/forbid-dom-props
-            style={style}
-            {...(props.enableDragging ? listeners : {})}
-        >
-            <div className="flex-1" {...attributes}>
-                {props.children}
-            </div>
-        </div>
-    )
 }
 
 type DroppableProps = DragAndDropProps & {

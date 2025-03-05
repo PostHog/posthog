@@ -42,7 +42,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         updateExpandedFolders: (folders: string[]) => ({ folders }),
         updateActiveFolder: (folder: string | null) => ({ folder }),
         updateLastViewedPath: (path: string) => ({ path }),
-        toggleFolder: (folder: string, isExpanded: boolean) => ({ folder, isExpanded }),
+        toggleFolder: (folder: string) => ({ folder }),
         updateSelectedFolder: (folder: string) => ({ folder }),
         updateHelpNoticeVisibility: (visible: boolean) => ({ visible }),
         loadFolder: (folder: string) => ({ folder }),
@@ -380,8 +380,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 newPath: folder,
             })
         },
-        toggleFolder: ({ folder, isExpanded }) => {
-            if (isExpanded) {
+        toggleFolder: ({ folder }) => {
+            if (values.expandedFolders.find((f) => f === folder)) {
                 actions.updateExpandedFolders(values.expandedFolders.filter((f) => f !== folder))
             } else {
                 actions.updateExpandedFolders([...values.expandedFolders, folder])

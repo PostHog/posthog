@@ -1,13 +1,14 @@
-import { DndContext, DragEndEvent } from '@dnd-kit/core'
+import { DndContext, DragEndEvent, useDraggable } from '@dnd-kit/core'
+import { CSS } from '@dnd-kit/utilities'
 import { IconUpload } from '@posthog/icons'
 import * as AccordionPrimitive from '@radix-ui/react-accordion'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { cn } from 'lib/utils/css-classes'
-import { forwardRef, HTMLAttributes, useCallback, useEffect, useRef, useState } from 'react'
+import { forwardRef, HTMLAttributes, useCallback, useRef, useState } from 'react'
 
 import { LemonButton, SideAction } from '../LemonButton'
 import { Spinner } from '../Spinner/Spinner'
-import { getIcon, TreeNodeDraggable, TreeNodeDroppable } from './LemonTreeUtils'
+import { getIcon, TreeNodeDroppable } from './LemonTreeUtils'
 
 export type TreeDataItem = {
     /** The ID of the item. */
@@ -33,7 +34,7 @@ export type TreeDataItem = {
 
 type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
     /** The data to render in the tree. */
-    data: TreeDataItem[] | TreeDataItem
+    data: TreeDataItem
     /** The ID of the folder/node to select by default. Will expand the node if it has children. */
     defaultSelectedFolderOrNodeId?: string
     /** The IDs of the expanded items. */
@@ -84,6 +85,8 @@ export type LemonTreeNodeProps = LemonTreeBaseProps & {
     handleClick: (item: TreeDataItem | undefined, isKeyboardAction?: boolean) => void
     /** The depth of the item. */
     depth?: number
+    isSelfDraggable?: boolean
+    isSelfDroppable?: boolean
 }
 
 const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
@@ -104,173 +107,146 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
             depth = 0,
             itemSideAction,
             enableDragAndDrop = false,
+            isSelfDraggable,
+            isSelfDroppable,
             ...props
         },
         ref
     ): JSX.Element => {
         const DEPTH_OFFSET = 4 + 8 * depth // 4 is .25rem to match lemon button padding x axis
 
-        // Handle meta key to enable dragging
-        const [isModifierKeyPressed, setIsModifierKeyPressed] = useState(false)
+        const item = data
+        const { attributes, listeners, setNodeRef, transform } = useDraggable({
+            id: item.record?.path ?? item.id ?? '',
+        })
+        const style = transform
+            ? {
+                  transform: CSS.Translate.toString(transform),
+              }
+            : undefined
 
-        if (!(data instanceof Array)) {
-            data = [data]
-        }
-
-        // TODO: move this keydown listener to the parent component
-        useEffect(() => {
-            const handleKeyDown = (e: KeyboardEvent): void => {
-                if (e.metaKey || e.ctrlKey) {
-                    setIsModifierKeyPressed(true)
-                }
-            }
-
-            const handleKeyUp = (e: KeyboardEvent): void => {
-                if (!e.metaKey && !e.ctrlKey) {
-                    setIsModifierKeyPressed(false)
-                }
-            }
-
-            window.addEventListener('keydown', handleKeyDown)
-            window.addEventListener('keyup', handleKeyUp)
-
-            return () => {
-                window.removeEventListener('keydown', handleKeyDown)
-                window.removeEventListener('keyup', handleKeyUp)
-            }
-        }, [])
-
-        return (
-            <ul className={cn('list-none m-0 p-0', className)} role="group">
-                {data.map((item) => {
-                    const content = (
-                        <AccordionPrimitive.Root
-                            type="multiple"
-                            value={expandedItemIds}
-                            onValueChange={(s) => {
-                                onSetExpandedItemIds?.(s)
-                            }}
-                            ref={ref}
-                            key={item.id}
-                            disabled={!!item.disabledReason}
+        const content = (
+            <AccordionPrimitive.Root
+                type="multiple"
+                value={expandedItemIds}
+                onValueChange={(s) => {
+                    onSetExpandedItemIds?.(s)
+                }}
+                ref={ref}
+                key={item.record?.path ?? item.id}
+                disabled={!!item.disabledReason}
+            >
+                <AccordionPrimitive.Item value={item.record?.path ?? item.id} className="flex flex-col w-full">
+                    <AccordionPrimitive.Trigger className="flex items-center gap-2 w-full h-8" asChild>
+                        <LemonButton
+                            className={cn(
+                                'group/lemon-tree-button',
+                                'flex-1 flex items-center gap-2 cursor-pointer font-normal',
+                                focusedId === (item.record?.path ?? item.id) &&
+                                    'ring-2 ring-inset ring-offset-[-1px] ring-accent-primary',
+                                selectedId === (item.record?.path ?? item.id) &&
+                                    'border-l-[4px] border-l-accent-primary rounded-tl-sm rounded-bl-sm'
+                            )}
+                            onClick={() => handleClick(item)}
+                            onKeyDown={(e) => e.key === 'Enter' && handleClick(item, true)}
+                            type="tertiary"
+                            // role="treeitem"
+                            // tabIndex={-1}
+                            size="small"
+                            fullWidth
+                            data-id={item.record?.path ?? item.id}
+                            active={
+                                selectedId === (item.record?.path ?? item.id) ||
+                                (showFolderActiveState && item.children && expandedItemIds?.includes(item.record?.path))
+                            }
+                            icon={getIcon({
+                                item,
+                                expandedItemIds: expandedItemIds ?? [],
+                                defaultNodeIcon,
+                            })}
+                            disabledReason={item.disabledReason}
+                            tooltipPlacement="right"
+                            ref={setNodeRef}
+                            style={{ ...(style || {}), paddingLeft: `${DEPTH_OFFSET}px` }}
+                            truncate
+                            tooltip={item.name}
+                            sideAction={itemSideAction ? itemSideAction(item) : undefined}
+                            {...(enableDragAndDrop && isSelfDraggable ? listeners : {})}
+                            {...(enableDragAndDrop && isSelfDraggable ? attributes : {})}
                         >
-                            <AccordionPrimitive.Item value={item.id} className="flex flex-col w-full">
-                                <AccordionPrimitive.Trigger className="flex items-center gap-2 w-full h-8" asChild>
-                                    <LemonButton
-                                        className={cn(
-                                            'group/lemon-tree-button',
-                                            'flex-1 flex items-center gap-2 cursor-pointer font-normal',
-                                            focusedId === item.id &&
-                                                'ring-2 ring-inset ring-offset-[-1px] ring-accent-primary',
-                                            selectedId === item.id &&
-                                                'border-l-[4px] border-l-accent-primary rounded-tl-sm rounded-bl-sm'
-                                        )}
-                                        onClick={() => handleClick(item)}
-                                        onKeyDown={(e) => e.key === 'Enter' && handleClick(item, true)}
-                                        type="tertiary"
-                                        role="treeitem"
-                                        tabIndex={-1}
-                                        size="small"
-                                        fullWidth
-                                        data-id={item.id}
-                                        active={
-                                            selectedId === item.id ||
-                                            (showFolderActiveState &&
-                                                item.children &&
-                                                expandedItemIds?.includes(item.id))
-                                        }
-                                        icon={getIcon({
-                                            item,
-                                            expandedItemIds: expandedItemIds ?? [],
-                                            defaultNodeIcon,
-                                        })}
-                                        disabledReason={item.disabledReason}
-                                        tooltipPlacement="right"
-                                        style={{ paddingLeft: `${DEPTH_OFFSET}px` }}
-                                        truncate
-                                        tooltip={item.name}
-                                        sideAction={itemSideAction ? itemSideAction(item) : undefined}
-                                    >
-                                        <span
-                                            className={cn('', {
-                                                'font-bold': selectedId === item.id,
-                                                'text-secondary': item.disabledReason,
-                                            })}
-                                        >
-                                            {renderItem ? (
-                                                <>
-                                                    {renderItem(item, item.name)}
-                                                    {item.record?.loading && <Spinner className="ml-1" />}
-                                                    {item.record?.unapplied && (
-                                                        <IconUpload className="ml-1 text-warning" />
-                                                    )}
-                                                </>
-                                            ) : (
-                                                item.name
-                                            )}
-                                        </span>
-                                    </LemonButton>
-                                </AccordionPrimitive.Trigger>
-
-                                {item.children && (
-                                    <AccordionPrimitive.Content className="relative">
-                                        {/* Depth line */}
-                                        <div
-                                            className="absolute -top-2 left-0 bottom-0 w-px -z-[1] bg-fill-separator"
-                                            // eslint-disable-next-line react/forbid-dom-props
-                                            style={{ transform: `translateX(${DEPTH_OFFSET}px)` }}
-                                        />
-                                        <LemonTreeNode
-                                            data={item.children}
-                                            selectedId={selectedId}
-                                            focusedId={focusedId}
-                                            handleClick={handleClick}
-                                            expandedItemIds={expandedItemIds}
-                                            onSetExpandedItemIds={onSetExpandedItemIds}
-                                            defaultNodeIcon={defaultNodeIcon}
-                                            showFolderActiveState={showFolderActiveState}
-                                            renderItem={renderItem}
-                                            itemSideAction={itemSideAction}
-                                            className="space-y-px"
-                                            depth={depth + 1}
-                                            isItemDraggable={isItemDraggable}
-                                            isItemDroppable={isItemDroppable}
-                                            enableDragAndDrop={enableDragAndDrop}
-                                            {...props}
-                                        />
-                                    </AccordionPrimitive.Content>
-                                )}
-                            </AccordionPrimitive.Item>
-                        </AccordionPrimitive.Root>
-                    )
-
-                    // Wrap content in Draggable/Droppable if needed
-                    let wrappedContent = content
-                    const path = item.record?.path || ''
-
-                    if (isItemDraggable?.(item)) {
-                        wrappedContent = (
-                            <TreeNodeDroppable
-                                id={path}
-                                isDroppable={isItemDroppable?.(item) && path && enableDragAndDrop}
+                            <span
+                                className={cn('', {
+                                    'font-bold': selectedId === (item.record?.path ?? item.id),
+                                    'text-secondary': item.disabledReason,
+                                })}
                             >
-                                <TreeNodeDraggable id={path} enableDragging={isModifierKeyPressed && enableDragAndDrop}>
-                                    {wrappedContent}
-                                </TreeNodeDraggable>
-                            </TreeNodeDroppable>
-                        )
-                    } else if (isItemDroppable?.(item)) {
-                        wrappedContent = (
-                            <TreeNodeDroppable id={path} isDroppable={isItemDroppable(item) && enableDragAndDrop}>
-                                {wrappedContent}
-                            </TreeNodeDroppable>
-                        )
-                    }
+                                {renderItem ? (
+                                    <>
+                                        {renderItem(item, item.name)}
+                                        {item.record?.loading && <Spinner className="ml-1" />}
+                                        {item.record?.unapplied && <IconUpload className="ml-1 text-warning" />}
+                                    </>
+                                ) : (
+                                    item.name
+                                )}
+                            </span>
+                        </LemonButton>
+                    </AccordionPrimitive.Trigger>
 
-                    return <div key={item.id}>{wrappedContent}</div>
-                })}
+                    {item.children && (
+                        <AccordionPrimitive.Content className="relative">
+                            {/* Depth line */}
+                            <div
+                                className="absolute -top-2 left-0 bottom-0 w-px -z-[1] bg-fill-separator"
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{ transform: `translateX(${DEPTH_OFFSET}px)` }}
+                            />
+                            {item.children.map((child) => (
+                                <LemonTreeNode
+                                    key={child.id}
+                                    ref={ref}
+                                    data={child}
+                                    selectedId={selectedId}
+                                    focusedId={focusedId}
+                                    handleClick={handleClick}
+                                    expandedItemIds={expandedItemIds}
+                                    onSetExpandedItemIds={onSetExpandedItemIds}
+                                    defaultNodeIcon={defaultNodeIcon}
+                                    showFolderActiveState={showFolderActiveState}
+                                    renderItem={renderItem}
+                                    itemSideAction={itemSideAction}
+                                    className="space-y-px"
+                                    depth={depth + 1}
+                                    isItemDraggable={isItemDraggable}
+                                    isItemDroppable={isItemDroppable}
+                                    isSelfDraggable={isItemDraggable?.(item)}
+                                    isSelfDroppable={isItemDroppable?.(item)}
+                                    {...props}
+                                    id={item.record?.Path}
+                                />
+                            ))}
+                        </AccordionPrimitive.Content>
+                    )}
+                </AccordionPrimitive.Item>
+            </AccordionPrimitive.Root>
+        )
+
+        const response = (
+            <ul className={cn('list-none m-0 p-0', className)} role="group">
+                {content}
             </ul>
         )
+
+        if (enableDragAndDrop && (item.record?.path ?? item.id) && (isSelfDraggable || isSelfDroppable)) {
+            // console.log("DRAGGABLE/DROPPABLE", item.id)
+            return (
+                <TreeNodeDroppable id={item.record?.path ?? item.id ?? ''} isDroppable>
+                    {response}
+                </TreeNodeDroppable>
+            )
+        }
+
+        return response
     }
 )
 LemonTreeNode.displayName = 'LemonTreeNode'
@@ -310,7 +286,7 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
             if (items instanceof Array) {
                 items.forEach((item) => {
                     if (!item.disabledReason && item.record?.type === 'folder') {
-                        allIds.push(item.id)
+                        allIds.push(item.record?.path ?? item.id)
                     }
                     if (item.children) {
                         collectAllFolderIds(item.children, allIds)
@@ -318,7 +294,7 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                 })
             } else {
                 if (!items.disabledReason && items.record?.type === 'folder') {
-                    allIds.push(items.id)
+                    allIds.push(items.record?.path ?? items.id)
                 }
                 if (items.children) {
                     collectAllFolderIds(items.children, allIds)
@@ -340,13 +316,13 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
             function walkTreeItems(items: TreeDataItem[] | TreeDataItem, targetId: string): boolean {
                 if (items instanceof Array) {
                     for (const item of items) {
-                        ids.push(item.id)
+                        ids.push(item.record?.path ?? item.id)
                         if (walkTreeItems(item, targetId)) {
                             return true
                         }
                         ids.pop()
                     }
-                } else if (items.id === targetId) {
+                } else if ((items.record?.path ?? items.id) === targetId) {
                     return true
                 } else if (items.children) {
                     return walkTreeItems(items.children, targetId)
@@ -395,11 +371,11 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
         // Add helper function to find path to an item
         const findPathToItem = useCallback((items: TreeDataItem[], targetId: string, path: string[] = []): string[] => {
             for (const item of items) {
-                if (item.id === targetId) {
+                if ((item.record?.path ?? item.id) === targetId) {
                     return path
                 }
                 if (item.children) {
-                    const newPath = findPathToItem(item.children, targetId, [...path, item.id])
+                    const newPath = findPathToItem(item.children, targetId, [...path, item.record?.path ?? item.id])
                     if (newPath.length > 0) {
                         return newPath
                     }
@@ -427,7 +403,7 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
 
                 // Find matching item
                 const visibleItems = getVisibleItems()
-                const currentIndex = visibleItems.findIndex((item) => item.id === focusedId)
+                const currentIndex = visibleItems.findIndex((item) => (item.record?.path ?? item.id) === focusedId)
 
                 // Start search from item after current focus, wrapping to start if needed
                 const searchItems = [
@@ -477,12 +453,14 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                 } else if (item?.record?.type === 'folder') {
                     // Handle click on a folder
                     if (onFolderClick) {
-                        onFolderClick(item, !expandedItemIdsState.includes(item.id))
+                        onFolderClick(item, !expandedItemIdsState.includes(item.record?.path ?? item.id))
                     }
                 }
                 if (item?.onClick) {
                     // Handle custom click handler for a folder/ node, pass true if it's a folder and it's not open (yet)
-                    const willBeOpen = item?.children ? !expandedItemIdsState.includes(item.id) : undefined
+                    const willBeOpen = item?.children
+                        ? !expandedItemIdsState.includes(item.record?.path ?? item.id)
+                        : undefined
                     item.onClick(willBeOpen)
                 }
             },
@@ -499,7 +477,7 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                 }
 
                 const visibleItems = getVisibleItems()
-                const currentIndex = visibleItems.findIndex((item) => item.id === focusedId)
+                const currentIndex = visibleItems.findIndex((item) => (item.record?.path ?? item.id) === focusedId)
 
                 // Handle keyboard navigation
                 // Following https://www.w3.org/WAI/ARIA/apg/patterns/treeview/
@@ -691,8 +669,38 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
             ]
         )
 
+        function findItem(data: TreeDataItem[] | TreeDataItem, targetId: string): TreeDataItem | undefined {
+            const items = data instanceof Array ? data : [data]
+            for (const item of items) {
+                if ((item.record?.path ?? item.id) === targetId) {
+                    return item
+                }
+                if (item.children) {
+                    const found = findItem(item.children, targetId)
+                    if (found) {
+                        return found
+                    }
+                }
+            }
+        }
+
         return (
-            <DndContext onDragEnd={onDragEnd}>
+            <DndContext
+                onDragStart={(dragEvent) => {
+                    const active = dragEvent.active?.id
+                    const item = findItem(data, String(active))
+                    handleClick(item)
+                }}
+                onDragEnd={(dragEvent) => {
+                    const active = dragEvent.active?.id
+                    const over = dragEvent.over?.id
+                    if (active && active === over) {
+                        dragEvent.activatorEvent.stopPropagation()
+                    } else {
+                        onDragEnd?.(dragEvent)
+                    }
+                }}
+            >
                 <ScrollableShadows
                     direction="vertical"
                     tabIndex={0}
@@ -707,24 +715,29 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                     className="flex-1"
                     innerClassName="p-2"
                 >
-                    <TreeNodeDroppable id="" isDroppable={enableDragAndDrop && true} className="h-full pb-32">
-                        <LemonTreeNode
-                            data={data}
-                            ref={ref}
-                            selectedId={selectedId}
-                            focusedId={focusedId}
-                            handleClick={handleClick}
-                            expandedItemIds={expandedItemIds}
-                            onSetExpandedItemIds={onSetExpandedItemIds}
-                            defaultNodeIcon={defaultNodeIcon}
-                            showFolderActiveState={showFolderActiveState}
-                            itemSideAction={itemSideAction}
-                            className="space-y-px"
-                            isItemDraggable={isItemDraggable}
-                            isItemDroppable={isItemDroppable}
-                            enableDragAndDrop={enableDragAndDrop}
-                            {...props}
-                        />
+                    <TreeNodeDroppable id="" isDroppable={enableDragAndDrop} className="h-full pb-32">
+                        {data.children?.map((child) => (
+                            <LemonTreeNode
+                                key={child.id}
+                                data={child}
+                                ref={ref}
+                                selectedId={selectedId}
+                                focusedId={focusedId}
+                                handleClick={handleClick}
+                                expandedItemIds={expandedItemIds}
+                                onSetExpandedItemIds={onSetExpandedItemIds}
+                                defaultNodeIcon={defaultNodeIcon}
+                                showFolderActiveState={showFolderActiveState}
+                                itemSideAction={itemSideAction}
+                                className="space-y-px"
+                                isItemDraggable={isItemDraggable}
+                                isItemDroppable={isItemDroppable}
+                                isSelfDraggable={isItemDraggable?.(child)}
+                                isSelfDroppable={isItemDroppable?.(child)}
+                                enableDragAndDrop={enableDragAndDrop}
+                                {...props}
+                            />
+                        ))}
                     </TreeNodeDroppable>
                 </ScrollableShadows>
             </DndContext>

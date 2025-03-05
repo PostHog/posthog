@@ -56,7 +56,7 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                     <LemonTree
                         contentRef={contentRef}
                         className="px-0 py-1"
-                        data={treeData}
+                        data={{ id: '', name: '', children: treeData }}
                         expandedItemIds={expandedFolders}
                         isFinishedBuildingTreeData={Object.keys(loadingPaths).length === 0}
                         defaultSelectedFolderOrNodeId={lastViewedPath || undefined}
@@ -66,10 +66,10 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                             }
                         }}
                         onFolderClick={(folder, isExpanded) => {
-                            if (folder) {
+                            if (folder && folder.record?.path) {
                                 updateSelectedFolder(folder.record?.path || '')
-                                toggleFolder(folder.record?.path || '', isExpanded)
-                                if (isExpanded && folder.record?.id) {
+                                toggleFolder(folder.record?.path || '')
+                                if (isExpanded) {
                                     loadFolder(folder.record?.path || '')
                                 }
                             }
@@ -104,14 +104,14 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                             return (
                                 item.record?.type !== 'project' &&
                                 item.record?.path &&
-                                !specialItemsIds.includes(item.id || '')
+                                !specialItemsIds.includes(item.record?.path || '')
                             )
                         }}
                         isItemDroppable={(item) => {
                             const path = item.record?.path || ''
 
                             // disable dropping for special items
-                            if (specialItemsIds.includes(item.id || '')) {
+                            if (specialItemsIds.includes(item.record?.path || '')) {
                                 return false
                             }
 
@@ -126,7 +126,7 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                             return false
                         }}
                         itemSideAction={(item) => {
-                            if (specialItemsIds.includes(item.id || '')) {
+                            if (specialItemsIds.includes(item.record?.path || '')) {
                                 return undefined
                             }
                             return {
