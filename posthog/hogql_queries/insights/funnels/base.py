@@ -135,7 +135,7 @@ class FunnelBase(ABC):
 
         return ids
 
-    def _get_breakdown_select_prop(self) -> list[ast.Expr]:
+    def _get_breakdown_select_prop(self, for_udf=False) -> list[ast.Expr]:
         breakdown, breakdownAttributionType, funnelsFilter = (
             self.context.breakdown,
             self.context.breakdownAttributionType,
@@ -152,13 +152,18 @@ class FunnelBase(ABC):
         if breakdownAttributionType == BreakdownAttributionType.STEP:
             select_columns = []
             default_breakdown_selector = "[]" if self._query_has_array_breakdown() else "NULL"
-            # get prop value from each step
-            for index, _ in enumerate(self.context.query.series):
-                select_columns.append(
-                    parse_expr(f"if(step_{index} = 1, prop_basic, {default_breakdown_selector}) as prop_{index}")
-                )
 
-            final_select = parse_expr(f"prop_{funnelsFilter.breakdownAttributionValue} as prop")
+            # Unordered funnels can have any step be the Nth step
+            if for_udf and funnelsFilter.funnelOrderType == StepOrderValue.UNORDERED:
+                final_select = parse_expr(f"prop_basic as prop")
+            else:
+                # get prop value from each step
+                for index, _ in enumerate(self.context.query.series):
+                    select_columns.append(
+                        parse_expr(f"if(step_{index} = 1, prop_basic, {default_breakdown_selector}) as prop_{index}")
+                    )
+
+                final_select = parse_expr(f"prop_{funnelsFilter.breakdownAttributionValue} as prop")
             prop_window = parse_expr("groupUniqArray(prop) over (PARTITION by aggregation_target) as prop_vals")
 
             return [prop_basic, *select_columns, final_select, prop_window]
@@ -496,7 +501,7 @@ class FunnelBase(ABC):
                 exclusion_col_expr = self._get_exclusions_col(exclusions, index, entity_name)
                 all_step_cols.append(exclusion_col_expr)
 
-        breakdown_select_prop = self._get_breakdown_select_prop()
+        breakdown_select_prop = self._get_breakdown_select_prop(for_udf=False)
 
         if breakdown_select_prop:
             all_step_cols.extend(breakdown_select_prop)

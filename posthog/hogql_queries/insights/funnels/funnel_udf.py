@@ -2,6 +2,7 @@ from typing import cast, Optional, runtime_checkable
 
 from rest_framework.exceptions import ValidationError
 
+from posthog.constants import FunnelOrderType
 from posthog.hogql import ast
 from posthog.hogql.constants import DEFAULT_RETURNED_ROWS, HogQLQuerySettings
 from posthog.hogql.parser import parse_select, parse_expr
@@ -61,7 +62,10 @@ class FunnelUDFMixin:
         prop_vals = f"[{self._default_breakdown_selector()}]"
         if self.context.breakdown:
             if self.context.breakdownAttributionType == BreakdownAttributionType.STEP:
-                prop = f"prop_{self.context.funnelsFilter.breakdownAttributionValue}"
+                if self.context.funnelsFilter.funnelOrderType == FunnelOrderType.UNORDERED:
+                    prop = f"prop_basic"
+                else:
+                    prop = f"prop_{self.context.funnelsFilter.breakdownAttributionValue}"
             else:
                 prop = "prop"
             if self._query_has_array_breakdown():
@@ -134,7 +138,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             fn = "aggregate_funnel"
             breakdown_prop = ""
 
-        prop_selector = "prop" if self.context.breakdown else self._default_breakdown_selector()
+        prop_selector = "prop_basic" if self.context.breakdown else self._default_breakdown_selector()
 
         prop_vals = self._prop_vals()
 
