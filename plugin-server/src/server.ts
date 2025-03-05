@@ -1,4 +1,5 @@
 import * as Sentry from '@sentry/node'
+import express from 'express'
 import { Server } from 'http'
 import { CompressionCodecs, CompressionTypes } from 'kafkajs'
 import SnappyCodec from 'kafkajs-snappy'
@@ -27,7 +28,7 @@ import {
 import { SessionRecordingIngester } from './main/ingestion-queues/session-recording/session-recordings-consumer'
 import { DefaultBatchConsumerFactory } from './main/ingestion-queues/session-recording-v2/batch-consumer-factory'
 import { SessionRecordingIngester as SessionRecordingIngesterV2 } from './main/ingestion-queues/session-recording-v2/consumer'
-import { expressApp, setupCommonRoutes } from './router'
+import { setupCommonRoutes } from './router'
 import { Hub, PluginServerService, PluginsServerConfig } from './types'
 import { closeHub, createHub } from './utils/db/hub'
 import { PostgresRouter } from './utils/db/postgres'
@@ -57,14 +58,23 @@ export class PluginServer {
     httpServer?: Server
     stopping = false
     hub?: Hub
+    expressApp: express.Application
 
-    constructor(config: Partial<PluginsServerConfig> = {}) {
+    constructor(
+        config: Partial<PluginsServerConfig> = {},
+        private options: {
+            disableHttpServer?: boolean
+        } = {}
+    ) {
         this.config = {
             ...defaultConfig,
             ...config,
         }
 
         status.updatePrompt(this.config.PLUGIN_SERVER_MODE)
+
+        this.expressApp = express()
+        this.expressApp.use(express.json())
     }
 
     async start() {
@@ -297,11 +307,11 @@ export class PluginServer {
 
             await this.pubsub.start()
 
-            if (!isTestEnv() || process.env.TEST_ENABLE_HTTP === 'true') {
-                // We don't run http server in test env currently
-                const app = setupCommonRoutes(this.services)
+            setupCommonRoutes(this.expressApp, this.services)
 
-                this.httpServer = app.listen(this.config.HTTP_SERVER_PORT, () => {
+            if (!isTestEnv()) {
+                // We don't run http server in test env currently
+                this.httpServer = this.expressApp.listen(this.config.HTTP_SERVER_PORT, () => {
                     status.info('🩺', `Status server listening on port ${this.config.HTTP_SERVER_PORT}`)
                 })
             }
