@@ -485,10 +485,11 @@ class MutationRunner(abc.ABC):
         assert len(mutations) == len(commands)
         command_mutations = {command: mutation for command, (mutation,) in zip(commands, mutations)}
 
-        # TODO: handle multiple results if a mutation was split across multiple runs
         if not any(command_mutations.values()):
             return None
         else:
+            # TODO: handle multiple results if a mutation was split across multiple runs, such as after a code change
+            # that adds another command to an existing mutation
             [mutation_id] = set(command_mutations.values())
             return Mutation(self.table, mutation_id)
 
