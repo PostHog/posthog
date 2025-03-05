@@ -15,8 +15,7 @@ def set_created_at(apps, schema_editor):
         result = None
         if sync_execute:
             result = sync_execute(
-                "SELECT timestamp FROM events where team_id=%(team_id)s AND event=%(event)s"
-                " order by timestamp limit 1",
+                "SELECT timestamp FROM events where team_id=%(team_id)s AND event=%(event)s order by timestamp limit 1",
                 {
                     "team_id": instance.team.pk,
                     "event": instance.name,

@@ -11,12 +11,8 @@ from typing import TYPE_CHECKING, Any, Generic, Literal, Optional, TypeVar
 from urllib.parse import parse_qs, urlparse
 from uuid import UUID, uuid4
 
-import tiktoken
-
 if TYPE_CHECKING:
     from posthog.demo.matrix.matrix import Cluster, Matrix
-
-llm_encoding = tiktoken.encoding_for_model("gpt-4o")
 
 # Refer to https://github.com/PostHog/posthog-ai-costs-app/tree/main/src/ai-cost-data for missing models
 LLM_COSTS_BY_MODEL = {
@@ -170,8 +166,8 @@ class SimServerClient(SimClient):
         http_status: int = 200,
     ):
         """Capture an AI generation event."""
-        input_tokens = sum(len(llm_encoding.encode(message["content"])) for message in input)
-        output_tokens = len(llm_encoding.encode(output_content))
+        input_tokens = sum(len(self.matrix.gpt_4o_encoding.encode(message["content"])) for message in input)
+        output_tokens = len(self.matrix.gpt_4o_encoding.encode(output_content))
         input_cost_usd = input_tokens * LLM_COSTS_BY_MODEL[model]["prompt_token"]
         output_cost_usd = output_tokens * LLM_COSTS_BY_MODEL[model]["completion_token"]
         self.capture(

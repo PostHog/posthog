@@ -69,7 +69,7 @@ export function InsightVizDisplay({
         isPaths,
         hasDetailedResultsTable,
         showLegend,
-        trendsFilter,
+        hasFormula,
         funnelsFilter,
         supportsDisplay,
         samplingFactor,
@@ -211,7 +211,12 @@ export function InsightVizDisplay({
                     <InsightsTable
                         isLegend
                         filterKey={keyForInsightLogicProps('new')(insightProps)}
-                        canEditSeriesNameInline={!trendsFilter?.formula && insightMode === ItemMode.Edit}
+                        canEditSeriesNameInline={!hasFormula && insightMode === ItemMode.Edit}
+                        seriesNameTooltip={
+                            hasFormula && insightMode === ItemMode.Edit
+                                ? 'Formula series names are not editable'
+                                : undefined
+                        }
                         canCheckUncheckSeries={canEditInsight}
                     />
                 </>

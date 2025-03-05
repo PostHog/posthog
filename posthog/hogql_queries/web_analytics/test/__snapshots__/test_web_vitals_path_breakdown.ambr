@@ -17,13 +17,14 @@
         HAVING ifNull(greaterOrEquals(value, 0), 0)))
   ORDER BY value ASC,
            path ASC
-  LIMIT 20 BY band SETTINGS readonly=2,
-                            max_execution_time=60,
-                            allow_experimental_object_type=1,
-                            format_csv_allow_double_quotes=0,
-                            max_ast_elements=4000000,
-                            max_expanded_ast_elements=4000000,
-                            max_bytes_before_external_group_by=0
+  LIMIT 20 BY band
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestWebVitalsPathBreakdownQueryRunner.test_limit_of_20_paths
@@ -44,13 +45,14 @@
         HAVING ifNull(greaterOrEquals(value, 0), 0)))
   ORDER BY value ASC,
            path ASC
-  LIMIT 20 BY band SETTINGS readonly=2,
-                            max_execution_time=60,
-                            allow_experimental_object_type=1,
-                            format_csv_allow_double_quotes=0,
-                            max_ast_elements=4000000,
-                            max_expanded_ast_elements=4000000,
-                            max_bytes_before_external_group_by=0
+  LIMIT 20 BY band
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestWebVitalsPathBreakdownQueryRunner.test_no_crash_when_no_data
@@ -71,13 +73,14 @@
         HAVING ifNull(greaterOrEquals(value, 0), 0)))
   ORDER BY value ASC,
            path ASC
-  LIMIT 20 BY band SETTINGS readonly=2,
-                            max_execution_time=60,
-                            allow_experimental_object_type=1,
-                            format_csv_allow_double_quotes=0,
-                            max_ast_elements=4000000,
-                            max_expanded_ast_elements=4000000,
-                            max_bytes_before_external_group_by=0
+  LIMIT 20 BY band
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestWebVitalsPathBreakdownQueryRunner.test_no_data_for_different_metric
@@ -98,13 +101,14 @@
         HAVING ifNull(greaterOrEquals(value, 0), 0)))
   ORDER BY value ASC,
            path ASC
-  LIMIT 20 BY band SETTINGS readonly=2,
-                            max_execution_time=60,
-                            allow_experimental_object_type=1,
-                            format_csv_allow_double_quotes=0,
-                            max_ast_elements=4000000,
-                            max_expanded_ast_elements=4000000,
-                            max_bytes_before_external_group_by=0
+  LIMIT 20 BY band
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestWebVitalsPathBreakdownQueryRunner.test_no_data_for_different_period
@@ -125,13 +129,14 @@
         HAVING ifNull(greaterOrEquals(value, 0), 0)))
   ORDER BY value ASC,
            path ASC
-  LIMIT 20 BY band SETTINGS readonly=2,
-                            max_execution_time=60,
-                            allow_experimental_object_type=1,
-                            format_csv_allow_double_quotes=0,
-                            max_ast_elements=4000000,
-                            max_expanded_ast_elements=4000000,
-                            max_bytes_before_external_group_by=0
+  LIMIT 20 BY band
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestWebVitalsPathBreakdownQueryRunner.test_percentile_is_applied
@@ -152,13 +157,14 @@
         HAVING ifNull(greaterOrEquals(value, 0), 0)))
   ORDER BY value ASC,
            path ASC
-  LIMIT 20 BY band SETTINGS readonly=2,
-                            max_execution_time=60,
-                            allow_experimental_object_type=1,
-                            format_csv_allow_double_quotes=0,
-                            max_ast_elements=4000000,
-                            max_expanded_ast_elements=4000000,
-                            max_bytes_before_external_group_by=0
+  LIMIT 20 BY band
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestWebVitalsPathBreakdownQueryRunner.test_percentile_is_applied.1
@@ -179,13 +185,14 @@
         HAVING ifNull(greaterOrEquals(value, 0), 0)))
   ORDER BY value ASC,
            path ASC
-  LIMIT 20 BY band SETTINGS readonly=2,
-                            max_execution_time=60,
-                            allow_experimental_object_type=1,
-                            format_csv_allow_double_quotes=0,
-                            max_ast_elements=4000000,
-                            max_expanded_ast_elements=4000000,
-                            max_bytes_before_external_group_by=0
+  LIMIT 20 BY band
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestWebVitalsPathBreakdownQueryRunner.test_percentile_is_applied.2
@@ -206,13 +213,14 @@
         HAVING ifNull(greaterOrEquals(value, 0), 0)))
   ORDER BY value ASC,
            path ASC
-  LIMIT 20 BY band SETTINGS readonly=2,
-                            max_execution_time=60,
-                            allow_experimental_object_type=1,
-                            format_csv_allow_double_quotes=0,
-                            max_ast_elements=4000000,
-                            max_expanded_ast_elements=4000000,
-                            max_bytes_before_external_group_by=0
+  LIMIT 20 BY band
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestWebVitalsPathBreakdownQueryRunner.test_properties_are_applied
@@ -233,12 +241,13 @@
         HAVING ifNull(greaterOrEquals(value, 0), 0)))
   ORDER BY value ASC,
            path ASC
-  LIMIT 20 BY band SETTINGS readonly=2,
-                            max_execution_time=60,
-                            allow_experimental_object_type=1,
-                            format_csv_allow_double_quotes=0,
-                            max_ast_elements=4000000,
-                            max_expanded_ast_elements=4000000,
-                            max_bytes_before_external_group_by=0
+  LIMIT 20 BY band
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0
   '''
 # ---

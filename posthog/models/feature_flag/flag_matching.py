@@ -831,6 +831,7 @@ def get_all_feature_flags(
     hash_key_override: Optional[str] = None,
     property_value_overrides: Optional[dict[str, Union[str, int]]] = None,
     group_property_value_overrides: Optional[dict[str, dict[str, Union[str, int]]]] = None,
+    flag_keys: Optional[list[str]] = None,
 ) -> tuple[dict[str, Union[str, bool]], dict[str, dict], dict[str, object], bool]:
     if group_property_value_overrides is None:
         group_property_value_overrides = {}
@@ -847,6 +848,11 @@ def get_all_feature_flags(
     if all_feature_flags is None:
         cache_hit = False
         all_feature_flags = set_feature_flags_for_team_in_cache(team.project_id)
+
+    # Filter flags by keys if provided
+    if flag_keys is not None:
+        flag_keys_set = set(flag_keys)
+        all_feature_flags = [ff for ff in all_feature_flags if ff.key in flag_keys_set]
 
     FLAG_CACHE_HIT_COUNTER.labels(team_id=label_for_team_id_to_track(team.id), cache_hit=cache_hit).inc()
 
