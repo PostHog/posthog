@@ -1,7 +1,7 @@
 import { HogFunctionTemplate } from '../../types'
 
 export const template: HogFunctionTemplate = {
-    free: false,
+    free: true,
     status: 'alpha',
     type: 'transformation',
     id: 'template-url-masking',

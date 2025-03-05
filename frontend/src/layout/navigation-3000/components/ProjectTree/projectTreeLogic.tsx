@@ -10,7 +10,7 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
-import { FileSystemEntry, FileSystemType } from '~/queries/schema/schema-general'
+import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 import { getDefaultTree } from './defaultTree'
 import type { projectTreeLogicType } from './projectTreeLogicType'
@@ -28,8 +28,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         ],
     }),
     actions({
-        loadSavedItems: true,
-        loadUnfiledItems: (type?: FileSystemType) => ({ type }),
+        loadUnfiledItems: true,
         addFolder: (folder: string) => ({ folder }),
         deleteItem: (item: FileSystemEntry) => ({ item }),
         moveItem: (oldPath: string, newPath: string) => ({ oldPath, newPath }),
@@ -38,29 +37,24 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         applyPendingActions: true,
         cancelPendingActions: true,
         createSavedItem: (savedItem: FileSystemEntry) => ({ savedItem }),
-        updateSavedItem: (savedItem: FileSystemEntry) => ({ savedItem }),
+        updateSavedItem: (savedItem: FileSystemEntry, oldPath: string) => ({ savedItem, oldPath }),
         deleteSavedItem: (savedItem: FileSystemEntry) => ({ savedItem }),
         updateExpandedFolders: (folderIds: string[]) => ({ folderIds }),
         updateLastViewedId: (id: string) => ({ id }),
         toggleFolderOpen: (folderId: string, isExpanded: boolean) => ({ folderId, isExpanded }),
         updateHelpNoticeVisibility: (visible: boolean) => ({ visible }),
         toggleDragAndDrop: (enabled: boolean) => ({ enabled }),
+        loadFolder: (folder: string) => ({ folder }),
+        loadFolderStart: (folder: string) => ({ folder }),
+        loadFolderSuccess: (folder: string, entries: FileSystemEntry[]) => ({ folder, entries }),
+        loadFolderFailure: (folder: string, error: string) => ({ folder, error }),
     }),
     loaders(({ actions, values }) => ({
-        savedItems: [
-            [] as FileSystemEntry[],
-            {
-                loadSavedItems: async () => {
-                    const response = await api.fileSystem.list()
-                    return [...values.savedItems, ...response.results]
-                },
-            },
-        ],
         allUnfiledItems: [
             [] as FileSystemEntry[],
             {
-                loadUnfiledItems: async ({ type }) => {
-                    const response = await api.fileSystem.unfiled(type)
+                loadUnfiledItems: async () => {
+                    const response = await api.fileSystem.unfiled()
                     return [...values.allUnfiledItems, ...response.results]
                 },
             },
@@ -76,7 +70,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                                 actions.createSavedItem(response)
                             } else {
                                 const response = await api.fileSystem.update(action.item.id, { path: action.newPath })
-                                actions.updateSavedItem(response)
+                                actions.updateSavedItem(response, action.item.path)
                             }
                         } else if (action.type === 'create') {
                             const response = await api.fileSystem.create(action.item)
@@ -99,6 +93,49 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         ],
     })),
     reducers({
+        folders: [
+            {} as Record<string, FileSystemEntry[]>,
+            {
+                loadFolderSuccess: (state, { folder, entries }) => ({ ...state, [folder]: entries }),
+                createSavedItem: (state, { savedItem }) => {
+                    const folder = joinPath(splitPath(savedItem.path).slice(0, -1))
+                    return { ...state, [folder]: [...(state[folder] || []), savedItem] }
+                },
+                updateSavedItem: (state, { savedItem, oldPath }) => {
+                    const oldFolder = joinPath(splitPath(oldPath).slice(0, -1))
+                    const folder = joinPath(splitPath(savedItem.path).slice(0, -1))
+
+                    if (oldFolder === folder) {
+                        return {
+                            ...state,
+                            [folder]: (state[folder] ?? []).map((item) =>
+                                item.id === savedItem.id ? savedItem : item
+                            ),
+                        }
+                    }
+                    return {
+                        ...state,
+                        [oldFolder]: (state[oldFolder] ?? []).filter((item) => item.id !== savedItem.id),
+                        [folder]: [...(state[folder] ?? []), savedItem],
+                    }
+                },
+                deleteSavedItem: (state, { savedItem }) => {
+                    const folder = joinPath(splitPath(savedItem.path).slice(0, -1))
+                    return {
+                        ...state,
+                        [folder]: state[folder].filter((item) => item.id !== savedItem.id),
+                    }
+                },
+            },
+        ],
+        folderStates: [
+            {} as Record<string, 'loading' | 'loaded' | 'error'>,
+            {
+                loadFolderStart: (state, { folder }) => ({ ...state, [folder]: 'loading' }),
+                loadFolderSuccess: (state, { folder }) => ({ ...state, [folder]: 'loaded' }),
+                loadFolderFailure: (state, { folder }) => ({ ...state, [folder]: 'error' }),
+            },
+        ],
         unfiledLoadingCount: [
             0,
             {
@@ -115,32 +152,20 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 cancelPendingActions: () => [],
             },
         ],
-        savedItems: [
-            [] as FileSystemEntry[],
-            {
-                createSavedItem: (state, { savedItem }) => [...state, savedItem],
-                updateSavedItem: (state, { savedItem }) =>
-                    state.map((item) => (item.id === savedItem.id ? savedItem : item)),
-                deleteSavedItem: (state, { savedItem }) => state.filter((item) => item.id !== savedItem.id),
-            },
-        ],
         expandedFolders: [
             [] as string[],
-            { persist: true },
             {
                 updateExpandedFolders: (_, { folderIds }) => folderIds,
             },
         ],
         lastViewedId: [
             '',
-            { persist: true },
             {
                 updateLastViewedId: (_, { id }) => id,
             },
         ],
         helpNoticeVisible: [
             true,
-            { persist: true },
             {
                 updateHelpNoticeVisibility: (_, { visible }) => visible,
             },
@@ -153,6 +178,15 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         ],
     }),
     selectors({
+        savedItems: [
+            (s) => [s.folders, s.folderStates],
+            (folders): FileSystemEntry[] =>
+                Object.entries(folders).reduce((acc, [_, items]) => [...acc, ...items], [] as FileSystemEntry[]),
+        ],
+        savedItemsLoading: [
+            (s) => [s.folderStates],
+            (folderStates): boolean => Object.values(folderStates).some((state) => state === 'loading'),
+        ],
         unfiledLoading: [(s) => [s.unfiledLoadingCount], (unfiledLoadingCount) => unfiledLoadingCount > 0],
         unfiledItems: [
             // Remove from unfiledItems the ones that are in "savedItems"
@@ -299,6 +333,19 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        loadFolder: async ({ folder }) => {
+            const currentState = values.folderStates[folder]
+            if (currentState === 'loading' || currentState === 'loaded') {
+                return
+            }
+            actions.loadFolderStart(folder)
+            try {
+                const response = await api.fileSystem.list(folder, splitPath(folder).length + 1)
+                actions.loadFolderSuccess(folder, response.results)
+            } catch (error) {
+                actions.loadFolderFailure(folder, String(error))
+            }
+        },
         moveItem: async ({ oldPath, newPath }) => {
             for (const item of values.viableItems) {
                 if (item.path === oldPath || item.path.startsWith(oldPath + '/')) {
@@ -340,11 +387,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         },
     })),
     afterMount(({ actions }) => {
-        actions.loadSavedItems()
-        actions.loadUnfiledItems('feature_flag')
-        actions.loadUnfiledItems('experiment')
-        actions.loadUnfiledItems('insight')
-        actions.loadUnfiledItems('dashboard')
-        actions.loadUnfiledItems('notebook')
+        actions.loadFolder('')
+        actions.loadUnfiledItems()
     }),
 ])

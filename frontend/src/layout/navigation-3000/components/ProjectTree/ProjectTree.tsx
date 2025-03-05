@@ -36,6 +36,7 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
         addFolder,
         deleteItem,
         moveItem,
+        loadFolder,
         toggleFolderOpen,
         updateLastViewedId,
         updateExpandedFolders,
@@ -105,13 +106,15 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                                 }}
                                 type="secondary"
                                 size="small"
-                                tooltip={dragAndDropEnabled ? 'Click to cancel changes' : 'Click to edit or move items'}
+                                tooltip={
+                                    pendingActionsCount > 0 ? 'Click to cancel changes' : 'Click to edit or move items'
+                                }
                             >
-                                {pendingActionsCount > 1 || dragAndDropEnabled ? `Cancel` : 'Edit'}
+                                {pendingActionsCount > 0 || dragAndDropEnabled ? `Cancel` : 'Edit'}
                             </LemonButton>
                             <LemonButton
                                 size="small"
-                                type="secondary"
+                                type={pendingActionsCount > 0 ? 'primary' : 'secondary'}
                                 disabledReason={pendingActionsCount === 0 ? 'Nothing to save' : undefined}
                                 className={pendingActionsCount === 0 ? 'opacity-30' : ''}
                                 loading={pendingLoaderLoading}
@@ -154,6 +157,9 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                         onFolderClick={(folder, isExpanded) => {
                             if (folder) {
                                 toggleFolderOpen(folder?.id || '', isExpanded)
+                                if (isExpanded && folder.record?.id) {
+                                    loadFolder(folder.record?.path || '')
+                                }
                             }
                         }}
                         onSetExpandedItemIds={updateExpandedFolders}
@@ -198,7 +204,7 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                             const path = item.record?.path || ''
 
                             // disable dropping for these IDS
-                            if (notDroppableIds.includes(item.id || '')) {
+                            if (notDroppableIds.includes(item.id || '') || notDroppableIds.includes(item.id || '')) {
                                 return false
                             }
 
@@ -266,16 +272,18 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                                         onClick={(e) => e.stopPropagation()}
                                         overlay={
                                             <>
-                                                <LemonButton
-                                                    onClick={(e) => {
-                                                        e.stopPropagation()
-                                                        handleCreateFolder(item.record?.path)
-                                                    }}
-                                                    fullWidth
-                                                    size="small"
-                                                >
-                                                    New Folder
-                                                </LemonButton>
+                                                {item.record?.type === 'folder' || item.record?.type === 'project' ? (
+                                                    <LemonButton
+                                                        onClick={(e) => {
+                                                            e.stopPropagation()
+                                                            handleCreateFolder(item.record?.path)
+                                                        }}
+                                                        fullWidth
+                                                        size="small"
+                                                    >
+                                                        New Folder
+                                                    </LemonButton>
+                                                ) : null}
                                                 {item.record?.path ? (
                                                     <LemonButton
                                                         onClick={() => handleRename(item.record?.path)}
