@@ -46,7 +46,7 @@ pub enum SourcemapCommand {
     Upload {
         /// The directory containing the bundled chunks
         #[arg(short, long)]
-        directory: String,
+        directory: PathBuf,
 
         /// The build ID to associate with the uploaded chunks
         #[arg(short, long)]

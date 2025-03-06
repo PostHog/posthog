@@ -10,7 +10,7 @@ use uuid;
 
 pub struct Source {
     path: PathBuf,
-    content: String,
+    pub content: String,
 }
 
 impl Source {
@@ -58,7 +58,7 @@ pub struct SourceMapContent {
 
 #[derive(Debug)]
 pub struct SourceMap {
-    path: PathBuf,
+    pub path: PathBuf,
     content: SourceMapContent,
 }
 
@@ -86,8 +86,8 @@ impl SourceMap {
 }
 
 pub struct SourcePair {
-    source: Source,
-    sourcemap: SourceMap,
+    pub source: Source,
+    pub sourcemap: SourceMap,
 }
 
 impl SourcePair {
@@ -125,7 +125,7 @@ pub fn process_directory(directory: &Path) -> Result<()> {
     Ok(())
 }
 
-fn read_pairs(directory: &PathBuf) -> Result<Vec<SourcePair>> {
+pub fn read_pairs(directory: &PathBuf) -> Result<Vec<SourcePair>> {
     // Make sure the directory exists
     if !directory.exists() {
         return Err(anyhow!("Directory does not exist"));
