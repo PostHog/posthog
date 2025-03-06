@@ -1,7 +1,10 @@
 use anyhow::{anyhow, bail, Error, Ok, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::{collections::HashMap, path::PathBuf};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 use tracing::info;
 use uuid;
 
@@ -100,7 +103,7 @@ impl SourcePair {
     }
 }
 
-pub fn process_directory(directory: &PathBuf) -> Result<()> {
+pub fn process_directory(directory: &Path) -> Result<()> {
     // Resolve directory path
     let directory = directory.canonicalize()?;
     info!("Processing directory: {}", directory.display());
@@ -151,6 +154,6 @@ fn read_pairs(directory: &PathBuf) -> Result<Vec<SourcePair>> {
     Ok(pairs)
 }
 
-fn is_javascript_file(path: &PathBuf) -> bool {
+fn is_javascript_file(path: &Path) -> bool {
     path.extension().map_or(false, |ext| ext == "js")
 }
