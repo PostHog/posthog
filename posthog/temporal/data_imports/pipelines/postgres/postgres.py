@@ -13,6 +13,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceRespo
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     DEFAULT_NUMERIC_PRECISION,
     DEFAULT_NUMERIC_SCALE,
+    DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
     build_pyarrow_decimal_type,
     table_from_iterator,
 )
@@ -90,6 +91,25 @@ class TableStructureRow:
     is_nullable: bool
     numeric_precision: Optional[int]
     numeric_scale: Optional[int]
+
+
+def _get_partition_bucket_size(cursor: psycopg.Cursor, schema: str, table_name: str) -> int | None:
+    query = sql.SQL("""
+        SELECT round(({bytes_per_partition}) / (pg_total_relation_size({schema_table_name_literal}) / count(*)))
+        FROM {schema}.{table}""").format(
+        bytes_per_partition=sql.Literal(DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES),
+        schema_table_name_literal=sql.Literal(f"{schema}.{table_name}"),
+        schema=sql.Identifier(schema),
+        table=sql.Identifier(table_name),
+    )
+
+    cursor.execute(query)
+    result = cursor.fetchone()
+
+    if result is None or len(result) == 0 or result[0] is None:
+        return None
+
+    return int(result[0])
 
 
 def _get_table_structure(cursor: psycopg.Cursor, schema: str, table_name: str) -> list[TableStructureRow]:
@@ -207,6 +227,7 @@ def postgres_source(
         with connection.cursor() as cursor:
             primary_keys = _get_primary_keys(cursor, schema, table_name)
             table_structure = _get_table_structure(cursor, schema, table_name)
+            partition_bucket_size = _get_partition_bucket_size(cursor, schema, table_name) if is_incremental else None
 
             # Falback on checking for an `id` field on the table
             if primary_keys is None:
@@ -256,4 +277,6 @@ def postgres_source(
 
     name = NamingConvention().normalize_identifier(table_name)
 
-    return SourceResponse(name=name, items=get_rows(), primary_keys=primary_keys)
+    return SourceResponse(
+        name=name, items=get_rows(), primary_keys=primary_keys, partition_bucket_size=partition_bucket_size
+    )
