@@ -9,7 +9,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0675_add_playlist_viewed"),
+        ("posthog", "0682_datawarehousesavedquery_latest_error"),
     ]
 
     operations = [
