@@ -241,11 +241,13 @@ class Assistant:
                                         f"Analyzing {action.tool_input['entity']} property `{action.tool_input['property_name']}`"
                                     )
                                 case "retrieve_action_properties" | "retrieve_action_property_values":
-                                    assert isinstance(action.tool_input, dict)
+                                    id = (
+                                        action.tool_input
+                                        if isinstance(action.tool_input, str)
+                                        else action.tool_input["action_id"]
+                                    )
                                     try:
-                                        action_model = Action.objects.get(
-                                            pk=action.tool_input["action_id"], team=self._team
-                                        )
+                                        action_model = Action.objects.get(pk=id, team=self._team)
                                         if action.tool == "retrieve_action_properties":
                                             substeps.append(f"Exploring `{action_model.name}` action's properties")
                                         elif action.tool == "retrieve_action_property_values":

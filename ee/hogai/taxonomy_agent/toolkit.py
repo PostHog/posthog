@@ -1,3 +1,4 @@
+import re
 import xml.etree.ElementTree as ET
 from abc import ABC, abstractmethod
 from collections.abc import Iterable
@@ -5,7 +6,7 @@ from functools import cached_property
 from textwrap import dedent
 from typing import Literal, Optional, TypedDict, Union, cast
 
-from pydantic import BaseModel, Field, RootModel
+from pydantic import BaseModel, Field, RootModel, field_validator
 
 from posthog.hogql.database.schema.channel_type import DEFAULT_CHANNEL_TYPES
 from posthog.hogql_queries.ai.actors_property_taxonomy_query_runner import ActorsPropertyTaxonomyQueryRunner
@@ -64,11 +65,27 @@ class RetrieveActionPropertiesValuesTool(BaseModel):
     arguments: RetrieveActionPropertiesValuesArgs
 
 
+class FinalAnswerTool(BaseModel):
+    name: Literal["final_answer"]
+    arguments: str
+
+    @field_validator("arguments", mode="before")
+    def normalize_plan(cls, plan: str) -> str:
+        """
+        Normalize the generated plan, so the `action` entity becomes `event`.
+        """
+        return re.sub(
+            r"-\s*(entity:)?\s*action(?!\s*id)",
+            "- entity: event",
+            plan,
+            flags=re.IGNORECASE | re.MULTILINE,
+        )
+
+
 class SingleArgumentTaxonomyAgentTool(BaseModel):
     name: Literal[
         "retrieve_entity_properties",
         "retrieve_event_properties",
-        "final_answer",
         "handle_incorrect_response",
         "ask_user_for_help",
     ]
@@ -81,6 +98,7 @@ TaxonomyAgentToolUnion = Union[
     RetrieveEventPropertiesValuesTool,
     RetrieveActionPropertiesTool,
     RetrieveActionPropertiesValuesTool,
+    FinalAnswerTool,
 ]
 
 

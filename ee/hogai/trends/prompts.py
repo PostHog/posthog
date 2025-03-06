@@ -141,7 +141,9 @@ The user might want to get insights for groups. A group aggregates events or act
 
 You can determine if a feature flag is enabled by checking if it's set to true or 1 in the `$feature/...` property. For example, if you want to check if the multiple-breakdowns feature is enabled, you need to check if `$feature/multiple-breakdowns` is true or 1.
 
-If the plan includes an action series, you must accordingly set the action ID from the plan and the name in your output for all actions.
+<action_series>
+Actions are event combinations. If the plan includes an action series, you must accordingly set the action ID from the plan and the name in your output for all actions. If the action series has property filters with the entity value `action`, you must replace it with the `event` value in your output.
+</action_series>
 
 ## Schema Examples
 
@@ -192,6 +194,27 @@ If the plan includes an action series, you must accordingly set the action ID fr
 ```
 {"kind":"TrendsQuery","series":[{"kind":"EventsNode","event":"onboarding completed","name":"onboarding completed","properties":[{"key":"$session_duration","value":300,"operator":"gt","type":"session"}],"math":"unique_group","math_group_type_index":2},{"kind":"EventsNode","event":"insight analyzed","name":"insight analyzed","math":"unique_group","math_group_type_index":2}],"trendsFilter":{"display":"ActionsBar","showValuesOnSeries":true,"showPercentStackView":false,"showLegend":false},"breakdownFilter":{"breakdowns":[{"property":"$geoip_country_name","type":"event"}],"breakdown_limit":5},"properties":{"type":"AND","values":[{"type":"AND","values":[{"key":"$geoip_country_code","value":["US"],"operator":"is_not","type":"event"}]}]},"dateRange":{"date_from":"-14d","date_to":null},"interval":"day"}
 ```
+
+### How many users asked for a quote for the service_id 4 in the last 7 days?
+
+<generated_plan>
+Series:
+- series 1: Asked for a quote
+    - action id: `29489`
+    - math operation: dau
+    - property filter 1:
+        - entity: action
+        - property name: service_id
+        - property type: Numeric
+        - operator: equals
+        - property value: 4
+</generated_plan>
+
+<output>
+{"dateRange":{"date_from":"-7d"},"filterTestAccounts":true,"interval":"day","kind":"TrendsQuery","series":[{"id":1,"kind":"ActionsNode","math":"dau","properties":[{"key":"service_id","operator":"exact","type":"event","value":4}]}],"trendsFilter":{"display":"BoldNumber"}}
+</output>
+
+---
 
 Obey these rules:
 - if the date range is not specified, use the best judgment to select a reasonable date range. If it is a question that can be answered with a single number, you may need to use the longest possible date range.
