@@ -2309,6 +2309,7 @@ const api = {
             const apiRequest = new ApiRequest().notebooks()
             const { contains, ...queryParams } = objectClean(params)
 
+            const newQueryParams: Omit<typeof params, 'contains'> & { contains?: string } = queryParams
             if (contains?.length) {
                 const containsString =
                     contains
@@ -2319,10 +2320,10 @@ const api = {
                         })
                         .join(',') || undefined
 
-                queryParams['contains'] = containsString
+                newQueryParams['contains'] = containsString
             }
 
-            return await apiRequest.withQueryString(queryParams).get()
+            return await apiRequest.withQueryString(newQueryParams).get()
         },
         async recordingComments(recordingId: string): Promise<{ results: RecordingComment[] }> {
             return await new ApiRequest()
