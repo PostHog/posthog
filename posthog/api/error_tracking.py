@@ -269,7 +269,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         chunk_id = request.query_params.get("chunk_id", None)
         if not chunk_id:
             return Response(
-                {"detail": "symbol_set_ref query parameter is required"}, status=status.HTTP_400_BAD_REQUEST
+                {"detail": "chunk_id query parameter is required"}, status=status.HTTP_400_BAD_REQUEST
             )
 
         (storage_ptr, content_hash) = upload_content(bytearray(request.body))
