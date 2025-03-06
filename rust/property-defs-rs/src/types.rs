@@ -889,17 +889,17 @@ mod test {
         );
         assert_eq!(
             detect_property_type(
-                "updated_never",
+                "hedgehogs_enumerated",
                 &Value::Number(serde_json::Number::from(1639400730))
             ),
-            Some(PropertyValueType::String)
+            Some(PropertyValueType::Numeric)
         );
         assert_eq!(
             detect_property_type(
                 "not_a_thyme",
                 &Value::Number(serde_json::Number::from(1639400730))
             ),
-            Some(PropertyValueType::String)
+            Some(PropertyValueType::Numeric)
         );
 
         // Test non-matching property names (should be Numeric)
