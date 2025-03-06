@@ -102,8 +102,11 @@ async function executeQuery<N extends DataNode>(
     const currentTeamId = teamLogic.findMounted()?.values.currentTeamId
 
     if (!pollOnly) {
-        const refreshParam: RefreshType | undefined =
-            typeof refresh === 'boolean' && refresh && isAsyncQuery ? 'force_async' : isAsyncQuery ? 'async' : refresh
+        const refreshParam: RefreshType | undefined = isAsyncQuery
+            ? typeof refresh === 'boolean' && refresh
+                ? 'force_async'
+                : 'async'
+            : refresh
 
         if (useOptimizedPolling) {
             return new Promise((resolve, reject) => {
