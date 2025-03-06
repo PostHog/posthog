@@ -16,6 +16,7 @@ import {
     validateFeatureFlagKey,
     variantKeyToIndexFeatureFlagPayloads,
 } from 'scenes/feature-flags/featureFlagLogic'
+import { featureFlagLogic as sceneFeatureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -1341,6 +1342,15 @@ export const experimentLogic = kea<experimentLogicType>([
             })
 
             actions.setSecondaryMetricResultsLoading(false)
+        },
+        openReleaseConditionsModal: () => {
+            const numericFlagId = values.experiment.feature_flag?.id
+            if (numericFlagId) {
+                const logic = sceneFeatureFlagLogic.findMounted() || sceneFeatureFlagLogic({ id: numericFlagId })
+                if (logic) {
+                    logic.actions.loadFeatureFlag() // Access the loader through actions
+                }
+            }
         },
     })),
     loaders(({ actions, props, values }) => ({
