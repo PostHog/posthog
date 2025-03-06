@@ -7,7 +7,7 @@ import pytest_asyncio
 from django.conf import settings
 
 from posthog.temporal.batch_exports.destination_tests import (
-    S3CheckBucketExistsTestStep,
+    S3EnsureBucketTestStep,
     Status,
 )
 
@@ -59,7 +59,7 @@ async def delete_all_from_s3(minio_client, bucket_name: str, key_prefix: str):
 
 
 async def test_s3_check_bucket_exists_test_step(bucket_name, minio_client):
-    test_step = S3CheckBucketExistsTestStep(
+    test_step = S3EnsureBucketTestStep(
         bucket_name=bucket_name,
         aws_access_key_id="object_storage_root_user",
         aws_secret_access_key="object_storage_root_password",
@@ -72,7 +72,7 @@ async def test_s3_check_bucket_exists_test_step(bucket_name, minio_client):
 
 
 async def test_s3_check_bucket_exists_test_step_without_bucket(minio_client):
-    test_step = S3CheckBucketExistsTestStep(
+    test_step = S3EnsureBucketTestStep(
         bucket_name="some-other-bucket",
         aws_access_key_id="object_storage_root_user",
         aws_secret_access_key="object_storage_root_password",
@@ -84,7 +84,8 @@ async def test_s3_check_bucket_exists_test_step_without_bucket(minio_client):
     assert result.message == "Bucket 'some-other-bucket' does not exist or we don't have permissions to use it"
 
 
-@pytest.mark.parametrize("step", [S3CheckBucketExistsTestStep()])
-async def test_test_steps_raise_if_not_configured(step):
-    with pytest.raises(ValueError):
-        _ = await step.run()
+@pytest.mark.parametrize("step", [S3EnsureBucketTestStep()])
+async def test_test_steps_fail_if_not_configured(step):
+    result = await step.run()
+    assert result.status == Status.FAILED
+    assert result.message == "The test step cannot run as it's not configured."

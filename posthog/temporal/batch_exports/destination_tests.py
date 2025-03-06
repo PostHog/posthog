@@ -54,13 +54,39 @@ class DestinationTestStep:
         self.result: DestinationTestStepResult | None = None
 
     @abc.abstractmethod
-    async def run(self) -> DestinationTestStepResult:
-        """Method called to run this test step.
+    def _is_configured(self) -> bool:
+        """Internal method to verify this test step is configured.
+
+        Subclasses should override this method and implement their concrete steps
+        to ensure we are configured correctly.
+        """
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    async def _run_step(self) -> DestinationTestStepResult:
+        """Internal method to run this test step.
 
         Subclasses should override this method and implement their concrete running
         operations.
         """
         raise NotImplementedError
+
+    async def run(self) -> DestinationTestStepResult:
+        """Run this test step."""
+        if not self._is_configured():
+            return DestinationTestStepResult(
+                status=Status.FAILED,
+                message="The test step cannot run as it's not configured.",
+            )
+
+        try:
+            result = await self._run_step()
+        except Exception as err:
+            return DestinationTestStepResult(
+                status=Status.FAILED,
+                message=f"The test step failed with an unknown error: {err}.",
+            )
+        return result
 
     def as_dict(self) -> DestinationTestStepDict:
         """Serialize this as a dictionary."""
@@ -126,7 +152,7 @@ class DestinationTest:
         return {"steps": [step.as_dict() for step in self.steps]}
 
 
-class S3CheckBucketExistsTestStep(DestinationTestStep):
+class S3EnsureBucketTestStep(DestinationTestStep):
     """Test whether an S3 bucket exists and we can access it.
 
     This test could not be broken into two as the bucket not existing and not having
@@ -158,13 +184,16 @@ class S3CheckBucketExistsTestStep(DestinationTestStep):
         self.aws_access_key_id = aws_access_key_id
         self.aws_secret_access_key = aws_secret_access_key
 
-    async def run(self) -> DestinationTestStepResult:
+    def _is_configured(self) -> bool:
+        """Ensure required configuration parameters are set."""
+        if self.bucket_name is None or self.aws_access_key_id is None or self.aws_secret_access_key is None:
+            return False
+        return True
+
+    async def _run_step(self) -> DestinationTestStepResult:
         """Run this test step."""
         import aioboto3
         from botocore.exceptions import ClientError
-
-        if self.bucket_name is None or self.aws_access_key_id is None or self.aws_secret_access_key is None:
-            raise ValueError("Test step not configured")
 
         session = aioboto3.Session()
         async with session.client(
@@ -232,7 +261,7 @@ class S3DestinationTest(DestinationTest):
     def steps(self) -> collections.abc.Sequence[DestinationTestStep]:
         """Sequence of test steps that make up this destination test."""
         return [
-            S3CheckBucketExistsTestStep(
+            S3EnsureBucketTestStep(
                 bucket_name=self.bucket_name,
                 region=self.region,
                 endpoint_url=self.endpoint_url,
@@ -242,7 +271,7 @@ class S3DestinationTest(DestinationTest):
         ]
 
 
-class BigQueryCheckProjectExistsTestStep(DestinationTestStep):
+class BigQueryProjectTestStep(DestinationTestStep):
     """Test whether a BigQuery project exists and we can access it.
 
     This test could not be broken into two as the project not existing and us not
@@ -254,7 +283,7 @@ class BigQueryCheckProjectExistsTestStep(DestinationTestStep):
             project.
     """
 
-    name = "Check project exists"
+    name = "Verify BigQuery project"
     description = (
         "Ensure the configured BigQuery project exists and that we have the required permissions to access it."
     )
@@ -264,12 +293,22 @@ class BigQueryCheckProjectExistsTestStep(DestinationTestStep):
         self.project_id = project_id
         self.service_account_info = service_account_info
 
-    async def run(self) -> DestinationTestStepResult:
+    def _is_configured(self) -> bool:
+        """Ensure required configuration parameters are set."""
+        if (
+            self.project_id is None
+            or self.service_account_info is None
+            or not all(
+                param in self.service_account_info
+                for param in ("private_key", "private_key_id", "token_uri", "client_email")
+            )
+        ):
+            return False
+        return True
+
+    async def _run_step(self) -> DestinationTestStepResult:
         """Run this test step."""
         from posthog.temporal.batch_exports.bigquery_batch_export import BigQueryClient
-
-        if self.project_id is None or self.service_account_info is None:
-            raise ValueError("Test step not configured")
 
         client = BigQueryClient.from_service_account_inputs(project_id=self.project_id, **self.service_account_info)
         projects = {p.project_id for p in client.list_projects()}
@@ -283,7 +322,7 @@ class BigQueryCheckProjectExistsTestStep(DestinationTestStep):
             )
 
 
-class BigQueryCheckDatasetExistsTestStep(DestinationTestStep):
+class BigQueryDatasetTestStep(DestinationTestStep):
     """Test whether a BigQuery dataset exists and we can access it.
 
     This test could not be broken into two as the dataset not existing and us not
@@ -296,9 +335,9 @@ class BigQueryCheckDatasetExistsTestStep(DestinationTestStep):
             project and dataset.
     """
 
-    name = "Check dataset exists"
+    name = "Verify BigQuery dataset"
     description = (
-        "Verify the configured BigQuery dataset exists and that we have the required permissions to access it."
+        "Ensure the configured BigQuery dataset exists and that we have the required permissions to access it."
     )
 
     def __init__(
@@ -313,14 +352,25 @@ class BigQueryCheckDatasetExistsTestStep(DestinationTestStep):
         self.project_id = project_id
         self.service_account_info = service_account_info
 
-    async def run(self) -> DestinationTestStepResult:
+    def _is_configured(self) -> bool:
+        """Ensure required configuration parameters are set."""
+        if (
+            self.project_id is None
+            or self.dataset_id is None
+            or self.service_account_info is None
+            or not all(
+                param in self.service_account_info
+                for param in ("private_key", "private_key_id", "token_uri", "client_email")
+            )
+        ):
+            return False
+        return True
+
+    async def _run_step(self) -> DestinationTestStepResult:
         """Run this test step."""
         from google.cloud.exceptions import NotFound
 
         from posthog.temporal.batch_exports.bigquery_batch_export import BigQueryClient
-
-        if self.project_id is None or self.dataset_id is None or self.service_account_info is None:
-            raise ValueError("Test step not configured")
 
         client = BigQueryClient.from_service_account_inputs(project_id=self.project_id, **self.service_account_info)
 
@@ -335,7 +385,7 @@ class BigQueryCheckDatasetExistsTestStep(DestinationTestStep):
             return DestinationTestStepResult(status=Status.PASSED)
 
 
-class BigQueryCheckTableTestStep(DestinationTestStep):
+class BigQueryTableTestStep(DestinationTestStep):
     """Test whether a BigQuery table exists or we can create it.
 
     A batch export will export data to an existing table or attempt to create
@@ -353,9 +403,9 @@ class BigQueryCheckTableTestStep(DestinationTestStep):
             project and dataset.
     """
 
-    name = "Check batch exports table"
+    name = "Verify BigQuery table"
     description = (
-        "Verify the configured BigQuery table already exists or that we have the required permissions to create it. "
+        "Ensure the configured BigQuery table already exists or that we have the required permissions to create it. "
         "Additionally, when creating a table, we will attempt to delete it."
     )
 
@@ -372,21 +422,28 @@ class BigQueryCheckTableTestStep(DestinationTestStep):
         self.table_id = table_id
         self.service_account_info = service_account_info
 
-    async def run(self) -> DestinationTestStepResult:
+    def _is_configured(self) -> bool:
+        """Ensure required configuration parameters are set."""
+        if (
+            self.project_id is None
+            or self.dataset_id is None
+            or self.table_id is None
+            or self.service_account_info is None
+            or not all(
+                param in self.service_account_info
+                for param in ("private_key", "private_key_id", "token_uri", "client_email")
+            )
+        ):
+            return False
+        return True
+
+    async def _run_step(self) -> DestinationTestStepResult:
         """Run this test step."""
         from google.api_core.exceptions import BadRequest
         from google.cloud import bigquery
         from google.cloud.exceptions import NotFound
 
         from posthog.temporal.batch_exports.bigquery_batch_export import BigQueryClient
-
-        if (
-            self.project_id is None
-            or self.dataset_id is None
-            or self.service_account_info is None
-            or self.table_id is None
-        ):
-            raise ValueError("Test step not configured")
 
         client = BigQueryClient.from_service_account_inputs(project_id=self.project_id, **self.service_account_info)
 
@@ -456,13 +513,11 @@ class BigQueryDestinationTest(DestinationTest):
     def steps(self) -> collections.abc.Sequence[DestinationTestStep]:
         """Sequence of test steps that make up this destination test."""
         return [
-            BigQueryCheckProjectExistsTestStep(
-                project_id=self.project_id, service_account_info=self.service_account_info
-            ),
-            BigQueryCheckDatasetExistsTestStep(
+            BigQueryProjectTestStep(project_id=self.project_id, service_account_info=self.service_account_info),
+            BigQueryDatasetTestStep(
                 project_id=self.project_id, dataset_id=self.dataset_id, service_account_info=self.service_account_info
             ),
-            BigQueryCheckTableTestStep(
+            BigQueryTableTestStep(
                 project_id=self.project_id,
                 dataset_id=self.dataset_id,
                 table_id=self.table_id,

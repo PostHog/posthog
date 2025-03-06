@@ -8,9 +8,9 @@ import pytest
 from google.cloud import bigquery, exceptions
 
 from posthog.temporal.batch_exports.destination_tests import (
-    BigQueryCheckDatasetExistsTestStep,
-    BigQueryCheckProjectExistsTestStep,
-    BigQueryCheckTableTestStep,
+    BigQueryDatasetTestStep,
+    BigQueryProjectTestStep,
+    BigQueryTableTestStep,
     Status,
 )
 
@@ -80,7 +80,7 @@ def service_account_info(bigquery_config):
 
 
 async def test_bigquery_check_dataset_exists_test_step(project_id, service_account_info, bigquery_dataset):
-    test_step = BigQueryCheckDatasetExistsTestStep(
+    test_step = BigQueryDatasetTestStep(
         project_id=project_id,
         dataset_id=bigquery_dataset.dataset_id,
         service_account_info=service_account_info,
@@ -92,7 +92,7 @@ async def test_bigquery_check_dataset_exists_test_step(project_id, service_accou
 
 
 async def test_bigquery_check_dataset_exists_test_step_without_dataset(project_id, service_account_info):
-    test_step = BigQueryCheckDatasetExistsTestStep(
+    test_step = BigQueryDatasetTestStep(
         project_id=project_id,
         dataset_id="garbage",
         service_account_info=service_account_info,
@@ -107,7 +107,7 @@ async def test_bigquery_check_dataset_exists_test_step_without_dataset(project_i
 
 
 async def test_bigquery_check_project_exists_test_step(project_id, service_account_info):
-    test_step = BigQueryCheckProjectExistsTestStep(
+    test_step = BigQueryProjectTestStep(
         project_id=project_id,
         service_account_info=service_account_info,
     )
@@ -118,7 +118,7 @@ async def test_bigquery_check_project_exists_test_step(project_id, service_accou
 
 
 async def test_bigquery_check_project_exists_test_step_without_project(service_account_info):
-    test_step = BigQueryCheckProjectExistsTestStep(
+    test_step = BigQueryProjectTestStep(
         project_id="garbage",
         service_account_info=service_account_info,
     )
@@ -138,7 +138,7 @@ async def test_bigquery_check_table_test_step(project_id, bigquery_client, bigqu
     with pytest.raises(exceptions.NotFound):
         bigquery_client.get_table(fully_qualified_table_id)
 
-    test_step = BigQueryCheckTableTestStep(
+    test_step = BigQueryTableTestStep(
         project_id=project_id,
         dataset_id=bigquery_dataset.dataset_id,
         table_id=table_id,
@@ -162,7 +162,7 @@ async def test_bigquery_check_table_test_step_with_invalid_identifier(
     with pytest.raises(exceptions.NotFound):
         bigquery_client.get_table(fully_qualified_table_id)
 
-    test_step = BigQueryCheckTableTestStep(
+    test_step = BigQueryTableTestStep(
         project_id=project_id,
         dataset_id=bigquery_dataset.dataset_id,
         table_id=table_id,
@@ -178,9 +178,8 @@ async def test_bigquery_check_table_test_step_with_invalid_identifier(
         bigquery_client.get_table(fully_qualified_table_id)
 
 
-@pytest.mark.parametrize(
-    "step", [BigQueryCheckTableTestStep(), BigQueryCheckProjectExistsTestStep(), BigQueryCheckDatasetExistsTestStep()]
-)
-async def test_test_steps_raise_if_not_configured(step):
-    with pytest.raises(ValueError):
-        _ = await step.run()
+@pytest.mark.parametrize("step", [BigQueryTableTestStep(), BigQueryProjectTestStep(), BigQueryDatasetTestStep()])
+async def test_test_steps_fail_if_not_configured(step):
+    result = await step.run()
+    assert result.status == Status.FAILED
+    assert result.message == "The test step cannot run as it's not configured."
