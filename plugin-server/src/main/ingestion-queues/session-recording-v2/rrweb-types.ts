@@ -74,6 +74,12 @@ export function isMouseActivity(event: RRWebEvent): boolean {
     )
 }
 
+export function hrefFrom(event: RRWebEvent): string | undefined {
+    const metaHref = event.data?.href?.trim()
+    const customHref = event.data?.payload?.href?.trim()
+    return metaHref || customHref || undefined
+}
+
 // Constants for log levels
 export enum ConsoleLogLevel {
     Log = 'log',

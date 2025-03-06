@@ -1,9 +1,8 @@
 import { DateTime } from 'luxon'
 import snappy from 'snappy'
 
-import { RRWebEvent } from '../../../../types'
 import { ParsedMessageData } from '../kafka/types'
-import { ConsoleLogLevel, getConsoleLogLevel, isClick, isKeypress, isMouseActivity } from '../rrweb-types'
+import { ConsoleLogLevel, getConsoleLogLevel, hrefFrom, isClick, isKeypress, isMouseActivity } from '../rrweb-types'
 import { activeMillisecondsFromSegmentationEvents, SegmentationEvent, toSegmentationEvent } from '../segmentation'
 
 export interface EndResult {
@@ -132,7 +131,7 @@ export class SnappySessionRecorder {
                 // Store segmentation event for later use in active time calculation
                 this.segmentationEvents.push(toSegmentationEvent(event))
 
-                const eventUrl = this.hrefFrom(event)
+                const eventUrl = hrefFrom(event)
                 if (eventUrl) {
                     this.urls.add(eventUrl)
                     if (this.firstUrl === null) {
@@ -172,15 +171,6 @@ export class SnappySessionRecorder {
         this.rawBytesWritten += rawBytesWritten
         this.messageCount += 1
         return rawBytesWritten
-    }
-
-    /**
-     * Extract URL from an event using the same logic as in process-event.ts
-     */
-    private hrefFrom(event: RRWebEvent): string | undefined {
-        const metaHref = event.data?.href?.trim()
-        const customHref = event.data?.payload?.href?.trim()
-        return metaHref || customHref || undefined
     }
 
     /**
