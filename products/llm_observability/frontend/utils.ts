@@ -226,20 +226,26 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
     ]
 }
 
-export function normalizeMessages(output: unknown, defaultRole?: string): CompatMessage[] | null {
-    if (!output) {
-        return null
+export function normalizeMessages(messages: unknown, defaultRole?: string, tools?: unknown): CompatMessage[] {
+    const normalizedMessages: CompatMessage[] = []
+
+    if (tools) {
+        normalizedMessages.push({
+            role: 'tools',
+            content: '',
+            tools,
+        })
     }
 
-    if (Array.isArray(output)) {
-        return output.map((message) => normalizeMessage(message, defaultRole)).flat()
+    if (Array.isArray(messages)) {
+        normalizedMessages.push(...messages.map((message) => normalizeMessage(message, defaultRole)).flat())
     }
 
-    if (typeof output === 'object' && 'choices' in output && Array.isArray(output.choices)) {
-        return output.choices.map((message) => normalizeMessage(message, defaultRole)).flat()
+    if (typeof messages === 'object' && messages && 'choices' in messages && Array.isArray(messages.choices)) {
+        normalizedMessages.push(...messages.choices.map((message) => normalizeMessage(message, defaultRole)).flat())
     }
 
-    return null
+    return normalizedMessages
 }
 
 export function removeMilliseconds(timestamp: string): string {

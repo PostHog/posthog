@@ -3,19 +3,17 @@ import './PlanComparison.scss'
 import { IconCheckCircle, IconWarning, IconX } from '@posthog/icons'
 import { LemonModal, LemonTag, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
-import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
-import { FEATURE_FLAGS, UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
+import { useValues } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React, { useState } from 'react'
 import { getProductIcon } from 'scenes/products/Products'
 import useResizeObserver from 'use-resize-observer'
 
 import { BillingFeatureType, BillingPlanType, BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
-import { convertLargeNumberToWords, getProration, getUpgradeProductLink } from './billing-utils'
+import { convertLargeNumberToWords, getProration } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import { billingProductLogic } from './billingProductLogic'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
@@ -112,15 +110,10 @@ export const PlanComparison = ({
     product: BillingProductV2Type
     includeAddons?: boolean
 }): JSX.Element | null => {
-    const { billing, redirectPath, timeRemainingInSeconds, timeTotalInSeconds } = useValues(billingLogic)
+    const { billing, timeRemainingInSeconds, timeTotalInSeconds } = useValues(billingLogic)
     const { width, ref: planComparisonRef } = useResizeObserver()
-    const { reportBillingUpgradeClicked, reportBillingDowngradeClicked } = useActions(eventUsageLogic)
-    const { surveyID, comparisonModalHighlightedFeatureKey, billingProductLoading } = useValues(
-        billingProductLogic({ product })
-    )
-    const { reportSurveyShown, setSurveyResponse, setBillingProductLoading } = useActions(
-        billingProductLogic({ product })
-    )
+    const { surveyID, comparisonModalHighlightedFeatureKey } = useValues(billingProductLogic({ product }))
+
     const { featureFlags } = useValues(featureFlagLogic)
 
     const plans = product.plans?.filter(
@@ -129,86 +122,7 @@ export const PlanComparison = ({
     if (plans?.length === 0) {
         return null
     }
-    const currentPlanIndex = plans.findIndex((plan) => plan.current_plan)
     const fullyFeaturedPlan = plans[plans.length - 1]
-
-    const ctaAction = billing?.subscription_level === 'custom' ? 'Subscribe' : 'Upgrade'
-    const upgradeButtons = plans?.map((plan, i) => {
-        return (
-            <td key={`${plan.plan_key}-cta`} className="PlanTable__td__upgradeButton">
-                <BillingUpgradeCTA
-                    to={
-                        plan.contact_support
-                            ? 'mailto:sales@posthog.com?subject=Enterprise%20plan%20request'
-                            : i < currentPlanIndex
-                            ? undefined // Downgrade action handled in onClick
-                            : getUpgradeProductLink({
-                                  product,
-                                  redirectPath,
-                                  includeAddons,
-                              })
-                    }
-                    type={plan.current_plan || i < currentPlanIndex ? 'secondary' : 'primary'}
-                    status={
-                        plan.current_plan || (plan.included_if == 'has_subscription' && i >= currentPlanIndex)
-                            ? 'default'
-                            : 'alt'
-                    }
-                    fullWidth
-                    center
-                    disableClientSideRouting={!plan.contact_support}
-                    disabledReason={
-                        plan.included_if == 'has_subscription' && i >= currentPlanIndex
-                            ? billing?.has_active_subscription
-                                ? 'Unsubscribe from all products to remove'
-                                : null
-                            : plan.current_plan
-                            ? 'Current plan'
-                            : undefined
-                    }
-                    onClick={() => {
-                        if (!plan.current_plan) {
-                            setBillingProductLoading(product.type)
-                            if (i < currentPlanIndex) {
-                                setSurveyResponse('$survey_response_1', product.type)
-                                reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, product.type)
-                                reportBillingDowngradeClicked(product.type)
-                            } else {
-                                reportBillingUpgradeClicked(product.type)
-                            }
-                        }
-                    }}
-                    loading={billingProductLoading === product.type && !plan.current_plan && !plan.contact_support}
-                    data-attr={`upgrade-${plan.name}`}
-                >
-                    {plan.current_plan
-                        ? 'Current plan'
-                        : i < currentPlanIndex
-                        ? 'Downgrade'
-                        : plan.contact_support
-                        ? 'Get in touch'
-                        : plan.included_if == 'has_subscription' &&
-                          i >= currentPlanIndex &&
-                          !billing?.has_active_subscription
-                        ? ctaAction
-                        : plan.free_allocation && !plan.tiers
-                        ? 'Select' // Free plan
-                        : ctaAction}
-                </BillingUpgradeCTA>
-                {!plan.current_plan && !plan.free_allocation && includeAddons && product.addons?.length > 0 && (
-                    <p className="text-center ml-0 mt-2 mb-0">
-                        <Link
-                            to={`/api/billing/activate?products=all_products:&redirect_path=${redirectPath}`}
-                            className="text-secondary text-xs"
-                            disableClientSideRouting
-                        >
-                            or subscribe without addons
-                        </Link>
-                    </p>
-                )}
-            </td>
-        )
-    })
 
     return (
         <table className="PlanComparison w-full table-fixed" ref={planComparisonRef}>
@@ -273,10 +187,6 @@ export const PlanComparison = ({
                         ))}
                     </tr>
                 )}
-                <tr>
-                    <td />
-                    {upgradeButtons}
-                </tr>
                 {includeAddons && product.addons.length > 0 && (
                     <tr>
                         <th colSpan={1} className="PlanTable__th__section rounded text-left">

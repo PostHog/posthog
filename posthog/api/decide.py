@@ -8,6 +8,7 @@ from prometheus_client import Counter
 from rest_framework import status
 from posthog.exceptions_capture import capture_exception
 from statshog.defaults.django import statsd
+from typing import Optional
 
 from posthog.api.survey import SURVEY_TARGETING_FLAG_PREFIX
 from posthog.api.utils import (
@@ -51,6 +52,29 @@ REMOTE_CONFIG_CACHE_COUNTER = Counter(
     "Metric tracking whether Remote Config was used for decide",
     labelnames=["result"],
 )
+
+
+def maybe_log_decide_data(request_body: Optional[dict] = None, response_body: Optional[dict] = None):
+    try:
+        context = structlog.contextvars.get_contextvars()
+        team_id_filter: list[str] = settings.DECIDE_TRACK_TEAM_IDS
+        team_id_as_string = str(context.get("team_id"))
+
+        if team_id_as_string not in team_id_filter:
+            return
+
+        request_id = structlog.get_context(logger).get("request_id")
+
+        if request_body:
+            logger.warn(
+                "Decide request data", request_id=request_id, team_id=team_id_as_string, request_body=request_body
+            )
+        if response_body:
+            logger.warn(
+                "Decide response data", request_id=request_id, team_id=team_id_as_string, response_body=response_body
+            )
+    except:
+        logger.warn("Failed to log decide data", team_id=team_id_as_string)
 
 
 def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool = False) -> dict:
@@ -272,9 +296,17 @@ def get_decide(request: HttpRequest):
         token = team.api_token
         structlog.contextvars.bind_contextvars(team_id=team.id)
 
+        maybe_log_decide_data(request_body=data)
+
         # --- 5. Handle feature flags ---
         flags_response = get_feature_flags_response(request, data, team, token, api_version)
         response = get_base_config(token, team, request, skip_db=flags_response.get("errorsWhileComputingFlags", False))
+
+        try:
+            request_id = structlog.get_context(logger).get("request_id")
+            response["requestId"] = request_id
+        except:
+            logger.warn("Failed to get request_id from logger context", team_id=team.id)
 
         # For remote config, we need to ensure quota limiting is reflected
         if flags_response.get("quotaLimited"):
@@ -302,6 +334,8 @@ def get_decide(request: HttpRequest):
         )
 
     statsd.incr(f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "decide"})
+    maybe_log_decide_data(response_body=response)
+
     return cors_response(request, JsonResponse(response))
 
 

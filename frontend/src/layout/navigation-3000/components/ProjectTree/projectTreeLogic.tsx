@@ -1,5 +1,4 @@
-import { IconBook, IconUpload } from '@posthog/icons'
-import { Spinner } from '@posthog/lemon-ui'
+import { IconBook } from '@posthog/icons'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
@@ -15,8 +14,10 @@ import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 import { getDefaultTree } from './defaultTree'
 import type { projectTreeLogicType } from './projectTreeLogicType'
-import { FileSystemImport, ProjectTreeAction } from './types'
-import { convertFileSystemEntryToTreeDataItem, joinPath, splitPath } from './utils'
+import { FileSystemImport, FolderState, ProjectTreeAction } from './types'
+import { convertFileSystemEntryToTreeDataItem, findInProjectTree, joinPath, splitPath } from './utils'
+
+const PAGINATION_LIMIT = 100
 
 export const projectTreeLogic = kea<projectTreeLogicType>([
     path(['layout', 'navigation-3000', 'components', 'projectTreeLogic']),
@@ -36,19 +37,24 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         queueAction: (action: ProjectTreeAction) => ({ action }),
         removeQueuedAction: (action: ProjectTreeAction) => ({ action }),
         applyPendingActions: true,
+        cancelPendingActions: true,
         createSavedItem: (savedItem: FileSystemEntry) => ({ savedItem }),
         updateSavedItem: (savedItem: FileSystemEntry, oldPath: string) => ({ savedItem, oldPath }),
         deleteSavedItem: (savedItem: FileSystemEntry) => ({ savedItem }),
-        updateExpandedFolders: (folders: string[]) => ({ folders }),
-        updateActiveFolder: (folder: string | null) => ({ folder }),
-        updateLastViewedPath: (path: string) => ({ path }),
-        toggleFolder: (folder: string, isExpanded: boolean) => ({ folder, isExpanded }),
-        updateSelectedFolder: (folder: string) => ({ folder }),
-        updateHelpNoticeVisibility: (visible: boolean) => ({ visible }),
+        setExpandedFolders: (folderIds: string[]) => ({ folderIds }),
+        setLastViewedId: (id: string) => ({ id }),
+        toggleFolderOpen: (folderId: string, isExpanded: boolean) => ({ folderId, isExpanded }),
+        setHelpNoticeVisibility: (visible: boolean) => ({ visible }),
         loadFolder: (folder: string) => ({ folder }),
         loadFolderStart: (folder: string) => ({ folder }),
-        loadFolderSuccess: (folder: string, entries: FileSystemEntry[]) => ({ folder, entries }),
+        loadFolderSuccess: (folder: string, entries: FileSystemEntry[], hasMore: boolean = false) => ({
+            folder,
+            entries,
+            hasMore,
+        }),
         loadFolderFailure: (folder: string, error: string) => ({ folder, error }),
+        rename: (path: string) => ({ path }),
+        createFolder: (parentPath: string) => ({ parentPath }),
     }),
     loaders(({ actions, values }) => ({
         allUnfiledItems: [
@@ -80,6 +86,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                             await api.fileSystem.delete(action.item.id)
                             actions.deleteSavedItem(action.item)
                         }
+                        actions.removeQueuedAction(action)
+                    }
+                    return true
+                },
+                cancelPendingActions: async () => {
+                    for (const action of values.pendingActions) {
                         actions.removeQueuedAction(action)
                     }
                     return true
@@ -124,10 +136,13 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             },
         ],
         folderStates: [
-            {} as Record<string, 'loading' | 'loaded' | 'error'>,
+            {} as Record<string, FolderState>,
             {
                 loadFolderStart: (state, { folder }) => ({ ...state, [folder]: 'loading' }),
-                loadFolderSuccess: (state, { folder }) => ({ ...state, [folder]: 'loaded' }),
+                loadFolderSuccess: (state, { folder, hasMore }) => ({
+                    ...state,
+                    [folder]: hasMore ? 'has-more' : 'loaded',
+                }),
                 loadFolderFailure: (state, { folder }) => ({ ...state, [folder]: 'error' }),
             },
         ],
@@ -144,30 +159,25 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             {
                 queueAction: (state, { action }) => [...state, action],
                 removeQueuedAction: (state, { action }) => state.filter((a) => a !== action),
+                cancelPendingActions: () => [],
             },
         ],
         expandedFolders: [
             [] as string[],
             {
-                updateExpandedFolders: (_, { folders }) => folders,
+                setExpandedFolders: (_, { folderIds }) => folderIds,
             },
         ],
-        activeFolder: [
-            null as string | null,
-            {
-                updateActiveFolder: (_, { folder }) => folder,
-            },
-        ],
-        lastViewedPath: [
+        lastViewedId: [
             '',
             {
-                updateLastViewedPath: (_, { path }) => path,
+                setLastViewedId: (_, { id }) => id,
             },
         ],
         helpNoticeVisible: [
             true,
             {
-                updateHelpNoticeVisibility: (_, { visible }) => visible,
+                setHelpNoticeVisibility: (_, { visible }) => visible,
             },
         ],
     }),
@@ -267,8 +277,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         ],
         pendingActionsCount: [(s) => [s.pendingActions], (pendingActions): number => pendingActions.length],
         projectTree: [
-            (s) => [s.viableItems],
-            (viableItems): TreeDataItem[] => convertFileSystemEntryToTreeDataItem(viableItems),
+            (s) => [s.viableItems, s.folderStates],
+            (viableItems, folderStates): TreeDataItem[] =>
+                convertFileSystemEntryToTreeDataItem(viableItems, folderStates, 'project'),
         ],
         groupNodes: [
             (s) => [s.groupTypes, s.groupsAccessStatus, s.aggregationLabel],
@@ -297,33 +308,19 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             },
         ],
         defaultTreeNodes: [
-            (s) => [s.featureFlags, s.groupNodes],
-            (_featureFlags, groupNodes: FileSystemImport[]) =>
+            (s) => [s.featureFlags, s.groupNodes, s.folderStates],
+            (_featureFlags, groupNodes: FileSystemImport[], folderStates) =>
                 // .filter(f => !f.flag || featureFlags[f.flag])
-                convertFileSystemEntryToTreeDataItem(getDefaultTree(groupNodes)),
+                convertFileSystemEntryToTreeDataItem(getDefaultTree(groupNodes), folderStates, 'root'),
         ],
         projectRow: [
-            (s) => [s.pendingActionsCount, s.pendingLoaderLoading],
-            (pendingActionsCount, pendingLoaderLoading): TreeDataItem[] => [
-                ...(pendingActionsCount > 0
-                    ? [
-                          {
-                              id: '__apply_pending_actions__',
-                              name: `--- Apply${
-                                  pendingLoaderLoading ? 'ing' : ''
-                              } ${pendingActionsCount} unsaved change${pendingActionsCount > 1 ? 's' : ''} ---`,
-                              icon: pendingLoaderLoading ? <Spinner /> : <IconUpload className="text-warning" />,
-                              onClick: !pendingLoaderLoading
-                                  ? () => projectTreeLogic.actions.applyPendingActions()
-                                  : undefined,
-                          },
-                      ]
-                    : [
-                          {
-                              id: '__separator__',
-                              name: '',
-                          },
-                      ]),
+            () => [],
+            (): TreeDataItem[] => [
+                {
+                    id: 'top-separator',
+                    name: '',
+                    type: 'separator',
+                },
                 {
                     id: 'project',
                     name: 'Default Project',
@@ -348,8 +345,21 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             }
             actions.loadFolderStart(folder)
             try {
-                const response = await api.fileSystem.list(folder, splitPath(folder).length + 1)
-                actions.loadFolderSuccess(folder, response.results)
+                const previousFiles = values.folders[folder] || []
+                const response = await api.fileSystem.list(
+                    folder,
+                    splitPath(folder).length + 1,
+                    PAGINATION_LIMIT + 1,
+                    previousFiles.length
+                )
+
+                let files = response.results
+                let hasMore = false
+                if (files.length > PAGINATION_LIMIT) {
+                    files = files.slice(0, PAGINATION_LIMIT)
+                    hasMore = true
+                }
+                actions.loadFolderSuccess(folder, [...previousFiles, ...files], hasMore)
             } catch (error) {
                 actions.loadFolderFailure(folder, String(error))
             }
@@ -380,16 +390,41 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 newPath: folder,
             })
         },
-        toggleFolder: ({ folder, isExpanded }) => {
-            if (isExpanded) {
-                actions.updateExpandedFolders(values.expandedFolders.filter((f) => f !== folder))
+        toggleFolderOpen: ({ folderId }) => {
+            if (values.expandedFolders.find((f) => f === folderId)) {
+                actions.setExpandedFolders(values.expandedFolders.filter((f) => f !== folderId))
             } else {
-                actions.updateExpandedFolders([...values.expandedFolders, folder])
+                actions.setExpandedFolders([...values.expandedFolders, folderId])
+                if (values.folderStates[folderId] !== 'loaded' && values.folderStates[folderId] !== 'loading') {
+                    const folder = findInProjectTree(folderId, values.projectTree)
+                    folder && actions.loadFolder(folder.record?.path)
+                }
             }
         },
-        updateSelectedFolder: ({ folder }) => {
-            actions.updateActiveFolder(folder)
-            actions.updateLastViewedPath(folder)
+        cancelPendingActions: () => {
+            // Clear all pending actions without applying them
+            for (const action of values.pendingActions) {
+                actions.removeQueuedAction(action)
+            }
+        },
+        rename: ({ path }) => {
+            const splits = splitPath(path)
+            if (splits.length > 0) {
+                const currentName = splits[splits.length - 1].replace(/\\/g, '')
+                const folder = prompt('New name?', currentName)
+                if (folder) {
+                    actions.moveItem(path, joinPath([...splits.slice(0, -1), folder]))
+                }
+            }
+        },
+        createFolder: ({ parentPath }) => {
+            const promptMessage = parentPath ? `Create a folder under "${parentPath}":` : 'Create a new folder:'
+            const folder = prompt(promptMessage, '')
+            if (folder) {
+                const parentSplits = parentPath ? splitPath(parentPath) : []
+                const newPath = joinPath([...parentSplits, folder])
+                actions.addFolder(newPath)
+            }
         },
     })),
     afterMount(({ actions }) => {

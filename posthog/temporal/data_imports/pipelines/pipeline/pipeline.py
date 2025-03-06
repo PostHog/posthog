@@ -1,27 +1,30 @@
 import gc
 import time
 from typing import Any
+
+import deltalake as deltalake
 import pyarrow as pa
 from dlt.sources import DltSource
-import deltalake as deltalake
+
 from posthog.temporal.common.logger import FilteringBoundLogger
+from posthog.temporal.common.shutdown import ShutdownMonitor
 from posthog.temporal.data_imports.deltalake_compaction_job import trigger_compaction_job
+from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
+from posthog.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
+    _append_debug_column_to_pyarrows_table,
+    _evolve_pyarrow_schema,
     _get_column_hints,
+    _get_primary_keys,
     _handle_null_columns_with_definitions,
     _update_incremental_state,
-    _get_primary_keys,
-    _evolve_pyarrow_schema,
-    _append_debug_column_to_pyarrows_table,
     _update_job_row_count,
     _update_last_synced_at_sync,
     append_partition_key_to_table,
     should_partition_table,
     table_from_py_list,
 )
-from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
-from posthog.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
 from posthog.temporal.data_imports.pipelines.pipeline_sync import validate_schema_and_update_table_sync
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 from posthog.warehouse.models import DataWarehouseTable, ExternalDataJob, ExternalDataSchema
@@ -47,6 +50,7 @@ class PipelineNonDLT:
         job_id: str,
         is_incremental: bool,
         reset_pipeline: bool,
+        shutdown_monitor: ShutdownMonitor,
     ) -> None:
         if isinstance(source, DltSource):
             resources = list(source.resources.items())
@@ -76,6 +80,7 @@ class PipelineNonDLT:
 
         self._delta_table_helper = DeltaTableHelper(self._resource_name, self._job, self._logger)
         self._internal_schema = HogQLSchema()
+        self._shutdown_monitor = shutdown_monitor
 
     def run(self):
         pa_memory_pool = pa.default_memory_pool()
@@ -139,6 +144,8 @@ class PipelineNonDLT:
                     del py_table
                 pa_memory_pool.release_unused()
                 gc.collect()
+
+                self._shutdown_monitor.raise_if_is_worker_shutdown()
 
             if len(buffer) > 0:
                 py_table = table_from_py_list(buffer)
