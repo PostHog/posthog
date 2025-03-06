@@ -21,11 +21,8 @@ export class SlackChannels {
         }
     }
 
-    withNewChannelById(channelId: string): SlackChannels {
-        return new SlackChannels(
-            this.fetchedSlackChannels,
-            this.fetchedSlackChannels.find((x) => x.id === channelId) || null
-        )
+    withNewChannelById(channel: SlackChannelType): SlackChannels {
+        return new SlackChannels(this.fetchedSlackChannels, channel)
     }
 
     withNewChannels(channels: SlackChannelType[]): SlackChannels {
@@ -79,7 +76,7 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
                     state: SlackChannels,
                     { slackChannelById }: { slackChannelById: SlackChannelType }
                 ) => {
-                    return state.withNewChannelById(slackChannelById.id)
+                    return state.withNewChannelById(slackChannelById)
                 },
                 loadAllSlackChannelsSuccess: (
                     state: SlackChannels,
