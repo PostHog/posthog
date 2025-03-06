@@ -85,7 +85,7 @@ export async function pollForResults(
 async function executeQuery<N extends DataNode>(
     queryNode: N,
     methodOptions?: ApiMethodOptions,
-    refresh?: boolean,
+    refresh?: RefreshType,
     queryId?: string,
     setPollResponse?: (response: QueryStatus) => void,
     filtersOverride?: DashboardFilter | null,
@@ -103,7 +103,7 @@ async function executeQuery<N extends DataNode>(
 
     if (!pollOnly) {
         const refreshParam: RefreshType | undefined =
-            refresh && isAsyncQuery ? 'force_async' : isAsyncQuery ? 'async' : refresh
+            typeof refresh === 'boolean' && refresh && isAsyncQuery ? 'force_async' : isAsyncQuery ? 'async' : refresh
 
         if (useOptimizedPolling) {
             return new Promise((resolve, reject) => {
@@ -230,7 +230,7 @@ function logQueryEvent(type: LogType, data: any, queryNode: any): void {
 export async function performQuery<N extends DataNode>(
     queryNode: N,
     methodOptions?: ApiMethodOptions,
-    refresh?: boolean,
+    refresh?: RefreshType,
     queryId?: string,
     setPollResponse?: (status: QueryStatus) => void,
     filtersOverride?: DashboardFilter | null,
