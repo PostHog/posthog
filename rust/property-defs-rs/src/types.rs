@@ -1,4 +1,4 @@
-use std::{fmt, hash::Hash, str::FromStr};
+use std::{fmt, hash::Hash, str::FromStr, sync::LazyLock};
 
 use chrono::{DateTime, Duration, DurationRound, RoundingError, Utc};
 use regex::Regex;
@@ -36,6 +36,19 @@ const DATETIME_PROPERTY_NAME_KEYWORDS: [&str; 7] = [
     "createdat",
     "updatedat",
 ];
+
+// TRICKY: the pattern below is a best-effort attempt to classify likely DateTime properties by
+// a string prefix of their value. While this doesn't enforce compliance to standard formats,
+// it does represent a pretty strong indication of the user's intent, for the purposes of
+// *property definition capture only* especially when a bad decision "locks" the property name
+// to the wrong type. Try it here: https://rustexp.lpil.uk/ and review the unit tests.
+// Also notable: post-capture, PostHog displays timestamps in a variety formats:
+// https://github.com/PostHog/posthog/blob/master/posthog/models/property_definition.py#L18-L30
+static DATETIME_PREFIX_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+    regex::Regex::new(
+        r#"^(([0-9]{4}[/-][0-2][0-9][/-][0-3][0-9])|([0-2][0-9][/-][0-3][0-9][/-][0-9]{4}))([ T][0-2][0-9]:[0-6][0-9]:[0-6][0-9].*)?$"#
+    ).unwrap()
+});
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, PartialOrd, Ord)]
 pub enum PropertyParentType {
@@ -369,17 +382,7 @@ fn is_valid_date_string(s: &str) -> bool {
         return true;
     }
 
-    // TRICKY: the pattern below is a best-effort attempt to classify likely DateTime properties by
-    // a string prefix of their value. While this doesn't enforce compliance to standard formats,
-    // it does represent a pretty strong indication of the user's intent, for the purposes of
-    // *property definition capture only* especially when a bad decision "locks" the property name
-    // to the wrong type. Try it here: https://rustexp.lpil.uk/ and review the unit tests.
-    // Also notable: post-capture, PostHog displays timestamps in a variety formats:
-    // https://github.com/PostHog/posthog/blob/master/posthog/models/property_definition.py#L18-L30
-    let datetime_prefix_pattern: Regex = regex::Regex::new(
-    r#"^(([0-9]{4}[/-][0-2][0-9][/-][0-3][0-9])|([0-2][0-9][/-][0-3][0-9][/-][0-9]{4}))([ T][0-2][0-9]:[0-6][0-9]:[0-6][0-9].*)?$"#
-    ).unwrap();
-    if datetime_prefix_pattern.is_match(s) {
+    if DATETIME_PREFIX_REGEX.is_match(s) {
         return true;
     }
 
