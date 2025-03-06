@@ -10,6 +10,7 @@ This directory contains Go services and shared libraries for PostHog.
 │   └── common/    # Common utilities and types
 └── services/      # Individual services
     └── livestream/  # Livestream service
+    └── apiexample/  # Example API service
 ```
 
 ## Development
@@ -18,6 +19,7 @@ This directory contains Go services and shared libraries for PostHog.
 
 -   Go 1.21 or later
 -   golangci-lint (for linting)
+-   Docker (for containerized builds)
 
 ### Workspace Setup
 
