@@ -1,3 +1,5 @@
+import { AppContext, OrganizationType, UserType } from '~/types'
+
 import { SurveysPage } from '../page-models/surveysPage'
 import { expect, test } from '../utils/playwright-test-base'
 
@@ -169,9 +171,9 @@ test.describe('Surveys', () => {
                                 note: null,
                             },
                         ],
-                    },
-                },
-            }
+                    } as OrganizationType,
+                } as UserType,
+            } as AppContext
         })
 
         await expect(page.locator('h1')).toContainText('Surveys')
