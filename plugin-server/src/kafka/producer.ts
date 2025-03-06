@@ -13,7 +13,7 @@ import { getSpan } from '../sentry'
 import { PluginsServerConfig } from '../types'
 import { DependencyUnavailableError, MessageSizeTooLarge } from '../utils/db/error'
 import { status } from '../utils/status'
-import { createRdConnectionConfigFromEnvVars } from './config'
+import { createRdConnectionConfigFromEnvVars, getProducerConfigFromEnv } from './config'
 
 // TODO: Rewrite this description
 /** This class is a wrapper around the rdkafka producer, and does very little.
@@ -43,27 +43,21 @@ export class KafkaProducerWrapper {
 
     static async create(config: PluginsServerConfig, mode: 'producer' | 'consumer' = 'producer') {
         const globalConfig = createRdConnectionConfigFromEnvVars(config, mode)
+
+        // NOTE: In addition to some defaults we allow overriding any setting via env vars.
+        // This makes it much easier to react to issues without needing code changes
+
+        // Finds all proces.env prefixed with KAFKA_PRODUCER_ and converts them to rdkafka config
+
         const producer = new HighLevelProducer({
-            ...globalConfig,
-            // milliseconds to wait after the most recently added message before sending a batch. The
-            // default is 0, which means that messages are sent as soon as possible. This does not mean
-            // that there will only be one message per batch, as the producer will attempt to fill
-            // batches up to the batch size while the number of Kafka inflight requests is saturated, by
-            // default 5 inflight requests.
-            'linger.ms': config.KAFKA_PRODUCER_LINGER_MS,
-            'batch.size': config.KAFKA_PRODUCER_BATCH_SIZE,
-            'queue.buffering.max.messages': config.KAFKA_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES,
+            // Defaults that could be overridden by env vars
+            'linger.ms': 20,
+            'batch.size': 8 * 1024 * 1024,
+            'queue.buffering.max.messages': 100_000,
             'compression.codec': 'snappy',
-            // Ensure that librdkafka handled producer retries do not produce duplicates. Note this
-            // doesn't mean that if we manually retry a message that it will be idempotent. May reduce
-            // throughput. Note that at the time of writing the session recording events table in
-            // ClickHouse uses a `ReplicatedReplacingMergeTree` with a ver param of _timestamp i.e. when
-            // the event was added to the Kafka ingest topic. The sort key is `team_id,
-            // toHour(timestamp), session_id, timestamp, uuid` which means duplicate production of the
-            // same event _should_ be deduplicated when merges occur on the table. This isn't a
-            // guarantee on removing duplicates though and rather still requires deduplication either
-            // when querying the table or client side.
-            'enable.idempotence': config.KAFKA_PRODUCER_IDEMPOTENCE,
+            'enable.idempotence': true,
+            ...getProducerConfigFromEnv(),
+            ...globalConfig,
             dr_cb: true,
         })
 
