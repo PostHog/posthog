@@ -2,6 +2,7 @@ import { DateTime } from 'luxon'
 import snappy from 'snappy'
 
 import { ParsedMessageData } from '../kafka/types'
+import { ConsoleLogLevel } from '../rrweb-types'
 import { SnappySessionRecorder } from './snappy-session-recorder'
 
 // RRWeb event type constants
@@ -12,6 +13,7 @@ const enum EventType {
     IncrementalSnapshot = 3,
     Meta = 4,
     Custom = 5,
+    Plugin = 6,
 }
 
 describe('SnappySessionRecorder', () => {
@@ -951,6 +953,166 @@ describe('SnappySessionRecorder', () => {
 
             const decompressedBuffer = await readSnappyBuffer(result.buffer)
             expect(result.size).toBe(decompressedBuffer.length)
+        })
+    })
+
+    describe('Console log counting', () => {
+        it('should count console log events', async () => {
+            const events = [
+                {
+                    type: EventType.Plugin,
+                    timestamp: 1000,
+                    data: {
+                        plugin: 'rrweb/console@1',
+                        payload: {
+                            level: ConsoleLogLevel.Log,
+                            content: ['Test log message'],
+                        },
+                    },
+                },
+            ]
+            const message = createMessage('window1', events)
+
+            recorder.recordMessage(message)
+            const result = await recorder.end()
+
+            expect(result.consoleLogCount).toBe(1)
+            expect(result.consoleWarnCount).toBe(0)
+            expect(result.consoleErrorCount).toBe(0)
+        })
+
+        it('should count console warn events', async () => {
+            const events = [
+                {
+                    type: EventType.Plugin,
+                    timestamp: 1000,
+                    data: {
+                        plugin: 'rrweb/console@1',
+                        payload: {
+                            level: ConsoleLogLevel.Warn,
+                            content: ['Test warning message'],
+                        },
+                    },
+                },
+            ]
+            const message = createMessage('window1', events)
+
+            recorder.recordMessage(message)
+            const result = await recorder.end()
+
+            expect(result.consoleLogCount).toBe(0)
+            expect(result.consoleWarnCount).toBe(1)
+            expect(result.consoleErrorCount).toBe(0)
+        })
+
+        it('should count console error events', async () => {
+            const events = [
+                {
+                    type: EventType.Plugin,
+                    timestamp: 1000,
+                    data: {
+                        plugin: 'rrweb/console@1',
+                        payload: {
+                            level: ConsoleLogLevel.Error,
+                            content: ['Test error message'],
+                        },
+                    },
+                },
+            ]
+            const message = createMessage('window1', events)
+
+            recorder.recordMessage(message)
+            const result = await recorder.end()
+
+            expect(result.consoleLogCount).toBe(0)
+            expect(result.consoleWarnCount).toBe(0)
+            expect(result.consoleErrorCount).toBe(1)
+        })
+
+        it('should count multiple console events of different types', async () => {
+            const events = [
+                {
+                    type: EventType.Plugin,
+                    timestamp: 1000,
+                    data: {
+                        plugin: 'rrweb/console@1',
+                        payload: {
+                            level: ConsoleLogLevel.Log,
+                            content: ['Test log message 1'],
+                        },
+                    },
+                },
+                {
+                    type: EventType.Plugin,
+                    timestamp: 1500,
+                    data: {
+                        plugin: 'rrweb/console@1',
+                        payload: {
+                            level: ConsoleLogLevel.Warn,
+                            content: ['Test warning message'],
+                        },
+                    },
+                },
+                {
+                    type: EventType.Plugin,
+                    timestamp: 2000,
+                    data: {
+                        plugin: 'rrweb/console@1',
+                        payload: {
+                            level: ConsoleLogLevel.Error,
+                            content: ['Test error message'],
+                        },
+                    },
+                },
+                {
+                    type: EventType.Plugin,
+                    timestamp: 2500,
+                    data: {
+                        plugin: 'rrweb/console@1',
+                        payload: {
+                            level: ConsoleLogLevel.Log,
+                            content: ['Test log message 2'],
+                        },
+                    },
+                },
+            ]
+            const message = createMessage('window1', events)
+
+            recorder.recordMessage(message)
+            const result = await recorder.end()
+
+            expect(result.consoleLogCount).toBe(2)
+            expect(result.consoleWarnCount).toBe(1)
+            expect(result.consoleErrorCount).toBe(1)
+        })
+
+        it('should not count non-console events', async () => {
+            const events = [
+                {
+                    type: EventType.Meta,
+                    timestamp: 1000,
+                    data: {},
+                },
+                {
+                    type: EventType.Plugin,
+                    timestamp: 1500,
+                    data: {
+                        plugin: 'some-other-plugin',
+                        payload: {
+                            level: 'log',
+                            content: ['This should not be counted'],
+                        },
+                    },
+                },
+            ]
+            const message = createMessage('window1', events)
+
+            recorder.recordMessage(message)
+            const result = await recorder.end()
+
+            expect(result.consoleLogCount).toBe(0)
+            expect(result.consoleWarnCount).toBe(0)
+            expect(result.consoleErrorCount).toBe(0)
         })
     })
 })

@@ -73,3 +73,27 @@ export function isMouseActivity(event: RRWebEvent): boolean {
         event.type === RRWebEventType.IncrementalSnapshot && MOUSE_ACTIVITY_SOURCES.includes(event.data?.source || -1)
     )
 }
+
+// Constants for log levels
+export enum ConsoleLogLevel {
+    Log = 'log',
+    Warn = 'warn',
+    Error = 'error',
+}
+
+/**
+ * Checks if an event is a console event and returns its log level, or null if it's not a console event
+ */
+export function getConsoleLogLevel(event: RRWebEvent): ConsoleLogLevel | null {
+    if (event.type === RRWebEventType.Plugin && event.data?.plugin === 'rrweb/console@1') {
+        const level = event.data?.payload?.level
+        if (level === ConsoleLogLevel.Log) {
+            return ConsoleLogLevel.Log
+        } else if (level === ConsoleLogLevel.Warn) {
+            return ConsoleLogLevel.Warn
+        } else if (level === ConsoleLogLevel.Error) {
+            return ConsoleLogLevel.Error
+        }
+    }
+    return null
+}

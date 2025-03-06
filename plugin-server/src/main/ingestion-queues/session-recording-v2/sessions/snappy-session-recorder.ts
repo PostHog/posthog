@@ -4,7 +4,7 @@ import snappy from 'snappy'
 import { RRWebEvent } from '~/src/types'
 
 import { ParsedMessageData } from '../kafka/types'
-import { isClick, isKeypress, isMouseActivity } from '../rrweb-types'
+import { ConsoleLogLevel, getConsoleLogLevel, isClick, isKeypress, isMouseActivity } from '../rrweb-types'
 
 export interface EndResult {
     /** The complete compressed session block */
@@ -82,6 +82,9 @@ export class SnappySessionRecorder {
     private messageCount: number = 0
     private snapshotSource: string | null = null
     private snapshotLibrary: string | null = null
+    private consoleLogCount: number = 0
+    private consoleWarnCount: number = 0
+    private consoleErrorCount: number = 0
 
     constructor(public readonly sessionId: string, public readonly teamId: number) {}
 
@@ -144,6 +147,15 @@ export class SnappySessionRecorder {
                     this.mouseActivityCount += 1
                 }
 
+                const logLevel = getConsoleLogLevel(event)
+                if (logLevel === ConsoleLogLevel.Log) {
+                    this.consoleLogCount++
+                } else if (logLevel === ConsoleLogLevel.Warn) {
+                    this.consoleWarnCount++
+                } else if (logLevel === ConsoleLogLevel.Error) {
+                    this.consoleErrorCount++
+                }
+
                 const serializedLine = JSON.stringify([windowId, event]) + '\n'
                 const chunk = Buffer.from(serializedLine)
                 this.uncompressedChunks.push(chunk)
@@ -203,9 +215,9 @@ export class SnappySessionRecorder {
             keypressCount: this.keypressCount,
             mouseActivityCount: this.mouseActivityCount,
             activeMilliseconds: 0,
-            consoleLogCount: 0,
-            consoleWarnCount: 0,
-            consoleErrorCount: 0,
+            consoleLogCount: this.consoleLogCount,
+            consoleWarnCount: this.consoleWarnCount,
+            consoleErrorCount: this.consoleErrorCount,
             size: uncompressedBuffer.length,
             messageCount: this.messageCount,
             snapshotSource: this.snapshotSource,
