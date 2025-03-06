@@ -7,7 +7,7 @@ use config::{Config, TeamFilterMode, TeamList};
 use metrics_consts::{
     BATCH_ACQUIRE_TIME, CACHE_CONSUMED, CHUNK_SIZE, COMPACTED_UPDATES, DUPLICATES_IN_BATCH,
     EMPTY_EVENTS, EVENTS_RECEIVED, EVENT_PARSE_ERROR, FORCED_SMALL_BATCH, ISSUE_FAILED,
-    RECV_DEQUEUED, SKIPPED_DUE_TO_TEAM_FILTER, UPDATES_CACHE, UPDATES_FILTERED_BY_CACHE,
+    RECV_DEQUEUED, SKIPPED_DUE_TO_TEAM_FILTER, UPDATES_CACHE, UPDATES_DROPPED, UPDATES_FILTERED_BY_CACHE,
     UPDATES_PER_EVENT, UPDATES_SEEN, UPDATE_ISSUE_TIME, UPDATE_PRODUCER_OFFSET, WORKER_BLOCKED,
 };
 use quick_cache::sync::Cache;
@@ -20,6 +20,9 @@ pub mod app_context;
 pub mod config;
 pub mod metrics_consts;
 pub mod types;
+
+const BATCH_UPDATE_MAX_ATTEMPTS: u64 = 5;
+const UPDATE_RETRY_DELAY_MS: u64 = 150;
 
 pub async fn update_consumer_loop(
     config: Config,
@@ -90,18 +93,20 @@ pub async fn update_consumer_loop(
             let m_context = context.clone();
             let m_cache = cache.clone();
             let handle = tokio::spawn(async move {
-                let mut tries = 0;
+                let mut tries: u64 = 0;
                 // We occasionally enocounter deadlocks while issuing updates, so we retry a few times, and
                 // if we still fail, we drop the batch and clear it's content from the cached update set, because
                 // we assume everything in it will be seen again.
                 while let Err(e) = m_context.issue(&mut chunk, cache_utilization).await {
                     tries += 1;
-                    if tries > 3 {
-                        metrics::counter!(ISSUE_FAILED).increment(1);
+                    if tries > BATCH_UPDATE_MAX_ATTEMPTS {
+                        let chunk_len = chunk.len() as u64;
+                        metrics::counter!(ISSUE_FAILED, &[("reason", "failed")]).increment(1);
+                        metrics::counter!(UPDATES_DROPPED, &[("reason", "batch_write_fail")])
+                            .increment(chunk_len);
                         error!(
-                            "Too many tries, dropping batch of size {}, got: {:?}",
-                            chunk.len(),
-                            e
+                            "Issue failed: retries exhausted, dropping batch of size {} with error: {:?}",
+                            chunk_len, e,
                         );
                         // We clear any updates that were in this batch from the cache, so that
                         // if we see them again we'll try again to issue them.
@@ -113,8 +118,11 @@ pub async fn update_consumer_loop(
                     }
 
                     let jitter = rand::random::<u64>() % 50;
-                    warn!("Issue failed: {:?}, sleeping for {}ms", e, jitter);
-                    tokio::time::sleep(Duration::from_millis(jitter)).await;
+                    let delay: u64 = tries * UPDATE_RETRY_DELAY_MS + jitter;
+                    metrics::counter!(ISSUE_FAILED, &[("attempt", format!("retry_{}", tries))])
+                        .increment(1);
+                    warn!("Issue failed: {:?}, sleeping for {}ms", e, delay);
+                    tokio::time::sleep(Duration::from_millis(delay)).await;
                 }
             });
             handles.push(handle);
