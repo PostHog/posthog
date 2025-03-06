@@ -56,6 +56,7 @@ AnyConstantType = (
     | UUIDType
     | ArrayType
     | TupleType
+    | DecimalType
     | UnknownType
     | IntegerType
     | FloatType
