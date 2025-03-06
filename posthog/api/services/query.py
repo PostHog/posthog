@@ -83,7 +83,6 @@ def process_query_model(
 
     try:
         query_runner = get_query_runner(query, team, limit_context=limit_context)
-        query_runner.is_query_service = True
     except ValueError:  # This query doesn't run via query runner
         if hasattr(query, "source") and isinstance(query.source, BaseModel):
             result = process_query_model(
@@ -133,6 +132,7 @@ def process_query_model(
             query_runner.apply_dashboard_filters(dashboard_filters)
         if variables_override:
             query_runner.apply_variable_overrides(variables_override)
+        query_runner.is_query_service = True
         result = query_runner.run(
             execution_mode=execution_mode,
             user=user,
