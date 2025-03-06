@@ -96,9 +96,9 @@ def get_version_for_distinct_id(team_id: int, distinct_id: str) -> int:
             "distinct_id": distinct_id,
         },
     )
-    assert len(rows) == 1, (
-        f"Expected to find exactly one row in person_distinct_id2 for team_id:{team_id}, distinct_id:{distinct_id}, got {len(rows)}"
-    )
+    assert (
+        len(rows) == 1
+    ), f"Expected to find exactly one row in person_distinct_id2 for team_id:{team_id}, distinct_id:{distinct_id}, got {len(rows)}"
     return rows[0][0]
 
 
