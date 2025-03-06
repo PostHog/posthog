@@ -29,7 +29,7 @@ export const UserGroups = (): JSX.Element => {
     ]
 
     return (
-        <div className="space-y-2">
+        <div className="deprecated-space-y-2">
             <LemonTable
                 size="small"
                 dataSource={userGroups}
@@ -52,7 +52,7 @@ const Actions = ({ group }: { group: UserGroup }): JSX.Element => {
     const { addMember, deleteUserGroup } = useActions(userGroupsLogic)
 
     return (
-        <div className="flex flex-row justify-end space-x-2">
+        <div className="flex flex-row justify-end deprecated-space-x-2">
             <LemonMenu
                 items={[
                     {

@@ -15,7 +15,7 @@ import {
     type ProductIntentProperties,
 } from 'lib/utils/product-intents'
 
-import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import { activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { CorrelationConfigType, ProductKey, ProjectType, TeamPublicType, TeamType } from '~/types'
 
 import { organizationLogic } from './organizationLogic'
@@ -246,14 +246,6 @@ export const teamLogic = kea<teamLogicType>([
         updateCurrentTeamSuccess: ({ currentTeam, payload }) => {
             if (currentTeam && !payload?.onboarding_tasks) {
                 activationLogic.findMounted()?.actions?.onTeamLoad(currentTeam)
-            }
-
-            if (payload?.autocapture_web_vitals_opt_in) {
-                activationLogic.findMounted()?.actions?.markTaskAsCompleted(ActivationTask.SetUpWebVitals)
-            }
-
-            if (payload?.app_urls && payload?.app_urls.length > 0) {
-                activationLogic.findMounted()?.actions?.markTaskAsCompleted(ActivationTask.AddAuthorizedDomain)
             }
         },
         createTeamSuccess: ({ currentTeam }) => {

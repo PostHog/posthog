@@ -228,7 +228,7 @@ function MainPanel(): JSX.Element {
     const { tab } = useValues(sessionReplaySceneLogic)
 
     return (
-        <div className="space-y-4 mt-2">
+        <div className="deprecated-space-y-4 mt-2">
             <Warnings />
 
             {!tab ? (

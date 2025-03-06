@@ -28,7 +28,7 @@ Basic.args = {}
 
 export const Overview = (): JSX.Element => {
     return (
-        <div className="space-y-2">
+        <div className="deprecated-space-y-2">
             <LemonSwitch label="Unchecked" checked={false} />
             <LemonSwitch label="Checked" checked />
 

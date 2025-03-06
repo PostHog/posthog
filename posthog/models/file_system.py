@@ -174,6 +174,7 @@ class UnfiledFileSaver:
 
         unsaved_qs = (
             Dashboard.objects.filter(team=self.team, deleted=False)
+            .exclude(creation_mode="template")
             .annotate(id_str=Cast("id", output_field=CharField()))
             .annotate(
                 already_saved=Exists(

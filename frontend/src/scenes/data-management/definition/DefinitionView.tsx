@@ -191,7 +191,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                 }
             />
 
-            <div className="space-y-2">
+            <div className="deprecated-space-y-2">
                 {definition.description || isProperty || hasTaxonomyFeatures ? (
                     <EditableField
                         multiline

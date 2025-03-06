@@ -39,7 +39,7 @@ export function EditorFilterGroup({ insightProps, editorFilterGroup }: EditorFil
                     title={isRowExpanded ? 'Show less' : 'Show more'}
                     data-attr={'editor-filter-group-collapse-' + slugify(title)}
                 >
-                    <div className="flex items-center space-x-2 font-semibold">
+                    <div className="flex items-center deprecated-space-x-2 font-semibold">
                         <span>{title}</span>
                     </div>
                 </LemonButton>

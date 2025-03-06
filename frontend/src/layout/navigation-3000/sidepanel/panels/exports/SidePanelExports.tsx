@@ -76,7 +76,7 @@ export const SidePanelExports = (): JSX.Element => {
         <div className="flex flex-col overflow-hidden flex-1">
             <SidePanelPaneHeader
                 title={
-                    <div className="flex space-x-2">
+                    <div className="flex deprecated-space-x-2">
                         <span>Exports</span>
                     </div>
                 }

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import abc
 import itertools
 import logging
 import re
@@ -422,11 +423,20 @@ class Mutation:
 
 
 @dataclass
-class MutationRunner:
+class MutationRunner(abc.ABC):
     table: str
-    command: str  # the part after ALTER TABLE prefix, i.e. UPDATE, DELETE, MATERIALIZE, etc.
-    parameters: Mapping[str, Any]
-    settings: Mapping[str, Any] = field(default_factory=dict)
+    parameters: Mapping[str, Any] = field(default_factory=dict, kw_only=True)
+    settings: Mapping[str, Any] = field(default_factory=dict, kw_only=True)
+
+    @abc.abstractmethod
+    def get_statement(self) -> str:
+        """Returns the full statement that can be used to enqueue the mutation."""
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def get_command(self) -> str:
+        """Returns the command that can be used to find the mutation in the ``system.mutations`` table."""
+        raise NotImplementedError
 
     def __post_init__(self) -> None:
         if invalid_keys := {key for key in self.parameters.keys() if key.startswith("__")}:
@@ -435,12 +445,8 @@ class MutationRunner:
     def find(self, client: Client) -> Mutation | None:
         """Find the running mutation task, if one exists."""
 
-        if self.is_lightweight_delete:
-            command = self.__convert_lightweight_delete_to_mutation_command()
-        else:
-            command = self.command
-
-        if (command_kind_match := re.match(r"^(\w+) ", command.lstrip())) is None:
+        command = self.get_command().strip()
+        if (command_kind_match := re.match(r"^(\w+)\s*", command)) is None:
             raise ValueError(f"could not determine command kind from {command!r}")
 
         results = client.execute(
@@ -479,15 +485,7 @@ class MutationRunner:
         if task := self.find(client):
             return task
 
-        if self.is_lightweight_delete:
-            client.execute(self.command, self.parameters, settings=self.settings)
-
-        else:
-            client.execute(
-                f"ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{self.table} {self.command}",
-                self.parameters,
-                settings=self.settings,
-            )
+        client.execute(self.get_statement(), self.parameters, settings=self.settings)
 
         # mutations are not always immediately visible, so give it a bit of time to show up
         start = time.time()
@@ -497,17 +495,6 @@ class MutationRunner:
             time.sleep(1.0)
 
         raise Exception(f"unable to find mutation after {time.time() - start:0.2f}s!")
-
-    @property
-    def is_lightweight_delete(self) -> bool:
-        return re.match(r"(?i)^DELETE\s+FROM\s+.*", self.command.strip()) is not None
-
-    def __convert_lightweight_delete_to_mutation_command(self) -> str:
-        match = re.match(r"(?i)^DELETE\s+FROM\s+(?:\w+\.)*\w+\s+WHERE\s+", self.command.strip())
-        if not match:
-            raise ValueError(f"Invalid DELETE command format: {self.command}")
-        where_clause = self.command.strip()[match.end() :]
-        return f"UPDATE _row_exists = 0 WHERE {where_clause}"
 
     def run_on_shards(self, cluster: ClickhouseCluster, shards: Iterable[int] | None = None) -> None:
         """
@@ -534,3 +521,25 @@ class MutationRunner:
         cluster.map_all_hosts_in_shards(
             {shard_num: retry_policy(mutation.wait) for shard_num, mutation in shard_mutations.items()}
         ).result()
+
+
+@dataclass
+class AlterTableMutationRunner(MutationRunner):
+    command: str  # the part after ALTER TABLE prefix, i.e. UPDATE, DELETE, MATERIALIZE, etc.
+
+    def get_statement(self) -> str:
+        return f"ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{self.table} {self.command}"
+
+    def get_command(self) -> str:
+        return self.command
+
+
+@dataclass
+class LightweightDeleteMutationRunner(MutationRunner):
+    predicate: str
+
+    def get_statement(self) -> str:
+        return f"DELETE FROM {settings.CLICKHOUSE_DATABASE}.{self.table} WHERE {self.predicate}"
+
+    def get_command(self) -> str:
+        return f"UPDATE _row_exists = 0 WHERE {self.predicate}"

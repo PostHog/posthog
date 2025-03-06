@@ -118,7 +118,7 @@ export function Invites(): JSX.Element {
     ]
 
     return (
-        <div className="space-y-4">
+        <div className="deprecated-space-y-4">
             {!preflight?.email_service_available && <EmailUnavailableMessage />}
             <LemonTable
                 dataSource={invites}

@@ -89,7 +89,7 @@ export function SharedMetrics(): JSX.Element {
     ]
 
     return (
-        <div className="space-y-4">
+        <div className="deprecated-space-y-4">
             <LemonButton
                 type="tertiary"
                 className="inline-flex"

@@ -79,7 +79,7 @@ export function HogFunctionStatusIndicator({ hogFunction }: HogFunctionStatusInd
         <LemonDropdown
             overlay={
                 <>
-                    <div className="p-2 space-y-2">
+                    <div className="p-2 deprecated-space-y-2">
                         <h2 className="flex items-center m-0 gap-2">
                             Function status - <LemonTag type={tagType}>{display}</LemonTag>
                         </h2>

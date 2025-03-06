@@ -174,7 +174,10 @@ export function getAllClickTargets(
         .filter((e) => e)
     const uniqueElements = Array.from(new Set(selectedElements)) as HTMLElement[]
 
-    return uniqueElements
+    return uniqueElements.filter((element) => {
+        const style = window.getComputedStyle(element)
+        return style.display !== 'none' && style.visibility !== 'hidden'
+    })
 }
 
 export function stepMatchesHref(step: ActionStepType, href: string): boolean {

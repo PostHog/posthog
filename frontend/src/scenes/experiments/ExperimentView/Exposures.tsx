@@ -82,7 +82,7 @@ export function Exposures(): JSX.Element {
 
     return (
         <div>
-            <div className="flex items-center space-x-2 mb-2">
+            <div className="flex items-center deprecated-space-x-2 mb-2">
                 <h2 className="mb-0 font-semibold text-lg leading-6">Exposures</h2>
                 <Tooltip title="Shows the daily cumulative count of unique users exposed to each variant throughout the experiment duration.">
                     <IconInfo className="text-secondary text-lg" />

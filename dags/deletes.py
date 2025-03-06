@@ -20,7 +20,7 @@ from dags.common import JobOwners
 from posthog.clickhouse.cluster import (
     ClickhouseCluster,
     Mutation,
-    MutationRunner,
+    LightweightDeleteMutationRunner,
     NodeRole,
     Query,
 )
@@ -256,15 +256,11 @@ class PendingDeletesDictionary:
         return checksum
 
     @property
-    def delete_mutation_runner(self) -> MutationRunner:
-        return MutationRunner(
+    def delete_mutation_runner(self) -> LightweightDeleteMutationRunner:
+        return LightweightDeleteMutationRunner(
             EVENTS_DATA_TABLE(),
-            f"""
-            DELETE FROM {EVENTS_DATA_TABLE()} WHERE
-                dictHas('{self.qualified_name}', (team_id, person_id)) AND
-                timestamp <= dictGet('{self.qualified_name}', 'created_at', (team_id, person_id))
-            """,
-            {},
+            "dictHas(%(dictionary)s, (team_id, person_id)) AND timestamp <= dictGet(%(dictionary)s, 'created_at', (team_id, person_id))",
+            parameters={"dictionary": self.qualified_name},
         )
 
 

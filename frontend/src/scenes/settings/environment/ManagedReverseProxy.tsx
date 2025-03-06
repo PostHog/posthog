@@ -61,7 +61,7 @@ export function ManagedReverseProxy(): JSX.Element {
                 return (
                     <div
                         className={clsx(
-                            'space-x-1',
+                            'deprecated-space-x-1',
                             status === 'valid'
                                 ? 'text-success'
                                 : status == 'erroring'
@@ -127,7 +127,7 @@ export function ManagedReverseProxy(): JSX.Element {
 
     return (
         <PayGateMini feature={AvailableFeature.MANAGED_REVERSE_PROXY}>
-            <div className="space-y-2">
+            <div className="deprecated-space-y-2">
                 {recordsWithMessages.map((r) => (
                     <LemonBanner type="warning" key={r.id}>
                         <LemonMarkdown>{`**${r.domain}**\n ${r.message}`}</LemonMarkdown>
@@ -190,9 +190,14 @@ function CreateRecordForm(): JSX.Element {
     const waitingRecords = proxyRecords.filter((r) => r.status === 'waiting')
 
     return (
-        <div className="bg-surface-primary rounded border px-5 py-4 space-y-2">
+        <div className="bg-surface-primary rounded border px-5 py-4 deprecated-space-y-2">
             {formState == 'active' ? (
-                <Form logic={proxyLogic} formKey="createRecord" enableFormOnSubmit className="w-full space-y-2">
+                <Form
+                    logic={proxyLogic}
+                    formKey="createRecord"
+                    enableFormOnSubmit
+                    className="w-full deprecated-space-y-2"
+                >
                     <LemonField name="domain">
                         <LemonInput
                             autoFocus
@@ -225,7 +230,7 @@ function CreateRecordForm(): JSX.Element {
                         You need to set the following <b>CNAME</b> records in your DNS provider:
                     </div>
                     {waitingRecords.map((r) => (
-                        <div key={r.id} className="space-y-1">
+                        <div key={r.id} className="deprecated-space-y-1">
                             <span className="font-semibold">{r.domain}</span>
                             <CodeSnippet key={r.id} language={Language.HTTP}>
                                 {r.target_cname}

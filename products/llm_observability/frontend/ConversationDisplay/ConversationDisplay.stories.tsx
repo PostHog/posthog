@@ -96,6 +96,26 @@ def meaning_of_life():
 export const Tools = Template.bind({})
 Tools.args = {
     eventProperties: {
+        $ai_tools: [
+            {
+                function: {
+                    name: 'foo',
+                    parameters: {
+                        additionalProperties: false,
+                        properties: {
+                            thing: {
+                                description: 'The thing to thingify.',
+                                type: 'string',
+                            },
+                        },
+                        required: ['thing'],
+                        type: 'object',
+                    },
+                    strict: true,
+                },
+                type: 'function',
+            },
+        ],
         $ai_input: [
             { role: 'system', content: 'You are a good bot.' },
             { role: 'user', content: 'Please foo "Bar!"' },

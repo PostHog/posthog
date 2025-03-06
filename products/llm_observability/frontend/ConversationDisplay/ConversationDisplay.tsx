@@ -18,6 +18,7 @@ export function ConversationDisplay({ eventProperties }: { eventProperties: Even
             <ConversationMessagesDisplay
                 input={eventProperties.$ai_input}
                 output={eventProperties.$ai_output_choices ?? eventProperties.$ai_output ?? eventProperties.$ai_error}
+                tools={eventProperties.$ai_tools}
                 httpStatus={eventProperties.$ai_http_status}
                 raisedError={eventProperties.$ai_is_error}
                 bordered

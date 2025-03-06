@@ -26,7 +26,7 @@ export function BatchExportRuns({ id }: BatchExportRunsLogicProps): JSX.Element 
 
     return (
         <>
-            <div className="space-y-2">
+            <div className="deprecated-space-y-2">
                 <BatchExportRunsFilters id={id} />
                 {usingLatestRuns ? (
                     <BatchExportLatestRuns id={id} />
@@ -170,7 +170,7 @@ function BatchExportLatestRuns({ id }: BatchExportRunsLogicProps): JSX.Element {
                     },
                 ]}
                 emptyState={
-                    <div className="space-y-2">
+                    <div className="deprecated-space-y-2">
                         <div>
                             No runs in this time range. Your exporter runs every <b>{batchExportConfig.interval}</b>.
                         </div>
@@ -311,7 +311,7 @@ export function BatchExportRunsGrouped({
                     },
                 ]}
                 emptyState={
-                    <div className="space-y-2">
+                    <div className="deprecated-space-y-2">
                         <div>
                             No runs in this time range. Your exporter runs every <b>{interval}</b>.
                         </div>

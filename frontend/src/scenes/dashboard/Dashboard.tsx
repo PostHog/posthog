@@ -129,7 +129,7 @@ function DashboardScene(): JSX.Element {
                             </LemonButton>
                         )}
                         {placement !== DashboardPlacement.Export && (
-                            <div className="flex shrink-0 space-x-4 dashoard-items-actions">
+                            <div className="flex shrink-0 deprecated-space-x-4 dashoard-items-actions">
                                 <div
                                     className={`left-item ${
                                         placement === DashboardPlacement.Public ? 'text-right' : ''

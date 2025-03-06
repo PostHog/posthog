@@ -148,7 +148,7 @@ export function HogRepl(): JSX.Element {
 
     return (
         <div className="p-4 bg-white text-black font-mono">
-            <div className="space-y-4">
+            <div className="deprecated-space-y-4">
                 {replChunks.map((chunk, index) => (
                     <ReplChunk chunk={chunk} key={index} editFromHere={() => editFromHere(index)} />
                 ))}

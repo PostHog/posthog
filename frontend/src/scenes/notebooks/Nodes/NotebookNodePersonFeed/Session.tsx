@@ -77,7 +77,7 @@ export const Session = ({ session }: SessionProps): JSX.Element => {
                 </div>
             </div>
             {!isFolded && (
-                <div className="p-1 border-t space-y-1">
+                <div className="p-1 border-t deprecated-space-y-1">
                     {session.events.map((event: any) => (
                         <SessionEvent key={event.id} event={event} />
                     ))}

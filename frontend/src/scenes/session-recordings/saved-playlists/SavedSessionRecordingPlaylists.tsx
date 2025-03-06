@@ -96,7 +96,7 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                 const unwatchedCount = unwatchedPinnedCount + unwatchedSavedFiltersCount
 
                 const tooltip = (
-                    <div className="flex flex-col space-y-1 items-center">
+                    <div className="flex flex-col deprecated-space-y-1 items-center">
                         <span>Playlist counts are recalculated once a day.</span>
                         <table>
                             <thead>
@@ -129,7 +129,7 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                     <div className="flex items-center justify-center w-full h-full">
                         <Tooltip title={tooltip}>
                             {hasSavedFiltersCount || hasCollectionCount ? (
-                                <span className="flex items-center space-x-1">
+                                <span className="flex items-center deprecated-space-x-1">
                                     <LemonBadge.Number
                                         status={unwatchedCount || totalCount ? 'primary' : 'muted'}
                                         className="text-xs cursor-pointer"
@@ -211,7 +211,7 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
     ]
 
     return (
-        <div className="space-y-4">
+        <div className="deprecated-space-y-4">
             <div className="flex justify-between gap-2 mb-2 items-center flex-wrap">
                 <LemonInput
                     type="search"

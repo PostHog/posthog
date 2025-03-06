@@ -47,7 +47,7 @@ export const PaymentForm = (): JSX.Element => {
                 in 7 days.
             </p>
             {error && <div className="error">{error}</div>}
-            <div className="flex justify-end space-x-2 mt-2">
+            <div className="flex justify-end deprecated-space-x-2 mt-2">
                 <LemonButton disabled={isLoading} type="secondary" onClick={hidePaymentEntryModal}>
                     Cancel
                 </LemonButton>
@@ -104,7 +104,7 @@ export const PaymentEntryModal = ({
                 ) : (
                     <div className="min-h-80 flex flex-col justify-center items-center">
                         <p className="text-secondary text-md mt-4">We're contacting the Hedgehogs for approval.</p>
-                        <div className="flex items-center space-x-2">
+                        <div className="flex items-center deprecated-space-x-2">
                             <div className="text-4xl">
                                 <Spinner />
                             </div>

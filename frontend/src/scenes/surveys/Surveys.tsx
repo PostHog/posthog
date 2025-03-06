@@ -145,7 +145,7 @@ export function Surveys(): JSX.Element {
 
             {(tab === SurveysTabs.Active || tab === SurveysTabs.Archived) && (
                 <>
-                    <div className="space-y-2">
+                    <div className="deprecated-space-y-2">
                         <VersionCheckerBanner />
 
                         {showSurveysDisabledBanner ? (

@@ -526,3 +526,65 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(response.status_code, 200, response.content)
         child_ancestors = response.json()["descendants"]
         self.assertEqual(child_ancestors, [])
+
+    def test_update_without_query_change_doesnt_call_get_columns(self):
+        # First create a saved query
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        saved_query = response.json()
+
+        # Now update it without changing the query
+        with patch.object(DataWarehouseSavedQuery, "get_columns") as mock_get_columns:
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+                {"name": "updated_event_view"},  # Only changing the name, not the query
+            )
+
+            self.assertEqual(response.status_code, 200, response.content)
+            updated_query = response.json()
+            self.assertEqual(updated_query["name"], "updated_event_view")
+
+            # Verify get_columns was not called
+            mock_get_columns.assert_not_called()
+
+    def test_update_with_query_change_calls_get_columns(self):
+        # First create a saved query
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        saved_query = response.json()
+
+        # Now update it with a query change
+        with patch.object(DataWarehouseSavedQuery, "get_columns") as mock_get_columns:
+            mock_get_columns.return_value = {}
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+                {
+                    "query": {
+                        "kind": "HogQLQuery",
+                        "query": "select event as event from events LIMIT 10",
+                    },
+                },
+            )
+
+            self.assertEqual(response.status_code, 200, response.content)
+
+            # Verify get_columns was called
+            mock_get_columns.assert_called_once()

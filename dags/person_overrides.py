@@ -13,7 +13,8 @@ from posthog import settings
 from posthog.clickhouse.cluster import (
     ClickhouseCluster,
     Mutation,
-    MutationRunner,
+    AlterTableMutationRunner,
+    LightweightDeleteMutationRunner,
 )
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
@@ -169,26 +170,19 @@ class PersonOverridesSnapshotDictionary:
         return checksum
 
     @property
-    def person_id_update_mutation_runner(self) -> MutationRunner:
-        return MutationRunner(
+    def person_id_update_mutation_runner(self) -> AlterTableMutationRunner:
+        return AlterTableMutationRunner(
             EVENTS_DATA_TABLE(),
-            f"""
-            UPDATE person_id = dictGet(%(name)s, 'person_id', (team_id, distinct_id))
-            WHERE dictHas(%(name)s, (team_id, distinct_id))
-            """,
-            {"name": self.qualified_name},
+            "UPDATE person_id = dictGet(%(name)s, 'person_id', (team_id, distinct_id)) WHERE dictHas(%(name)s, (team_id, distinct_id))",
+            parameters={"name": self.qualified_name},
         )
 
     @property
-    def overrides_delete_mutation_runner(self) -> MutationRunner:
-        return MutationRunner(
+    def overrides_delete_mutation_runner(self) -> LightweightDeleteMutationRunner:
+        return LightweightDeleteMutationRunner(
             PERSON_DISTINCT_ID_OVERRIDES_TABLE,
-            f"""
-            DELETE FROM {PERSON_DISTINCT_ID_OVERRIDES_TABLE} WHERE
-                isNotNull(dictGetOrNull(%(name)s, 'version', (team_id, distinct_id)) as snapshot_version)
-                AND snapshot_version >= version
-            """,
-            {"name": self.qualified_name},
+            "isNotNull(dictGetOrNull(%(name)s, 'version', (team_id, distinct_id)) as snapshot_version) AND snapshot_version >= version",
+            parameters={"name": self.qualified_name},
         )
 
 

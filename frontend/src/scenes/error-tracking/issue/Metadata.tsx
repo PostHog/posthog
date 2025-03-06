@@ -7,7 +7,7 @@ import { humanFriendlyLargeNumber } from 'lib/utils'
 import { errorTrackingIssueSceneLogic } from 'scenes/error-tracking/errorTrackingIssueSceneLogic'
 
 export const Metadata = (): JSX.Element => {
-    const { issue } = useValues(errorTrackingIssueSceneLogic)
+    const { issue, issueLoading } = useValues(errorTrackingIssueSceneLogic)
 
     const hasSessionCount = issue && issue.aggregations && issue.aggregations.sessions !== 0
 
@@ -23,7 +23,7 @@ export const Metadata = (): JSX.Element => {
 
     const Sessions = (
         <div className="flex flex-col flex-1">
-            <div className="flex text-muted text-xs space-x-px">
+            <div className="flex text-muted text-xs deprecated-space-x-px">
                 <span>Sessions</span>
                 {!hasSessionCount && <IconInfo className="mt-0.5" />}
             </div>
@@ -32,13 +32,13 @@ export const Metadata = (): JSX.Element => {
     )
 
     return (
-        <div className="space-y-1">
+        <div className="deprecated-space-y-1">
             {issue && issue.description ? <ClampedText text={issue.description} lines={2} /> : <LemonSkeleton />}
             <div className="flex flex-1 justify-between">
-                <div className="flex items-end space-x-6">
+                <div className="flex items-end deprecated-space-x-6">
                     <div>
                         <div className="text-muted text-xs">First seen</div>
-                        {issue ? (
+                        {issue && !issueLoading ? (
                             <TZLabel time={issue.first_seen} className="border-dotted border-b" />
                         ) : (
                             <LemonSkeleton />
@@ -46,14 +46,14 @@ export const Metadata = (): JSX.Element => {
                     </div>
                     <div>
                         <div className="text-muted text-xs">Last seen</div>
-                        {issue && issue.last_seen ? (
+                        {issue && !issueLoading && issue.last_seen ? (
                             <TZLabel time={issue.last_seen} className="border-dotted border-b" />
                         ) : (
                             <LemonSkeleton />
                         )}
                     </div>
                 </div>
-                <div className="flex space-x-2 gap-8 items-end">
+                <div className="flex deprecated-space-x-2 gap-8 items-end">
                     <div className="flex flex-col flex-1">
                         <div className="text-muted text-xs">Occurrences</div>
                         <Count value={issue?.aggregations?.occurrences} />

@@ -142,7 +142,7 @@ function LinearLink(props: PlayerShareLogicProps): JSX.Element {
 
 export function PlayerShareRecording(props: PlayerShareLogicProps): JSX.Element {
     return (
-        <div className="space-y-2">
+        <div className="deprecated-space-y-2">
             {props.shareType === 'private' && <PrivateLink {...props} />}
 
             {props.shareType === 'public' && <PublicLink {...props} />}

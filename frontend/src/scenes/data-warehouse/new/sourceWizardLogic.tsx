@@ -1018,6 +1018,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         sources && sources.results.find((source) => source.source_type === connector.name)
                             ? 'Already linked'
                             : null,
+                    existingSource:
+                        sources && sources.results.find((source) => source.source_type === connector.name)
+                            ? true
+                            : false,
                 }))
             },
         ],

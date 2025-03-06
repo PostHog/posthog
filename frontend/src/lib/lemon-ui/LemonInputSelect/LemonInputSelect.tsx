@@ -376,7 +376,7 @@ export function LemonInputSelect({
             fallbackPlacements={['bottom-end', 'top-start', 'top-end']}
             loadingBar={loading && visibleOptions.length > 0}
             overlay={
-                <div className="space-y-px overflow-y-auto">
+                <div className="deprecated-space-y-px overflow-y-auto">
                     {title && <h5 className="mx-2 my-1">{title}</h5>}
                     {visibleOptions.length > 0 ? (
                         visibleOptions.map((option, index) => {

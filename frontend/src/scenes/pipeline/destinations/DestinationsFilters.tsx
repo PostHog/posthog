@@ -30,7 +30,7 @@ export function DestinationsFilters({
     const isTransformationsOnly = types.includes('transformation')
 
     return (
-        <div className="space-y-2">
+        <div className="deprecated-space-y-2">
             <div className="flex items-center gap-2">
                 {!hideSearch && (
                     <LemonInput

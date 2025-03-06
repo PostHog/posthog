@@ -88,7 +88,7 @@ export function PayGateMini({
                 isGrandfathered={isGrandfathered}
                 handleCtaClick={handleCtaClick}
             >
-                <div className="flex items-center justify-center space-x-3">
+                <div className="flex items-center justify-center deprecated-space-x-3">
                     <PayGateButton feature={feature} currentUsage={currentUsage} onClick={handleCtaClick} />
                     {docsLink && isCloudOrDev && (
                         <LemonButton

@@ -100,7 +100,7 @@ function _SurveyResponseFilters(): JSX.Element {
         })
 
     return (
-        <div className="space-y-2">
+        <div className="deprecated-space-y-2">
             <div className="text-sm font-medium">Filter survey results</div>
             {questionWithFiltersAvailable.length > 0 && (
                 <div className="border rounded">

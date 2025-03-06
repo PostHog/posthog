@@ -18,7 +18,7 @@ const Content = ({ hasStack, isThirdPartyScript }: ErrorTrackingIssueEventConten
         <ChainedStackTraces showAllFrames={hasAnyInApp ? showAllFrames : true} exceptionList={exceptionList} />
     ) : isThirdPartyScript ? (
         <LemonBanner type="error">
-            <div className="space-y-2">
+            <div className="deprecated-space-y-2">
                 <p>
                     It looks like this exception was thrown by a JavaScript file served from a different origin to your
                     site. This is most likely from a third party script running on your site. Loading scripts

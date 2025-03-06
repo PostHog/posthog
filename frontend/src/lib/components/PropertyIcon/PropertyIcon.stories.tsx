@@ -1,5 +1,5 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { PROPERTIES_ICON_MAP, PropertyIcon } from 'lib/components/PropertyIcon'
+import { PROPERTIES_ICON_MAP, PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { countryCodeToName } from 'scenes/insights/views/WorldMap'
 
@@ -44,6 +44,13 @@ const Template: StoryFn<typeof PropertyIcon> = (args) => {
                         key: 'icon',
                         render: function RenderIcon(_, { value }) {
                             return <PropertyIcon property={args.property} value={value} />
+                        },
+                    },
+                    {
+                        title: 'With Label',
+                        key: 'withLabel',
+                        render: function RenderWithLabel(_, { value }) {
+                            return <PropertyIcon.WithLabel property={args.property} value={value} />
                         },
                     },
                 ]}

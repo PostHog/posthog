@@ -350,3 +350,22 @@ class UserAuthenticationThrottle(UserOrEmailRateThrottle):
 class UserEmailVerificationThrottle(UserOrEmailRateThrottle):
     scope = "user_email_verification"
     rate = "6/day"
+
+
+class SetupWizardAuthenticationRateThrottle(UserRateThrottle):
+    # Throttle class that is applied for authenticating the setup wizard
+    # This is more aggressive than other throttles because the wizard makes OpenAI calls
+    scope = "wizard_authentication"
+    rate = "20/day"
+
+
+class SetupWizardQueryRateThrottle(SimpleRateThrottle):
+    rate = "20/day"
+
+    # Throttle per wizard hash
+    def get_cache_key(self, request, view):
+        hash = request.headers.get("X-PostHog-Wizard-Hash")
+
+        if not hash:
+            return self.get_ident(request)
+        return f"throttle_wizard_query_{hash}"

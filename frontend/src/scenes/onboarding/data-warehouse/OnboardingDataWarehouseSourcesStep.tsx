@@ -28,7 +28,7 @@ export function OnboardingDataWarehouseSourcesStep({
                     : undefined
             }
         >
-            <NewSourcesWizard onComplete={() => goToNextStep()} />
+            <NewSourcesWizard disableConnectedSources onComplete={() => goToNextStep()} />
         </OnboardingStep>
     )
 }

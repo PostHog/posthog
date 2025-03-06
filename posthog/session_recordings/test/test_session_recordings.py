@@ -527,6 +527,67 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "activity_score": None,
         }
 
+    def test_get_single_session_recording_viewed_stats_someone_else_viewed(self):
+        with freeze_time("2023-01-01T12:00:00.000Z"):
+            session_recording_id = "session_1"
+            base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+            produce_replay_summary(
+                session_id=session_recording_id,
+                team_id=self.team.pk,
+                first_timestamp=base_time.isoformat(),
+                last_timestamp=(base_time + relativedelta(seconds=30)).isoformat(),
+                distinct_id="d1",
+            )
+
+            other_user = User.objects.create(email="paul@not-first-user.com")
+            SessionRecordingViewed.objects.create(
+                team=self.team,
+                user=other_user,
+                session_id=session_recording_id,
+            )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_recording_id}/viewed")
+        response_data = response.json()
+
+        assert response_data == {
+            "viewed": False,
+            "other_viewers": 1,
+        }
+
+    def test_get_single_session_recording_viewed_stats_current_user_viewed(self):
+        with freeze_time("2023-01-01T12:00:00.000Z"):
+            session_recording_id = "session_1"
+            base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+            produce_replay_summary(
+                session_id=session_recording_id,
+                team_id=self.team.pk,
+                first_timestamp=base_time.isoformat(),
+                last_timestamp=(base_time + relativedelta(seconds=30)).isoformat(),
+                distinct_id="d1",
+            )
+
+            SessionRecordingViewed.objects.create(
+                team=self.team,
+                user=self.user,
+                session_id=session_recording_id,
+            )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_recording_id}/viewed")
+        response_data = response.json()
+
+        assert response_data == {
+            "viewed": True,
+            "other_viewers": 0,
+        }
+
+    def test_get_single_session_recording_viewed_stats_can_404(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/12345/viewed")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {
+            "viewed": False,
+            "other_viewers": 0,
+        }
+
     def test_single_session_recording_doesnt_leak_teams(self):
         another_team = Team.objects.create(organization=self.organization)
         self.produce_replay_summary(

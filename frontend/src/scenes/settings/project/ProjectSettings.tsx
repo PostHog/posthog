@@ -10,7 +10,7 @@ export function ProjectDisplayName(): JSX.Element {
     const [name, setName] = useState(currentProject?.name || '')
 
     return (
-        <div className="space-y-4 max-w-160">
+        <div className="deprecated-space-y-4 max-w-160">
             <LemonInput value={name} onChange={setName} disabled={currentProjectLoading} />
             <LemonButton
                 type="primary"
