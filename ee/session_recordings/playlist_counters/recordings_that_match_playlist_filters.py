@@ -33,6 +33,7 @@ REPLAY_TEAM_PLAYLIST_COUNT_SUCCEEDED = Counter(
 REPLAY_TEAM_PLAYLIST_COUNT_FAILED = Counter(
     "replay_playlist_count_failed",
     "when a count task for a playlist fails",
+    labelnames=["error"],
 )
 
 REPLAY_TEAM_PLAYLIST_COUNT_UNKNOWN = Counter(
@@ -300,7 +301,7 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
                 "playlist_short_id": playlist.short_id if playlist else None,
                 "posthog_feature": "session_replay_playlist_counters",
                 "filters": playlist.filters if playlist else None,
-                "query": query,
+                "query": query.model_dump_json() if query else None,
             },
         )
         logger.exception(
@@ -308,10 +309,10 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
             playlist_id=playlist_id,
             playlist_short_id=playlist.short_id if playlist else None,
             filters=playlist.filters if playlist else None,
-            query=query,
+            query=query.model_dump_json() if query else None,
             error=e,
         )
-        REPLAY_TEAM_PLAYLIST_COUNT_FAILED.inc()
+        REPLAY_TEAM_PLAYLIST_COUNT_FAILED.labels(error=e.__class__.__name__).inc()
 
 
 def enqueue_recordings_that_match_playlist_filters() -> None:
