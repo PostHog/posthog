@@ -12,11 +12,11 @@ from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.cluster import (
     ClickhouseCluster,
     HostInfo,
-    Mutation,
     MutationNotFound,
     AlterTableMutationRunner,
     LightweightDeleteMutationRunner,
     T,
+    MutationWaiter,
     Query,
     RetryPolicy,
     get_cluster,
@@ -178,7 +178,7 @@ def test_alter_mutation_single_command(cluster: ClickhouseCluster) -> None:
     assert cluster.map_all_hosts(get_mutations_count).result() == mutations_count_before
 
     with pytest.raises(MutationNotFound):
-        assert cluster.any_host(Mutation("x", "y").is_done).result()
+        assert cluster.any_host(MutationWaiter("x", {"y"}).is_done).result()
 
 
 def test_alter_mutation_multiple_commands(cluster: ClickhouseCluster) -> None:
