@@ -96,3 +96,6 @@ playwright-report/
 test-results/
 playwright/playwright-report/
 playwright/test-results/
+
+.dagster_home/*
+!.dagster_home/.gitkeep
