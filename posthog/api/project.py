@@ -819,40 +819,40 @@ class PremiumMultiProjectPermission(BasePermission):
     def has_permission(self, request: request.Request, view) -> bool:
         if view.action not in CREATE_ACTIONS:
             return True
-        if view.action in CREATE_ACTIONS:
-            try:
-                organization = get_organization_from_view(view)
-            except ValueError:
+
+        try:
+            organization = get_organization_from_view(view)
+        except ValueError:
+            return False
+
+        if request.data.get("is_demo"):
+            # If we're requesting to make a demo project but the org already has a demo project
+            if organization.teams.filter(is_demo=True).count() > 0:
                 return False
 
-            if request.data.get("is_demo"):
-                # If we're requesting to make a demo project but the org already has a demo project
-                if organization.teams.filter(is_demo=True).count() > 0:
-                    return False
+        has_projects_feature = organization.is_feature_available(AvailableFeature.ORGANIZATIONS_PROJECTS)
+        current_non_demo_project_count = organization.teams.exclude(is_demo=True).distinct("project_id").count()
 
-            has_projects_feature = organization.is_feature_available(AvailableFeature.ORGANIZATIONS_PROJECTS)
-            current_non_demo_project_count = organization.teams.exclude(is_demo=True).distinct("project_id").count()
+        allowed_project_count = next(
+            (
+                feature.get("limit")
+                for feature in organization.available_product_features or []
+                if feature.get("key") == AvailableFeature.ORGANIZATIONS_PROJECTS
+            ),
+            None,
+        )
 
-            allowed_project_count = next(
-                (
-                    feature.get("limit")
-                    for feature in organization.available_product_features or []
-                    if feature.get("key") == AvailableFeature.ORGANIZATIONS_PROJECTS
-                ),
-                None,
-            )
+        if has_projects_feature:
+            # If allowed_project_count is None then the user is allowed unlimited projects
+            if allowed_project_count is None:
+                return True
+            # Check current limit against allowed limit
+            if current_non_demo_project_count >= allowed_project_count:
+                return False
+        else:
+            # If the org doesn't have the feature, they can only have one non-demo project
+            if current_non_demo_project_count >= 1:
+                return False
 
-            if has_projects_feature:
-                # If allowed_project_count is None then the user is allowed unlimited projects
-                if allowed_project_count is None:
-                    return True
-                # Check current limit against allowed limit
-                if current_non_demo_project_count >= allowed_project_count:
-                    return False
-            else:
-                # If the org doesn't have the feature, they can only have one non-demo project
-                if current_non_demo_project_count >= 1:
-                    return False
-
-            # in any other case, we're good to go
-            return True
+        # in any other case, we're good to go
+        return True

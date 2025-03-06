@@ -831,37 +831,37 @@ class PremiumMultiEnvironmentPermission(BasePermission):
     def has_permission(self, request: request.Request, view) -> bool:
         if view.action not in CREATE_ACTIONS:
             return True
-        if view.action in CREATE_ACTIONS:
-            project = view.project
 
-            if request.data.get("is_demo"):
-                # If we're requesting to make a demo project but the org already has a demo project
-                if project.organization.teams.filter(is_demo=True).count() > 0:
-                    return False
+        project = view.project
 
-            has_environments_feature = project.organization.is_feature_available(AvailableFeature.ENVIRONMENTS)
-            current_non_demo_team_count = project.teams.exclude(is_demo=True).count()
+        if request.data.get("is_demo"):
+            # If we're requesting to make a demo project but the org already has a demo project
+            if project.organization.teams.filter(is_demo=True).count() > 0:
+                return False
 
-            allowed_team_per_project_count = next(
-                (
-                    feature.get("limit")
-                    for feature in project.organization.available_product_features or []
-                    if feature.get("key") == AvailableFeature.ENVIRONMENTS
-                ),
-                None,
-            )
+        has_environments_feature = project.organization.is_feature_available(AvailableFeature.ENVIRONMENTS)
+        current_non_demo_team_count = project.teams.exclude(is_demo=True).count()
 
-            if has_environments_feature:
-                # If allowed_project_count is None then the user is allowed unlimited projects
-                if allowed_team_per_project_count is None:
-                    return True
-                # Check current limit against allowed limit
-                if current_non_demo_team_count >= allowed_team_per_project_count:
-                    return False
-            else:
-                # If the org doesn't have the feature, they can only have one non-demo project
-                if current_non_demo_team_count >= 1:
-                    return False
+        allowed_team_per_project_count = next(
+            (
+                feature.get("limit")
+                for feature in project.organization.available_product_features or []
+                if feature.get("key") == AvailableFeature.ENVIRONMENTS
+            ),
+            None,
+        )
 
-            # in any other case, we're good to go
-            return True
+        if has_environments_feature:
+            # If allowed_project_count is None then the user is allowed unlimited projects
+            if allowed_team_per_project_count is None:
+                return True
+            # Check current limit against allowed limit
+            if current_non_demo_team_count >= allowed_team_per_project_count:
+                return False
+        else:
+            # If the org doesn't have the feature, they can only have one non-demo project
+            if current_non_demo_team_count >= 1:
+                return False
+
+        # in any other case, we're good to go
+        return True
