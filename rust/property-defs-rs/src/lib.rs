@@ -7,8 +7,8 @@ use config::{Config, TeamFilterMode, TeamList};
 use metrics_consts::{
     BATCH_ACQUIRE_TIME, CACHE_CONSUMED, CHUNK_SIZE, COMPACTED_UPDATES, DUPLICATES_IN_BATCH,
     EMPTY_EVENTS, EVENTS_RECEIVED, EVENT_PARSE_ERROR, FORCED_SMALL_BATCH, ISSUE_FAILED,
-    RECV_DEQUEUED, SKIPPED_DUE_TO_TEAM_FILTER, UPDATES_FILTERED_BY_CACHE, UPDATES_PER_EVENT,
-    UPDATES_SEEN, UPDATE_ISSUE_TIME, WORKER_BLOCKED,
+    RECV_DEQUEUED, SKIPPED_DUE_TO_TEAM_FILTER, UPDATES_CACHE, UPDATES_FILTERED_BY_CACHE,
+    UPDATES_PER_EVENT, UPDATES_SEEN, UPDATE_ISSUE_TIME, UPDATE_PRODUCER_OFFSET, WORKER_BLOCKED,
 };
 use quick_cache::sync::Cache;
 use tokio::sync::mpsc::{self, error::TrySendError};
@@ -98,10 +98,15 @@ pub async fn update_consumer_loop(
                     tries += 1;
                     if tries > 3 {
                         metrics::counter!(ISSUE_FAILED).increment(1);
-                        error!("Too many tries, dropping batch");
+                        error!(
+                            "Too many tries, dropping batch of size {}, got: {:?}",
+                            chunk.len(),
+                            e
+                        );
                         // We clear any updates that were in this batch from the cache, so that
                         // if we see them again we'll try again to issue them.
                         chunk.iter().for_each(|u| {
+                            metrics::counter!(UPDATES_CACHE, &[("action", "dropped")]).increment(1);
                             m_cache.remove(u);
                         });
                         return;
@@ -151,8 +156,21 @@ pub async fn update_producer_loop(
             }
         };
 
-        // Panicking on offset store failure, same reasoning as the panic above - if kafka's down, we're down
-        offset.store().expect("Failed to store offset");
+        // TODO(eli): librdkafka auto_commit is probably making this a no-op anyway. we may want to
+        // extend the autocommit time interval either way to ensure we replay consumed messages that
+        // could be part of a lost batch or chunk during a redeploy. stay tuned...
+        let curr_offset = offset.get_value();
+        match offset.store() {
+            Ok(_) => (),
+            Err(e) => {
+                metrics::counter!(UPDATE_PRODUCER_OFFSET, &[("op", "store_fail")]).increment(1);
+                // TODO: consumer json_recv() should expose the source partition ID too
+                error!(
+                    "update_producer_loop: failed to store offset {}, got: {}",
+                    curr_offset, e
+                );
+            }
+        }
 
         if !team_filter_mode.should_process(&team_list.teams, event.team_id) {
             metrics::counter!(SKIPPED_DUE_TO_TEAM_FILTER).increment(1);
@@ -183,9 +201,12 @@ pub async fn update_producer_loop(
             last_send = tokio::time::Instant::now();
             for update in batch.drain() {
                 if shared_cache.get(&update).is_some() {
+                    metrics::counter!(UPDATES_CACHE, &[("action", "hit")]).increment(1);
+                    // the above can replace this metric when we have new hit/miss stats both flowing
                     metrics::counter!(UPDATES_FILTERED_BY_CACHE).increment(1);
                     continue;
                 }
+                metrics::counter!(UPDATES_CACHE, &[("action", "miss")]).increment(1);
                 shared_cache.insert(update.clone(), ());
                 match channel.try_send(update) {
                     Ok(_) => {}
