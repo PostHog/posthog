@@ -301,7 +301,7 @@ hourly_exchange_rates_job = dagster.define_asset_job(
 # Create daily/hourly schedules with different cron schedules
 @dagster.schedule(
     job=daily_exchange_rates_job,
-    cron_schedule="0 1 * * *",  # Run at 1:00 AM every day
+    cron_schedule="28 0 * * *",  # Run at 00:28 AM every day, random minute to avoid peak load
 )
 def daily_exchange_rates_schedule(context):
     """Process previous day's exchange rates data."""
@@ -313,7 +313,7 @@ def daily_exchange_rates_schedule(context):
 
 @dagster.schedule(
     job=hourly_exchange_rates_job,
-    cron_schedule="0 * * * *",  # Run every hour
+    cron_schedule="45 * * * *",  # Run every hour at XX:45, random minute to avoid peak load at the top of the hour
 )
 def hourly_exchange_rates_schedule(context):
     """Process current day's exchange rates data for this hour."""
