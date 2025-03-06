@@ -1,9 +1,9 @@
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
-from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
+from posthog.clickhouse.table_engines import ReplacingMergeTree, ReplicationScheme
 
 
 def PG_EMBEDDINGS_DATA_TABLE():
-    return "sharded_pg_embeddings"
+    return "pg_embeddings"
 
 
 PG_EMBEDDINGS_TABLE_BASE_SQL = """
@@ -32,40 +32,13 @@ def PG_EMBEDDINGS_TABLE_SQL(on_cluster=True):
         PG_EMBEDDINGS_TABLE_BASE_SQL
         + """
     -- id for uniqueness
-    ORDER BY (domain, team_id, id)
+    ORDER BY (team_id, domain, id)
     SETTINGS index_granularity=512
     """
     ).format(
         table_name=PG_EMBEDDINGS_DATA_TABLE(),
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=PG_EMBEDDINGS_DATA_TABLE_ENGINE(),
-    )
-
-
-# Distributed engine tables are only created if CLICKHOUSE_REPLICATED
-# This table is responsible for writing to sharded_pg_embeddings based on a sharding key.
-
-
-def WRITABLE_PG_EMBEDDINGS_TABLE_SQL(on_cluster=True):
-    return PG_EMBEDDINGS_TABLE_BASE_SQL.format(
-        table_name="writable_pg_embeddings",
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
-        engine=Distributed(
-            data_table=PG_EMBEDDINGS_DATA_TABLE(),
-            sharding_key="sipHash64(domain, team_id)",
-        ),
-    )
-
-
-# This table is responsible for reading from pg_embeddings on a cluster setting
-def DISTRIBUTED_PG_EMBEDDINGS_TABLE_SQL(on_cluster=True):
-    return PG_EMBEDDINGS_TABLE_BASE_SQL.format(
-        table_name="pg_embeddings",
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
-        engine=Distributed(
-            data_table=PG_EMBEDDINGS_DATA_TABLE(),
-            sharding_key="sipHash64(domain, team_id)",
-        ),
     )
 
 
@@ -78,5 +51,5 @@ def TRUNCATE_PG_EMBEDDINGS_TABLE_SQL():
 
 
 INSERT_BULK_PG_EMBEDDINGS_SQL = """
-INSERT INTO writable_pg_embeddings (domain, team_id, id, vector, text, properties, is_deleted) VALUES
-"""
+INSERT INTO {table_name} (domain, team_id, id, vector, text, properties, is_deleted) VALUES
+""".format(table_name=PG_EMBEDDINGS_DATA_TABLE())
