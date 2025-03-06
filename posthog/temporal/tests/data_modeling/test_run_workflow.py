@@ -21,6 +21,7 @@ from freezegun.api import freeze_time
 from posthog import constants
 from posthog.hogql.database.database import create_hogql_database
 from posthog.models import Team
+from posthog.warehouse.models.data_modeling_job import DataModelingJob
 from posthog.temporal.data_modeling.run_workflow import (
     BuildDagActivityInputs,
     CreateTableActivityInputs,
@@ -77,9 +78,18 @@ async def posthog_tables(ateam):
 )
 async def test_run_dag_activity_activity_materialize_mocked(activity_environment, ateam, dag, posthog_tables):
     """Test all models are completed with a mocked materialize."""
+    for model_label in dag.keys():
+        if model_label not in posthog_tables:
+            await database_sync_to_async(DataWarehouseSavedQuery.objects.create)(
+                team=ateam,
+                name=model_label,
+                query={"query": f"SELECT * FROM events LIMIT 10", "kind": "HogQLQuery"},
+            )
+
     run_dag_activity_inputs = RunDagActivityInputs(team_id=ateam.pk, dag=dag)
 
-    magic_mock = unittest.mock.AsyncMock()
+    magic_mock = unittest.mock.AsyncMock(return_value=("test_key", unittest.mock.MagicMock(), uuid.uuid4()))
+
     with unittest.mock.patch("posthog.temporal.data_modeling.run_workflow.materialize_model", new=magic_mock):
         async with asyncio.timeout(10):
             results = await activity_environment.run(run_dag_activity, run_dag_activity_inputs)
@@ -172,12 +182,22 @@ async def test_run_dag_activity_activity_skips_if_ancestor_failed_mocked(
         make_fail: A sequence of model labels of models that should fail to check they are
             handled properly.
     """
+    # Create the necessary saved queries for the test
+    for model_label in dag.keys():
+        if model_label not in posthog_tables:
+            await database_sync_to_async(DataWarehouseSavedQuery.objects.create)(
+                team=ateam,
+                name=model_label,
+                query={"query": f"SELECT * FROM events LIMIT 10", "kind": "HogQLQuery"},
+            )
+
     run_dag_activity_inputs = RunDagActivityInputs(team_id=ateam.pk, dag=dag)
     assert all(model not in posthog_tables for model in make_fail), "PostHog tables cannot fail"
 
     def raise_if_should_make_fail(model_label, *args, **kwargs):
         if model_label in make_fail:
             raise ValueError("Oh no!")
+        return ("test_key", unittest.mock.MagicMock(), uuid.uuid4())
 
     expected_failed = set()
     expected_ancestor_failed = set()
@@ -319,7 +339,22 @@ async def test_materialize_model(ateam, bucket_name, minio_client, pageview_even
             AwsCredentials, "to_object_store_rs_credentials", mock_to_object_store_rs_credentials
         ),
     ):
-        key, delta_table, job_id = await materialize_model(saved_query.id.hex, ateam, "test_workflow")
+        job = await database_sync_to_async(DataModelingJob.objects.create)(
+            team=ateam,
+            source=DataModelingJob.Source.EXTERNAL,
+            status=DataModelingJob.Status.RUNNING,
+            workflow_id="test_workflow",
+            run_id=uuid.uuid4().hex,
+            model_id=saved_query.id,
+        )
+
+        key, delta_table, job_id = await materialize_model(
+            saved_query.id.hex,
+            ateam,
+            "test_workflow",
+            saved_query,
+            job,
+        )
 
     s3_objects = await minio_client.list_objects_v2(
         Bucket=bucket_name, Prefix=f"team_{ateam.pk}_model_{saved_query.id.hex}/"
