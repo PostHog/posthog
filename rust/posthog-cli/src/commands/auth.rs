@@ -91,3 +91,26 @@ pub fn login() -> Result<(), Error> {
     info!("Token saved to: {}", provider.report_location());
     Ok(())
 }
+
+pub fn load_token() -> Result<Token, Error> {
+    let env = EnvVarProvider;
+    let env_err = match env.get_credentials() {
+        Ok(token) => {
+            info!("Using token from env var");
+            return Ok(token);
+        }
+        Err(e) => e,
+    };
+    let provider = HomeDirProvider;
+    let dir_err = match provider.get_credentials() {
+        Ok(token) => {
+            info!("Using token from: {}", provider.report_location());
+            return Ok(token);
+        }
+        Err(e) => e,
+    };
+
+    Err(anyhow::anyhow!("Failed to load credentials")
+        .context(env_err)
+        .context(dir_err))
+}

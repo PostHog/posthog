@@ -20,6 +20,7 @@ anyhow.workspace = true
 clap = { version = "4.5.31", features = ["derive"] }
 dirs = "6.0.0"
 inquire = "0.7.5"
+reqwest = { workspace = true, features = ["blocking"] }
 serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
