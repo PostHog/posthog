@@ -187,6 +187,8 @@ describe('SessionBatchRecorder', () => {
                 rawSize: 0,
                 ...metadata,
             },
+            snapshot_source: null,
+            snapshot_library: null,
         },
     })
 
