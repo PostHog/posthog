@@ -10,10 +10,11 @@ from dagster import (
     run_status_sensor,
 )
 from dagster_aws.s3.io_manager import s3_pickle_io_manager
-from dagster_aws.s3.resources import s3_resource
+from dagster_aws.s3 import S3Resource
 from dagster_slack import SlackResource
 from django.conf import settings
 
+from dags import backup_database
 from dags.slack_alerts import notify_slack_on_failure
 
 from . import ch_examples, deletes, materialized_columns, orm_examples, person_overrides, export_query_logs_to_s3
@@ -32,13 +33,14 @@ resources_by_env = {
         "io_manager": s3_pickle_io_manager.configured(
             {"s3_bucket": settings.DAGSTER_S3_BUCKET, "s3_prefix": "dag-storage"}
         ),
-        "s3": s3_resource,
+        "s3": S3Resource(),
         # Using EnvVar instead of the Django setting to ensure that the token is not leaked anywhere in the Dagster UI
         "slack": SlackResource(token=EnvVar("SLACK_TOKEN")),
     },
     "local": {
         "cluster": ClickhouseClusterResource.configure_at_launch(),
         "io_manager": fs_io_manager,
+        "s3": S3Resource(),
         "slack": ResourceDefinition.none_resource(description="Dummy Slack resource for local development"),
     },
 }
@@ -82,6 +84,7 @@ defs = Definitions(
         person_overrides.cleanup_orphaned_person_overrides_snapshot,
         person_overrides.squash_person_overrides,
         export_query_logs_to_s3.export_query_logs_to_s3,
+        backup_database.backup_database,
     ],
     schedules=[squash_schedule, query_logs_export_schedule],
     sensors=[run_deletes_after_squash, notify_slack_on_failure],

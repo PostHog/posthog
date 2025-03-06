@@ -193,6 +193,10 @@ class ClickhouseCluster:
             hosts.update(shard_hosts)
         return hosts
 
+    @property
+    def shards(self) -> list[int]:
+        return list(self.__shards.keys())
+
     def any_host(self, fn: Callable[[Client], T]) -> Future[T]:
         with ThreadPoolExecutor() as executor:
             host = next(iter(self.__hosts))
@@ -362,12 +366,16 @@ class Retryable(Generic[T]):  # note: this class exists primarily to allow a rea
 
     def __call__(self, client: Client) -> T:
         if isinstance(self.policy.exceptions, tuple):
-            is_retryable_exception = lambda e: isinstance(e, self.policy.exceptions)
+
+            def is_retryable_exception(e):
+                return isinstance(e, self.policy.exceptions)
         else:
             is_retryable_exception = self.policy.exceptions
 
         if not callable(self.policy.delay):
-            delay_fn = lambda _: self.policy.delay
+
+            def delay_fn(_):
+                return self.policy.delay
         else:
             delay_fn = self.policy.delay
 
