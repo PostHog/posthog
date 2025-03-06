@@ -383,8 +383,8 @@ def hogql_table(query: str, team: Team, table_name: str, table_columns: dlt_typi
 
     async def get_hogql_rows():
         settings = HogQLGlobalSettings(
-            max_execution_time=60 * 10, max_memory_usage=90 * 1000 * 1000 * 1000
-        )  # 10 mins, 90GB, same as the /query endpoint async workers
+            max_execution_time=60 * 20, max_memory_usage=90 * 1000 * 1000 * 1000
+        )  # 20 mins, 90GB, 2x as the /query endpoint async workers
 
         response = await asyncio.to_thread(
             execute_hogql_query, query, team, settings=settings, limit_context=LimitContext.SAVED_QUERY
