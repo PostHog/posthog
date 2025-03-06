@@ -9,7 +9,6 @@ from prometheus_client import Counter
 from pydantic import BaseModel, ConfigDict
 from sentry_sdk import get_traceparent, push_scope, set_tag
 
-from posthog.clickhouse.client.limit import get_api_personal_rate_limiter
 from posthog.exceptions_capture import capture_exception
 from posthog.caching.utils import ThresholdMode, cache_target_age, is_stale, last_refresh_from_cached_result
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, enqueue_process_query_task, get_query_status
@@ -736,17 +735,15 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             self.modifiers = create_default_modifiers_for_user(user, self.team, self.modifiers)
             self.modifiers.useMaterializedViews = True
 
-        is_api = get_query_tag_value("access_method") == "personal_api_key"
-        with get_api_personal_rate_limiter().run(is_api=is_api, team_id=self.team.pk, task_id=self.query_id):
-            fresh_response_dict = {
-                **self.calculate().model_dump(),
-                "is_cached": False,
-                "last_refresh": last_refresh,
-                "next_allowed_client_refresh": last_refresh + self._refresh_frequency(),
-                "cache_key": cache_key,
-                "timezone": self.team.timezone,
-                "cache_target_age": target_age,
-            }
+        fresh_response_dict = {
+            **self.calculate().model_dump(),
+            "is_cached": False,
+            "last_refresh": last_refresh,
+            "next_allowed_client_refresh": last_refresh + self._refresh_frequency(),
+            "cache_key": cache_key,
+            "timezone": self.team.timezone,
+            "cache_target_age": target_age,
+        }
         if get_query_tag_value("trigger"):
             fresh_response_dict["calculation_trigger"] = get_query_tag_value("trigger")
         fresh_response = CachedResponse(**fresh_response_dict)

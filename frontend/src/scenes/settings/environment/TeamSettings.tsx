@@ -31,7 +31,7 @@ export function TeamDisplayName(): JSX.Element {
     const displayNoun = featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? 'environment' : 'project'
 
     return (
-        <div className="space-y-4 max-w-160">
+        <div className="deprecated-space-y-4 max-w-160">
             <LemonInput value={name} onChange={setName} disabled={currentTeamLoading} />
             <LemonButton
                 type="primary"
@@ -60,7 +60,7 @@ export function WebSnippet(): JSX.Element {
                 <Link to="https://posthog.com/docs/libraries/js">see PostHog Docs</Link>.
             </p>
             {currentTeamLoading && !currentTeam ? (
-                <div className="space-y-4">
+                <div className="deprecated-space-y-4">
                     <LemonSkeleton className="w-1/2 h-4" />
                     <LemonSkeleton repeat={3} />
                 </div>
@@ -78,7 +78,7 @@ export function WebSnippet(): JSX.Element {
                     the SDK is fully functional.
                 </p>
                 {currentTeamLoading && !currentTeam ? (
-                    <div className="space-y-4">
+                    <div className="deprecated-space-y-4">
                         <LemonSkeleton className="w-1/2 h-4" />
                         <LemonSkeleton repeat={3} />
                     </div>
@@ -202,7 +202,7 @@ export function TeamTimezone(): JSX.Element {
                 These settings affect how PostHog displays, buckets, and filters time-series data. You may need to
                 refresh insights for new settings to apply.
             </p>
-            <div className="space-y-2">
+            <div className="deprecated-space-y-2">
                 <LemonLabel id="timezone">Time zone</LemonLabel>
                 <TimezoneConfig />
                 <LemonLabel id="timezone">Week starts on</LemonLabel>
