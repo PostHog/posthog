@@ -167,7 +167,7 @@
         "resize-observer-polyfill": "^1.5.1",
         "sass": "^1.26.2",
         "tailwind-merge": "^2.2.2",
-        "tailwindcss": "4.0.11",
+        "tailwindcss": "4.0.7",
         "ts-pattern": "4.3",
         "typescript": "~4.9.5",
         "use-debounce": "^9.0.3",
