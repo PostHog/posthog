@@ -52,8 +52,8 @@ export function OrganizationDropdownMenu(): JSX.Element {
                             <IconPlusSmall className="size-5" />
                         )
                     }
-                    fullWidth
                     size="small"
+                    className="hover:bg-fill-highlight-100 w-fit"
                 >
                     <span>{currentOrganization ? currentOrganization.name : 'Open'}</span>
                     <IconChevronDown

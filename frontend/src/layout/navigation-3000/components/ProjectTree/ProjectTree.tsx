@@ -1,4 +1,4 @@
-import { IconPlusSmall } from '@posthog/icons'
+import { IconPlusSmall, IconSort } from '@posthog/icons'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -65,13 +65,21 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                 <div className="flex justify-between p-1 bg-surface-tertiary">
                     <ProjectDropdownMenu />
 
-                    <div className="flex gap-1 items-center">
+                    <div className="flex gap-1 items-center justify-end">
                         <LemonButton
                             size="small"
-                            type="secondary"
+                            type="tertiary"
+                            tooltip="Sort by name"
+                            onClick={() => createFolder('')}
+                            className="shrink-0"
+                            icon={<IconSort />}
+                        />
+                        <LemonButton
+                            size="small"
+                            type="tertiary"
                             tooltip="Create new root folder"
                             onClick={() => createFolder('')}
-                            className="size-[30px] px-0"
+                            className="shrink-0"
                             icon={<IconPlusSmall />}
                         />
                     </div>
