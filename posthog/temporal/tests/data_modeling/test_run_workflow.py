@@ -98,12 +98,12 @@ async def test_run_dag_activity_activity_materialize_mocked(activity_environment
 
     calls = magic_mock.mock_calls
 
-    assert all(
-        call.args[0] in models_materialized for call in calls
-    ), f"Found models that shouldn't have been materialized: {tuple(call.args[0] for call in calls if call.args[0] not in models_materialized)}"
-    assert all(
-        call.args[1].pk == ateam.pk for call in calls
-    ), f"Found team ids that do not match test team ({ateam.pk}): {tuple(call.args[1].pk for call in calls)}"
+    assert all(call.args[0] in models_materialized for call in calls), (
+        f"Found models that shouldn't have been materialized: {tuple(call.args[0] for call in calls if call.args[0] not in models_materialized)}"
+    )
+    assert all(call.args[1].pk == ateam.pk for call in calls), (
+        f"Found team ids that do not match test team ({ateam.pk}): {tuple(call.args[1].pk for call in calls)}"
+    )
     assert len(calls) == len(models_materialized)
     assert results.completed == set(dag.keys())
 
@@ -225,12 +225,12 @@ async def test_run_dag_activity_activity_skips_if_ancestor_failed_mocked(
 
     calls = magic_mock.mock_calls
 
-    assert all(
-        call.args[0] in models_materialized for call in calls
-    ), f"Found models that shouldn't have been materialized: {tuple(call.args[0] for call in calls if call.args[0] not in models_materialized)}"
-    assert all(
-        call.args[1].pk == ateam.pk for call in calls
-    ), f"Found team ids that do not match test team ({ateam.pk}): {tuple(call.args[1].pk for call in calls)}"
+    assert all(call.args[0] in models_materialized for call in calls), (
+        f"Found models that shouldn't have been materialized: {tuple(call.args[0] for call in calls if call.args[0] not in models_materialized)}"
+    )
+    assert all(call.args[1].pk == ateam.pk for call in calls), (
+        f"Found team ids that do not match test team ({ateam.pk}): {tuple(call.args[1].pk for call in calls)}"
+    )
     assert len(calls) == len(models_materialized)
 
     assert results.completed == expected_completed
@@ -341,7 +341,7 @@ async def test_materialize_model(ateam, bucket_name, minio_client, pageview_even
     ):
         job = await database_sync_to_async(DataModelingJob.objects.create)(
             team=ateam,
-            source=DataModelingJob.Source.EXTERNAL,
+            source="EXTERNAL",
             status=DataModelingJob.Status.RUNNING,
             workflow_id="test_workflow",
             run_id=uuid.uuid4().hex,
@@ -641,7 +641,7 @@ async def test_run_workflow_with_minio_bucket(
     expected_events_b = [event for event in all_expected_events if event["distinct_id"] == "b"]
 
     for query in saved_queries:
-        table = await DataWarehouseTable.objects.acreate(
+        attached_table = await DataWarehouseTable.objects.acreate(
             name=query.name,
             team=ateam,
             format="Delta",
@@ -649,7 +649,7 @@ async def test_run_workflow_with_minio_bucket(
             credential=None,
         )
         # link the saved query to the table
-        query.table_id = table.id
+        query.table_id = attached_table.id
         await database_sync_to_async(query.save)()
 
     workflow_id = str(uuid.uuid4())
