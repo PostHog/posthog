@@ -50,6 +50,11 @@ export class KafkaProducerWrapper {
         // Finds all proces.env prefixed with KAFKA_PRODUCER_ and converts them to rdkafka config
 
         const producer = new HighLevelProducer({
+            // Defaults that could be overridden by env vars
+            'linger.ms': 20,
+            'batch.size': 8 * 1024 * 1024,
+            'queue.buffering.max.messages': 100_000,
+            'enable.idempotence': true,
             ...getProducerConfigFromEnv(),
             ...globalConfig,
             dr_cb: true,
