@@ -15,13 +15,13 @@ from posthog.utils import generate_short_id
 RUNNING_CLICKHOUSE_QUERIES = Gauge(
     "posthog_clickhouse_running_queries",
     "Number of concurrent queries",
-    ["access_method"],
+    ["team_id", "access_method"],
 )
 
 CONCURRENT_QUERY_LIMIT_EXCEEDED_COUNTER = Counter(
     "posthog_clickhouse_query_concurrency_limit_exceeded",
     "Number of times a ClickHouse query exceeded the concurrency limit",
-    ["task_name", "limit", "limit_name", "result"],
+    ["task_name", "team_id", "limit", "limit_name", "result"],
 )
 
 CONCURRENT_TASKS_LIMIT_EXCEEDED_COUNTER = Counter(
@@ -84,7 +84,9 @@ class RateLimit:
         else:
             access_method = "other"
 
-        query_gauge = RUNNING_CLICKHOUSE_QUERIES.labels(access_method=access_method)
+        query_gauge = RUNNING_CLICKHOUSE_QUERIES.labels(
+            team_id=str(kwargs.get("team_id", "")), access_method=access_method
+        )
         query_gauge.inc()
         try:
             yield
@@ -115,7 +117,11 @@ class RateLimit:
             result = "allow" if bypass else "block"
 
             CONCURRENT_QUERY_LIMIT_EXCEEDED_COUNTER.labels(
-                task_name=task_name, limit=self.max_concurrent_tasks, limit_name=self.limit_name, result=result
+                task_name=task_name,
+                team_id=str(kwargs.get("team_id", "")),
+                limit=self.max_concurrent_tasks,
+                limit_name=self.limit_name,
+                result=result,
             ).inc()
 
             if not self.bypass_all and not bypass:
