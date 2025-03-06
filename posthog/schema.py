@@ -1149,6 +1149,7 @@ class NodeKind(StrEnum):
     EVENT_TAXONOMY_QUERY = "EventTaxonomyQuery"
     ACTORS_PROPERTY_TAXONOMY_QUERY = "ActorsPropertyTaxonomyQuery"
     TRACES_QUERY = "TracesQuery"
+    PG_EMBEDDINGS_QUERY = "PgEmbeddingsQuery"
 
 
 class PathCleaningFilter(BaseModel):
@@ -1208,6 +1209,14 @@ class PersonType(BaseModel):
     name: Optional[str] = None
     properties: dict[str, Any]
     uuid: Optional[str] = None
+
+
+class PgEmbeddingsResponseItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    distance: float
+    id: str
 
 
 class PropertyFilterType(StrEnum):
@@ -3733,6 +3742,36 @@ class CachedPathsQueryResponse(BaseModel):
     )
 
 
+class CachedPgEmbeddingsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: AwareDatetime
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    next_allowed_client_refresh: AwareDatetime
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list[PgEmbeddingsResponseItem]
+    timezone: str
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
 class CachedRevenueExampleEventsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5197,6 +5236,27 @@ class PersonsNode(BaseModel):
     search: Optional[str] = None
 
 
+class PgEmbeddingsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list[PgEmbeddingsResponseItem]
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
 class PropertyGroupFilterValue(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5907,6 +5967,27 @@ class QueryResponseAlternative47(BaseModel):
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
     results: list[LLMTrace]
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class QueryResponseAlternative48(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list[PgEmbeddingsResponseItem]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -6791,6 +6872,18 @@ class InsightFilter(
     RootModel[Union[TrendsFilter, FunnelsFilter, RetentionFilter, PathsFilter, StickinessFilter, LifecycleFilter]]
 ):
     root: Union[TrendsFilter, FunnelsFilter, RetentionFilter, PathsFilter, StickinessFilter, LifecycleFilter]
+
+
+class PgEmbeddingsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    embedding: list[float]
+    kind: Literal["PgEmbeddingsQuery"] = "PgEmbeddingsQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    response: Optional[PgEmbeddingsQueryResponse] = None
 
 
 class PropertyGroupFilter(BaseModel):
@@ -7889,6 +7982,7 @@ class QueryResponseAlternative(
             QueryResponseAlternative45,
             QueryResponseAlternative46,
             QueryResponseAlternative47,
+            QueryResponseAlternative48,
         ]
     ]
 ):
@@ -7935,6 +8029,7 @@ class QueryResponseAlternative(
         QueryResponseAlternative45,
         QueryResponseAlternative46,
         QueryResponseAlternative47,
+        QueryResponseAlternative48,
     ]
 
 
@@ -8296,6 +8391,7 @@ class HogQLAutocomplete(BaseModel):
             ExperimentTrendsQuery,
             RecordingsQuery,
             TracesQuery,
+            PgEmbeddingsQuery,
         ]
     ] = Field(default=None, description="Query in whose context to validate.")
     startPosition: int = Field(..., description="Start position of the editor word")
@@ -8344,6 +8440,7 @@ class HogQLMetadata(BaseModel):
             ExperimentTrendsQuery,
             RecordingsQuery,
             TracesQuery,
+            PgEmbeddingsQuery,
         ]
     ] = Field(
         default=None,
@@ -8407,6 +8504,7 @@ class QueryRequest(BaseModel):
         EventTaxonomyQuery,
         ActorsPropertyTaxonomyQuery,
         TracesQuery,
+        PgEmbeddingsQuery,
     ] = Field(
         ...,
         description=(
@@ -8480,6 +8578,7 @@ class QuerySchemaRoot(
             EventTaxonomyQuery,
             ActorsPropertyTaxonomyQuery,
             TracesQuery,
+            PgEmbeddingsQuery,
         ]
     ]
 ):
@@ -8527,6 +8626,7 @@ class QuerySchemaRoot(
         EventTaxonomyQuery,
         ActorsPropertyTaxonomyQuery,
         TracesQuery,
+        PgEmbeddingsQuery,
     ] = Field(..., discriminator="kind")
 
 

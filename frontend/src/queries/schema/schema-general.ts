@@ -121,6 +121,7 @@ export enum NodeKind {
     EventTaxonomyQuery = 'EventTaxonomyQuery',
     ActorsPropertyTaxonomyQuery = 'ActorsPropertyTaxonomyQuery',
     TracesQuery = 'TracesQuery',
+    PgEmbeddingsQuery = 'PgEmbeddingsQuery',
 }
 
 export type AnyDataNode =
@@ -149,6 +150,7 @@ export type AnyDataNode =
     | ExperimentTrendsQuery
     | RecordingsQuery
     | TracesQuery
+    | PgEmbeddingsQuery
 
 /**
  * @discriminator kind
@@ -208,6 +210,7 @@ export type QuerySchema =
     | EventTaxonomyQuery
     | ActorsPropertyTaxonomyQuery
     | TracesQuery
+    | PgEmbeddingsQuery
 
 // Keep this, because QuerySchema itself will be collapsed as it is used in other models
 export type QuerySchemaRoot = QuerySchema
@@ -2417,6 +2420,22 @@ export interface ActorsPropertyTaxonomyQuery extends DataNode<ActorsPropertyTaxo
 export type ActorsPropertyTaxonomyQueryResponse = AnalyticsQueryResponseBase<ActorsPropertyTaxonomyResponse>
 
 export type CachedActorsPropertyTaxonomyQueryResponse = CachedQueryResponse<ActorsPropertyTaxonomyQueryResponse>
+
+export interface PgEmbeddingsResponseItem {
+    id: string
+    distance: number
+}
+
+export type PgEmbeddingsResponse = PgEmbeddingsResponseItem[]
+
+export interface PgEmbeddingsQuery extends DataNode<PgEmbeddingsQueryResponse> {
+    kind: NodeKind.PgEmbeddingsQuery
+    embedding: number[]
+}
+
+export type PgEmbeddingsQueryResponse = AnalyticsQueryResponseBase<PgEmbeddingsResponse>
+
+export type CachedPgEmbeddingsQueryResponse = CachedQueryResponse<PgEmbeddingsQueryResponse>
 
 export enum CustomChannelField {
     UTMSource = 'utm_source',

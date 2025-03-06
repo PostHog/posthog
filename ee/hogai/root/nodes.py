@@ -27,7 +27,7 @@ from ee.hogai.utils.nodes import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.schema import AssistantMessage, AssistantToolCall, AssistantToolCallMessage, HumanMessage
 
-RouteName = Literal["trends", "funnel", "retention", "root", "end", "docs"]
+RouteName = Literal["insights", "root", "end", "docs"]
 
 
 # Lower casing matters here. Do not change it.
@@ -278,7 +278,7 @@ class RootNodeTools(AssistantNode):
             return "root"
         if state.root_tool_call_id:
             if state.root_tool_insight_type:
-                return cast(RouteName, state.root_tool_insight_type)
+                return "insights"
             # If no insight type is set but we have a tool call ID, it must be a docs search
             return "docs"
         return "end"
