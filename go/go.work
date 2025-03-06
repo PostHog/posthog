@@ -1,0 +1,8 @@
+go 1.24.1
+
+use (
+	.
+	./pkg/common
+	./services/livestream
+	./services/apiexample
+)
