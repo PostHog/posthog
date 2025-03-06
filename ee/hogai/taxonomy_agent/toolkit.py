@@ -18,6 +18,7 @@ from posthog.schema import (
     ActorsPropertyTaxonomyQuery,
     CachedActorsPropertyTaxonomyQueryResponse,
     CachedEventTaxonomyQueryResponse,
+    CacheMissResponse,
     EventTaxonomyQuery,
 )
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
@@ -40,19 +41,23 @@ class RetrieveEntityPropertiesValuesTool(BaseModel):
 
 
 class RetrieveEventPropertiesValuesArgs(BaseModel):
-    event_name: str
+    event_name_or_action_id: str | int
     property_name: str
 
 
 class RetrieveEventPropertiesValuesTool(BaseModel):
-    name: Literal["retrieve_event_property_values"]
+    name: Literal["retrieve_event_or_action_property_values"]
     arguments: RetrieveEventPropertiesValuesArgs
+
+
+class RetrieveEventOrActionPropertiesValuesTool(BaseModel):
+    name: Literal["retrieve_event_or_action_properties"]
+    arguments: str | int
 
 
 class SingleArgumentTaxonomyAgentTool(BaseModel):
     name: Literal[
         "retrieve_entity_properties",
-        "retrieve_event_properties",
         "final_answer",
         "handle_incorrect_response",
         "ask_user_for_help",
@@ -61,7 +66,10 @@ class SingleArgumentTaxonomyAgentTool(BaseModel):
 
 
 TaxonomyAgentToolUnion = Union[
-    SingleArgumentTaxonomyAgentTool, RetrieveEntityPropertiesValuesTool, RetrieveEventPropertiesValuesTool
+    SingleArgumentTaxonomyAgentTool,
+    RetrieveEntityPropertiesValuesTool,
+    RetrieveEventPropertiesValuesTool,
+    RetrieveEventOrActionPropertiesValuesTool,
 ]
 
 
@@ -95,27 +103,27 @@ class TaxonomyAgentToolkit(ABC):
         stringified_entities = ", ".join([f"'{entity}'" for entity in self._entity_names])
         return [
             {
-                "name": "retrieve_event_properties",
-                "signature": "(event_name: str)",
+                "name": "retrieve_event_or_action_properties",
+                "signature": "(event_name_or_action_id: str | int)",
                 "description": """
-                    Use this tool to retrieve the property names of an event that the user has in their taxonomy. You will receive a list of properties containing their name, value type, and description, or a message that properties have not been found.
+                    Use this tool to retrieve the property names of an event or action that the user has in their taxonomy. You will receive a list of properties containing their name, value type, and description, or a message that properties have not been found.
 
-                    - **Try other events** if the tool doesn't return any properties.
+                    - **Try other events or actions** if the tool doesn't return any properties.
                     - **Prioritize properties that are directly related to the context or objective of the user's query.**
                     - **Avoid using ambiguous properties** unless their relevance is explicitly confirmed.
 
                     Args:
-                        event_name: The name of the event that you want to retrieve properties for.
+                        event_name_or_action_id: The name of the event (string) or action ID (integer) that you want to retrieve properties for.
                 """,
             },
             {
-                "name": "retrieve_event_property_values",
-                "signature": "(event_name: str, property_name: str)",
+                "name": "retrieve_event_or_action_property_values",
+                "signature": "(event_name_or_action_id: str | int, property_name: str)",
                 "description": """
-                    Use this tool to retrieve the property values for an event that the user has in their taxonomy. Adjust filters to these values. You will receive a list of property values or a message that property values have not been found. Some properties can have many values, so the output will be truncated. Use your judgment to find a proper value.
+                    Use this tool to retrieve the property values for an event or action that the user has in their taxonomy. Adjust filters to these values. You will receive a list of property values or a message that property values have not been found. Some properties can have many values, so the output will be truncated. Use your judgment to find a proper value.
 
                     Args:
-                        event_name: The name of the event that you want to retrieve values for.
+                        event_name_or_action_id: The name of the event (string) or action ID (integer) that you want to retrieve values for.
                         property_name: The name of the property that you want to retrieve values for.
                 """,
             },
@@ -272,18 +280,29 @@ class TaxonomyAgentToolkit(ABC):
 
         return self._generate_properties_xml(props)
 
-    def retrieve_event_properties(self, event_name: str) -> str:
+    def _retrieve_event_or_action_taxonomy(
+        self, event_name_or_action_id: str | int
+    ) -> tuple[CacheMissResponse | CachedEventTaxonomyQueryResponse, str]:
+        is_event = isinstance(event_name_or_action_id, str)
+        if is_event:
+            query = EventTaxonomyQuery(event=event_name_or_action_id, maxPropertyValues=25)
+            verbose_name = f"event {event_name_or_action_id}"
+        else:
+            query = EventTaxonomyQuery(action=event_name_or_action_id, maxPropertyValues=25)
+            verbose_name = f"action with ID {event_name_or_action_id}"
+        runner = EventTaxonomyQueryRunner(query, self._team)
+        response = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS)
+        return response, verbose_name
+
+    def retrieve_event_or_action_properties(self, event_name_or_action_id: str | int) -> str:
         """
         Retrieve properties for an event.
         """
-        runner = EventTaxonomyQueryRunner(EventTaxonomyQuery(event=event_name, maxPropertyValues=25), self._team)
-        response = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS)
-
+        response, verbose_name = self._retrieve_event_or_action_taxonomy(event_name_or_action_id)
         if not isinstance(response, CachedEventTaxonomyQueryResponse):
             return "Properties have not been found."
-
         if not response.results:
-            return f"Properties do not exist in the taxonomy for the event {event_name}."
+            return f"Properties do not exist in the taxonomy for the {verbose_name}."
 
         # Intersect properties with their types.
         qs = PropertyDefinition.objects.filter(
@@ -298,7 +317,7 @@ class TaxonomyAgentToolkit(ABC):
         ]
 
         if not props:
-            return f"Properties do not exist in the taxonomy for the event {event_name}."
+            return f"Properties do not exist in the taxonomy for the {verbose_name}."
 
         return self._generate_properties_xml(self._enrich_props_with_descriptions("event", props))
 
@@ -330,7 +349,7 @@ class TaxonomyAgentToolkit(ABC):
 
         return prop_values
 
-    def retrieve_event_property_values(self, event_name: str, property_name: str) -> str:
+    def retrieve_event_or_action_property_values(self, event_name_or_action_id: str | int, property_name: str) -> str:
         try:
             property_definition = PropertyDefinition.objects.get(
                 team=self._team, name=property_name, type=PropertyDefinition.Type.EVENT
@@ -338,18 +357,15 @@ class TaxonomyAgentToolkit(ABC):
         except PropertyDefinition.DoesNotExist:
             return f"The property {property_name} does not exist in the taxonomy."
 
-        runner = EventTaxonomyQueryRunner(EventTaxonomyQuery(event=event_name, maxPropertyValues=25), self._team)
-        response = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS)
-
+        response, verbose_name = self._retrieve_event_or_action_taxonomy(event_name_or_action_id)
         if not isinstance(response, CachedEventTaxonomyQueryResponse):
-            return f"The event {event_name} does not exist in the taxonomy."
-
+            return f"The {verbose_name} does not exist in the taxonomy."
         if not response.results:
-            return f"Property values for {property_name} do not exist in the taxonomy for the event {event_name}."
+            return f"Property values for {property_name} do not exist in the taxonomy for the {verbose_name}."
 
         prop = next((item for item in response.results if item.property == property_name), None)
         if not prop:
-            return f"The property {property_name} does not exist in the taxonomy for the event {event_name}."
+            return f"The property {property_name} does not exist in the taxonomy for the {verbose_name}."
 
         return self._format_property_values(
             prop.sample_values,

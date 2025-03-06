@@ -191,7 +191,7 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
     def test_format_prompt(self):
         node = self._get_node()
         self.assertNotIn("Human:", node._get_react_format_prompt(DummyToolkit(self.team)))
-        self.assertIn("retrieve_event_properties,", node._get_react_format_prompt(DummyToolkit(self.team)))
+        self.assertIn("retrieve_event_or_action_properties,", node._get_react_format_prompt(DummyToolkit(self.team)))
 
     def test_property_filters_prompt(self):
         GroupTypeMapping.objects.create(team=self.team, project=self.project, group_type="org", group_type_index=0)
@@ -326,7 +326,7 @@ class TestTaxonomyAgentPlannerToolsNode(ClickhouseTestMixin, APIBaseTest):
     def test_node_terminates_after_max_iterations(self):
         # Create state with 16 intermediate steps
         intermediate_steps = [
-            (AgentAction(tool="retrieve_event_properties", tool_input="input", log=f"log_{i}"), "observation")
+            (AgentAction(tool="retrieve_event_or_action_properties", tool_input="input", log=f"log_{i}"), "observation")
             for i in range(16)
         ]
         state = AssistantState(
@@ -346,7 +346,7 @@ class TestTaxonomyAgentPlannerToolsNode(ClickhouseTestMixin, APIBaseTest):
     def test_node_allows_final_answer_at_max_iterations(self):
         # Create state with 16 intermediate steps, last one being final_answer
         intermediate_steps = [
-            (AgentAction(tool="retrieve_event_properties", tool_input="input", log=f"log_{i}"), "observation")
+            (AgentAction(tool="retrieve_event_or_action_properties", tool_input="input", log=f"log_{i}"), "observation")
             for i in range(15)
         ]
         intermediate_steps.append(
@@ -369,7 +369,7 @@ class TestTaxonomyAgentPlannerToolsNode(ClickhouseTestMixin, APIBaseTest):
     def test_node_allows_help_request_at_max_iterations(self):
         # Create state with 16 intermediate steps, last one being ask_user_for_help
         intermediate_steps = [
-            (AgentAction(tool="retrieve_event_properties", tool_input="input", log=f"log_{i}"), "observation")
+            (AgentAction(tool="retrieve_event_or_action_properties", tool_input="input", log=f"log_{i}"), "observation")
             for i in range(15)
         ]
         intermediate_steps.append(
@@ -393,7 +393,7 @@ class TestTaxonomyAgentPlannerToolsNode(ClickhouseTestMixin, APIBaseTest):
     def test_node_prioritizes_max_iterations_over_validation_error(self):
         # Create state with 16 intermediate steps, last one causing validation error
         intermediate_steps = [
-            (AgentAction(tool="retrieve_event_properties", tool_input="input", log=f"log_{i}"), "observation")
+            (AgentAction(tool="retrieve_event_or_action_properties", tool_input="input", log=f"log_{i}"), "observation")
             for i in range(15)
         ]
         intermediate_steps.append((AgentAction(tool="invalid_tool", tool_input="bad input", log="error"), None))

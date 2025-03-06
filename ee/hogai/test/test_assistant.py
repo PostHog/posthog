@@ -161,10 +161,10 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             intermediate_steps=[
                 # Compare with toolkit.py to see supported AgentAction shapes. The list below is supposed to include ALL
                 (AgentAction(tool="retrieve_entity_properties", tool_input="session", log=""), None),
-                (AgentAction(tool="retrieve_event_properties", tool_input="$pageview", log=""), None),
+                (AgentAction(tool="retrieve_event_or_action_properties", tool_input="$pageview", log=""), None),
                 (
                     AgentAction(
-                        tool="retrieve_event_property_values",
+                        tool="retrieve_event_or_action_property_values",
                         tool_input={"event_name": "purchase", "property_name": "currency"},
                         log="",
                     ),
