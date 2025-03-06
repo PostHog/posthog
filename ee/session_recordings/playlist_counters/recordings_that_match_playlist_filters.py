@@ -33,6 +33,7 @@ REPLAY_TEAM_PLAYLIST_COUNT_SUCCEEDED = Counter(
 REPLAY_TEAM_PLAYLIST_COUNT_FAILED = Counter(
     "replay_playlist_count_failed",
     "when a count task for a playlist fails",
+    labelnames=["error"],
 )
 
 REPLAY_TEAM_PLAYLIST_COUNT_UNKNOWN = Counter(
@@ -43,6 +44,7 @@ REPLAY_TEAM_PLAYLIST_COUNT_UNKNOWN = Counter(
 REPLAY_TEAM_PLAYLIST_COUNT_SKIPPED = Counter(
     "replay_playlist_count_skipped",
     "when a count task for a playlist is skipped because the cooldown period has not passed",
+    labelnames=["reason"],
 )
 
 REPLAY_PLAYLIST_LEGACY_FILTERS_CONVERTED = Counter(
@@ -264,8 +266,13 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
                 seconds_since_refresh = int((datetime.now() - last_refreshed_at).total_seconds())
 
                 if seconds_since_refresh <= settings.PLAYLIST_COUNTER_PROCESSING_COOLDOWN_SECONDS:
-                    REPLAY_TEAM_PLAYLIST_COUNT_SKIPPED.inc()
+                    REPLAY_TEAM_PLAYLIST_COUNT_SKIPPED.labels(reason="cooldown").inc()
                     return
+
+            # if this is the default filters, then we shouldn't have allowed this to be created - we can skip it
+            if playlist.filters == DEFAULT_RECORDING_FILTERS:
+                REPLAY_TEAM_PLAYLIST_COUNT_SKIPPED.labels(reason="default_filters").inc()
+                return
 
             query = convert_filters_to_recordings_query(playlist)
             (recordings, more_recordings_available, _) = list_recordings_from_query(
@@ -293,6 +300,12 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
         )
         REPLAY_TEAM_PLAYLIST_COUNT_UNKNOWN.inc()
     except Exception as e:
+        query_json: dict[str, Any] | None = None
+        try:
+            query_json = query.model_dump() if query else None
+        except Exception:
+            query_json = {"malformed": True}
+
         posthoganalytics.capture_exception(
             e,
             properties={
@@ -300,7 +313,7 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
                 "playlist_short_id": playlist.short_id if playlist else None,
                 "posthog_feature": "session_replay_playlist_counters",
                 "filters": playlist.filters if playlist else None,
-                "query": query,
+                "query": query_json,
             },
         )
         logger.exception(
@@ -308,10 +321,10 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
             playlist_id=playlist_id,
             playlist_short_id=playlist.short_id if playlist else None,
             filters=playlist.filters if playlist else None,
-            query=query,
+            query=query_json,
             error=e,
         )
-        REPLAY_TEAM_PLAYLIST_COUNT_FAILED.inc()
+        REPLAY_TEAM_PLAYLIST_COUNT_FAILED.labels(error=e.__class__.__name__).inc()
 
 
 def enqueue_recordings_that_match_playlist_filters() -> None:

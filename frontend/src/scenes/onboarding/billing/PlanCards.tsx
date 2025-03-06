@@ -6,10 +6,13 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
 import { HeartHog } from 'lib/components/hedgehogs'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React, { useState } from 'react'
 import { getUpgradeProductLink } from 'scenes/billing/billing-utils'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { paymentEntryLogic } from 'scenes/billing/paymentEntryLogic'
 
 import { type BillingProductV2Type } from '~/types'
 
@@ -49,9 +52,12 @@ type PlanCardProps = {
 
 export const PlanCard: React.FC<PlanCardProps> = ({ planData, product, highlight, hogPosition = 'top-right' }) => {
     const { redirectPath, billingLoading, billing } = useValues(billingLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
     const [isHovering, setIsHovering] = useState<boolean | undefined>(undefined)
     const { goToNextStep } = useActions(onboardingLogic)
+    const { showPaymentEntryModal } = useActions(paymentEntryLogic)
 
     const productPlan = product.plans.find((plan) => plan.plan_key?.startsWith(planData.billingPlanKeyPrefix))
     const platformPlan = billing?.products
@@ -93,12 +99,12 @@ export const PlanCard: React.FC<PlanCardProps> = ({ planData, product, highlight
             />
             <div
                 className={clsx(
-                    'relative flex flex-col h-full p-6 bg-bg-light dark:bg-bg-depth rounded-sm border transition-transform transform hover:scale-[1.02] hover:shadow-lg',
+                    'relative flex flex-col h-full p-6 bg-bg-light dark:bg-bg-depth rounded-xs border transition-transform transform hover:scale-[1.02] hover:shadow-lg',
                     highlight ? 'border-2 border-accent-primary-active' : 'border-gray-200 dark:border-gray-700'
                 )}
             >
                 {planData.plan === Plan.RIDICULOUSLY_CHEAP && (
-                    <div className="absolute top-0 right-0 -mt-4 -mr-4 px-3 py-1 bg-bg-light dark:bg-bg-depth rounded-sm text-xs text-accent-primary-active font-semibold shadow-md border-accent-primary-active border-2">
+                    <div className="absolute top-0 right-0 -mt-4 -mr-4 px-3 py-1 bg-bg-light dark:bg-bg-depth rounded-xs text-xs text-accent-primary-active font-semibold shadow-md border-accent-primary-active border-2">
                         Free tier included!
                     </div>
                 )}
@@ -137,26 +143,40 @@ export const PlanCard: React.FC<PlanCardProps> = ({ planData, product, highlight
                     </ul>
                 </section>
                 <footer className="mt-auto">
-                    {planData.ctaAction === 'billing' && (
-                        <BillingUpgradeCTA
-                            to={getUpgradeProductLink({
-                                product,
-                                redirectPath,
-                                includeAddons: true,
-                            })}
-                            type="primary"
-                            status={highlight ? 'alt' : undefined}
-                            center
-                            disabledReason={billingLoading && 'Please wait...'}
-                            disableClientSideRouting
-                            onClick={() => {
-                                reportBillingUpgradeClicked(product.type)
-                            }}
-                            data-attr="onboarding-subscribe-button"
-                        >
-                            {planData.ctaText}
-                        </BillingUpgradeCTA>
-                    )}
+                    {planData.ctaAction === 'billing' &&
+                        (featureFlags[FEATURE_FLAGS.BILLING_PAYMENT_ENTRY_IN_APP] == 'test' ? (
+                            <BillingUpgradeCTA
+                                type="primary"
+                                status={highlight ? 'alt' : undefined}
+                                center
+                                disabledReason={billingLoading && 'Please wait...'}
+                                disableClientSideRouting
+                                loading={!!billingLoading}
+                                onClick={showPaymentEntryModal}
+                                data-attr="onboarding-subscribe-button"
+                            >
+                                {planData.ctaText}
+                            </BillingUpgradeCTA>
+                        ) : (
+                            <BillingUpgradeCTA
+                                to={getUpgradeProductLink({
+                                    product,
+                                    redirectPath,
+                                    includeAddons: true,
+                                })}
+                                type="primary"
+                                status={highlight ? 'alt' : undefined}
+                                center
+                                disabledReason={billingLoading && 'Please wait...'}
+                                disableClientSideRouting
+                                onClick={() => {
+                                    reportBillingUpgradeClicked(product.type)
+                                }}
+                                data-attr="onboarding-subscribe-button"
+                            >
+                                {planData.ctaText}
+                            </BillingUpgradeCTA>
+                        ))}
                     {planData.ctaAction === 'next' && (
                         <LemonButton
                             type="primary"
