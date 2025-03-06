@@ -1,18 +1,6 @@
 import { SurveysPage } from '../page-models/surveysPage'
 import { expect, test } from '../utils/playwright-test-base'
 
-/**
- * This file converts the original Cypress tests from cypress/e2e/surveys.cy.ts
- * into Playwright tests.
- *
- * Note:
- * - The "cy.clickNavMenu('surveys')" calls are replaced with direct navigation,
- *   or an equivalent call if you have a "goToMenuItem" helper in your codebase.
- * - Each "it" block was converted into a "test" block.
- * - All Cypress commands (cy.get, cy.contains, cy.title, cy.reload, etc.)
- *   were replaced with appropriate Playwright equivalents.
- */
-
 test.describe('Surveys', () => {
     let name: string
 
