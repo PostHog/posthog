@@ -31,6 +31,8 @@ describe('SnappySessionRecorder', () => {
             start: DateTime.fromMillis(events[0]?.timestamp || 0),
             end: DateTime.fromMillis(events[events.length - 1]?.timestamp || 0),
         },
+        snapshot_source: null,
+        snapshot_library: null,
         metadata: {
             partition: 1,
             topic: 'test',
@@ -846,6 +848,95 @@ describe('SnappySessionRecorder', () => {
             const result = await recorder.end()
 
             expect(result.messageCount).toBe(0)
+        })
+    })
+
+    describe('Snapshot source and library tracking', () => {
+        it('should set default values when no snapshot source or library is provided', async () => {
+            const message = createMessage('window1', [
+                {
+                    type: EventType.Meta,
+                    timestamp: 1000,
+                    data: {},
+                },
+            ])
+
+            // Message already has null values for snapshot_source and snapshot_library
+
+            recorder.recordMessage(message)
+            const result = await recorder.end()
+
+            expect(result.snapshotSource).toBe('web') // Default value for source
+            expect(result.snapshotLibrary).toBeNull() // Default value for library
+        })
+
+        it('should set snapshot source and library from message', async () => {
+            const message = createMessage('window1', [
+                {
+                    type: EventType.Meta,
+                    timestamp: 1000,
+                    data: {},
+                },
+            ])
+
+            message.snapshot_source = 'mobile'
+            message.snapshot_library = 'posthog-android'
+
+            recorder.recordMessage(message)
+            const result = await recorder.end()
+
+            expect(result.snapshotSource).toBe('mobile')
+            expect(result.snapshotLibrary).toBe('posthog-android')
+        })
+
+        it('should use values from first message when multiple messages have different values', async () => {
+            const message1 = createMessage('window1', [
+                {
+                    type: EventType.Meta,
+                    timestamp: 1000,
+                    data: {},
+                },
+            ])
+
+            const message2 = createMessage('window2', [
+                {
+                    type: EventType.Meta,
+                    timestamp: 2000,
+                    data: {},
+                },
+            ])
+
+            message1.snapshot_source = 'web'
+            message1.snapshot_library = 'posthog-js'
+
+            message2.snapshot_source = 'mobile'
+            message2.snapshot_library = 'posthog-android'
+
+            recorder.recordMessage(message1)
+            recorder.recordMessage(message2)
+            const result = await recorder.end()
+
+            expect(result.snapshotSource).toBe('web')
+            expect(result.snapshotLibrary).toBe('posthog-js')
+        })
+
+        it('should use "web" as default for snapshot source if not provided', async () => {
+            const message = createMessage('window1', [
+                {
+                    type: EventType.Meta,
+                    timestamp: 1000,
+                    data: {},
+                },
+            ])
+
+            // Keep snapshot_source as null and set library
+            message.snapshot_library = 'posthog-js'
+
+            recorder.recordMessage(message)
+            const result = await recorder.end()
+
+            expect(result.snapshotSource).toBe('web')
+            expect(result.snapshotLibrary).toBe('posthog-js')
         })
     })
 })

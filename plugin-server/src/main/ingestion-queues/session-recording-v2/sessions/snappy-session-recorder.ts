@@ -80,6 +80,8 @@ export class SnappySessionRecorder {
     private keypressCount: number = 0
     private mouseActivityCount: number = 0
     private messageCount: number = 0
+    private snapshotSource: string | null = null
+    private snapshotLibrary: string | null = null
 
     constructor(public readonly sessionId: string, public readonly teamId: number) {}
 
@@ -96,9 +98,15 @@ export class SnappySessionRecorder {
             throw new Error('Cannot record message after end() has been called')
         }
 
-        // Store the distinctId from the first message if not already set
         if (!this._distinctId) {
             this._distinctId = message.distinct_id
+        }
+
+        if (!this.snapshotSource) {
+            this.snapshotSource = message.snapshot_source || 'web'
+        }
+        if (!this.snapshotLibrary) {
+            this.snapshotLibrary = message.snapshot_library || null
         }
 
         let rawBytesWritten = 0
@@ -200,8 +208,8 @@ export class SnappySessionRecorder {
             consoleErrorCount: 0,
             size: buffer.length,
             messageCount: this.messageCount,
-            snapshotSource: null,
-            snapshotLibrary: null,
+            snapshotSource: this.snapshotSource,
+            snapshotLibrary: this.snapshotLibrary,
         }
     }
 }
