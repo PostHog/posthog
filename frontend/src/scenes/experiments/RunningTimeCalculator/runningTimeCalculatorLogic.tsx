@@ -340,7 +340,7 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                         - MDE is applied as an absolute percentage change to `p`.
         
                         Formula:
-                        d = MDE (absolute percentage point change)
+                        d = MDE * conversionRate
                     */
                     d = minimumDetectableEffectDecimal * conversionRate
 
