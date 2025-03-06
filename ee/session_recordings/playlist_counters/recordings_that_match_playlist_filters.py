@@ -294,9 +294,9 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
         )
         REPLAY_TEAM_PLAYLIST_COUNT_UNKNOWN.inc()
     except Exception as e:
-        query_json: dict[str, Any]
+        query_json: dict[str, Any] | None = None
         try:
-            query_json = query.model_dump_json() if query else None
+            query_json = query.model_dump() if query else None
         except Exception:
             query_json = {"malformed": True}
 
