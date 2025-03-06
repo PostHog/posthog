@@ -2163,8 +2163,13 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         hasMinimumExposureForResults: [
-            (s) => [s.exposures],
-            (exposures): boolean => {
+            (s) => [s.exposures, s.shouldUseExperimentMetrics],
+            (exposures, shouldUseExperimentMetrics): boolean => {
+                // Not relevant for old metrics
+                if (!shouldUseExperimentMetrics) {
+                    return true
+                }
+
                 if (!exposures || !exposures.total_exposures) {
                     return false
                 }
