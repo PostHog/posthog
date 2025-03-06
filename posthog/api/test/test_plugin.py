@@ -1568,6 +1568,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
             name="GeoIP",
             description="Get the GeoIP of the user",
             url="https://github.com/PostHog/posthog-plugin-geoip",
+            capabilities={"methods": ["processEvent"]},  # Non-empty capabilities
         )
 
         with self.settings(CREATE_HOG_FUNCTION_FROM_PLUGIN_CONFIG=True):
@@ -1608,6 +1609,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
             name="Taxonomy",
             description="",
             url="https://github.com/PostHog/taxonomy-plugin",
+            capabilities={"methods": ["processEvent"]},  # Non-empty capabilities
         )
 
         with self.settings(CREATE_HOG_FUNCTION_FROM_PLUGIN_CONFIG=True):
@@ -1634,6 +1636,40 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                     "value": "snake_case",
                 },
             }
+
+    def test_create_plugin_config_when_hog_function_migration_not_available(self, mock_get, mock_reload):
+        # Create a plugin with empty capabilities (site app)
+        mock_plugin = Plugin.objects.create(
+            organization=self.organization,
+            plugin_type="local",
+            name="Test Plugin",
+            description="A test plugin",
+            url="https://github.com/PostHog/posthog-plugin-test",
+            capabilities={},  # Empty capabilities
+        )
+
+        with self.settings(CREATE_HOG_FUNCTION_FROM_PLUGIN_CONFIG=True):
+            response = self.client.post(
+                "/api/plugin_config/",
+                {
+                    "plugin": mock_plugin.id,
+                    "enabled": True,
+                    "order": 0,
+                    "config": json.dumps({"test": "value"}),
+                },
+                format="multipart",
+            )
+
+            assert response.status_code == 201, response.json()
+
+            # Should create a plugin config instead of a hog function
+            assert PluginConfig.objects.count() == 1
+            assert HogFunction.objects.count() == 0
+
+            plugin_config = PluginConfig.objects.first()
+            assert plugin_config.plugin == mock_plugin
+            assert plugin_config.enabled is True
+            assert plugin_config.config == {"test": "value"}
 
     @patch("posthog.api.plugin.validate_plugin_job_payload")
     @patch("posthog.api.plugin.connections")

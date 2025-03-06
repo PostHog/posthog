@@ -690,7 +690,11 @@ class PluginConfigSerializer(serializers.ModelSerializer):
 
         validated_data["web_token"] = generate_random_token()
 
-        if settings.CREATE_HOG_FUNCTION_FROM_PLUGIN_CONFIG:
+        plugin = validated_data.get("plugin")
+
+        # Only try to create a hog function if CREATE_HOG_FUNCTION_FROM_PLUGIN_CONFIG is True
+        # and the plugin has capabilities (i.e., it's not a site app)
+        if settings.CREATE_HOG_FUNCTION_FROM_PLUGIN_CONFIG and plugin.capabilities:
             # Try and create a hog function if possible, otherwise fail
             from posthog.cdp.legacy_plugins import hog_function_from_plugin_config
 
@@ -711,6 +715,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
                         },
                     )
 
+                    # Return the non-saved plugin config without creating a real one in the database
                     return PluginConfig(**validated_data)
                 raise ValidationError("Failed to create hog function")
 
@@ -718,6 +723,10 @@ class PluginConfigSerializer(serializers.ModelSerializer):
                 capture_exception(e)
                 raise ValidationError("Failed to create hog function")
 
+        # If we get here, either CREATE_HOG_FUNCTION_FROM_PLUGIN_CONFIG is False,
+        # or the plugin has no capabilities (it's a site app),
+        # or hog_function_from_plugin_config returned None
+        # In any case, we create a regular plugin config
         plugin_config = super().create(validated_data)
         log_enabled_change_activity(
             new_plugin_config=plugin_config,
