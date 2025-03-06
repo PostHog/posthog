@@ -29,11 +29,15 @@ class CustomEnvironment extends PlaywrightEnvironment {
                 fs.mkdirSync(failuresDir, { recursive: true })
             }
 
+            // artifacts action insists on unique names
+            // so we'll add a timestamp to the end of the filename
+            const timestamp = new Date().toISOString().replace(/[-:Z]/g, '')
+
             await this.global.page
                 .locator('body, main')
                 .last()
                 .screenshot({
-                    path: path.join(failuresDir, `${parentName}--${specName}.png`),
+                    path: path.join(failuresDir, `${parentName}--${specName}-${timestamp}.png`),
                 })
         }
         await super.handleTestEvent(event)
