@@ -43,7 +43,6 @@
   WHERE or(and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC'))), 0)), and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-08-03 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2024-10-31 23:59:59', 'UTC'))), 0)))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     max_memory_usage=45000000000,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
@@ -102,7 +101,6 @@
   WHERE or(and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC'))), 0)), and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-08-03 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2024-10-31 23:59:59', 'UTC'))), 0)))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     max_memory_usage=45000000000,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
@@ -161,7 +159,6 @@
   WHERE or(and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC'))), 0)), 0)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     max_memory_usage=45000000000,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
@@ -220,7 +217,6 @@
   WHERE or(and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC'))), 0)), and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-08-03 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2024-10-31 23:59:59', 'UTC'))), 0)))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     max_memory_usage=45000000000,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
@@ -279,7 +275,6 @@
   WHERE or(and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC'))), 0)), and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-08-03 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2024-10-31 23:59:59', 'UTC'))), 0)))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     max_memory_usage=45000000000,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
@@ -338,7 +333,6 @@
   WHERE or(and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC'))), 0)), and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-08-03 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2024-10-31 23:59:59', 'UTC'))), 0)))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     max_memory_usage=45000000000,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
@@ -397,7 +391,6 @@
   WHERE or(and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC'))), 0)), and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-08-03 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2024-10-31 23:59:59', 'UTC'))), 0)))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     max_memory_usage=45000000000,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
@@ -456,7 +449,6 @@
   WHERE or(and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC'))), 0)), and(ifNull(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-08-03 00:00:00', 'UTC'))), 0), ifNull(less(start_timestamp, assumeNotNull(toDateTime('2024-10-31 23:59:59', 'UTC'))), 0)))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
-                     max_memory_usage=45000000000,
                      allow_experimental_object_type=1,
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
