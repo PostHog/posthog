@@ -769,9 +769,9 @@ mod test {
     fn test_property_name_based_detection() {
         // Test all timestamp-related keywords for numeric values
 
-        // Test "timestamp" in different positions and cases. Note: the
-        // hardcoded UNIX timestamp value below is older than (now - 6 months)
-        // so shouldn't trigger based on numerical value classification step.
+        // Test property-name based matching. Note: the hardcoded UNIX timestamp
+        // value used in these unit tests is older than (now - 6 months)
+        // so shouldn't trigger a match based on numerical classification step.
         assert_eq!(
             detect_property_type(
                 "timestamp",
@@ -875,7 +875,7 @@ mod test {
         );
         assert_eq!(
             detect_property_type(
-                "sent_at",
+                "sent-at",
                 &Value::Number(serde_json::Number::from(1639400730))
             ),
             Some(PropertyValueType::DateTime)
@@ -886,6 +886,20 @@ mod test {
                 &Value::Number(serde_json::Number::from(1639400730))
             ),
             Some(PropertyValueType::DateTime)
+        );
+        assert_eq!(
+            detect_property_type(
+                "updated_never",
+                &Value::Number(serde_json::Number::from(1639400730))
+            ),
+            Some(PropertyValueType::String)
+        );
+        assert_eq!(
+            detect_property_type(
+                "not_a_thyme",
+                &Value::Number(serde_json::Number::from(1639400730))
+            ),
+            Some(PropertyValueType::String)
         );
 
         // Test non-matching property names (should be Numeric)
