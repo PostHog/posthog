@@ -47,9 +47,9 @@ export const scene: SceneExport = {
 
 export function Surveys(): JSX.Element {
     const {
-        surveys: { results: surveys },
+        data: { surveys },
         searchedSurveys,
-        surveysLoading,
+        dataLoading,
         surveysResponsesCount,
         surveysResponsesCountLoading,
         searchTerm,
@@ -58,14 +58,15 @@ export function Surveys(): JSX.Element {
         tab,
         globalSurveyAppearanceConfigAvailable,
         hasNextPage,
+        hasNextSearchPage,
     } = useValues(surveysLogic)
 
-    const { deleteSurvey, updateSurvey, setSearchTerm, setSurveysFilters, setTab, loadNextPage } =
+    const { deleteSurvey, updateSurvey, setSearchTerm, setSurveysFilters, setTab, loadNextPage, loadNextSearchPage } =
         useActions(surveysLogic)
 
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const shouldShowEmptyState = !surveysLoading && surveys.length === 0
+    const shouldShowEmptyState = !dataLoading && surveys.length === 0
     const showLinkedHogFunctions = useFeatureFlag('HOG_FUNCTIONS_LINKED')
     const settingLevel = featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? 'environment' : 'project'
 
@@ -228,17 +229,17 @@ export function Surveys(): JSX.Element {
                                 emptyState={
                                     tab === SurveysTabs.Active ? 'No surveys. Create a new survey?' : 'No surveys found'
                                 }
-                                loading={surveysLoading}
+                                loading={dataLoading}
                                 footer={
-                                    hasNextPage && (
+                                    (searchTerm ? hasNextSearchPage : hasNextPage) && (
                                         <div className="flex justify-center p-1">
                                             <LemonButton
-                                                onClick={loadNextPage}
+                                                onClick={searchTerm ? loadNextSearchPage : loadNextPage}
                                                 className="min-w-full text-center"
-                                                disabledReason={surveysLoading ? 'Loading surveys' : ''}
+                                                disabledReason={dataLoading ? 'Loading surveys' : ''}
                                             >
                                                 <span className="text-center flex-1">
-                                                    {surveysLoading ? 'Loading...' : 'Load more'}
+                                                    {dataLoading ? 'Loading...' : 'Load more'}
                                                 </span>
                                             </LemonButton>
                                         </div>
