@@ -1,13 +1,17 @@
 name: Build and deploy Go container images
 
 on:
-    workflow_dispatch:
+    pull_request:
+        paths:
+            - 'go/**'
+            - '.github/workflows/go-docker-build.yml'
     push:
         paths:
             - 'go/**'
             - '.github/workflows/go-docker-build.yml'
         branches:
             - 'master'
+    workflow_dispatch:
 
 jobs:
     build:
@@ -82,38 +86,38 @@ jobs:
                   echo "${{matrix.image}}_digest=${{ steps.docker_build.outputs.digest }}" >> $GITHUB_OUTPUT
                   cat $GITHUB_OUTPUT
 
-    # deploy:
-    #     name: deploy ${{ matrix.release }}
-    #     runs-on: ubuntu-24.04
-    #     needs: build
-    #     if: github.ref == 'refs/heads/master'
-    #     strategy:
-    #         matrix:
-    #             include:
-    #                 - release: livestream
-    #                   values:
-    #                       image:
-    #                           sha: '${{ needs.build.outputs.livestream_digest }}'
-    #     steps:
-    #         - name: get deployer token
-    #           id: deployer
-    #           uses: getsentry/action-github-app-token@v3
-    #           with:
-    #               app_id: ${{ secrets.DEPLOYER_APP_ID }}
-    #               private_key: ${{ secrets.DEPLOYER_APP_PRIVATE_KEY }}
+    deploy:
+        name: deploy ${{ matrix.release }}
+        runs-on: ubuntu-24.04
+        needs: build
+        if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+        strategy:
+            matrix:
+                include:
+                    - release: livestream
+                      values:
+                          image:
+                              sha: '${{ needs.build.outputs.livestream_digest }}'
+        steps:
+            - name: get deployer token
+              id: deployer
+              uses: getsentry/action-github-app-token@v3
+              with:
+                  app_id: ${{ secrets.DEPLOYER_APP_ID }}
+                  private_key: ${{ secrets.DEPLOYER_APP_PRIVATE_KEY }}
 
-    #         - name: trigger ${{ matrix.release }} deployment
-    #           uses: peter-evans/repository-dispatch@v3
-    #           with:
-    #               token: ${{ steps.deployer.outputs.token }}
-    #               repository: PostHog/charts
-    #               event-type: commit_state_update
-    #               client-payload: |
-    #                   {
-    #                     "values": ${{ toJson(matrix.values) }},
-    #                     "release": "${{ matrix.release }}",
-    #                     "commit": ${{ toJson(github.event.head_commit) }},
-    #                     "repository": ${{ toJson(github.repository) }},
-    #                     "labels": [],
-    #                     "timestamp": "${{ github.event.head_commit.timestamp }}"
-    #                   }
+            - name: trigger ${{ matrix.release }} deployment
+              uses: peter-evans/repository-dispatch@v3
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
+                      {
+                        "values": ${{ toJson(matrix.values) }},
+                        "release": "${{ matrix.release }}",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": ${{ toJson(github.repository) }},
+                        "labels": [],
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                      }
