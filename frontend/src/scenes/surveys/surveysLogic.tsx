@@ -84,12 +84,13 @@ export const surveysLogic = kea<surveysLogicType>([
                 }
             },
             loadBackendSearchResults: async () => {
-                if (!values.searchTerm || !hasNextPage(values.surveys)) {
+                const trimmedSearchTerm = values.searchTerm?.trim() || ''
+                if (trimmedSearchTerm === '' || !hasNextPage(values.surveys)) {
                     return values.surveys
                 }
 
                 const response = await api.surveys.list({
-                    search: values.searchTerm,
+                    search: trimmedSearchTerm,
                 })
 
                 const existingIds = new Set(values.surveys.results.map((s) => s.id))
