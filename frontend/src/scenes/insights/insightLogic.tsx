@@ -339,7 +339,8 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         ],
         showPersonsModal: [
             (s) => [s.query, s.insightProps],
-            (query, insightProps): boolean => !(query?.hidePersonsModal || insightProps?.query?.hidePersonsModal),
+            (query: Record<string, any>, insightProps: InsightLogicProps): boolean =>
+                !(query?.hidePersonsModal || insightProps?.query?.hidePersonsModal),
         ],
         supportsCreatingExperiment: [
             (s) => [s.insight, s.activeScene],
