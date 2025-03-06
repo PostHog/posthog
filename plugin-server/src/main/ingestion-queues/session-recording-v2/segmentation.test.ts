@@ -1,200 +1,123 @@
 import { RRWebEvent } from '../../../types'
 import { RRWebEventSource, RRWebEventType } from './rrweb-types'
-import {
-    activeMilliseconds,
-} from './segmentation'
+import { activeMillisecondsFromSegmentationEvents, SegmentationEvent, toSegmentationEvent } from './segmentation'
 
 describe('segmentation', () => {
-    describe('activeMilliseconds', () => {
+    describe('activeMillisecondsFromSegmentationEvents', () => {
         it('should return 0 for empty events array', () => {
-            expect(activeMilliseconds([])).toBe(0)
+            expect(activeMillisecondsFromSegmentationEvents([])).toBe(0)
         })
 
         it('should return 0 when there are no active events', () => {
-            const events: RRWebEvent[] = [
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: 1000,
-                    data: { href: 'https://example.com' },
-                },
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: 2000,
-                    data: { href: 'https://example.com/page2' },
-                },
+            const segmentationEvents: SegmentationEvent[] = [
+                { timestamp: 1000, isActive: false },
+                { timestamp: 2000, isActive: false },
             ]
 
-            expect(activeMilliseconds(events)).toBe(0)
+            expect(activeMillisecondsFromSegmentationEvents(segmentationEvents)).toBe(0)
         })
 
         it('should calculate active time for a single active event', () => {
-            const events: RRWebEvent[] = [
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: 1000,
-                    data: { source: RRWebEventSource.MouseMove },
-                },
-            ]
+            const segmentationEvents: SegmentationEvent[] = [{ timestamp: 1000, isActive: true }]
 
             // This is a special case where we cound duration of active segments with one event as 1ms
-            expect(activeMilliseconds(events)).toBe(1)
+            expect(activeMillisecondsFromSegmentationEvents(segmentationEvents)).toBe(1)
         })
 
         it('should calculate active time for consecutive active events', () => {
-            const events: RRWebEvent[] = [
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: 1000,
-                    data: { source: RRWebEventSource.MouseMove },
-                },
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: 2000, // 1 second after first event
-                    data: { source: RRWebEventSource.MouseMove },
-                },
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: 3000, // 1 second after second event
-                    data: { source: RRWebEventSource.MouseInteraction },
-                },
+            const segmentationEvents: SegmentationEvent[] = [
+                { timestamp: 1000, isActive: true },
+                { timestamp: 2000, isActive: true },
+                { timestamp: 3000, isActive: true },
             ]
 
             // Active time should be the difference between the first and last active event
-            expect(activeMilliseconds(events)).toBe(2000)
+            expect(activeMillisecondsFromSegmentationEvents(segmentationEvents)).toBe(2000)
         })
 
         it('should handle inactive periods between active events', () => {
-            const events: RRWebEvent[] = [
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: 1000,
-                    data: { source: RRWebEventSource.MouseMove },
-                },
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: 2100,
-                    data: { href: 'https://example.com' },
-                },
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: 6001, // 5 seconds after the last active event (exceeds activity threshold)
-                    data: { source: RRWebEventSource.MouseMove },
-                },
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: 7001, // 1 second after previous active event
-                    data: { source: RRWebEventSource.MouseInteraction },
-                },
+            const segmentationEvents: SegmentationEvent[] = [
+                { timestamp: 1000, isActive: true },
+                { timestamp: 2100, isActive: false },
+                { timestamp: 6001, isActive: true }, // 5 seconds after the last active event (exceeds activity threshold)
+                { timestamp: 7001, isActive: true }, // 1 second after previous active event
             ]
 
             // Should create two separate active segments: 1100ms for the first and 1000ms for the second
-            expect(activeMilliseconds(events)).toBe(2100)
+            expect(activeMillisecondsFromSegmentationEvents(segmentationEvents)).toBe(2100)
         })
 
         it('should handle events that are not in chronological order', () => {
-            const events: RRWebEvent[] = [
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: 3000,
-                    data: { source: RRWebEventSource.MouseInteraction },
-                },
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: 1000, // Out of order
-                    data: { source: RRWebEventSource.MouseMove },
-                },
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: 2000,
-                    data: { source: RRWebEventSource.MouseMove },
-                },
+            const segmentationEvents: SegmentationEvent[] = [
+                { timestamp: 3000, isActive: true },
+                { timestamp: 1000, isActive: true }, // Out of order
+                { timestamp: 2000, isActive: true },
             ]
 
             // Events should be sorted and active time calculated correctly
-            expect(activeMilliseconds(events)).toBe(2000)
+            expect(activeMillisecondsFromSegmentationEvents(segmentationEvents)).toBe(2000)
         })
 
         it('should handle mixed active and inactive events', () => {
-            const events: RRWebEvent[] = [
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: 500,
-                    data: { href: 'https://example.com' },
-                },
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: 1000,
-                    data: { source: RRWebEventSource.MouseMove },
-                },
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: 1500,
-                    data: { href: 'https://example.com/page2' },
-                },
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: 2000,
-                    data: { source: RRWebEventSource.MouseInteraction },
-                },
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: 2500,
-                    data: { href: 'https://example.com/page3' },
-                },
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: 3000,
-                    data: { source: RRWebEventSource.Scroll },
-                },
+            const segmentationEvents: SegmentationEvent[] = [
+                { timestamp: 500, isActive: false },
+                { timestamp: 1000, isActive: true },
+                { timestamp: 1500, isActive: false },
+                { timestamp: 2000, isActive: true },
+                { timestamp: 2500, isActive: false },
+                { timestamp: 3000, isActive: true },
             ]
 
             // Active time should be the difference between the first and last active event
-            expect(activeMilliseconds(events)).toBe(2000)
+            expect(activeMillisecondsFromSegmentationEvents(segmentationEvents)).toBe(2000)
         })
 
         it('should maintain one segment when inactive events are within activity threshold', () => {
-            const events: RRWebEvent[] = [
+            const segmentationEvents: SegmentationEvent[] = [
                 // First active event
-                {
-                    type: RRWebEventType.IncrementalSnapshot,
-                    timestamp: 1000,
-                    data: { source: RRWebEventSource.MouseMove },
-                },
+                { timestamp: 1000, isActive: true },
                 // Inactive events at 1-second intervals
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: 2000, // 1 second after first event
-                    data: { href: 'https://example.com/page1' },
-                },
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: 3000, // 2 seconds after first event
-                    data: { href: 'https://example.com/page2' },
-                },
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: 4000, // 3 seconds after first event
-                    data: { href: 'https://example.com/page3' },
-                },
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: 5000, // 4 seconds after first event
-                    data: { href: 'https://example.com/page4' },
-                },
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: 6000, // 5 seconds after first event
-                    data: { href: 'https://example.com/page5' },
-                },
-                {
-                    type: RRWebEventType.Meta,
-                    timestamp: 6001, // Just after the last inactive event
-                    data: { href: 'https://example.com/page6' },
-                },
+                { timestamp: 2000, isActive: false }, // 1 second after first event
+                { timestamp: 3000, isActive: false }, // 2 seconds after first event
+                { timestamp: 4000, isActive: false }, // 3 seconds after first event
+                { timestamp: 5000, isActive: false }, // 4 seconds after first event
+                { timestamp: 6000, isActive: false }, // 5 seconds after first event
+                // Another active event within the activity threshold (10 seconds)
+                { timestamp: 6001, isActive: false }, // Just after the last inactive event
             ]
 
-            // Should create one active segment with duration of 5000ms
-            expect(activeMilliseconds(events)).toBe(5000)
+            // Should create one active segment with duration of 5000ms (from 1000 to 6000)
+            expect(activeMillisecondsFromSegmentationEvents(segmentationEvents)).toBe(5000)
+        })
+    })
+
+    describe('toSegmentationEvent', () => {
+        it('should convert active RRWebEvent to SegmentationEvent', () => {
+            const event: RRWebEvent = {
+                type: RRWebEventType.IncrementalSnapshot,
+                timestamp: 1000,
+                data: { source: RRWebEventSource.MouseMove },
+            }
+
+            const segmentationEvent = toSegmentationEvent(event)
+            expect(segmentationEvent).toEqual({
+                timestamp: 1000,
+                isActive: true,
+            })
+        })
+
+        it('should convert inactive RRWebEvent to SegmentationEvent', () => {
+            const event: RRWebEvent = {
+                type: RRWebEventType.Meta,
+                timestamp: 1000,
+                data: { href: 'https://example.com' },
+            }
+
+            const segmentationEvent = toSegmentationEvent(event)
+            expect(segmentationEvent).toEqual({
+                timestamp: 1000,
+                isActive: false,
+            })
         })
     })
 })
