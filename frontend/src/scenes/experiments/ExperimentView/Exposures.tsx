@@ -14,7 +14,7 @@ export function Exposures(): JSX.Element {
     const { experimentId, exposures, exposuresLoading, exposureCriteriaLabel } = useValues(experimentLogic)
 
     useEffect(() => {
-        if (!exposures || !exposures.timeseries.length) {
+        if (!exposures || !exposures?.timeseries?.length) {
             return
         }
 
@@ -96,7 +96,7 @@ export function Exposures(): JSX.Element {
                 <div className={clsx(chartWrapperClasses, 'flex justify-center items-center')}>
                     <Spinner className="text-5xl" />
                 </div>
-            ) : !exposures.timeseries.length ? (
+            ) : !exposures?.timeseries?.length ? (
                 <div className={clsx(chartWrapperClasses, 'flex justify-center items-center')}>
                     <div className="text-center">
                         <IconCorrelationAnalysis className="text-3xl mb-2 text-tertiary" />
