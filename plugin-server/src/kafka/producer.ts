@@ -48,22 +48,17 @@ export class KafkaProducerWrapper {
             // milliseconds to wait after the most recently added message before sending a batch. The
             // default is 0, which means that messages are sent as soon as possible. This does not mean
             // that there will only be one message per batch, as the producer will attempt to fill
-            // batches up to the batch size while the number of Kafka inflight requests is saturated, by
-            // default 5 inflight requests.
+            // batches up to the batch size while the number of Kafka inflight requests is saturated.
             'linger.ms': config.KAFKA_PRODUCER_LINGER_MS,
             'batch.size': config.KAFKA_PRODUCER_BATCH_SIZE,
             'queue.buffering.max.messages': config.KAFKA_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES,
-            'compression.codec': 'snappy',
-            // Ensure that librdkafka handled producer retries do not produce duplicates. Note this
-            // doesn't mean that if we manually retry a message that it will be idempotent. May reduce
-            // throughput. Note that at the time of writing the session recording events table in
-            // ClickHouse uses a `ReplicatedReplacingMergeTree` with a ver param of _timestamp i.e. when
-            // the event was added to the Kafka ingest topic. The sort key is `team_id,
-            // toHour(timestamp), session_id, timestamp, uuid` which means duplicate production of the
-            // same event _should_ be deduplicated when merges occur on the table. This isn't a
-            // guarantee on removing duplicates though and rather still requires deduplication either
-            // when querying the table or client side.
-            'enable.idempotence': true,
+            'queue.buffering.max.kbytes': config.KAFKA_PRODUCER_QUEUE_BUFFERING_MAX_KBYTES,
+            'message.max.bytes': config.KAFKA_PRODUCER_MESSAGE_MAX_BYTES,
+            'compression.codec': config.KAFKA_PRODUCER_COMPRESSION_CODEC,
+            'sticky.partitioning.linger.ms': config.KAFKA_PRODUCER_STICKY_PARTITIONING_LINGER_MS,
+            'topic.metadata.refresh.interval.ms': config.KAFKA_PRODUCER_METADATA_REFRESH_INTERVAL_MS,
+            'max.in.flight.requests.per.connection': config.KAFKA_PRODUCER_MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION,
+            'enable.idempotence': config.KAFKA_PRODUCER_ENABLE_IDEMPOTENCE,
             dr_cb: true,
         })
 
