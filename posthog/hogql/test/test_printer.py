@@ -17,6 +17,7 @@ from posthog.hogql.parser import parse_select, parse_expr
 from posthog.hogql.printer import print_ast, to_printed_hogql, prepare_ast_for_printing, print_prepared_ast
 from posthog.models import PropertyDefinition
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
+from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 from posthog.models.team.team import WeekStartDay
 from posthog.schema import (
     HogQLQueryModifiers,
@@ -2042,7 +2043,7 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(
             (
-                f"SELECT multiplyDecimal(divideDecimal(100, dictGet({EXCHANGE_RATE_DICTIONARY_NAME}, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), 0)), dictGet({EXCHANGE_RATE_DICTIONARY_NAME}, 'rate', %(hogql_val_1)s, toDateOrNull(%(hogql_val_2)s), 0)) "
+                f"SELECT if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(100, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)))) "
                 "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0"
             ),
             printed,
@@ -2058,7 +2059,7 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(
             (
-                f"SELECT multiplyDecimal(divideDecimal(100, dictGet({EXCHANGE_RATE_DICTIONARY_NAME}, 'rate', %(hogql_val_0)s, today(), 0)), dictGet({EXCHANGE_RATE_DICTIONARY_NAME}, 'rate', %(hogql_val_1)s, today(), 0)) "
+                f"SELECT if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(100, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, today(), toDecimal64(0, 10)))) "
                 "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0"
             ),
             printed,

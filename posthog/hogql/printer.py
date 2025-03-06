@@ -24,6 +24,7 @@ from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.database.models import FunctionCallTable, SavedQuery, Table
 from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.query_log import RawQueryLogTable
+from posthog.hogql.database.schema.exchange_rate import ExchangeRateTable
 from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryError, ResolutionError
 from posthog.hogql.escape_sql import (
     escape_clickhouse_identifier,
@@ -58,6 +59,7 @@ from posthog.schema import (
     PersonsOnEventsMode,
     PropertyGroupsMode,
 )
+from posthog.settings import CLICKHOUSE_DATABASE
 
 
 def team_id_guard_for_table(table_type: Union[ast.TableType, ast.TableAliasType], context: HogQLContext) -> ast.Expr:
@@ -492,6 +494,7 @@ class _Printer(Visitor):
                 self.dialect == "clickhouse"
                 and not isinstance(table_type.table, FunctionCallTable)
                 and not isinstance(table_type.table, SavedQuery)
+                and not isinstance(table_type.table, ExchangeRateTable)
             ):
                 extra_where = team_id_guard_for_table(node.type, self.context)
 
@@ -1214,7 +1217,7 @@ class _Printer(Visitor):
                 ):  # hogql_convertCurrency(from_currency, to_currency, amount, timestamp)
                     from_currency, to_currency, amount, *_rest = args
                     date = args[3] if len(args) > 3 and args[3] else "today()"
-                    return f"multiplyDecimal(divideDecimal({amount}, dictGet({EXCHANGE_RATE_DICTIONARY_NAME}, 'rate', {from_currency}, {date}, 0)), dictGet({EXCHANGE_RATE_DICTIONARY_NAME}, 'rate', {to_currency}, {date}, 0))"
+                    return f"if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64({amount}, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, 10))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {to_currency}, {date}, toDecimal64(0, 10))))"
             raise QueryError(f"Unexpected unresolved HogQL function '{node.name}(...)'")
         else:
             close_matches = get_close_matches(node.name, ALL_EXPOSED_FUNCTION_NAMES, 1)

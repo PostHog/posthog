@@ -401,6 +401,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "_toUInt128": HogQLFunctionMeta("toUInt128", 1, 1),
     "toFloat": HogQLFunctionMeta("accurateCastOrNull", 1, 1, suffix_args=[ast.Constant(value="Float64")]),
     "toDecimal": HogQLFunctionMeta("toDecimal64OrNull", 2, 2),
+    "DATE": HogQLFunctionMeta("toDate", 1, 1),
     "toDate": HogQLFunctionMeta(
         "toDateOrNull",
         1,
