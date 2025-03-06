@@ -1,5 +1,5 @@
 import Fuse from 'fuse.js'
-import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, events, isBreakpoint, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { combineUrl } from 'kea-router'
 import api from 'lib/api'
@@ -133,12 +133,10 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
 
                     try {
                         const [response, expandedCountResponse] = await Promise.all([
-                            // get the list of results
                             fetchCachedListResponse(
                                 scopedRemoteEndpoint && !isExpanded ? scopedRemoteEndpoint : remoteEndpoint,
                                 searchParams
                             ),
-                            // if this is an unexpanded scoped list, get the count for the full list
                             scopedRemoteEndpoint && !isExpanded
                                 ? fetchCachedListResponse(remoteEndpoint, {
                                       ...searchParams,
@@ -176,11 +174,11 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                             expandedCount: expandedCountResponse?.count,
                             first: values.remoteItems.first,
                         }
-                    } catch (e: any) {
-                        if (e.name === 'AbortError') {
+                    } catch (error) {
+                        if (error instanceof Error && error.name === 'AbortError') {
                             return values.remoteItems
                         }
-                        throw e
+                        throw error
                     }
                 },
                 updateRemoteItem: ({ item }) => {
@@ -386,12 +384,21 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         ],
     }),
     listeners(({ values, actions, props, cache }) => ({
-        onRowsRendered: ({ rowInfo: { stopIndex } }) => {
+        onRowsRendered: async ({ rowInfo: { stopIndex } }, breakpoint) => {
             if (values.hasRemoteDataSource) {
-                const shouldLoadMore = stopIndex > 0 && stopIndex >= (values.results?.length || 0) - 5
-                if (shouldLoadMore && !values.isLoading && values.hasMore) {
-                    const offset = values.results?.length || 0
-                    actions.loadRemoteItems({ offset, limit: values.limit })
+                try {
+                    const shouldLoadMore = stopIndex > 0 && stopIndex >= (values.results?.length || 0) - 5
+                    if (shouldLoadMore && !values.isLoading && values.hasMore) {
+                        // Add debounce delay for scroll
+                        await breakpoint(100)
+
+                        const offset = values.results?.length || 0
+                        actions.loadRemoteItems({ offset, limit: values.limit })
+                    }
+                } catch (error) {
+                    if (error instanceof Error && !isBreakpoint(error)) {
+                        throw error
+                    }
                 }
             }
         },
