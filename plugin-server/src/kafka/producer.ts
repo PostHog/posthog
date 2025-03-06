@@ -13,7 +13,7 @@ import { getSpan } from '../sentry'
 import { PluginsServerConfig } from '../types'
 import { DependencyUnavailableError, MessageSizeTooLarge } from '../utils/db/error'
 import { status } from '../utils/status'
-import { createRdConnectionConfigFromEnvVars } from './config'
+import { createRdConnectionConfigFromEnvVars, getProducerConfigFromEnv } from './config'
 
 // TODO: Rewrite this description
 /** This class is a wrapper around the rdkafka producer, and does very little.
@@ -43,22 +43,15 @@ export class KafkaProducerWrapper {
 
     static async create(config: PluginsServerConfig, mode: 'producer' | 'consumer' = 'producer') {
         const globalConfig = createRdConnectionConfigFromEnvVars(config, mode)
+
+        // NOTE: In addition to some defaults we allow overriding any setting via env vars.
+        // This makes it much easier to react to issues without needing code changes
+
+        // Finds all proces.env prefixed with KAFKA_PRODUCER_ and converts them to rdkafka config
+
         const producer = new HighLevelProducer({
+            ...getProducerConfigFromEnv(),
             ...globalConfig,
-            // milliseconds to wait after the most recently added message before sending a batch. The
-            // default is 0, which means that messages are sent as soon as possible. This does not mean
-            // that there will only be one message per batch, as the producer will attempt to fill
-            // batches up to the batch size while the number of Kafka inflight requests is saturated.
-            'linger.ms': config.KAFKA_PRODUCER_LINGER_MS,
-            'batch.size': config.KAFKA_PRODUCER_BATCH_SIZE,
-            'queue.buffering.max.messages': config.KAFKA_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES,
-            'queue.buffering.max.kbytes': config.KAFKA_PRODUCER_QUEUE_BUFFERING_MAX_KBYTES,
-            'message.max.bytes': config.KAFKA_PRODUCER_MESSAGE_MAX_BYTES,
-            'compression.codec': config.KAFKA_PRODUCER_COMPRESSION_CODEC,
-            'sticky.partitioning.linger.ms': config.KAFKA_PRODUCER_STICKY_PARTITIONING_LINGER_MS,
-            'topic.metadata.refresh.interval.ms': config.KAFKA_PRODUCER_METADATA_REFRESH_INTERVAL_MS,
-            'max.in.flight.requests.per.connection': config.KAFKA_PRODUCER_MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION,
-            'enable.idempotence': config.KAFKA_PRODUCER_ENABLE_IDEMPOTENCE,
             dr_cb: true,
         })
 
