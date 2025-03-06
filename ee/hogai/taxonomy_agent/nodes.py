@@ -26,6 +26,7 @@ from ee.hogai.taxonomy_agent.prompts import (
     REACT_DEFINITIONS_PROMPT,
     REACT_FOLLOW_UP_PROMPT,
     REACT_FORMAT_PROMPT,
+    REACT_FORMAT_REMINDER_PROMPT,
     REACT_HELP_REQUEST_PROMPT,
     REACT_HUMAN_IN_THE_LOOP_PROMPT,
     REACT_MALFORMED_JSON_PROMPT,
@@ -211,6 +212,9 @@ class TaxonomyAgentPlannerNode(AssistantNode):
             )
             conversation.append(LangchainAssistantMessage(content=message.plan or ""))
 
+        # Add a reminder to the agent about the format of the response.
+        conversation.append(HumanMessagePromptTemplate.from_template(REACT_FORMAT_REMINDER_PROMPT).format())
+
         # The description of a new insight is added to the end of the conversation.
         new_insight_prompt = REACT_USER_PROMPT if not conversation else REACT_FOLLOW_UP_PROMPT
         conversation.append(
@@ -289,11 +293,15 @@ class TaxonomyAgentPlannerToolsNode(AssistantNode, ABC):
         return "continue"
 
     def _handle_tool(self, input: TaxonomyAgentToolUnion, toolkit: TaxonomyAgentToolkit) -> str:
-        if input.name == "retrieve_event_or_action_properties":
+        if input.name == "retrieve_event_properties" or input.name == "retrieve_action_properties":
             output = toolkit.retrieve_event_or_action_properties(input.arguments)
-        elif input.name == "retrieve_event_or_action_property_values":
+        elif input.name == "retrieve_event_property_values":
             output = toolkit.retrieve_event_or_action_property_values(
-                input.arguments.event_name_or_action_id, input.arguments.property_name
+                input.arguments.event_name, input.arguments.property_name
+            )
+        elif input.name == "retrieve_action_property_values":
+            output = toolkit.retrieve_event_or_action_property_values(
+                input.arguments.action_id, input.arguments.property_name
             )
         elif input.name == "retrieve_entity_properties":
             output = toolkit.retrieve_entity_properties(input.arguments)

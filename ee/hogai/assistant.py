@@ -35,7 +35,7 @@ from ee.hogai.utils.state import (
 from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
 from ee.models import Conversation
 from posthog.event_usage import report_user_action
-from posthog.models import Team, User
+from posthog.models import Action, Team, User
 from posthog.schema import (
     AssistantEventType,
     AssistantGenerationStatusEvent,
@@ -240,6 +240,21 @@ class Assistant:
                                     substeps.append(
                                         f"Analyzing {action.tool_input['entity']} property `{action.tool_input['property_name']}`"
                                     )
+                                case "retrieve_action_properties" | "retrieve_action_property_values":
+                                    assert isinstance(action.tool_input, dict)
+                                    try:
+                                        action_model = Action.objects.get(
+                                            pk=action.tool_input["action_id"], team=self._team
+                                        )
+                                        if action.tool == "retrieve_action_properties":
+                                            substeps.append(f"Exploring `{action_model.name}` action's properties")
+                                        elif action.tool == "retrieve_action_property_values":
+                                            substeps.append(
+                                                f"Analyzing `{action.tool_input['property_name']}` action's property `{action_model.name}`"
+                                            )
+                                    except Action.DoesNotExist:
+                                        pass
+
                 return ReasoningMessage(content="Picking relevant events and properties", substeps=substeps)
             case AssistantNodeName.TRENDS_GENERATOR:
                 return ReasoningMessage(content="Creating trends query")

@@ -18,7 +18,6 @@ from posthog.schema import (
     ActorsPropertyTaxonomyQuery,
     CachedActorsPropertyTaxonomyQueryResponse,
     CachedEventTaxonomyQueryResponse,
-    CacheMissResponse,
     EventTaxonomyQuery,
 )
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
@@ -41,23 +40,34 @@ class RetrieveEntityPropertiesValuesTool(BaseModel):
 
 
 class RetrieveEventPropertiesValuesArgs(BaseModel):
-    event_name_or_action_id: str | int
+    event_name: str
     property_name: str
 
 
 class RetrieveEventPropertiesValuesTool(BaseModel):
-    name: Literal["retrieve_event_or_action_property_values"]
+    name: Literal["retrieve_event_property_values"]
     arguments: RetrieveEventPropertiesValuesArgs
 
 
-class RetrieveEventOrActionPropertiesValuesTool(BaseModel):
-    name: Literal["retrieve_event_or_action_properties"]
-    arguments: str | int
+class RetrieveActionPropertiesTool(BaseModel):
+    name: Literal["retrieve_action_properties"]
+    arguments: int
+
+
+class RetrieveActionPropertiesValuesArgs(BaseModel):
+    action_id: int
+    property_name: str
+
+
+class RetrieveActionPropertiesValuesTool(BaseModel):
+    name: Literal["retrieve_action_property_values"]
+    arguments: RetrieveActionPropertiesValuesArgs
 
 
 class SingleArgumentTaxonomyAgentTool(BaseModel):
     name: Literal[
         "retrieve_entity_properties",
+        "retrieve_event_properties",
         "final_answer",
         "handle_incorrect_response",
         "ask_user_for_help",
@@ -69,7 +79,8 @@ TaxonomyAgentToolUnion = Union[
     SingleArgumentTaxonomyAgentTool,
     RetrieveEntityPropertiesValuesTool,
     RetrieveEventPropertiesValuesTool,
-    RetrieveEventOrActionPropertiesValuesTool,
+    RetrieveActionPropertiesTool,
+    RetrieveActionPropertiesValuesTool,
 ]
 
 
@@ -103,27 +114,52 @@ class TaxonomyAgentToolkit(ABC):
         stringified_entities = ", ".join([f"'{entity}'" for entity in self._entity_names])
         return [
             {
-                "name": "retrieve_event_or_action_properties",
-                "signature": "(event_name_or_action_id: str | int)",
+                "name": "retrieve_event_properties",
+                "signature": "(event_name: str)",
                 "description": """
-                    Use this tool to retrieve the property names of an event or action that the user has in their taxonomy. You will receive a list of properties containing their name, value type, and description, or a message that properties have not been found.
+                    Use this tool to retrieve the property names of an event. You will receive a list of properties containing their name, value type, and description, or a message that properties have not been found.
 
-                    - **Try other events or actions** if the tool doesn't return any properties.
+                    - **Try other events** if the tool doesn't return any properties.
                     - **Prioritize properties that are directly related to the context or objective of the user's query.**
                     - **Avoid using ambiguous properties** unless their relevance is explicitly confirmed.
 
                     Args:
-                        event_name_or_action_id: The name of the event (string) or action ID (integer) that you want to retrieve properties for.
+                        event_name: The name of the event that you want to retrieve properties for.
                 """,
             },
             {
-                "name": "retrieve_event_or_action_property_values",
-                "signature": "(event_name_or_action_id: str | int, property_name: str)",
+                "name": "retrieve_event_property_values",
+                "signature": "(event_name: str, property_name: str)",
                 "description": """
-                    Use this tool to retrieve the property values for an event or action that the user has in their taxonomy. Adjust filters to these values. You will receive a list of property values or a message that property values have not been found. Some properties can have many values, so the output will be truncated. Use your judgment to find a proper value.
+                    Use this tool to retrieve the property values for an event. Adjust filters to these values. You will receive a list of property values or a message that property values have not been found. Some properties can have many values, so the output will be truncated. Use your judgment to find a proper value.
 
                     Args:
-                        event_name_or_action_id: The name of the event (string) or action ID (integer) that you want to retrieve values for.
+                        event_name: The name of the event that you want to retrieve values for.
+                        property_name: The name of the property that you want to retrieve values for.
+                """,
+            },
+            {
+                "name": "retrieve_action_properties",
+                "signature": "(action_id: int)",
+                "description": """
+                    Use this tool to retrieve the property names of an action. You will receive a list of properties containing their name, value type, and description, or a message that properties have not been found.
+
+                    - **Try other actions or events** if the tool doesn't return any properties.
+                    - **Prioritize properties that are directly related to the context or objective of the user's query.**
+                    - **Avoid using ambiguous properties** unless their relevance is explicitly confirmed.
+
+                    Args:
+                        action_id: The ID of the action that you want to retrieve properties for.
+                """,
+            },
+            {
+                "name": "retrieve_action_property_values",
+                "signature": "(action_id: int, property_name: str)",
+                "description": """
+                    Use this tool to retrieve the property values for an action. Adjust filters to these values. You will receive a list of property values or a message that property values have not been found. Some properties can have many values, so the output will be truncated. Use your judgment to find a proper value.
+
+                    Args:
+                        action_id: The ID of the action that you want to retrieve values for.
                         property_name: The name of the property that you want to retrieve values for.
                 """,
             },
@@ -131,7 +167,7 @@ class TaxonomyAgentToolkit(ABC):
                 "name": f"retrieve_entity_properties",
                 "signature": f"(entity: Literal[{stringified_entities}])",
                 "description": """
-                    Use this tool to retrieve property names for a property group (entity) that the user has in their taxonomy. You will receive a list of properties containing their name, value type, and description, or a message that properties have not been found.
+                    Use this tool to retrieve property names for a property group (entity). You will receive a list of properties containing their name, value type, and description, or a message that properties have not been found.
 
                     - **Infer the property groups from the user's request.**
                     - **Try other entities** if the tool doesn't return any properties.
@@ -146,7 +182,7 @@ class TaxonomyAgentToolkit(ABC):
                 "name": "retrieve_entity_property_values",
                 "signature": f"(entity: Literal[{stringified_entities}], property_name: str)",
                 "description": """
-                    Use this tool to retrieve property values for a property name that the user has in their taxonomy. Adjust filters to these values. You will receive a list of property values or a message that property values have not been found. Some properties can have many values, so the output will be truncated. Use your judgment to find a proper value.
+                    Use this tool to retrieve property values for a property name. Adjust filters to these values. You will receive a list of property values or a message that property values have not been found. Some properties can have many values, so the output will be truncated. Use your judgment to find a proper value.
 
                     Args:
                         entity: The type of the entity that you want to retrieve properties for.
@@ -280,9 +316,7 @@ class TaxonomyAgentToolkit(ABC):
 
         return self._generate_properties_xml(props)
 
-    def _retrieve_event_or_action_taxonomy(
-        self, event_name_or_action_id: str | int
-    ) -> tuple[CacheMissResponse | CachedEventTaxonomyQueryResponse, str]:
+    def _retrieve_event_or_action_taxonomy(self, event_name_or_action_id: str | int):
         is_event = isinstance(event_name_or_action_id, str)
         if is_event:
             query = EventTaxonomyQuery(event=event_name_or_action_id, maxPropertyValues=25)
@@ -450,8 +484,4 @@ class TaxonomyAgentToolkit(ABC):
         )
 
     def handle_incorrect_response(self, response: str) -> str:
-        """
-        No-op tool. Take a parsing error and return a response that the LLM can use to correct itself.
-        Used to control a number of retries.
-        """
         return response
