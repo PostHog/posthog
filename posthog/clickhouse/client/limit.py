@@ -12,10 +12,10 @@ from posthog import redis
 from posthog.settings import TEST
 from posthog.utils import generate_short_id
 
-CONCURRENT_QUERY_PER_TEAM = Gauge(
-    "posthog_clickhouse_query_concurrent_per_team",
-    "Number of concurrent queries per team",
-    ["team_id", "access_method"],
+RUNNING_CLICKHOUSE_QUERIES = Gauge(
+    "posthog_clickhouse_running_queries",
+    "Number of concurrent queries",
+    ["access_method"],
 )
 
 CONCURRENT_QUERY_LIMIT_EXCEEDED_COUNTER = Counter(
@@ -84,14 +84,12 @@ class RateLimit:
         else:
             access_method = "other"
 
-        team_gauge = CONCURRENT_QUERY_PER_TEAM.labels(
-            team_id=str(kwargs.get("team_id", "unknown")), access_method=access_method
-        )
-        team_gauge.inc()
+        query_gauge = RUNNING_CLICKHOUSE_QUERIES.labels(access_method=access_method)
+        query_gauge.inc()
         try:
             yield
         finally:
-            team_gauge.dec()
+            query_gauge.dec()
             if applicable:
                 self.release(running_task_key, task_id)
 
@@ -149,7 +147,7 @@ def get_api_personal_rate_limiter():
     global __API_CONCURRENT_QUERY_PER_TEAM
     if __API_CONCURRENT_QUERY_PER_TEAM is None:
         __API_CONCURRENT_QUERY_PER_TEAM = RateLimit(
-            max_concurrent_tasks=25,
+            max_concurrent_tasks=3,
             applicable=lambda *args, **kwargs: not TEST and kwargs.get("team_id") and kwargs.get("is_api"),
             limit_name="api_per_team",
             get_task_name=lambda *args, **kwargs: f"api:query:per-team:{kwargs.get('team_id')}",
