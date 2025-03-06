@@ -70,12 +70,19 @@ export const getProducerConfigFromEnv = (): GlobalConfig => {
                 return acc
             }
 
-            let parsedValue: string | number = value
+            let parsedValue: string | number | boolean = value
 
             // parse value to a number if it is one
             const numberValue = Number(value)
             if (!isNaN(numberValue)) {
                 parsedValue = numberValue
+            }
+
+            // parse value to a boolean if it is one
+            if (value.toLowerCase() === 'true') {
+                parsedValue = true
+            } else if (value.toLowerCase() === 'false') {
+                parsedValue = false
             }
 
             const rdkafkaKey = key

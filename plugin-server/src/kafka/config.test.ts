@@ -15,12 +15,14 @@ describe('getProducerConfigFromEnv', () => {
     it('converts KAFKA_PRODUCER_ env vars to rdkafka config', () => {
         process.env.KAFKA_PRODUCER_COMPRESSION_TYPE = 'gzip'
         process.env.KAFKA_PRODUCER_QUEUE_BUFFERING_MAX_MS = '1000'
+        process.env.KAFKA_PRODUCER_ENABLE_IDEMPOTENCE = 'false'
 
         const config = getProducerConfigFromEnv()
 
         expect(config).toEqual({
             'compression.type': 'gzip',
             'queue.buffering.max.ms': 1000,
+            'enable.idempotence': false,
         })
     })
 
