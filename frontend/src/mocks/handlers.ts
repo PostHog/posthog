@@ -91,6 +91,8 @@ export const defaultMocks: Mocks = {
         },
         '/api/projects/:team_id/groups/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/groups_types/': [],
+        '/api/environments/:team_id/groups/': EMPTY_PAGINATED_RESPONSE,
+        '/api/environments/:team_id/groups_types/': [],
         '/api/environments/:team_id/insights/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/insights/:insight_id/sharing/': {
             enabled: false,
