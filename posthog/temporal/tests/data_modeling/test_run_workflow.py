@@ -341,7 +341,6 @@ async def test_materialize_model(ateam, bucket_name, minio_client, pageview_even
     ):
         job = await database_sync_to_async(DataModelingJob.objects.create)(
             team=ateam,
-            source="EXTERNAL",
             status=DataModelingJob.Status.RUNNING,
             workflow_id="test_workflow",
         )
