@@ -686,9 +686,6 @@
                         "$ref": "#/definitions/AssistantPropertyFilter"
                     },
                     "type": "array"
-                },
-                "response": {
-                    "type": "object"
                 }
             },
             "required": ["event", "kind"],
@@ -1406,6 +1403,46 @@
             "required": ["type", "content", "tool_call_id"],
             "type": "object"
         },
+        "AssistantTrendsActionsNode": {
+            "additionalProperties": false,
+            "description": "Defines the action series. You must provide the action ID in the `id` field and the name in the `name` field.",
+            "properties": {
+                "custom_name": {
+                    "type": "string"
+                },
+                "id": {
+                    "$ref": "#/definitions/integer"
+                },
+                "kind": {
+                    "const": "ActionsNode",
+                    "type": "string"
+                },
+                "math": {
+                    "$ref": "#/definitions/MathType"
+                },
+                "math_group_type_index": {
+                    "enum": [0, 1, 2, 3, 4],
+                    "type": "number"
+                },
+                "math_property": {
+                    "type": "string"
+                },
+                "math_property_type": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AssistantPropertyFilter"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["id", "kind"],
+            "type": "object"
+        },
         "AssistantTrendsBreakdownFilter": {
             "additionalProperties": false,
             "properties": {
@@ -1471,6 +1508,7 @@
         },
         "AssistantTrendsEventsNode": {
             "additionalProperties": false,
+            "description": "Defines the event series.",
             "properties": {
                 "custom_name": {
                     "type": "string"
@@ -1499,21 +1537,11 @@
                 "name": {
                     "type": "string"
                 },
-                "orderBy": {
-                    "description": "Columns to order by",
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                },
                 "properties": {
                     "items": {
                         "$ref": "#/definitions/AssistantPropertyFilter"
                     },
                     "type": "array"
-                },
-                "response": {
-                    "type": "object"
                 }
             },
             "required": ["kind"],
@@ -1595,7 +1623,7 @@
             "properties": {
                 "breakdownFilter": {
                     "$ref": "#/definitions/AssistantTrendsBreakdownFilter",
-                    "description": "Breakdown of the events"
+                    "description": "Breakdown of the series"
                 },
                 "compareFilter": {
                     "$ref": "#/definitions/CompareFilter",
@@ -1632,9 +1660,16 @@
                     "type": ["number", "null"]
                 },
                 "series": {
-                    "description": "Events to include",
+                    "description": "Events or actions to include",
                     "items": {
-                        "$ref": "#/definitions/AssistantTrendsEventsNode"
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/AssistantTrendsEventsNode"
+                            },
+                            {
+                                "$ref": "#/definitions/AssistantTrendsActionsNode"
+                            }
+                        ]
                     },
                     "type": "array"
                 },

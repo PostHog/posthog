@@ -15,8 +15,8 @@ class TrendsTaxonomyAgentToolkit(TaxonomyAgentToolkit):
 
                     Answer in the following format:
                     ```
-                    Events:
-                    - event 1
+                    Series:
+                    - series 1: event name
                         - math operation: total
                         - property filter 1:
                             - entity
@@ -25,7 +25,8 @@ class TrendsTaxonomyAgentToolkit(TaxonomyAgentToolkit):
                             - operator
                             - property value
                         - property filter 2... Repeat for each property filter.
-                    - event 2
+                    - series 2: action name
+                        - action id: `numeric id`
                         - math operation: average by `property name`.
                         - property filter 1:
                             - entity
