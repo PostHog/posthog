@@ -63,7 +63,12 @@ export default function SchemaForm(): JSX.Element {
                                         <div className="flex items-center gap-1">
                                             <span>UTC</span>
                                             <LemonSwitch checked={isProjectTime} onChange={setIsProjectTime} />
-                                            <span>{currentTeam?.timezone || 'UTC'}</span>
+                                            {currentTeam?.timezone !== 'UTC' && currentTeam?.timezone !== 'GMT' && (
+                                                <>
+                                                    <LemonSwitch checked={isProjectTime} onChange={setIsProjectTime} />
+                                                    <span>{currentTeam?.timezone || 'UTC'}</span>
+                                                </>
+                                            )}
                                         </div>
                                     </div>
                                 ),
