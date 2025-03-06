@@ -434,7 +434,7 @@ class SlackIntegration:
             raise
 
     def _list_channels_by_type(self, type: Literal["public_channel", "private_channel"], authed_user) -> list[dict]:
-        max_page = 20
+        max_page = 50
         channels = []
         cursor = None
 
