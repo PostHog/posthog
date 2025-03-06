@@ -133,7 +133,6 @@ export enum AvailableFeature {
     TARGETING_BY_GROUP = 'targeting_by_group',
     LOCAL_EVALUATION_AND_BOOTSTRAPPING = 'local_evaluation_and_bootstrapping',
     FLAG_USAGE_STATS = 'flag_usage_stats',
-    MULTIPLE_ENVIRONMENTS = 'multiple_environments',
     USER_OPT_IN = 'user_opt_in',
     INSTANT_ROLLBACKS = 'instant_rollbacks',
     EXPERIMENTATION = 'experimentation',
