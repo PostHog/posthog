@@ -156,16 +156,10 @@ pub async fn update_producer_loop(
             }
         };
 
-        // Panicking on offset store failure, same reasoning as the panic above - if kafka's down, we're down
-        //
-        // NOTE(eli): a couple things motivated me to instrument this (and later maybe change behavior):
-        // 1. Missing an offset store or commit is not the end of the world - we can (should!) replay events on restart
-        // 2. This feels too soon in the processing pipe. I'd prefer to cache these by partition -> max(offset)
-        //    and store the cache of seen offsets all at once when batches are drained, below. Let's instrument first
-        // 3. Although backing rd_kafka_offset_store doesn't force a commit, doing this in a tight loop can be heavy
-        //
-        // To be clear: I don't see the service restarting all the time, so prob isn't an issue, but panic'ing vs.
-        // log/statting could hide this as a source of unnecessary property loss
+
+        // TODO(eli): librdkafka auto_commit is probably making this a no-op anyway. we may want to
+        // extend the autocommit time interval either way to ensure we replay consumed messages that
+        // could be part of a lost batch or chunk during a redeploy. stay tuned...
         let curr_offset = offset.get_value();
         match offset.store() {
             Ok(_) => (),
