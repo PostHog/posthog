@@ -542,15 +542,29 @@ class SessionsRecordBatchModel(RecordBatchModel):
                     left=ast.Field(chain=["_inserted_at"]),
                     right=ast.Constant(value=data_interval_end),
                 ),
+                # include $start_timestamp because hogql uses this to add a where clause to the inner query
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Lt,
+                    left=ast.Field(chain=["$start_timestamp"]),
+                    right=ast.Constant(value=data_interval_end),
+                ),
             ]
         )
         if data_interval_start is not None:
-            where_and.exprs.append(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.GtEq,
-                    left=ast.Field(chain=["_inserted_at"]),
-                    right=ast.Constant(value=data_interval_start),
-                )
+            where_and.exprs.extend(
+                [
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.GtEq,
+                        left=ast.Field(chain=["_inserted_at"]),
+                        right=ast.Constant(value=data_interval_start),
+                    ),
+                    # include $start_timestamp because hogql uses this to add a where clause to the inner query
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.GtEq,
+                        left=ast.Field(chain=["$start_timestamp"]),
+                        right=ast.Constant(value=data_interval_start),
+                    ),
+                ]
             )
 
         hogql_query.where = where_and
