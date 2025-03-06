@@ -4421,6 +4421,7 @@ version = "0.0.1"
 dependencies = [
  "anyhow",
  "clap",
+ "common-symbol-data",
  "dirs",
  "inquire",
  "serde",
