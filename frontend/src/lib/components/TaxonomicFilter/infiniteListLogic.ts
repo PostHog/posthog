@@ -29,6 +29,17 @@ import type { infiniteListLogicType } from './infiniteListLogicType'
  */
 export const NO_ITEM_SELECTED = -1
 
+function appendAtIndex<T>(array: T[], items: any[], startIndex?: number): T[] {
+    if (startIndex === undefined) {
+        return [...array, ...items]
+    }
+    const arrayCopy = [...array]
+    items.forEach((item, i) => {
+        arrayCopy[startIndex + i] = item
+    })
+    return arrayCopy
+}
+
 const createEmptyListStorage = (searchQuery = '', first = false): ListStorage => ({
     results: [],
     searchQuery,
@@ -38,45 +49,23 @@ const createEmptyListStorage = (searchQuery = '', first = false): ListStorage =>
 
 // simple cache with a setTimeout expiry
 const API_CACHE_TIMEOUT = 60000
+let apiCache: Record<string, ListStorage> = {}
+let apiCacheTimers: Record<string, number> = {}
 
 async function fetchCachedListResponse(path: string, searchParams: Record<string, any>): Promise<ListStorage> {
     const url = combineUrl(path, searchParams).url
-    const cacheKey = `taxonomic_filter_${url}`
-
-    // Try localStorage first
-    const cachedData = localStorage.getItem(cacheKey)
-    if (cachedData) {
-        const { data, timestamp } = JSON.parse(cachedData)
-        if (Date.now() - timestamp < API_CACHE_TIMEOUT) {
-            return data
-        }
+    let response
+    if (apiCache[url]) {
+        response = apiCache[url]
+    } else {
+        response = await api.get(url)
+        apiCache[url] = response
+        apiCacheTimers[url] = window.setTimeout(() => {
+            delete apiCache[url]
+            delete apiCacheTimers[url]
+        }, API_CACHE_TIMEOUT)
     }
-
-    // If not in localStorage or expired, fetch from API
-    const response = await api.get(url)
-
-    // Cache in localStorage
-    localStorage.setItem(
-        cacheKey,
-        JSON.stringify({
-            data: response,
-            timestamp: Date.now(),
-        })
-    )
-
     return response
-}
-
-// Only clear specific cache entries instead of all
-function invalidateCache(itemName: string | null | undefined): void {
-    if (!itemName) {
-        return
-    }
-    Object.keys(localStorage).forEach((key) => {
-        if (key.startsWith('taxonomic_filter_') && key.includes(itemName)) {
-            localStorage.removeItem(key)
-        }
-    })
 }
 
 export const infiniteListLogic = kea<infiniteListLogicType>([
@@ -145,10 +134,21 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     const start = performance.now()
                     actions.abortAnyRunningQuery()
 
-                    const response = await fetchCachedListResponse(
-                        scopedRemoteEndpoint && !isExpanded ? scopedRemoteEndpoint : remoteEndpoint,
-                        searchParams
-                    )
+                    const [response, expandedCountResponse] = await Promise.all([
+                        // get the list of results
+                        fetchCachedListResponse(
+                            scopedRemoteEndpoint && !isExpanded ? scopedRemoteEndpoint : remoteEndpoint,
+                            searchParams
+                        ),
+                        // if this is an unexpanded scoped list, get the count for the full list
+                        scopedRemoteEndpoint && !isExpanded
+                            ? fetchCachedListResponse(remoteEndpoint, {
+                                  ...searchParams,
+                                  limit: 1,
+                                  offset: 0,
+                              })
+                            : null,
+                    ])
                     breakpoint()
 
                     const queryChanged = values.remoteItems.searchQuery !== values.searchQuery
@@ -164,23 +164,25 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     })
                     cache.abortController = null
 
-                    const results = queryChanged
-                        ? response.results
-                        : [...(offset === 0 ? [] : values.remoteItems.results), ...response.results]
-
                     return {
-                        results,
+                        results: appendAtIndex(
+                            queryChanged ? [] : values.remoteItems.results,
+                            response.results || response,
+                            offset
+                        ),
                         searchQuery: values.searchQuery,
                         queryChanged,
-                        count: response.count,
-                        total_count: response.total_count,
-                        has_more: response.has_more,
-                        expandedCount: response.expandedCount,
+                        count:
+                            response.count ||
+                            (Array.isArray(response) ? response.length : 0) ||
+                            (response.results || []).length,
+                        expandedCount: expandedCountResponse?.count,
                     }
                 },
                 updateRemoteItem: ({ item }) => {
-                    // Only invalidate cache for this specific item
-                    invalidateCache(item.name)
+                    // On updating item, invalidate cache
+                    apiCache = {}
+                    apiCacheTimers = {}
                     const popFromResults = 'hidden' in item && item.hidden
                     const results: TaxonomicDefinitionTypes[] = values.remoteItems.results
                         .map((i) => (i.name === item.name ? (popFromResults ? null : item) : i))
@@ -214,7 +216,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         totalCount: [
             0,
             {
-                loadRemoteItemsSuccess: (_, { remoteItems }) => remoteItems.total_count || remoteItems.count || 0,
+                loadRemoteItemsSuccess: (_, { remoteItems }) => remoteItems.count || 0,
             },
         ],
         hasMore: [
@@ -222,7 +224,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             {
                 loadRemoteItemsSuccess: (_, { remoteItems }) =>
                     remoteItems.has_more ||
-                    (remoteItems.results.length > 0 && remoteItems.total_count > remoteItems.results.length),
+                    (remoteItems.results.length > 0 && remoteItems.count > remoteItems.results.length),
             },
         ],
     })),
@@ -418,12 +420,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             actions.infiniteListResultsReceived(props.listGroupType, remoteItems)
         },
         expand: () => {
-            if (values.hasMore && !values.isLoading) {
-                actions.loadRemoteItems({
-                    offset: values.results.length,
-                    limit: values.limit,
-                })
-            }
+            actions.loadRemoteItems({ offset: values.index, limit: values.limit })
         },
         abortAnyRunningQuery: () => {
             if (cache.abortController) {
