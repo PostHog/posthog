@@ -79,6 +79,7 @@ export class SnappySessionRecorder {
     private clickCount: number = 0
     private keypressCount: number = 0
     private mouseActivityCount: number = 0
+    private messageCount: number = 0
 
     constructor(public readonly sessionId: string, public readonly teamId: number) {}
 
@@ -144,6 +145,7 @@ export class SnappySessionRecorder {
         })
 
         this.rawBytesWritten += rawBytesWritten
+        this.messageCount += 1
         return rawBytesWritten
     }
 
@@ -197,7 +199,7 @@ export class SnappySessionRecorder {
             consoleWarnCount: 0,
             consoleErrorCount: 0,
             size: buffer.length,
-            messageCount: 0,
+            messageCount: this.messageCount,
             snapshotSource: null,
             snapshotLibrary: null,
         }

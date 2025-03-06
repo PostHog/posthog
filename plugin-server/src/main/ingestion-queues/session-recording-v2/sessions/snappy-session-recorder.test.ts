@@ -802,4 +802,50 @@ describe('SnappySessionRecorder', () => {
             expect(result.mouseActivityCount).toBe(2)
         })
     })
+
+    describe('Message counting', () => {
+        it('should count a single message', async () => {
+            const message = createMessage('window1', [
+                {
+                    type: EventType.Meta,
+                    timestamp: 1000,
+                    data: {},
+                },
+            ])
+
+            recorder.recordMessage(message)
+            const result = await recorder.end()
+
+            expect(result.messageCount).toBe(1)
+        })
+
+        it('should count multiple messages', async () => {
+            const message1 = createMessage('window1', [
+                {
+                    type: EventType.Meta,
+                    timestamp: 1000,
+                    data: {},
+                },
+            ])
+            const message2 = createMessage('window2', [
+                {
+                    type: EventType.Meta,
+                    timestamp: 2000,
+                    data: {},
+                },
+            ])
+
+            recorder.recordMessage(message1)
+            recorder.recordMessage(message2)
+            const result = await recorder.end()
+
+            expect(result.messageCount).toBe(2)
+        })
+
+        it('should count zero messages when none are recorded', async () => {
+            const result = await recorder.end()
+
+            expect(result.messageCount).toBe(0)
+        })
+    })
 })
