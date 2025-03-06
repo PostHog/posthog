@@ -89,6 +89,8 @@ export const test = base.extend<{ loginBeforeTests: void; page: Page }>({
 
             // Continue with tests
             await use()
+
+            // any teardown would go here
         },
         { auto: true },
     ],
