@@ -9,8 +9,9 @@ This directory contains Go services and shared libraries for PostHog.
 ├── pkg/           # Shared packages
 │   └── common/    # Common utilities and types
 └── services/      # Individual services
-    └── livestream/  # Livestream service
-    └── apiexample/  # Example API service
+    └── livestream/
+    └── capture/
+    └── ...
 ```
 
 ## Development
@@ -48,6 +49,50 @@ make clean
 
 # Sync workspace dependencies
 go work sync
+```
+
+### Running Individual Services
+
+```bash
+# Run a service directly
+make run-<service>
+
+# Example for livestream
+make run-livestream
+
+# Build a single service (output in bin/)
+make build-<service>
+
+# Example for livestream
+make build-livestream
+./bin/livestream
+
+# Run tests for a single service
+make test-<service>
+
+# Example for livestream
+make test-livestream
+```
+
+### Docker Builds
+
+Each service has its own Dockerfile. To build a service:
+
+```bash
+# From the root directory
+docker build -t posthog/<service> -f Dockerfile.<service> .
+
+# Example for livestream service
+docker build -t posthog/livestream -f Dockerfile.livestream .
+```
+
+To run a built container:
+
+```bash
+docker run -p 8000:8000 posthog/<service>
+
+# Example for livestream service
+docker run -p 8000:8000 posthog/livestream
 ```
 
 ### Adding a New Service

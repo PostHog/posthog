@@ -4,5 +4,5 @@ use (
 	.
 	./pkg/common
 	./services/livestream
-	./services/apiexample
+	./services/capture
 )
