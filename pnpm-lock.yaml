@@ -803,8 +803,8 @@ importers:
         specifier: ^2.11.0
         version: 2.11.0
       posthog-js:
-        specifier: 1.229.0
-        version: 1.229.0(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.229.1
+        version: 1.229.1(@rrweb/types@2.0.0-alpha.17)
       posthog-js-lite:
         specifier: 3.0.0
         version: 3.0.0
@@ -1148,7 +1148,7 @@ importers:
         version: 4.3.0(stylelint@15.11.0(typescript@4.9.5))
       stylelint-config-standard-scss:
         specifier: ^11.1.0
-        version: 11.1.0(postcss@8.5.2)(stylelint@15.11.0(typescript@4.9.5))
+        version: 11.1.0(postcss@8.4.31)(stylelint@15.11.0(typescript@4.9.5))
       stylelint-order:
         specifier: ^6.0.3
         version: 6.0.3(stylelint@15.11.0(typescript@4.9.5))
@@ -12806,8 +12806,8 @@ packages:
   posthog-js@1.217.2:
     resolution: {integrity: sha512-3KC+UjI0UT5zh8kAOVqe/AfvRjBMKynRIBQNlv0TXnfpZG0+h3r/1ONecDgCCGLs/a/55SJCExrugDlx+HPH3w==}
 
-  posthog-js@1.229.0:
-    resolution: {integrity: sha512-ABiTuhGrX3eeIZEVmxqTSfsI5j1fcHfjL0V5dHAk0MhAvomCjcBZai/tQsMILvD+6sC2S9G4tkxo7uiX9oq9tg==}
+  posthog-js@1.229.1:
+    resolution: {integrity: sha512-GhoTxNUY3fnq/+Aod1v9VJwHEhKdqEuajZFghlLc/S1rHl9EUaKqzBYasAL0b3pmj+Qa6dFzmOjXmlc2fsLPow==}
     peerDependencies:
       '@rrweb/types': 2.0.0-alpha.17
       rrweb-snapshot: 2.0.0-alpha.17
@@ -30236,9 +30236,9 @@ snapshots:
     dependencies:
       postcss: 8.4.31
 
-  postcss-scss@4.0.9(postcss@8.5.2):
+  postcss-scss@4.0.9(postcss@8.4.31):
     dependencies:
-      postcss: 8.5.2
+      postcss: 8.4.31
 
   postcss-scss@4.0.9(postcss@8.5.3):
     dependencies:
@@ -30341,7 +30341,7 @@ snapshots:
       preact: 10.25.4
       web-vitals: 4.2.4
 
-  posthog-js@1.229.0(@rrweb/types@2.0.0-alpha.17):
+  posthog-js@1.229.1(@rrweb/types@2.0.0-alpha.17):
     dependencies:
       core-js: 3.40.0
       fflate: 0.4.8
@@ -32180,14 +32180,14 @@ snapshots:
       stylelint: 15.11.0(typescript@4.9.5)
       stylelint-order: 6.0.3(stylelint@15.11.0(typescript@4.9.5))
 
-  stylelint-config-recommended-scss@13.1.0(postcss@8.5.2)(stylelint@15.11.0(typescript@4.9.5)):
+  stylelint-config-recommended-scss@13.1.0(postcss@8.4.31)(stylelint@15.11.0(typescript@4.9.5)):
     dependencies:
-      postcss-scss: 4.0.9(postcss@8.5.2)
+      postcss-scss: 4.0.9(postcss@8.4.31)
       stylelint: 15.11.0(typescript@4.9.5)
       stylelint-config-recommended: 13.0.0(stylelint@15.11.0(typescript@4.9.5))
       stylelint-scss: 5.3.1(stylelint@15.11.0(typescript@4.9.5))
     optionalDependencies:
-      postcss: 8.5.2
+      postcss: 8.4.31
 
   stylelint-config-recommended-scss@13.1.0(postcss@8.5.3)(stylelint@15.11.0(typescript@4.9.5)):
     dependencies:
@@ -32202,13 +32202,13 @@ snapshots:
     dependencies:
       stylelint: 15.11.0(typescript@4.9.5)
 
-  stylelint-config-standard-scss@11.1.0(postcss@8.5.2)(stylelint@15.11.0(typescript@4.9.5)):
+  stylelint-config-standard-scss@11.1.0(postcss@8.4.31)(stylelint@15.11.0(typescript@4.9.5)):
     dependencies:
       stylelint: 15.11.0(typescript@4.9.5)
-      stylelint-config-recommended-scss: 13.1.0(postcss@8.5.2)(stylelint@15.11.0(typescript@4.9.5))
+      stylelint-config-recommended-scss: 13.1.0(postcss@8.4.31)(stylelint@15.11.0(typescript@4.9.5))
       stylelint-config-standard: 34.0.0(stylelint@15.11.0(typescript@4.9.5))
     optionalDependencies:
-      postcss: 8.5.2
+      postcss: 8.4.31
 
   stylelint-config-standard-scss@11.1.0(postcss@8.5.3)(stylelint@15.11.0(typescript@4.9.5)):
     dependencies:
