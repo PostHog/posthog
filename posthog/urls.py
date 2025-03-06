@@ -60,6 +60,8 @@ from .views import (
 from .year_in_posthog import year_in_posthog
 from posthog.api.query import query_awaited
 
+from posthog.api.slack import slack_interactivity_callback
+
 logger = structlog.get_logger(__name__)
 
 ee_urlpatterns: list[Any] = []
@@ -241,6 +243,7 @@ urlpatterns = [
     path("year_in_posthog/2023/<str:user_uuid>/", year_in_posthog.render_2023),
     path("year_in_posthog/2024/<str:user_uuid>", year_in_posthog.render_2024),
     path("year_in_posthog/2024/<str:user_uuid>/", year_in_posthog.render_2024),
+    opt_slash_path("slack/interactivity-callback", slack_interactivity_callback),
 ]
 
 if settings.DEBUG:

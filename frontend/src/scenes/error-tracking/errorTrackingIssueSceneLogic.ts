@@ -62,15 +62,16 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                     const response = await api.errorTracking.getIssue(props.id, props.fingerprint)
                     return { ...values.issue, ...response }
                 },
-                loadClickHouseIssue: async (firstSeen: string) => {
+                loadClickHouseIssue: async (first_seen: string) => {
                     const hasLastSeen = values.issue && values.issue.last_seen
                     const lastSeen = hasLastSeen ? dayjs(values.issue?.last_seen).endOf('minute') : dayjs()
+                    const firstSeen = dayjs(first_seen).startOf('minute')
 
                     const response = await api.query(
                         errorTrackingIssueQuery({
                             issueId: props.id,
                             dateRange: {
-                                date_from: dayjs(firstSeen).startOf('minute').toISOString(),
+                                date_from: firstSeen.toISOString(),
                                 date_to: lastSeen.toISOString(),
                             },
                             customVolume: values.customSparklineConfig,
@@ -152,7 +153,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 if (!issue) {
                     actions.loadRelationalIssue()
                 } else {
-                    actions.loadClickHouseIssue(issue.first_seen)
+                    actions.loadClickHouseIssue(values.dateRange.date_from || issue.first_seen)
                 }
             }
         }

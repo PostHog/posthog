@@ -104,7 +104,12 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
           "https://recordings.posthog.com/",
         ],
         "revenue_tracking_config": {
-          "events": [],
+          "events": [
+            {
+              "eventName": "purchase",
+              "revenueProperty": "value",
+            },
+          ],
         },
         "session_recording_linked_flag": null,
         "session_recording_masking_config": {

@@ -1,7 +1,6 @@
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/geography/country'
 import { IndexedTrendResult } from 'scenes/trends/types'
-
-import { countryCodeToName } from '../../WorldMap'
 
 export function WorldMapColumnTitle(): JSX.Element {
     return <PropertyKeyInfo disableIcon disablePopover value="$geoip_country_name" />
@@ -12,5 +11,5 @@ type WorldMapColumnItemProps = {
 }
 
 export function WorldMapColumnItem({ item }: WorldMapColumnItemProps): JSX.Element {
-    return <>{countryCodeToName[item.breakdown_value as string] || 'none'}</>
+    return <>{COUNTRY_CODE_TO_LONG_NAME[item.breakdown_value as string] || 'none'}</>
 }

@@ -8,8 +8,8 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { getCoreFilterDefinition, getFirstFilterTypeFor } from 'lib/taxonomy'
 import { ceilMsToClosestSecond, findLastIndex, humanFriendlyDuration, objectsEqual, percentage } from 'lib/utils'
+import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/geography/country'
 import posthog from 'posthog-js'
-import { countryCodeToName } from 'scenes/insights/views/WorldMap'
 import { OverviewItem } from 'scenes/session-recordings/components/OverviewGrid'
 import { TimestampFormat } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
@@ -41,7 +41,7 @@ export function countryTitleFrom(
 
     // these prop names are safe between recording and person properties
     // the "initial" person properties share the same name as the event properties
-    const country = countryCodeToName[props['$geoip_country_code'] as keyof typeof countryCodeToName]
+    const country = COUNTRY_CODE_TO_LONG_NAME[props['$geoip_country_code'] as keyof typeof COUNTRY_CODE_TO_LONG_NAME]
     const subdivision = props['$geoip_subdivision_1_name']
     const city = props['$geoip_city_name']
 
@@ -309,7 +309,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                                 ? 'Session property'
                                 : 'Person property',
                         valueTooltip:
-                            property === '$geoip_country_code' && value in countryCodeToName
+                            property === '$geoip_country_code' && value in COUNTRY_CODE_TO_LONG_NAME
                                 ? countryTitleFrom(recordingProperties, personProperties)
                                 : value,
                         type: 'property',

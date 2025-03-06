@@ -98,7 +98,15 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     live_events_token: '123',
     capture_dead_clicks: false,
     human_friendly_comparison_periods: false,
-    revenue_tracking_config: { events: [] },
+    revenue_tracking_config: {
+        events: [
+            {
+                eventName: 'purchase',
+                revenueProperty: 'value',
+                revenueCurrencyProperty: undefined,
+            },
+        ],
+    },
     flags_persistence_default: false,
     access_control_version: 'v1',
     has_completed_onboarding_for: {

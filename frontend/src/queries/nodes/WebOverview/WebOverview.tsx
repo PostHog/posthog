@@ -8,6 +8,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDuration, humanFriendlyLargeNumber, isNotNil, range } from 'lib/utils'
 import { useState } from 'react'
+import { revenueEventsSettingsLogic } from 'scenes/data-management/revenue/revenueEventsSettingsLogic'
 import { urls } from 'scenes/urls'
 
 import { EvenlyDistributedRows } from '~/queries/nodes/WebOverview/EvenlyDistributedRows'
@@ -88,6 +89,8 @@ const WebOverviewItemCellSkeleton = (): JSX.Element => {
 }
 
 const WebOverviewItemCell = ({ item }: { item: WebOverviewItem }): JSX.Element => {
+    const { baseCurrency } = useValues(revenueEventsSettingsLogic)
+
     const label = labelFromKey(item.key)
     const trend = isNotNil(item.changeFromPreviousPct)
         ? item.changeFromPreviousPct === 0
@@ -111,13 +114,13 @@ const WebOverviewItemCell = ({ item }: { item: WebOverviewItem }): JSX.Element =
             ? `${label}: ${item.value >= item.previous ? 'increased' : 'decreased'} by ${formatPercentage(
                   Math.abs(item.changeFromPreviousPct),
                   { precise: true }
-              )}, to ${formatItem(item.value, item.kind, { precise: true })} from ${formatItem(
+              )}, to ${formatItem(item.value, item.kind, { precise: true, currency: baseCurrency })} from ${formatItem(
                   item.previous,
                   item.kind,
-                  { precise: true }
+                  { precise: true, currency: baseCurrency }
               )}`
             : isNotNil(item.value)
-            ? `${label}: ${formatItem(item.value, item.kind, { precise: true })}`
+            ? `${label}: ${formatItem(item.value, item.kind, { precise: true, currency: baseCurrency })}`
             : 'No data'
 
     return (
@@ -131,7 +134,7 @@ const WebOverviewItemCell = ({ item }: { item: WebOverviewItem }): JSX.Element =
                     </div>
                 </div>
                 <div className="w-full flex-1 flex items-center justify-center">
-                    <div className="text-2xl">{formatItem(item.value, item.kind)}</div>
+                    <div className="text-2xl">{formatItem(item.value, item.kind, { currency: baseCurrency })}</div>
                 </div>
                 {trend && isNotNil(item.changeFromPreviousPct) ? (
                     // eslint-disable-next-line react/forbid-dom-props

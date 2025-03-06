@@ -46,6 +46,7 @@ celerybeat.pid
 common/hogvm/typescript/.parcel-cache
 common/hogvm/typescript/dist
 common/plugin_transpiler/dist
+common/tailwind/dist
 coverage-*.xml
 cypress/**/*.diff.png
 cypress/downloads/
@@ -95,3 +96,6 @@ playwright-report/
 test-results/
 playwright/playwright-report/
 playwright/test-results/
+
+.dagster_home/*
+!.dagster_home/.gitkeep

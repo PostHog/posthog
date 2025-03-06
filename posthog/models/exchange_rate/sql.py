@@ -131,10 +131,10 @@ def EXCHANGE_RATE_DATA_BACKFILL_SQL(exchange_rates=None):
     if exchange_rates is None:
         exchange_rates = HISTORICAL_EXCHANGE_RATE_TUPLES()
 
-    values = ",\n".join(f"('{currency}', {rate}, toDate('{date}'))" for date, currency, rate in exchange_rates)
+    values = ",\n".join(f"(toDate('{date}'), '{currency}', {rate})" for date, currency, rate in exchange_rates)
 
     return f"""
-INSERT INTO exchange_rate (currency, rate, date) VALUES
+INSERT INTO {EXCHANGE_RATE_TABLE_NAME} (date, currency, rate) VALUES
   {values};"""
 
 

@@ -43,7 +43,7 @@ export const InlineMenu = ({ editor }: { editor: Editor }): JSX.Element => {
         >
             <div
                 ref={menuRef}
-                className="NotebookInlineMenu flex bg-surface-primary rounded border items-center text-secondary p-1 deprecated-space-x-0_5"
+                className="NotebookInlineMenu flex bg-surface-primary rounded border items-center text-secondary p-1 gap-x-0.5"
             >
                 {editor.isActive('link') ? (
                     <>

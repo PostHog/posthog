@@ -21,6 +21,7 @@ export function RunningTimeCalculatorModal(): JSX.Element {
         uniqueUsers,
         averageEventsPerUser,
         averagePropertyValuePerUser,
+        conversionRate,
         metricResultLoading,
     } = useValues(runningTimeCalculatorLogic({ experimentId }))
     const { setMinimumDetectableEffect, setMetricIndex } = useActions(runningTimeCalculatorLogic({ experimentId }))
@@ -102,18 +103,20 @@ export function RunningTimeCalculatorModal(): JSX.Element {
                                     <Spinner className="text-3xl transform -translate-y-[-10px]" />
                                 </div>
                             </div>
-                        ) : uniqueUsers !== null && standardDeviation !== null ? (
+                        ) : (
                             <div className="border-t pt-2">
                                 <div className="grid grid-cols-3 gap-4">
-                                    <div>
-                                        <div className="card-secondary">Unique users</div>
-                                        <div className="font-semibold">
-                                            ~{humanFriendlyNumber(uniqueUsers || 0, 0)} persons
+                                    {uniqueUsers !== null && (
+                                        <div>
+                                            <div className="card-secondary">Unique users</div>
+                                            <div className="font-semibold">
+                                                ~{humanFriendlyNumber(uniqueUsers || 0, 0)} persons
+                                            </div>
+                                            <div className="text-xs text-muted">
+                                                Last {TIMEFRAME_HISTORICAL_DATA_DAYS} days
+                                            </div>
                                         </div>
-                                        <div className="text-xs text-muted">
-                                            Last {TIMEFRAME_HISTORICAL_DATA_DAYS} days
-                                        </div>
-                                    </div>
+                                    )}
                                     {averageEventsPerUser !== null && (
                                         <div>
                                             <div className="card-secondary">Avg. events per user</div>
@@ -130,15 +133,25 @@ export function RunningTimeCalculatorModal(): JSX.Element {
                                             </div>
                                         </div>
                                     )}
-                                    <div>
-                                        <div className="card-secondary">Estimated standard deviation</div>
-                                        <div className="font-semibold">
-                                            ~{humanFriendlyNumber(standardDeviation, 0)}
+                                    {conversionRate !== null && (
+                                        <div>
+                                            <div className="card-secondary">Conversion rate</div>
+                                            <div className="font-semibold">
+                                                ~{humanFriendlyNumber(conversionRate * 100, 2)}%
+                                            </div>
                                         </div>
-                                    </div>
+                                    )}
+                                    {standardDeviation !== null && (
+                                        <div>
+                                            <div className="card-secondary">Estimated standard deviation</div>
+                                            <div className="font-semibold">
+                                                ~{humanFriendlyNumber(standardDeviation, 0)}
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
-                        ) : null}
+                        )}
                     </div>
                 </div>
 

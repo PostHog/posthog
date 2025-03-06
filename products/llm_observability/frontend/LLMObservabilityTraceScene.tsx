@@ -178,7 +178,7 @@ function TraceSidebar({
         >
             <h3 className="font-medium text-sm px-2 my-2">Tree</h3>
             <LemonDivider className="m-0" />
-            <ul className="overflow-y-auto p-1 first:*:mt-0 overflow-x-hidden">
+            <ul className="overflow-y-auto p-1 *:first:mt-0 overflow-x-hidden">
                 <TreeNode topLevelTrace={trace} item={trace} isSelected={!eventId || eventId === trace.id} />
                 <TreeNodeChildren tree={tree} trace={trace} selectedEventId={eventId} />
             </ul>

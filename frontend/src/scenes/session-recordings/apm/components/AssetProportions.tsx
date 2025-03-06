@@ -59,7 +59,7 @@ const Asset = ({
             <div
                 ref={wrapperRef}
                 key={label}
-                className="h-12 flex justify-center px-2 py-1 rounded-sm"
+                className="h-12 flex justify-center px-2 py-1 rounded-xs"
                 /* eslint-disable-next-line react/forbid-dom-props */
                 style={{
                     width: `${proportion}%`,

@@ -691,7 +691,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         validated_data["web_token"] = generate_random_token()
 
         if settings.CREATE_HOG_FUNCTION_FROM_PLUGIN_CONFIG:
-            # Try and create a hog function if possible, otherwise fail
+            # Try and create a hog function if possible, otherwise create plugin
             from posthog.cdp.legacy_plugins import hog_function_from_plugin_config
 
             try:
@@ -710,13 +710,12 @@ class PluginConfigSerializer(serializers.ModelSerializer):
                             "team_id": self.context["team_id"],
                         },
                     )
-
+                    # Return plugin config without saving if hog function was created successfully
                     return PluginConfig(**validated_data)
-                raise ValidationError("Failed to create hog function")
 
             except Exception as e:
+                # If anything goes wrong with hog function creation, capture the error but continue with plugin creation
                 capture_exception(e)
-                raise ValidationError("Failed to create hog function")
 
         plugin_config = super().create(validated_data)
         log_enabled_change_activity(

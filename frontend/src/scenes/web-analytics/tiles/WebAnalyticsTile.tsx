@@ -11,10 +11,14 @@ import { IconOpenInNew, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { percentage, tryDecodeURIComponent, UnexpectedNeverError } from 'lib/utils'
+import {
+    COUNTRY_CODE_TO_LONG_NAME,
+    countryCodeToFlag,
+    LANGUAGE_CODE_TO_NAME,
+    languageCodeToFlag,
+} from 'lib/utils/geography/country'
 import { useCallback, useMemo } from 'react'
 import { NewActionButton } from 'scenes/actions/NewActionButton'
-import { countryCodeToFlag, countryCodeToName } from 'scenes/insights/views/WorldMap'
-import { languageCodeToFlag, languageCodeToName } from 'scenes/insights/views/WorldMap/countryCodes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 import {
@@ -220,7 +224,7 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
                 const countryCode = value
                 return (
                     <>
-                        {countryCodeToFlag(countryCode)} {countryCodeToName[countryCode] || countryCode}
+                        {countryCodeToFlag(countryCode)} {COUNTRY_CODE_TO_LONG_NAME[countryCode] || countryCode}
                     </>
                 )
             }
@@ -230,7 +234,7 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
                 const [countryCode, regionCode, regionName] = value
                 return (
                     <>
-                        {countryCodeToFlag(countryCode)} {countryCodeToName[countryCode] || countryCode} -{' '}
+                        {countryCodeToFlag(countryCode)} {COUNTRY_CODE_TO_LONG_NAME[countryCode] || countryCode} -{' '}
                         {regionName || regionCode}
                     </>
                 )
@@ -241,7 +245,8 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
                 const [countryCode, cityName] = value
                 return (
                     <>
-                        {countryCodeToFlag(countryCode)} {countryCodeToName[countryCode] || countryCode} - {cityName}
+                        {countryCodeToFlag(countryCode)} {COUNTRY_CODE_TO_LONG_NAME[countryCode] || countryCode} -{' '}
+                        {cityName}
                     </>
                 )
             }
@@ -261,7 +266,7 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
                 return (
                     <>
                         {countryCodeToFlag(parsedCountryCode) ?? languageCodeToFlag(languageCode)}&nbsp;
-                        {languageCodeToName[languageCode] || languageCode}
+                        {LANGUAGE_CODE_TO_NAME[languageCode] || languageCode}
                     </>
                 )
             }

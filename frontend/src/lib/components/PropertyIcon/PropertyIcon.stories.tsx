@@ -1,7 +1,7 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { PROPERTIES_ICON_MAP, PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { countryCodeToName } from 'scenes/insights/views/WorldMap'
+import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/geography/country'
 
 type Story = StoryObj<typeof PropertyIcon>
 const meta: Meta<typeof PropertyIcon> = {
@@ -18,7 +18,7 @@ const Template: StoryFn<typeof PropertyIcon> = (args) => {
 
     const data = [
         ...Object.keys(
-            args.property === '$geoip_country_code' ? countryCodeToName : PROPERTIES_ICON_MAP[args.property]
+            args.property === '$geoip_country_code' ? COUNTRY_CODE_TO_LONG_NAME : PROPERTIES_ICON_MAP[args.property]
         ).map((value) => ({ value })),
         { value: '(unknown value)' },
         { value: undefined },

@@ -26,13 +26,14 @@ WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
 COPY turbo.json package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
-COPY frontend/package.json frontend/tailwind.config.js frontend/
+COPY frontend/package.json frontend/
 COPY frontend/bin/ frontend/bin/
 COPY bin/ bin/
 COPY patches/ patches/
 COPY common/hogvm/typescript/ common/hogvm/typescript/
 COPY common/esbuilder/ common/esbuilder/
 COPY common/eslint_rules/ common/eslint_rules/
+COPY common/tailwind/ common/tailwind/
 COPY products/ products/
 COPY ee/frontend/ ee/frontend/
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store \

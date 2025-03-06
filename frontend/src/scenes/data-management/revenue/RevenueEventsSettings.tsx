@@ -1,4 +1,5 @@
-import { IconTrash } from '@posthog/icons'
+import { IconInfo, IconTrash } from '@posthog/icons'
+import { Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -10,100 +11,152 @@ import { revenueEventsSettingsLogic } from 'scenes/data-management/revenue/reven
 
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import { Query } from '~/queries/Query/Query'
-import { RevenueTrackingEventItem } from '~/queries/schema/schema-general'
+import { CurrencyCode, RevenueTrackingEventItem } from '~/queries/schema/schema-general'
 
-const ADD_EVENT_BUTTON_ID = 'data-management-revenue-settings-add-event'
+import { CurrencyDropdown } from './CurrencyDropdown'
 
 export function RevenueEventsSettings(): JSX.Element {
-    const { saveDisabledReason, events, eventsQuery } = useValues(revenueEventsSettingsLogic)
-    const { addEvent, deleteEvent, updatePropertyName, save } = useActions(revenueEventsSettingsLogic)
+    const { saveDisabledReason, events, baseCurrency, eventsQuery } = useValues(revenueEventsSettingsLogic)
+    const { addEvent, deleteEvent, updatePropertyName, updateCurrencyPropertyName, updateBaseCurrency, save } =
+        useActions(revenueEventsSettingsLogic)
 
     const renderPropertyColumn = useCallback(
-        (_, item: RevenueTrackingEventItem) => {
-            return (
-                <TaxonomicPopover
-                    groupType={TaxonomicFilterGroupType.EventProperties}
-                    onChange={(newPropertyName) => updatePropertyName(item.eventName, newPropertyName)}
-                    value={item.revenueProperty}
-                    placeholder="Choose event property"
-                    excludedProperties={{}}
-                    showNumericalPropsOnly={true}
-                    disabledReason={
-                        item.eventName === '$pageview' || item.eventName === '$autocapture'
-                            ? 'Built-in events must use revenue'
-                            : undefined
-                    }
-                />
-            )
-        },
-        [updatePropertyName]
+        (
+                key: keyof RevenueTrackingEventItem,
+                updatePropertyFunction: (eventName: string, propertyName: string) => void
+            ) =>
+            // eslint-disable-next-line react/display-name
+            (_: string | undefined, item: RevenueTrackingEventItem) => {
+                return (
+                    <TaxonomicPopover
+                        size="small"
+                        className="my-1"
+                        groupType={TaxonomicFilterGroupType.EventProperties}
+                        onChange={(newPropertyName) => updatePropertyFunction(item.eventName, newPropertyName)}
+                        value={item[key]}
+                        placeholder="Choose event property"
+                        showNumericalPropsOnly={true}
+                        disabledReason={
+                            item.eventName === '$pageview' || item.eventName === '$autocapture'
+                                ? 'Built-in events must use revenue'
+                                : undefined
+                        }
+                    />
+                )
+            },
+        []
     )
 
     const buttonRef = useRef<HTMLButtonElement | null>(null)
 
     return (
-        <div className="deprecated-space-y-4">
-            <ProductIntroduction
-                productName="Revenue tracking"
-                thingName="revenue event"
-                description="Revenue events are used to track revenue in Web analytics. You can choose which custom events PostHog should consider as revenue events, and which event property corresponds to the value of the event."
-                isEmpty={events.length === 0}
-                action={() => buttonRef.current?.click()}
-            />
-            <LemonTable<RevenueTrackingEventItem>
-                columns={[
-                    { key: 'eventName', title: 'Event name', dataIndex: 'eventName' },
-                    {
-                        key: 'revenueProperty',
-                        title: 'Revenue property',
-                        dataIndex: 'revenueProperty',
-                        render: renderPropertyColumn,
-                    },
-                    {
-                        key: 'delete',
-                        title: '',
-                        render: (_, item) => (
-                            <LemonButton
-                                type="secondary"
-                                onClick={() => deleteEvent(item.eventName)}
-                                icon={<IconTrash />}
-                            >
-                                Delete
-                            </LemonButton>
-                        ),
-                    },
-                ]}
-                dataSource={events}
-                rowKey={(item) => item.eventName}
-            />
+        <div className="flex flex-col gap-8">
+            <div>
+                <h3>Base currency</h3>
+                <p>
+                    PostHog will convert all revenue values to this currency before displaying them to you. If we can't
+                    properly detect your revenue events' currency, we'll assume it's in this currency as well.
+                </p>
+                <CurrencyDropdown
+                    value={baseCurrency}
+                    onChange={(currency) => {
+                        updateBaseCurrency(currency as CurrencyCode)
+                        save()
+                    }}
+                />
+            </div>
 
-            <TaxonomicPopover
-                type="primary"
-                groupType={TaxonomicFilterGroupType.CustomEvents}
-                onChange={addEvent}
-                value={undefined}
-                placeholder="Create revenue event"
-                placeholderClass=""
-                excludedProperties={{
-                    [TaxonomicFilterGroupType.CustomEvents]: [null, ...events.map((item) => item.eventName)],
-                }}
-                id={ADD_EVENT_BUTTON_ID}
-                ref={buttonRef}
-            />
-            <div className="mt-4">
-                <LemonButton type="primary" onClick={save} disabledReason={saveDisabledReason}>
-                    Save
-                </LemonButton>
+            <div>
+                <h3 className="mb-2">Event Configuration</h3>
+                <ProductIntroduction
+                    productName="Revenue tracking"
+                    thingName="revenue event"
+                    description="Revenue events are used to track revenue in Web analytics. You can choose which custom events PostHog should consider as revenue events, and which event property corresponds to the value of the event."
+                    isEmpty={events.length === 0}
+                    action={() => buttonRef.current?.click()}
+                />
+                <LemonTable<RevenueTrackingEventItem>
+                    columns={[
+                        { key: 'eventName', title: 'Event name', dataIndex: 'eventName' },
+                        {
+                            key: 'revenueProperty',
+                            title: 'Revenue property',
+                            dataIndex: 'revenueProperty',
+                            render: renderPropertyColumn('revenueProperty', updatePropertyName),
+                        },
+                        {
+                            key: 'revenueCurrencyProperty',
+                            title: (
+                                <span>
+                                    Revenue currency property
+                                    <Tooltip title="The currency of the revenue event. If not set, the account's default currency will be used. We'll soon convert revenue data from this currency to your base currency for reporting purposes.">
+                                        <IconInfo className="ml-1" />
+                                    </Tooltip>
+                                </span>
+                            ),
+                            dataIndex: 'revenueCurrencyProperty',
+                            render: renderPropertyColumn('revenueCurrencyProperty', updateCurrencyPropertyName),
+                        },
+                        {
+                            key: 'delete',
+                            fullWidth: true,
+                            title: (
+                                <div className="flex flex-row w-full gap-1 justify-end my-2">
+                                    <TaxonomicPopover
+                                        type="primary"
+                                        groupType={TaxonomicFilterGroupType.CustomEvents}
+                                        onChange={addEvent}
+                                        value={undefined}
+                                        placeholder="Create revenue event"
+                                        placeholderClass=""
+                                        excludedProperties={{
+                                            [TaxonomicFilterGroupType.CustomEvents]: [
+                                                null,
+                                                ...events.map((item) => item.eventName),
+                                            ],
+                                        }}
+                                        id="data-management-revenue-settings-add-event"
+                                        ref={buttonRef}
+                                    />
+
+                                    <LemonButton type="primary" onClick={save} disabledReason={saveDisabledReason}>
+                                        Save
+                                    </LemonButton>
+                                </div>
+                            ),
+                            render: (_, item) => (
+                                <LemonButton
+                                    className="float-right"
+                                    size="small"
+                                    type="secondary"
+                                    onClick={() => deleteEvent(item.eventName)}
+                                    icon={<IconTrash />}
+                                >
+                                    Delete
+                                </LemonButton>
+                            ),
+                        },
+                    ]}
+                    dataSource={events}
+                    rowKey={(item) => item.eventName}
+                />
             </div>
 
             {eventsQuery ? (
-                <Query
-                    query={eventsQuery}
-                    context={{
-                        showOpenEditorButton: true,
-                        extraDataTableQueryFeatures: [QueryFeature.highlightExceptionEventRows],
-                    }}
-                />
+                <div>
+                    <h3>Revenue events</h3>
+                    <p>
+                        The following revenue events are available in your data. This is helpful when you're trying to
+                        debug what your revenue events look like.
+                    </p>
+                    <Query
+                        query={eventsQuery}
+                        context={{
+                            showOpenEditorButton: true,
+                            extraDataTableQueryFeatures: [QueryFeature.highlightExceptionEventRows],
+                        }}
+                    />
+                </div>
             ) : null}
         </div>
     )

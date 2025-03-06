@@ -167,7 +167,7 @@ export function HogRepl(): JSX.Element {
                         <CodeEditorInline
                             language="hog"
                             embedded
-                            className="flex-1 bg-transparent focus:outline-none resize-none ml-2 p-0"
+                            className="flex-1 bg-transparent focus:outline-hidden resize-none ml-2 p-0"
                             value={currentCode}
                             onChange={(value) => setCurrentCode(value ?? '')}
                             onPressCmdEnter={runCurrentCode}

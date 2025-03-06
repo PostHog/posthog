@@ -3,6 +3,7 @@ import json
 from unittest import mock
 from unittest.mock import MagicMock, patch
 from ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters import (
+    DEFAULT_RECORDING_FILTERS,
     count_recordings_that_match_playlist_filters,
 )
 from posthog.redis import get_client
@@ -213,3 +214,15 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest):
                 user_modified_filters=None,
             ),
         )
+
+    @patch("posthoganalytics.capture_exception")
+    @patch("ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query")
+    def test_skips_default_filters(self, mock_list_recordings_from_query: MagicMock, mock_capture_exception: MagicMock):
+        playlist = SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            name="test",
+            filters=DEFAULT_RECORDING_FILTERS,
+        )
+        count_recordings_that_match_playlist_filters(playlist.id)
+        mock_capture_exception.assert_not_called()
+        mock_list_recordings_from_query.assert_not_called()
