@@ -17,7 +17,7 @@ export const defaultQuery = (table: string, columns: DatabaseSchemaField[]): Dat
 /**
  * This is meant to provide a human-readable sentence that computes the times of day in which a sync
  * will occur.
- * "The sync runs at 12:00 AM, 5:00 PM, and 11:00 PM UTC"
+ * "The sync runs at 11:00 AM, 5:00 PM, and 11:00 PM UTC"
  * @param anchorTime - The time at which the sync was anchored (UTC)
  * @param syncFrequency - Interval at which the sync will reoccur
  */
