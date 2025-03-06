@@ -54,6 +54,7 @@ export class KafkaProducerWrapper {
             'linger.ms': 20,
             'batch.size': 8 * 1024 * 1024,
             'queue.buffering.max.messages': 100_000,
+            'compression.codec': 'snappy',
             'enable.idempotence': true,
             ...getProducerConfigFromEnv(),
             ...globalConfig,
