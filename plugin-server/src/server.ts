@@ -142,12 +142,12 @@ export class PluginServer {
             }
 
             if (capabilities.processAsyncOnEventHandlers) {
-                await initPlugins()
-                serviceLoaders.push(() =>
-                    startAsyncOnEventHandlerConsumer({
+                serviceLoaders.push(async () => {
+                    await initPlugins()
+                    return startAsyncOnEventHandlerConsumer({
                         hub: hub,
                     })
-                )
+                })
             }
 
             if (capabilities.processAsyncWebhooksHandlers) {
