@@ -3797,6 +3797,7 @@ class TestDecideRemoteConfig(TestDecide):
         ) as wrapped_get_config_via_token:
             response = self._post_decide(api_version=3)
             wrapped_get_config_via_token.assert_called_once()
+            request_id = response.json()["requestId"]
 
         # NOTE: If this changes it indicates something is wrong as we should keep this exact format
         # for backwards compatibility
@@ -3815,6 +3816,8 @@ class TestDecideRemoteConfig(TestDecide):
                 "defaultIdentifiedOnly": True,
                 "siteApps": [],
                 "isAuthenticated": False,
+                # requestId is a UUID
+                "requestId": request_id,
                 "toolbarParams": {},
                 "config": {"enable_collect_everything": True},
                 "featureFlags": {},
