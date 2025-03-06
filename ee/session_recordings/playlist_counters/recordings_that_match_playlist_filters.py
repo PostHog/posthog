@@ -253,6 +253,7 @@ def convert_filters_to_recordings_query(playlist: SessionRecordingPlaylist) -> R
     retry_jitter=True,
     retry_backoff=120,
     max_retries=2,
+    store_errors_even_if_ignored=True,
 )
 def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
     playlist: SessionRecordingPlaylist | None = None
