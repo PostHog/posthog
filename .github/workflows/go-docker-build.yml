@@ -1,0 +1,119 @@
+name: Build and deploy Go container images
+
+on:
+    workflow_dispatch:
+    push:
+        paths:
+            - 'go/**'
+            - '.github/workflows/go-docker-build.yml'
+        branches:
+            - 'master'
+
+jobs:
+    build:
+        name: build ${{ matrix.image }}
+        strategy:
+            matrix:
+                include:
+                    - image: livestream
+                      dockerfile: ./go/Dockerfile.livestream
+
+        runs-on: depot-ubuntu-24.04-4
+        permissions:
+            id-token: write
+            contents: read
+            packages: write
+
+        outputs:
+            livestream_digest: ${{ steps.digest.outputs.livestream_digest }}
+
+        steps:
+            - name: Check Out Repo
+              uses: actions/checkout@v4
+              with:
+                  sparse-checkout: 'go/'
+                  sparse-checkout-cone-mode: false
+
+            - name: Set up Depot CLI
+              uses: depot/setup-action@v1
+
+            - name: Set up QEMU
+              uses: docker/setup-qemu-action@v3
+              with:
+                  image: tonistiigi/binfmt:latest
+                  platforms: all
+
+            - name: Login to ghcr.io
+              uses: docker/login-action@v3
+              with:
+                  registry: ghcr.io
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
+                  logout: false
+
+            - name: Docker meta
+              id: meta
+              uses: docker/metadata-action@v5
+              with:
+                  images: ghcr.io/posthog/posthog/${{ matrix.image }}
+                  tags: |
+                      type=ref,event=pr
+                      type=ref,event=branch
+                      type=semver,pattern={{version}}
+                      type=semver,pattern={{major}}.{{minor}}
+                      type=sha
+
+            - name: Build and push image
+              id: docker_build
+              uses: depot/build-push-action@v1
+              with:
+                  project: 87b1ch2t7h
+                  context: ./go/
+                  file: ${{ matrix.dockerfile }}
+                  push: true
+                  tags: ${{ steps.meta.outputs.tags }}
+                  labels: ${{ steps.meta.outputs.labels }}
+                  platforms: linux/arm64,linux/amd64
+
+            - name: Container image digest
+              id: digest
+              run: |
+                  echo ${{ steps.docker_build.outputs.digest }}
+                  echo "${{matrix.image}}_digest=${{ steps.docker_build.outputs.digest }}" >> $GITHUB_OUTPUT
+                  cat $GITHUB_OUTPUT
+
+    # deploy:
+    #     name: deploy ${{ matrix.release }}
+    #     runs-on: ubuntu-24.04
+    #     needs: build
+    #     if: github.ref == 'refs/heads/master'
+    #     strategy:
+    #         matrix:
+    #             include:
+    #                 - release: livestream
+    #                   values:
+    #                       image:
+    #                           sha: '${{ needs.build.outputs.livestream_digest }}'
+    #     steps:
+    #         - name: get deployer token
+    #           id: deployer
+    #           uses: getsentry/action-github-app-token@v3
+    #           with:
+    #               app_id: ${{ secrets.DEPLOYER_APP_ID }}
+    #               private_key: ${{ secrets.DEPLOYER_APP_PRIVATE_KEY }}
+
+    #         - name: trigger ${{ matrix.release }} deployment
+    #           uses: peter-evans/repository-dispatch@v3
+    #           with:
+    #               token: ${{ steps.deployer.outputs.token }}
+    #               repository: PostHog/charts
+    #               event-type: commit_state_update
+    #               client-payload: |
+    #                   {
+    #                     "values": ${{ toJson(matrix.values) }},
+    #                     "release": "${{ matrix.release }}",
+    #                     "commit": ${{ toJson(github.event.head_commit) }},
+    #                     "repository": ${{ toJson(github.repository) }},
+    #                     "labels": [],
+    #                     "timestamp": "${{ github.event.head_commit.timestamp }}"
+    #                   }
