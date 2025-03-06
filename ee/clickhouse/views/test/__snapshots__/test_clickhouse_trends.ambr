@@ -8,7 +8,6 @@
   ORDER BY 1 DESC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       max_memory_usage=45000000000,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
@@ -79,7 +78,6 @@
   ORDER BY arraySum(total) DESC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       max_memory_usage=45000000000,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
@@ -213,7 +211,6 @@
   ORDER BY arraySum(total) DESC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       max_memory_usage=45000000000,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
@@ -253,7 +250,6 @@
   ORDER BY arraySum(total) DESC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       max_memory_usage=45000000000,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
@@ -415,7 +411,6 @@
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       max_memory_usage=45000000000,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
@@ -496,7 +491,6 @@
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       max_memory_usage=45000000000,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
@@ -551,7 +545,6 @@
   ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       max_memory_usage=45000000000,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
@@ -847,7 +840,6 @@
   ORDER BY arraySum(total) DESC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       max_memory_usage=45000000000,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
@@ -882,7 +874,6 @@
   ORDER BY arraySum(total) DESC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       max_memory_usage=45000000000,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
@@ -917,7 +908,6 @@
   ORDER BY arraySum(total) DESC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       max_memory_usage=45000000000,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
@@ -952,7 +942,6 @@
   ORDER BY arraySum(total) DESC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       max_memory_usage=45000000000,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
@@ -980,7 +969,6 @@
   ORDER BY arraySum(total) DESC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       max_memory_usage=45000000000,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
@@ -1031,7 +1019,6 @@
   ORDER BY arraySum(total) DESC
   LIMIT 50000 SETTINGS readonly=2,
                        max_execution_time=60,
-                       max_memory_usage=45000000000,
                        allow_experimental_object_type=1,
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
