@@ -206,7 +206,7 @@ export class SnappySessionRecorder {
             consoleLogCount: 0,
             consoleWarnCount: 0,
             consoleErrorCount: 0,
-            size: buffer.length,
+            size: uncompressedBuffer.length,
             messageCount: this.messageCount,
             snapshotSource: this.snapshotSource,
             snapshotLibrary: this.snapshotLibrary,

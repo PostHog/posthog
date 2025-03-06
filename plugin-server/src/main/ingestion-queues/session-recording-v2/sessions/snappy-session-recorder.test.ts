@@ -42,7 +42,12 @@ describe('SnappySessionRecorder', () => {
         },
     })
 
-    const readSnappyBuffer = async (buffer: Buffer): Promise<any[]> => {
+    const readSnappyBuffer = async (buffer: Buffer): Promise<string> => {
+        const decompressed = await snappy.uncompress(buffer)
+        return decompressed.toString()
+    }
+
+    const parseSnappyBuffer = async (buffer: Buffer): Promise<any[]> => {
         const decompressed = await snappy.uncompress(buffer)
         return decompressed
             .toString()
@@ -76,7 +81,7 @@ describe('SnappySessionRecorder', () => {
             expect(rawBytesWritten).toBeGreaterThan(0)
 
             const { buffer, eventCount } = await recorder.end()
-            const lines = await readSnappyBuffer(buffer)
+            const lines = await parseSnappyBuffer(buffer)
 
             expect(lines).toEqual([
                 ['window1', events[0]],
@@ -122,7 +127,7 @@ describe('SnappySessionRecorder', () => {
 
             recorder.recordMessage(message)
             const { buffer, eventCount } = await recorder.end()
-            const lines = await readSnappyBuffer(buffer)
+            const lines = await parseSnappyBuffer(buffer)
 
             expect(lines).toEqual([
                 ['window1', events.window1[0]],
@@ -138,7 +143,7 @@ describe('SnappySessionRecorder', () => {
             recorder.recordMessage(message)
 
             const { buffer, eventCount } = await recorder.end()
-            const lines = await readSnappyBuffer(buffer)
+            const lines = await parseSnappyBuffer(buffer)
 
             expect(lines).toEqual([])
             expect(eventCount).toBe(0)
@@ -159,7 +164,7 @@ describe('SnappySessionRecorder', () => {
             }
 
             const { buffer, eventCount } = await recorder.end()
-            const lines = await readSnappyBuffer(buffer)
+            const lines = await parseSnappyBuffer(buffer)
 
             expect(lines.length).toBe(10000)
             expect(eventCount).toBe(10000)
@@ -251,7 +256,7 @@ describe('SnappySessionRecorder', () => {
             expect(result.consoleLogCount).toBe(0)
             expect(result.consoleWarnCount).toBe(0)
             expect(result.consoleErrorCount).toBe(0)
-            expect(result.size).toBe(result.buffer.length)
+            expect(result.size).toBe(0)
             expect(result.messageCount).toBe(0)
             expect(result.snapshotSource).toBeNull()
             expect(result.snapshotLibrary).toBeNull()
@@ -926,6 +931,26 @@ describe('SnappySessionRecorder', () => {
 
             expect(result.snapshotSource).toBe('web')
             expect(result.snapshotLibrary).toBe('posthog-js')
+        })
+    })
+
+    describe('Buffer size reporting', () => {
+        it('should report the uncompressed buffer size', async () => {
+            // Create a message with a known event
+            const events = [
+                {
+                    type: EventType.Meta,
+                    timestamp: 1000,
+                    data: { href: 'https://example.com' },
+                },
+            ]
+
+            const message = createMessage('window1', events)
+            recorder.recordMessage(message)
+            const result = await recorder.end()
+
+            const decompressedBuffer = await readSnappyBuffer(result.buffer)
+            expect(result.size).toBe(decompressedBuffer.length)
         })
     })
 })
