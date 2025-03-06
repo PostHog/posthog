@@ -17,14 +17,14 @@ pytestmark = [
 ]
 
 
-@pytest.mark.parametrize("destination", ["S3", "BigQuery"])
+@pytest.mark.parametrize("destination", ["S3", "BigQuery", "Snowflake"])
 def test_can_get_test_for_destination(client: HttpClient, destination: str):
     organization = create_organization("Test Org")
     team = create_team(organization)
     user = create_user("test@user.com", "Test User", organization)
     client.force_login(user)
 
-    response = client.post(
+    response = client.get(
         f"/api/projects/{team.pk}/batch_exports/test",
         {"destination": destination},
         content_type="application/json",

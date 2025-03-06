@@ -527,9 +527,9 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
         """
         disable_and_delete_export(instance)
 
-    @action(methods=["POST"], detail=False, required_scopes=["INTERNAL"])
+    @action(methods=["GET"], detail=False, required_scopes=["INTERNAL"])
     def test(self, request: request.Request, *args, **kwargs) -> response.Response:
-        destination = request.data.pop("destination", None)
+        destination = request.query_params.get("destination", None)
         if not destination:
             return response.Response(status=status.HTTP_400_BAD_REQUEST)
 

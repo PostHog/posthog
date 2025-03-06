@@ -2402,7 +2402,7 @@ const api = {
             return await new ApiRequest().batchExport(id).withAction('logs').withQueryString(params).get()
         },
         async test(destination: BatchExportService['type']): Promise<BatchExportConfigurationTest> {
-            return await new ApiRequest().batchExports().withAction('test').create({ data: { destination } })
+            return await new ApiRequest().batchExports().withAction('test').withQueryString({ destination }).get()
         },
         async runTestStep(step: number, data: Record<string, any>): Promise<BatchExportConfigurationTestStep> {
             return await new ApiRequest()
