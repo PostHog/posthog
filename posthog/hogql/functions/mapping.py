@@ -981,6 +981,7 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "max": HogQLFunctionMeta("max", 1, 1, aggregate=True, case_sensitive=False),
     "maxIf": HogQLFunctionMeta("maxIf", 2, 2, aggregate=True),
     "sum": HogQLFunctionMeta("sum", 1, 1, aggregate=True, case_sensitive=False),
+    "sumForEach": HogQLFunctionMeta("sumForEach", 1, 1, aggregate=True),
     "sumIf": HogQLFunctionMeta("sumIf", 2, 2, aggregate=True),
     "avg": HogQLFunctionMeta("avg", 1, 1, aggregate=True, case_sensitive=False),
     "avgIf": HogQLFunctionMeta("avgIf", 2, 2, aggregate=True),

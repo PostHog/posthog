@@ -199,6 +199,12 @@ const personsTable: DatabaseSchemaBatchExportTable = {
             type: 'datetime',
             schema_valid: true,
         },
+        is_deleted: {
+            name: 'is_deleted',
+            hogql_value: 'is_deleted',
+            type: 'boolean',
+            schema_valid: true,
+        },
     },
 }
 

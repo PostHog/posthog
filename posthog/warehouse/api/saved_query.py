@@ -59,8 +59,9 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             "columns",
             "status",
             "last_run_at",
+            "latest_error",
         ]
-        read_only_fields = ["id", "created_by", "created_at", "columns", "status", "last_run_at"]
+        read_only_fields = ["id", "created_by", "created_at", "columns", "status", "last_run_at", "latest_error"]
 
     def get_columns(self, view: DataWarehouseSavedQuery) -> list[SerializedField]:
         team_id = self.context["team_id"]
@@ -142,16 +143,18 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
 
             view: DataWarehouseSavedQuery = super().update(instance, validated_data)
 
-            try:
-                view.columns = view.get_columns()
-                view.external_tables = view.s3_tables
-                view.status = DataWarehouseSavedQuery.Status.MODIFIED
-            except RecursionError:
-                raise serializers.ValidationError("Model contains a cycle")
-            except Exception as err:
-                raise serializers.ValidationError(str(err))
+            # Only update columns and status if the query has changed
+            if "query" in validated_data:
+                try:
+                    view.columns = view.get_columns()
+                    view.external_tables = view.s3_tables
+                    view.status = DataWarehouseSavedQuery.Status.MODIFIED
+                except RecursionError:
+                    raise serializers.ValidationError("Model contains a cycle")
+                except Exception as err:
+                    raise serializers.ValidationError(str(err))
 
-            view.save()
+                view.save()
 
             try:
                 DataWarehouseModelPath.objects.update_from_saved_query(view)
@@ -225,7 +228,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         if instance.table is not None:
             instance.table.soft_delete()
 
-        self.perform_destroy(instance)
+        instance.soft_delete()
 
         return response.Response(status=status.HTTP_204_NO_CONTENT)
 

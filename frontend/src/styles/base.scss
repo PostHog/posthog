@@ -380,10 +380,18 @@
     // Backgrounds
     // Behind surfaces, large areas: app scenes, etc.
     // //////////////////////////////////////////////////////////
-    --bg-primary: var(--primitive-3000-50); /* Most prominent/used background (replaces --bg-3000) */
-    --bg-surface-primary: var(--color-white); /* Most prominent surface (Cards, tables, etc.) */
-    --bg-surface-secondary: var(--primitive-3000-100); /* Second most prominent surface (Toolbars) */
-    --bg-surface-tertiary: var(--primitive-3000-150); /* Most prominent surface (Cards, tables, etc.) */
+    --bg-primary: var(--primitive-3000-50);
+
+    /* Most prominent/used background (replaces --bg-3000) */
+    --bg-surface-primary: var(--color-white);
+
+    /* Most prominent surface (Cards, tables, etc.) */
+    --bg-surface-secondary: var(--primitive-3000-100);
+
+    /* Second most prominent surface (Toolbars) */
+    --bg-surface-tertiary: var(--primitive-3000-150);
+
+    /* Most prominent surface (Cards, tables, etc.) */
     --bg-surface-tooltip: var(--primitive-neutral-cool-850);
     --bg-surface-tooltip-inverse: var(--primitive-neutral-cool-250);
     --bg-surface-popover: var(--color-white);
@@ -395,44 +403,58 @@
     --bg-fill-primary: var(--color-white);
     --bg-fill-secondary: var(--primitive-3000-25);
     --bg-fill-tertiary: var(--primitive-3000-50);
+    --bg-fill-highlight-100: color-mix(in oklab, var(--color-black) 10%, transparent);
+    --bg-fill-highlight-150: color-mix(in oklab, var(--color-black) 15%, transparent);
+    --bg-fill-highlight-200: color-mix(in oklab, var(--color-black) 20%, transparent);
+    --bg-fill-highlight-inverse-100: color-mix(in oklab, var(--color-white) 10%, transparent);
+    --bg-fill-highlight-inverse-150: color-mix(in oklab, var(--color-white) 15%, transparent);
+    --bg-fill-highlight-inverse-200: color-mix(in oklab, var(--color-white) 20%, transparent);
 
     // Highlights
-    --bg-fill-primary-highlight: color-mix(
-        in oklab,
-        var(--color-primary-500) 10%,
-        transparent
-    ); /* highlight bg for primary blocks */
+    --bg-fill-primary-highlight: color-mix(in oklab, var(--color-primary-500) 10%, transparent);
+
+    /* highlight bg for primary blocks */
 
     // Info fills
-    --bg-fill-info-secondary: var(--color-blue-100); /* promonent bg for info blocks */
-    --bg-fill-info-tertiary: var(--color-blue-50); /* subtle bg for info blocks */
+    --bg-fill-info-secondary: var(--color-blue-100);
+
+    /* promonent bg for info blocks */
+    --bg-fill-info-tertiary: var(--color-blue-50);
+
+    /* subtle bg for info blocks */
 
     // Warning fills
-    --bg-fill-warning-secondary: var(--color-yellow-100); /* prominent bg for warning blocks */
-    --bg-fill-warning-tertiary: var(--color-yellow-50); /* subtle bg for warning blocks */
-    --bg-fill-warning-highlight: color-mix(
-        in oklab,
-        var(--color-yellow-500) 15%,
-        transparent
-    ); /* highlight bg for warning blocks */
+    --bg-fill-warning-secondary: var(--color-yellow-100);
+
+    /* prominent bg for warning blocks */
+    --bg-fill-warning-tertiary: var(--color-yellow-50);
+
+    /* subtle bg for warning blocks */
+    --bg-fill-warning-highlight: color-mix(in oklab, var(--color-yellow-500) 15%, transparent);
+
+    /* highlight bg for warning blocks */
 
     // Error fills
-    --bg-fill-error-secondary: var(--color-red-100); /* prominent bg for error blocks */
-    --bg-fill-error-tertiary: var(--color-red-50); /* subtle bg for error blocks */
-    --bg-fill-error-highlight: color-mix(
-        in oklab,
-        var(--color-red-500) 10%,
-        transparent
-    ); /* highlight bg for error blocks */
+    --bg-fill-error-secondary: var(--color-red-100);
+
+    /* prominent bg for error blocks */
+    --bg-fill-error-tertiary: var(--color-red-50);
+
+    /* subtle bg for error blocks */
+    --bg-fill-error-highlight: color-mix(in oklab, var(--color-red-500) 10%, transparent);
+
+    /* highlight bg for error blocks */
 
     // Success fills
-    --bg-fill-success-secondary: var(--color-green-100); /* promonent bg for success blocks */
-    --bg-fill-success-tertiary: var(--color-green-50); /* subtle bg for success blocks */
-    --bg-fill-success-highlight: color-mix(
-        in oklab,
-        var(--color-green-500) 10%,
-        transparent
-    ); /* highlight bg for success blocks */
+    --bg-fill-success-secondary: var(--color-green-100);
+
+    /* promonent bg for success blocks */
+    --bg-fill-success-tertiary: var(--color-green-50);
+
+    /* subtle bg for success blocks */
+    --bg-fill-success-highlight: color-mix(in oklab, var(--color-green-500) 10%, transparent);
+
+    /* highlight bg for success blocks */
 
     // Inputs
     --bg-fill-input: var(--color-white);
@@ -452,10 +474,18 @@
     // Content on fills
     // Texts which are on colourful fills, ensures contrast
     // //////////////////////////////////////////////////////////
-    --text-info-on-fill: var(--color-blue-800); /* On-fill text for info */
-    --text-warning-on-fill: var(--color-yellow-800); /* On-fill text for warning */
-    --text-error-on-fill: var(--color-red-800); /* On-fill text for error */
-    --text-success-on-fill: var(--color-green-800); /* On-fill text for success */
+    --text-info-on-fill: var(--color-blue-800);
+
+    /* On-fill text for info */
+    --text-warning-on-fill: var(--color-yellow-800);
+
+    /* On-fill text for warning */
+    --text-error-on-fill: var(--color-red-800);
+
+    /* On-fill text for error */
+    --text-success-on-fill: var(--color-green-800);
+
+    /* On-fill text for success */
 
     // Borders
     // Borders for surfaces/fills (TODO: perhaps we need to do border-fill-primary, border-fill-warning, etc.)
@@ -463,19 +493,31 @@
     --border-primary: var(--primitive-3000-200);
     --border-secondary: var(--primitive-3000-400);
     --border-info: var(--color-blue-400);
-    --border-warning: var(--color-yellow-400); /* Border for warning */
-    --border-error: var(--color-red-400); /* Border for error */
-    --border-success: var(--color-green-400); /* Border for success */
+    --border-warning: var(--color-yellow-400);
+
+    /* Border for warning */
+    --border-error: var(--color-red-400);
+
+    /* Border for error */
+    --border-success: var(--color-green-400);
+
+    /* Border for success */
 
     // Graph colors
     // //////////////////////////////////////////////////////////
-    --color-graph-axis-label: var(--text-secondary); /* Labels around graph */
-    --color-graph-axis-line: var(
-        --primitive-neutral-cool-100
-    ); /* Background lines in a graph, horizontal and vertical */
+    --color-graph-axis-label: var(--text-secondary);
 
-    --color-graph-axis: var(--text-secondary); /* Line around a graph */
-    --color-graph-crosshair: var(--primitive-neutral-cool-450); /* Crosshair line, horizontal or vertical */
+    /* Labels around graph */
+    --color-graph-axis-line: var(--primitive-neutral-cool-100);
+
+    /* Background lines in a graph, horizontal and vertical */
+
+    --color-graph-axis: var(--text-secondary);
+
+    /* Line around a graph */
+    --color-graph-crosshair: var(--primitive-neutral-cool-450);
+
+    /* Crosshair line, horizontal or vertical */
 
     // Skeleton colors
     // //////////////////////////////////////////////////////////
@@ -571,6 +613,7 @@
     // this allows us to place some modals on top of others
     // we should never be forgiven
     // if we ever need more than 7 modals active at the same time
+    --z-top: 9999;
     --z-modal: 1100;
     --z-hedgehog-buddy: 1050;
     --z-annotation-popover: 100;
@@ -822,6 +865,12 @@
     --bg-fill-primary: var(--primitive-neutral-cool-900);
     --bg-fill-secondary: var(--primitive-neutral-cool-850);
     --bg-fill-tertiary: var(--primitive-neutral-cool-800);
+    --bg-fill-highlight-100: color-mix(in oklab, var(--color-white) 10%, transparent);
+    --bg-fill-highlight-inverse-100: color-mix(in oklab, var(--color-black) 10%, transparent);
+    --bg-fill-highlight-150: color-mix(in oklab, var(--color-white) 15%, transparent);
+    --bg-fill-highlight-inverse-150: color-mix(in oklab, var(--color-black) 15%, transparent);
+    --bg-fill-highlight-200: color-mix(in oklab, var(--color-white) 20%, transparent);
+    --bg-fill-highlight-inverse-200: color-mix(in oklab, var(--color-black) 20%, transparent);
     --bg-fill-info-secondary: var(--color-blue-950);
     --bg-fill-info-tertiary: var(--color-blue-950);
     --bg-fill-warning-secondary: var(--color-yellow-950);
@@ -851,10 +900,18 @@
     // Content on fills (dark mode)
     // Texts which are on colourful fills, ensures contrast
     // //////////////////////////////////////////////////////////
-    --text-info-on-fill: var(--color-blue-50); /* On-fill text for info */
-    --text-warning-on-fill: var(--color-yellow-50); /* On-fill text for warning */
-    --text-error-on-fill: var(--color-red-50); /* On-fill text for error */
-    --text-success-on-fill: var(--color-green-50); /* On-fill text for success */
+    --text-info-on-fill: var(--color-blue-50);
+
+    /* On-fill text for info */
+    --text-warning-on-fill: var(--color-yellow-50);
+
+    /* On-fill text for warning */
+    --text-error-on-fill: var(--color-red-50);
+
+    /* On-fill text for error */
+    --text-success-on-fill: var(--color-green-50);
+
+    /* On-fill text for success */
 
     // Borders (dark mode)
     // Borders for surfaces/fills (TODO: perhaps we need to do border-fill-primary, border-fill-warning, etc.)
@@ -862,9 +919,15 @@
     --border-primary: var(--primitive-neutral-cool-800);
     --border-secondary: var(--primitive-neutral-cool-600);
     --border-info: var(--color-blue-900);
-    --border-warning: var(--color-yellow-900); /* Border for warning */
-    --border-error: var(--color-red-900); /* Border for error */
-    --border-success: var(--color-green-900); /* Border for success */
+    --border-warning: var(--color-yellow-900);
+
+    /* Border for warning */
+    --border-error: var(--color-red-900);
+
+    /* Border for error */
+    --border-success: var(--color-green-900);
+
+    /* Border for success */
 
     // Graph colors (dark mode)
     // //////////////////////////////////////////////////////////
@@ -1338,7 +1401,7 @@ html {
 input::placeholder,
 textarea::placeholder {
     // Overrides Tailwind's default
-    color: var(--text-secondary);
+    color: var(--text-tertiary);
 }
 
 a {
@@ -1454,6 +1517,10 @@ img {
     font-family: system-ui;
 }
 
+.inherit {
+    font-family: inherit;
+}
+
 // Highlight background blink
 
 /* stylelint-disable-next-line keyframes-name-pattern */
@@ -1478,4 +1545,25 @@ img {
     100% {
         transform: rotateZ(360deg);
     }
+}
+
+// Floating animation
+
+/* stylelint-disable-next-line keyframes-name-pattern */
+@keyframes float {
+    0% {
+        transform: translateY(0);
+    }
+
+    50% {
+        transform: translateY(-10px);
+    }
+
+    100% {
+        transform: translateY(0);
+    }
+}
+
+.animate-float {
+    animation: float 3s infinite ease-in-out;
 }

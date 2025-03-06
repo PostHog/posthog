@@ -1,17 +1,20 @@
+use core::str;
 use std::sync::Arc;
 
+use common_symbol_data::{read_symbol_data, SourceAndMap};
 use common_types::ClickHouseEvent;
 use cymbal::{
     config::Config,
-    frames::RawFrame,
+    frames::{Frame, RawFrame},
     symbol_store::{
         caching::{Caching, SymbolSetCache},
-        sourcemap::SourcemapProvider,
+        sourcemap::{OwnedSourceMapCache, SourcemapProvider},
         Catalog,
     },
     types::{RawErrProps, Stacktrace},
 };
 use httpmock::MockServer;
+use symbolic::sourcemapcache::SourcePosition;
 use tokio::sync::Mutex;
 
 const CHUNK_PATH: &str = "/static/chunk-PGUQKT6S.js";
@@ -82,4 +85,29 @@ async fn end_to_end_resolver_test() {
     // The use of the caching layer is tested here - we should only have hit the server once
     source_mock.assert_hits(1);
     map_mock.assert_hits(1);
+}
+
+#[tokio::test]
+async fn sourcemap_nulls_dont_go_on_frames() {
+    let content = "{\"colno\":15,\"filename\":\"irrelevant_for_test\",\"function\":\"?\",\"in_app\":true,\"lineno\":476,\"platform\":\"web:javascript\"}";
+    let frame: RawFrame = serde_json::from_str(content).unwrap();
+
+    let jsdata_bytes = include_bytes!("static/sourcemap_with_nulls.jsdata").to_vec();
+    let data: SourceAndMap = read_symbol_data(jsdata_bytes).unwrap();
+    let smc = OwnedSourceMapCache::from_source_and_map(data).unwrap();
+    let c = smc.get_smc();
+
+    let RawFrame::JavaScriptWeb(frame) = frame else {
+        panic!("Expected a JavaScript web frame")
+    };
+
+    let location = frame.location.clone().unwrap();
+
+    let token = c
+        .lookup(SourcePosition::new(location.line - 1, location.column))
+        .unwrap();
+
+    let res = Frame::from((&frame, token));
+
+    assert!(!res.source.unwrap().contains('\0'));
 }

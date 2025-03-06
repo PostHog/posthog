@@ -18,6 +18,10 @@ const getFilterOptions = (logicKey?: HogFunctionConfigurationLogicProps['logicKe
                 label: 'Error tracking issue created',
                 value: '$error_tracking_issue_created',
             },
+            {
+                label: 'Error tracking issue reopened',
+                value: '$error_tracking_issue_reopened',
+            },
         ]
     }
     return [
@@ -50,7 +54,7 @@ export function HogFunctionFiltersInternal(): JSX.Element {
     const options = getFilterOptions(logicProps.logicKey)
 
     return (
-        <div className="p-3 space-y-2 border rounded bg-surface-primary">
+        <div className="p-3 deprecated-space-y-2 border rounded bg-surface-primary">
             <LemonField name="filters" label="Trigger" help="Choose what event should trigger this destination">
                 {({ value, onChange }) => (
                     <>

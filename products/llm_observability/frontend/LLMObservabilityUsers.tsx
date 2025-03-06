@@ -1,10 +1,13 @@
 import { useActions, useValues } from 'kea'
+import { combineUrl } from 'kea-router'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { isHogQLQuery } from '~/queries/utils'
+import { PropertyFilterType } from '~/types'
 
 import { llmObservabilityLogic } from './llmObservabilityLogic'
+import { urls } from './urls'
 
 const mapPerson = (person: any): { distinct_id: string; created_at: string; properties: Record<string, any> } => {
     return {
@@ -38,7 +41,24 @@ export function LLMObservabilityUsers(): JSX.Element {
                         title: 'Person',
                         render: function RenderPerson(x) {
                             const person = mapPerson(x.value)
-                            return <PersonDisplay person={person} withIcon />
+                            return (
+                                <PersonDisplay
+                                    person={person}
+                                    withIcon
+                                    noPopover
+                                    href={
+                                        combineUrl(urls.llmObservabilityTraces(), {
+                                            filters: [
+                                                {
+                                                    type: PropertyFilterType.HogQL,
+                                                    key: `distinct_id == '${person.distinct_id}'`,
+                                                    value: null,
+                                                },
+                                            ],
+                                        }).url
+                                    }
+                                />
+                            )
                         },
                     },
                     first_seen: {

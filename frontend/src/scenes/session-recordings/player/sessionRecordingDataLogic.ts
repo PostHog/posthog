@@ -33,11 +33,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import {
-    AnyPropertyFilter,
     EncodedRecordingSnapshot,
-    PersonType,
-    PropertyFilterType,
-    PropertyOperator,
     RecordingEventsFilters,
     RecordingEventType,
     RecordingReportLoadTimes,
@@ -61,6 +57,7 @@ import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const BUFFER_MS = 60000 // +- before and after start and end of a recording to query for.
 const DEFAULT_REALTIME_POLLING_MILLIS = 3000
+export const MUTATION_CHUNK_SIZE = 5000 // Maximum number of mutations per chunk
 
 let postHogEEModule: PostHogEE
 
@@ -211,10 +208,60 @@ function coerceToEventWithTime(d: unknown, withMobileTransformer: boolean): even
         : (currentEvent as eventWithTime)
 }
 
+export function chunkMutationSnapshot(snapshot: RecordingSnapshot): RecordingSnapshot[] {
+    if (
+        snapshot.type !== EventType.IncrementalSnapshot ||
+        !('data' in snapshot) ||
+        !snapshot.data ||
+        typeof snapshot.data !== 'object' ||
+        !('source' in snapshot.data) ||
+        snapshot.data.source !== IncrementalSource.Mutation ||
+        !('adds' in snapshot.data) ||
+        !Array.isArray(snapshot.data.adds) ||
+        snapshot.data.adds.length <= MUTATION_CHUNK_SIZE
+    ) {
+        return [snapshot]
+    }
+
+    const chunks: RecordingSnapshot[] = []
+    const { adds, removes, texts, attributes } = snapshot.data
+    const totalAdds = adds.length
+    const chunksCount = Math.ceil(totalAdds / MUTATION_CHUNK_SIZE)
+
+    for (let i = 0; i < chunksCount; i++) {
+        const startIdx = i * MUTATION_CHUNK_SIZE
+        const endIdx = Math.min((i + 1) * MUTATION_CHUNK_SIZE, totalAdds)
+        const isFirstChunk = i === 0
+        const isLastChunk = i === chunksCount - 1
+
+        const chunkSnapshot: RecordingSnapshot = {
+            ...snapshot,
+            timestamp: snapshot.timestamp + i, // Just increment by 1ms for each chunk
+            data: {
+                ...snapshot.data,
+                adds: adds.slice(startIdx, endIdx),
+                // Keep removes in the first chunk only
+                removes: isFirstChunk ? removes : [],
+                // Keep texts and attributes in the last chunk only
+                texts: isLastChunk ? texts : [],
+                attributes: isLastChunk ? attributes : [],
+            },
+        }
+
+        // If delay was present in the original snapshot, increment it by 1 for each chunk
+        if ('delay' in snapshot) {
+            chunkSnapshot.delay = (snapshot.delay || 0) + i
+        }
+
+        chunks.push(chunkSnapshot)
+    }
+
+    return chunks
+}
+
 export const parseEncodedSnapshots = async (
     items: (RecordingSnapshot | EncodedRecordingSnapshot | string)[],
     sessionId: string,
-    // this is only kept so that we can export the untransformed data for debugging
     withMobileTransformer: boolean = true
 ): Promise<RecordingSnapshot[]> => {
     if (!postHogEEModule) {
@@ -252,17 +299,16 @@ export const parseEncodedSnapshots = async (
                 isMobileSnapshots = hasAnyWireframes(snapshotData)
             }
 
-            return snapshotData.map((d: unknown) => {
+            return snapshotData.flatMap((d: unknown) => {
                 const snap = coerceToEventWithTime(d, withMobileTransformer)
 
-                return {
-                    // this handles parsing data that was loaded from blob storage "window_id"
-                    // and data that was exported from the front-end "windowId"
-                    // we have more than one format of data that we store/pass around
-                    // but only one that we play back
+                const baseSnapshot: RecordingSnapshot = {
                     windowId: snapshotLine['window_id'] || snapshotLine['windowId'],
                     ...snap,
                 }
+
+                // Apply chunking to the snapshot if needed
+                return chunkMutationSnapshot(baseSnapshot)
             })
         } catch (e) {
             if (typeof l === 'string') {
@@ -363,35 +409,6 @@ const resetTimingsCache = (cache: Record<string, any>): void => {
 export interface SessionRecordingDataLogicProps {
     sessionRecordingId: SessionRecordingId
     realTimePollingIntervalMilliseconds?: number
-}
-
-function makeEventsQuery(
-    person: PersonType | null,
-    distinctId: string | null,
-    start: Dayjs,
-    end: Dayjs,
-    properties: AnyPropertyFilter[]
-): Promise<unknown> {
-    return api.query({
-        kind: NodeKind.EventsQuery,
-        // NOTE: Be careful adding fields here. We want to keep the payload as small as possible to load all events quickly
-        select: [
-            'uuid',
-            'event',
-            'timestamp',
-            'elements_chain',
-            'properties.$window_id',
-            'properties.$current_url',
-            'properties.$event_type',
-        ],
-        orderBy: ['timestamp ASC'],
-        limit: 1000000,
-        personId: person ? String(person.id) : undefined,
-        after: start.subtract(BUFFER_MS, 'ms').format(),
-        before: end.add(BUFFER_MS, 'ms').format(),
-        properties: properties,
-        where: distinctId ? [`distinct_id = ('${distinctId}')`] : undefined,
-    })
 }
 
 async function processEncodedResponse(
@@ -607,16 +624,44 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         return null
                     }
 
+                    const sessionEventsQuery = hogql`
+                            SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type
+                            FROM events
+                            WHERE timestamp > ${start.subtract(BUFFER_MS, 'ms')}
+                              AND timestamp < ${end.add(BUFFER_MS, 'ms')}
+                              AND $session_id = ${props.sessionRecordingId}
+                              ORDER BY timestamp ASC
+                        LIMIT 1000000
+                        `
+
+                    let relatedEventsQuery = hogql`
+                            SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type
+                            FROM events
+                            WHERE timestamp > ${start.subtract(BUFFER_MS, 'ms')}
+                              AND timestamp < ${end.add(BUFFER_MS, 'ms')}
+                              AND (empty($session_id) OR isNull($session_id)) AND properties.$lib != 'web'
+                        `
+                    if (person?.uuid) {
+                        relatedEventsQuery += `
+                            AND person_id = '${person.uuid}'
+                        `
+                    }
+                    if (!person?.uuid && values.sessionPlayerMetaData?.distinct_id) {
+                        relatedEventsQuery += `
+                            AND distinct_id = ${values.sessionPlayerMetaData.distinct_id}
+                        `
+                    }
+                    relatedEventsQuery += `
+                        ORDER BY timestamp ASC
+                        LIMIT 1000000
+                    `
+
                     const [sessionEvents, relatedEvents]: any[] = await Promise.all([
                         // make one query for all events that are part of the session
-                        makeEventsQuery(null, null, start, end, [
-                            {
-                                key: '$session_id',
-                                value: [props.sessionRecordingId],
-                                operator: PropertyOperator.Exact,
-                                type: PropertyFilterType.Event,
-                            },
-                        ]),
+                        api.query({
+                            kind: NodeKind.HogQLQuery,
+                            query: sessionEventsQuery,
+                        }),
                         // make a second for all events from that person,
                         // not marked as part of the session
                         // but in the same time range
@@ -624,20 +669,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         // but with no session id
                         // since posthog-js must always add session id we can also
                         // take advantage of lib being materialized and further filter
-                        makeEventsQuery(null, values.sessionPlayerMetaData?.distinct_id || null, start, end, [
-                            {
-                                key: '$session_id',
-                                value: '',
-                                operator: PropertyOperator.Exact,
-                                type: PropertyFilterType.Event,
-                            },
-                            {
-                                key: '$lib',
-                                value: ['web'],
-                                operator: PropertyOperator.IsNot,
-                                type: PropertyFilterType.Event,
-                            },
-                        ]),
+                        api.query({
+                            kind: NodeKind.HogQLQuery,
+                            query: relatedEventsQuery,
+                        }),
                     ])
 
                     return [...sessionEvents.results, ...relatedEvents.results].map(
@@ -905,7 +940,12 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             (sessionEventsData): RecordingEventType[] =>
                 (sessionEventsData || []).filter((e) => e.event === '$web_vitals'),
         ],
-
+        AIEvents: [
+            (s) => [s.sessionEventsData],
+            (sessionEventsData): RecordingEventType[] =>
+                // see if event start with $ai_
+                (sessionEventsData || []).filter((e) => e.event.startsWith('$ai_')),
+        ],
         windowIdForTimestamp: [
             (s) => [s.segments],
             (segments) =>
@@ -1180,6 +1220,12 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         webVitalsEvents: (value: RecordingEventType[]) => {
             // we preload all web vitals data, so it can be used before user interaction
             if (!values.sessionEventsDataLoading) {
+                actions.loadFullEventData(value)
+            }
+        },
+        AIEvents: (value: RecordingEventType[]) => {
+            // we preload all AI  data, so it can be used before user interaction
+            if (value.length > 0) {
                 actions.loadFullEventData(value)
             }
         },

@@ -270,7 +270,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
             allVariables: values.variables,
             editMode: editMode ?? true,
         }),
+
         resetVariables: () => ({ variables: values.insightVariables }),
+        resetDashboardFilters: () => true,
         setAccessDeniedToDashboard: true,
         setURLVariables: (variables: Record<string, Partial<HogQLVariable>>) => ({ variables }),
     })),
@@ -441,6 +443,27 @@ export const dashboardLogic = kea<dashboardLogicType>([
             false,
             {
                 loadDashboard: () => true,
+                loadDashboardSuccess: () => false,
+                loadDashboardFailure: () => false,
+            },
+        ],
+        loadingPreview: [
+            false,
+            {
+                setDates: () => false,
+                setProperties: () => false,
+                setBreakdownFilter: () => false,
+                loadDashboardSuccess: () => false,
+                loadDashboardFailure: () => false,
+                previewTemporaryFilters: () => true,
+            },
+        ],
+        cancellingPreview: [
+            false,
+            {
+                // have to reload dashboard when when cancelling preview
+                // and resetting filters
+                resetDashboardFilters: () => true,
                 loadDashboardSuccess: () => false,
                 loadDashboardFailure: () => false,
             },
@@ -1159,6 +1182,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
     })),
     listeners(({ actions, values, cache, props, sharedListeners }) => ({
+        resetDashboardFilters: () => {
+            actions.setDates(values.filters.date_from ?? null, values.filters.date_to ?? null)
+            actions.setProperties(values.filters.properties ?? null)
+            actions.setBreakdownFilter(values.filters.breakdown_filter ?? null)
+        },
         updateFiltersAndLayoutsAndVariablesSuccess: () => {
             actions.loadDashboard({ action: 'update' })
         },
@@ -1428,9 +1456,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     // cancel edit mode changes
 
                     // reset filters to that before previewing
-                    actions.setDates(values.filters.date_from ?? null, values.filters.date_to ?? null)
-                    actions.setProperties(values.filters.properties ?? null)
-                    actions.setBreakdownFilter(values.filters.breakdown_filter ?? null)
+                    actions.resetDashboardFilters()
                     actions.resetVariables()
 
                     // reset tile data by relaoding dashboard
@@ -1514,7 +1540,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         abortQuery: async ({ queryId, queryStartTime }) => {
             const { currentTeamId } = values
             try {
-                await api.delete(`api/environments/${currentTeamId}/query/${queryId}/?dequeue_only=true`)
+                await api.delete(`api/environments/${currentTeamId}/query/${queryId}?dequeue_only=true`)
             } catch (e) {
                 console.warn('Failed cancelling query', e)
             }

@@ -1,3 +1,4 @@
+import { Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -60,31 +61,39 @@ export function WebVitals(props: {
 
     return (
         <div className="flex flex-col flex-1 gap-4">
-            <div className="grid gap-2 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
-                <WebVitalsTab
-                    metric="INP"
-                    value={INP}
-                    isActive={webVitalsTab === 'INP'}
-                    setTab={() => setWebVitalsTab('INP')}
-                />
-                <WebVitalsTab
-                    metric="LCP"
-                    value={LCP}
-                    isActive={webVitalsTab === 'LCP'}
-                    setTab={() => setWebVitalsTab('LCP')}
-                />
-                <WebVitalsTab
-                    metric="FCP"
-                    value={FCP}
-                    isActive={webVitalsTab === 'FCP'}
-                    setTab={() => setWebVitalsTab('FCP')}
-                />
-                <WebVitalsTab
-                    metric="CLS"
-                    value={CLS}
-                    isActive={webVitalsTab === 'CLS'}
-                    setTab={() => setWebVitalsTab('CLS')}
-                />
+            <div className="flex flex-col gap-1">
+                <div className="grid gap-2 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
+                    <WebVitalsTab
+                        metric="INP"
+                        value={INP}
+                        isActive={webVitalsTab === 'INP'}
+                        setTab={() => setWebVitalsTab('INP')}
+                    />
+                    <WebVitalsTab
+                        metric="LCP"
+                        value={LCP}
+                        isActive={webVitalsTab === 'LCP'}
+                        setTab={() => setWebVitalsTab('LCP')}
+                    />
+                    <WebVitalsTab
+                        metric="FCP"
+                        value={FCP}
+                        isActive={webVitalsTab === 'FCP'}
+                        setTab={() => setWebVitalsTab('FCP')}
+                    />
+                    <WebVitalsTab
+                        metric="CLS"
+                        value={CLS}
+                        isActive={webVitalsTab === 'CLS'}
+                        setTab={() => setWebVitalsTab('CLS')}
+                    />
+                </div>
+                <span className="text-xs text-text-tertiary self-center sm:self-end">
+                    Metrics above are from the last day in the selected time range.{' '}
+                    <Link to="https://posthog.com/docs/web-analytics/web-vitals#web-vitals-dashboard" target="_blank">
+                        Learn more in the Docs.
+                    </Link>
+                </span>
             </div>
 
             <div className="flex flex-col sm:flex-row gap-2">

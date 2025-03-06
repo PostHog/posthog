@@ -1,6 +1,14 @@
+import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
+
 import { SurveyAppearance } from '~/types'
 
-import { sanitizeColor, sanitizeSurveyAppearance, validateColor } from './utils'
+import {
+    calculateNpsBreakdown,
+    calculateNpsScore,
+    sanitizeColor,
+    sanitizeSurveyAppearance,
+    validateColor,
+} from './utils'
 
 describe('survey utils', () => {
     beforeAll(() => {
@@ -137,6 +145,236 @@ describe('survey utils', () => {
             expect(result?.ratingButtonColor).toBe('#ffffff')
             expect(result?.submitButtonColor).toBe('#000000')
             expect(result?.submitButtonTextColor).toBe('#cccccc')
+        })
+    })
+
+    describe('calculateNpsBreakdown', () => {
+        it('returns all zeros when surveyRatingResults is empty', () => {
+            const surveyResults: SurveyRatingResults[number] = {
+                data: [],
+                total: 0,
+            }
+
+            const result = calculateNpsBreakdown(surveyResults)
+
+            expect(result).toBeNull()
+        })
+
+        it('returns all zeros when data array is missing', () => {
+            const surveyResults: SurveyRatingResults[number] = {
+                data: [],
+                total: 0,
+            }
+
+            const result = calculateNpsBreakdown(surveyResults)
+
+            expect(result).toBeNull()
+        })
+
+        it('returns all zeros when data array has incorrect length', () => {
+            const surveyResults: SurveyRatingResults[number] = {
+                data: [1, 2, 3], // Less than 11 elements
+                total: 6,
+            }
+
+            const result = calculateNpsBreakdown(surveyResults)
+
+            expect(result).toBeNull()
+        })
+
+        it('returns early with all zeros when total is 0', () => {
+            const surveyResults: SurveyRatingResults[number] = {
+                data: [1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0], // despite having some counts in data
+                total: 0, // total is explicitly 0
+            }
+
+            const result = calculateNpsBreakdown(surveyResults)
+
+            expect(result).toEqual({
+                detractors: 0,
+                passives: 0,
+                promoters: 0,
+                total: 0,
+            })
+        })
+
+        it('correctly calculates NPS breakdown with all categories present', () => {
+            const surveyResults: SurveyRatingResults[number] = {
+                data: [
+                    1,
+                    1,
+                    1,
+                    1,
+                    1,
+                    1,
+                    1, // 7 detractors (0-6)
+                    2,
+                    2, // 4 passives (7-8)
+                    3,
+                    3,
+                ], // 6 promoters (9-10)
+                total: 17,
+            }
+
+            const result = calculateNpsBreakdown(surveyResults)
+
+            expect(result).toEqual({
+                detractors: 7,
+                passives: 4,
+                promoters: 6,
+                total: 17,
+            })
+        })
+
+        it('handles all zeros', () => {
+            const surveyResults: SurveyRatingResults[number] = {
+                data: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                total: 0,
+            }
+
+            const result = calculateNpsBreakdown(surveyResults)
+
+            expect(result).toEqual({
+                detractors: 0,
+                passives: 0,
+                promoters: 0,
+                total: 0,
+            })
+        })
+
+        it('handles only promoters', () => {
+            const surveyResults: SurveyRatingResults[number] = {
+                data: [0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 5], // only 9s and 10s
+                total: 10,
+            }
+
+            const result = calculateNpsBreakdown(surveyResults)
+
+            expect(result).toEqual({
+                detractors: 0,
+                passives: 0,
+                promoters: 10,
+                total: 10,
+            })
+        })
+
+        it('handles only passives', () => {
+            const surveyResults: SurveyRatingResults[number] = {
+                data: [0, 0, 0, 0, 0, 0, 0, 5, 5, 0, 0], // only 7s and 8s
+                total: 10,
+            }
+
+            const result = calculateNpsBreakdown(surveyResults)
+
+            expect(result).toEqual({
+                detractors: 0,
+                passives: 10,
+                promoters: 0,
+                total: 10,
+            })
+        })
+
+        it('handles only detractors', () => {
+            const surveyResults: SurveyRatingResults[number] = {
+                data: [2, 2, 2, 2, 2, 2, 2, 0, 0, 0, 0], // only 0-6
+                total: 14,
+            }
+
+            const result = calculateNpsBreakdown(surveyResults)
+
+            expect(result).toEqual({
+                detractors: 14,
+                passives: 0,
+                promoters: 0,
+                total: 14,
+            })
+        })
+    })
+
+    describe('calculateNps', () => {
+        it('calculates NPS score correctly with mixed responses', () => {
+            const breakdown = {
+                total: 100,
+                promoters: 50, // 50%
+                passives: 30, // 30%
+                detractors: 20, // 20%
+            }
+
+            const result = calculateNpsScore(breakdown)
+
+            // NPS = % promoters - % detractors
+            // NPS = 50% - 20% = 30
+            expect(result).toBe(30)
+        })
+
+        it('returns -100 when all respondents are detractors', () => {
+            const breakdown = {
+                total: 50,
+                promoters: 0,
+                passives: 0,
+                detractors: 50,
+            }
+
+            const result = calculateNpsScore(breakdown)
+
+            // NPS = 0% - 100% = -100
+            expect(result).toBe(-100)
+        })
+
+        it('returns 100 when all respondents are promoters', () => {
+            const breakdown = {
+                total: 75,
+                promoters: 75,
+                passives: 0,
+                detractors: 0,
+            }
+
+            const result = calculateNpsScore(breakdown)
+
+            // NPS = 100% - 0% = 100
+            expect(result).toBe(100)
+        })
+
+        it('returns 0 when promoters and detractors are equal', () => {
+            const breakdown = {
+                total: 100,
+                promoters: 40,
+                passives: 20,
+                detractors: 40,
+            }
+
+            const result = calculateNpsScore(breakdown)
+
+            // NPS = 40% - 40% = 0
+            expect(result).toBe(0)
+        })
+
+        it('returns 0 when there are only passives', () => {
+            const breakdown = {
+                total: 30,
+                promoters: 0,
+                passives: 30,
+                detractors: 0,
+            }
+
+            const result = calculateNpsScore(breakdown)
+
+            // NPS = 0% - 0% = 0
+            expect(result).toBe(0)
+        })
+
+        it('handles zero total responses', () => {
+            const breakdown = {
+                total: 0,
+                promoters: 0,
+                passives: 0,
+                detractors: 0,
+            }
+
+            const result = calculateNpsScore(breakdown)
+
+            // When no responses, return 0 instead of NaN
+            expect(result).toBe(0)
         })
     })
 })

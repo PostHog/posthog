@@ -13,6 +13,7 @@ import {
     CountPerActorMathType,
     EventPropertyFilter,
     EventType,
+    ExperimentMetricMathType,
     FilterLogicalOperator,
     FilterType,
     FunnelMathType,
@@ -31,6 +32,7 @@ import {
     PropertyGroupFilterValue,
     PropertyMathType,
     PropertyOperator,
+    RetentionDashboardDisplayType,
     RetentionFilterType,
     SessionPropertyFilter,
     SessionRecordingType,
@@ -72,6 +74,7 @@ export enum NodeKind {
     SessionsTimelineQuery = 'SessionsTimelineQuery',
     RecordingsQuery = 'RecordingsQuery',
     SessionAttributionExplorerQuery = 'SessionAttributionExplorerQuery',
+    RevenueExampleEventsQuery = 'RevenueExampleEventsQuery',
     ErrorTrackingQuery = 'ErrorTrackingQuery',
 
     // Interface nodes
@@ -102,6 +105,7 @@ export enum NodeKind {
     ExperimentMetric = 'ExperimentMetric',
     ExperimentQuery = 'ExperimentQuery',
     ExperimentExposureQuery = 'ExperimentExposureQuery',
+    ExperimentEventExposureConfig = 'ExperimentEventExposureConfig',
     ExperimentEventMetricConfig = 'ExperimentEventMetricConfig',
     ExperimentActionMetricConfig = 'ExperimentActionMetricConfig',
     ExperimentDataWarehouseMetricConfig = 'ExperimentDataWarehouseMetricConfig',
@@ -139,6 +143,7 @@ export type AnyDataNode =
     | WebVitalsQuery
     | WebVitalsPathBreakdownQuery
     | SessionAttributionExplorerQuery
+    | RevenueExampleEventsQuery
     | ErrorTrackingQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
@@ -164,6 +169,7 @@ export type QuerySchema =
     | HogQLMetadata
     | HogQLAutocomplete
     | SessionAttributionExplorerQuery
+    | RevenueExampleEventsQuery
     | ErrorTrackingQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
@@ -300,6 +306,7 @@ export interface HogQLVariable {
     variableId: string
     code_name: string
     value?: any
+    isNull?: boolean
 }
 
 export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
@@ -386,10 +393,18 @@ export interface HogQLNotice {
     fix?: string
 }
 
+export enum QueryIndexUsage {
+    Undecisive = 'undecisive',
+    No = 'no',
+    Partial = 'partial',
+    Yes = 'yes',
+}
+
 export interface HogQLMetadataResponse {
     query?: string
     isValid?: boolean
     isValidView?: boolean
+    isUsingIndices?: QueryIndexUsage
     errors: HogQLNotice[]
     warnings: HogQLNotice[]
     notices: HogQLNotice[]
@@ -519,6 +534,7 @@ export type MathType =
     | CountPerActorMathType
     | GroupMathType
     | HogQLMathType
+    | ExperimentMetricMathType
 
 export interface EntityNode extends Node {
     name?: string
@@ -658,6 +674,7 @@ export interface DataTableNode
                     | WebVitalsQuery
                     | WebVitalsPathBreakdownQuery
                     | SessionAttributionExplorerQuery
+                    | RevenueExampleEventsQuery
                     | ErrorTrackingQuery
                     | ExperimentFunnelsQuery
                     | ExperimentTrendsQuery
@@ -681,6 +698,7 @@ export interface DataTableNode
         | WebVitalsQuery
         | WebVitalsPathBreakdownQuery
         | SessionAttributionExplorerQuery
+        | RevenueExampleEventsQuery
         | ErrorTrackingQuery
         | ExperimentFunnelsQuery
         | ExperimentTrendsQuery
@@ -1088,14 +1106,20 @@ export type RetentionFilterLegacy = Omit<RetentionFilterType, keyof FilterType>
 export type RetentionFilter = {
     retentionType?: RetentionFilterLegacy['retention_type']
     retentionReference?: RetentionFilterLegacy['retention_reference']
-    /** @default 11 */
+    /** @default 8 */
     totalIntervals?: integer
     returningEntity?: RetentionFilterLegacy['returning_entity']
     targetEntity?: RetentionFilterLegacy['target_entity']
     /** @default Day */
     period?: RetentionFilterLegacy['period']
-    showMean?: RetentionFilterLegacy['show_mean']
     cumulative?: RetentionFilterLegacy['cumulative']
+
+    //frontend only
+    showMean?: RetentionFilterLegacy['show_mean']
+    meanRetentionCalculation?: RetentionFilterLegacy['mean_retention_calculation']
+    /** controls the display of the retention graph */
+    display?: ChartDisplayType
+    dashboardDisplay?: RetentionDashboardDisplayType
 }
 
 export interface RetentionValue {
@@ -1182,6 +1206,13 @@ export type StickinessOperator =
     | PropertyOperator.LessThanOrEqual
     | PropertyOperator.Exact
 
+export const StickinessComputationModes = {
+    NonCumulative: 'non_cumulative',
+    Cumulative: 'cumulative',
+} as const
+
+export type StickinessComputationMode = (typeof StickinessComputationModes)[keyof typeof StickinessComputationModes]
+
 export type StickinessFilter = {
     display?: StickinessFilterLegacy['display']
     showLegend?: StickinessFilterLegacy['show_legend']
@@ -1192,6 +1223,7 @@ export type StickinessFilter = {
         operator: StickinessOperator
         value: integer
     }
+    computedAs?: StickinessComputationMode
 }
 
 export const STICKINESS_FILTER_PROPERTIES = new Set<keyof StickinessFilter>([
@@ -1671,6 +1703,22 @@ export interface SessionAttributionExplorerQueryResponse extends AnalyticsQueryR
 }
 export type CachedSessionAttributionExplorerQueryResponse = CachedQueryResponse<SessionAttributionExplorerQueryResponse>
 
+export interface RevenueExampleEventsQuery extends DataNode<RevenueExampleEventsQueryResponse> {
+    kind: NodeKind.RevenueExampleEventsQuery
+    revenueTrackingConfig: RevenueTrackingConfig
+    limit?: integer
+    offset?: integer
+}
+
+export interface RevenueExampleEventsQueryResponse extends AnalyticsQueryResponseBase<unknown> {
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+    types?: unknown[]
+    columns?: unknown[]
+}
+export type CachedRevenueExampleEventsQueryResponse = CachedQueryResponse<RevenueExampleEventsQueryResponse>
+
 export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
     kind: NodeKind.ErrorTrackingQuery
     issueId?: ErrorTrackingIssue['id']
@@ -1842,28 +1890,36 @@ export interface ExperimentTrendsQuery extends DataNode<ExperimentTrendsQueryRes
     exposure_query?: TrendsQuery
 }
 
-export enum ExperimentMetricType {
-    COUNT = 'count',
-    CONTINUOUS = 'continuous',
-    BINOMIAL = 'binomial',
+export interface ExperimentExposureCriteria {
+    filterTestAccounts?: boolean
+    exposure_config?: ExperimentEventExposureConfig
 }
 
-export type ExperimentMetricMath = 'total' | 'sum' | 'avg' | 'median' | 'min' | 'max'
+export interface ExperimentEventExposureConfig {
+    kind: NodeKind.ExperimentEventExposureConfig
+    event: string
+    properties: AnyPropertyFilter[]
+}
+
+export enum ExperimentMetricType {
+    FUNNEL = 'funnel',
+    MEAN = 'mean',
+}
 
 export interface ExperimentMetric {
     kind: NodeKind.ExperimentMetric
     name?: string
     metric_type: ExperimentMetricType
-    filterTestAccounts?: boolean
     inverse?: boolean
     metric_config: ExperimentEventMetricConfig | ExperimentActionMetricConfig | ExperimentDataWarehouseMetricConfig
+    time_window_hours?: number
 }
 
 export interface ExperimentEventMetricConfig {
     kind: NodeKind.ExperimentEventMetricConfig
     event: string
     name?: string
-    math?: ExperimentMetricMath
+    math?: ExperimentMetricMathType
     math_hogql?: string
     math_property?: string
     /** Properties configurable in the interface */
@@ -1874,7 +1930,7 @@ export interface ExperimentActionMetricConfig {
     kind: NodeKind.ExperimentActionMetricConfig
     action: number
     name?: string
-    math?: ExperimentMetricMath
+    math?: ExperimentMetricMathType
     math_hogql?: string
     math_property?: string
     /** Properties configurable in the interface */
@@ -1888,7 +1944,7 @@ export interface ExperimentDataWarehouseMetricConfig {
     timestamp_field: string
     events_join_key: string
     data_warehouse_join_key: string
-    math?: ExperimentMetricMath
+    math?: ExperimentMetricMathType
     math_hogql?: string
     math_property?: string
 }

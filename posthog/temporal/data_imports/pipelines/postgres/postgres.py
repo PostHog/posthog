@@ -5,6 +5,7 @@ import psycopg.rows
 import pyarrow as pa
 import psycopg
 from psycopg import sql
+from psycopg.adapt import Loader
 
 from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
@@ -19,6 +20,13 @@ from posthog.temporal.data_imports.pipelines.sql_database.settings import DEFAUL
 from posthog.warehouse.models import IncrementalFieldType
 
 from dlt.common.normalizers.naming.snake_case import NamingConvention
+
+
+class JsonAsStringLoader(Loader):
+    def load(self, data):
+        if data is None:
+            return None
+        return bytes(data).decode("utf-8")
 
 
 def _build_query(
@@ -126,8 +134,8 @@ def _get_arrow_schema_from_type_name(table_structure: list[TableStructureRow]) -
             case "smallint":
                 arrow_type = pa.int16()
             case "numeric" | "decimal":
-                precision = col.numeric_precision or DEFAULT_NUMERIC_PRECISION
-                scale = col.numeric_scale or DEFAULT_NUMERIC_SCALE
+                precision = col.numeric_precision if col.numeric_precision is not None else DEFAULT_NUMERIC_PRECISION
+                scale = col.numeric_scale if col.numeric_scale is not None else DEFAULT_NUMERIC_SCALE
 
                 arrow_type = build_pyarrow_decimal_type(precision, scale)
             case "real":
@@ -221,6 +229,9 @@ def postgres_source(
             sslkey="/tmp/no.txt",
             cursor_factory=psycopg.ServerCursor,
         ) as connection:
+            connection.adapters.register_loader("json", JsonAsStringLoader)
+            connection.adapters.register_loader("jsonb", JsonAsStringLoader)
+
             with connection.cursor(name=f"posthog_{team_id}_{schema}.{table_name}") as cursor:
                 query = _build_query(
                     schema,

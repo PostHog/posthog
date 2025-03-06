@@ -146,7 +146,7 @@ export const SiteChooser = (): JSX.Element => {
                                     Note: Sites must be served over HTTPS to be selected.
                                 </p>
                             )}
-                            <div className="space-y-2">
+                            <div className="deprecated-space-y-2">
                                 {combinedSnippetAndLiveEventsHosts.map((host) => (
                                     <LemonButton
                                         key={`snippet-host-button-${host}`}
@@ -181,20 +181,20 @@ export const SiteChooser = (): JSX.Element => {
                     )}
                 </LemonCard>
             </div>
-            <div className="space-y-6 relative m-6">
+            <div className="deprecated-space-y-6 relative m-6">
                 <LemonSkeleton className="h-10 rounded-lg w-1/3" />
-                <div className="space-y-2">
+                <div className="deprecated-space-y-2">
                     <LemonSkeleton repeat={5} />
                 </div>
-                <div className="space-y-2">
+                <div className="deprecated-space-y-2">
                     <LemonSkeleton repeat={3} />
                 </div>
                 <LemonSkeleton className="h-6 rounded-lg w-2/3" />
-                <div className="space-y-2">
+                <div className="deprecated-space-y-2">
                     <LemonSkeleton repeat={3} />
                 </div>
                 <LemonSkeleton className="h-10 rounded-lg w-2/3" />
-                <div className="space-y-2">
+                <div className="deprecated-space-y-2">
                     <LemonSkeleton repeat={5} />
                 </div>
             </div>
@@ -259,7 +259,7 @@ export const OnboardingDashboardTemplateConfigureStep = ({
                         </div>
                     </div>
                 ) : (
-                    <div className="grid grid-cols-6 space-x-6 min-h-[80vh]">
+                    <div className="grid grid-cols-6 deprecated-space-x-6 min-h-[80vh]">
                         <div className="col-span-4 relative max-h-[100vh] overflow-y-hidden">
                             {browserUrl && iframeBanner?.level != 'error' ? (
                                 <div className="border border-1 border-border-bold rounded h-full w-full flex flex-col">

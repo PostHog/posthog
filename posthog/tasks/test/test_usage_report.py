@@ -540,6 +540,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "ruby_events_count_in_period": 1,
                     "python_events_count_in_period": 1,
                     "php_events_count_in_period": 1,
+                    "dotnet_events_count_in_period": 0,
                     "recording_count_in_period": 5,
                     "mobile_recording_count_in_period": 0,
                     "mobile_billable_recording_count_in_period": 0,
@@ -601,6 +602,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "ruby_events_count_in_period": 1,
                             "python_events_count_in_period": 1,
                             "php_events_count_in_period": 1,
+                            "dotnet_events_count_in_period": 0,
                             "recording_count_in_period": 0,
                             "mobile_recording_count_in_period": 0,
                             "mobile_billable_recording_count_in_period": 0,
@@ -656,6 +658,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "ruby_events_count_in_period": 0,
                             "python_events_count_in_period": 0,
                             "php_events_count_in_period": 0,
+                            "dotnet_events_count_in_period": 0,
                             "recording_count_in_period": 5,
                             "mobile_recording_count_in_period": 0,
                             "mobile_billable_recording_count_in_period": 0,
@@ -734,6 +737,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "ruby_events_count_in_period": 0,
                     "python_events_count_in_period": 0,
                     "php_events_count_in_period": 0,
+                    "dotnet_events_count_in_period": 0,
                     "recording_count_in_period": 0,
                     "mobile_recording_count_in_period": 0,
                     "mobile_billable_recording_count_in_period": 0,
@@ -795,6 +799,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "ruby_events_count_in_period": 0,
                             "python_events_count_in_period": 0,
                             "php_events_count_in_period": 0,
+                            "dotnet_events_count_in_period": 0,
                             "recording_count_in_period": 0,
                             "mobile_recording_count_in_period": 0,
                             "mobile_billable_recording_count_in_period": 0,
@@ -1822,6 +1827,10 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
                         "usage": 1000,
                         "limit": None,
                     },
+                    "feature_flag_requests": {
+                        "usage": 1000,
+                        "limit": None,
+                    },
                 },
             }
         }
@@ -1851,6 +1860,7 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
             f"{BILLING_SERVICE_URL}/api/usage",
             json=full_report_as_dict,
             headers={"Authorization": f"Bearer {token}"},
+            timeout=15,
         )
 
         mock_posthog.capture.assert_any_call(
@@ -1890,6 +1900,7 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
                 f"{BILLING_SERVICE_URL}/api/usage",
                 json=full_report_as_dict,
                 headers={"Authorization": f"Bearer {token}"},
+                timeout=15,
             )
 
             mock_posthog.capture.assert_any_call(
@@ -1969,6 +1980,7 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
             "events": {"limit": None, "usage": 10000, "todays_usage": 0},
             "recordings": {"limit": None, "usage": 1000, "todays_usage": 0},
             "rows_synced": {"limit": None, "usage": 1000, "todays_usage": 0},
+            "feature_flag_requests": {"limit": None, "usage": 1000, "todays_usage": 0},
             "period": ["2021-10-01T00:00:00Z", "2021-10-31T00:00:00Z"],
         }
 

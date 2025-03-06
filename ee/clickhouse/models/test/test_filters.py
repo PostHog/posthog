@@ -1,7 +1,7 @@
 import json
 from typing import Optional
 
-from posthog.client import query_with_columns, sync_execute
+from posthog.clickhouse.client import query_with_columns, sync_execute
 from posthog.constants import FILTER_TEST_ACCOUNTS
 from posthog.models import Element, Organization, Person, Team
 from posthog.models.cohort import Cohort

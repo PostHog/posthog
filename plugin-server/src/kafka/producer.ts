@@ -63,7 +63,7 @@ export class KafkaProducerWrapper {
             // same event _should_ be deduplicated when merges occur on the table. This isn't a
             // guarantee on removing duplicates though and rather still requires deduplication either
             // when querying the table or client side.
-            'enable.idempotence': true,
+            'enable.idempotence': config.KAFKA_PRODUCER_IDEMPOTENCE,
             dr_cb: true,
         })
 

@@ -265,6 +265,7 @@ export const maxLogic = kea<maxLogicType>([
                         relevantErrorMessage.content = "You've reached my usage limit for now. Please try again later."
                     } else {
                         captureException(e) // Unhandled error, log to Sentry
+                        console.error(e)
                     }
 
                     if (values.threadRaw[values.threadRaw.length - 1]?.status === 'loading') {

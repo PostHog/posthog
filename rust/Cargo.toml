@@ -10,6 +10,7 @@ members = [
     "common/dns",
     "common/alloc",
     "common/types",
+    "common/symbol_data",
     "feature-flags",
     "hook-api",
     "hook-common",
@@ -20,6 +21,8 @@ members = [
     "cyclotron-janitor",
     "cyclotron-fetch",
     "cymbal",
+    "posthog-cli",
+    "e2e-lag-exporter",
 ]
 
 [workspace.lints.rust]

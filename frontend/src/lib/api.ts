@@ -100,6 +100,7 @@ import {
     PropertyDefinition,
     PropertyDefinitionType,
     QueryBasedInsightModel,
+    QueryTabState,
     RawAnnotationType,
     RawBatchExportBackfill,
     RawBatchExportRun,
@@ -807,6 +808,17 @@ class ApiRequest {
         return this.dataWarehouseViewLinks(teamId).addPathComponent(id)
     }
 
+    // # Query Tab State
+    public queryTabState(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('query_tab_state')
+    }
+    public queryTabStateDetail(id: QueryTabState['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.queryTabState(teamId).addPathComponent(id)
+    }
+    public queryTabStateUser(teamId?: TeamType['id']): ApiRequest {
+        return this.queryTabState(teamId).addPathComponent('user')
+    }
+
     // # Subscriptions
     public subscriptions(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('subscriptions')
@@ -835,13 +847,13 @@ class ApiRequest {
 
     public integrationGoogleAdsConversionActions(
         id: IntegrationType['id'],
-        customerId: string,
+        params: { customerId: string; parentId: string },
         teamId?: TeamType['id']
     ): ApiRequest {
         return this.integrations(teamId)
             .addPathComponent(id)
             .addPathComponent('google_conversion_actions')
-            .withQueryString({ customerId })
+            .withQueryString(params)
     }
 
     public integrationLinkedInAdsAccounts(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
@@ -903,7 +915,7 @@ class ApiRequest {
     // Resource Access Permissions
 
     public featureFlagAccessPermissions(flagId: FeatureFlagType['id']): ApiRequest {
-        return this.featureFlag(flagId, ApiConfig.getCurrentTeamId()).addPathComponent('role_access')
+        return this.featureFlag(flagId).addPathComponent('role_access')
     }
 
     public featureFlagAccessPermissionsDetail(
@@ -1066,6 +1078,10 @@ class ApiRequest {
     public coreMemoryDetail(id: CoreMemory['id']): ApiRequest {
         return this.coreMemory().addPathComponent(id)
     }
+
+    public authenticateWizard(): ApiRequest {
+        return this.environments().current().addPathComponent('authenticate_wizard')
+    }
 }
 
 const normalizeUrl = (url: string): string => {
@@ -1185,8 +1201,13 @@ const api = {
     },
 
     fileSystem: {
-        async list(): Promise<CountedPaginatedResponse<FileSystemEntry>> {
-            return await new ApiRequest().fileSystem().get()
+        async list(
+            parent?: string,
+            depth?: number,
+            limit?: number,
+            offset?: number
+        ): Promise<CountedPaginatedResponse<FileSystemEntry>> {
+            return await new ApiRequest().fileSystem().withQueryString({ parent, depth, limit, offset }).get()
         },
         async unfiled(type?: FileSystemType): Promise<CountedPaginatedResponse<FileSystemEntry>> {
             return await new ApiRequest().fileSystemUnfiled(type).get()
@@ -1942,7 +1963,8 @@ const api = {
                 .hogFunctions()
                 .withQueryString({
                     filters,
-                    ...(types ? { types: types.join(',') } : {}),
+                    // NOTE: The API expects "type" as thats the DB level name
+                    ...(types ? { type: types.join(',') } : {}),
                 })
                 .get()
         },
@@ -1996,7 +2018,9 @@ const api = {
             data: {
                 configuration: Record<string, any>
                 mock_async_functions: boolean
-                globals: any
+                globals?: any
+                clickhouse_event?: any
+                invocation_id?: string
             }
         ): Promise<HogFunctionTestInvocationResult> {
             return await new ApiRequest().hogFunction(id).withAction('invocations').create({ data })
@@ -2043,7 +2067,7 @@ const api = {
 
         async updateIssue(
             id: ErrorTrackingIssue['id'],
-            data: Partial<Pick<ErrorTrackingIssue, 'assignee' | 'status'>>
+            data: Partial<Pick<ErrorTrackingIssue, 'status'>>
         ): Promise<ErrorTrackingRelationalIssue> {
             return await new ApiRequest().errorTrackingIssue(id).update({ data })
         },
@@ -2188,6 +2212,9 @@ const api = {
         },
         async getPlaylist(playlistId: SessionRecordingPlaylistType['short_id']): Promise<SessionRecordingPlaylistType> {
             return await new ApiRequest().recordingPlaylist(playlistId).get()
+        },
+        async playlistViewed(playlistId: SessionRecordingPlaylistType['short_id']): Promise<void> {
+            return await new ApiRequest().recordingPlaylist(playlistId).withAction('playlist_viewed').create()
         },
         async createPlaylist(playlist: Partial<SessionRecordingPlaylistType>): Promise<SessionRecordingPlaylistType> {
             return await new ApiRequest().recordingPlaylists().create({ data: playlist })
@@ -2600,6 +2627,24 @@ const api = {
         },
     },
 
+    queryTabState: {
+        async create(data: Partial<QueryTabState>): Promise<QueryTabState> {
+            return await new ApiRequest().queryTabState().create({ data })
+        },
+        async get(id: QueryTabState['id']): Promise<QueryTabState> {
+            return await new ApiRequest().queryTabStateDetail(id).get()
+        },
+        async update(id: QueryTabState['id'], data: Partial<QueryTabState>): Promise<QueryTabState> {
+            return await new ApiRequest().queryTabStateDetail(id).update({ data })
+        },
+        async delete(id: QueryTabState['id']): Promise<void> {
+            await new ApiRequest().queryTabStateDetail(id).delete()
+        },
+        async user(userId: UserType['uuid']): Promise<QueryTabState> {
+            return await new ApiRequest().queryTabStateUser().withQueryString({ user_id: userId }).get()
+        },
+    },
+
     insightVariables: {
         async list(options?: ApiMethodOptions | undefined): Promise<PaginatedResponse<Variable>> {
             return await new ApiRequest().insightVariables().get(options)
@@ -2609,6 +2654,9 @@ const api = {
         },
         async update(variableId: string, data: Partial<Variable>): Promise<Variable> {
             return await new ApiRequest().insightVariable(variableId).update({ data })
+        },
+        async delete(variableId: string): Promise<void> {
+            await new ApiRequest().insightVariable(variableId).delete()
         },
     },
 
@@ -2663,14 +2711,14 @@ const api = {
         },
         async googleAdsAccounts(
             id: IntegrationType['id']
-        ): Promise<{ accessibleAccounts: { id: string; name: string }[] }> {
+        ): Promise<{ accessibleAccounts: { id: string; name: string; level: string; parent_id: string }[] }> {
             return await new ApiRequest().integrationGoogleAdsAccounts(id).get()
         },
         async googleAdsConversionActions(
             id: IntegrationType['id'],
-            customerId: string
+            params: { customerId: string; parentId: string }
         ): Promise<{ conversionActions: GoogleAdsConversionActionType[] }> {
-            return await new ApiRequest().integrationGoogleAdsConversionActions(id, customerId).get()
+            return await new ApiRequest().integrationGoogleAdsConversionActions(id, params).get()
         },
         async linkedInAdsAccounts(id: IntegrationType['id']): Promise<{ adAccounts: LinkedInAdsAccountType[] }> {
             return await new ApiRequest().integrationLinkedInAdsAccounts(id).get()
@@ -2774,6 +2822,11 @@ const api = {
         },
         async update(coreMemoryId: CoreMemory['id'], coreMemory: Pick<CoreMemory, 'text'>): Promise<CoreMemory> {
             return await new ApiRequest().coreMemoryDetail(coreMemoryId).update({ data: coreMemory })
+        },
+    },
+    wizard: {
+        async authenticateWizard(data: { hash: string }): Promise<{ success: boolean }> {
+            return await new ApiRequest().authenticateWizard().create({ data })
         },
     },
 

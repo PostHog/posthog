@@ -19,10 +19,7 @@ import {
     SessionRecordingPlaylistLogicProps,
     sessionRecordingsPlaylistLogic,
 } from './sessionRecordingsPlaylistLogic'
-import {
-    SessionRecordingPlaylistBottomSettings,
-    SessionRecordingsPlaylistTopSettings,
-} from './SessionRecordingsPlaylistSettings'
+import { SessionRecordingsPlaylistTopSettings } from './SessionRecordingsPlaylistSettings'
 import { SessionRecordingsPlaylistTroubleshooting } from './SessionRecordingsPlaylistTroubleshooting'
 
 export function SessionRecordingsPlaylist({
@@ -61,7 +58,7 @@ export function SessionRecordingsPlaylist({
         sections.push({
             key: 'pinned',
             title: (
-                <div className="flex flex-row space-x-1 items-center">
+                <div className="flex flex-row deprecated-space-x-1 items-center">
                     <span>{pinnedDescription} recordings</span>
                     <LemonBadge.Number count={pinnedRecordings.length} status="muted" size="small" />
                 </div>
@@ -77,7 +74,7 @@ export function SessionRecordingsPlaylist({
     sections.push({
         key: 'other',
         title: (
-            <div className="flex flex-row space-x-1 items-center">
+            <div className="flex flex-row deprecated-space-x-1 items-center">
                 <span>Results</span>
                 <LemonBadge.Number count={otherRecordings.length} status="muted" size="small" />
             </div>
@@ -104,14 +101,13 @@ export function SessionRecordingsPlaylist({
 
     return (
         <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
-            <div className="h-full space-y-2">
+            <div className="h-full deprecated-space-y-2">
                 <Playlist
                     data-attr="session-recordings-playlist"
                     notebooksHref={urls.replay(ReplayTabs.Home, filters)}
                     embedded={!!notebookNode}
                     sections={sections}
                     headerActions={<SessionRecordingsPlaylistTopSettings filters={filters} setFilters={setFilters} />}
-                    footerActions={<SessionRecordingPlaylistBottomSettings />}
                     filterActions={
                         notebookNode ? null : (
                             <RecordingsUniversalFilters
@@ -184,7 +180,7 @@ const ListEmptyState = (): JSX.Element => {
             ) : unusableEventsInFilter.length ? (
                 <UnusableEventsWarning unusableEventsInFilter={unusableEventsInFilter} />
             ) : (
-                <div className="flex flex-col items-center space-y-2">
+                <div className="flex flex-col items-center deprecated-space-y-2">
                     {filters.date_from === DEFAULT_RECORDING_FILTERS.date_from ? (
                         <>
                             <span>No matching recordings found</span>

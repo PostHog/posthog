@@ -166,6 +166,10 @@ export function isSessionAttributionExplorerQuery(
     return node?.kind === NodeKind.SessionAttributionExplorerQuery
 }
 
+export function isRevenueExampleEventsQuery(node?: Record<string, any> | null): boolean {
+    return node?.kind === NodeKind.RevenueExampleEventsQuery
+}
+
 export function isErrorTrackingQuery(node?: Record<string, any> | null): node is ErrorTrackingQuery {
     return node?.kind === NodeKind.ErrorTrackingQuery
 }

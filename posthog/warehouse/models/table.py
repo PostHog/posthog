@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Optional, TypeAlias
 from django.db import models
 
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.errors import wrap_query_error
 from posthog.hogql import ast
 from posthog.hogql.database.models import (
@@ -18,6 +18,7 @@ from posthog.models.utils import (
     sane_repr,
 )
 from posthog.schema import DatabaseSerializedFieldType, HogQLQueryModifiers
+from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from posthog.warehouse.models.util import remove_named_tuples
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from django.db.models import Q
@@ -263,6 +264,9 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
                 fields = {**fields, **default_fields}
             if fields.get("_ph_debug"):
                 del fields["_ph_debug"]
+                fields = {**fields, **default_fields}
+            if fields.get(PARTITION_KEY):
+                del fields[PARTITION_KEY]
                 fields = {**fields, **default_fields}
 
         return S3Table(

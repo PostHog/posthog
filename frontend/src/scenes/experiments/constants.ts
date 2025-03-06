@@ -19,3 +19,5 @@ export const LEGACY_EXPERIMENT_ALLOWED_MATH_TYPES = [
     PropertyMathType.Sum,
     HogQLMathType.HogQL,
 ] as const
+
+export const EXPERIMENT_VARIANT_MULTIPLE = '$multiple'

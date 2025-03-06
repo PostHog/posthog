@@ -40,10 +40,12 @@ export function getDefaultConfig(): PluginsServerConfig {
         EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: 1.0,
         SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false,
         KAFKA_HOSTS: 'kafka:9092', // KEEP IN SYNC WITH posthog/settings/data_stores.py
+        KAFKA_PRODUCER_HOSTS: undefined,
         KAFKA_CLIENT_CERT_B64: undefined,
         KAFKA_CLIENT_CERT_KEY_B64: undefined,
         KAFKA_TRUSTED_CERT_B64: undefined,
         KAFKA_SECURITY_PROTOCOL: undefined,
+        KAFKA_PRODUCER_SECURITY_PROTOCOL: undefined,
         KAFKA_SASL_MECHANISM: undefined,
         KAFKA_SASL_USER: undefined,
         KAFKA_SASL_PASSWORD: undefined,
@@ -67,13 +69,14 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKA_PRODUCER_LINGER_MS: 20, // rdkafka default is 5ms
         KAFKA_PRODUCER_BATCH_SIZE: 8 * 1024 * 1024, // rdkafka default is 1MiB
         KAFKA_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES: 100_000, // rdkafka default is 100_000
+        KAFKA_PRODUCER_IDEMPOTENCE: true,
         REDIS_URL: 'redis://127.0.0.1',
         INGESTION_REDIS_HOST: '',
         INGESTION_REDIS_PORT: 6379,
         POSTHOG_REDIS_PASSWORD: '',
         POSTHOG_REDIS_HOST: '',
         POSTHOG_REDIS_PORT: 6379,
-        BASE_DIR: '.',
+        BASE_DIR: '..',
         PLUGINS_RELOAD_PUBSUB_CHANNEL: 'reload-plugins',
         TASK_TIMEOUT: 30,
         TASKS_PER_WORKER: 10,
@@ -91,6 +94,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         REDIS_POOL_MIN_SIZE: 1,
         REDIS_POOL_MAX_SIZE: 3,
         DISABLE_MMDB: isTestEnv(),
+        MMDB_FILE_LOCATION:
+            isDevEnv() || isTestEnv() ? '../share/GeoLite2-City.mmdb' : '/s3/ingestion-assets/mmdb/GeoLite2-City.mmdb',
         DISTINCT_ID_LRU_SIZE: 10000,
         EVENT_PROPERTY_LRU_SIZE: 10000,
         JOB_QUEUES: 'graphile',
@@ -123,7 +128,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         PLUGIN_LOAD_SEQUENTIALLY: false,
         KAFKAJS_LOG_LEVEL: 'WARN',
         MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: 0,
-        USE_KAFKA_FOR_SCHEDULED_TASKS: true,
         CLOUD_DEPLOYMENT: null,
         EXTERNAL_REQUEST_TIMEOUT_MS: 10 * 1000, // 10 seconds
         DROP_EVENTS_BY_TOKEN_DISTINCT_ID: '',
@@ -136,6 +140,10 @@ export function getDefaultConfig(): PluginsServerConfig {
         RUSTY_HOOK_URL: '',
         HOG_HOOK_URL: '',
         CAPTURE_CONFIG_REDIS_HOST: null,
+
+        // posthog
+        POSTHOG_API_KEY: '',
+        POSTHOG_HOST_URL: 'http://localhost:8010',
 
         STARTUP_PROFILE_DURATION_SECONDS: 300, // 5 minutes
         STARTUP_PROFILE_CPU: false,
@@ -197,6 +205,9 @@ export function getDefaultConfig(): PluginsServerConfig {
 
         CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: '',
 
+        // Destination Migration Diffing
+        DESTINATION_MIGRATION_DIFFING_ENABLED: false,
+
         // Cyclotron
         CYCLOTRON_DATABASE_URL: isTestEnv()
             ? 'postgres://posthog:posthog@localhost:5432/test_cyclotron'
@@ -221,6 +232,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_V2_S3_REGION: 'us-east-1',
         SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'object_storage_root_user',
         SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'object_storage_root_password',
+        SESSION_RECORDING_V2_S3_TIMEOUT_MS: 30000,
 
         // Cookieless
         COOKIELESS_FORCE_STATELESS_MODE: false,

@@ -12,7 +12,7 @@ type BillingRouteHandlers = {
 async function setupBillingRoutes(page: Page, handlers: BillingRouteHandlers): Promise<void> {
     await page.route('**/api/billing/', async (route) => {
         const method = route.request().method()
-        const filePath = path.join(__dirname, '../../mocks/billing.json')
+        const filePath = path.join(__dirname, '../../mocks/billing/billing.json')
         let billingContent = JSON.parse(fs.readFileSync(filePath, 'utf-8'))
 
         if (method === 'GET') {

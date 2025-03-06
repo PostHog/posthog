@@ -33,10 +33,10 @@ import { urls } from 'scenes/urls'
 import { AvailableFeature, ProductKey, SidePanelTab } from '~/types'
 
 import AlgoliaSearch from '../../components/AlgoliaSearch'
+import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
 import { sidePanelStateLogic } from '../sidePanelStateLogic'
 import { MaxChatInterface } from './sidePanelMaxChatInterface'
 import { sidePanelStatusLogic } from './sidePanelStatusLogic'
-
 const PRODUCTS = [
     {
         name: 'Product OS',
@@ -212,11 +212,12 @@ export const SidePanelSupport = (): JSX.Element => {
     return (
         <>
             <div className="overflow-y-auto" data-attr="side-panel-support-container">
+                <SidePanelPaneHeader title="Help" />
                 <div className="p-3 max-w-160 w-full mx-auto">
                     {isEmailFormOpen ? (
                         <SupportFormBlock onCancel={() => closeEmailForm()} />
                     ) : isMaxChatInterfaceOpen ? (
-                        <div className="space-y-4">
+                        <div className="deprecated-space-y-4">
                             <MaxChatInterface />
                             <LemonButton
                                 type="secondary"

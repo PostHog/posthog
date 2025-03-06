@@ -295,6 +295,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPieChart,
         inMenu: true,
     },
+    [NodeKind.RevenueExampleEventsQuery]: {
+        name: 'Revenue Example Events',
+        description: 'Revenue Example Events Query.',
+        icon: IconPieChart,
+        inMenu: true,
+    },
     [NodeKind.ErrorTrackingQuery]: {
         name: 'Error Tracking',
         description: 'List and explore exception groups.',
@@ -328,6 +334,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.ExperimentFunnelsQuery]: {
         name: 'Experiment Funnels Result',
         description: 'View experiment funnel result.',
+        icon: IconFlask,
+        inMenu: false,
+    },
+    [NodeKind.ExperimentEventExposureConfig]: {
+        name: 'Experiment Event Exposure Config',
+        description: 'Experiment event exposure configuration.',
         icon: IconFlask,
         inMenu: false,
     },
