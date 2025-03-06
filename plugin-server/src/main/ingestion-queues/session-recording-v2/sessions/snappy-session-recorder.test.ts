@@ -1104,4 +1104,70 @@ describe('SnappySessionRecorder', () => {
             expect(result.consoleErrorCount).toBe(0)
         })
     })
+
+    describe('Active time calculation', () => {
+        it('should calculate active time from events', async () => {
+            // Create events with timestamps that would result in active time
+            const events = [
+                {
+                    type: RRWebEventType.Meta,
+                    timestamp: 1000,
+                    data: { href: 'https://example.com' },
+                },
+                {
+                    type: RRWebEventType.IncrementalSnapshot,
+                    timestamp: 2000, // 1 second after first event
+                    data: { source: 1 }, // MouseMove - active event
+                },
+                {
+                    type: RRWebEventType.IncrementalSnapshot,
+                    timestamp: 3000, // 1 second after second event
+                    data: { source: 2, type: 2 }, // MouseInteraction, Click - active event
+                },
+            ]
+            const message = createMessage('window1', events)
+
+            recorder.recordMessage(message)
+            const result = await recorder.end()
+
+            expect(result.activeMilliseconds).toEqual(1000)
+        })
+
+        it('should handle multiple windows when calculating active time', async () => {
+            // Create events for first window
+            const message1 = createMessage('window1', [
+                {
+                    type: RRWebEventType.Meta,
+                    timestamp: 1000,
+                    data: { href: 'https://example.com' },
+                },
+                {
+                    type: RRWebEventType.IncrementalSnapshot,
+                    timestamp: 2000,
+                    data: { source: 1 }, // MouseMove - active event
+                },
+            ])
+
+            // Create events for second window
+            const message2 = createMessage('window2', [
+                {
+                    type: RRWebEventType.IncrementalSnapshot,
+                    timestamp: 3000,
+                    data: { source: 2, type: 2 }, // MouseInteraction, Click - active event
+                },
+                {
+                    type: RRWebEventType.IncrementalSnapshot,
+                    timestamp: 4000,
+                    data: { source: 5 }, // Input - active event
+                },
+            ])
+
+            recorder.recordMessage(message1)
+            recorder.recordMessage(message2)
+            const result = await recorder.end()
+
+            // The active time should be calculated based on events from both windows
+            expect(result.activeMilliseconds).toEqual(2000)
+        })
+    })
 })

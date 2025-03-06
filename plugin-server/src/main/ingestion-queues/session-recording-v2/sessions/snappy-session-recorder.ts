@@ -5,6 +5,7 @@ import { RRWebEvent } from '~/src/types'
 
 import { ParsedMessageData } from '../kafka/types'
 import { ConsoleLogLevel, getConsoleLogLevel, isClick, isKeypress, isMouseActivity } from '../rrweb-types'
+import { activeMilliseconds } from '../segmentation'
 
 export interface EndResult {
     /** The complete compressed session block */
@@ -85,6 +86,7 @@ export class SnappySessionRecorder {
     private consoleLogCount: number = 0
     private consoleWarnCount: number = 0
     private consoleErrorCount: number = 0
+    private events: Record<string, RRWebEvent[]> = {}
 
     constructor(public readonly sessionId: string, public readonly teamId: number) {}
 
@@ -125,8 +127,17 @@ export class SnappySessionRecorder {
             this.endDateTime = message.eventsRange.end
         }
 
-        Object.entries(message.eventsByWindowId).forEach(([windowId, events]) => {
-            events.forEach((event) => {
+        for (const windowId in message.eventsByWindowId) {
+            const events = message.eventsByWindowId[windowId]
+
+            if (!this.events[windowId]) {
+                this.events[windowId] = []
+            }
+
+            for (const event of events) {
+                // Store the event for later use in active time calculation
+                this.events[windowId].push(event)
+
                 const eventUrl = this.hrefFrom(event)
                 if (eventUrl) {
                     this.urls.add(eventUrl)
@@ -161,8 +172,8 @@ export class SnappySessionRecorder {
                 this.uncompressedChunks.push(chunk)
                 rawBytesWritten += chunk.length
                 this.eventCount++
-            })
-        })
+            }
+        }
 
         this.rawBytesWritten += rawBytesWritten
         this.messageCount += 1
@@ -204,6 +215,15 @@ export class SnappySessionRecorder {
         const uncompressedBuffer = Buffer.concat(this.uncompressedChunks as any)
         const buffer = await snappy.compress(uncompressedBuffer)
 
+        // Collect all events from all windows to calculate active time
+        const allEvents: RRWebEvent[] = []
+        for (const windowId in this.events) {
+            allEvents.push(...this.events[windowId])
+        }
+
+        // Calculate active time
+        const activeTime = activeMilliseconds(allEvents)
+
         return {
             buffer,
             eventCount: this.eventCount,
@@ -214,7 +234,7 @@ export class SnappySessionRecorder {
             clickCount: this.clickCount,
             keypressCount: this.keypressCount,
             mouseActivityCount: this.mouseActivityCount,
-            activeMilliseconds: 0,
+            activeMilliseconds: activeTime,
             consoleLogCount: this.consoleLogCount,
             consoleWarnCount: this.consoleWarnCount,
             consoleErrorCount: this.consoleErrorCount,
