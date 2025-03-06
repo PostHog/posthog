@@ -151,7 +151,7 @@ describe('runningTimeCalculatorLogic', () => {
         })
 
         it('calculates recommended sample size and running time correctly for FUNNEL', async () => {
-            logic.actions.setMinimumDetectableEffect(5)
+            logic.actions.setMinimumDetectableEffect(50)
             logic.actions.setMetricResult({
                 uniqueUsers: 1000,
                 conversionRate: 0.1,
@@ -160,7 +160,7 @@ describe('runningTimeCalculatorLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             await expectLogic(logic).toMatchValues({
-                minimumDetectableEffect: 5,
+                minimumDetectableEffect: 50,
                 recommendedSampleSize: expect.closeTo(1152, 0),
                 recommendedRunningTime: expect.closeTo(16.1, 1),
             })

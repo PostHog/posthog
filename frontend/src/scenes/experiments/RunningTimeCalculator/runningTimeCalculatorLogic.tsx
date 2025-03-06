@@ -342,7 +342,7 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                         Formula:
                         d = MDE (absolute percentage point change)
                     */
-                    d = minimumDetectableEffectDecimal
+                    d = minimumDetectableEffectDecimal * conversionRate
 
                     /*
                         Sample size formula:
