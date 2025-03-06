@@ -531,13 +531,13 @@ class PropertyDefinitionViewSet(
 
         cache_key = self.get_cache_key(query.validated_data)
 
-        # Set up pagination
-        limit = self.paginator.get_limit(self.request)
-        offset = self.paginator.get_offset(self.request)
-
         # Increase default limit if not specified
         if "limit" not in self.request.query_params:
             self.paginator.default_limit = 500
+
+        # Set up pagination
+        limit = self.paginator.get_limit(self.request)
+        offset = self.paginator.get_offset(self.request)
 
         # Build query context
         query_context = self._build_query_context(query, limit, offset)
@@ -546,9 +546,9 @@ class PropertyDefinitionViewSet(
         if query.validated_data.get("search") or query.validated_data.get("properties"):
             return self._execute_query(query_context)
 
-        # Try to get cached results
+        # Try to get cached results with freshness check
         cached_data = cache.get(cache_key)
-        if cached_data:
+        if cached_data and time.time() - cached_data["timestamp"] < self.CACHE_TTL:
             self.paginator.set_count(cached_data["count"])
             return cached_data["results"]
 
