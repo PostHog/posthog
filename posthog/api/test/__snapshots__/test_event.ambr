@@ -7,7 +7,6 @@
   WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-13 00:00:00'), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-20 23:59:59'), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', '')))
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
-                    max_memory_usage=45000000000,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
@@ -24,7 +23,6 @@
   ORDER BY length(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', ''))) ASC
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
-                    max_memory_usage=45000000000,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
@@ -41,7 +39,6 @@
   ORDER BY length(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', ''))) ASC
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
-                    max_memory_usage=45000000000,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
@@ -58,7 +55,6 @@
   ORDER BY length(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', ''))) ASC
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
-                    max_memory_usage=45000000000,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
@@ -75,7 +71,6 @@
   ORDER BY length(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', ''))) ASC
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
-                    max_memory_usage=45000000000,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
@@ -92,7 +87,6 @@
   ORDER BY length(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', ''))) ASC
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
-                    max_memory_usage=45000000000,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
@@ -109,7 +103,6 @@
   ORDER BY length(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'random_prop'), ''), 'null'), '^"|"$', ''))) ASC
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
-                    max_memory_usage=45000000000,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
@@ -140,7 +133,6 @@
   WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-13 00:00:00'), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), '2020-01-20 23:59:59'), isNotNull(nullIf(nullIf(events.mat_random_prop, ''), 'null')))
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
-                    max_memory_usage=45000000000,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
@@ -157,7 +149,6 @@
   ORDER BY length(toString(nullIf(nullIf(events.mat_random_prop, ''), 'null'))) ASC
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
-                    max_memory_usage=45000000000,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
@@ -174,7 +165,6 @@
   ORDER BY length(toString(nullIf(nullIf(events.mat_random_prop, ''), 'null'))) ASC
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
-                    max_memory_usage=45000000000,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
@@ -191,7 +181,6 @@
   ORDER BY length(toString(nullIf(nullIf(events.mat_random_prop, ''), 'null'))) ASC
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
-                    max_memory_usage=45000000000,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
@@ -208,7 +197,6 @@
   ORDER BY length(toString(nullIf(nullIf(events.mat_random_prop, ''), 'null'))) ASC
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
-                    max_memory_usage=45000000000,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
@@ -225,7 +213,6 @@
   ORDER BY length(toString(nullIf(nullIf(events.mat_random_prop, ''), 'null'))) ASC
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
-                    max_memory_usage=45000000000,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
@@ -242,7 +229,6 @@
   ORDER BY length(toString(nullIf(nullIf(events.mat_random_prop, ''), 'null'))) ASC
   LIMIT 10 SETTINGS readonly=2,
                     max_execution_time=60,
-                    max_memory_usage=45000000000,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
