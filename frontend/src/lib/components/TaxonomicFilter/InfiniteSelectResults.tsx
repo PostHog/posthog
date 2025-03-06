@@ -36,6 +36,7 @@ function CategoryPill({
     const canInteract = totalListCount > 0 || taxonomicFilterGroupTypesWithEmptyStates.includes(groupType)
     const hasOnlyDefaultItems = results?.length === 1 && (!results[0].id || results[0].id === '')
     const showLoading = isLoading && (!results || results.length === 0 || hasOnlyDefaultItems) && hasRemoteDataSource
+    const count = hasRemoteDataSource ? totalResultCount : results?.length || 0
 
     return (
         <LemonTag
@@ -51,11 +52,7 @@ function CategoryPill({
                 <>
                     {group?.name}
                     {': '}
-                    {showLoading ? (
-                        <Spinner className="text-sm inline-block ml-1" textColored speed="0.8s" />
-                    ) : (
-                        totalResultCount || 0
-                    )}
+                    {showLoading ? <Spinner className="text-sm inline-block ml-1" textColored speed="0.8s" /> : count}
                 </>
             )}
         </LemonTag>
