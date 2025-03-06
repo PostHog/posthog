@@ -95,6 +95,11 @@ export const surveysLogic = kea<surveysLogicType>([
                     }
                 }
 
+                // Only do backend search if we have more total items than the page size
+                if (values.data.surveysCount <= SURVEY_PAGE_SIZE) {
+                    return values.data
+                }
+
                 const response = await api.surveys.list({
                     limit: SURVEY_PAGE_SIZE,
                     search: trimmedSearchTerm,
@@ -102,8 +107,8 @@ export const surveysLogic = kea<surveysLogicType>([
 
                 return {
                     ...values.data,
-                    searchSurveys: response.results,
-                    searchSurveysCount: response.count,
+                    searchSurveys: response?.results || [],
+                    searchSurveysCount: response?.count || 0,
                 }
             },
             loadNextSearchPage: async () => {
