@@ -93,6 +93,8 @@ export interface SurveyUserStats {
     seen: number
     dismissed: number
     sent: number
+    completed: number
+    partial: number
 }
 
 export interface SurveyRatingResults {
@@ -402,7 +404,20 @@ export const surveyLogic = kea<surveyLogicType>([
                                     AND timestamp >= '${startDate}'
                                     AND timestamp <= '${endDate}'
                                     ${answerFilter !== '' ? answerFilter : ''}
+                                    AND {filters}),
+                                    (SELECT COUNT(DISTINCT person_id)
+                                    FROM events
+                                    WHERE event = 'survey sent'
+                                    AND properties.$survey_id = '${props.id}'
+                                    AND timestamp >= '${startDate}'
+                                    AND timestamp <= '${endDate}'
+                                    ${answerFilter !== '' ? answerFilter : ''}
+                                    AND (
+                                        properties.$survey_completed = true
+                                        OR properties.$survey_response_id == null
+                                    )
                                     AND {filters})
+
                     `,
                     filters: {
                         properties: values.propertyFilters,
@@ -412,11 +427,12 @@ export const surveyLogic = kea<surveyLogicType>([
                 const responseJSON = await api.query(query)
                 const { results } = responseJSON
                 if (results && results[0]) {
-                    const [totalSeen, dismissed, sent] = results[0]
+                    const [totalSeen, dismissed, sent, completed] = results[0]
                     const onlySeen = totalSeen - dismissed - sent
-                    return { seen: onlySeen < 0 ? 0 : onlySeen, dismissed, sent }
+                    const partial = sent - completed
+                    return { seen: onlySeen < 0 ? 0 : onlySeen, dismissed, sent, completed, partial }
                 }
-                return { seen: 0, dismissed: 0, sent: 0 }
+                return { seen: 0, dismissed: 0, sent: 0, completed: 0, partial: 0 }
             },
         },
         surveyRatingResults: {
