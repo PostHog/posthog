@@ -294,6 +294,7 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
         )
         REPLAY_TEAM_PLAYLIST_COUNT_UNKNOWN.inc()
     except Exception as e:
+        query_json: dict[str, Any]
         try:
             query_json = query.model_dump_json() if query else None
         except Exception:
