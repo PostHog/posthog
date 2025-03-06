@@ -1,5 +1,5 @@
 import random
-from typing import Any, TypedDict, Literal, Union
+from typing import Any, TypedDict, Literal
 from django.core.management.base import BaseCommand
 from posthog.models import Team, Survey, User
 
@@ -17,7 +17,21 @@ class LinkTemplate(TypedDict):
 QuestionType = Literal["open", "rating", "multiple_choice", "link"]
 SurveyType = Literal["popover", "widget", "api"]
 
-QUESTION_TEMPLATES: dict[str, Union[list[str], list[MultipleChoiceTemplate], list[LinkTemplate]]] = {
+# Define template types
+OpenTemplates = list[str]
+RatingTemplates = list[str]
+MultipleChoiceTemplates = list[MultipleChoiceTemplate]
+LinkTemplates = list[LinkTemplate]
+
+
+class QuestionTemplates(TypedDict):
+    open: OpenTemplates
+    rating: RatingTemplates
+    multiple_choice: MultipleChoiceTemplates
+    link: LinkTemplates
+
+
+QUESTION_TEMPLATES: QuestionTemplates = {
     "open": [
         "What do you think of our {feature}?",
         "How can we improve {feature}?",
@@ -80,20 +94,29 @@ class Command(BaseCommand):
         feature = random.choice(FEATURES)
 
         if question_type == "open":
-            template: str = random.choice(QUESTION_TEMPLATES["open"])  # type: ignore
+            # Get a random open question template
+            open_templates: list[str] = QUESTION_TEMPLATES["open"]
+            open_template = random.choice(open_templates)
+            question_text = open_template.format(feature=feature)
+
             return {
                 "type": "open",
-                "question": template.format(feature=feature),
+                "question": question_text,
                 "description": f"Help us improve {feature}",
                 "descriptionContentType": "text",
                 "optional": random.choice([True, False]),
                 "buttonText": random.choice(["Submit", "Next", "Continue"]),
             }
+
         elif question_type == "rating":
-            template: str = random.choice(QUESTION_TEMPLATES["rating"])  # type: ignore
+            # Get a random rating question template
+            rating_templates: list[str] = QUESTION_TEMPLATES["rating"]
+            rating_template = random.choice(rating_templates)
+            question_text = rating_template.format(feature=feature)
+
             return {
                 "type": "rating",
-                "question": template.format(feature=feature),
+                "question": question_text,
                 "description": f"Rate your experience with {feature}",
                 "descriptionContentType": "text",
                 "optional": random.choice([True, False]),
@@ -103,29 +126,39 @@ class Command(BaseCommand):
                 "lowerBoundLabel": "Not at all",
                 "upperBoundLabel": "Extremely",
             }
+
         elif question_type == "multiple_choice":
-            template: MultipleChoiceTemplate = random.choice(QUESTION_TEMPLATES["multiple_choice"])  # type: ignore
+            # Get a random multiple choice question template
+            mc_templates: list[MultipleChoiceTemplate] = QUESTION_TEMPLATES["multiple_choice"]
+            mc_template = random.choice(mc_templates)
+            question_text = mc_template["question"].format(feature=feature)
+
             return {
                 "type": random.choice(["single_choice", "multiple_choice"]),
-                "question": template["question"].format(feature=feature),
+                "question": question_text,
                 "description": f"Select all that apply for {feature}",
                 "descriptionContentType": "text",
                 "optional": random.choice([True, False]),
                 "buttonText": random.choice(["Submit", "Next", "Continue"]),
-                "choices": template["choices"],
+                "choices": mc_template["choices"],
                 "shuffleOptions": random.choice([True, False]),
                 "hasOpenChoice": random.choice([True, False]),
             }
+
         else:  # link
-            template: LinkTemplate = random.choice(QUESTION_TEMPLATES["link"])  # type: ignore
+            # Get a random link question template
+            link_templates: list[LinkTemplate] = QUESTION_TEMPLATES["link"]
+            link_template = random.choice(link_templates)
+            question_text = link_template["question"].format(feature=feature)
+
             return {
                 "type": "link",
-                "question": template["question"].format(feature=feature),
+                "question": question_text,
                 "description": f"Learn more about {feature}",
                 "descriptionContentType": "text",
                 "optional": True,
                 "buttonText": "Check it out",
-                "link": template["link"],
+                "link": link_template["link"],
             }
 
     def generate_random_survey(self, team_id: int, user_id: int) -> dict[str, Any]:
