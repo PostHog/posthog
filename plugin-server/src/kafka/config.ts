@@ -70,11 +70,19 @@ export const getProducerConfigFromEnv = (): GlobalConfig => {
                 return acc
             }
 
+            let parsedValue: string | number = value
+
+            // parse value to a number if it is one
+            const numberValue = Number(value)
+            if (!isNaN(numberValue)) {
+                parsedValue = numberValue
+            }
+
             const rdkafkaKey = key
                 .replace(/^KAFKA_PRODUCER_/, '')
                 .replace(/_/g, '.')
                 .toLowerCase()
-            acc[rdkafkaKey] = value
+            acc[rdkafkaKey] = parsedValue
             return acc
-        }, {} as Record<string, string>)
+        }, {} as Record<string, any>)
 }

@@ -20,7 +20,7 @@ describe('getProducerConfigFromEnv', () => {
 
         expect(config).toEqual({
             'compression.type': 'gzip',
-            'queue.buffering.max.ms': '1000',
+            'queue.buffering.max.ms': 1000,
         })
     })
 
