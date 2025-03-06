@@ -44,6 +44,7 @@ REPLAY_TEAM_PLAYLIST_COUNT_UNKNOWN = Counter(
 REPLAY_TEAM_PLAYLIST_COUNT_SKIPPED = Counter(
     "replay_playlist_count_skipped",
     "when a count task for a playlist is skipped because the cooldown period has not passed",
+    labelnames=["reason"],
 )
 
 REPLAY_PLAYLIST_LEGACY_FILTERS_CONVERTED = Counter(
@@ -265,8 +266,13 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
                 seconds_since_refresh = int((datetime.now() - last_refreshed_at).total_seconds())
 
                 if seconds_since_refresh <= settings.PLAYLIST_COUNTER_PROCESSING_COOLDOWN_SECONDS:
-                    REPLAY_TEAM_PLAYLIST_COUNT_SKIPPED.inc()
+                    REPLAY_TEAM_PLAYLIST_COUNT_SKIPPED.labels(reason="cooldown").inc()
                     return
+
+            # if this is the default filters, then we shouldn't have allowed this to be created - we can skip it
+            if playlist.filters == DEFAULT_RECORDING_FILTERS:
+                REPLAY_TEAM_PLAYLIST_COUNT_SKIPPED.labels(reason="default_filters").inc()
+                return
 
             query = convert_filters_to_recordings_query(playlist)
             (recordings, more_recordings_available, _) = list_recordings_from_query(
