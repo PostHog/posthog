@@ -1,5 +1,7 @@
 const { setupPage } = require('@storybook/test-runner')
 const PlaywrightEnvironment = require('jest-playwright-preset/lib/PlaywrightEnvironment').default
+const fs = require('fs')
+const path = require('path')
 
 class CustomEnvironment extends PlaywrightEnvironment {
     async setup() {
@@ -16,12 +18,22 @@ class CustomEnvironment extends PlaywrightEnvironment {
             // Take screenshots on test failures - these become Actions artifacts
             const parentName = event.test.parent.parent.name.replace(/\W/g, '-').toLowerCase()
             const specName = event.test.parent.name.replace(/\W/g, '-').toLowerCase()
-            const t = new Date().toISOString().replace(/[-:Z]/g, '')
+            const failuresDir = path.join('frontend', '__snapshots__', '__failures__')
+
+            // Ensure failures directory exists
+            // we don't want to commit failure snapshots to the repo
+            // so this dir is in .gitignore
+            // which means it doesn't exist in CI
+            // so we need to create it here
+            if (!fs.existsSync(failuresDir)) {
+                fs.mkdirSync(failuresDir, { recursive: true })
+            }
+
             await this.global.page
                 .locator('body, main')
                 .last()
                 .screenshot({
-                    path: `frontend/__snapshots__/__failures__/${parentName}--${specName}-${t}.png`,
+                    path: path.join(failuresDir, `${parentName}--${specName}.png`),
                 })
         }
         await super.handleTestEvent(event)
