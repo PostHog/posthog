@@ -25,7 +25,7 @@ test.describe('Surveys', () => {
 
         // refresh -> see survey show up on page
         await page.reload()
-        await expect(page.getByText('Unique users shown')).toBeVisible()
+        await expect(page.getByText('Unique user(s) shown')).toBeVisible()
 
         await new SurveysPage(page).stopSurvey()
 
