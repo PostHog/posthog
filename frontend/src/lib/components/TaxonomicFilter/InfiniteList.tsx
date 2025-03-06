@@ -20,7 +20,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { pluralize } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'
 
@@ -65,7 +65,7 @@ const unusedIndicator = (eventNames: string[]): JSX.Element => {
                     ) : (
                         'this event'
                     )}
-                    , but has been seen on other events.
+                    <span>, but has been seen on other events.</span>
                 </>
             }
         >
@@ -190,6 +190,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
         expandedCount,
         showPopover,
         hasRemoteDataSource,
+        hasMore,
     } = useValues(infiniteListLogic)
     const { onRowsRendered, setIndex, expand, updateRemoteItem } = useActions(infiniteListLogic)
     const [highlightedItemElement, setHighlightedItemElement] = useState<HTMLDivElement | null>(null)
@@ -200,6 +201,9 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
     // 2. We're not currently loading
     // 3. We have a search query (otherwise if hasRemoteDataSource=true, we're just waiting for data)
     const showEmptyState = totalListCount === 0 && !isLoading && (!!searchQuery || !hasRemoteDataSource)
+
+    // Add ref to maintain scroll position
+    const listRef = useRef<List>(null)
 
     const renderItem: ListRowRenderer = ({ index: rowIndex, style }: ListRowProps): JSX.Element | null => {
         const item = results[rowIndex]
@@ -302,10 +306,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                         )}
                     </span>
                 </div>
-            ) : isLoading &&
-              (!results ||
-                  results.length === 0 ||
-                  (results.length === 1 && (!results[0].id || results[0].id === ''))) ? (
+            ) : isLoading && (!results || results.length === 0) ? (
                 <div className="flex items-center justify-center h-full">
                     <Spinner className="text-3xl" />
                 </div>
@@ -313,13 +314,26 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                 <AutoSizer>
                     {({ height, width }) => (
                         <List
+                            ref={listRef}
                             width={width}
                             height={height}
-                            rowCount={Math.max(results.length || (isLoading ? 7 : 0), totalListCount || 0)}
-                            overscanRowCount={100}
-                            rowHeight={36} // LemonRow heights
+                            rowCount={Math.max(results.length || 0, totalListCount || 0)}
+                            overscanRowCount={20}
+                            rowHeight={36}
                             rowRenderer={renderItem}
-                            onRowsRendered={onRowsRendered}
+                            onRowsRendered={(rowInfo) => {
+                                onRowsRendered(rowInfo)
+
+                                // Load more when near the bottom
+                                if (
+                                    rowInfo.stopIndex >= results.length - 10 &&
+                                    hasRemoteDataSource &&
+                                    !isLoading &&
+                                    hasMore
+                                ) {
+                                    expand()
+                                }
+                            }}
                             scrollToIndex={index}
                         />
                     )}
