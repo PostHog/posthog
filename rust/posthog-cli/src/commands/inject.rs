@@ -111,8 +111,7 @@ pub fn process_directory(directory: &Path) -> Result<()> {
     if pairs.is_empty() {
         return Err(anyhow!("No source files found"));
     }
-    let borrowed_pairs = &mut pairs;
-    for pair in borrowed_pairs {
+    for pair in &mut pairs {
         let chunk_id = uuid::Uuid::now_v7().to_string();
         pair.add_chunk_id(chunk_id)?;
     }
