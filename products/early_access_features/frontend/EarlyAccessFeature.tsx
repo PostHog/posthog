@@ -16,6 +16,8 @@ import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogF
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { CohortSelector } from 'lib/components/CohortSelector'
+import { api } from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 
 import { Query } from '~/queries/Query/Query'
 import { Node, NodeKind, QuerySchema } from '~/queries/schema/schema-general'
@@ -60,6 +62,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
         deleteEarlyAccessFeature,
         toggleImplementOptInInstructionsModal,
     } = useActions(earlyAccessFeatureLogic)
+    const [isJoiningWaitlist, setIsJoiningWaitlist] = useState<boolean>(false)
 
     const isNewEarlyAccessFeature = id === 'new' || id === undefined
     const showLinkedHogFunctions = useFeatureFlag('HOG_FUNCTIONS_LINKED')
@@ -91,6 +94,22 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                   ],
               }
             : null
+
+    const handleWaitlistSignup = async () => {
+        if (!('id' in earlyAccessFeature)) {
+            return
+        }
+
+        setIsJoiningWaitlist(true)
+        try {
+            await api.create(`api/early-access-feature/${earlyAccessFeature.id}/register/`)
+            lemonToast.success('Successfully joined the waitlist!')
+        } catch (error) {
+            lemonToast.error('Failed to join the waitlist. Please try again.')
+        } finally {
+            setIsJoiningWaitlist(false)
+        }
+    }
 
     return (
         <Form id="early-access-feature" formKey="earlyAccessFeature" logic={earlyAccessFeatureLogic}>
@@ -386,13 +405,10 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                     <div className="mt-4">
                         <LemonButton
                             type="primary"
-                            onClick={async () => {
-                                // TODO: Implement API call to add current user to the cohort
-                                // Example:
-                                // await api.update(`api/cohort/${earlyAccessFeature.cohort_id}/add_person`, {
-                                //     person_id: currentUser.id
-                                // })
-                            }}
+                            onClick={handleWaitlistSignup}
+                            loading={isJoiningWaitlist}
+                            disabled={!earlyAccessFeature.cohort_id}
+                            tooltip={!earlyAccessFeature.cohort_id ? 'No waitlist cohort configured' : undefined}
                         >
                             Sign up to waitlist
                         </LemonButton>

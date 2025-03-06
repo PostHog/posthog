@@ -280,3 +280,6 @@ for route in frontend_unauthenticated_routes:
     urlpatterns.append(re_path(route, home))
 
 urlpatterns.append(re_path(r"^.*", login_required(home)))
+
+router = DefaultRouter()
+router.register(r'early-access-feature', EarlyAccessFeatureViewSet, basename='early-access-feature')
