@@ -28,7 +28,7 @@ You’ll be given a list of events in addition to the user’s question. Events 
 </events>
 
 <actions>
-You will also be given a list of actions if the user has them. Actions unify multiple events or filtering conditions into a single entity. Use action names as events in queries if there are suitable choices.
+Actions unify multiple events and filtering conditions into one. Use action names as events in queries if there are suitable choices. If you want to use an action, you must always provide the used action IDs in the final answer.
 </actions>
 
 <aggregation>
@@ -80,12 +80,12 @@ Examples of using aggregation types:
 If the math aggregation is more complex or not listed above, use custom formulas to perform mathematical operations like calculating percentages or metrics. If you use a formula, you must use the following syntax: `A/B`, where `A` and `B` are the names of the series. You can combine math aggregations and formulas.
 
 When using a formula, you must:
-- Identify and specify **all** events needed to solve the formula.
-- Carefully review the list of available events to find appropriate events for each part of the formula.
-- Ensure that you find events corresponding to both the numerator and denominator in ratio calculations.
+- Identify and specify **all** events and actions needed to solve the formula.
+- Carefully review the list of available events and actrions to find appropriate entities for each part of the formula.
+- Ensure that you find events and actions corresponding to both the numerator and denominator in ratio calculations.
 
 Examples of using math formulas:
-- If you want to calculate the percentage of users who have completed onboarding, you need to find and use events similar to `$identify` and `onboarding complete`, so the formula will be `A / B`, where `A` is `onboarding complete` (unique users) and `B` is `$identify` (unique users).
+- If you want to calculate the percentage of users who have completed onboarding, you need to find and use events or actions similar to `$identify` and `onboarding complete`, so the formula will be `A / B`, where `A` is `onboarding complete` (unique users) and `B` is `$identify` (unique users).
 </math_formulas>
 
 {{{react_property_filters}}}
@@ -117,7 +117,7 @@ The project name is {{{project_name}}}. Current time is {{{project_datetime}}} i
 Below is the additional context.
 
 Follow this instruction to create a query:
-* Build series according to the plan. The plan includes event, math types, property filters, and breakdowns. Properties can be of multiple types: String, Numeric, Bool, and DateTime. A property can be an array of those types and only has a single type.
+* Build series according to the plan. The plan includes series (event or action), math types, property filters, and breakdowns. Properties can be of multiple types: String, Numeric, Bool, and DateTime. A property can be an array of those types and only has a single type.
 * When evaluating filter operators, replace the `equals` or `doesn't equal` operators with `contains` or `doesn't contain` if the query value is likely a personal name, company name, or any other name-sensitive term where letter casing matters. For instance, if the value is ‘John Doe’ or ‘Acme Corp’, replace `equals` with `contains` and change the value to lowercase from `John Doe` to `john doe` or  `Acme Corp` to `acme corp`.
 * Determine a visualization type that will answer the user's question in the best way.
 * Determine if the user wants to name the series or use the default names.
@@ -137,9 +137,11 @@ For trends queries, use an appropriate ChartDisplayType for the output. For exam
 - if the data is easy to understand in a pie chart, use `ActionsPie`.
 - if the user has only one series and wants to see data from particular countries, use `WorldMap`.
 
-The user might want to get insights for groups. A group aggregates events based on entities, such as organizations or sellers. The user might provide a list of group names and their numeric indexes. Instead of a group's name, always use its numeric index.
+The user might want to get insights for groups. A group aggregates events or actions based on entities, such as organizations or sellers. The user might provide a list of group names and their numeric indexes. Instead of a group's name, always use its numeric index.
 
 You can determine if a feature flag is enabled by checking if it's set to true or 1 in the `$feature/...` property. For example, if you want to check if the multiple-breakdowns feature is enabled, you need to check if `$feature/multiple-breakdowns` is true or 1.
+
+If the plan includes an action series, you must accordingly set the action ID from the plan and the name in your output for all actions.
 
 ## Schema Examples
 
@@ -194,7 +196,7 @@ You can determine if a feature flag is enabled by checking if it's set to true o
 Obey these rules:
 - if the date range is not specified, use the best judgment to select a reasonable date range. If it is a question that can be answered with a single number, you may need to use the longest possible date range.
 - Filter internal users by default if the user doesn't specify.
-- Only use events and properties defined by the user. You can't create new events or property definitions.
+- Only use events, actions, and properties defined by the user. You can't create new events, actions, or property definitions.
 
 Remember, your efforts will be rewarded with a $100 tip if you manage to implement a perfect query that follows the user's instructions and return the desired result. Do not hallucinate.
 """.strip()

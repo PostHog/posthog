@@ -1,6 +1,7 @@
 import { BreakdownType, FunnelMathType, IntervalType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import {
+    ActionsNode,
     CompareFilter,
     DateRange,
     EventsNode,
@@ -130,8 +131,25 @@ export interface AssistantInsightsQueryBase {
     samplingFactor?: number | null
 }
 
+/**
+ * Defines the event series.
+ */
 export interface AssistantTrendsEventsNode
-    extends Omit<EventsNode, 'fixedProperties' | 'properties' | 'math_hogql' | 'limit' | 'groupBy'> {
+    extends Omit<
+        EventsNode,
+        'fixedProperties' | 'properties' | 'math_hogql' | 'limit' | 'groupBy' | 'orderBy' | 'response'
+    > {
+    properties?: AssistantPropertyFilter[]
+}
+
+/**
+ * Defines the action series. You must provide the action ID in the `id` field and the name in the `name` field.
+ */
+export interface AssistantTrendsActionsNode
+    extends Omit<
+        ActionsNode,
+        'fixedProperties' | 'properties' | 'math_hogql' | 'limit' | 'groupBy' | 'orderBy' | 'response'
+    > {
     properties?: AssistantPropertyFilter[]
 }
 
@@ -262,9 +280,9 @@ export interface AssistantTrendsQuery extends AssistantInsightsQueryBase {
     interval?: IntervalType
 
     /**
-     * Events to include
+     * Events or actions to include
      */
-    series: AssistantTrendsEventsNode[]
+    series: (AssistantTrendsEventsNode | AssistantTrendsActionsNode)[]
 
     /**
      * Properties specific to the trends insight
@@ -272,7 +290,7 @@ export interface AssistantTrendsQuery extends AssistantInsightsQueryBase {
     trendsFilter?: AssistantTrendsFilter
 
     /**
-     * Breakdown of the events
+     * Breakdown of the series
      */
     breakdownFilter?: AssistantTrendsBreakdownFilter
 
@@ -284,7 +302,7 @@ export interface AssistantTrendsQuery extends AssistantInsightsQueryBase {
 
 export type AssistantTrendsMath = FunnelMathType.FirstTimeForUser | FunnelMathType.FirstTimeForUserWithFilters
 
-export interface AssistantFunnelsEventsNode extends Node {
+export interface AssistantFunnelsEventsNode extends Omit<Node, 'response'> {
     kind: NodeKind.EventsNode
     /**
      * Name of the event.
