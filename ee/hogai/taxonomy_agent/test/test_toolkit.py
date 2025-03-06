@@ -1,13 +1,14 @@
 from datetime import datetime
+from textwrap import dedent
 
 from django.test import override_settings
 from freezegun import freeze_time
 
-from ee.hogai.taxonomy_agent.toolkit import TaxonomyAgentToolkit, ToolkitTool
+from ee.hogai.taxonomy_agent.toolkit import FinalAnswerTool, TaxonomyAgentToolkit, ToolkitTool
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property_definition import PropertyDefinition, PropertyType
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
+from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, _create_person
 
 
 class DummyToolkit(TaxonomyAgentToolkit):
@@ -272,3 +273,57 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(prop, "$geoip_city_name")
         self.assertEqual(type, "String")
         self.assertIsNotNone(description)
+
+
+class TestFinalAnswerTool(BaseTest):
+    def test_normalize_plan(self):
+        original = """
+        Series:
+        - series 1: Interacted with file
+            - action id: 1
+            - math operation: unique users
+            - property filter 1:
+                - entity: action
+                - property name: $geoip_country_code
+                - property type: String
+                - operator: equals
+                - property value: AU
+            - property filter 2:
+                - action
+                - property name: icp_score
+                - property type: String
+                - operator: equals
+                - property value: 10
+            - property filter 3:
+                - action
+                - property name: action
+                - property type: String
+                - operator: equals
+                - property value: action
+        """
+        normalized = """
+        Series:
+        - series 1: Interacted with file
+            - action id: 1
+            - math operation: unique users
+            - property filter 1:
+                - entity: event
+                - property name: $geoip_country_code
+                - property type: String
+                - operator: equals
+                - property value: AU
+            - property filter 2:
+                - entity: event
+                - property name: icp_score
+                - property type: String
+                - operator: equals
+                - property value: 10
+            - property filter 3:
+                - entity: event
+                - property name: action
+                - property type: String
+                - operator: equals
+                - property value: action
+        """
+        tool = FinalAnswerTool(name="final_answer", arguments=dedent(original))
+        self.assertEqual(tool.arguments.strip(), dedent(normalized).strip())
