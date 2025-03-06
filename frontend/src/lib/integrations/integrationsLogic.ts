@@ -2,12 +2,13 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
-import api from 'lib/api'
+import api, { getCookie } from 'lib/api'
 import { fromParamsGivenUrl } from 'lib/utils'
 import IconGoogleAds from 'public/services/google-ads.png'
 import IconGoogleCloud from 'public/services/google-cloud.png'
 import IconGoogleCloudStorage from 'public/services/google-cloud-storage.png'
 import IconHubspot from 'public/services/hubspot.png'
+import IconIntercom from 'public/services/intercom.png'
 import IconLinkedIn from 'public/services/linkedin.png'
 import IconSalesforce from 'public/services/salesforce.png'
 import IconSlack from 'public/services/slack.png'
@@ -27,6 +28,7 @@ const ICONS: Record<IntegrationKind, any> = {
     'google-cloud-storage': IconGoogleCloudStorage,
     'google-ads': IconGoogleAds,
     snapchat: IconSnapchat,
+    intercom: IconIntercom,
     'linkedin-ads': IconLinkedIn,
 }
 
@@ -97,7 +99,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
     listeners(({ actions }) => ({
         handleOauthCallback: async ({ kind, searchParams }) => {
             const { state, code, error } = searchParams
-            const { next } = fromParamsGivenUrl(state)
+            const { next, token } = fromParamsGivenUrl(state)
             let replaceUrl: string = next || urls.settings('project-integrations')
 
             if (error) {
@@ -107,6 +109,10 @@ export const integrationsLogic = kea<integrationsLogicType>([
             }
 
             try {
+                if (token !== getCookie('ph_oauth_state')) {
+                    throw new Error('Invalid state token')
+                }
+
                 const integration = await api.integrations.create({
                     kind,
                     config: { state, code },

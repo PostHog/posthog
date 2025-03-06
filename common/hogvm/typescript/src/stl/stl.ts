@@ -316,11 +316,12 @@ function startsWithFn([str, prefix]: any[]): boolean {
     return typeof str === 'string' && typeof prefix === 'string' && str.startsWith(prefix)
 }
 
-function substringFn([s, start, length]: any[]): string {
+function substringFn([s, start, optionalLength]: any[]): string {
     if (typeof s !== 'string') {
         return ''
     }
     const startIdx = start - 1
+    const length = typeof optionalLength === 'number' ? optionalLength : s.length - startIdx
     if (startIdx < 0 || length < 0) {
         return ''
     }
@@ -1259,7 +1260,7 @@ export const STL: Record<string, STLFunction> = {
     range: { fn: rangeFn, minArgs: 1, maxArgs: 2 },
     round: { fn: roundFn, minArgs: 1, maxArgs: 1 },
     startsWith: { fn: startsWithFn, minArgs: 2, maxArgs: 2 },
-    substring: { fn: substringFn, minArgs: 3, maxArgs: 3 },
+    substring: { fn: substringFn, minArgs: 2, maxArgs: 3 },
     toIntervalDay: { fn: toIntervalDayFn, minArgs: 1, maxArgs: 1 },
     toIntervalHour: { fn: toIntervalHourFn, minArgs: 1, maxArgs: 1 },
     toIntervalMinute: { fn: toIntervalMinuteFn, minArgs: 1, maxArgs: 1 },

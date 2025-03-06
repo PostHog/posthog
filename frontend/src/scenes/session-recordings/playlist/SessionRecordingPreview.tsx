@@ -3,7 +3,7 @@ import './SessionRecordingPreview.scss'
 import { IconBug, IconCursorClick, IconKeyboard, IconLive, IconPinFilled } from '@posthog/icons'
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { PropertyIcon } from 'lib/components/PropertyIcon'
+import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -60,7 +60,7 @@ function ErrorCount({
     }
 
     return (
-        <div className="flex items-center flex-1 space-x-1 justify-end font-semibold">
+        <div className="flex items-center flex-1 deprecated-space-x-1 justify-end font-semibold">
             <IconBug className={iconClassNames} />
             <span>{errorCount}</span>
         </div>
@@ -108,7 +108,7 @@ export interface PropertyIconsProps {
 
 export function PropertyIcons({ recordingProperties, loading, iconClassNames }: PropertyIconsProps): JSX.Element {
     return (
-        <div className="flex space-x-1 ph-no-capture">
+        <div className="flex deprecated-space-x-1 ph-no-capture">
             {loading ? (
                 <LemonSkeleton className="w-16 h-3" />
             ) : (
@@ -212,8 +212,8 @@ export function SessionRecordingPreview({
                 )}
                 onClick={() => onClick?.()}
             >
-                <div className="grow overflow-hidden space-y-1">
-                    <div className="flex items-center justify-between space-x-0.5">
+                <div className="grow overflow-hidden deprecated-space-y-1">
+                    <div className="flex items-center justify-between deprecated-space-x-0_5">
                         <div className="flex overflow-hidden font-medium text-link ph-no-capture">
                             <span className="truncate">{asDisplay(recording.person)}</span>
                         </div>
@@ -232,8 +232,8 @@ export function SessionRecordingPreview({
                         )}
                     </div>
 
-                    <div className="flex justify-between items-center space-x-0.5">
-                        <div className="flex space-x-2 text-secondary text-sm">
+                    <div className="flex justify-between items-center deprecated-space-x-0_5">
+                        <div className="flex deprecated-space-x-2 text-secondary text-sm">
                             <PropertyIcons
                                 recordingProperties={iconProperties}
                                 iconClassNames={iconClassNames}
@@ -242,13 +242,13 @@ export function SessionRecordingPreview({
 
                             <div className="flex gap-1">
                                 <Tooltip className="flex items-center" title="Clicks">
-                                    <span className="space-x-0.5">
+                                    <span className="deprecated-space-x-0_5">
                                         <IconCursorClick className={iconClassNames} />
                                         <span>{recording.click_count}</span>
                                     </span>
                                 </Tooltip>
                                 <Tooltip className="flex items-center" title="Key presses">
-                                    <span className="space-x-0.5">
+                                    <span className="deprecated-space-x-0_5">
                                         <IconKeyboard className={iconClassNames} />
                                         <span>{recording.keypress_count}</span>
                                     </span>
@@ -273,7 +273,7 @@ export function SessionRecordingPreview({
 
                 <div
                     className={clsx(
-                        'min-w-6 flex flex-col space-x-0.5 items-center',
+                        'min-w-6 flex flex-col deprecated-space-x-0_5 items-center',
                         // need different margin if the first item is an icon
                         recording.ongoing || pinned ? 'mt-1' : 'mt-2'
                     )}
@@ -289,7 +289,7 @@ export function SessionRecordingPreview({
 
 export function SessionRecordingPreviewSkeleton(): JSX.Element {
     return (
-        <div className="p-4 space-y-2">
+        <div className="p-4 deprecated-space-y-2">
             <LemonSkeleton className="w-1/2 h-4" />
             <LemonSkeleton className="w-1/3 h-4" />
         </div>

@@ -34,7 +34,7 @@ from posthog.plugins.utils import (
 from .utils import UUIDModel, sane_repr
 
 try:
-    from posthog.client import sync_execute
+    from posthog.clickhouse.client import sync_execute
 except ImportError:
     pass
 

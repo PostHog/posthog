@@ -2386,7 +2386,8 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 "project_id": self.team.id,
             }
         ).json()
-        self.assertEqual(response["featureFlags"], ["test", "default-flag"])
+        self.assertIn("default-flag", response["featureFlags"])
+        self.assertIn("test", response["featureFlags"])
 
     @snapshot_postgres_queries
     def test_flag_with_regular_cohorts(self, *args):
@@ -3729,6 +3730,61 @@ class TestDecide(BaseTest, QueryMatchingTest):
             assert isinstance(response["featureFlags"], list)
             assert "feature_flags" not in response.get("quotaLimited", [])
 
+    def test_decide_with_flag_keys_param(self, *args):
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+        self.client.logout()
+
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["example_id"],
+            properties={"email": "tim@posthog.com"},
+        )
+
+        # Create three different feature flags
+        FeatureFlag.objects.create(
+            team=self.team,
+            rollout_percentage=100,
+            name="Flag 1",
+            key="flag-1",
+            created_by=self.user,
+        )
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            rollout_percentage=100,
+            name="Flag 2",
+            key="flag-2",
+            created_by=self.user,
+        )
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            rollout_percentage=100,
+            name="Flag 3",
+            key="flag-3",
+            created_by=self.user,
+        )
+
+        # Make a decide request with only flag-1 and flag-3 keys
+        response = self._post_decide(
+            api_version=3,
+            data={
+                "token": self.team.api_token,
+                "distinct_id": "example_id",
+                "flag_keys_to_evaluate": ["flag-1", "flag-3"],
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Verify only the requested flags are returned
+        response_data = response.json()
+        self.assertEqual(response_data["featureFlags"], {"flag-1": True, "flag-3": True})
+
+        # Verify flag-2 is not in the response
+        self.assertNotIn("flag-2", response_data["featureFlags"])
+
 
 class TestDecideRemoteConfig(TestDecide):
     use_remote_config = True
@@ -3741,6 +3797,7 @@ class TestDecideRemoteConfig(TestDecide):
         ) as wrapped_get_config_via_token:
             response = self._post_decide(api_version=3)
             wrapped_get_config_via_token.assert_called_once()
+            request_id = response.json()["requestId"]
 
         # NOTE: If this changes it indicates something is wrong as we should keep this exact format
         # for backwards compatibility
@@ -3759,6 +3816,8 @@ class TestDecideRemoteConfig(TestDecide):
                 "defaultIdentifiedOnly": True,
                 "siteApps": [],
                 "isAuthenticated": False,
+                # requestId is a UUID
+                "requestId": request_id,
                 "toolbarParams": {},
                 "config": {"enable_collect_everything": True},
                 "featureFlags": {},

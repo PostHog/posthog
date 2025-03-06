@@ -13,6 +13,7 @@ import {
     CountPerActorMathType,
     EventPropertyFilter,
     EventType,
+    ExperimentMetricMathType,
     FilterLogicalOperator,
     FilterType,
     FunnelMathType,
@@ -31,6 +32,7 @@ import {
     PropertyGroupFilterValue,
     PropertyMathType,
     PropertyOperator,
+    RetentionDashboardDisplayType,
     RetentionFilterType,
     SessionPropertyFilter,
     SessionRecordingType,
@@ -72,6 +74,7 @@ export enum NodeKind {
     SessionsTimelineQuery = 'SessionsTimelineQuery',
     RecordingsQuery = 'RecordingsQuery',
     SessionAttributionExplorerQuery = 'SessionAttributionExplorerQuery',
+    RevenueExampleEventsQuery = 'RevenueExampleEventsQuery',
     ErrorTrackingQuery = 'ErrorTrackingQuery',
 
     // Interface nodes
@@ -140,6 +143,7 @@ export type AnyDataNode =
     | WebVitalsQuery
     | WebVitalsPathBreakdownQuery
     | SessionAttributionExplorerQuery
+    | RevenueExampleEventsQuery
     | ErrorTrackingQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
@@ -165,6 +169,7 @@ export type QuerySchema =
     | HogQLMetadata
     | HogQLAutocomplete
     | SessionAttributionExplorerQuery
+    | RevenueExampleEventsQuery
     | ErrorTrackingQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
@@ -529,6 +534,7 @@ export type MathType =
     | CountPerActorMathType
     | GroupMathType
     | HogQLMathType
+    | ExperimentMetricMathType
 
 export interface EntityNode extends Node {
     name?: string
@@ -668,6 +674,7 @@ export interface DataTableNode
                     | WebVitalsQuery
                     | WebVitalsPathBreakdownQuery
                     | SessionAttributionExplorerQuery
+                    | RevenueExampleEventsQuery
                     | ErrorTrackingQuery
                     | ExperimentFunnelsQuery
                     | ExperimentTrendsQuery
@@ -691,6 +698,7 @@ export interface DataTableNode
         | WebVitalsQuery
         | WebVitalsPathBreakdownQuery
         | SessionAttributionExplorerQuery
+        | RevenueExampleEventsQuery
         | ErrorTrackingQuery
         | ExperimentFunnelsQuery
         | ExperimentTrendsQuery
@@ -1104,8 +1112,14 @@ export type RetentionFilter = {
     targetEntity?: RetentionFilterLegacy['target_entity']
     /** @default Day */
     period?: RetentionFilterLegacy['period']
-    showMean?: RetentionFilterLegacy['show_mean']
     cumulative?: RetentionFilterLegacy['cumulative']
+
+    //frontend only
+    showMean?: RetentionFilterLegacy['show_mean']
+    meanRetentionCalculation?: RetentionFilterLegacy['mean_retention_calculation']
+    /** controls the display of the retention graph */
+    display?: ChartDisplayType
+    dashboardDisplay?: RetentionDashboardDisplayType
 }
 
 export interface RetentionValue {
@@ -1689,6 +1703,22 @@ export interface SessionAttributionExplorerQueryResponse extends AnalyticsQueryR
 }
 export type CachedSessionAttributionExplorerQueryResponse = CachedQueryResponse<SessionAttributionExplorerQueryResponse>
 
+export interface RevenueExampleEventsQuery extends DataNode<RevenueExampleEventsQueryResponse> {
+    kind: NodeKind.RevenueExampleEventsQuery
+    revenueTrackingConfig: RevenueTrackingConfig
+    limit?: integer
+    offset?: integer
+}
+
+export interface RevenueExampleEventsQueryResponse extends AnalyticsQueryResponseBase<unknown> {
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+    types?: unknown[]
+    columns?: unknown[]
+}
+export type CachedRevenueExampleEventsQueryResponse = CachedQueryResponse<RevenueExampleEventsQueryResponse>
+
 export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
     kind: NodeKind.ErrorTrackingQuery
     issueId?: ErrorTrackingIssue['id']
@@ -1872,12 +1902,9 @@ export interface ExperimentEventExposureConfig {
 }
 
 export enum ExperimentMetricType {
-    COUNT = 'count',
-    CONTINUOUS = 'continuous',
-    BINOMIAL = 'binomial',
+    FUNNEL = 'funnel',
+    MEAN = 'mean',
 }
-
-export type ExperimentMetricMath = 'total' | 'sum' | 'avg' | 'median' | 'min' | 'max'
 
 export interface ExperimentMetric {
     kind: NodeKind.ExperimentMetric
@@ -1885,13 +1912,14 @@ export interface ExperimentMetric {
     metric_type: ExperimentMetricType
     inverse?: boolean
     metric_config: ExperimentEventMetricConfig | ExperimentActionMetricConfig | ExperimentDataWarehouseMetricConfig
+    time_window_hours?: number
 }
 
 export interface ExperimentEventMetricConfig {
     kind: NodeKind.ExperimentEventMetricConfig
     event: string
     name?: string
-    math?: ExperimentMetricMath
+    math?: ExperimentMetricMathType
     math_hogql?: string
     math_property?: string
     /** Properties configurable in the interface */
@@ -1902,7 +1930,7 @@ export interface ExperimentActionMetricConfig {
     kind: NodeKind.ExperimentActionMetricConfig
     action: number
     name?: string
-    math?: ExperimentMetricMath
+    math?: ExperimentMetricMathType
     math_hogql?: string
     math_property?: string
     /** Properties configurable in the interface */
@@ -1916,7 +1944,7 @@ export interface ExperimentDataWarehouseMetricConfig {
     timestamp_field: string
     events_join_key: string
     data_warehouse_join_key: string
-    math?: ExperimentMetricMath
+    math?: ExperimentMetricMathType
     math_hogql?: string
     math_property?: string
 }

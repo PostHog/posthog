@@ -94,7 +94,7 @@ function SurveyCompletionConditions(): JSX.Element {
     }
 
     return (
-        <div className="space-y-4">
+        <div className="deprecated-space-y-4">
             <div>
                 <h3>How long would you like to collect survey responses? </h3>
                 <LemonField.Pure>
@@ -660,6 +660,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                   onAppearanceChange={(appearance) => {
                                                                       onChange(appearance)
                                                                   }}
+                                                                  validationErrors={surveyErrors?.appearance}
                                                               />
                                                               <LemonDivider className="mt-4" />
                                                               <div className="font-bold">Survey customization</div>
@@ -992,7 +993,7 @@ export default function SurveyEdit(): JSX.Element {
                                             {surveysEventsAvailable && (
                                                 <LemonField.Pure
                                                     label="User sends events"
-                                                    info="Note that these events are only observed, and activate this survey, in the current user session."
+                                                    info="Note that these events are only observed and can trigger this survey within the current user session, but only for events captured using the PostHog SDK."
                                                 >
                                                     <>
                                                         <EventSelect

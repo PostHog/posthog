@@ -44,6 +44,18 @@ export const recordingPlaylists: SavedSessionRecordingPlaylistsResult = {
                 first_name: 'Alex',
                 email: 'alex@posthog.com',
             },
+            recordings_counts: {
+                saved_filters: {
+                    count: 10,
+                    watched_count: 4,
+                    has_more: true,
+                    increased: true,
+                },
+                collection: {
+                    count: 10,
+                    watched_count: 5,
+                },
+            },
         },
         {
             id: 14,
@@ -80,6 +92,16 @@ export const recordingPlaylists: SavedSessionRecordingPlaylistsResult = {
                 distinct_id: '1abnMLh1NOnisQgUh0Ou5ZKIAT8nt4UNtnRXUDsGq9G',
                 first_name: 'Alex',
                 email: 'alex@posthog.com',
+            },
+            recordings_counts: {
+                saved_filters: {
+                    count: 3,
+                    watched_count: 4,
+                },
+                collection: {
+                    count: 3,
+                    watched_count: 4,
+                },
             },
         },
         {

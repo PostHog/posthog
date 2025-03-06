@@ -75,7 +75,7 @@ export function AutocaptureSettings(): JSX.Element {
                 , where they can be configured directly in code.
             </p>
 
-            <div className="space-y-2">
+            <div className="deprecated-space-y-2">
                 <LemonSwitch
                     id="posthog-autocapture-switch"
                     onChange={(checked) => {
@@ -158,11 +158,7 @@ export function WebVitalsAutocaptureSettings(): JSX.Element {
                 }}
                 checked={!!currentTeam?.autocapture_web_vitals_opt_in}
                 disabled={userLoading}
-                label={
-                    <>
-                        Enable web vitals autocapture <LemonTag>NEW</LemonTag>
-                    </>
-                }
+                label="Enable web vitals autocapture"
                 bordered
             />
             <LemonDivider />
