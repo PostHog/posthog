@@ -133,19 +133,31 @@ function StackedBar({ segments }: { segments: StackedBarSegment[] }): JSX.Elemen
 }
 
 export function UsersCount({ surveyUserStats }: { surveyUserStats: SurveyUserStats }): JSX.Element {
-    const { seen, dismissed, sent } = surveyUserStats
+    const { seen, dismissed, sent, completed, partial } = surveyUserStats
     const total = seen + dismissed + sent
 
     return (
-        <div className="inline-flex mb-4">
+        <div className="flex mb-4 gap-8">
             <div>
                 <div className="text-4xl font-bold">{humanFriendlyNumber(total)}</div>
                 <div className="font-semibold text-secondary">Unique user(s) shown</div>
             </div>
             {sent > 0 && (
-                <div className="ml-10">
+                <div>
                     <div className="text-4xl font-bold">{humanFriendlyNumber(sent)}</div>
                     <div className="font-semibold text-secondary">Response(s) sent</div>
+                </div>
+            )}
+            {completed > 0 && (
+                <div>
+                    <div className="text-4xl font-bold">{humanFriendlyNumber(completed)}</div>
+                    <div className="font-semibold text-secondary">Complete response(s)</div>
+                </div>
+            )}
+            {partial > 0 && (
+                <div>
+                    <div className="text-4xl font-bold">{humanFriendlyNumber(partial)}</div>
+                    <div className="font-semibold text-secondary">Partial response(s)</div>
                 </div>
             )}
         </div>
@@ -153,12 +165,13 @@ export function UsersCount({ surveyUserStats }: { surveyUserStats: SurveyUserSta
 }
 
 export function UsersStackedBar({ surveyUserStats }: { surveyUserStats: SurveyUserStats }): JSX.Element {
-    const { seen, dismissed, sent } = surveyUserStats
+    const { seen, dismissed, completed, partial } = surveyUserStats
 
     const segments: StackedBarSegment[] = [
         { count: seen, label: 'Unanswered', colorClass: 'bg-brand-blue' },
-        { count: dismissed, label: 'Dismissed', colorClass: 'bg-warning' },
-        { count: sent, label: 'Submitted', colorClass: 'bg-success' },
+        { count: dismissed, label: 'Dismissed', colorClass: 'bg-danger' },
+        { count: partial, label: 'Partially submitted', colorClass: 'bg-warning' },
+        { count: completed, label: 'Submitted', colorClass: 'bg-success' },
     ]
 
     return <StackedBar segments={segments} />
