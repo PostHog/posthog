@@ -394,6 +394,9 @@
                 },
                 {
                     "$ref": "#/definitions/TracesQuery"
+                },
+                {
+                    "$ref": "#/definitions/PgEmbeddingsQuery"
                 }
             ]
         },
@@ -3224,6 +3227,71 @@
                         "$ref": "#/definitions/PathsLink"
                     },
                     "type": "array"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
+        "CachedPgEmbeddingsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "results": {
+                    "$ref": "#/definitions/PgEmbeddingsResponse"
                 },
                 "timezone": {
                     "type": "string"
@@ -10312,7 +10380,8 @@
                 "TeamTaxonomyQuery",
                 "EventTaxonomyQuery",
                 "ActorsPropertyTaxonomyQuery",
-                "TracesQuery"
+                "TracesQuery",
+                "PgEmbeddingsQuery"
             ],
             "type": "string"
         },
@@ -10704,6 +10773,83 @@
                 }
             },
             "required": ["kind"],
+            "type": "object"
+        },
+        "PgEmbeddingsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "embedding": {
+                    "items": {
+                        "type": "number"
+                    },
+                    "type": "array"
+                },
+                "kind": {
+                    "const": "PgEmbeddingsQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/PgEmbeddingsQueryResponse"
+                }
+            },
+            "required": ["embedding", "kind"],
+            "type": "object"
+        },
+        "PgEmbeddingsQueryResponse": {
+            "additionalProperties": false,
+            "description": "All analytics query responses must inherit from this.",
+            "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "results": {
+                    "$ref": "#/definitions/PgEmbeddingsResponse"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
+        "PgEmbeddingsResponse": {
+            "items": {
+                "$ref": "#/definitions/PgEmbeddingsResponseItem"
+            },
+            "type": "array"
+        },
+        "PgEmbeddingsResponseItem": {
+            "additionalProperties": false,
+            "properties": {
+                "distance": {
+                    "type": "number"
+                },
+                "id": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "distance"],
             "type": "object"
         },
         "PropertyFilterType": {
@@ -13133,6 +13279,39 @@
                     },
                     "required": ["results"],
                     "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "results": {
+                            "$ref": "#/definitions/PgEmbeddingsResponse"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
                 }
             ]
         },
@@ -13269,6 +13448,9 @@
                 },
                 {
                     "$ref": "#/definitions/TracesQuery"
+                },
+                {
+                    "$ref": "#/definitions/PgEmbeddingsQuery"
                 }
             ],
             "required": ["kind"],

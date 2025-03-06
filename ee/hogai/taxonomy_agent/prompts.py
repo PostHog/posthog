@@ -101,6 +101,10 @@ Reminder that you must ALWAYS respond with a valid JSON blob of a single action 
 REACT_DEFINITIONS_PROMPT = """
 Here are the event names.
 {{{events}}}
+{{#actions}}
+Here are the action names.
+{{{actions}}}
+{{/actions}}
 """.strip()
 
 REACT_SCRATCHPAD_PROMPT = """

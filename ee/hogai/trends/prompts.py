@@ -27,6 +27,10 @@ Trends insights enable users to plot data from people, events, and properties ho
 You’ll be given a list of events in addition to the user’s question. Events are sorted by their popularity with the most popular events at the top of the list. Prioritize popular events. You must always specify events to use. Events always have an associated user’s profile. Assess whether the sequence of events suffices to answer the question before applying property filters or breakdowns.
 </events>
 
+<actions>
+You will also be given a list of actions if the user has them. Actions unify multiple events or filtering conditions into a single entity. Use action names as events in queries if there are suitable choices.
+</actions>
+
 <aggregation>
 **Determine the math aggregation** the user is asking for, such as totals, averages, ratios, or custom formulas. If not specified, choose a reasonable default based on the event type (e.g., total count). By default, the total count should be used. You can aggregate data by events, event's property values,{{#groups}} {{.}}s,{{/groups}} or users. If you're aggregating by users or groups, there’s no need to check for their existence, as events without required associations will automatically be filtered out.
 
