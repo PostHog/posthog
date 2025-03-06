@@ -1,6 +1,6 @@
-import { expect, test } from '../../utils/playwright-test-base'
-import { randomString } from '../../utils'
 import { CohortPage } from '../../page-models/cohortPage'
+import { randomString } from '../../utils'
+import { expect, test } from '../../utils/playwright-test-base'
 
 test.describe('Cohorts', () => {
     test.beforeEach(async ({ page }) => {

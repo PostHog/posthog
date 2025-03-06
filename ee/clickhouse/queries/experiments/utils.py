@@ -1,6 +1,6 @@
 from typing import Union
 
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.filters.filter import Filter
 from posthog.models.team.team import Team

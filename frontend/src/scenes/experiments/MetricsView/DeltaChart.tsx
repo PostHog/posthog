@@ -17,6 +17,12 @@ import { humanFriendlyNumber } from 'lib/utils'
 import { useEffect, useRef, useState } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import {
+    ExperimentFunnelsQuery,
+    ExperimentMetric,
+    ExperimentTrendsQuery,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 import { InsightType, TrendExperimentVariant } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
@@ -24,6 +30,24 @@ import { ExploreButton, ResultsQuery, VariantTag } from '../ExperimentView/compo
 import { SignificanceText, WinningVariantText } from '../ExperimentView/Overview'
 import { SummaryTable } from '../ExperimentView/SummaryTable'
 import { NoResultEmptyState } from './NoResultEmptyState'
+
+export function getMetricTag(metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery): string {
+    if (metric.kind === NodeKind.ExperimentMetric) {
+        return metric.metric_type.charAt(0).toUpperCase() + metric.metric_type.slice(1).toLowerCase()
+    } else if (metric.kind === NodeKind.ExperimentFunnelsQuery) {
+        return 'Funnel'
+    }
+    return 'Trend'
+}
+
+export function getDefaultMetricTitle(metric: ExperimentMetric): string {
+    if (metric.metric_config.kind === NodeKind.ExperimentEventMetricConfig) {
+        return metric.metric_config.event
+    } else if (metric.metric_config.kind === NodeKind.ExperimentActionMetricConfig) {
+        return metric.metric_config.name || `Action ${metric.metric_config.action}`
+    }
+    return 'Untitled metric'
+}
 
 function formatTickValue(value: number): string {
     if (value === 0) {
@@ -46,9 +70,13 @@ function formatTickValue(value: number): string {
 
     return `${(value * 100).toFixed(decimals)}%`
 }
-const getMetricTitle = (metric: any, metricType: InsightType): JSX.Element => {
+export const getMetricTitle = (metric: any, metricType?: InsightType): JSX.Element => {
     if (metric.name) {
         return <span className="truncate">{metric.name}</span>
+    }
+
+    if (metric.kind === NodeKind.ExperimentMetric) {
+        return <span className="truncate">{getDefaultMetricTitle(metric)}</span>
     }
 
     if (metricType === InsightType.TRENDS && metric.count_query?.series?.[0]?.name) {
@@ -275,7 +303,7 @@ export function DeltaChart({
                     className="p-2 overflow-auto"
                 >
                     <div className="text-xs font-semibold whitespace-nowrap overflow-hidden">
-                        <div className="space-y-1">
+                        <div className="deprecated-space-y-1">
                             <div className="flex items-center gap-2">
                                 <div className="cursor-default text-xs font-semibold whitespace-nowrap overflow-hidden text-ellipsis flex-grow flex items-center">
                                     <span className="mr-1">{metricIndex + 1}.</span>
@@ -301,9 +329,9 @@ export function DeltaChart({
                                     }}
                                 />
                             </div>
-                            <div className="space-x-1">
+                            <div className="deprecated-space-x-1">
                                 <LemonTag type="muted" size="small">
-                                    {metric.kind === 'ExperimentFunnelsQuery' ? 'Funnel' : 'Trend'}
+                                    {getMetricTag(metric)}
                                 </LemonTag>
                                 {metric.isSharedMetric && (
                                     <LemonTag type="option" size="small">
@@ -865,11 +893,13 @@ export function DeltaChart({
                 }
             >
                 {/* TODO: Only show explore button if the metric is a trends or funnels query. Not supported yet with new query runner */}
-                {result && (result.kind === 'ExperimentTrendsQuery' || result.kind === 'ExperimentFunnelsQuery') && (
-                    <div className="flex justify-end">
-                        <ExploreButton result={result} />
-                    </div>
-                )}
+                {result &&
+                    (result.kind === NodeKind.ExperimentTrendsQuery ||
+                        result.kind === NodeKind.ExperimentFunnelsQuery) && (
+                        <div className="flex justify-end">
+                            <ExploreButton result={result} />
+                        </div>
+                    )}
                 <LemonBanner type={result?.significant ? 'success' : 'info'} className="mb-4">
                     <div className="items-center inline-flex flex-wrap">
                         <WinningVariantText result={result} experimentId={experimentId} />
@@ -878,9 +908,11 @@ export function DeltaChart({
                 </LemonBanner>
                 <SummaryTable metric={metric} metricIndex={metricIndex} isSecondary={isSecondary} />
                 {/* TODO: Only show results query if the metric is a trends or funnels query. Not supported yet with new query runner */}
-                {result && (result.kind === 'ExperimentTrendsQuery' || result.kind === 'ExperimentFunnelsQuery') && (
-                    <ResultsQuery result={result} showTable={true} />
-                )}
+                {result &&
+                    (result.kind === NodeKind.ExperimentTrendsQuery ||
+                        result.kind === NodeKind.ExperimentFunnelsQuery) && (
+                        <ResultsQuery result={result} showTable={true} />
+                    )}
             </LemonModal>
         </div>
     )

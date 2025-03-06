@@ -378,6 +378,9 @@
                     "$ref": "#/definitions/SessionAttributionExplorerQuery"
                 },
                 {
+                    "$ref": "#/definitions/RevenueExampleEventsQuery"
+                },
+                {
                     "$ref": "#/definitions/ErrorTrackingQuery"
                 },
                 {
@@ -1244,6 +1247,11 @@
                     "description": "Whether retention should be rolling (aka unbounded, cumulative). Rolling retention means that a user coming back in period 5 makes them count towards all the previous periods.",
                     "type": "boolean"
                 },
+                "meanRetentionCalculation": {
+                    "description": "Whether an additional series should be shown, showing the mean conversion for each period across cohorts.",
+                    "enum": ["simple", "weighted", "none"],
+                    "type": "string"
+                },
                 "period": {
                     "$ref": "#/definitions/RetentionPeriod",
                     "default": "Day",
@@ -1263,7 +1271,7 @@
                     "description": "Retention event (event marking the user coming back)."
                 },
                 "showMean": {
-                    "description": "Whether an additional series should be shown, showing the mean conversion for each period across cohorts.",
+                    "description": "DEPRECATED: Whether an additional series should be shown, showing the mean conversion for each period across cohorts.",
                     "type": "boolean"
                 },
                 "targetEntity": {
@@ -3306,6 +3314,86 @@
             ],
             "type": "object"
         },
+        "CachedRevenueExampleEventsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "columns": {
+                    "items": {},
+                    "type": "array"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hasMore": {
+                    "type": "boolean"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "results": {},
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "types": {
+                    "items": {},
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
         "CachedSessionAttributionExplorerQueryResponse": {
             "additionalProperties": false,
             "properties": {
@@ -4500,6 +4588,163 @@
             ],
             "type": "string"
         },
+        "CurrencyCode": {
+            "enum": [
+                "AED",
+                "AFN",
+                "ALL",
+                "AMD",
+                "ANG",
+                "AOA",
+                "ARS",
+                "AUD",
+                "AWG",
+                "AZN",
+                "BAM",
+                "BBD",
+                "BDT",
+                "BGN",
+                "BHD",
+                "BIF",
+                "BMD",
+                "BND",
+                "BOB",
+                "BRL",
+                "BSD",
+                "BTC",
+                "BTN",
+                "BWP",
+                "BYN",
+                "BZD",
+                "CAD",
+                "CDF",
+                "CHF",
+                "CLP",
+                "CNY",
+                "COP",
+                "CRC",
+                "CVE",
+                "CZK",
+                "DJF",
+                "DKK",
+                "DOP",
+                "DZD",
+                "EGP",
+                "ERN",
+                "ETB",
+                "EUR",
+                "FJD",
+                "GBP",
+                "GEL",
+                "GHS",
+                "GIP",
+                "GMD",
+                "GNF",
+                "GTQ",
+                "GYD",
+                "HKD",
+                "HNL",
+                "HRK",
+                "HTG",
+                "HUF",
+                "IDR",
+                "ILS",
+                "INR",
+                "IQD",
+                "IRR",
+                "ISK",
+                "JMD",
+                "JOD",
+                "JPY",
+                "KES",
+                "KGS",
+                "KHR",
+                "KMF",
+                "KRW",
+                "KWD",
+                "KYD",
+                "KZT",
+                "LAK",
+                "LBP",
+                "LKR",
+                "LRD",
+                "LTL",
+                "LVL",
+                "LSL",
+                "LYD",
+                "MAD",
+                "MDL",
+                "MGA",
+                "MKD",
+                "MMK",
+                "MNT",
+                "MOP",
+                "MRU",
+                "MTL",
+                "MUR",
+                "MVR",
+                "MWK",
+                "MXN",
+                "MYR",
+                "MZN",
+                "NAD",
+                "NGN",
+                "NIO",
+                "NOK",
+                "NPR",
+                "NZD",
+                "OMR",
+                "PAB",
+                "PEN",
+                "PGK",
+                "PHP",
+                "PKR",
+                "PLN",
+                "PYG",
+                "QAR",
+                "RON",
+                "RSD",
+                "RUB",
+                "RWF",
+                "SAR",
+                "SBD",
+                "SCR",
+                "SDG",
+                "SEK",
+                "SGD",
+                "SRD",
+                "SSP",
+                "STN",
+                "SYP",
+                "SZL",
+                "THB",
+                "TJS",
+                "TMT",
+                "TND",
+                "TOP",
+                "TRY",
+                "TTD",
+                "TWD",
+                "TZS",
+                "UAH",
+                "UGX",
+                "USD",
+                "UYU",
+                "UZS",
+                "VES",
+                "VND",
+                "VUV",
+                "WST",
+                "XAF",
+                "XCD",
+                "XOF",
+                "XPF",
+                "YER",
+                "ZAR",
+                "ZMW"
+            ],
+            "type": "string"
+        },
         "CustomChannelCondition": {
             "additionalProperties": false,
             "properties": {
@@ -5155,6 +5400,54 @@
                             "additionalProperties": false,
                             "properties": {
                                 "columns": {
+                                    "items": {},
+                                    "type": "array"
+                                },
+                                "error": {
+                                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                                    "type": "string"
+                                },
+                                "hasMore": {
+                                    "type": "boolean"
+                                },
+                                "hogql": {
+                                    "description": "Generated HogQL query.",
+                                    "type": "string"
+                                },
+                                "limit": {
+                                    "$ref": "#/definitions/integer"
+                                },
+                                "modifiers": {
+                                    "$ref": "#/definitions/HogQLQueryModifiers",
+                                    "description": "Modifiers used when performing the query"
+                                },
+                                "offset": {
+                                    "$ref": "#/definitions/integer"
+                                },
+                                "query_status": {
+                                    "$ref": "#/definitions/QueryStatus",
+                                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                                },
+                                "results": {},
+                                "timings": {
+                                    "description": "Measured timings for different parts of the query generation process",
+                                    "items": {
+                                        "$ref": "#/definitions/QueryTiming"
+                                    },
+                                    "type": "array"
+                                },
+                                "types": {
+                                    "items": {},
+                                    "type": "array"
+                                }
+                            },
+                            "required": ["results"],
+                            "type": "object"
+                        },
+                        {
+                            "additionalProperties": false,
+                            "properties": {
+                                "columns": {
                                     "items": {
                                         "type": "string"
                                     },
@@ -5500,6 +5793,9 @@
                         },
                         {
                             "$ref": "#/definitions/SessionAttributionExplorerQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/RevenueExampleEventsQuery"
                         },
                         {
                             "$ref": "#/definitions/ErrorTrackingQuery"
@@ -6892,7 +7188,7 @@
                     "type": "string"
                 },
                 "math": {
-                    "$ref": "#/definitions/ExperimentMetricMath"
+                    "$ref": "#/definitions/ExperimentMetricMathType"
                 },
                 "math_hogql": {
                     "type": "string"
@@ -6917,10 +7213,10 @@
         "ExperimentDataWarehouseMetricConfig": {
             "additionalProperties": false,
             "properties": {
-                "after_exposure_identifier_field": {
+                "data_warehouse_join_key": {
                     "type": "string"
                 },
-                "exposure_identifier_field": {
+                "events_join_key": {
                     "type": "string"
                 },
                 "kind": {
@@ -6928,12 +7224,15 @@
                     "type": "string"
                 },
                 "math": {
-                    "$ref": "#/definitions/ExperimentMetricMath"
+                    "$ref": "#/definitions/ExperimentMetricMathType"
                 },
                 "math_hogql": {
                     "type": "string"
                 },
                 "math_property": {
+                    "type": "string"
+                },
+                "name": {
                     "type": "string"
                 },
                 "table_name": {
@@ -6943,13 +7242,27 @@
                     "type": "string"
                 }
             },
-            "required": [
-                "kind",
-                "table_name",
-                "timestamp_field",
-                "exposure_identifier_field",
-                "after_exposure_identifier_field"
-            ],
+            "required": ["kind", "table_name", "timestamp_field", "events_join_key", "data_warehouse_join_key"],
+            "type": "object"
+        },
+        "ExperimentEventExposureConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "event": {
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "ExperimentEventExposureConfig",
+                    "type": "string"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["kind", "event", "properties"],
             "type": "object"
         },
         "ExperimentEventMetricConfig": {
@@ -6963,7 +7276,7 @@
                     "type": "string"
                 },
                 "math": {
-                    "$ref": "#/definitions/ExperimentMetricMath"
+                    "$ref": "#/definitions/ExperimentMetricMathType"
                 },
                 "math_hogql": {
                     "type": "string"
@@ -6983,6 +7296,18 @@
                 }
             },
             "required": ["kind", "event"],
+            "type": "object"
+        },
+        "ExperimentExposureCriteria": {
+            "additionalProperties": false,
+            "properties": {
+                "exposure_config": {
+                    "$ref": "#/definitions/ExperimentEventExposureConfig"
+                },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                }
+            },
             "type": "object"
         },
         "ExperimentExposureQuery": {
@@ -7151,9 +7476,6 @@
         "ExperimentMetric": {
             "additionalProperties": false,
             "properties": {
-                "filterTestAccounts": {
-                    "type": "boolean"
-                },
                 "inverse": {
                     "type": "boolean"
                 },
@@ -7179,17 +7501,20 @@
                 },
                 "name": {
                     "type": "string"
+                },
+                "time_window_hours": {
+                    "type": "number"
                 }
             },
             "required": ["kind", "metric_type", "metric_config"],
             "type": "object"
         },
-        "ExperimentMetricMath": {
-            "enum": ["total", "sum", "avg", "median", "min", "max"],
+        "ExperimentMetricMathType": {
+            "enum": ["total", "sum"],
             "type": "string"
         },
         "ExperimentMetricType": {
-            "enum": ["count", "continuous", "binomial"],
+            "enum": ["funnel", "mean"],
             "type": "string"
         },
         "ExperimentQuery": {
@@ -8581,6 +8906,9 @@
                     },
                     "type": "array"
                 },
+                "isUsingIndices": {
+                    "$ref": "#/definitions/QueryIndexUsage"
+                },
                 "isValid": {
                     "type": "boolean"
                 },
@@ -8842,6 +9170,9 @@
             "properties": {
                 "code_name": {
                     "type": "string"
+                },
+                "isNull": {
+                    "type": "boolean"
                 },
                 "value": {},
                 "variableId": {
@@ -9904,6 +10235,9 @@
                 },
                 {
                     "$ref": "#/definitions/HogQLMathType"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentMetricMathType"
                 }
             ]
         },
@@ -9943,6 +10277,7 @@
                 "SessionsTimelineQuery",
                 "RecordingsQuery",
                 "SessionAttributionExplorerQuery",
+                "RevenueExampleEventsQuery",
                 "ErrorTrackingQuery",
                 "DataTableNode",
                 "DataVisualizationNode",
@@ -9966,6 +10301,7 @@
                 "ExperimentMetric",
                 "ExperimentQuery",
                 "ExperimentExposureQuery",
+                "ExperimentEventExposureConfig",
                 "ExperimentEventMetricConfig",
                 "ExperimentActionMetricConfig",
                 "ExperimentDataWarehouseMetricConfig",
@@ -10478,6 +10814,10 @@
             ],
             "type": "string"
         },
+        "QueryIndexUsage": {
+            "enum": ["undecisive", "no", "partial", "yes"],
+            "type": "string"
+        },
         "QueryRequest": {
             "additionalProperties": false,
             "properties": {
@@ -10879,6 +11219,9 @@
                             },
                             "type": "array"
                         },
+                        "isUsingIndices": {
+                            "$ref": "#/definitions/QueryIndexUsage"
+                        },
                         "isValid": {
                             "type": "boolean"
                         },
@@ -10932,6 +11275,54 @@
                         }
                     },
                     "required": ["suggestions", "incomplete_list"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "columns": {
+                            "items": {},
+                            "type": "array"
+                        },
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hasMore": {
+                            "type": "boolean"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "limit": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "offset": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "results": {},
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        },
+                        "types": {
+                            "items": {},
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
                     "type": "object"
                 },
                 {
@@ -12004,6 +12395,54 @@
                     "additionalProperties": false,
                     "properties": {
                         "columns": {
+                            "items": {},
+                            "type": "array"
+                        },
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hasMore": {
+                            "type": "boolean"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "limit": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "offset": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "results": {},
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        },
+                        "types": {
+                            "items": {},
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "columns": {
                             "items": {
                                 "type": "string"
                             },
@@ -12745,6 +13184,9 @@
                     "$ref": "#/definitions/SessionAttributionExplorerQuery"
                 },
                 {
+                    "$ref": "#/definitions/RevenueExampleEventsQuery"
+                },
+                {
                     "$ref": "#/definitions/ErrorTrackingQuery"
                 },
                 {
@@ -13191,6 +13633,10 @@
             "required": ["assignmentBy", "color"],
             "type": "object"
         },
+        "RetentionDashboardDisplayType": {
+            "enum": ["table_only", "graph_only", "all"],
+            "type": "string"
+        },
         "RetentionEntity": {
             "additionalProperties": false,
             "properties": {
@@ -13235,6 +13681,17 @@
                 "cumulative": {
                     "type": "boolean"
                 },
+                "dashboardDisplay": {
+                    "$ref": "#/definitions/RetentionDashboardDisplayType"
+                },
+                "display": {
+                    "$ref": "#/definitions/ChartDisplayType",
+                    "description": "controls the display of the retention graph"
+                },
+                "meanRetentionCalculation": {
+                    "enum": ["simple", "weighted", "none"],
+                    "type": "string"
+                },
                 "period": {
                     "$ref": "#/definitions/RetentionPeriod",
                     "default": "Day"
@@ -13258,7 +13715,7 @@
                 },
                 "totalIntervals": {
                     "$ref": "#/definitions/integer",
-                    "default": 11
+                    "default": 8
                 }
             },
             "type": "object"
@@ -13269,6 +13726,10 @@
             "properties": {
                 "cumulative": {
                     "type": "boolean"
+                },
+                "mean_retention_calculation": {
+                    "enum": ["simple", "weighted", "none"],
+                    "type": "string"
                 },
                 "period": {
                     "$ref": "#/definitions/RetentionPeriod"
@@ -13435,9 +13896,87 @@
             "required": ["count"],
             "type": "object"
         },
+        "RevenueExampleEventsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "RevenueExampleEventsQuery",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
+                },
+                "response": {
+                    "$ref": "#/definitions/RevenueExampleEventsQueryResponse"
+                },
+                "revenueTrackingConfig": {
+                    "$ref": "#/definitions/RevenueTrackingConfig"
+                }
+            },
+            "required": ["kind", "revenueTrackingConfig"],
+            "type": "object"
+        },
+        "RevenueExampleEventsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "columns": {
+                    "items": {},
+                    "type": "array"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hasMore": {
+                    "type": "boolean"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "results": {},
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "types": {
+                    "items": {},
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
         "RevenueTrackingConfig": {
             "additionalProperties": false,
             "properties": {
+                "baseCurrency": {
+                    "$ref": "#/definitions/CurrencyCode"
+                },
                 "events": {
                     "items": {
                         "$ref": "#/definitions/RevenueTrackingEventItem"
@@ -13452,6 +13991,9 @@
             "additionalProperties": false,
             "properties": {
                 "eventName": {
+                    "type": "string"
+                },
+                "revenueCurrencyProperty": {
                     "type": "string"
                 },
                 "revenueProperty": {
@@ -13834,11 +14376,18 @@
                     "type": "string"
                 },
                 "viewed": {
-                    "description": "Whether this recording has been viewed already.",
+                    "description": "Whether this recording has been viewed by you already.",
                     "type": "boolean"
+                },
+                "viewers": {
+                    "description": "user ids of other users who have viewed this recording",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 }
             },
-            "required": ["id", "viewed", "recording_duration", "start_time", "end_time", "snapshot_source"],
+            "required": ["id", "viewed", "viewers", "recording_duration", "start_time", "end_time", "snapshot_source"],
             "type": "object"
         },
         "SessionsTimelineQuery": {
@@ -13981,9 +14530,16 @@
             "required": ["kind", "source"],
             "type": "object"
         },
+        "StickinessComputationMode": {
+            "enum": ["non_cumulative", "cumulative"],
+            "type": "string"
+        },
         "StickinessFilter": {
             "additionalProperties": false,
             "properties": {
+                "computedAs": {
+                    "$ref": "#/definitions/StickinessComputationMode"
+                },
                 "display": {
                     "$ref": "#/definitions/ChartDisplayType"
                 },
@@ -14894,12 +15450,16 @@
                 "plan": {
                     "type": "string"
                 },
+                "query": {
+                    "default": "",
+                    "type": "string"
+                },
                 "type": {
                     "const": "ai/viz",
                     "type": "string"
                 }
             },
-            "required": ["type"],
+            "required": ["type", "query"],
             "type": "object"
         },
         "VizSpecificOptions": {

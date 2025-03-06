@@ -148,23 +148,13 @@ class TestTemplateMigration(BaseTest):
                 "site_id": {"value": "SITE_ID"},
                 "token": {"value": "TOKEN"},
                 "host": {"value": "track.customer.io"},
-                "identifiers": {"value": {"id": "{event.distinct_id}"}},
+                "identifier_key": {"value": "id"},
+                "identifier_value": {"value": "{event.distinct_id}"},
                 "include_all_properties": {"value": True},
                 "attributes": {"value": {}},
             }
         )
         assert template["filters"] == snapshot({})
-        assert template["inputs"] == snapshot(
-            {
-                "action": {"value": "automatic"},
-                "site_id": {"value": "SITE_ID"},
-                "token": {"value": "TOKEN"},
-                "host": {"value": "track.customer.io"},
-                "identifiers": {"value": {"id": "{event.distinct_id}"}},
-                "include_all_properties": {"value": True},
-                "attributes": {"value": {}},
-            }
-        )
 
     def test_anon_config_send_all(self):
         obj = self.get_plugin_config(
@@ -203,7 +193,8 @@ class TestTemplateMigration(BaseTest):
     def test_identify_by_email(self):
         obj = self.get_plugin_config({"identifyByEmail": "Yes"})
         template = TemplateCustomerioMigrator.migrate(obj)
-        assert template["inputs"]["identifiers"] == snapshot({"value": {"email": "{person.properties.email}"}})
+        assert template["inputs"]["identifier_key"] == {"value": "email"}
+        assert template["inputs"]["identifier_value"] == {"value": "{person.properties.email}"}
 
     def test_events_filters(self):
         obj = self.get_plugin_config({"eventsToSend": "event1,event2, $pageview"})

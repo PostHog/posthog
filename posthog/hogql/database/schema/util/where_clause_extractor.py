@@ -403,12 +403,13 @@ class IsTimeOrIntervalConstantVisitor(Visitor[bool]):
 
     def visit_call(self, node: ast.Call) -> bool:
         # some functions just return a constant
-        if node.name in ["today", "now"]:
+        if node.name in ["today", "now", "now64", "yesterday"]:
             return True
         # some functions return a constant if the first argument is a constant
         if node.name in [
             "parseDateTime64BestEffortOrNull",
             "toDateTime",
+            "toDateTime64",
             "toTimeZone",
             "assumeNotNull",
             "toIntervalYear",

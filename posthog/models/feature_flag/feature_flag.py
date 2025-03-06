@@ -5,7 +5,7 @@ from typing import Optional, cast
 
 from django.core.cache import cache
 from django.db import models
-from django.db.models.signals import post_delete, post_save, pre_delete
+from django.db.models.signals import post_delete, post_save
 from django.utils import timezone
 from posthog.exceptions_capture import capture_exception
 
@@ -14,7 +14,6 @@ from posthog.constants import (
     PropertyOperatorType,
 )
 from posthog.models.cohort import Cohort, CohortOrEmpty
-from posthog.models.experiment import Experiment
 from posthog.models.property import GroupTypeIndex
 from posthog.models.property.property import Property, PropertyGroup
 from posthog.models.signals import mutable_receiver
@@ -39,6 +38,15 @@ class FeatureFlag(models.Model):
     created_at = models.DateTimeField(default=timezone.now)
     deleted = models.BooleanField(default=False)
     active = models.BooleanField(default=True)
+
+    version = models.IntegerField(default=0, null=True)
+    last_modified_by = models.ForeignKey(
+        "User",
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="updated_feature_flags",
+        db_index=False,
+    )
 
     rollback_conditions = models.JSONField(null=True, blank=True)
     performed_rollback = models.BooleanField(null=True, blank=True)
@@ -328,6 +336,7 @@ class FeatureFlag(models.Model):
         context = {
             "request": http_request,
             "team_id": self.team_id,
+            "project_id": self.team.project_id,
         }
 
         serializer_data = {}
@@ -355,11 +364,6 @@ class FeatureFlag(models.Model):
                 if prop.get("type") == "cohort":
                     return True
         return False
-
-
-@mutable_receiver(pre_delete, sender=Experiment)
-def delete_experiment_flags(sender, instance, **kwargs):
-    FeatureFlag.objects.filter(experiment=instance).update(deleted=True)
 
 
 @mutable_receiver([post_save, post_delete], sender=FeatureFlag)

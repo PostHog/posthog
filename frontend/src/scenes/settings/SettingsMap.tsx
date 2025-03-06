@@ -35,6 +35,7 @@ import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
 import { OtherIntegrations } from './environment/OtherIntegrations'
 import { PathCleaningFiltersConfig } from './environment/PathCleaningFiltersConfig'
 import { PersonDisplayNameProperties } from './environment/PersonDisplayNameProperties'
+import { RevenueBaseCurrencySettings } from './environment/RevenueBaseCurrencySettings'
 import { SessionRecordingIngestionSettings } from './environment/SessionRecordingIngestionSettings'
 import {
     NetworkCaptureSettings,
@@ -48,9 +49,9 @@ import { TeamAccessControl } from './environment/TeamAccessControl'
 import { TeamDangerZone } from './environment/TeamDangerZone'
 import {
     Bookmarklet,
+    TeamAuthorizedURLs,
     TeamDisplayName,
     TeamTimezone,
-    TeamToolbarURLs,
     TeamVariables,
     WebSnippet,
 } from './environment/TeamSettings'
@@ -97,6 +98,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <WebSnippet />,
             },
             {
+                id: 'authorized-urls',
+                title: 'Toolbar Authorized URLs',
+                component: <TeamAuthorizedURLs />,
+            },
+            {
                 id: 'bookmarklet',
                 title: 'Bookmarklet',
                 component: <Bookmarklet />,
@@ -130,12 +136,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <HeatmapsSettings />,
             },
             {
-                id: 'exception-autocapture',
-                title: 'Exception autocapture',
-                component: <ExceptionAutocaptureSettings />,
-                flag: 'ERROR_TRACKING',
-            },
-            {
                 id: 'web-vitals-autocapture',
                 title: 'Web vitals autocapture',
                 component: <WebVitalsAutocaptureSettings />,
@@ -147,7 +147,6 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
         ],
     },
-
     {
         level: 'environment',
         id: 'environment-product-analytics',
@@ -226,16 +225,26 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
         ],
     },
-
     {
         level: 'environment',
         id: 'environment-web-analytics',
         title: 'Web analytics',
         settings: [
             {
+                id: 'web-analytics-authorized-urls',
+                title: 'Web Analytics Domains',
+                component: <TeamAuthorizedURLs />,
+            },
+            {
                 id: 'channel-type',
                 title: 'Custom channel type',
                 component: <CustomChannelTypes />,
+            },
+            {
+                id: 'revenue-base-currency',
+                title: 'Revenue base currency',
+                component: <RevenueBaseCurrencySettings />,
+                flag: 'WEB_REVENUE_TRACKING',
             },
             {
                 id: 'cookieless-server-hash-mode',
@@ -256,7 +265,6 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
         ],
     },
-
     {
         level: 'environment',
         id: 'environment-replay',
@@ -327,7 +335,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         flag: 'ERROR_TRACKING',
         settings: [
             {
-                id: 'exception-autocapture',
+                id: 'error-tracking-exception-autocapture',
                 title: 'Exception autocapture',
                 component: <ExceptionAutocaptureSettings />,
             },
@@ -345,7 +353,6 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'error-tracking-alerting',
                 title: 'Alerting',
-                flag: 'ERROR_TRACKING_ALERTING',
                 component: <ErrorTrackingAlerting />,
             },
         ],
@@ -363,18 +370,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'Max automatically remembers details about your company and product. This context helps our AI assistant provide relevant answers and suggestions. If there are any details you don’t want Max to remember, you can edit or remove them below.',
                 component: <MaxMemorySettings />,
                 hideOn: [Realm.SelfHostedClickHouse, Realm.SelfHostedPostgres],
-            },
-        ],
-    },
-    {
-        level: 'environment',
-        id: 'environment-toolbar',
-        title: 'Toolbar',
-        settings: [
-            {
-                id: 'authorized-toolbar-urls',
-                title: 'Authorized toolbar URLs',
-                component: <TeamToolbarURLs />,
             },
         ],
     },

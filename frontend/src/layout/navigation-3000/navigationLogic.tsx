@@ -1,5 +1,6 @@
 import {
     IconAI,
+    IconArrowUpRight,
     IconCursorClick,
     IconDashboard,
     IconDatabase,
@@ -42,7 +43,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { ProductKey, ReplayTabs } from '~/types'
+import { ReplayTabs } from '~/types'
 
 import { navigationLogic } from '../navigation/navigationLogic'
 import type { navigation3000LogicType } from './navigationLogicType'
@@ -74,7 +75,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
             navigationLogic,
             ['mobileLayout'],
             teamLogic,
-            ['currentTeam', 'hasOnboardedAnyProduct'],
+            ['hasOnboardedAnyProduct'],
             replayLandingPageLogic,
             ['replayLandingPage'],
             savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Playlists }),
@@ -353,7 +354,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 featureFlagLogic.selectors.featureFlags,
                 dashboardsModel.selectors.dashboardsLoading,
                 dashboardsModel.selectors.pinnedDashboards,
-                s.currentTeam,
                 s.hasOnboardedAnyProduct,
                 s.replayLandingPage,
                 s.playlists,
@@ -363,14 +363,12 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 featureFlags,
                 dashboardsLoading,
                 pinnedDashboards,
-                currentTeam,
                 hasOnboardedAnyProduct,
                 replayLandingPage,
                 playlists,
                 playlistsLoading
             ): NavbarItem[][] => {
                 const isUsingSidebar = featureFlags[FEATURE_FLAGS.POSTHOG_3000_NAV]
-                const hasOnboardedFeatureFlags = currentTeam?.has_completed_onboarding_for?.[ProductKey.FEATURE_FLAGS]
 
                 const sectionOne: NavbarItem[] = hasOnboardedAnyProduct
                     ? [
@@ -453,8 +451,13 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 if (featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG]) {
                     sectionOne.splice(1, 0, {
                         identifier: Scene.Max,
-                        label: 'Max AI',
+                        label: 'Max',
                         icon: <IconSparkles />,
+                        onClick: () =>
+                            lemonToast.info(
+                                'Max now lives in the top right corner of the app – he will soon disappear from the navbar',
+                                { icon: <IconArrowUpRight /> }
+                            ),
                         to: urls.max(),
                         tag: 'beta' as const,
                     })
@@ -585,14 +588,12 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             icon: <IconMessage />,
                             to: urls.surveys(),
                         },
-                        featureFlags[FEATURE_FLAGS.PRODUCT_INTRO_PAGES] !== 'test' || hasOnboardedFeatureFlags
-                            ? {
-                                  identifier: 'EarlyAccessFeatures',
-                                  label: 'Early access features',
-                                  icon: <IconRocket />,
-                                  to: urls.earlyAccessFeatures(),
-                              }
-                            : null,
+                        {
+                            identifier: 'EarlyAccessFeatures',
+                            label: 'Early access features',
+                            icon: <IconRocket />,
+                            to: urls.earlyAccessFeatures(),
+                        },
                         {
                             identifier: Scene.SQLEditor,
                             label: 'SQL editor',

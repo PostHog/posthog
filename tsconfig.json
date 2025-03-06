@@ -45,7 +45,8 @@
         "ee/frontend/**/*",
         "products/**/frontend/**/*",
         "common/esbuilder/*",
-        "common/eslint_rules/*"
+        "common/eslint_rules/*",
+        "common/storybook/*"
     ],
     "exclude": ["frontend/dist/**/*"],
     "ts-node": {

@@ -20,10 +20,10 @@ pub mod config;
 pub mod error;
 pub mod fingerprinting;
 pub mod frames;
-pub mod hack;
 pub mod issue_resolution;
 pub mod langs;
 pub mod metric_consts;
+pub mod posthog_utils;
 pub mod symbol_store;
 pub mod types;
 
@@ -161,7 +161,7 @@ pub async fn handle_events(
             let m_context = context.clone();
             let handle = tokio::spawn(async move {
                 resolve_issue(
-                    &m_context.pool,
+                    &m_context,
                     team_id,
                     &m_fingerprint,
                     name,

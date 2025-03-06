@@ -1,11 +1,12 @@
 import { IconWarning } from '@posthog/icons'
 import { router } from 'kea-router'
-import ViewRecordingButton, { mightHaveRecording } from 'lib/components/ViewRecordingButton'
+import ViewRecordingButton, { mightHaveRecording } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import React from 'react'
 import { createActionFromEvent } from 'scenes/activity/explore/createActionFromEvent'
 import { insightUrlForEvent } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -40,21 +41,7 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
                             Create action from event
                         </LemonButton>
                     )}
-                    {event.uuid && event.timestamp && (
-                        <LemonButton
-                            fullWidth
-                            sideIcon={<IconLink />}
-                            data-attr="events-table-event-link"
-                            onClick={() =>
-                                void copyToClipboard(
-                                    urls.absolute(urls.currentProject(urls.event(String(event.uuid), event.timestamp))),
-                                    'link to event'
-                                )
-                            }
-                        >
-                            Copy link to event
-                        </LemonButton>
-                    )}
+                    {event.uuid && event.timestamp && <EventCopyLinkButton event={event} />}
                     <ViewRecordingButton
                         fullWidth
                         inModal
@@ -94,3 +81,25 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
         />
     )
 }
+
+export const EventCopyLinkButton = React.forwardRef<
+    HTMLButtonElement,
+    { event: Pick<EventType, 'uuid' | 'timestamp'> }
+>(function EventCopyLinkButton({ event }, ref) {
+    return (
+        <LemonButton
+            ref={ref}
+            fullWidth
+            sideIcon={<IconLink />}
+            data-attr="events-table-event-link"
+            onClick={() =>
+                void copyToClipboard(
+                    urls.absolute(urls.currentProject(urls.event(String(event.uuid), event.timestamp))),
+                    'link to event'
+                )
+            }
+        >
+            Copy link to event
+        </LemonButton>
+    )
+})

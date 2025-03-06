@@ -13,6 +13,7 @@ use crate::{
         SAVE_SYMBOL_SET, SYMBOL_SET_DB_FETCHES, SYMBOL_SET_DB_HITS, SYMBOL_SET_DB_MISSES,
         SYMBOL_SET_FETCH_RETRY, SYMBOL_SET_SAVED,
     },
+    posthog_utils::capture_symbol_set_saved,
 };
 
 use super::{Fetcher, Parser, S3Client};
@@ -109,6 +110,8 @@ impl<F> Saving<F> {
             deleted, record.id
         );
         metrics::counter!(FRAME_RESOLUTION_RESULTS_DELETED).increment(deleted);
+
+        capture_symbol_set_saved(team_id, &record.set_ref, &key, deleted > 0);
 
         start.label("outcome", "success").fin();
         Ok(key)
@@ -302,11 +305,11 @@ impl SymbolSetRecord {
 
 #[cfg(test)]
 mod test {
+    use common_symbol_data::write_symbol_data;
     use httpmock::MockServer;
     use mockall::predicate;
     use reqwest::Url;
     use sqlx::PgPool;
-    use symbolic::sourcemapcache::SourceMapCacheWriter;
 
     use crate::{
         config::Config,
@@ -321,16 +324,12 @@ mod test {
     const MINIFIED: &[u8] = include_bytes!("../../tests/static/chunk-PGUQKT6S.js");
     const MAP: &[u8] = include_bytes!("../../tests/static/chunk-PGUQKT6S.js.map");
 
-    fn get_sourcemapcache_bytes() -> Vec<u8> {
-        let mut result = Vec::new();
-        let writer = SourceMapCacheWriter::new(
-            core::str::from_utf8(MINIFIED).unwrap(),
-            core::str::from_utf8(MAP).unwrap(),
-        )
-        .unwrap();
-
-        writer.serialize(&mut result).unwrap();
-        result
+    fn get_symbol_data_bytes() -> Vec<u8> {
+        write_symbol_data(common_symbol_data::SourceAndMap {
+            minified_source: String::from_utf8(MINIFIED.to_vec()).unwrap(),
+            sourcemap: String::from_utf8(MAP.to_vec()).unwrap(),
+        })
+        .unwrap()
     }
 
     #[sqlx::test(migrations = "./tests/test_migrations")]
@@ -360,7 +359,7 @@ mod test {
             .with(
                 predicate::eq(config.object_storage_bucket.clone()),
                 predicate::str::starts_with(config.ss_prefix.clone()),
-                predicate::always(), // We won't assert on the contents written
+                predicate::eq(get_symbol_data_bytes()), // We won't assert on the contents written
             )
             .returning(|_, _, _| Ok(()))
             .once();
@@ -371,7 +370,7 @@ mod test {
                 predicate::eq(config.object_storage_bucket.clone()),
                 predicate::str::starts_with(config.ss_prefix.clone()),
             )
-            .returning(|_, _| Ok(get_sourcemapcache_bytes()));
+            .returning(|_, _| Ok(get_symbol_data_bytes()));
 
         let smp = SourcemapProvider::new(&config);
         let saving_smp = Saving::new(

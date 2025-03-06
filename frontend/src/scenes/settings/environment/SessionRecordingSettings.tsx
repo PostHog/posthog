@@ -169,7 +169,7 @@ function CanvasCaptureSettings(): JSX.Element | null {
                     })
                 }}
                 label={
-                    <div className="space-x-1">
+                    <div className="deprecated-space-x-1">
                         <LemonTag type="success">New</LemonTag>
                         <LemonLabel>Capture canvas elements</LemonLabel>
                     </div>
@@ -250,7 +250,7 @@ export function NetworkCaptureSettings(): JSX.Element {
                     <PayloadWarning />
                 </LemonBanner>
                 <SupportedPlatforms android={false} ios={false} flutter={false} web={true} reactNative={false} />
-                <div className="flex flex-row space-x-2">
+                <div className="flex flex-row deprecated-space-x-2">
                     <LemonSwitch
                         data-attr="opt-in-capture-network-headers-switch"
                         onChange={(checked) => {
@@ -329,7 +329,7 @@ export function NetworkCaptureSettings(): JSX.Element {
  */
 export function ReplayAuthorizedDomains(): JSX.Element {
     return (
-        <div className="space-y-2">
+        <div className="deprecated-space-y-2">
             <SupportedPlatforms android={false} ios={false} flutter={false} web={true} reactNative={false} />
             <p>
                 Use the settings below to restrict the domains where recordings will be captured. If no domains are

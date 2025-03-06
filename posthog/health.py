@@ -28,7 +28,7 @@ from django.http import HttpRequest, HttpResponse, JsonResponse
 from structlog import get_logger
 
 from posthog.celery import app
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
 from posthog.kafka_client.client import can_connect as can_connect_to_kafka
 

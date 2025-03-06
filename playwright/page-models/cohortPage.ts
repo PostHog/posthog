@@ -1,4 +1,5 @@
 import { Page } from '@playwright/test'
+
 import { expect } from '../utils/playwright-test-base'
 
 export class CohortPage {

@@ -20,7 +20,7 @@ from django.http import HttpResponse, JsonResponse
 from drf_spectacular.utils import extend_schema
 from prometheus_client import Counter, Histogram
 from pydantic import ValidationError, BaseModel
-from rest_framework import exceptions, request, serializers, viewsets, status
+from rest_framework import exceptions, request, serializers, viewsets
 from rest_framework.mixins import UpdateModelMixin
 from rest_framework.renderers import JSONRenderer
 from rest_framework.response import Response
@@ -95,6 +95,19 @@ STREAM_RESPONSE_TO_CLIENT_HISTOGRAM = Histogram(
 )
 
 
+def filter_from_params_to_query(params: dict) -> RecordingsQuery:
+    data_dict = query_as_params_to_dict(params)
+    # we used to send `version` and it's not part of query, so we pop to make sure
+    data_dict.pop("version", None)
+    # we used to send `hogql_filtering` and it's not part of query, so we pop to make sure
+    data_dict.pop("hogql_filtering", None)
+
+    try:
+        return RecordingsQuery.model_validate(data_dict)
+    except ValidationError as pydantic_validation_error:
+        raise exceptions.ValidationError(json.dumps(pydantic_validation_error.errors()))
+
+
 class ChatMessage(BaseModel):
     role: Literal["user", "assistant"]
     content: str
@@ -161,6 +174,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
 
     ongoing = serializers.SerializerMethodField()
     viewed = serializers.SerializerMethodField()
+    viewers = serializers.SerializerMethodField()
     activity_score = serializers.SerializerMethodField()
 
     def get_ongoing(self, obj: SessionRecording) -> bool:
@@ -171,6 +185,9 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
         # viewed is a custom field that we load from PG Sql and merge into the model
         return getattr(obj, "viewed", False)
 
+    def get_viewers(self, obj: SessionRecording) -> list[str]:
+        return getattr(obj, "viewers", [])
+
     def get_activity_score(self, obj: SessionRecording) -> Optional[float]:
         return getattr(obj, "activity_score", None)
 
@@ -180,6 +197,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
             "id",
             "distinct_id",
             "viewed",
+            "viewers",
             "recording_duration",
             "active_seconds",
             "inactive_seconds",
@@ -267,9 +285,17 @@ class SessionRecordingUpdateSerializer(serializers.Serializer):
         return data
 
 
-def list_recordings_response(listing_result: tuple[dict, dict]) -> Response:
-    (recordings, timings) = listing_result
-    response = Response(recordings)
+def list_recordings_response(
+    listing_result: tuple[list[SessionRecording], bool, dict], context: dict[str, Any]
+) -> Response:
+    (recordings, more_recordings_available, timings) = listing_result
+
+    session_recording_serializer = SessionRecordingSerializer(recordings, context=context, many=True)
+    results = session_recording_serializer.data
+
+    response = Response(
+        {"results": results, "has_next": more_recordings_available, "version": 4},
+    )
     response.headers["Server-Timing"] = ", ".join(
         f"{key};dur={round(duration, ndigits=2)}" for key, duration in timings.items()
     )
@@ -332,6 +358,7 @@ def query_as_params_to_dict(params_dict: dict) -> dict:
             converted[key] = params_dict[key]
 
     converted.pop("as_query", None)
+
     return converted
 
 
@@ -389,22 +416,12 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         return recording
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        data_dict = query_as_params_to_dict(request.GET.dict())
-        # we used to send `version` and it's not part of query, so we pop to make sure
-        data_dict.pop("version", None)
-        # we used to send `hogql_filtering` and it's not part of query, so we pop to make sure
-        data_dict.pop("hogql_filtering", None)
-
-        try:
-            query = RecordingsQuery.model_validate(data_dict)
-        except ValidationError as pydantic_validation_error:
-            return Response(
-                {"validation_errors": json.loads(pydantic_validation_error.json())}, status=status.HTTP_400_BAD_REQUEST
-            )
+        query = filter_from_params_to_query(request.GET.dict())
 
         self._maybe_report_recording_list_filters_changed(request, team=self.team)
         return list_recordings_response(
-            list_recordings_from_query(query, request, context=self.get_serializer_context())
+            list_recordings_from_query(query, cast(User, request.user), team=self.team),
+            context=self.get_serializer_context(),
         )
 
     @extend_schema(
@@ -446,6 +463,25 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         )
         return response
 
+    @extend_schema(
+        exclude=True,
+        description="""
+        Returns only viewed metadata about the recording.
+        """,
+    )
+    @action(methods=["GET"], detail=True)
+    def viewed(self, request: request.Request, *args: Any, **kwargs: Any) -> JsonResponse:
+        recording: SessionRecording = self.get_object()
+
+        if not request.user.is_anonymous:
+            viewed = current_user_viewed([str(recording.session_id)], cast(User, request.user), self.team)
+            other_viewers = _other_users_viewed([str(recording.session_id)], cast(User, request.user), self.team)
+
+            recording.viewed = str(recording.session_id) in viewed
+            recording.viewers = other_viewers.get(str(recording.session_id), [])
+
+        return JsonResponse({"viewed": recording.viewed, "other_viewers": len(recording.viewers or [])})
+
     # Returns metadata about the recording
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         recording = self.get_object()
@@ -456,6 +492,12 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             raise exceptions.NotFound("Recording not found")
 
         recording.load_person()
+        if not request.user.is_anonymous:
+            viewed = current_user_viewed([str(recording.session_id)], cast(User, request.user), self.team)
+            other_viewers = _other_users_viewed([str(recording.session_id)], cast(User, request.user), self.team)
+
+            recording.viewed = str(recording.session_id) in viewed
+            recording.viewers = other_viewers.get(str(recording.session_id), [])
 
         serializer = self.get_serializer(recording)
 
@@ -709,7 +751,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
         user = cast(User, request.user)
 
-        cache_key = f'summarize_recording_{self.team.pk}_{self.kwargs["pk"]}'
+        cache_key = f"summarize_recording_{self.team.pk}_{self.kwargs['pk']}"
         # Check if the response is cached
         cached_response = cache.get(cache_key)
         if cached_response is not None:
@@ -954,8 +996,8 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
 # TODO i guess this becomes the query runner for our _internal_ use of RecordingsQuery
 def list_recordings_from_query(
-    query: RecordingsQuery, request: request.Request, context: dict[str, Any]
-) -> tuple[dict, dict]:
+    query: RecordingsQuery, user: User | None, team: Team
+) -> tuple[list[SessionRecording], bool, dict]:
     """
     As we can store recordings in S3 or in Clickhouse we need to do a few things here
 
@@ -964,13 +1006,13 @@ def list_recordings_from_query(
       2. Any that couldn't be found are then loaded from Clickhouse
     B. Otherwise we just load all values from Clickhouse
       2. Once loaded we convert them to SessionRecording objects in case we have any other persisted data
-    """
 
+      In the context of an API call we'll always have user, but from Celery we might be processing arbitrary filters for a team and there won't be a user
+    """
     all_session_ids = query.session_ids
 
     recordings: list[SessionRecording] = []
     more_recordings_available = False
-    team = context["get_team"]()
     hogql_timings: list[QueryTiming] | None = None
 
     timer = ServerTimingsGathered()
@@ -992,8 +1034,7 @@ def list_recordings_from_query(
             query.session_ids = remaining_session_ids
 
     if (all_session_ids and query.session_ids) or not all_session_ids:
-        distinct_id = str(cast(User, request.user).distinct_id)
-        modifiers = safely_read_modifiers_overrides(distinct_id, team)
+        modifiers = safely_read_modifiers_overrides(str(user.distinct_id), team) if user else None
 
         with timer("load_recordings_from_hogql"):
             (ch_session_recordings, more_recordings_available, hogql_timings) = SessionRecordingListFromQuery(
@@ -1013,14 +1054,16 @@ def list_recordings_from_query(
                     key=lambda x: cast(list[str], all_session_ids).index(x.session_id),
                 )
 
-    if not request.user.is_authenticated:  # for mypy
+    if user and not user.is_authenticated:  # for mypy
         raise exceptions.NotAuthenticated()
 
+    recording_ids_in_list: list[str] = [str(r.session_id) for r in recordings]
     # Update the viewed status for all loaded recordings
     with timer("load_viewed_recordings"):
-        viewed_session_recordings = set(
-            SessionRecordingViewed.objects.filter(team=team, user=request.user).values_list("session_id", flat=True)
-        )
+        viewed_session_recordings = current_user_viewed(recording_ids_in_list, user, team)
+
+    with timer("load_other_viewers_by_recording"):
+        other_viewers = _other_users_viewed(recording_ids_in_list, user, team)
 
     with timer("load_persons"):
         # Get the related persons for all the recordings
@@ -1039,18 +1082,43 @@ def list_recordings_from_query(
 
         for recording in recordings:
             recording.viewed = recording.session_id in viewed_session_recordings
+            recording.viewers = other_viewers.get(recording.session_id, [])
             person = distinct_id_to_person.get(recording.distinct_id)
             if person:
                 recording.person = person
 
-    session_recording_serializer = SessionRecordingSerializer(recordings, context=context, many=True)
-    results = session_recording_serializer.data
+    return recordings, more_recordings_available, _generate_timings(hogql_timings, timer)
 
-    all_timings = _generate_timings(hogql_timings, timer)
-    return (
-        {"results": results, "has_next": more_recordings_available, "version": 4},
-        all_timings,
+
+def _other_users_viewed(recording_ids_in_list: list[str], user: User | None, team: Team) -> dict[str, list[str]]:
+    if not user:
+        return {}
+
+    # we're looping in python
+    # but since we limit the number of session recordings in the results set
+    # it shouldn't be too bad
+    other_viewers: dict[str, list[str]] = {str(x): [] for x in recording_ids_in_list}
+    queryset = (
+        SessionRecordingViewed.objects.filter(team=team, session_id__in=recording_ids_in_list)
+        .exclude(user=user)
+        .values_list("session_id", "user__email")
     )
+    for session_id, user_email in queryset:
+        other_viewers[session_id].append(str(user_email))
+
+    return other_viewers
+
+
+def current_user_viewed(recording_ids_in_list: list[str], user: User | None, team: Team) -> set[str]:
+    if not user:
+        return set()
+
+    viewed_session_recordings = set(
+        SessionRecordingViewed.objects.filter(team=team, user=user)
+        .filter(session_id__in=recording_ids_in_list)
+        .values_list("session_id", flat=True)
+    )
+    return viewed_session_recordings
 
 
 def safely_read_modifiers_overrides(distinct_id: str, team: Team) -> HogQLQueryModifiers:

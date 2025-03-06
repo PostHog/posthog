@@ -1,3 +1,6 @@
+import { DataWarehousePopoverField } from 'lib/components/TaxonomicFilter/types'
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 
@@ -14,20 +17,43 @@ import {
     metricToQuery,
 } from './utils'
 
+const dataWarehousePopoverFields: DataWarehousePopoverField[] = [
+    {
+        key: 'timestamp_field',
+        label: 'Timestamp Field',
+    },
+    {
+        key: 'data_warehouse_join_key',
+        label: 'Data Warehouse Join Key',
+        allowHogQL: true,
+    },
+    {
+        key: 'events_join_key',
+        label: 'Events Join Key',
+        allowHogQL: true,
+        hogQLOnly: true,
+        tableName: 'events',
+    },
+]
+
 export function ExperimentMetricForm({
     metric,
     handleSetMetric,
+    filterTestAccounts,
 }: {
     metric: ExperimentMetric
     handleSetMetric: any
+    filterTestAccounts: boolean
 }): JSX.Element {
     const mathAvailability = getMathAvailability(metric.metric_type)
     const allowedMathTypes = getAllowedMathTypes(metric.metric_type)
 
+    const isDataWarehouseMetric = metric.metric_config.kind === NodeKind.ExperimentDataWarehouseMetricConfig
+
     return (
-        <div className="space-y-4">
+        <div className="deprecated-space-y-4">
             <div>
-                <h4 className="mb-2">Metric type</h4>
+                <LemonLabel className="mb-1">Type</LemonLabel>
                 <LemonRadio
                     data-attr="metrics-selector"
                     value={metric.metric_type}
@@ -46,58 +72,56 @@ export function ExperimentMetricForm({
                     }}
                     options={[
                         {
-                            value: ExperimentMetricType.BINOMIAL,
-                            label: 'Binomial',
+                            value: ExperimentMetricType.FUNNEL,
+                            label: 'Funnel',
                             description:
-                                'Tracks whether an event happens for each user, useful for measuring conversion rates.',
+                                'Calculates the percentage of users for whom the metric occurred at least once, useful for measuring conversion rates.',
                         },
                         {
-                            value: ExperimentMetricType.COUNT,
-                            label: 'Count',
+                            value: ExperimentMetricType.MEAN,
+                            label: 'Mean',
                             description:
-                                'Tracks how many times an event happens, useful for click counts or page views.',
-                        },
-                        {
-                            value: ExperimentMetricType.CONTINUOUS,
-                            label: 'Continuous',
-                            description: 'Measures numerical values like revenue or session length.',
+                                'Tracks the value of the metric per user, useful for measuring count of clicks, revenue, or other numeric metrics such as session length.',
                         },
                     ]}
                 />
             </div>
-            <ActionFilter
-                bordered
-                filters={metricConfigToFilter(metric.metric_config)}
-                setFilters={({ actions, events }: Partial<FilterType>): void => {
-                    // We only support one event/action for experiment metrics
-                    const entity = events?.[0] || actions?.[0]
-                    const metricConfig = filterToMetricConfig(entity)
-                    if (metricConfig) {
-                        handleSetMetric({
-                            newMetric: {
-                                ...metric,
-                                metric_config: metricConfig,
-                            },
-                        })
-                    }
-                }}
-                typeKey="experiment-metric"
-                buttonCopy="Add graph series"
-                showSeriesIndicator={false}
-                hideRename={true}
-                entitiesLimit={1}
-                showNumericalPropsOnly={true}
-                mathAvailability={mathAvailability}
-                allowedMathTypes={allowedMathTypes}
-                {...commonActionFilterProps}
-            />
+            <div>
+                <LemonLabel className="mb-1">Metric</LemonLabel>
+                <ActionFilter
+                    bordered
+                    filters={metricConfigToFilter(metric.metric_config)}
+                    setFilters={({ actions, events, data_warehouse }: Partial<FilterType>): void => {
+                        // We only support one event/action for experiment metrics
+                        const entity = events?.[0] || actions?.[0] || data_warehouse?.[0]
+                        const metricConfig = filterToMetricConfig(entity)
+                        if (metricConfig) {
+                            handleSetMetric({
+                                newMetric: {
+                                    ...metric,
+                                    metric_config: metricConfig,
+                                },
+                            })
+                        }
+                    }}
+                    typeKey="experiment-metric"
+                    buttonCopy="Add graph series"
+                    showSeriesIndicator={false}
+                    hideRename={true}
+                    entitiesLimit={1}
+                    showNumericalPropsOnly={true}
+                    mathAvailability={mathAvailability}
+                    allowedMathTypes={allowedMathTypes}
+                    dataWarehousePopoverFields={dataWarehousePopoverFields}
+                    {...commonActionFilterProps}
+                />
+            </div>
             {/* :KLUDGE: Query chart type is inferred from the initial state, so need to render Trends and Funnels separately */}
-            {(metric.metric_type === ExperimentMetricType.COUNT ||
-                metric.metric_type === ExperimentMetricType.CONTINUOUS) && (
+            {metric.metric_type === ExperimentMetricType.MEAN && !isDataWarehouseMetric && (
                 <Query
                     query={{
                         kind: NodeKind.InsightVizNode,
-                        source: metricToQuery(metric),
+                        source: metricToQuery(metric, filterTestAccounts),
                         showTable: false,
                         showLastComputation: true,
                         showLastComputationRefresh: false,
@@ -105,11 +129,11 @@ export function ExperimentMetricForm({
                     readOnly
                 />
             )}
-            {metric.metric_type === ExperimentMetricType.BINOMIAL && (
+            {metric.metric_type === ExperimentMetricType.FUNNEL && !isDataWarehouseMetric && (
                 <Query
                     query={{
                         kind: NodeKind.InsightVizNode,
-                        source: metricToQuery(metric),
+                        source: metricToQuery(metric, filterTestAccounts),
                         showTable: false,
                         showLastComputation: true,
                         showLastComputationRefresh: false,
@@ -117,6 +141,66 @@ export function ExperimentMetricForm({
                     readOnly
                 />
             )}
+            <div>
+                <LemonLabel
+                    className="mb-1"
+                    info={
+                        <>
+                            Controls how long a metric value is considered relevant to an experiment exposure:
+                            <ul className="list-disc pl-4">
+                                <li>
+                                    <strong>Experiment duration</strong> considers any data from when a user is first
+                                    exposed until the experiment ends.
+                                </li>
+                                <li>
+                                    <strong>Conversion window</strong> only includes data that occurs within the
+                                    specified number of hours after a user's first exposure (also ignoring the
+                                    experiment end date).
+                                </li>
+                            </ul>
+                        </>
+                    }
+                >
+                    Time window
+                </LemonLabel>
+                <div className="flex items-center gap-2">
+                    <LemonRadio
+                        className="my-1.5"
+                        value={metric.time_window_hours === undefined ? 'full' : 'conversion'}
+                        orientation="horizontal"
+                        onChange={(value) =>
+                            handleSetMetric({
+                                newMetric: {
+                                    ...metric,
+                                    time_window_hours: value === 'full' ? undefined : 72,
+                                },
+                            })
+                        }
+                        options={[
+                            {
+                                value: 'full',
+                                label: 'Experiment duration',
+                            },
+                            {
+                                value: 'conversion',
+                                label: 'Conversion window',
+                            },
+                        ]}
+                    />
+                    {metric.time_window_hours !== undefined && (
+                        <LemonInput
+                            value={metric.time_window_hours}
+                            onChange={(value) =>
+                                handleSetMetric({ newMetric: { ...metric, time_window_hours: value || undefined } })
+                            }
+                            type="number"
+                            step={1}
+                            suffix={<span className="text-sm">hours</span>}
+                            size="small"
+                        />
+                    )}
+                </div>
+            </div>
         </div>
     )
 }

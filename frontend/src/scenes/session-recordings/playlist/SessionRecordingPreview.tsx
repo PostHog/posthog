@@ -1,7 +1,9 @@
+import './SessionRecordingPreview.scss'
+
 import { IconBug, IconCursorClick, IconKeyboard, IconLive, IconPinFilled } from '@posthog/icons'
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { PropertyIcon } from 'lib/components/PropertyIcon'
+import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -11,7 +13,7 @@ import { colonDelimitedDuration } from 'lib/utils'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { SimpleTimeLabel } from 'scenes/session-recordings/components/SimpleTimeLabel'
-import { countryTitleFrom } from 'scenes/session-recordings/player/playerMetaLogic'
+import { countryTitleFrom } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
 import { playerSettingsLogic, TimestampFormat } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { urls } from 'scenes/urls'
 
@@ -58,7 +60,7 @@ function ErrorCount({
     }
 
     return (
-        <div className="flex items-center flex-1 space-x-1 justify-end font-semibold">
+        <div className="flex items-center flex-1 deprecated-space-x-1 justify-end font-semibold">
             <IconBug className={iconClassNames} />
             <span>{errorCount}</span>
         </div>
@@ -106,7 +108,7 @@ export interface PropertyIconsProps {
 
 export function PropertyIcons({ recordingProperties, loading, iconClassNames }: PropertyIconsProps): JSX.Element {
     return (
-        <div className="flex space-x-1 ph-no-capture">
+        <div className="flex deprecated-space-x-1 ph-no-capture">
             {loading ? (
                 <LemonSkeleton className="w-16 h-3" />
             ) : (
@@ -150,10 +152,27 @@ function RecordingOngoingIndicator(): JSX.Element {
     )
 }
 
-function UnwatchedIndicator(): JSX.Element {
+export function UnwatchedIndicator({ otherViewersCount }: { otherViewersCount: number }): JSX.Element {
+    const tooltip = otherViewersCount ? (
+        <span>
+            You have not watched this recording yet. {otherViewersCount} other{' '}
+            {otherViewersCount === 1 ? 'person has' : 'people have'}.
+        </span>
+    ) : (
+        <span>Nobody has watched this recording yet.</span>
+    )
+
     return (
-        <Tooltip title="Indicates the recording has not been watched yet">
-            <div className="w-2 h-2 rounded-full bg-primary-3000" aria-label="unwatched-recording-label" />
+        <Tooltip title={tooltip}>
+            <div
+                className={clsx(
+                    'UnwatchedIndicator w-2 h-2 rounded-full',
+                    otherViewersCount ? 'UnwatchedIndicator--secondary' : 'UnwatchedIndicator--primary'
+                )}
+                aria-label={
+                    otherViewersCount ? 'unwatched-recording-by-you-label' : 'unwatched-recording-by-everyone-label'
+                }
+            />
         </Tooltip>
     )
 }
@@ -193,8 +212,8 @@ export function SessionRecordingPreview({
                 )}
                 onClick={() => onClick?.()}
             >
-                <div className="grow overflow-hidden space-y-1">
-                    <div className="flex items-center justify-between space-x-0.5">
+                <div className="grow overflow-hidden deprecated-space-y-1">
+                    <div className="flex items-center justify-between gap-x-0.5">
                         <div className="flex overflow-hidden font-medium text-link ph-no-capture">
                             <span className="truncate">{asDisplay(recording.person)}</span>
                         </div>
@@ -213,8 +232,8 @@ export function SessionRecordingPreview({
                         )}
                     </div>
 
-                    <div className="flex justify-between items-center space-x-0.5">
-                        <div className="flex space-x-2 text-secondary text-sm">
+                    <div className="flex justify-between items-center gap-x-0.5">
+                        <div className="flex deprecated-space-x-2 text-secondary text-sm">
                             <PropertyIcons
                                 recordingProperties={iconProperties}
                                 iconClassNames={iconClassNames}
@@ -223,13 +242,13 @@ export function SessionRecordingPreview({
 
                             <div className="flex gap-1">
                                 <Tooltip className="flex items-center" title="Clicks">
-                                    <span className="space-x-0.5">
+                                    <span className="flex gap-x-0.5">
                                         <IconCursorClick className={iconClassNames} />
                                         <span>{recording.click_count}</span>
                                     </span>
                                 </Tooltip>
                                 <Tooltip className="flex items-center" title="Key presses">
-                                    <span className="space-x-0.5">
+                                    <span className="flex gap-x-0.5">
                                         <IconKeyboard className={iconClassNames} />
                                         <span>{recording.keypress_count}</span>
                                     </span>
@@ -254,14 +273,16 @@ export function SessionRecordingPreview({
 
                 <div
                     className={clsx(
-                        'min-w-6 flex flex-col space-x-0.5 items-center',
+                        'min-w-6 flex flex-col gap-x-0.5 items-center',
                         // need different margin if the first item is an icon
                         recording.ongoing || pinned ? 'mt-1' : 'mt-2'
                     )}
                 >
                     {recording.ongoing ? <RecordingOngoingIndicator /> : null}
                     {pinned ? <PinnedIndicator /> : null}
-                    {!recording.viewed ? <UnwatchedIndicator /> : null}
+                    {!recording.viewed ? (
+                        <UnwatchedIndicator otherViewersCount={recording.viewers?.length || 0} />
+                    ) : null}
                 </div>
             </div>
         </DraggableToNotebook>
@@ -270,7 +291,7 @@ export function SessionRecordingPreview({
 
 export function SessionRecordingPreviewSkeleton(): JSX.Element {
     return (
-        <div className="p-4 space-y-2">
+        <div className="p-4 deprecated-space-y-2">
             <LemonSkeleton className="w-1/2 h-4" />
             <LemonSkeleton className="w-1/3 h-4" />
         </div>

@@ -132,10 +132,10 @@ const MaxChatInterfaceContent = forwardRef<HTMLDivElement, Record<string, never>
 
     return (
         <div ref={ref} className="flex flex-col h-full">
-            <div className="flex-1 overflow-y-auto p-3 space-y-4 [overflow-anchor:none]">
+            <div className="flex-1 overflow-y-auto p-3 deprecated-space-y-4 [overflow-anchor:none]">
                 <div className="bg-surface-primary dark:bg-transparent rounded p-1">
                     <h4 className="mb-2">Tips for chatting with Max:</h4>
-                    <ul className="list-disc pl-4 space-y-2 text-secondary">
+                    <ul className="list-disc pl-4 deprecated-space-y-2 text-secondary">
                         <li>Max can't handle files or images (yet.)</li>
                         <li>
                             Max can't see what page you're on, or the contents. Copy/paste error messages or queries to
@@ -207,7 +207,7 @@ const MaxChatInterfaceContent = forwardRef<HTMLDivElement, Record<string, never>
                                                                                 </span>
                                                                             ),
                                                                             content: (
-                                                                                <div className="space-y-3 p-1">
+                                                                                <div className="deprecated-space-y-3 p-1">
                                                                                     {/* Thinking blocks */}
                                                                                     {extractThinkingBlock(
                                                                                         message.content
@@ -344,7 +344,7 @@ const MaxChatInterfaceContent = forwardRef<HTMLDivElement, Record<string, never>
                                         {hasServerError
                                             ? "🫣 Uh-oh. I wasn't able to connect to the Anthropic API (my brain!) Please try sending your message again in about 1 minute? (If you see this message twice in a row, please use the 'End chat' button below to start a new chat.)"
                                             : isRateLimited
-                                            ? "🫣 Uh-oh, I'm really popular today, we've been rate-limited. I just need to catch my breath. Hang on, I'll repeat your question and resume searching in less than a minute. I may repeat it a couple of times, but I will be back with an answer!"
+                                            ? "🫣 Uh-oh, I'm really popular today, we've been rate-limited. I just need to catch my breath. Hang on, I'll repeat your question and resume searching in less than a minute. If I repeat it more than 3 times, maybe try again later."
                                             : 'Searching and thinking...'}
                                     </span>
                                     <Spinner className="text-lg" />
