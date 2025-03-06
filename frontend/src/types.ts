@@ -107,6 +107,7 @@ export enum AvailableFeature {
     TEAM_MEMBERS = 'team_members',
     API_ACCESS = 'api_access',
     ORGANIZATIONS_PROJECTS = 'organizations_projects',
+    ENVIRONMENTS = 'environments',
     ROLE_BASED_ACCESS = 'role_based_access',
     SOCIAL_SSO = 'social_sso',
     SAML = 'saml',
