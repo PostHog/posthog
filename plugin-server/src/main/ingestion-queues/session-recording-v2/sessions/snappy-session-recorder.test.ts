@@ -568,4 +568,113 @@ describe('SnappySessionRecorder', () => {
             expect(result.clickCount).toBe(2)
         })
     })
+
+    describe('Keypress counting', () => {
+        it('should count single keypress events', async () => {
+            const events = [
+                {
+                    type: EventType.IncrementalSnapshot,
+                    timestamp: 1000,
+                    data: { source: 5 }, // Input
+                },
+            ]
+            const message = createMessage('window1', events)
+
+            recorder.recordMessage(message)
+            const result = await recorder.end()
+
+            expect(result.keypressCount).toBe(1)
+        })
+
+        it('should count multiple keypress events in a single message', async () => {
+            const events = [
+                {
+                    type: EventType.IncrementalSnapshot,
+                    timestamp: 1000,
+                    data: { source: 5 }, // Input
+                },
+                {
+                    type: EventType.IncrementalSnapshot,
+                    timestamp: 1500,
+                    data: { source: 5 }, // Input
+                },
+            ]
+            const message = createMessage('window1', events)
+
+            recorder.recordMessage(message)
+            const result = await recorder.end()
+
+            expect(result.keypressCount).toBe(2)
+        })
+
+        it('should count keypress events across multiple messages', async () => {
+            const message1 = createMessage('window1', [
+                {
+                    type: EventType.IncrementalSnapshot,
+                    timestamp: 1000,
+                    data: { source: 5 }, // Input
+                },
+            ])
+            const message2 = createMessage('window2', [
+                {
+                    type: EventType.IncrementalSnapshot,
+                    timestamp: 2000,
+                    data: { source: 5 }, // Input
+                },
+            ])
+
+            recorder.recordMessage(message1)
+            recorder.recordMessage(message2)
+            const result = await recorder.end()
+
+            expect(result.keypressCount).toBe(2)
+        })
+
+        it('should not count non-keypress events', async () => {
+            const events = [
+                {
+                    type: EventType.IncrementalSnapshot,
+                    timestamp: 1000,
+                    data: { source: 2 }, // MouseInteraction
+                },
+                {
+                    type: EventType.IncrementalSnapshot,
+                    timestamp: 1500,
+                    data: { source: 3 }, // Scroll
+                },
+            ]
+            const message = createMessage('window1', events)
+
+            recorder.recordMessage(message)
+            const result = await recorder.end()
+
+            expect(result.keypressCount).toBe(0)
+        })
+
+        it('should handle mixed keypress and non-keypress events', async () => {
+            const events = [
+                {
+                    type: EventType.IncrementalSnapshot,
+                    timestamp: 1000,
+                    data: { source: 5 }, // Input
+                },
+                {
+                    type: EventType.IncrementalSnapshot,
+                    timestamp: 1500,
+                    data: { source: 2 }, // MouseInteraction
+                },
+                {
+                    type: EventType.IncrementalSnapshot,
+                    timestamp: 2000,
+                    data: { source: 5 }, // Input
+                },
+            ]
+            const message = createMessage('window1', events)
+
+            recorder.recordMessage(message)
+            const result = await recorder.end()
+
+            expect(result.keypressCount).toBe(2)
+        })
+    })
 })

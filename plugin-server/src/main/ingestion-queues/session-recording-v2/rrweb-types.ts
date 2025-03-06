@@ -1,3 +1,5 @@
+import { RRWebEvent } from '~/src/types'
+
 export enum RRWebEventType {
     DomContentLoaded = 0,
     Load = 1,
@@ -39,4 +41,21 @@ export enum MouseInteractions {
     TouchMove_Departed = 8,
     TouchEnd = 9,
     TouchCancel = 10,
+}
+
+export function isClick(event: RRWebEvent): boolean {
+    return (
+        event.type === RRWebEventType.IncrementalSnapshot &&
+        event.data?.source === RRWebEventSource.MouseInteraction &&
+        [
+            MouseInteractions.Click,
+            MouseInteractions.DblClick,
+            MouseInteractions.TouchEnd,
+            MouseInteractions.ContextMenu, // right click
+        ].includes(event.data?.type || -1)
+    )
+}
+
+export function isKeypress(event: RRWebEvent): boolean {
+    return event.type === RRWebEventType.IncrementalSnapshot && event.data?.source === RRWebEventSource.Input
 }

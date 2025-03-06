@@ -4,7 +4,7 @@ import snappy from 'snappy'
 import { RRWebEvent } from '~/src/types'
 
 import { ParsedMessageData } from '../kafka/types'
-import { MouseInteractions, RRWebEventSource, RRWebEventType } from '../rrweb-types'
+import { isClick, isKeypress } from '../rrweb-types'
 
 export interface EndResult {
     /** The complete compressed session block */
@@ -77,6 +77,7 @@ export class SnappySessionRecorder {
     private urls: Set<string> = new Set()
     private firstUrl: string | null = null
     private clickCount: number = 0
+    private keypressCount: number = 0
 
     constructor(public readonly sessionId: string, public readonly teamId: number) {}
 
@@ -121,8 +122,12 @@ export class SnappySessionRecorder {
                     }
                 }
 
-                if (this.isClick(event)) {
+                if (isClick(event)) {
                     this.clickCount += 1
+                }
+
+                if (isKeypress(event)) {
+                    this.keypressCount += 1
                 }
 
                 const serializedLine = JSON.stringify([windowId, event]) + '\n'
@@ -180,7 +185,7 @@ export class SnappySessionRecorder {
             firstUrl: this.firstUrl,
             urls: Array.from(this.urls),
             clickCount: this.clickCount,
-            keypressCount: 0,
+            keypressCount: this.keypressCount,
             mouseActivityCount: 0,
             activeMilliseconds: 0,
             consoleLogCount: 0,
@@ -191,18 +196,5 @@ export class SnappySessionRecorder {
             snapshotSource: null,
             snapshotLibrary: null,
         }
-    }
-
-    private isClick(event: RRWebEvent): boolean {
-        return (
-            event.type === RRWebEventType.IncrementalSnapshot &&
-            event.data?.source === RRWebEventSource.MouseInteraction &&
-            [
-                MouseInteractions.Click,
-                MouseInteractions.DblClick,
-                MouseInteractions.TouchEnd,
-                MouseInteractions.ContextMenu, // right click
-            ].includes(event.data?.type || -1)
-        )
     }
 }
