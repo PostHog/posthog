@@ -13,7 +13,7 @@ from posthog.settings import TEST
 from posthog.utils import generate_short_id
 
 RUNNING_CLICKHOUSE_QUERIES = Gauge(
-    "posthog_clickhouse_running_queries",
+    "posthog_clickhouse_query_concurrent_per_team",
     "Number of concurrent queries",
     ["team_id", "access_method"],
 )
