@@ -44,7 +44,7 @@ const DATETIME_PROPERTY_NAME_KEYWORDS: [&str; 7] = [
 // to the wrong type. Try it here: https://rustexp.lpil.uk/ and review the unit tests.
 // Also notable: post-capture, PostHog displays timestamps in a variety formats:
 // https://github.com/PostHog/posthog/blob/master/posthog/models/property_definition.py#L18-L30
-const DATETIME_PREFIX_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+static DATETIME_PREFIX_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     regex::Regex::new(
         r#"^(([0-9]{4}[/-][0-2][0-9][/-][0-3][0-9])|([0-2][0-9][/-][0-3][0-9][/-][0-9]{4}))([ T][0-2][0-9]:[0-6][0-9]:[0-6][0-9].*)?$"#
     ).unwrap()
