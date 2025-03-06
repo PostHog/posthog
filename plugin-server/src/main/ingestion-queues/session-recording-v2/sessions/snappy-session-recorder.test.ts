@@ -325,4 +325,138 @@ describe('SnappySessionRecorder', () => {
             expect(recorder.distinctId).toBe('distinct_id')
         })
     })
+
+    describe('URL accumulation', () => {
+        it('should accumulate URLs from a single message', async () => {
+            const events = [
+                {
+                    type: EventType.Meta,
+                    timestamp: 1000,
+                    data: { href: 'https://example.com' },
+                },
+            ]
+            const message = createMessage('window1', events)
+
+            recorder.recordMessage(message)
+            const result = await recorder.end()
+
+            expect(result.firstUrl).toBe('https://example.com')
+            expect(result.urls).toEqual(['https://example.com'])
+        })
+
+        it('should accumulate URLs from multiple messages', async () => {
+            const message1 = createMessage('window1', [
+                {
+                    type: EventType.Meta,
+                    timestamp: 1000,
+                    data: { href: 'https://example1.com' },
+                },
+            ])
+            const message2 = createMessage('window2', [
+                {
+                    type: EventType.Meta,
+                    timestamp: 2000,
+                    data: { href: 'https://example2.com' },
+                },
+            ])
+
+            recorder.recordMessage(message1)
+            recorder.recordMessage(message2)
+            const result = await recorder.end()
+
+            expect(result.firstUrl).toBe('https://example1.com')
+            expect(result.urls).toEqual(['https://example1.com', 'https://example2.com'])
+        })
+
+        it('should not overwrite first URL with subsequent messages', async () => {
+            const message1 = createMessage('window1', [
+                {
+                    type: EventType.Meta,
+                    timestamp: 1000,
+                    data: { href: 'https://first-url.com' },
+                },
+            ])
+            const message2 = createMessage('window2', [
+                {
+                    type: EventType.Meta,
+                    timestamp: 2000,
+                    data: { href: 'https://second-url.com' },
+                },
+            ])
+
+            recorder.recordMessage(message1)
+            recorder.recordMessage(message2)
+            const result = await recorder.end()
+
+            expect(result.firstUrl).toBe('https://first-url.com')
+            expect(result.urls).toEqual(['https://first-url.com', 'https://second-url.com'])
+        })
+
+        it('should handle a message without URLs followed by one with URLs', async () => {
+            const message1 = createMessage('window1', [
+                {
+                    type: EventType.Meta,
+                    timestamp: 1000,
+                    data: {},
+                },
+            ])
+            const message2 = createMessage('window2', [
+                {
+                    type: EventType.Meta,
+                    timestamp: 2000,
+                    data: { href: 'https://example.com' },
+                },
+            ])
+
+            recorder.recordMessage(message1)
+            recorder.recordMessage(message2)
+            const result = await recorder.end()
+
+            expect(result.firstUrl).toBe('https://example.com')
+            expect(result.urls).toEqual(['https://example.com'])
+        })
+
+        it('should handle messages with no URLs at all', async () => {
+            const message = createMessage('window1', [
+                {
+                    type: EventType.Meta,
+                    timestamp: 1000,
+                    data: {},
+                },
+            ])
+
+            recorder.recordMessage(message)
+            const result = await recorder.end()
+
+            expect(result.firstUrl).toBeNull()
+            expect(result.urls).toEqual([])
+        })
+
+        it('should accumulate URLs from multiple events within a single message', async () => {
+            const events = [
+                {
+                    type: EventType.Meta,
+                    timestamp: 1000,
+                    data: { href: 'https://example1.com' },
+                },
+                {
+                    type: EventType.Meta,
+                    timestamp: 1500,
+                    data: { href: 'https://example2.com' },
+                },
+                {
+                    type: EventType.Meta,
+                    timestamp: 2000,
+                    data: { href: 'https://example3.com' },
+                },
+            ]
+            const message = createMessage('window1', events)
+
+            recorder.recordMessage(message)
+            const result = await recorder.end()
+
+            expect(result.firstUrl).toBe('https://example1.com')
+            expect(result.urls).toEqual(['https://example1.com', 'https://example2.com', 'https://example3.com'])
+        })
+    })
 })

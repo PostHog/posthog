@@ -1,6 +1,8 @@
 import { DateTime } from 'luxon'
 import snappy from 'snappy'
 
+import { RRWebEvent } from '~/src/types'
+
 import { ParsedMessageData } from '../kafka/types'
 
 export interface EndResult {
@@ -71,6 +73,8 @@ export class SnappySessionRecorder {
     private startDateTime: DateTime | null = null
     private endDateTime: DateTime | null = null
     private _distinctId: string | null = null
+    private urls: Set<string> = new Set()
+    private firstUrl: string | null = null
 
     constructor(public readonly sessionId: string, public readonly teamId: number) {}
 
@@ -107,6 +111,15 @@ export class SnappySessionRecorder {
 
         Object.entries(message.eventsByWindowId).forEach(([windowId, events]) => {
             events.forEach((event) => {
+                // Extract URL from event using the same logic as in process-event.ts
+                const eventUrl = this.hrefFrom(event)
+                if (eventUrl) {
+                    this.urls.add(eventUrl)
+                    if (this.firstUrl === null) {
+                        this.firstUrl = eventUrl
+                    }
+                }
+
                 const serializedLine = JSON.stringify([windowId, event]) + '\n'
                 const chunk = Buffer.from(serializedLine)
                 this.uncompressedChunks.push(chunk)
@@ -117,6 +130,15 @@ export class SnappySessionRecorder {
 
         this.rawBytesWritten += rawBytesWritten
         return rawBytesWritten
+    }
+
+    /**
+     * Extract URL from an event using the same logic as in process-event.ts
+     */
+    private hrefFrom(event: RRWebEvent): string | undefined {
+        const metaHref = event.data?.href?.trim()
+        const customHref = event.data?.payload?.href?.trim()
+        return metaHref || customHref || undefined
     }
 
     /**
@@ -150,8 +172,8 @@ export class SnappySessionRecorder {
             eventCount: this.eventCount,
             startDateTime: this.startDateTime ?? DateTime.fromMillis(0),
             endDateTime: this.endDateTime ?? DateTime.fromMillis(0),
-            firstUrl: null,
-            urls: [],
+            firstUrl: this.firstUrl,
+            urls: Array.from(this.urls),
             clickCount: 0,
             keypressCount: 0,
             mouseActivityCount: 0,
