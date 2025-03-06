@@ -81,14 +81,15 @@ fn token_validator(token: &str) -> Result<Validation, CustomUserError> {
 }
 
 pub fn login() -> Result<(), Error> {
+    let env_id =
+        Text::new("Enter your project ID (the number in your posthog homepage url)").prompt()?;
+
     let token = Text::new(
         "Enter your personal API token (see posthog.com/docs/api#private-endpoint-authentication)",
     )
     .with_validator(token_validator)
     .prompt()?;
 
-    let env_id =
-        Text::new("Enter your project ID (the number in your posthog homepage url)").prompt()?;
     let token = Token { token, env_id };
 
     let provider = HomeDirProvider;
@@ -101,7 +102,7 @@ pub fn load_token() -> Result<Token, Error> {
     let env = EnvVarProvider;
     let env_err = match env.get_credentials() {
         Ok(token) => {
-            info!("Using token from env var");
+            info!("Using token from env var, for environment {}", token.env_id);
             return Ok(token);
         }
         Err(e) => e,
@@ -109,13 +110,19 @@ pub fn load_token() -> Result<Token, Error> {
     let provider = HomeDirProvider;
     let dir_err = match provider.get_credentials() {
         Ok(token) => {
-            info!("Using token from: {}", provider.report_location());
+            info!(
+                "Using token from: {}, for environment {}",
+                provider.report_location(),
+                token.env_id
+            );
             return Ok(token);
         }
         Err(e) => e,
     };
 
-    Err(anyhow::anyhow!("Failed to load credentials")
-        .context(env_err)
-        .context(dir_err))
+    Err(
+        anyhow::anyhow!("Couldn't load credentials... Have you logged in recently?")
+            .context(env_err)
+            .context(dir_err),
+    )
 }

@@ -265,12 +265,20 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
 
     def create(self, request, *args, **kwargs) -> Response:
-        (storage_ptr, content_hash) = upload_content(request.FILES["content"])
+        # pull the symbol set reference from the query params
+        chunk_id = request.query_params.get("chunk_id", None)
+        if not chunk_id:
+            return Response(
+                {"detail": "symbol_set_ref query parameter is required"}, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        (storage_ptr, content_hash) = upload_content(bytearray(request.body))
 
         ErrorTrackingSymbolSet.objects.create(
             team=self.team,
             storage_ptr=storage_ptr,
             content_hash=content_hash,
+            ref=chunk_id,
         )
 
         return Response({"ok": True}, status=status.HTTP_201_CREATED)

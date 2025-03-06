@@ -26,6 +26,7 @@ serde_json.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 uuid.workspace = true
+common-symbol-data = { path = "../common/symbol_data" }
 
 [lints]
 workspace = true
