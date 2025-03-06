@@ -2,19 +2,8 @@ import { DateTime } from 'luxon'
 import snappy from 'snappy'
 
 import { ParsedMessageData } from '../kafka/types'
-import { ConsoleLogLevel } from '../rrweb-types'
+import { ConsoleLogLevel, RRWebEventType } from '../rrweb-types'
 import { SnappySessionRecorder } from './snappy-session-recorder'
-
-// RRWeb event type constants
-const enum EventType {
-    DomContentLoaded = 0,
-    Load = 1,
-    FullSnapshot = 2,
-    IncrementalSnapshot = 3,
-    Meta = 4,
-    Custom = 5,
-    Plugin = 6,
-}
 
 describe('SnappySessionRecorder', () => {
     let recorder: SnappySessionRecorder
@@ -64,7 +53,7 @@ describe('SnappySessionRecorder', () => {
         it('should record events in snappy-compressed JSONL format', async () => {
             const events = [
                 {
-                    type: EventType.FullSnapshot,
+                    type: RRWebEventType.FullSnapshot,
                     timestamp: 1000,
                     data: {
                         source: 1,
@@ -72,7 +61,7 @@ describe('SnappySessionRecorder', () => {
                     },
                 },
                 {
-                    type: EventType.IncrementalSnapshot,
+                    type: RRWebEventType.IncrementalSnapshot,
                     timestamp: 2000,
                     data: { source: 2, texts: [{ id: 1, value: 'Updated text' }] },
                 },
@@ -96,12 +85,12 @@ describe('SnappySessionRecorder', () => {
             const events = {
                 window1: [
                     {
-                        type: EventType.Meta,
+                        type: RRWebEventType.Meta,
                         timestamp: 1000,
                         data: { href: 'https://example.com', width: 1024, height: 768 },
                     },
                     {
-                        type: EventType.FullSnapshot,
+                        type: RRWebEventType.FullSnapshot,
                         timestamp: 1500,
                         data: {
                             source: 1,
@@ -111,12 +100,12 @@ describe('SnappySessionRecorder', () => {
                 ],
                 window2: [
                     {
-                        type: EventType.Custom,
+                        type: RRWebEventType.Custom,
                         timestamp: 2000,
                         data: { tag: 'user-interaction', payload: { type: 'click', target: '#submit-btn' } },
                     },
                     {
-                        type: EventType.IncrementalSnapshot,
+                        type: RRWebEventType.IncrementalSnapshot,
                         timestamp: 2500,
                         data: { source: 3, mousemove: [{ x: 100, y: 200, id: 1 }] },
                     },
@@ -153,7 +142,7 @@ describe('SnappySessionRecorder', () => {
 
         it('should handle large amounts of data', async () => {
             const events = Array.from({ length: 10000 }, (_, i) => ({
-                type: EventType.Custom,
+                type: RRWebEventType.Custom,
                 timestamp: i * 100,
                 data: { value: 'x'.repeat(1000) },
             }))
@@ -177,7 +166,7 @@ describe('SnappySessionRecorder', () => {
         })
 
         it('should throw error when recording after end', async () => {
-            const message = createMessage('window1', [{ type: EventType.Custom, timestamp: 1000, data: {} }])
+            const message = createMessage('window1', [{ type: RRWebEventType.Custom, timestamp: 1000, data: {} }])
             recorder.recordMessage(message)
             await recorder.end()
 
@@ -185,7 +174,7 @@ describe('SnappySessionRecorder', () => {
         })
 
         it('should throw error when calling end multiple times', async () => {
-            const message = createMessage('window1', [{ type: EventType.Custom, timestamp: 1000, data: {} }])
+            const message = createMessage('window1', [{ type: RRWebEventType.Custom, timestamp: 1000, data: {} }])
             recorder.recordMessage(message)
             await recorder.end()
 
@@ -197,12 +186,12 @@ describe('SnappySessionRecorder', () => {
         it('should track start and end timestamps from events range', async () => {
             const events = [
                 {
-                    type: EventType.FullSnapshot,
+                    type: RRWebEventType.FullSnapshot,
                     timestamp: 1000,
                     data: { source: 1 },
                 },
                 {
-                    type: EventType.IncrementalSnapshot,
+                    type: RRWebEventType.IncrementalSnapshot,
                     timestamp: 2000,
                     data: { source: 2 },
                 },
@@ -219,12 +208,12 @@ describe('SnappySessionRecorder', () => {
         it('should track min/max timestamps across multiple messages', async () => {
             const messages = [
                 createMessage('window1', [
-                    { type: EventType.Meta, timestamp: 2000 },
-                    { type: EventType.FullSnapshot, timestamp: 3000 },
+                    { type: RRWebEventType.Meta, timestamp: 2000 },
+                    { type: RRWebEventType.FullSnapshot, timestamp: 3000 },
                 ]),
                 createMessage('window2', [
-                    { type: EventType.FullSnapshot, timestamp: 1000 },
-                    { type: EventType.IncrementalSnapshot, timestamp: 4000 },
+                    { type: RRWebEventType.FullSnapshot, timestamp: 1000 },
+                    { type: RRWebEventType.IncrementalSnapshot, timestamp: 4000 },
                 ]),
             ]
 
@@ -273,7 +262,7 @@ describe('SnappySessionRecorder', () => {
         it('should store distinctId from first message', () => {
             const message = createMessage('window1', [
                 {
-                    type: EventType.Meta,
+                    type: RRWebEventType.Meta,
                     timestamp: 1000,
                     data: {},
                 },
@@ -287,7 +276,7 @@ describe('SnappySessionRecorder', () => {
             recorder.recordMessage(
                 createMessage('window1', [
                     {
-                        type: EventType.Meta,
+                        type: RRWebEventType.Meta,
                         timestamp: 1000,
                         data: {},
                     },
@@ -297,7 +286,7 @@ describe('SnappySessionRecorder', () => {
             const message2 = {
                 ...createMessage('window1', [
                     {
-                        type: EventType.Meta,
+                        type: RRWebEventType.Meta,
                         timestamp: 2000,
                         data: {},
                     },
@@ -312,7 +301,7 @@ describe('SnappySessionRecorder', () => {
         it('should maintain distinctId after end() is called', async () => {
             const message = createMessage('window1', [
                 {
-                    type: EventType.Meta,
+                    type: RRWebEventType.Meta,
                     timestamp: 1000,
                     data: {},
                 },
@@ -328,7 +317,7 @@ describe('SnappySessionRecorder', () => {
         it('should accumulate URLs from a single message', async () => {
             const events = [
                 {
-                    type: EventType.Meta,
+                    type: RRWebEventType.Meta,
                     timestamp: 1000,
                     data: { href: 'https://example.com' },
                 },
@@ -345,14 +334,14 @@ describe('SnappySessionRecorder', () => {
         it('should accumulate URLs from multiple messages', async () => {
             const message1 = createMessage('window1', [
                 {
-                    type: EventType.Meta,
+                    type: RRWebEventType.Meta,
                     timestamp: 1000,
                     data: { href: 'https://example1.com' },
                 },
             ])
             const message2 = createMessage('window2', [
                 {
-                    type: EventType.Meta,
+                    type: RRWebEventType.Meta,
                     timestamp: 2000,
                     data: { href: 'https://example2.com' },
                 },
@@ -369,14 +358,14 @@ describe('SnappySessionRecorder', () => {
         it('should not overwrite first URL with subsequent messages', async () => {
             const message1 = createMessage('window1', [
                 {
-                    type: EventType.Meta,
+                    type: RRWebEventType.Meta,
                     timestamp: 1000,
                     data: { href: 'https://first-url.com' },
                 },
             ])
             const message2 = createMessage('window2', [
                 {
-                    type: EventType.Meta,
+                    type: RRWebEventType.Meta,
                     timestamp: 2000,
                     data: { href: 'https://second-url.com' },
                 },
@@ -393,14 +382,14 @@ describe('SnappySessionRecorder', () => {
         it('should handle a message without URLs followed by one with URLs', async () => {
             const message1 = createMessage('window1', [
                 {
-                    type: EventType.Meta,
+                    type: RRWebEventType.Meta,
                     timestamp: 1000,
                     data: {},
                 },
             ])
             const message2 = createMessage('window2', [
                 {
-                    type: EventType.Meta,
+                    type: RRWebEventType.Meta,
                     timestamp: 2000,
                     data: { href: 'https://example.com' },
                 },
@@ -417,7 +406,7 @@ describe('SnappySessionRecorder', () => {
         it('should handle messages with no URLs at all', async () => {
             const message = createMessage('window1', [
                 {
-                    type: EventType.Meta,
+                    type: RRWebEventType.Meta,
                     timestamp: 1000,
                     data: {},
                 },
@@ -433,17 +422,17 @@ describe('SnappySessionRecorder', () => {
         it('should accumulate URLs from multiple events within a single message', async () => {
             const events = [
                 {
-                    type: EventType.Meta,
+                    type: RRWebEventType.Meta,
                     timestamp: 1000,
                     data: { href: 'https://example1.com' },
                 },
                 {
-                    type: EventType.Meta,
+                    type: RRWebEventType.Meta,
                     timestamp: 1500,
                     data: { href: 'https://example2.com' },
                 },
                 {
-                    type: EventType.Meta,
+                    type: RRWebEventType.Meta,
                     timestamp: 2000,
                     data: { href: 'https://example3.com' },
                 },
@@ -462,7 +451,7 @@ describe('SnappySessionRecorder', () => {
         it('should count single click events', async () => {
             const events = [
                 {
-                    type: EventType.IncrementalSnapshot,
+                    type: RRWebEventType.IncrementalSnapshot,
                     timestamp: 1000,
                     data: { source: 2, type: 2 }, // MouseInteraction, Click
                 },
@@ -478,12 +467,12 @@ describe('SnappySessionRecorder', () => {
         it('should count multiple click events in a single message', async () => {
             const events = [
                 {
-                    type: EventType.IncrementalSnapshot,
+                    type: RRWebEventType.IncrementalSnapshot,
                     timestamp: 1000,
                     data: { source: 2, type: 2 }, // MouseInteraction, Click
                 },
                 {
-                    type: EventType.IncrementalSnapshot,
+                    type: RRWebEventType.IncrementalSnapshot,
                     timestamp: 1500,
                     data: { source: 2, type: 4 }, // MouseInteraction, DblClick
                 },
@@ -499,14 +488,14 @@ describe('SnappySessionRecorder', () => {
         it('should count click events across multiple messages', async () => {
             const message1 = createMessage('window1', [
                 {
-                    type: EventType.IncrementalSnapshot,
+                    type: RRWebEventType.IncrementalSnapshot,
                     timestamp: 1000,
                     data: { source: 2, type: 2 }, // MouseInteraction, Click
                 },
             ])
             const message2 = createMessage('window2', [
                 {
-                    type: EventType.IncrementalSnapshot,
+                    type: RRWebEventType.IncrementalSnapshot,
                     timestamp: 2000,
                     data: { source: 2, type: 3 }, // MouseInteraction, ContextMenu
                 },
@@ -522,12 +511,12 @@ describe('SnappySessionRecorder', () => {
         it('should not count non-click events', async () => {
             const events = [
                 {
-                    type: EventType.IncrementalSnapshot,
+                    type: RRWebEventType.IncrementalSnapshot,
                     timestamp: 1000,
                     data: { source: 2, type: 0 }, // MouseInteraction, MouseUp
                 },
                 {
-                    type: EventType.IncrementalSnapshot,
+                    type: RRWebEventType.IncrementalSnapshot,
                     timestamp: 1500,
                     data: { source: 2, type: 1 }, // MouseInteraction, MouseDown
                 },
@@ -543,17 +532,17 @@ describe('SnappySessionRecorder', () => {
         it('should handle mixed click and non-click events', async () => {
             const events = [
                 {
-                    type: EventType.IncrementalSnapshot,
+                    type: RRWebEventType.IncrementalSnapshot,
                     timestamp: 1000,
                     data: { source: 2, type: 2 }, // MouseInteraction, Click
                 },
                 {
-                    type: EventType.IncrementalSnapshot,
+                    type: RRWebEventType.IncrementalSnapshot,
                     timestamp: 1500,
                     data: { source: 2, type: 0 }, // MouseInteraction, MouseUp
                 },
                 {
-                    type: EventType.IncrementalSnapshot,
+                    type: RRWebEventType.IncrementalSnapshot,
                     timestamp: 2000,
                     data: { source: 2, type: 4 }, // MouseInteraction, DblClick
                 },
@@ -571,7 +560,7 @@ describe('SnappySessionRecorder', () => {
         it('should count single keypress events', async () => {
             const events = [
                 {
-                    type: EventType.IncrementalSnapshot,
+                    type: RRWebEventType.IncrementalSnapshot,
                     timestamp: 1000,
                     data: { source: 5 }, // Input
                 },
@@ -587,12 +576,12 @@ describe('SnappySessionRecorder', () => {
         it('should count multiple keypress events in a single message', async () => {
             const events = [
                 {
-                    type: EventType.IncrementalSnapshot,
+                    type: RRWebEventType.IncrementalSnapshot,
                     timestamp: 1000,
                     data: { source: 5 }, // Input
                 },
                 {
-                    type: EventType.IncrementalSnapshot,
+                    type: RRWebEventType.IncrementalSnapshot,
                     timestamp: 1500,
                     data: { source: 5 }, // Input
                 },
@@ -608,14 +597,14 @@ describe('SnappySessionRecorder', () => {
         it('should count keypress events across multiple messages', async () => {
             const message1 = createMessage('window1', [
                 {
-                    type: EventType.IncrementalSnapshot,
+                    type: RRWebEventType.IncrementalSnapshot,
                     timestamp: 1000,
                     data: { source: 5 }, // Input
                 },
             ])
             const message2 = createMessage('window2', [
                 {
-                    type: EventType.IncrementalSnapshot,
+                    type: RRWebEventType.IncrementalSnapshot,
                     timestamp: 2000,
                     data: { source: 5 }, // Input
                 },
@@ -631,12 +620,12 @@ describe('SnappySessionRecorder', () => {
         it('should not count non-keypress events', async () => {
             const events = [
                 {
-                    type: EventType.IncrementalSnapshot,
+                    type: RRWebEventType.IncrementalSnapshot,
                     timestamp: 1000,
                     data: { source: 2 }, // MouseInteraction
                 },
                 {
-                    type: EventType.IncrementalSnapshot,
+                    type: RRWebEventType.IncrementalSnapshot,
                     timestamp: 1500,
                     data: { source: 3 }, // Scroll
                 },
@@ -652,17 +641,17 @@ describe('SnappySessionRecorder', () => {
         it('should handle mixed keypress and non-keypress events', async () => {
             const events = [
                 {
-                    type: EventType.IncrementalSnapshot,
+                    type: RRWebEventType.IncrementalSnapshot,
                     timestamp: 1000,
                     data: { source: 5 }, // Input
                 },
                 {
-                    type: EventType.IncrementalSnapshot,
+                    type: RRWebEventType.IncrementalSnapshot,
                     timestamp: 1500,
                     data: { source: 2 }, // MouseInteraction
                 },
                 {
-                    type: EventType.IncrementalSnapshot,
+                    type: RRWebEventType.IncrementalSnapshot,
                     timestamp: 2000,
                     data: { source: 5 }, // Input
                 },
@@ -680,7 +669,7 @@ describe('SnappySessionRecorder', () => {
         it('should count single mouse activity events', async () => {
             const events = [
                 {
-                    type: EventType.IncrementalSnapshot,
+                    type: RRWebEventType.IncrementalSnapshot,
                     timestamp: 1000,
                     data: { source: 1 }, // MouseMove
                 },
@@ -696,12 +685,12 @@ describe('SnappySessionRecorder', () => {
         it('should count multiple mouse activity events in a single message', async () => {
             const events = [
                 {
-                    type: EventType.IncrementalSnapshot,
+                    type: RRWebEventType.IncrementalSnapshot,
                     timestamp: 1000,
                     data: { source: 1 }, // MouseMove
                 },
                 {
-                    type: EventType.IncrementalSnapshot,
+                    type: RRWebEventType.IncrementalSnapshot,
                     timestamp: 1500,
                     data: { source: 6 }, // TouchMove
                 },
@@ -717,14 +706,14 @@ describe('SnappySessionRecorder', () => {
         it('should count mouse activity events across multiple messages', async () => {
             const message1 = createMessage('window1', [
                 {
-                    type: EventType.IncrementalSnapshot,
+                    type: RRWebEventType.IncrementalSnapshot,
                     timestamp: 1000,
                     data: { source: 1 }, // MouseMove
                 },
             ])
             const message2 = createMessage('window2', [
                 {
-                    type: EventType.IncrementalSnapshot,
+                    type: RRWebEventType.IncrementalSnapshot,
                     timestamp: 2000,
                     data: { source: 6 }, // TouchMove
                 },
@@ -740,17 +729,17 @@ describe('SnappySessionRecorder', () => {
         it('should not count non-mouse activity events', async () => {
             const events = [
                 {
-                    type: EventType.IncrementalSnapshot,
+                    type: RRWebEventType.IncrementalSnapshot,
                     timestamp: 1000,
                     data: { source: 3 }, // Scroll - not mouse activity
                 },
                 {
-                    type: EventType.IncrementalSnapshot,
+                    type: RRWebEventType.IncrementalSnapshot,
                     timestamp: 1500,
                     data: { source: 4 }, // ViewportResize - not mouse activity
                 },
                 {
-                    type: EventType.IncrementalSnapshot,
+                    type: RRWebEventType.IncrementalSnapshot,
                     timestamp: 2000,
                     data: { source: 5 }, // Input - not mouse activity
                 },
@@ -766,27 +755,27 @@ describe('SnappySessionRecorder', () => {
         it('should handle mixed mouse and non-mouse activity events', async () => {
             const events = [
                 {
-                    type: EventType.IncrementalSnapshot,
+                    type: RRWebEventType.IncrementalSnapshot,
                     timestamp: 1000,
                     data: { source: 1 }, // MouseMove - counts as mouse activity
                 },
                 {
-                    type: EventType.IncrementalSnapshot,
+                    type: RRWebEventType.IncrementalSnapshot,
                     timestamp: 1500,
                     data: { source: 3 }, // Scroll - not mouse activity
                 },
                 {
-                    type: EventType.IncrementalSnapshot,
+                    type: RRWebEventType.IncrementalSnapshot,
                     timestamp: 2000,
                     data: { source: 6 }, // TouchMove - counts as mouse activity
                 },
                 {
-                    type: EventType.IncrementalSnapshot,
+                    type: RRWebEventType.IncrementalSnapshot,
                     timestamp: 2500,
                     data: { source: 4 }, // ViewportResize - not mouse activity
                 },
                 {
-                    type: EventType.IncrementalSnapshot,
+                    type: RRWebEventType.IncrementalSnapshot,
                     timestamp: 3000,
                     data: { source: 5 }, // Input - not mouse activity
                 },
@@ -805,7 +794,7 @@ describe('SnappySessionRecorder', () => {
         it('should count a single message', async () => {
             const message = createMessage('window1', [
                 {
-                    type: EventType.Meta,
+                    type: RRWebEventType.Meta,
                     timestamp: 1000,
                     data: {},
                 },
@@ -820,14 +809,14 @@ describe('SnappySessionRecorder', () => {
         it('should count multiple messages', async () => {
             const message1 = createMessage('window1', [
                 {
-                    type: EventType.Meta,
+                    type: RRWebEventType.Meta,
                     timestamp: 1000,
                     data: {},
                 },
             ])
             const message2 = createMessage('window2', [
                 {
-                    type: EventType.Meta,
+                    type: RRWebEventType.Meta,
                     timestamp: 2000,
                     data: {},
                 },
@@ -851,7 +840,7 @@ describe('SnappySessionRecorder', () => {
         it('should set default values when no snapshot source or library is provided', async () => {
             const message = createMessage('window1', [
                 {
-                    type: EventType.Meta,
+                    type: RRWebEventType.Meta,
                     timestamp: 1000,
                     data: {},
                 },
@@ -869,7 +858,7 @@ describe('SnappySessionRecorder', () => {
         it('should set snapshot source and library from message', async () => {
             const message = createMessage('window1', [
                 {
-                    type: EventType.Meta,
+                    type: RRWebEventType.Meta,
                     timestamp: 1000,
                     data: {},
                 },
@@ -888,7 +877,7 @@ describe('SnappySessionRecorder', () => {
         it('should use values from first message when multiple messages have different values', async () => {
             const message1 = createMessage('window1', [
                 {
-                    type: EventType.Meta,
+                    type: RRWebEventType.Meta,
                     timestamp: 1000,
                     data: {},
                 },
@@ -896,7 +885,7 @@ describe('SnappySessionRecorder', () => {
 
             const message2 = createMessage('window2', [
                 {
-                    type: EventType.Meta,
+                    type: RRWebEventType.Meta,
                     timestamp: 2000,
                     data: {},
                 },
@@ -919,7 +908,7 @@ describe('SnappySessionRecorder', () => {
         it('should use "web" as default for snapshot source if not provided', async () => {
             const message = createMessage('window1', [
                 {
-                    type: EventType.Meta,
+                    type: RRWebEventType.Meta,
                     timestamp: 1000,
                     data: {},
                 },
@@ -941,7 +930,7 @@ describe('SnappySessionRecorder', () => {
             // Create a message with a known event
             const events = [
                 {
-                    type: EventType.Meta,
+                    type: RRWebEventType.Meta,
                     timestamp: 1000,
                     data: { href: 'https://example.com' },
                 },
@@ -960,7 +949,7 @@ describe('SnappySessionRecorder', () => {
         it('should count console log events', async () => {
             const events = [
                 {
-                    type: EventType.Plugin,
+                    type: RRWebEventType.Plugin,
                     timestamp: 1000,
                     data: {
                         plugin: 'rrweb/console@1',
@@ -984,7 +973,7 @@ describe('SnappySessionRecorder', () => {
         it('should count console warn events', async () => {
             const events = [
                 {
-                    type: EventType.Plugin,
+                    type: RRWebEventType.Plugin,
                     timestamp: 1000,
                     data: {
                         plugin: 'rrweb/console@1',
@@ -1008,7 +997,7 @@ describe('SnappySessionRecorder', () => {
         it('should count console error events', async () => {
             const events = [
                 {
-                    type: EventType.Plugin,
+                    type: RRWebEventType.Plugin,
                     timestamp: 1000,
                     data: {
                         plugin: 'rrweb/console@1',
@@ -1032,7 +1021,7 @@ describe('SnappySessionRecorder', () => {
         it('should count multiple console events of different types', async () => {
             const events = [
                 {
-                    type: EventType.Plugin,
+                    type: RRWebEventType.Plugin,
                     timestamp: 1000,
                     data: {
                         plugin: 'rrweb/console@1',
@@ -1043,7 +1032,7 @@ describe('SnappySessionRecorder', () => {
                     },
                 },
                 {
-                    type: EventType.Plugin,
+                    type: RRWebEventType.Plugin,
                     timestamp: 1500,
                     data: {
                         plugin: 'rrweb/console@1',
@@ -1054,7 +1043,7 @@ describe('SnappySessionRecorder', () => {
                     },
                 },
                 {
-                    type: EventType.Plugin,
+                    type: RRWebEventType.Plugin,
                     timestamp: 2000,
                     data: {
                         plugin: 'rrweb/console@1',
@@ -1065,7 +1054,7 @@ describe('SnappySessionRecorder', () => {
                     },
                 },
                 {
-                    type: EventType.Plugin,
+                    type: RRWebEventType.Plugin,
                     timestamp: 2500,
                     data: {
                         plugin: 'rrweb/console@1',
@@ -1089,12 +1078,12 @@ describe('SnappySessionRecorder', () => {
         it('should not count non-console events', async () => {
             const events = [
                 {
-                    type: EventType.Meta,
+                    type: RRWebEventType.Meta,
                     timestamp: 1000,
                     data: {},
                 },
                 {
-                    type: EventType.Plugin,
+                    type: RRWebEventType.Plugin,
                     timestamp: 1500,
                     data: {
                         plugin: 'some-other-plugin',
