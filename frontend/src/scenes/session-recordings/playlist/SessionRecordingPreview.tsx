@@ -213,7 +213,7 @@ export function SessionRecordingPreview({
                 onClick={() => onClick?.()}
             >
                 <div className="grow overflow-hidden deprecated-space-y-1">
-                    <div className="flex items-center justify-between deprecated-space-x-0_5">
+                    <div className="flex items-center justify-between gap-x-0.5">
                         <div className="flex overflow-hidden font-medium text-link ph-no-capture">
                             <span className="truncate">{asDisplay(recording.person)}</span>
                         </div>
@@ -232,7 +232,7 @@ export function SessionRecordingPreview({
                         )}
                     </div>
 
-                    <div className="flex justify-between items-center deprecated-space-x-0_5">
+                    <div className="flex justify-between items-center gap-x-0.5">
                         <div className="flex deprecated-space-x-2 text-secondary text-sm">
                             <PropertyIcons
                                 recordingProperties={iconProperties}
@@ -242,13 +242,13 @@ export function SessionRecordingPreview({
 
                             <div className="flex gap-1">
                                 <Tooltip className="flex items-center" title="Clicks">
-                                    <span className="deprecated-space-x-0_5">
+                                    <span className="flex gap-x-0.5">
                                         <IconCursorClick className={iconClassNames} />
                                         <span>{recording.click_count}</span>
                                     </span>
                                 </Tooltip>
                                 <Tooltip className="flex items-center" title="Key presses">
-                                    <span className="deprecated-space-x-0_5">
+                                    <span className="flex gap-x-0.5">
                                         <IconKeyboard className={iconClassNames} />
                                         <span>{recording.keypress_count}</span>
                                     </span>
@@ -273,7 +273,7 @@ export function SessionRecordingPreview({
 
                 <div
                     className={clsx(
-                        'min-w-6 flex flex-col deprecated-space-x-0_5 items-center',
+                        'min-w-6 flex flex-col gap-x-0.5 items-center',
                         // need different margin if the first item is an icon
                         recording.ongoing || pinned ? 'mt-1' : 'mt-2'
                     )}
