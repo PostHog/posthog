@@ -1,11 +1,14 @@
+import json
 from typing import cast
 from django.test import override_settings
+from posthog.constants import ExperimentNoResultsErrorKeys
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
 from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.group.util import create_group
+from rest_framework.exceptions import ValidationError
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
     OBJECT_STORAGE_BUCKET,
@@ -950,8 +953,26 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         if expected_results is None:
-            with self.assertRaises(ValueError):
+            with self.assertRaises(ValidationError) as context:
                 query_runner.calculate()
+
+            if "person_id_override_properties_joined_filter_laterevent" in name:
+                expected_errors = json.dumps(
+                    {
+                        ExperimentNoResultsErrorKeys.NO_EXPOSURES: False,
+                        ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: False,
+                        ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
+                    }
+                )
+            else:
+                expected_errors = json.dumps(
+                    {
+                        ExperimentNoResultsErrorKeys.NO_EXPOSURES: True,
+                        ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
+                        ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
+                    }
+                )
+            self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
         else:
             result = query_runner.calculate()
 
@@ -1429,6 +1450,157 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(control_variant.absolute_exposure, 10)
         self.assertEqual(test_variant.absolute_exposure, 10)
 
+    @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_query_runner_no_exposures(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+
+        metric = ExperimentMetric(
+            metric_type=ExperimentMetricType.MEAN,
+            metric_config=ExperimentEventMetricConfig(event="purchase"),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        # No exposures
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        with self.assertRaises(ValidationError) as context:
+            query_runner.calculate()
+
+        expected_errors = json.dumps(
+            {
+                ExperimentNoResultsErrorKeys.NO_EXPOSURES: True,
+                ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
+                ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
+            }
+        )
+        self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
+
+    @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_query_runner_no_variant_events(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        metric = ExperimentMetric(
+            metric_type=ExperimentMetricType.MEAN,
+            metric_config=ExperimentEventMetricConfig(event="purchase"),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        # No variant events
+        for variant in [("control", 10), ("test", 8)]:
+            for i in range(10):
+                _create_person(distinct_ids=[f"user_{variant}_{i}"], team_id=self.team.pk)
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id=f"user_{variant}_{i}",
+                    timestamp="2020-01-02T12:00:00Z",
+                    properties={
+                        feature_flag_property: variant,
+                        "$feature_flag_response": variant,
+                        "$feature_flag": feature_flag.key,
+                    },
+                )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        with self.assertRaises(ValidationError) as context:
+            query_runner.calculate()
+
+        expected_errors = json.dumps(
+            {
+                ExperimentNoResultsErrorKeys.NO_EXPOSURES: True,  # Should be False but the query doesn't support it yet
+                ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
+                ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
+            }
+        )
+        self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
+
+    @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_query_runner_no_control_variant(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        metric = ExperimentMetric(
+            metric_type=ExperimentMetricType.MEAN,
+            metric_config=ExperimentEventMetricConfig(event="purchase"),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        # No control variant
+        for variant, purchase_count in [("test", 8)]:
+            for i in range(10):
+                _create_person(distinct_ids=[f"user_{variant}_{i}"], team_id=self.team.pk)
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id=f"user_{variant}_{i}",
+                    timestamp="2020-01-02T12:00:00Z",
+                    properties={
+                        feature_flag_property: variant,
+                        "$feature_flag_response": variant,
+                        "$feature_flag": feature_flag.key,
+                    },
+                )
+                if i < purchase_count:
+                    _create_event(
+                        team=self.team,
+                        event="purchase",
+                        distinct_id=f"user_{variant}_{i}",
+                        timestamp="2020-01-02T12:01:00Z",
+                        properties={feature_flag_property: variant, "amount": 10 if i < 2 else ""},
+                    )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        with self.assertRaises(ValidationError) as context:
+            query_runner.calculate()
+
+        expected_errors = json.dumps(
+            {
+                ExperimentNoResultsErrorKeys.NO_EXPOSURES: False,
+                ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
+                ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: False,
+            }
+        )
+        self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
+
     @parameterized.expand(
         [
             [
@@ -1656,10 +1828,17 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         # "feature_flags" and "element" filter out all events
         if name == "feature_flags" or name == "element":
-            with self.assertRaises(ValueError) as context:
+            with self.assertRaises(ValidationError) as context:
                 query_runner.calculate()
 
-            self.assertEqual(context.exception.args[0], "Control variant not found in experiment results")
+            expected_errors = json.dumps(
+                {
+                    ExperimentNoResultsErrorKeys.NO_EXPOSURES: True,
+                    ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
+                    ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
+                }
+            )
+            self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
         else:
             result = query_runner.calculate()
 
@@ -2036,10 +2215,17 @@ class TestExperimentQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
         # "feature_flags" and "element" filter out all events
         if name == "feature_flags" or name == "element":
-            with freeze_time("2023-01-07"), self.assertRaises(ValueError) as context:
+            with self.assertRaises(ValidationError) as context:
                 query_runner.calculate()
 
-            self.assertEqual(context.exception.args[0], "Control variant not found in experiment results")
+            expected_errors = json.dumps(
+                {
+                    ExperimentNoResultsErrorKeys.NO_EXPOSURES: True,
+                    ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
+                    ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
+                }
+            )
+            self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
         else:
             with freeze_time("2023-01-07"):
                 result = query_runner.calculate()
