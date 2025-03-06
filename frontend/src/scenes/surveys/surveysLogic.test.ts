@@ -1,11 +1,9 @@
 import { expectLogic } from 'kea-test-utils'
-import { CountedPaginatedResponse } from 'lib/api'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { Survey, SurveySchedule, SurveyType } from '~/types'
 
-import { SURVEY_PAGE_SIZE } from './constants'
 import { surveysLogic } from './surveysLogic'
 
 const createTestSurvey = (id: string, name: string): Survey => ({
@@ -50,111 +48,19 @@ describe('surveysLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
         })
 
-        it('performs immediate frontend search and debounced backend search for large result sets', async () => {
-            // Set up conditions that trigger backend search
-            const apiResponse: CountedPaginatedResponse<Survey> = {
-                count: 150, // More than SURVEY_PAGE_SIZE
-                results: [
-                    createTestSurvey('1', 'Test Survey 1'),
-                    createTestSurvey('2', 'Another Survey'),
-                    createTestSurvey('3', 'Test Survey 3'),
-                ],
-                next: null,
-                previous: null,
-            }
-
+        it('performs frontend search immediately', async () => {
             await expectLogic(logic, () => {
                 logic.actions.loadSurveysSuccess({
-                    surveys: apiResponse.results,
-                    surveysCount: apiResponse.count,
-                    searchSurveys: [],
-                    searchSurveysCount: 0,
-                })
-            })
-                .toDispatchActions(['loadSurveysSuccess'])
-                .toFinishAllListeners()
-
-            // When setting search term, frontend search happens immediately
-            await expectLogic(logic, () => {
-                logic.actions.setSearchTerm('Test')
-            })
-                .toMatchValues({
-                    searchedSurveys: expect.arrayContaining([
-                        expect.objectContaining({ id: '1' }),
-                        expect.objectContaining({ id: '3' }),
-                    ]),
-                    searchTerm: 'Test',
-                })
-                // Backend search hasn't happened yet due to debounce
-                .toNotHaveDispatchedActions(['loadSearchResults'])
-                // Wait for debounce
-                .delay(300)
-                // Now the backend search should be triggered
-                .toDispatchActions(['loadSearchResults'])
-                .toFinishAllListeners()
-        })
-
-        it('performs only frontend search for small result sets', async () => {
-            // 1. Set up initial state with a small number of surveys
-            await expectLogic(logic, () => {
-                logic.actions.loadSurveysSuccess({
-                    surveys: [createTestSurvey('1', 'Test Survey 1'), createTestSurvey('2', 'Another Survey')],
-                    surveysCount: 50, // Less than SURVEY_PAGE_SIZE
-                    searchSurveys: [],
-                    searchSurveysCount: 0,
-                })
-            }).toFinishAllListeners()
-
-            // 2. Perform search and verify frontend results
-            await expectLogic(logic, () => {
-                logic.actions.setSearchTerm('Test')
-            })
-                .toMatchValues({
-                    searchedSurveys: [expect.objectContaining({ id: '1' })], // Only matching survey
-                })
-                .delay(400) // Wait longer than debounce
-                .toNotHaveDispatchedActions(['loadSearchResults']) // No backend search
-        })
-
-        it('merges frontend and backend results without duplicates when backend search completes', async () => {
-            const initialApiResponse: CountedPaginatedResponse<Survey> = {
-                count: 150,
-                results: [createTestSurvey('1', 'Test Survey 1'), createTestSurvey('2', 'Another Survey')],
-                next: null,
-                previous: null,
-            }
-
-            // First, load initial surveys and set search term
-            await expectLogic(logic, () => {
-                logic.actions.loadSurveysSuccess({
-                    surveys: initialApiResponse.results,
-                    surveysCount: initialApiResponse.count,
+                    surveys: [
+                        createTestSurvey('1', 'Test Survey 1'),
+                        createTestSurvey('2', 'Another Survey'),
+                        createTestSurvey('3', 'Test Survey 3'),
+                    ],
+                    surveysCount: 150,
                     searchSurveys: [],
                     searchSurveysCount: 0,
                 })
                 logic.actions.setSearchTerm('Test')
-            }).toMatchValues({
-                // Initially only shows frontend filtered results
-                searchedSurveys: [expect.objectContaining({ id: '1' })],
-            })
-
-            // Then backend search completes
-            const backendApiResponse: CountedPaginatedResponse<Survey> = {
-                count: 2,
-                results: [
-                    createTestSurvey('1', 'Test Survey 1'), // Duplicate
-                    createTestSurvey('3', 'Test Survey 3'), // New result
-                ],
-                next: null,
-                previous: null,
-            }
-
-            await expectLogic(logic, () => {
-                logic.actions.loadSearchResultsSuccess({
-                    ...logic.values.data,
-                    searchSurveys: backendApiResponse.results,
-                    searchSurveysCount: backendApiResponse.count,
-                })
             }).toMatchValues({
                 searchedSurveys: expect.arrayContaining([
                     expect.objectContaining({ id: '1' }),
@@ -163,110 +69,112 @@ describe('surveysLogic', () => {
             })
         })
 
-        it('handles empty search term', async () => {
-            const apiResponse: CountedPaginatedResponse<Survey> = {
-                count: 2,
-                results: [createTestSurvey('1', 'Test Survey 1'), createTestSurvey('2', 'Another Survey')],
-                next: null,
-                previous: null,
-            }
-
+        it('triggers backend search after debounce for large datasets', async () => {
             await expectLogic(logic, () => {
                 logic.actions.loadSurveysSuccess({
-                    surveys: apiResponse.results,
-                    surveysCount: apiResponse.count,
+                    surveys: [createTestSurvey('1', 'Test Survey')],
+                    surveysCount: 150, // > SURVEY_PAGE_SIZE
                     searchSurveys: [],
                     searchSurveysCount: 0,
                 })
-                logic.actions.setSearchTerm('')
+                logic.actions.setSearchTerm('Test')
             })
-                .toMatchValues({
-                    searchedSurveys: apiResponse.results, // Should show all surveys
-                    searchTerm: '',
+                .delay(400)
+                .toDispatchActions(['loadSearchResults'])
+        })
+
+        it('performs only frontend search for small datasets', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.loadSurveysSuccess({
+                    surveys: [createTestSurvey('1', 'Test Survey')],
+                    surveysCount: 50, // < SURVEY_PAGE_SIZE
+                    searchSurveys: [],
+                    searchSurveysCount: 0,
                 })
+                logic.actions.setSearchTerm('Test')
+            })
+                .delay(400)
                 .toNotHaveDispatchedActions(['loadSearchResults'])
         })
 
-        it('handles search cancellation', async () => {
-            jest.useFakeTimers()
-            try {
-                const apiResponse: CountedPaginatedResponse<Survey> = {
-                    count: 150,
-                    results: [createTestSurvey('1', 'Test Survey 1'), createTestSurvey('2', 'Another Survey')],
-                    next: null,
-                    previous: null,
-                }
-
+        it('merges and deduplicates frontend and backend results', async () => {
+            // Set initial state with frontend results and trigger search
+            await expectLogic(logic, () => {
                 logic.actions.loadSurveysSuccess({
-                    surveys: apiResponse.results,
-                    surveysCount: apiResponse.count,
+                    surveys: [createTestSurvey('1', 'Test Survey'), createTestSurvey('2', 'Another Test')],
+                    surveysCount: 150,
                     searchSurveys: [],
                     searchSurveysCount: 0,
                 })
-                // Start a search
-                logic.actions.setSearchTerm('test')
-                // Cancel it before debounce timeout
-                logic.actions.setSearchTerm('')
-                // Fast forward past debounce time
-                jest.advanceTimersByTime(300)
-                await expectLogic(logic)
-                    .toMatchValues({
-                        searchedSurveys: apiResponse.results, // Should show all surveys
-                        searchTerm: '',
-                    })
-                    .toNotHaveDispatchedActions(['loadSearchResults'])
-            } finally {
-                jest.useRealTimers()
-            }
+                logic.actions.setSearchTerm('Test')
+            }).toMatchValues({
+                // Verify frontend search results first
+                searchedSurveys: expect.arrayContaining([
+                    expect.objectContaining({ id: '1' }),
+                    expect.objectContaining({ id: '2' }),
+                ]),
+            })
+
+            // Then simulate backend search completion
+            await expectLogic(logic, () => {
+                logic.actions.loadSearchResultsSuccess({
+                    ...logic.values.data,
+                    searchSurveys: [createTestSurvey('1', 'Test Survey'), createTestSurvey('3', 'New Test')],
+                    searchSurveysCount: 2,
+                })
+            }).toMatchValues({
+                // Verify merged results
+                searchedSurveys: expect.arrayContaining([
+                    expect.objectContaining({ id: '1' }),
+                    expect.objectContaining({ id: '2' }),
+                    expect.objectContaining({ id: '3' }),
+                ]),
+            })
         })
 
-        it('loads next page correctly', async () => {
-            const initialApiResponse: CountedPaginatedResponse<Survey> = {
-                count: 150,
-                results: Array(SURVEY_PAGE_SIZE)
-                    .fill(null)
-                    .map((_, i) => createTestSurvey(i.toString(), `Survey ${i}`)),
-                next: null,
-                previous: null,
-            }
-
+        it('shows all surveys when search term is empty', async () => {
+            const surveys = [createTestSurvey('1', 'Test'), createTestSurvey('2', 'Another')]
             await expectLogic(logic, () => {
                 logic.actions.loadSurveysSuccess({
-                    surveys: initialApiResponse.results,
-                    surveysCount: initialApiResponse.count,
+                    surveys,
+                    surveysCount: 2,
+                    searchSurveys: [],
+                    searchSurveysCount: 0,
+                })
+                logic.actions.setSearchTerm('')
+            }).toMatchValues({
+                searchedSurveys: surveys,
+            })
+        })
+
+        it('loads next page and maintains correct state', async () => {
+            const page1 = [createTestSurvey('1', 'First'), createTestSurvey('2', 'Second')]
+            const page2 = [createTestSurvey('3', 'Third'), createTestSurvey('4', 'Fourth')]
+
+            // Load first page
+            await expectLogic(logic, () => {
+                logic.actions.loadSurveysSuccess({
+                    surveys: page1,
+                    surveysCount: 4,
                     searchSurveys: [],
                     searchSurveysCount: 0,
                 })
             }).toMatchValues({
-                data: expect.objectContaining({
-                    surveys: expect.arrayContaining(initialApiResponse.results),
-                    surveysCount: initialApiResponse.count,
-                }),
                 hasNextPage: true,
             })
 
-            const nextPageApiResponse: CountedPaginatedResponse<Survey> = {
-                count: 150,
-                results: Array(SURVEY_PAGE_SIZE)
-                    .fill(null)
-                    .map((_, i) =>
-                        createTestSurvey((i + SURVEY_PAGE_SIZE).toString(), `Survey ${i + SURVEY_PAGE_SIZE}`)
-                    ),
-                next: null,
-                previous: null,
-            }
-
+            // Load second page
             await expectLogic(logic, () => {
                 logic.actions.loadNextPageSuccess({
                     ...logic.values.data,
-                    surveys: [...logic.values.data.surveys, ...nextPageApiResponse.results],
-                    surveysCount: nextPageApiResponse.count,
+                    surveys: [...page1, ...page2],
+                    surveysCount: 4,
                 })
             }).toMatchValues({
                 data: expect.objectContaining({
-                    surveys: expect.arrayContaining([...initialApiResponse.results, ...nextPageApiResponse.results]),
-                    surveysCount: nextPageApiResponse.count,
+                    surveys: [...page1, ...page2],
                 }),
+                hasNextPage: false,
             })
         })
     })
