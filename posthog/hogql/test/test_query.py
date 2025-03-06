@@ -1591,12 +1591,12 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response.results), len(SUPPORTED_CURRENCY_CODES))
 
     def test_currency_conversion(self):
-        query = "SELECT hogql_convertCurrency('USD', 'EUR', 100, DATE('2024-01-01'))"
+        query = "SELECT convertCurrency('USD', 'EUR', 100, DATE('2024-01-01'))"
         response = execute_hogql_query(query, team=self.team)
         self.assertEqual(response.results, [(Decimal("90.49"),)])
 
     def test_currency_conversion_with_string_date(self):
-        query = "SELECT hogql_convertCurrency('USD', 'EUR', 100, '2024-01-01')"
+        query = "SELECT convertCurrency('USD', 'EUR', 100, '2024-01-01')"
         with self.assertRaises(InternalCHQueryError) as e:
             execute_hogql_query(query, team=self.team)
         assert (
@@ -1605,12 +1605,12 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_currency_conversion_with_bogus_currency_from(self):
-        query = "SELECT hogql_convertCurrency('BOGUS', 'EUR', 100, DATE('2024-01-01'))"
+        query = "SELECT convertCurrency('BOGUS', 'EUR', 100, DATE('2024-01-01'))"
         response = execute_hogql_query(query, team=self.team)
         self.assertEqual(response.results, [(Decimal("0"),)])
 
     def test_currency_conversion_with_bogus_currency_to(self):
-        query = "SELECT hogql_convertCurrency('USD', 'BOGUS', 100, DATE('2024-01-01'))"
+        query = "SELECT convertCurrency('USD', 'BOGUS', 100, DATE('2024-01-01'))"
         response = execute_hogql_query(query, team=self.team)
         self.assertEqual(response.results, [(Decimal("0"),)])
 
@@ -1618,25 +1618,25 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     # which will simply use the latest rate from `historical.csv`
     # from 2024-12-31
     def test_currency_conversion_without_date(self):
-        query = "SELECT hogql_convertCurrency('USD', 'EUR', 100)"
+        query = "SELECT convertCurrency('USD', 'EUR', 100)"
         response = execute_hogql_query(query, team=self.team)
         self.assertEqual(response.results, [(Decimal("96.21"),)])
 
     def test_currency_conversion_nested(self):
-        query = "SELECT hogql_convertCurrency('EUR', 'USD', hogql_convertCurrency('USD', 'EUR', 100, DATE('2020-03-15')), DATE('2020-03-15'))"
+        query = "SELECT convertCurrency('EUR', 'USD', convertCurrency('USD', 'EUR', 100, DATE('2020-03-15')), DATE('2020-03-15'))"
         response = execute_hogql_query(query, team=self.team)
         self.assertEqual(response.results, [(Decimal("100.00"),)])
 
     def test_currency_conversion_super_nested(self):
         amount = "2123.4308"
         query = """
-            SELECT hogql_convertCurrency(
+            SELECT convertCurrency(
                 'JPY', 'USD',
-                hogql_convertCurrency(
+                convertCurrency(
                     'GBP', 'JPY',
-                    hogql_convertCurrency(
+                    convertCurrency(
                         'EUR', 'GBP',
-                        hogql_convertCurrency(
+                        convertCurrency(
                             'USD', 'EUR', {amount}, {date}
                         ), {date}
                     ), {date}

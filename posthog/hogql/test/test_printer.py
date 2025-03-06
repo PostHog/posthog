@@ -2034,7 +2034,7 @@ class TestPrinter(BaseTest):
         )
 
     def test_currency_conversion(self):
-        query = parse_select("select hogql_convertCurrency('USD', 'EUR', 100, toDate('2021-01-01'))")
+        query = parse_select("select convertCurrency('USD', 'EUR', 100, toDate('2021-01-01'))")
         printed = print_ast(
             query,
             HogQLContext(team_id=self.team.pk, enable_select_queries=True),
@@ -2050,7 +2050,7 @@ class TestPrinter(BaseTest):
         )
 
     def test_currency_conversion_without_date(self):
-        query = parse_select("select hogql_convertCurrency('USD', 'EUR', 100)")
+        query = parse_select("select convertCurrency('USD', 'EUR', 100)")
         printed = print_ast(
             query,
             HogQLContext(team_id=self.team.pk, enable_select_queries=True),

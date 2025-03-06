@@ -1212,9 +1212,7 @@ class _Printer(Visitor):
                     return f"coalesce(dictGetOrNull('channel_definition_dict', 'type_if_organic', (coalesce({args[0]}, ''), 'source')), dictGetOrNull('channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
                 elif node.name == "hogql_lookupOrganicMediumType":
                     return f"dictGetOrNull('channel_definition_dict', 'type_if_organic', (coalesce({args[0]}, ''), 'medium'))"
-                elif (
-                    node.name == "hogql_convertCurrency"
-                ):  # hogql_convertCurrency(from_currency, to_currency, amount, timestamp)
+                elif node.name == "convertCurrency":  # convertCurrency(from_currency, to_currency, amount, timestamp)
                     from_currency, to_currency, amount, *_rest = args
                     date = args[3] if len(args) > 3 and args[3] else "today()"
                     return f"if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64({amount}, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, 10))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {to_currency}, {date}, toDecimal64(0, 10))))"

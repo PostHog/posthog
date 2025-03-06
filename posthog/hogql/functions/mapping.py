@@ -1166,9 +1166,9 @@ HOGQL_POSTHOG_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "hogql_lookupOrganicSourceType": HogQLFunctionMeta("hogql_lookupOrganicSourceType", 1, 1),
     "hogql_lookupOrganicMediumType": HogQLFunctionMeta("hogql_lookupOrganicMediumType", 1, 1),
     # posthog/models/exchange_rate/sql.py
-    # hogql_convertCurrency(from_currency, to_currency, amount, timestamp?)
-    "hogql_convertCurrency": HogQLFunctionMeta(
-        "hogql_convertCurrency",
+    # convertCurrency(from_currency, to_currency, amount, timestamp?)
+    "convertCurrency": HogQLFunctionMeta(
+        "convertCurrency",
         3,
         4,
         signatures=[
