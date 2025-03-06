@@ -98,7 +98,7 @@ export const BillingProductAddonActions = ({ addon, productRef }: BillingProduct
         return (
             <>
                 {showPricing ? (
-                    <h4 className="leading-5 font-bold mb-0 deprecated-space-x-0_5">
+                    <h4 className="leading-5 font-bold mb-0 flex gap-x-0.5">
                         {isTrialEligible ? (
                             <span>{addon.trial?.length} day free trial</span>
                         ) : (
