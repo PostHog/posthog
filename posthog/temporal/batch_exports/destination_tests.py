@@ -311,6 +311,11 @@ class BigQueryProjectTestStep(DestinationTestStep):
         """Run this test step."""
         from posthog.temporal.batch_exports.bigquery_batch_export import BigQueryClient
 
+        # This method should be called by `run()` which ensures this test step is configured
+        # with non-`None` values.
+        assert self.service_account_info is not None
+        assert self.project_id is not None
+
         client = BigQueryClient.from_service_account_inputs(project_id=self.project_id, **self.service_account_info)
         projects = {p.project_id for p in client.list_projects()}
 
@@ -372,6 +377,12 @@ class BigQueryDatasetTestStep(DestinationTestStep):
         from google.cloud.exceptions import NotFound
 
         from posthog.temporal.batch_exports.bigquery_batch_export import BigQueryClient
+
+        # This method should be called by `run()` which ensures this test step is configured
+        # with non-`None` values.
+        assert self.service_account_info is not None
+        assert self.project_id is not None
+        assert self.dataset_id is not None
 
         client = BigQueryClient.from_service_account_inputs(project_id=self.project_id, **self.service_account_info)
 
@@ -445,6 +456,11 @@ class BigQueryTableTestStep(DestinationTestStep):
         from google.cloud.exceptions import NotFound
 
         from posthog.temporal.batch_exports.bigquery_batch_export import BigQueryClient
+
+        # This method should be called by `run()` which ensures this test step is configured
+        # with non-`None` values.
+        assert self.service_account_info is not None
+        assert self.project_id is not None
 
         client = BigQueryClient.from_service_account_inputs(project_id=self.project_id, **self.service_account_info)
 
