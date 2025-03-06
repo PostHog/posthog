@@ -35,7 +35,7 @@ export const test = base.extend<{ loginBeforeTests: void; page: Page }>({
         page.setAppContext = async function <K extends keyof AppContext>(key: K, value: AppContext[K]): Promise<void> {
             await page.evaluate(
                 ([key, value]) => {
-                    // @ts-expect-error - Type safety is handled by the generic constraint
+                    // @ts-expect-error - (Type safety is handled by the generic constraint)
                     ;(window as WindowWithPostHog).POSTHOG_APP_CONTEXT[key as string] = value
                 },
                 [key, value]
