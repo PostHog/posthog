@@ -66,10 +66,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKA_FLUSH_FREQUENCY_MS: isTestEnv() ? 5 : 500,
         APP_METRICS_FLUSH_FREQUENCY_MS: isTestEnv() ? 5 : 20_000,
         APP_METRICS_FLUSH_MAX_QUEUE_SIZE: isTestEnv() ? 5 : 1000,
-        KAFKA_PRODUCER_LINGER_MS: 20, // rdkafka default is 5ms
-        KAFKA_PRODUCER_BATCH_SIZE: 8 * 1024 * 1024, // rdkafka default is 1MiB
-        KAFKA_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES: 100_000, // rdkafka default is 100_000
-        KAFKA_PRODUCER_IDEMPOTENCE: true,
         REDIS_URL: 'redis://127.0.0.1',
         INGESTION_REDIS_HOST: '',
         INGESTION_REDIS_PORT: 6379,
