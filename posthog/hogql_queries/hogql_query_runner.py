@@ -1,8 +1,6 @@
 from typing import Optional, cast
 from collections.abc import Callable
 
-from posthog.clickhouse.client.limit import get_api_personal_rate_limiter
-from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.hogql import ast
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.parser import parse_select
@@ -60,18 +58,16 @@ class HogQLQueryRunner(QueryRunner):
             execute_hogql_query if paginator is None else paginator.execute_hogql_query,
         )
 
-        is_api = get_query_tag_value("access_method") == "personal_api_key"
-        with get_api_personal_rate_limiter().run(is_api=is_api, team_id=self.team.pk, task_id=self.query_id):
-            response = func(
-                query_type="HogQLQuery",
-                query=query,
-                filters=self.query.filters,
-                modifiers=self.query.modifiers or self.modifiers,
-                team=self.team,
-                timings=self.timings,
-                variables=self.query.variables,
-                limit_context=self.limit_context,
-            )
+        response = func(
+            query_type="HogQLQuery",
+            query=query,
+            filters=self.query.filters,
+            modifiers=self.query.modifiers or self.modifiers,
+            team=self.team,
+            timings=self.timings,
+            variables=self.query.variables,
+            limit_context=self.limit_context,
+        )
         if paginator:
             response = response.model_copy(update={**paginator.response_params(), "results": paginator.results})
         return response
