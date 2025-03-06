@@ -149,7 +149,7 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, QueryRunner):
                 )
             )
         elif self.query.action:
-            action = Action.objects.get(pk=int(self.query.action), team__project_id=self.team.project_id)
+            action = Action.objects.get(pk=self.query.action, team__project_id=self.team.project_id)
             filter_expr.append(action_to_expr(action))
         else:
             raise ValueError("Either event or action must be provided")
