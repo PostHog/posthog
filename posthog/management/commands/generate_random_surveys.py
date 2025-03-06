@@ -1,9 +1,23 @@
 import random
-from typing import Any
+from typing import Any, TypedDict, Literal, Union
 from django.core.management.base import BaseCommand
 from posthog.models import Team, Survey, User
 
-QUESTION_TEMPLATES = {
+
+class MultipleChoiceTemplate(TypedDict):
+    question: str
+    choices: list[str]
+
+
+class LinkTemplate(TypedDict):
+    question: str
+    link: str
+
+
+QuestionType = Literal["open", "rating", "multiple_choice", "link"]
+SurveyType = Literal["popover", "widget", "api"]
+
+QUESTION_TEMPLATES: dict[str, Union[list[str], list[MultipleChoiceTemplate], list[LinkTemplate]]] = {
     "open": [
         "What do you think of our {feature}?",
         "How can we improve {feature}?",
@@ -23,11 +37,20 @@ QUESTION_TEMPLATES = {
             "question": "Which aspects of {feature} do you use most?",
             "choices": ["Feature A", "Feature B", "Feature C", "Feature D", "Other"],
         },
-        {"question": "How often do you use {feature}?", "choices": ["Daily", "Weekly", "Monthly", "Rarely", "Never"]},
+        {
+            "question": "How often do you use {feature}?",
+            "choices": ["Daily", "Weekly", "Monthly", "Rarely", "Never"],
+        },
     ],
     "link": [
-        {"question": "Would you like to learn more about {feature}?", "link": "https://posthog.com/docs/feature"},
-        {"question": "Check out our guide on {feature}", "link": "https://posthog.com/tutorials/feature"},
+        {
+            "question": "Would you like to learn more about {feature}?",
+            "link": "https://posthog.com/docs/feature",
+        },
+        {
+            "question": "Check out our guide on {feature}",
+            "link": "https://posthog.com/tutorials/feature",
+        },
     ],
 }
 
@@ -53,22 +76,24 @@ class Command(BaseCommand):
         parser.add_argument("--team-id", type=int, help="Team ID to create surveys for")
 
     def generate_random_question(self) -> dict[str, Any]:
-        question_type = random.choice(["open", "rating", "multiple_choice", "link"])
+        question_type: QuestionType = random.choice(["open", "rating", "multiple_choice", "link"])
         feature = random.choice(FEATURES)
 
         if question_type == "open":
+            template: str = random.choice(QUESTION_TEMPLATES["open"])  # type: ignore
             return {
                 "type": "open",
-                "question": random.choice(QUESTION_TEMPLATES["open"]).format(feature=feature),
+                "question": template.format(feature=feature),
                 "description": f"Help us improve {feature}",
                 "descriptionContentType": "text",
                 "optional": random.choice([True, False]),
                 "buttonText": random.choice(["Submit", "Next", "Continue"]),
             }
         elif question_type == "rating":
+            template: str = random.choice(QUESTION_TEMPLATES["rating"])  # type: ignore
             return {
                 "type": "rating",
-                "question": random.choice(QUESTION_TEMPLATES["rating"]).format(feature=feature),
+                "question": template.format(feature=feature),
                 "description": f"Rate your experience with {feature}",
                 "descriptionContentType": "text",
                 "optional": random.choice([True, False]),
@@ -79,7 +104,7 @@ class Command(BaseCommand):
                 "upperBoundLabel": "Extremely",
             }
         elif question_type == "multiple_choice":
-            template = random.choice(QUESTION_TEMPLATES["multiple_choice"])
+            template: MultipleChoiceTemplate = random.choice(QUESTION_TEMPLATES["multiple_choice"])  # type: ignore
             return {
                 "type": random.choice(["single_choice", "multiple_choice"]),
                 "question": template["question"].format(feature=feature),
@@ -92,7 +117,7 @@ class Command(BaseCommand):
                 "hasOpenChoice": random.choice([True, False]),
             }
         else:  # link
-            template = random.choice(QUESTION_TEMPLATES["link"])
+            template: LinkTemplate = random.choice(QUESTION_TEMPLATES["link"])  # type: ignore
             return {
                 "type": "link",
                 "question": template["question"].format(feature=feature),
@@ -110,7 +135,7 @@ class Command(BaseCommand):
         # Generate a name based on the questions
         question_types = [q["type"] for q in questions]
         feature_mentions = [f for f in FEATURES if any(f in q.get("question", "") for q in questions)]
-        survey_type = random.choice(["popover", "widget", "api"])
+        survey_type: SurveyType = random.choice(["popover", "widget", "api"])
         name = f"[{survey_type.upper()}] {' & '.join(set(question_types))} survey about {' & '.join(feature_mentions)}"
 
         return {
