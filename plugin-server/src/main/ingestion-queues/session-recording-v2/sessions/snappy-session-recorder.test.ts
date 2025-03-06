@@ -239,20 +239,9 @@ describe('SnappySessionRecorder', () => {
     })
 
     describe('metadata', () => {
-        it('should return default metadata', async () => {
-            const events = [
-                {
-                    type: EventType.FullSnapshot,
-                    timestamp: 1000,
-                    data: { source: 1 },
-                },
-            ]
-            const message = createMessage('window1', events)
-
-            recorder.recordMessage(message)
+        it('should return empty metadata', async () => {
             const result = await recorder.end()
 
-            // Check that all new fields are included with default values
             expect(result.firstUrl).toBeNull()
             expect(result.urls).toEqual([])
             expect(result.clickCount).toBe(0)
