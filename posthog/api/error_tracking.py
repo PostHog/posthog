@@ -238,7 +238,7 @@ class ErrorTrackingSymbolSetSerializer(serializers.ModelSerializer):
 
 
 class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    scope_object = "INTERNAL"
+    scope_object = "error_tracking"
     queryset = ErrorTrackingSymbolSet.objects.all()
     serializer_class = ErrorTrackingSymbolSetSerializer
 
@@ -256,7 +256,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         # TODO: delete file from s3
         minified = request.FILES["minified"]
         source_map = request.FILES["source_map"]
-        (storage_ptr, content_hash) = upload_symbol_set(minified, source_map, self.team_id)
+        (storage_ptr, content_hash) = upload_symbol_set(minified, source_map)
         symbol_set.storage_ptr = storage_ptr
         symbol_set.content_hash = content_hash
         symbol_set.failure_reason = None
@@ -264,21 +264,36 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         ErrorTrackingStackFrame.objects.filter(team=self.team, symbol_set=symbol_set).delete()
         return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
 
+    def create(self, request, *args, **kwargs) -> Response:
+        (storage_ptr, content_hash) = upload_content(request.FILES["content"])
 
-def upload_symbol_set(minified: UploadedFile, source_map: UploadedFile, team_id) -> tuple[str, str]:
+        ErrorTrackingSymbolSet.objects.create(
+            team=self.team,
+            storage_ptr=storage_ptr,
+            content_hash=content_hash,
+        )
+
+        return Response({"ok": True}, status=status.HTTP_201_CREATED)
+
+
+def upload_symbol_set(minified: UploadedFile, source_map: UploadedFile) -> tuple[str, str]:
     js_data = construct_js_data_object(minified.read(), source_map.read())
-    content_hash = hashlib.sha512(js_data).hexdigest()
+    return upload_content(js_data)
+
+
+def upload_content(content: UploadedFile) -> tuple[str, str]:
+    content_hash = hashlib.sha512(content).hexdigest()
 
     try:
         if settings.OBJECT_STORAGE_ENABLED:
             # TODO - maybe a gigabyte is too much?
-            if len(js_data) > ONE_GIGABYTE:
+            if len(content) > ONE_GIGABYTE:
                 raise ValidationError(
                     code="file_too_large", detail="Combined source map and symbol set must be less than 1 gigabyte"
                 )
 
             upload_path = f"{settings.OBJECT_STORAGE_ERROR_TRACKING_SOURCE_MAPS_FOLDER}/{str(uuid7())}"
-            object_storage.write(upload_path, bytes(js_data))
+            object_storage.write(upload_path, bytes(content))
             return (upload_path, content_hash)
         else:
             raise ObjectStorageUnavailable()
