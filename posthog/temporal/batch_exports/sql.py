@@ -467,7 +467,7 @@ SELECT_FROM_SESSIONS_HOGQL = ast.SelectQuery(
         parse_expr("$exit_current_url as exit_current_url"),
         parse_expr("$exit_pathname as exit_pathname"),
         parse_expr("$vitals_lcp as vitals_lcp"),
-        parse_expr("$start_timestamp as _inserted_at"),
+        parse_expr("$end_timestamp as _inserted_at"),
     ],
     select_from=ast.JoinExpr(table=ast.Field(chain=["sessions"])),
     order_by=[ast.OrderExpr(expr=ast.Field(chain=["_inserted_at"]), order="ASC")],
