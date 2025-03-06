@@ -13,6 +13,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from posthog.exceptions_capture import capture_exception
 from slack_sdk import WebClient
+from slack_sdk.errors import SlackApiError
 from google.oauth2 import service_account
 from google.auth.transport.requests import Request as GoogleRequest
 
@@ -415,6 +416,22 @@ class SlackIntegration:
         channels = public_channels + private_channels
 
         return sorted(channels, key=lambda x: x["name"])
+
+    def get_channel_by_id(self, channel_id: str) -> Optional[dict]:
+        try:
+            response = self.client.conversations_info(channel=channel_id)
+            channel = response["channel"]
+            return {
+                "id": channel["id"],
+                "name": channel["name"],
+                "is_private": channel["is_private"],
+                "is_member": channel.get("is_member", True),
+                "is_ext_shared": channel["is_ext_shared"],
+            }
+        except SlackApiError as e:
+            if e.response["error"] == "channel_not_found":
+                return None
+            raise
 
     def _list_channels_by_type(self, type: Literal["public_channel", "private_channel"], authed_user) -> list[dict]:
         max_page = 20

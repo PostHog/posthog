@@ -841,6 +841,17 @@ class ApiRequest {
         return this.integrations(teamId).addPathComponent(id).addPathComponent('channels')
     }
 
+    public integrationSlackChannelsById(
+        id: IntegrationType['id'],
+        channelId: string,
+        teamId?: TeamType['id']
+    ): ApiRequest {
+        return this.integrations(teamId)
+            .addPathComponent(id)
+            .addPathComponent('channels')
+            .withQueryString({ channel_id: channelId })
+    }
+
     public integrationGoogleAdsAccounts(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.integrations(teamId).addPathComponent(id).addPathComponent('google_accessible_accounts')
     }
@@ -2708,6 +2719,12 @@ const api = {
         },
         async slackChannels(id: IntegrationType['id']): Promise<{ channels: SlackChannelType[] }> {
             return await new ApiRequest().integrationSlackChannels(id).get()
+        },
+        async slackChannelsById(
+            id: IntegrationType['id'],
+            channelId: string
+        ): Promise<{ channels: SlackChannelType[] }> {
+            return await new ApiRequest().integrationSlackChannelsById(id, channelId).get()
         },
         async googleAdsAccounts(
             id: IntegrationType['id']

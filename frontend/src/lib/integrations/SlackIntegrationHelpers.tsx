@@ -30,20 +30,20 @@ export type SlackChannelPickerProps = {
 }
 
 export function SlackChannelPicker({ onChange, value, integration, disabled }: SlackChannelPickerProps): JSX.Element {
-    const { slackChannels, slackChannelsLoading, isMemberOfSlackChannel } = useValues(
+    const { slackChannels, allSlackChannelsLoading, slackChannelByIdLoading, isMemberOfSlackChannel } = useValues(
         slackIntegrationLogic({ id: integration.id })
     )
-    const { loadSlackChannels } = useActions(slackIntegrationLogic({ id: integration.id }))
+    const { loadAllSlackChannels, loadSlackChannelById } = useActions(slackIntegrationLogic({ id: integration.id }))
 
     // If slackChannels aren't loaded, make sure we display only the channel name and not the actual underlying value
-    const slackChannelOptions = useMemo(() => getSlackChannelOptions(slackChannels), [slackChannels])
+    const slackChannelOptions = useMemo(() => getSlackChannelOptions(slackChannels.list()), [slackChannels])
     const showSlackMembershipWarning = value && isMemberOfSlackChannel(value) === false
 
     // Sometimes the parent will only store the channel ID and not the name, so we need to handle that
 
     const modifiedValue = useMemo(() => {
         if (value?.split('|').length === 1) {
-            const channel = slackChannels?.find((x) => x.id === value)
+            const channel = slackChannels.list().find((x: SlackChannelType) => x.id === value)
 
             if (channel) {
                 return `${channel.id}|#${channel.name}`
@@ -55,16 +55,21 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
 
     useEffect(() => {
         if (!disabled) {
-            loadSlackChannels()
+            loadAllSlackChannels()
         }
-    }, [loadSlackChannels, disabled])
+    }, [loadAllSlackChannels, disabled])
 
     return (
         <>
             <LemonInputSelect
                 onChange={(val) => onChange?.(val[0] ?? null)}
+                onInputChange={(val) => {
+                    if (val) {
+                        loadSlackChannelById(val)
+                    }
+                }}
                 value={modifiedValue ? [modifiedValue] : []}
-                onFocus={() => !slackChannels && !slackChannelsLoading && loadSlackChannels()}
+                onFocus={() => !slackChannels.list().length && !allSlackChannelsLoading && loadAllSlackChannels()}
                 disabled={disabled}
                 mode="single"
                 data-attr="select-slack-channel"
@@ -88,7 +93,7 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                           ]
                         : [])
                 }
-                loading={slackChannelsLoading}
+                loading={allSlackChannelsLoading || slackChannelByIdLoading}
             />
 
             {showSlackMembershipWarning ? (
@@ -101,7 +106,7 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                                 See the Docs for more information
                             </Link>
                         </span>
-                        <LemonButton type="secondary" onClick={loadSlackChannels} loading={slackChannelsLoading}>
+                        <LemonButton type="secondary" onClick={loadAllSlackChannels} loading={allSlackChannelsLoading}>
                             Check again
                         </LemonButton>
                     </div>

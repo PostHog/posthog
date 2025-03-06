@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, path, props, selectors } from 'kea'
+import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -6,6 +6,36 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SlackChannelType } from '~/types'
 
 import type { slackIntegrationLogicType } from './slackIntegrationLogicType'
+
+export class SlackChannels {
+    private fetchedSlackChannels: SlackChannelType[]
+    private fetchedSlackChannelById: SlackChannelType | null
+    private all: SlackChannelType[]
+
+    constructor(fetchedSlackChannels: SlackChannelType[], fetchedSlackChannelById: SlackChannelType | null) {
+        this.fetchedSlackChannels = fetchedSlackChannels
+        this.fetchedSlackChannelById = fetchedSlackChannelById
+        this.all = [...this.fetchedSlackChannels]
+        if (this.fetchedSlackChannelById && !this.all.find((x) => x.id === this.fetchedSlackChannelById!.id)) {
+            this.all.push(this.fetchedSlackChannelById)
+        }
+    }
+
+    withNewChannelById(channelId: string): SlackChannels {
+        return new SlackChannels(
+            this.fetchedSlackChannels,
+            this.fetchedSlackChannels.find((x) => x.id === channelId) || null
+        )
+    }
+
+    withNewChannels(channels: SlackChannelType[]): SlackChannels {
+        return new SlackChannels(channels, this.fetchedSlackChannelById)
+    }
+
+    list(): SlackChannelType[] {
+        return this.all
+    }
+}
 
 export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
     props({} as { id: number }),
@@ -15,32 +45,59 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
         values: [preflightLogic, ['siteUrlMisconfigured', 'preflight']],
     }),
     actions({
-        loadSlackChannels: true,
+        loadAllSlackChannels: () => ({}),
+        loadSlackChannelById: (channelId: string) => ({ channelId }),
     }),
 
     loaders(({ props }) => ({
-        slackChannels: [
+        allSlackChannels: [
             null as SlackChannelType[] | null,
             {
-                loadSlackChannels: async () => {
+                loadAllSlackChannels: async () => {
                     const res = await api.integrations.slackChannels(props.id)
                     return res.channels
                 },
             },
         ],
+        slackChannelById: [
+            null as SlackChannelType | null,
+            {
+                loadSlackChannelById: async ({ channelId }, breakpoint) => {
+                    await breakpoint(500)
+                    const res = await api.integrations.slackChannelsById(props.id, channelId)
+                    return res.channels[0] || null
+                },
+            },
+        ],
     })),
+
+    reducers({
+        slackChannels: [
+            new SlackChannels([], null),
+            {
+                loadSlackChannelByIdSuccess: (
+                    state: SlackChannels,
+                    { slackChannelById }: { slackChannelById: SlackChannelType }
+                ) => {
+                    return state.withNewChannelById(slackChannelById.id)
+                },
+                loadAllSlackChannelsSuccess: (
+                    state: SlackChannels,
+                    { allSlackChannels }: { allSlackChannels: SlackChannelType[] }
+                ) => {
+                    return state.withNewChannels(allSlackChannels)
+                },
+            },
+        ],
+    }),
+
     selectors({
         isMemberOfSlackChannel: [
             (s) => [s.slackChannels],
-            (slackChannels) => {
+            (slackChannels: SlackChannels) => {
                 return (channel: string) => {
-                    if (!slackChannels) {
-                        return null
-                    }
-
                     const [channelId] = channel.split('|')
-
-                    return slackChannels.find((x) => x.id === channelId)?.is_member ?? false
+                    return slackChannels.list().find((x) => x.id === channelId)?.is_member ?? false
                 }
             },
         ],
