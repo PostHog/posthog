@@ -677,4 +677,129 @@ describe('SnappySessionRecorder', () => {
             expect(result.keypressCount).toBe(2)
         })
     })
+
+    describe('Mouse activity counting', () => {
+        it('should count single mouse activity events', async () => {
+            const events = [
+                {
+                    type: EventType.IncrementalSnapshot,
+                    timestamp: 1000,
+                    data: { source: 1 }, // MouseMove
+                },
+            ]
+            const message = createMessage('window1', events)
+
+            recorder.recordMessage(message)
+            const result = await recorder.end()
+
+            expect(result.mouseActivityCount).toBe(1)
+        })
+
+        it('should count multiple mouse activity events in a single message', async () => {
+            const events = [
+                {
+                    type: EventType.IncrementalSnapshot,
+                    timestamp: 1000,
+                    data: { source: 1 }, // MouseMove
+                },
+                {
+                    type: EventType.IncrementalSnapshot,
+                    timestamp: 1500,
+                    data: { source: 6 }, // TouchMove
+                },
+            ]
+            const message = createMessage('window1', events)
+
+            recorder.recordMessage(message)
+            const result = await recorder.end()
+
+            expect(result.mouseActivityCount).toBe(2)
+        })
+
+        it('should count mouse activity events across multiple messages', async () => {
+            const message1 = createMessage('window1', [
+                {
+                    type: EventType.IncrementalSnapshot,
+                    timestamp: 1000,
+                    data: { source: 1 }, // MouseMove
+                },
+            ])
+            const message2 = createMessage('window2', [
+                {
+                    type: EventType.IncrementalSnapshot,
+                    timestamp: 2000,
+                    data: { source: 6 }, // TouchMove
+                },
+            ])
+
+            recorder.recordMessage(message1)
+            recorder.recordMessage(message2)
+            const result = await recorder.end()
+
+            expect(result.mouseActivityCount).toBe(2)
+        })
+
+        it('should not count non-mouse activity events', async () => {
+            const events = [
+                {
+                    type: EventType.IncrementalSnapshot,
+                    timestamp: 1000,
+                    data: { source: 3 }, // Scroll - not mouse activity
+                },
+                {
+                    type: EventType.IncrementalSnapshot,
+                    timestamp: 1500,
+                    data: { source: 4 }, // ViewportResize - not mouse activity
+                },
+                {
+                    type: EventType.IncrementalSnapshot,
+                    timestamp: 2000,
+                    data: { source: 5 }, // Input - not mouse activity
+                },
+            ]
+            const message = createMessage('window1', events)
+
+            recorder.recordMessage(message)
+            const result = await recorder.end()
+
+            expect(result.mouseActivityCount).toBe(0)
+        })
+
+        it('should handle mixed mouse and non-mouse activity events', async () => {
+            const events = [
+                {
+                    type: EventType.IncrementalSnapshot,
+                    timestamp: 1000,
+                    data: { source: 1 }, // MouseMove - counts as mouse activity
+                },
+                {
+                    type: EventType.IncrementalSnapshot,
+                    timestamp: 1500,
+                    data: { source: 3 }, // Scroll - not mouse activity
+                },
+                {
+                    type: EventType.IncrementalSnapshot,
+                    timestamp: 2000,
+                    data: { source: 6 }, // TouchMove - counts as mouse activity
+                },
+                {
+                    type: EventType.IncrementalSnapshot,
+                    timestamp: 2500,
+                    data: { source: 4 }, // ViewportResize - not mouse activity
+                },
+                {
+                    type: EventType.IncrementalSnapshot,
+                    timestamp: 3000,
+                    data: { source: 5 }, // Input - not mouse activity
+                },
+            ]
+            const message = createMessage('window1', events)
+
+            recorder.recordMessage(message)
+            const result = await recorder.end()
+
+            // Only MouseMove and TouchMove should be counted
+            expect(result.mouseActivityCount).toBe(2)
+        })
+    })
 })

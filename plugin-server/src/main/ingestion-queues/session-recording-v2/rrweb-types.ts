@@ -43,19 +43,33 @@ export enum MouseInteractions {
     TouchCancel = 10,
 }
 
+const CLICK_TYPES = [
+    MouseInteractions.Click,
+    MouseInteractions.DblClick,
+    MouseInteractions.TouchEnd,
+    MouseInteractions.ContextMenu, // right click
+]
+
+const MOUSE_ACTIVITY_SOURCES = [
+    RRWebEventSource.MouseInteraction,
+    RRWebEventSource.MouseMove,
+    RRWebEventSource.TouchMove,
+]
+
 export function isClick(event: RRWebEvent): boolean {
     return (
         event.type === RRWebEventType.IncrementalSnapshot &&
         event.data?.source === RRWebEventSource.MouseInteraction &&
-        [
-            MouseInteractions.Click,
-            MouseInteractions.DblClick,
-            MouseInteractions.TouchEnd,
-            MouseInteractions.ContextMenu, // right click
-        ].includes(event.data?.type || -1)
+        CLICK_TYPES.includes(event.data?.type || -1)
     )
 }
 
 export function isKeypress(event: RRWebEvent): boolean {
     return event.type === RRWebEventType.IncrementalSnapshot && event.data?.source === RRWebEventSource.Input
+}
+
+export function isMouseActivity(event: RRWebEvent): boolean {
+    return (
+        event.type === RRWebEventType.IncrementalSnapshot && MOUSE_ACTIVITY_SOURCES.includes(event.data?.source || -1)
+    )
 }

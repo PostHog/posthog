@@ -4,7 +4,7 @@ import snappy from 'snappy'
 import { RRWebEvent } from '~/src/types'
 
 import { ParsedMessageData } from '../kafka/types'
-import { isClick, isKeypress } from '../rrweb-types'
+import { isClick, isKeypress, isMouseActivity } from '../rrweb-types'
 
 export interface EndResult {
     /** The complete compressed session block */
@@ -78,6 +78,7 @@ export class SnappySessionRecorder {
     private firstUrl: string | null = null
     private clickCount: number = 0
     private keypressCount: number = 0
+    private mouseActivityCount: number = 0
 
     constructor(public readonly sessionId: string, public readonly teamId: number) {}
 
@@ -128,6 +129,10 @@ export class SnappySessionRecorder {
 
                 if (isKeypress(event)) {
                     this.keypressCount += 1
+                }
+
+                if (isMouseActivity(event)) {
+                    this.mouseActivityCount += 1
                 }
 
                 const serializedLine = JSON.stringify([windowId, event]) + '\n'
@@ -186,7 +191,7 @@ export class SnappySessionRecorder {
             urls: Array.from(this.urls),
             clickCount: this.clickCount,
             keypressCount: this.keypressCount,
-            mouseActivityCount: 0,
+            mouseActivityCount: this.mouseActivityCount,
             activeMilliseconds: 0,
             consoleLogCount: 0,
             consoleWarnCount: 0,
