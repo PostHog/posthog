@@ -122,7 +122,7 @@ services:
             DYNAMIC_CONFIG_ENABLED: 'true'
 
     objectstorage:
-        image: minio/minio:RELEASE.2022-06-25T15-50-16Z
+        image: minio/minio:RELEASE.2025-02-18T16-25-55Z
         restart: on-failure
         environment:
             MINIO_ROOT_USER: object_storage_root_user
@@ -158,6 +158,7 @@ services:
             PGUSER: posthog
             PGPASSWORD: posthog
             DEPLOYMENT: hobby
+            CDP_API_URL: 'http://plugins:6738'
 
     web:
         <<: *worker

@@ -73,7 +73,7 @@ class HedgeboxCluster(Cluster):
         self._business_account = None
 
     def __str__(self) -> str:
-        return self.company.name if self.company else f"Social Circle #{self.index+1}"
+        return self.company.name if self.company else f"Social Circle #{self.index + 1}"
 
     def radius_distribution(self) -> float:
         return self.random.betavariate(1.5, 5)
@@ -174,6 +174,7 @@ class HedgeboxMatrix(Matrix):
             ],
         )
         team.test_account_filters = [{"key": "id", "type": "cohort", "value": real_users_cohort.pk}]
+        team.revenue_tracking_config = {"events": [{"eventName": EVENT_PAID_BILL, "revenueProperty": "amount_usd"}]}
 
         # Dashboard: Key metrics (project home)
         key_metrics_dashboard = Dashboard.objects.create(

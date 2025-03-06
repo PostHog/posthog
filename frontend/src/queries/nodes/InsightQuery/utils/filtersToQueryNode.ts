@@ -439,7 +439,9 @@ export const retentionFilterToQuery = (filters: Partial<RetentionFilterType>): R
         returningEntity: sanitizeRetentionEntity(filters.returning_entity),
         targetEntity: sanitizeRetentionEntity(filters.target_entity),
         period: filters.period,
-        showMean: filters.show_mean,
+        meanRetentionCalculation:
+            filters.mean_retention_calculation ||
+            (typeof filters.show_mean === 'boolean' ? (filters.show_mean ? 'simple' : 'none') : 'simple'),
         cumulative: filters.cumulative,
     })
     // TODO: query.aggregation_group_type_index
@@ -480,6 +482,7 @@ export const stickinessFilterToQuery = (filters: Record<string, any>): Stickines
         showLegend: filters.show_legend,
         hiddenLegendIndexes: hiddenLegendKeysToIndexes(filters.hidden_legend_keys),
         showValuesOnSeries: filters.show_values_on_series,
+        computedAs: filters.computed_as,
     })
 }
 

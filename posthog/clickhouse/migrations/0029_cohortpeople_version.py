@@ -1,6 +1,6 @@
 from infi.clickhouse_orm import migrations
 
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.settings import CLICKHOUSE_CLUSTER
 
 ADD_COLUMNS_BASE_SQL = """

@@ -6,10 +6,10 @@
     "configurations": [
         {
             "name": "Frontend",
-            "command": "pnpm start",
+            "command": "bin/turbo --filter=@posthog/frontend start",
             "request": "launch",
             "type": "node-terminal",
-            "cwd": "${workspaceFolder}/frontend",
+            "cwd": "${workspaceFolder}",
             "presentation": {
                 "group": "main"
             },
@@ -28,7 +28,7 @@
         },
         {
             "name": "Frontend (https)",
-            "command": "pnpm start",
+            "command": "bin/turbo --filter=@posthog/frontend start",
             "request": "launch",
             "type": "node-terminal",
             "cwd": "${workspaceFolder}/frontend",
@@ -143,20 +143,17 @@
         },
         {
             "name": "Plugin Server",
-            "command": "npm run start:dev",
+            "command": "bin/turbo --env-mode=loose --filter=@posthog/plugin-server start",
             "request": "launch",
             "type": "node-terminal",
-            "cwd": "${workspaceFolder}/plugin-server",
+            "cwd": "${workspaceFolder}",
             "env": {
                 "CLICKHOUSE_SECURE": "False",
                 "DATABASE_URL": "postgres://posthog:posthog@localhost:5432/posthog",
                 "KAFKA_HOSTS": "localhost:9092",
                 "WORKER_CONCURRENCY": "2",
                 "OBJECT_STORAGE_ENABLED": "True",
-                "HOG_HOOK_URL": "http://localhost:3300/hoghook",
-                "PLUGIN_SERVER_MODE": "all-v2",
-                "HOG_TRANSFORMATIONS_ENABLED": "True",
-                "HOG_TRANSFORMATIONS_COMPARISON_PERCENTAGE": "1"
+                "HOG_HOOK_URL": "http://localhost:3300/hoghook"
             },
             "presentation": {
                 "group": "main"

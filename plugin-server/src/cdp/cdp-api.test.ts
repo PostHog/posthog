@@ -144,7 +144,7 @@ describe('CDP API', () => {
             .post(`/api/projects/${hogFunction.team_id}/hog_functions/new/invocations`)
             .send({ globals })
 
-        expect(res.status).toEqual(200)
+        expect(res.status).toEqual(400)
     })
 
     it('can invoke a function via the API with mocks', async () => {
@@ -473,12 +473,7 @@ describe('CDP API', () => {
 
             expect(res.status).toEqual(200)
 
-            expect(res.body.logs.map((log: any) => log.message)).toMatchInlineSnapshot(`
-                [
-                  "Executing plugin plugin-posthog-filter-out-plugin",
-                  "Execution successful",
-                ]
-            `)
+            expect(res.body.logs.map((log: any) => log.message)).toMatchInlineSnapshot(`[]`)
 
             expect(forSnapshot(res.body.result)).toMatchInlineSnapshot(`
                 {
@@ -512,12 +507,7 @@ describe('CDP API', () => {
 
             expect(res.status).toEqual(200)
 
-            expect(res.body.logs.map((log: any) => log.message)).toMatchInlineSnapshot(`
-                [
-                  "Executing plugin plugin-posthog-filter-out-plugin",
-                  "Execution successful",
-                ]
-            `)
+            expect(res.body.logs.map((log: any) => log.message)).toMatchInlineSnapshot(`[]`)
 
             expect(res.body.result).toMatchInlineSnapshot(`null`)
         })

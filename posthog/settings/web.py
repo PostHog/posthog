@@ -41,10 +41,6 @@ DECIDE_SKIP_POSTGRES_FLAGS = get_from_env("DECIDE_SKIP_POSTGRES_FLAGS", False, t
 DECIDE_BILLING_SAMPLING_RATE = get_from_env("DECIDE_BILLING_SAMPLING_RATE", 0.1, type_cast=float)
 DECIDE_BILLING_ANALYTICS_TOKEN = get_from_env("DECIDE_BILLING_ANALYTICS_TOKEN", None, type_cast=str, optional=True)
 
-# Decide request logging settings
-
-DECIDE_REQUEST_LOGGING_SAMPLING_RATE = get_from_env("DECIDE_REQUEST_LOGGING_SAMPLING_RATE", 0.05, type_cast=float)
-
 # Decide regular request analytics
 # Takes 3 possible formats, all separated by commas:
 # A number: "2"
@@ -303,7 +299,7 @@ SPECTACULAR_SETTINGS = {
     "ENUM_NAME_OVERRIDES": {
         "DashboardRestrictionLevel": "posthog.models.dashboard.Dashboard.RestrictionLevel",
         "OrganizationMembershipLevel": "posthog.models.organization.OrganizationMembership.Level",
-        "SurveyType": "posthog.models.feedback.survey.Survey.SurveyType",
+        "SurveyType": "posthog.models.surveys.survey.Survey.SurveyType",
     },
 }
 
@@ -422,3 +418,10 @@ REMOTE_CONFIG_CDN_PURGE_DOMAINS = get_list(os.getenv("REMOTE_CONFIG_CDN_PURGE_DO
 # Teams allowed to modify transformation code (comma-separated list of team IDs),
 # keep in sync with client-side feature flag HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED
 HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS = get_list(os.getenv("HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS", ""))
+CREATE_HOG_FUNCTION_FROM_PLUGIN_CONFIG = get_from_env("CREATE_HOG_FUNCTION_FROM_PLUGIN_CONFIG", False, type_cast=bool)
+
+# temporary setting to control if a cluster has person_properties_map_custom column optimization
+USE_PERSON_PROPERTIES_MAP_CUSTOM = get_from_env("USE_PERSON_PROPERTIES_MAP_CUSTOM", False, type_cast=bool)
+
+# Passed to the frontend for the web app to know where to connect to
+LIVESTREAM_HOST = get_from_env("LIVESTREAM_HOST", "")

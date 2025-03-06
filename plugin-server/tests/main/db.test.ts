@@ -2,7 +2,7 @@ import { DateTime } from 'luxon'
 import { Pool } from 'pg'
 
 import { defaultConfig } from '../../src/config/config'
-import { Hub, Person, PropertyOperator, PropertyUpdateOperation, RawAction, Team } from '../../src/types'
+import { BasePerson, Hub, Person, PropertyOperator, PropertyUpdateOperation, RawAction, Team } from '../../src/types'
 import { DB } from '../../src/utils/db/db'
 import { DependencyUnavailableError, RedisOperationError } from '../../src/utils/db/error'
 import { closeHub, createHub } from '../../src/utils/db/hub'
@@ -11,7 +11,6 @@ import { generateKafkaPersonUpdateMessage } from '../../src/utils/db/utils'
 import { RaceConditionError, UUIDT } from '../../src/utils/utils'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
 import { createOrganization, createTeam, getFirstTeam, insertRow, resetTestDatabase } from '../helpers/sql'
-import { plugin60 } from './../helpers/plugins'
 
 jest.mock('../../src/utils/status')
 
@@ -35,9 +34,10 @@ describe('DB', () => {
     })
 
     const TIMESTAMP = DateTime.fromISO('2000-10-14T11:42:06.502Z').toUTC()
+    const ISO_TIMESTAMP = TIMESTAMP.toISO()!
 
-    function runPGQuery(queryString: string, values: any[] = null) {
-        return db.postgres.query(PostgresUse.COMMON_WRITE, queryString, values, 'testQuery')
+    function runPGQuery(queryString: string) {
+        return db.postgres.query(PostgresUse.COMMON_WRITE, queryString, [], 'testQuery')
     }
 
     describe('fetchAllActionsGroupedByTeam() and fetchAction()', () => {
@@ -298,32 +298,33 @@ describe('DB', () => {
 
         test('without properties', async () => {
             const person = await db.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, false, uuid, [{ distinctId }])
-            const fetched_person = await fetchPersonByPersonId(team.id, person.id)
+            const fetched_person = (await fetchPersonByPersonId(team.id, person.id))! as unknown as BasePerson
 
-            expect(fetched_person!.is_identified).toEqual(false)
-            expect(fetched_person!.properties).toEqual({})
-            expect(fetched_person!.properties_last_operation).toEqual({})
-            expect(fetched_person!.properties_last_updated_at).toEqual({})
-            expect(fetched_person!.uuid).toEqual(uuid)
-            expect(fetched_person!.team_id).toEqual(team.id)
+            expect(fetched_person.is_identified).toEqual(false)
+            expect(fetched_person.properties).toEqual({})
+            expect(fetched_person.properties_last_operation).toEqual({})
+            expect(fetched_person.properties_last_updated_at).toEqual({})
+            expect(fetched_person.uuid).toEqual(uuid)
+            expect(fetched_person.team_id).toEqual(team.id)
         })
 
         test('without properties indentified true', async () => {
             const person = await db.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, true, uuid, [{ distinctId }])
-            const fetched_person = await fetchPersonByPersonId(team.id, person.id)
-            expect(fetched_person!.is_identified).toEqual(true)
-            expect(fetched_person!.properties).toEqual({})
-            expect(fetched_person!.properties_last_operation).toEqual({})
-            expect(fetched_person!.properties_last_updated_at).toEqual({})
-            expect(fetched_person!.uuid).toEqual(uuid)
-            expect(fetched_person!.team_id).toEqual(team.id)
+            const fetched_person = (await fetchPersonByPersonId(team.id, person.id))! as unknown as BasePerson
+
+            expect(fetched_person.is_identified).toEqual(true)
+            expect(fetched_person.properties).toEqual({})
+            expect(fetched_person.properties_last_operation).toEqual({})
+            expect(fetched_person.properties_last_updated_at).toEqual({})
+            expect(fetched_person.uuid).toEqual(uuid)
+            expect(fetched_person.team_id).toEqual(team.id)
         })
 
         test('with properties', async () => {
             const person = await db.createPerson(
                 TIMESTAMP,
                 { a: 123, b: false, c: 'bbb' },
-                { a: TIMESTAMP.toISO(), b: TIMESTAMP.toISO(), c: TIMESTAMP.toISO() },
+                { a: ISO_TIMESTAMP, b: ISO_TIMESTAMP, c: ISO_TIMESTAMP },
                 { a: PropertyUpdateOperation.Set, b: PropertyUpdateOperation.Set, c: PropertyUpdateOperation.SetOnce },
                 team.id,
                 null,
@@ -331,7 +332,9 @@ describe('DB', () => {
                 uuid,
                 [{ distinctId }]
             )
-            const fetched_person = await fetchPersonByPersonId(team.id, person.id)
+
+            const fetched_person = (await fetchPersonByPersonId(team.id, person.id))! as unknown as BasePerson
+
             expect(fetched_person!.is_identified).toEqual(false)
             expect(fetched_person!.properties).toEqual({ a: 123, b: false, c: 'bbb' })
             expect(fetched_person!.properties_last_operation).toEqual({
@@ -340,9 +343,9 @@ describe('DB', () => {
                 c: PropertyUpdateOperation.SetOnce,
             })
             expect(fetched_person!.properties_last_updated_at).toEqual({
-                a: TIMESTAMP.toISO(),
-                b: TIMESTAMP.toISO(),
-                c: TIMESTAMP.toISO(),
+                a: ISO_TIMESTAMP,
+                b: ISO_TIMESTAMP,
+                c: ISO_TIMESTAMP,
             })
             expect(fetched_person!.uuid).toEqual(uuid)
             expect(fetched_person!.team_id).toEqual(team.id)
@@ -509,7 +512,7 @@ describe('DB', () => {
                 'group_key',
                 { prop: 'val' },
                 TIMESTAMP,
-                { prop: TIMESTAMP.toISO() },
+                { prop: ISO_TIMESTAMP },
                 { prop: PropertyUpdateOperation.Set },
                 1
             )
@@ -526,7 +529,7 @@ describe('DB', () => {
                 'group_key',
                 { prop: 'val' },
                 TIMESTAMP,
-                { prop: TIMESTAMP.toISO()! },
+                { prop: ISO_TIMESTAMP },
                 { prop: PropertyUpdateOperation.Set },
                 1
             )
@@ -538,7 +541,7 @@ describe('DB', () => {
                 group_key: 'group_key',
                 group_properties: { prop: 'val' },
                 created_at: TIMESTAMP,
-                properties_last_updated_at: { prop: TIMESTAMP.toISO() },
+                properties_last_updated_at: { prop: ISO_TIMESTAMP },
                 properties_last_operation: { prop: PropertyUpdateOperation.Set },
                 version: 1,
             })
@@ -551,7 +554,7 @@ describe('DB', () => {
                 'group_key',
                 { prop: 'val' },
                 TIMESTAMP,
-                { prop: TIMESTAMP.toISO() },
+                { prop: ISO_TIMESTAMP },
                 { prop: PropertyUpdateOperation.Set },
                 1
             )
@@ -563,7 +566,7 @@ describe('DB', () => {
                     'group_key',
                     { prop: 'newval' },
                     TIMESTAMP,
-                    { prop: TIMESTAMP.toISO() },
+                    { prop: ISO_TIMESTAMP },
                     { prop: PropertyUpdateOperation.Set },
                     1
                 )
@@ -577,7 +580,7 @@ describe('DB', () => {
                 'group_key',
                 { prop: 'val' },
                 TIMESTAMP,
-                { prop: TIMESTAMP.toISO() },
+                { prop: ISO_TIMESTAMP },
                 { prop: PropertyUpdateOperation.Set },
                 1
             )
@@ -591,7 +594,7 @@ describe('DB', () => {
                 'group_key',
                 { prop: 'newVal', prop2: 2 },
                 TIMESTAMP,
-                { prop: timestamp2.toISO(), prop2: timestamp2.toISO() },
+                { prop: timestamp2.toISO()!, prop2: timestamp2.toISO()! },
                 { prop: PropertyUpdateOperation.Set, prop2: PropertyUpdateOperation.Set },
                 2
             )
@@ -607,44 +610,6 @@ describe('DB', () => {
                 properties_last_operation: { prop: PropertyUpdateOperation.Set, prop2: PropertyUpdateOperation.Set },
                 version: 2,
             })
-        })
-    })
-
-    describe('addOrUpdatePublicJob', () => {
-        it('updates the column if the job name is new', async () => {
-            await insertRow(db.postgres, 'posthog_plugin', { ...plugin60, id: 88 })
-
-            const jobName = 'newJob'
-            const jobPayload = { foo: 'string' }
-            await db.addOrUpdatePublicJob(88, jobName, jobPayload)
-            const publicJobs = (
-                await db.postgres.query(
-                    PostgresUse.COMMON_WRITE,
-                    'SELECT public_jobs FROM posthog_plugin WHERE id = $1',
-                    [88],
-                    'testPublicJob1'
-                )
-            ).rows[0].public_jobs
-
-            expect(publicJobs[jobName]).toEqual(jobPayload)
-        })
-
-        it('updates the column if the job payload is new', async () => {
-            await insertRow(db.postgres, 'posthog_plugin', { ...plugin60, id: 88, public_jobs: { foo: 'number' } })
-
-            const jobName = 'newJob'
-            const jobPayload = { foo: 'string' }
-            await db.addOrUpdatePublicJob(88, jobName, jobPayload)
-            const publicJobs = (
-                await db.postgres.query(
-                    PostgresUse.COMMON_WRITE,
-                    'SELECT public_jobs FROM posthog_plugin WHERE id = $1',
-                    [88],
-                    'testPublicJob1'
-                )
-            ).rows[0].public_jobs
-
-            expect(publicJobs[jobName]).toEqual(jobPayload)
         })
     })
 
@@ -681,8 +646,8 @@ describe('DB', () => {
 
     describe('updateCohortsAndFeatureFlagsForMerge()', () => {
         let team: Team
-        let sourcePersonID: Person['id']
-        let targetPersonID: Person['id']
+        let sourcePersonID: BasePerson['id']
+        let targetPersonID: BasePerson['id']
 
         async function getAllHashKeyOverrides(): Promise<any> {
             const result = await db.postgres.query(
@@ -1047,8 +1012,8 @@ describe('PostgresRouter()', () => {
             return Promise.reject(new Error(errorMessage))
         })
 
-        const router = new PostgresRouter(defaultConfig, null)
-        await expect(router.query(PostgresUse.COMMON_WRITE, 'SELECT 1;', null, 'testing')).rejects.toEqual(
+        const router = new PostgresRouter(defaultConfig)
+        await expect(router.query(PostgresUse.COMMON_WRITE, 'SELECT 1;', [], 'testing')).rejects.toEqual(
             new DependencyUnavailableError(errorMessage, 'Postgres', new Error(errorMessage))
         )
         pgQueryMock.mockRestore()

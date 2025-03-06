@@ -4,7 +4,7 @@ from django.utils import timezone
 from datetime import datetime
 
 from posthog.clickhouse.client.connection import Workload
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.models import Survey
 from posthog.models.utils import UUIDT
 

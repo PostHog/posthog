@@ -5,7 +5,7 @@ import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { NotFound } from 'lib/components/NotFound'
-import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
+import { IconArrowDown, IconArrowUp, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { identifierToHuman, isObject, pluralize } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import React, { useEffect, useRef, useState } from 'react'
@@ -29,6 +29,8 @@ import {
     formatLLMEventTitle,
     formatLLMLatency,
     formatLLMUsage,
+    getSessionID,
+    hasSessionID,
     isLLMTraceEvent,
     removeMilliseconds,
 } from './utils'
@@ -62,7 +64,7 @@ function TraceSceneWrapper(): JSX.Element {
             ) : !trace ? (
                 <NotFound object="trace" />
             ) : (
-                <div className="relative space-y-4 flex flex-col md:h-[calc(100vh_-_var(--breadcrumbs-height-full)_-_var(--scene-padding)_-_var(--scene-padding-bottom))] ">
+                <div className="relative deprecated-space-y-4 flex flex-col md:h-[calc(100vh_-_var(--breadcrumbs-height-full)_-_var(--scene-padding)_-_var(--scene-padding-bottom))] ">
                     <TraceMetadata
                         trace={trace}
                         metricEvents={metricEvents as LLMTraceEvent[]}
@@ -359,7 +361,7 @@ const EventContent = React.memo(({ event }: { event: LLMTrace | LLMTraceEvent | 
                 <InsightEmptyState heading="Event not found" detail="Check if the event ID is correct." />
             ) : (
                 <>
-                    <header className="space-y-2">
+                    <header className="deprecated-space-y-2">
                         <div className="flex-row flex items-center gap-2">
                             <EventTypeTag event={event} />
                             <h3 className="text-lg font-semibold p-0 m-0 truncate flex-1">
@@ -384,10 +386,22 @@ const EventContent = React.memo(({ event }: { event: LLMTrace | LLMTraceEvent | 
                             />
                         )}
                         {isLLMTraceEvent(event) && <ParametersHeader eventProperties={event.properties} />}
+                        {hasSessionID(event) && (
+                            <div className="flex flex-row items-center gap-2">
+                                <Link
+                                    to={urls.replay(undefined, undefined, getSessionID(event) ?? '')}
+                                    className="flex flex-row gap-1 items-center"
+                                >
+                                    <IconOpenInNew />
+                                    <span>View session recording</span>
+                                </Link>
+                            </div>
+                        )}
                     </header>
                     {isLLMTraceEvent(event) ? (
                         event.event === '$ai_generation' ? (
                             <ConversationMessagesDisplay
+                                tools={event.properties.$ai_tools}
                                 input={event.properties.$ai_input}
                                 output={
                                     event.properties.$ai_is_error

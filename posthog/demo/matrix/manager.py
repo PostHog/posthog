@@ -7,7 +7,7 @@ from django.conf import settings
 from django.core import exceptions
 from django.db import transaction, IntegrityError
 
-from posthog.client import query_with_columns, sync_execute
+from posthog.clickhouse.client import query_with_columns, sync_execute
 from posthog.demo.matrix.taxonomy_inference import infer_taxonomy_for_team
 from posthog.models import (
     Cohort,
