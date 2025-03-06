@@ -15,8 +15,8 @@ class TestGetCalendarSpec(unittest.TestCase):
         self.assertEqual(result.hour, expected.hour)
         self.assertEqual(result.minute, expected.minute)
 
-    def test_basic_daily_schedule_at_12_am(self):
-        # Test with daily schedule at 12:00, expect 4 executions per day
+    def test_every_6_hours_at_12_am(self):
+        # Test with 6 hour frequency staring at 12:00, expect 4 executions per day
         result = get_calendar_spec(0, 0, timedelta(hours=6))
         expected = ScheduleCalendarSpec(
             hour=[ScheduleRange(start=0, end=18, step=6)], minute=[ScheduleRange(start=0, end=0, step=1)]
