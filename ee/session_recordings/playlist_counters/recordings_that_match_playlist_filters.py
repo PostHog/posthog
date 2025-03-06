@@ -294,6 +294,11 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
         )
         REPLAY_TEAM_PLAYLIST_COUNT_UNKNOWN.inc()
     except Exception as e:
+        try:
+            query_json = query.model_dump_json() if query else None
+        except Exception:
+            query_json = {"malformed": True}
+
         posthoganalytics.capture_exception(
             e,
             properties={
@@ -301,7 +306,7 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
                 "playlist_short_id": playlist.short_id if playlist else None,
                 "posthog_feature": "session_replay_playlist_counters",
                 "filters": playlist.filters if playlist else None,
-                "query": query.model_dump_json() if query else None,
+                "query": query_json,
             },
         )
         logger.exception(
@@ -309,7 +314,7 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
             playlist_id=playlist_id,
             playlist_short_id=playlist.short_id if playlist else None,
             filters=playlist.filters if playlist else None,
-            query=query.model_dump_json() if query else None,
+            query=query_json,
             error=e,
         )
         REPLAY_TEAM_PLAYLIST_COUNT_FAILED.labels(error=e.__class__.__name__).inc()
