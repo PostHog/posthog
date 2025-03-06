@@ -1,8 +1,25 @@
-.PHONY: all test lint build clean
+.PHONY: all test lint build clean download
 
 all: build
 
-test:
+download-%:
+	@if [ -d services/$* ]; then \
+		echo "Downloading dependencies for services/$*..."; \
+		cd services/$* && go mod download && go mod tidy; \
+	else \
+		echo "Service $* not found"; \
+		exit 1; \
+	fi
+
+download:
+	@for dir in services/*; do \
+		if [ -d $$dir ]; then \
+			echo "Downloading dependencies for $$dir..."; \
+			(cd $$dir && go mod download && go mod tidy); \
+		fi \
+	done
+
+test: download
 	@for dir in services/*; do \
 		if [ -d $$dir ]; then \
 			echo "Testing $$dir..."; \
@@ -10,7 +27,7 @@ test:
 		fi \
 	done
 
-lint:
+lint: download
 	@for dir in services/*; do \
 		if [ -d $$dir ]; then \
 			echo "Linting $$dir..."; \
@@ -43,9 +60,18 @@ build-%:
 		exit 1; \
 	fi
 
-test-%:
+test-%: download-%
 	@if [ -d services/$* ]; then \
 		cd services/$* && go test ./...; \
+	else \
+		echo "Service $* not found"; \
+		exit 1; \
+	fi
+
+lint-%: download-%
+	@if [ -d services/$* ]; then \
+		echo "Linting services/$*..."; \
+		cd services/$* && $(HOME)/go/bin/golangci-lint run ./...; \
 	else \
 		echo "Service $* not found"; \
 		exit 1; \

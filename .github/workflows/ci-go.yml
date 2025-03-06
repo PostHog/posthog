@@ -31,10 +31,14 @@ jobs:
                         - '*Dockerfile*'
 
     lint:
-        name: Lint
+        name: Lint ${{ matrix.service }}
         needs: changes
         if: needs.changes.outputs.go-services == 'true'
         runs-on: depot-ubuntu-24.04-4
+        strategy:
+            matrix:
+                service: [capture, livestream]
+            fail-fast: false
         steps:
             - uses: actions/checkout@v3
 
@@ -47,15 +51,23 @@ jobs:
             - name: Install golangci-lint
               run: curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.55.2
 
+            - name: Download dependencies
+              working-directory: go
+              run: make download-${{ matrix.service }}
+
             - name: Run linter
               working-directory: go
-              run: make lint
+              run: make lint-${{ matrix.service }}
 
     test:
-        name: Test
+        name: Test ${{ matrix.service }}
         needs: changes
         if: needs.changes.outputs.go-services == 'true'
         runs-on: depot-ubuntu-24.04-4
+        strategy:
+            matrix:
+                service: [capture, livestream]
+            fail-fast: false
         steps:
             - uses: actions/checkout@v3
 
@@ -64,16 +76,24 @@ jobs:
               with:
                   go-version: '1.21'
                   cache: true
+
+            - name: Download dependencies
+              working-directory: go
+              run: make download-${{ matrix.service }}
 
             - name: Run tests
               working-directory: go
-              run: make test
+              run: make test-${{ matrix.service }}
 
     build:
-        name: Build
+        name: Build ${{ matrix.service }}
         needs: changes
         if: needs.changes.outputs.go-services == 'true'
         runs-on: depot-ubuntu-24.04-4
+        strategy:
+            matrix:
+                service: [capture, livestream]
+            fail-fast: false
         steps:
             - uses: actions/checkout@v3
 
@@ -83,13 +103,17 @@ jobs:
                   go-version: '1.21'
                   cache: true
 
-            - name: Build all services
+            - name: Download dependencies
               working-directory: go
-              run: make build
+              run: make download-${{ matrix.service }}
+
+            - name: Build service
+              working-directory: go
+              run: make build-${{ matrix.service }}
 
             - name: Upload build artifacts
               uses: actions/upload-artifact@v4
               with:
-                  name: go-binaries
-                  path: go/bin/
+                  name: go-${{ matrix.service }}-binary
+                  path: go/bin/${{ matrix.service }}
                   if-no-files-found: error
