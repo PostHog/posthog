@@ -156,7 +156,6 @@ pub async fn update_producer_loop(
             }
         };
 
-
         // TODO(eli): librdkafka auto_commit is probably making this a no-op anyway. we may want to
         // extend the autocommit time interval either way to ensure we replay consumed messages that
         // could be part of a lost batch or chunk during a redeploy. stay tuned...
