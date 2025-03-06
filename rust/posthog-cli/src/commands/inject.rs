@@ -11,21 +11,6 @@ pub struct Source {
 
 impl Source {
     pub fn get_sourcemap_path(&self) -> Option<PathBuf> {
-        // Try to resolve the sourcemap path from the sources
-        let content_lines: Vec<&str> = self.content.lines().rev().collect();
-        for line in content_lines {
-            if line.contains("//# sourceMappingURL") {
-                let sourcemap_path =
-                    PathBuf::from(line.split("//# sourceMappingURL=").last().unwrap());
-                let dirpath = self.path.parent().unwrap().to_path_buf();
-                let sourcemap_path = dirpath.join(sourcemap_path);
-                let sourcemap_path = sourcemap_path.canonicalize().ok()?;
-                if sourcemap_path.exists() {
-                    return Some(sourcemap_path);
-                }
-            }
-        }
-
         // Try to resolve the sourcemap by adding .map to the path
         let mut path = self.path.clone();
         path.push(".map");
@@ -37,8 +22,8 @@ impl Source {
     }
 
     pub fn add_chunk_id(&mut self, chunk_id: String) {
-        self.append(format!(r#"//# debugId={}\n"#, chunk_id));
         self.prepend(format!(r#"!function(){{try{{var e="undefined"!=typeof window?window:"undefined"!=typeof global?global:"undefined"!=typeof self?self:{{}},n=(new e.Error).stack;n&&(e._posthogChunkIds=e._posthogChunkIds||{{}},e._posthogChunkIds[n]="{}")}}catch(e){{}}}}();"#, chunk_id));
+        self.append(format!(r#"//# debugId={}\n"#, chunk_id));
     }
 
     pub fn read(path: &PathBuf) -> Result<Source> {
