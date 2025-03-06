@@ -281,7 +281,7 @@ def upload_symbol_set(minified: UploadedFile, source_map: UploadedFile) -> tuple
     return upload_content(js_data)
 
 
-def upload_content(content: UploadedFile) -> tuple[str, str]:
+def upload_content(content: bytearray) -> tuple[str, str]:
     content_hash = hashlib.sha512(content).hexdigest()
 
     try:
