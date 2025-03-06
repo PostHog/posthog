@@ -113,6 +113,7 @@ export type SettingId =
     | 'persons-join-mode'
     | 'bounce-rate-page-view-mode'
     | 'bounce-rate-duration'
+    | 'revenue-base-currency'
     | 'session-table-version'
     | 'web-vitals-autocapture'
     | 'dead-clicks-autocapture'

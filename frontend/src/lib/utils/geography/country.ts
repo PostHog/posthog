@@ -1,4 +1,4 @@
-const letterToRegionalIndicator: Record<string, string> = {
+const LETTER_TO_REGIONAL_INDICATOR_EMOJI: Record<string, string> = {
     A: '🇦',
     B: '🇧',
     C: '🇨',
@@ -34,19 +34,11 @@ const letterToRegionalIndicator: Record<string, string> = {
  * See: https://en.wikipedia.org/wiki/Regional_indicator_symbol
  */
 export function countryCodeToFlag(countryCode: string): string {
-    if (!countryCode) {
+    if (!countryCode || !countryCode.length || countryCode.length !== 2) {
         return ''
     }
 
-    if (!countryCode.length) {
-        return ''
-    }
-
-    if (countryCode.length !== 2) {
-        return ''
-    }
-
-    return `${letterToRegionalIndicator[countryCode[0]]}${letterToRegionalIndicator[countryCode[1]]}`
+    return `${LETTER_TO_REGIONAL_INDICATOR_EMOJI[countryCode[0]]}${LETTER_TO_REGIONAL_INDICATOR_EMOJI[countryCode[1]]}`
 }
 
 /**
@@ -56,13 +48,13 @@ export function countryCodeToFlag(countryCode: string): string {
  * one country - such as the Netherlands.
  *
  * For most cases we can simply uppercase the language and that's the country code,
- * but there are some exceptions listed inside `languageCodeToEmojiFlag`
+ * but there are some exceptions listed inside `LANGUAGE_CODE_TO_EMOJI_FLAG`
  */
 export function languageCodeToFlag(languageCode: string): string {
-    return languageCodeToEmojiFlag[languageCode] ?? countryCodeToFlag(languageCode.toLocaleUpperCase())
+    return LANGUAGE_CODE_TO_EMOJI_FLAG[languageCode] ?? countryCodeToFlag(languageCode.toLocaleUpperCase())
 }
 
-export const countryCodeToName: Record<string, string> = {
+export const COUNTRY_CODE_TO_LONG_NAME: Record<string, string> = {
     AE: 'United Arab Emirates',
     AF: 'Afghanistan',
     AG: 'Antigua and Barbuda',
@@ -315,7 +307,7 @@ export const countryCodeToName: Record<string, string> = {
     YT: 'Mayotte',
 }
 
-export const languageCodeToName: Record<string, string> = {
+export const LANGUAGE_CODE_TO_NAME: Record<string, string> = {
     // Base ones came from https://en.wikipedia.org/wiki/List_of_ISO_639_language_codes
     // Code used to generate the list: Object.fromEntries([...window.Table[1].children[1].children].map(row => [row.children[1].textContent, row.children[0].textContent]))
     ab: 'Abkhazian',
@@ -517,7 +509,7 @@ export const languageCodeToName: Record<string, string> = {
 // This is only used as a fallback for some languages that don't usually
 // come in the locale-country format (such as nl-NL usually being presented simply as nl)
 // but that can't simply be translated to a flag by capitalizing the locale
-const languageCodeToEmojiFlag: Record<string, string> = {
+const LANGUAGE_CODE_TO_EMOJI_FLAG: Record<string, string> = {
     ar: '🇪🇬', // Arabic -> Egypt, tricky, there's no good representation for the "default Arab country", the Egyptian variant is the most commonly understood
     af: '🇿🇦', // Afrikaans -> South Africa
     ta: '🇮🇳', // Tamil -> India

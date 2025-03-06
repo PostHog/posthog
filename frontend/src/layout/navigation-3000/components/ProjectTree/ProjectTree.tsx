@@ -42,6 +42,7 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
         setHelpNoticeVisibility,
         applyPendingActions,
         cancelPendingActions,
+        loadFolder,
     } = useActions(projectTreeLogic)
     const containerRef = useRef<HTMLDivElement | null>(null)
 
@@ -118,6 +119,12 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                         onNodeClick={(node) => {
                             if (node?.record?.path) {
                                 setLastViewedId(node?.id || '')
+                            }
+                            if (node?.id.startsWith('project-load-more/')) {
+                                const path = node.id.split('/').slice(1).join('/')
+                                if (path) {
+                                    loadFolder(path)
+                                }
                             }
                         }}
                         onFolderClick={(folder, isExpanded) => {
