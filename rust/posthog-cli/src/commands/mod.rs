@@ -4,6 +4,7 @@ pub mod upload;
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
+use tracing::info;
 
 use crate::error::CapturedError;
 
@@ -67,7 +68,9 @@ impl Cli {
                     directory: dir,
                     output: _,
                 } => {
-                    inject::process_directory(dir)?;
+                    inject::process_directory(dir)
+                        .map_err(|e| e.context("Failed to inject sourcemaps"))?;
+                    info!("Successfully injected sourcemaps");
                 }
                 SourcemapCommand::Upload {
                     directory: _,

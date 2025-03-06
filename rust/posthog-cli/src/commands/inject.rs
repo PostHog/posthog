@@ -1,7 +1,8 @@
-use anyhow::{anyhow, Ok, Result};
+use anyhow::{anyhow, bail, Error, Ok, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{collections::HashMap, path::PathBuf};
+use tracing::info;
 use uuid;
 
 pub struct Source {
@@ -10,20 +11,16 @@ pub struct Source {
 }
 
 impl Source {
-    pub fn get_sourcemap_path(&self) -> Option<PathBuf> {
+    pub fn get_sourcemap_path(&self) -> PathBuf {
         // Try to resolve the sourcemap by adding .map to the path
         let mut path = self.path.clone();
         path.push(".map");
-        if path.exists() {
-            Some(path)
-        } else {
-            None
-        }
+        path
     }
 
     pub fn add_chunk_id(&mut self, chunk_id: String) {
         self.prepend(format!(r#"!function(){{try{{var e="undefined"!=typeof window?window:"undefined"!=typeof global?global:"undefined"!=typeof self?self:{{}},n=(new e.Error).stack;n&&(e._posthogChunkIds=e._posthogChunkIds||{{}},e._posthogChunkIds[n]="{}")}}catch(e){{}}}}();"#, chunk_id));
-        self.append(format!(r#"//# debugId={}\n"#, chunk_id));
+        self.append(format!(r#"//# chunkId={}\n"#, chunk_id));
     }
 
     pub fn read(path: &PathBuf) -> Result<Source> {
@@ -106,14 +103,14 @@ impl SourcePair {
 pub fn process_directory(directory: &PathBuf) -> Result<()> {
     // Resolve directory path
     let directory = directory.canonicalize()?;
-    println!("Processing directory: {}", directory.display());
+    info!("Processing directory: {}", directory.display());
     let mut pairs = read_pairs(&directory)?;
     if pairs.is_empty() {
         return Err(anyhow!("No source files found"));
     }
     let borrowed_pairs = &mut pairs;
     for pair in borrowed_pairs {
-        let chunk_id = uuid::Uuid::new_v4().to_string();
+        let chunk_id = uuid::Uuid::now_v7().to_string();
         pair.add_chunk_id(chunk_id)?;
     }
 
@@ -135,13 +132,18 @@ fn read_pairs(directory: &PathBuf) -> Result<Vec<SourcePair>> {
     for entry in std::fs::read_dir(directory)? {
         let entry_path = entry?.path().canonicalize()?;
         if is_javascript_file(&entry_path) {
-            let source = Source::read(&entry_path)
-                .expect(format!("Failed to read source file: {}", entry_path.display()).as_str());
+            let source = Source::read(&entry_path).map_err(|_| {
+                Error::msg(format!(
+                    "Failed to read source file: {}",
+                    entry_path.display()
+                ))
+            })?;
             let sourcemap_path = source.get_sourcemap_path();
-            println!("Processing sourcemap file: {:?}", sourcemap_path);
-            if sourcemap_path.is_some() && sourcemap_path.as_ref().unwrap().exists() {
-                let sourcemap = SourceMap::read(&sourcemap_path.unwrap())?;
+            if sourcemap_path.exists() {
+                let sourcemap = SourceMap::read(&sourcemap_path)?;
                 pairs.push(SourcePair { source, sourcemap });
+            } else {
+                bail!("No sourcemap file found for file {}", entry_path.display());
             }
         }
     }
