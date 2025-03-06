@@ -80,10 +80,6 @@ impl AppContext {
                         // If we hit a constraint violation, we just skip the update. We see
                         // this in production for group-type-indexes not being resolved, and it's
                         // not worth aborting the whole batch for.
-                        //
-                        // NOTE(eli): we are also seeing this for missing team_id against the posthog_team
-                        // table. TODO: investigate further the same teams show up in the logs a lot.
-                        // https://grafana.prod-us.posthog.dev/a/grafana-lokiexplore-app/explore/service/property-defs-rs/logs?patterns=%5B%5D&from=now-24h&to=now&var-ds=P8E80F9AEF21F6940&var-filters=job%7C%3D%7Cposthog%2Fproperty-defs-rs&var-filters=service_name%7C%3D%7Cproperty-defs-rs&var-fields=&var-levels=&var-metadata=&var-patterns=&var-lineFilterV2=&timezone=browser&var-all-fields=&urlColumns=%5B%5D&visualizationType=%22logs%22&displayedFields=%5B%5D&sortOrder=%22Descending%22&wrapLogMessage=false&var-lineFilters=caseInsensitive,0%7C__gfp__%3D%7CPgDatabaseError
                         metrics::counter!(UPDATES_SKIPPED, &[("reason", "constraint_violation")])
                             .increment(1);
                         warn!("Failed to issue update: {:?}", e);
