@@ -1,6 +1,10 @@
 pub mod auth;
+pub mod inject;
 pub mod upload;
+use std::path::PathBuf;
+
 use clap::{Parser, Subcommand};
+use tracing::info;
 
 use crate::error::CapturedError;
 
@@ -33,7 +37,7 @@ pub enum SourcemapCommand {
     Inject {
         /// The directory containing the bundled chunks
         #[arg(short, long)]
-        directory: String,
+        directory: PathBuf,
 
         /// Where to write the injected chunks. If not provided, the original files will be overwritten
         #[arg(short, long)]
@@ -61,9 +65,13 @@ impl Cli {
             }
             Commands::Sourcemap { cmd } => match cmd {
                 SourcemapCommand::Inject {
-                    directory: _,
+                    directory: dir,
                     output: _,
-                } => return Ok(()),
+                } => {
+                    inject::process_directory(dir)
+                        .map_err(|e| e.context("Failed to inject sourcemaps"))?;
+                    info!("Successfully injected sourcemaps");
+                }
                 SourcemapCommand::Upload {
                     directory: _,
                     build: _,
