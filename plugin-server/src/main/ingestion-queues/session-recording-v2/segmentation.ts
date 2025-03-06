@@ -91,7 +91,8 @@ const createSegments = (snapshots: RRWebEvent[]): RecordingSegment[] => {
  * call the same createSegments function as the front-end
  */
 export const activeMilliseconds = (snapshots: RRWebEvent[]): number => {
-    const segments = createSegments(snapshots)
+    const sortedSnapshots = [...snapshots].sort((a, b) => a.timestamp - b.timestamp)
+    const segments = createSegments(sortedSnapshots)
     return segments.reduce((acc, segment) => {
         if (segment.isActive) {
             // if the segment is active but has no duration we count it as 1ms
