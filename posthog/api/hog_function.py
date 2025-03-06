@@ -2,7 +2,7 @@ import json
 from typing import Optional, cast
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
-from django_filters import BaseInFilter, CharFilter, FilterSet, BooleanFilter
+from django_filters import BaseInFilter, CharFilter, FilterSet
 from django.db.models import QuerySet
 from loginas.utils import is_impersonated_session
 from django.db import transaction
