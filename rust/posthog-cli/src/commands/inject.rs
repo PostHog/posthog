@@ -23,7 +23,7 @@ impl Source {
 
     pub fn add_chunk_id(&mut self, chunk_id: String) {
         self.prepend(format!(r#"!function(){{try{{var e="undefined"!=typeof window?window:"undefined"!=typeof global?global:"undefined"!=typeof self?self:{{}},n=(new e.Error).stack;n&&(e._posthogChunkIds=e._posthogChunkIds||{{}},e._posthogChunkIds[n]="{}")}}catch(e){{}}}}();"#, chunk_id));
-        self.append(format!(r#"//# debugId={}\n"#, chunk_id));
+        self.append(format!(r#"//# chunkId={}\n"#, chunk_id));
     }
 
     pub fn read(path: &PathBuf) -> Result<Source> {
