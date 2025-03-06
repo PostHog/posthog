@@ -35,6 +35,7 @@ import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
 import { OtherIntegrations } from './environment/OtherIntegrations'
 import { PathCleaningFiltersConfig } from './environment/PathCleaningFiltersConfig'
 import { PersonDisplayNameProperties } from './environment/PersonDisplayNameProperties'
+import { RevenueBaseCurrencySettings } from './environment/RevenueBaseCurrencySettings'
 import { SessionRecordingIngestionSettings } from './environment/SessionRecordingIngestionSettings'
 import {
     NetworkCaptureSettings,
@@ -238,6 +239,12 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'channel-type',
                 title: 'Custom channel type',
                 component: <CustomChannelTypes />,
+            },
+            {
+                id: 'revenue-base-currency',
+                title: 'Revenue base currency',
+                component: <RevenueBaseCurrencySettings />,
+                flag: 'WEB_REVENUE_TRACKING',
             },
             {
                 id: 'cookieless-server-hash-mode',

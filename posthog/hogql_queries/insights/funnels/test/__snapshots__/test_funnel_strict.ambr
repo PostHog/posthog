@@ -87,6 +87,7 @@
   GROUP BY final_prop
   LIMIT 26 SETTINGS readonly=2,
                     max_execution_time=60,
+                    max_memory_usage=45000000000,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
@@ -190,6 +191,7 @@
   GROUP BY final_prop
   LIMIT 26 SETTINGS readonly=2,
                     max_execution_time=60,
+                    max_memory_usage=45000000000,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
@@ -286,6 +288,7 @@
   GROUP BY final_prop
   LIMIT 26 SETTINGS readonly=2,
                     max_execution_time=60,
+                    max_memory_usage=45000000000,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
@@ -401,6 +404,7 @@
   GROUP BY final_prop
   LIMIT 26 SETTINGS readonly=2,
                     max_execution_time=60,
+                    max_memory_usage=45000000000,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
@@ -516,6 +520,7 @@
   GROUP BY final_prop
   LIMIT 26 SETTINGS readonly=2,
                     max_execution_time=60,
+                    max_memory_usage=45000000000,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
@@ -638,6 +643,7 @@
   GROUP BY final_prop
   LIMIT 26 SETTINGS readonly=2,
                     max_execution_time=60,
+                    max_memory_usage=45000000000,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
@@ -753,6 +759,7 @@
                     join_algorithm='auto',
                     readonly=2,
                     max_execution_time=60,
+                    max_memory_usage=45000000000,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
@@ -868,6 +875,7 @@
                     join_algorithm='auto',
                     readonly=2,
                     max_execution_time=60,
+                    max_memory_usage=45000000000,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
@@ -983,6 +991,7 @@
                     join_algorithm='auto',
                     readonly=2,
                     max_execution_time=60,
+                    max_memory_usage=45000000000,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
@@ -1098,6 +1107,7 @@
                     join_algorithm='auto',
                     readonly=2,
                     max_execution_time=60,
+                    max_memory_usage=45000000000,
                     allow_experimental_object_type=1,
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
