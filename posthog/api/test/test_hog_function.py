@@ -1133,7 +1133,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert len(response.json()["results"]) == 1
         assert response.json()["results"][0]["id"] == transformation_id
 
-        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?types=destination,transformation")
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?type=destination,transformation")
         assert len(response.json()["results"]) == 2
 
     def test_create_hog_function_with_site_app_type(self):
