@@ -459,4 +459,113 @@ describe('SnappySessionRecorder', () => {
             expect(result.urls).toEqual(['https://example1.com', 'https://example2.com', 'https://example3.com'])
         })
     })
+
+    describe('Click counting', () => {
+        it('should count single click events', async () => {
+            const events = [
+                {
+                    type: EventType.IncrementalSnapshot,
+                    timestamp: 1000,
+                    data: { source: 2, type: 2 }, // MouseInteraction, Click
+                },
+            ]
+            const message = createMessage('window1', events)
+
+            recorder.recordMessage(message)
+            const result = await recorder.end()
+
+            expect(result.clickCount).toBe(1)
+        })
+
+        it('should count multiple click events in a single message', async () => {
+            const events = [
+                {
+                    type: EventType.IncrementalSnapshot,
+                    timestamp: 1000,
+                    data: { source: 2, type: 2 }, // MouseInteraction, Click
+                },
+                {
+                    type: EventType.IncrementalSnapshot,
+                    timestamp: 1500,
+                    data: { source: 2, type: 4 }, // MouseInteraction, DblClick
+                },
+            ]
+            const message = createMessage('window1', events)
+
+            recorder.recordMessage(message)
+            const result = await recorder.end()
+
+            expect(result.clickCount).toBe(2)
+        })
+
+        it('should count click events across multiple messages', async () => {
+            const message1 = createMessage('window1', [
+                {
+                    type: EventType.IncrementalSnapshot,
+                    timestamp: 1000,
+                    data: { source: 2, type: 2 }, // MouseInteraction, Click
+                },
+            ])
+            const message2 = createMessage('window2', [
+                {
+                    type: EventType.IncrementalSnapshot,
+                    timestamp: 2000,
+                    data: { source: 2, type: 3 }, // MouseInteraction, ContextMenu
+                },
+            ])
+
+            recorder.recordMessage(message1)
+            recorder.recordMessage(message2)
+            const result = await recorder.end()
+
+            expect(result.clickCount).toBe(2)
+        })
+
+        it('should not count non-click events', async () => {
+            const events = [
+                {
+                    type: EventType.IncrementalSnapshot,
+                    timestamp: 1000,
+                    data: { source: 2, type: 0 }, // MouseInteraction, MouseUp
+                },
+                {
+                    type: EventType.IncrementalSnapshot,
+                    timestamp: 1500,
+                    data: { source: 2, type: 1 }, // MouseInteraction, MouseDown
+                },
+            ]
+            const message = createMessage('window1', events)
+
+            recorder.recordMessage(message)
+            const result = await recorder.end()
+
+            expect(result.clickCount).toBe(0)
+        })
+
+        it('should handle mixed click and non-click events', async () => {
+            const events = [
+                {
+                    type: EventType.IncrementalSnapshot,
+                    timestamp: 1000,
+                    data: { source: 2, type: 2 }, // MouseInteraction, Click
+                },
+                {
+                    type: EventType.IncrementalSnapshot,
+                    timestamp: 1500,
+                    data: { source: 2, type: 0 }, // MouseInteraction, MouseUp
+                },
+                {
+                    type: EventType.IncrementalSnapshot,
+                    timestamp: 2000,
+                    data: { source: 2, type: 4 }, // MouseInteraction, DblClick
+                },
+            ]
+            const message = createMessage('window1', events)
+
+            recorder.recordMessage(message)
+            const result = await recorder.end()
+
+            expect(result.clickCount).toBe(2)
+        })
+    })
 })

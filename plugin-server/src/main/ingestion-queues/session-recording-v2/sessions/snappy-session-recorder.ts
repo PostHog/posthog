@@ -4,6 +4,7 @@ import snappy from 'snappy'
 import { RRWebEvent } from '~/src/types'
 
 import { ParsedMessageData } from '../kafka/types'
+import { MouseInteractions, RRWebEventSource, RRWebEventType } from '../rrweb-types'
 
 export interface EndResult {
     /** The complete compressed session block */
@@ -75,6 +76,7 @@ export class SnappySessionRecorder {
     private _distinctId: string | null = null
     private urls: Set<string> = new Set()
     private firstUrl: string | null = null
+    private clickCount: number = 0
 
     constructor(public readonly sessionId: string, public readonly teamId: number) {}
 
@@ -111,13 +113,16 @@ export class SnappySessionRecorder {
 
         Object.entries(message.eventsByWindowId).forEach(([windowId, events]) => {
             events.forEach((event) => {
-                // Extract URL from event using the same logic as in process-event.ts
                 const eventUrl = this.hrefFrom(event)
                 if (eventUrl) {
                     this.urls.add(eventUrl)
                     if (this.firstUrl === null) {
                         this.firstUrl = eventUrl
                     }
+                }
+
+                if (this.isClick(event)) {
+                    this.clickCount += 1
                 }
 
                 const serializedLine = JSON.stringify([windowId, event]) + '\n'
@@ -174,7 +179,7 @@ export class SnappySessionRecorder {
             endDateTime: this.endDateTime ?? DateTime.fromMillis(0),
             firstUrl: this.firstUrl,
             urls: Array.from(this.urls),
-            clickCount: 0,
+            clickCount: this.clickCount,
             keypressCount: 0,
             mouseActivityCount: 0,
             activeMilliseconds: 0,
@@ -186,5 +191,18 @@ export class SnappySessionRecorder {
             snapshotSource: null,
             snapshotLibrary: null,
         }
+    }
+
+    private isClick(event: RRWebEvent): boolean {
+        return (
+            event.type === RRWebEventType.IncrementalSnapshot &&
+            event.data?.source === RRWebEventSource.MouseInteraction &&
+            [
+                MouseInteractions.Click,
+                MouseInteractions.DblClick,
+                MouseInteractions.TouchEnd,
+                MouseInteractions.ContextMenu, // right click
+            ].includes(event.data?.type || -1)
+        )
     }
 }
