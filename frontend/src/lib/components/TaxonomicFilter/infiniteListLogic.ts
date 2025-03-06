@@ -28,17 +28,6 @@ import type { infiniteListLogicType } from './infiniteListLogicType'
  */
 export const NO_ITEM_SELECTED = -1
 
-function appendAtIndex<T>(array: T[], items: any[], startIndex?: number): T[] {
-    if (startIndex === undefined) {
-        return [...array, ...items]
-    }
-    const arrayCopy = [...array]
-    items.forEach((item, i) => {
-        arrayCopy[startIndex + i] = item
-    })
-    return arrayCopy
-}
-
 const createEmptyListStorage = (searchQuery = '', first = false): ListStorage => ({
     results: [],
     searchQuery,
@@ -93,6 +82,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         updateRemoteItem: (item: TaxonomicDefinitionTypes) => ({ item }),
         expand: true,
         abortAnyRunningQuery: true,
+        loadMore: true,
     }),
     loaders(({ actions, values, cache, props }) => ({
         remoteItems: [
@@ -103,8 +93,6 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     if (!values.remoteItems.first) {
                         await breakpoint(500)
                     } else {
-                        // These connected values below might be read before they are available due to circular logic mounting.
-                        // Adding a slight delay (breakpoint) fixes this.
                         await breakpoint(1)
                     }
 
@@ -119,7 +107,6 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     } = values
 
                     if (!remoteEndpoint) {
-                        // should not have been here in the first place!
                         return createEmptyListStorage(searchQuery)
                     }
 
@@ -129,29 +116,16 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                         offset,
                         excluded_properties: JSON.stringify(excludedProperties),
                         properties: propertyAllowList ? propertyAllowList.join(',') : undefined,
-                        // TODO: remove this filter once we can support behavioral cohorts for feature flags, it's only
-                        // used in the feature flag property filter UI
                         ...(props.hideBehavioralCohorts ? { hide_behavioral_cohorts: 'true' } : {}),
                     }
 
                     const start = performance.now()
                     actions.abortAnyRunningQuery()
 
-                    const [response, expandedCountResponse] = await Promise.all([
-                        // get the list of results
-                        fetchCachedListResponse(
-                            scopedRemoteEndpoint && !isExpanded ? scopedRemoteEndpoint : remoteEndpoint,
-                            searchParams
-                        ),
-                        // if this is an unexpanded scoped list, get the count for the full list
-                        scopedRemoteEndpoint && !isExpanded
-                            ? fetchCachedListResponse(remoteEndpoint, {
-                                  ...searchParams,
-                                  limit: 1,
-                                  offset: 0,
-                              })
-                            : null,
-                    ])
+                    const response = await fetchCachedListResponse(
+                        scopedRemoteEndpoint && !isExpanded ? scopedRemoteEndpoint : remoteEndpoint,
+                        searchParams
+                    )
                     breakpoint()
 
                     const queryChanged = values.remoteItems.searchQuery !== values.searchQuery
@@ -167,19 +141,18 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     })
                     cache.abortController = null
 
+                    const results = queryChanged
+                        ? response.results
+                        : [...(offset === 0 ? [] : values.remoteItems.results), ...response.results]
+
                     return {
-                        results: appendAtIndex(
-                            queryChanged ? [] : values.remoteItems.results,
-                            response.results || response,
-                            offset
-                        ),
+                        results,
                         searchQuery: values.searchQuery,
                         queryChanged,
-                        count:
-                            response.count ||
-                            (Array.isArray(response) ? response.length : 0) ||
-                            (response.results || []).length,
-                        expandedCount: expandedCountResponse?.count,
+                        count: response.count,
+                        total_count: response.total_count,
+                        has_more: response.has_more,
+                        expandedCount: response.expandedCount,
                     }
                 },
                 updateRemoteItem: ({ item }) => {
@@ -216,6 +189,20 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         startIndex: [0, { onRowsRendered: (_, { rowInfo: { startIndex } }) => startIndex }],
         stopIndex: [0, { onRowsRendered: (_, { rowInfo: { stopIndex } }) => stopIndex }],
         isExpanded: [false, { expand: () => true }],
+        totalCount: [
+            0,
+            {
+                loadRemoteItemsSuccess: (_, { remoteItems }) => remoteItems.total_count || remoteItems.count || 0,
+            },
+        ],
+        hasMore: [
+            true,
+            {
+                loadRemoteItemsSuccess: (_, { remoteItems }) =>
+                    remoteItems.has_more ||
+                    (remoteItems.results.length > 0 && remoteItems.total_count > remoteItems.results.length),
+            },
+        ],
     })),
     selectors({
         listGroupType: [() => [(_, props) => props.listGroupType], (listGroupType) => listGroupType],
@@ -343,7 +330,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 }
             },
         ],
-        totalResultCount: [(s) => [s.items], (items) => items.count || 0],
+        totalResultCount: [(s) => [s.totalCount], (totalCount) => totalCount],
         totalExtraCount: [
             (s) => [s.isExpandable, s.hasRenderFunction],
             (isExpandable, hasRenderFunction) => (isExpandable ? 1 : 0) + (hasRenderFunction ? 1 : 0),
@@ -409,7 +396,12 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             actions.infiniteListResultsReceived(props.listGroupType, remoteItems)
         },
         expand: () => {
-            actions.loadRemoteItems({ offset: values.index, limit: values.limit })
+            if (values.hasMore && !values.isLoading) {
+                actions.loadRemoteItems({
+                    offset: values.results.length,
+                    limit: values.limit,
+                })
+            }
         },
         abortAnyRunningQuery: () => {
             if (cache.abortController) {

@@ -54,7 +54,7 @@ function CategoryPill({
                     {showLoading ? (
                         <Spinner className="text-sm inline-block ml-1" textColored speed="0.8s" />
                     ) : (
-                        results?.length || totalResultCount || 0
+                        totalResultCount || 0
                     )}
                 </>
             )}
