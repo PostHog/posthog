@@ -103,7 +103,7 @@ async function executeQuery<N extends DataNode>(
 
     if (!pollOnly) {
         const refreshParam: RefreshType | undefined = isAsyncQuery
-            ? typeof refresh === 'boolean' && refresh
+            ? refresh === true
                 ? 'force_async'
                 : 'async'
             : refresh
