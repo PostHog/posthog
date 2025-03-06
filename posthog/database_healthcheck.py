@@ -58,4 +58,4 @@ class DatabaseHealthcheck:
             return False
 
 
-postgres_healthcheck = DatabaseHealthcheck(time_interval=10)
+postgres_healthcheck = DatabaseHealthcheck(time_interval=30)
