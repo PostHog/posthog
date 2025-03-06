@@ -6,12 +6,12 @@ import { objectsEqual } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
+    CurrencyCode,
     DataTableNode,
     NodeKind,
     RevenueExampleEventsQuery,
     RevenueTrackingConfig,
     RevenueTrackingEventItem,
-    SupportedCurrencies,
 } from '~/queries/schema/schema-general'
 
 import type { revenueEventsSettingsLogicType } from './revenueEventsSettingsLogicType'
@@ -33,7 +33,7 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
             eventName,
             revenueCurrencyProperty,
         }),
-        updateBaseCurrency: (baseCurrency: SupportedCurrencies) => ({ baseCurrency }),
+        updateBaseCurrency: (baseCurrency: CurrencyCode) => ({ baseCurrency }),
     }),
     reducers(({ values }) => ({
         revenueTrackingConfig: [
@@ -129,7 +129,7 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
         baseCurrency: [
             (s) => [s.revenueTrackingConfig],
             (revenueTrackingConfig: RevenueTrackingConfig | null) =>
-                revenueTrackingConfig?.baseCurrency || SupportedCurrencies.USD,
+                revenueTrackingConfig?.baseCurrency || CurrencyCode.USD,
         ],
         saveDisabledReason: [
             (s) => [s.revenueTrackingConfig, s.changesMade],

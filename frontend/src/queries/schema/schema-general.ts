@@ -2533,7 +2533,7 @@ export interface RevenueTrackingEventItem {
 
 // NOTE: Keep in sync with posthog/models/exchange_rate/currencies.py
 // to provide proper type safety for the baseCurrency field
-export enum SupportedCurrencies {
+export enum CurrencyCode {
     AED = 'AED',
     AFN = 'AFN',
     ALL = 'ALL',
@@ -2689,6 +2689,6 @@ export enum SupportedCurrencies {
 }
 
 export interface RevenueTrackingConfig {
-    baseCurrency?: SupportedCurrencies
+    baseCurrency?: CurrencyCode
     events: RevenueTrackingEventItem[]
 }

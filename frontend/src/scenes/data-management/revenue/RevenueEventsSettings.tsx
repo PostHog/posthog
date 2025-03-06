@@ -11,7 +11,7 @@ import { revenueEventsSettingsLogic } from 'scenes/data-management/revenue/reven
 
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import { Query } from '~/queries/Query/Query'
-import { RevenueTrackingEventItem, SupportedCurrencies } from '~/queries/schema/schema-general'
+import { CurrencyCode, RevenueTrackingEventItem } from '~/queries/schema/schema-general'
 
 import { CurrencyDropdown } from './CurrencyDropdown'
 
@@ -54,13 +54,13 @@ export function RevenueEventsSettings(): JSX.Element {
             <div>
                 <h3>Base currency</h3>
                 <p>
-                    PostHog will convert all revenue values to this currency before displaying them to you. This is set
-                    to USD (American Dollar) by default.
+                    PostHog will convert all revenue values to this currency before displaying them to you. If we can't
+                    properly detect your revenue events' currency, we'll assume it's in this currency as well.
                 </p>
                 <CurrencyDropdown
                     value={baseCurrency}
                     onChange={(currency) => {
-                        updateBaseCurrency(currency as SupportedCurrencies)
+                        updateBaseCurrency(currency as CurrencyCode)
                         save()
                     }}
                 />
