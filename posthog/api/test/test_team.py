@@ -130,7 +130,8 @@ def team_api_test_factory():
                 get_geoip_properties_mock = get_geoip_properties_legacy_endpoint
 
             self.organization.available_product_features = [
-                {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": AvailableFeature.ORGANIZATIONS_PROJECTS}
+                {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": AvailableFeature.ORGANIZATIONS_PROJECTS},
+                {"key": AvailableFeature.ENVIRONMENTS, "name": AvailableFeature.ENVIRONMENTS},
             ]
             self.organization.save()
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -1492,63 +1493,63 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
             "Only the team belonging to the scoped organization should be listed, the other one should be excluded",
         )
 
-    def test_can_create_team_with_valid_project_limit(self):
+    def test_can_create_team_with_valid_environments_limit(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         self.organization.available_product_features = [
             {
-                "key": AvailableFeature.ORGANIZATIONS_PROJECTS,
-                "name": "Organizations Projects",
+                "key": AvailableFeature.ENVIRONMENTS,
+                "name": "Environments",
                 "limit": 5,
             }
         ]
         self.organization.save()
         self.assertEqual(Team.objects.count(), 1)
 
-        response = self.client.post("/api/projects/@current/environments/", {"name": "New Project"})
+        response = self.client.post("/api/projects/@current/environments/", {"name": "New environment"})
         self.assertEqual(response.status_code, 201)
         self.assertEqual(Team.objects.count(), 2)
 
-    def test_cant_create_team_when_at_project_limit(self):
+    def test_cant_create_team_when_at_environments_limit(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         self.organization.available_product_features = [
             {
-                "key": AvailableFeature.ORGANIZATIONS_PROJECTS,
-                "name": "Organizations Projects",
+                "key": AvailableFeature.ENVIRONMENTS,
+                "name": "Environments",
                 "limit": 1,
             }
         ]
         self.organization.save()
         self.assertEqual(Team.objects.count(), 1)
 
-        response = self.client.post("/api/projects/@current/environments/", {"name": "New Project"})
+        response = self.client.post("/api/projects/@current/environments/", {"name": "New environment"})
         self.assertEqual(response.status_code, 403)
         response_data = response.json()
         self.assertDictContainsSubset(
             {
                 "type": "authentication_error",
                 "code": "permission_denied",
-                "detail": "You must upgrade your PostHog plan to be able to create and manage multiple projects or environments.",
+                "detail": "You must upgrade your PostHog plan to be able to create and manage multiple environments per project.",
             },
             response_data,
         )
         self.assertEqual(Team.objects.count(), 1)
 
-    def test_can_create_team_with_unlimited_projects_feature(self):
+    def test_can_create_team_with_unlimited_environments_feature(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         self.organization.available_product_features = [
-            {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": "Organizations Projects", "limit": None}
+            {"key": AvailableFeature.ENVIRONMENTS, "name": "Environments", "limit": None}
         ]
         self.organization.save()
         self.assertEqual(Team.objects.count(), 1)
 
-        response = self.client.post("/api/projects/@current/environments/", {"name": "New Project"})
+        response = self.client.post("/api/projects/@current/environments/", {"name": "New environment"})
         self.assertEqual(response.status_code, 201)
         self.assertEqual(Team.objects.count(), 2)
 
-        response = self.client.post("/api/projects/@current/environments/", {"name": "New Project 2"})
+        response = self.client.post("/api/projects/@current/environments/", {"name": "New environment 2"})
         self.assertEqual(response.status_code, 201)
         self.assertEqual(Team.objects.count(), 3)
 

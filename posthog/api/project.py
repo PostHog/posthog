@@ -7,17 +7,14 @@ from django.shortcuts import get_object_or_404
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, BasePermission
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import ProjectBackwardCompatBasicSerializer
-from posthog.api.team import (
-    PremiumMultiProjectPermissions,
-    TeamSerializer,
-    validate_team_attrs,
-)
+from posthog.api.team import TeamSerializer, validate_team_attrs
 from ee.api.rbac.access_control import AccessControlViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.constants import AvailableFeature
 from ..cloud_utils import get_api_host
 from posthog.event_usage import report_user_action
 from posthog.geoip import get_geoip_properties
@@ -49,6 +46,8 @@ from posthog.permissions import (
     OrganizationMemberPermissions,
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
+    CREATE_ACTIONS,
+    get_organization_from_view,
 )
 
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
@@ -457,7 +456,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         permissions: list = [
             IsAuthenticated,
             APIScopePermission,
-            PremiumMultiProjectPermissions,
+            PremiumMultiProjectPermission,
             *self.permission_classes,
         ]
 
@@ -810,3 +809,50 @@ class RootProjectViewSet(ProjectViewSet):
     # NOTE: We don't want people creating projects via the "current_organization" concept, but rather specify the org ID
     # in the URL - hence this is hidden from the API docs, but used in the app
     hide_api_docs = True
+
+
+class PremiumMultiProjectPermission(BasePermission):
+    """Require user to have all necessary premium features on their plan for create access to the endpoint."""
+
+    message = "You must upgrade your PostHog plan to be able to create and manage more projects."
+
+    def has_permission(self, request: request.Request, view) -> bool:
+        if view.action not in CREATE_ACTIONS:
+            return True
+        if view.action in CREATE_ACTIONS:
+            try:
+                organization = get_organization_from_view(view)
+            except ValueError:
+                return False
+
+            if request.data.get("is_demo"):
+                # If we're requesting to make a demo project but the org already has a demo project
+                if organization.teams.filter(is_demo=True).count() > 0:
+                    return False
+
+            has_projects_feature = organization.is_feature_available(AvailableFeature.ORGANIZATIONS_PROJECTS)
+            current_non_demo_project_count = organization.teams.exclude(is_demo=True).distinct("project_id").count()
+
+            allowed_project_count = next(
+                (
+                    feature.get("limit")
+                    for feature in organization.available_product_features or []
+                    if feature.get("key") == AvailableFeature.ORGANIZATIONS_PROJECTS
+                ),
+                None,
+            )
+
+            if has_projects_feature:
+                # If allowed_project_count is None then the user is allowed unlimited projects
+                if allowed_project_count is None:
+                    return True
+                # Check current limit against allowed limit
+                if current_non_demo_project_count >= allowed_project_count:
+                    return False
+            else:
+                # If the org doesn't have the feature, they can only have one non-demo project
+                if current_non_demo_project_count >= 1:
+                    return False
+
+            # in any other case, we're good to go
+            return True
