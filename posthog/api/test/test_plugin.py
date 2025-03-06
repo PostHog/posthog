@@ -1664,11 +1664,11 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
 
                 # Verify plugin config was created despite hog function failure
                 assert PluginConfig.objects.count() == 1
-                plugin_config = PluginConfig.objects.first()
-                assert plugin_config.plugin_id == mock_plugin.id
-                assert plugin_config.enabled is True
-                assert plugin_config.order == 0
-                assert plugin_config.config == {"test": "value"}
+                plugin_config = PluginConfig.objects.get(plugin_id=mock_plugin.id)
+                self.assertEqual(plugin_config.plugin_id, mock_plugin.id)
+                self.assertEqual(plugin_config.enabled, True)
+                self.assertEqual(plugin_config.order, 0)
+                self.assertEqual(plugin_config.config, {"test": "value"})
 
                 # Verify no hog function was created
                 assert HogFunction.objects.count() == 0
