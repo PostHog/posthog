@@ -3,10 +3,20 @@
 all: build
 
 test:
-	go test ./...
+	@for dir in services/*; do \
+		if [ -d $$dir ]; then \
+			echo "Testing $$dir..."; \
+			(cd $$dir && go test ./...); \
+		fi \
+	done
 
 lint:
-	golangci-lint run ./...
+	@for dir in services/*; do \
+		if [ -d $$dir ]; then \
+			echo "Linting $$dir..."; \
+			(cd $$dir && $(HOME)/go/bin/golangci-lint run ./...); \
+		fi \
+	done
 
 build:
 	@for dir in services/*; do \

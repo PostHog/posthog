@@ -1,3 +1,6 @@
+//go:build exclude_unused
+// +build exclude_unused
+
 package main
 
 import (
