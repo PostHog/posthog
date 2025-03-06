@@ -133,11 +133,13 @@ export interface InfiniteListLogicProps extends TaxonomicFilterLogicProps {
 
 export interface ListStorage {
     results: TaxonomicDefinitionTypes[]
-    searchQuery?: string // Query used for the results currently in state
+    searchQuery: string
     count: number
+    first?: boolean
+    total_count?: number
+    has_more?: boolean
     expandedCount?: number
     queryChanged?: boolean
-    first?: boolean
 }
 
 export interface LoaderOptions {

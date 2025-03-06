@@ -12,6 +12,7 @@ import {
     TaxonomicDefinitionTypes,
     TaxonomicFilterGroup,
 } from 'lib/components/TaxonomicFilter/types'
+import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'lib/constants'
 import { getCoreFilterDefinition } from 'lib/taxonomy'
 import { RenderedRows } from 'react-virtualized/dist/es/List'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
@@ -37,23 +38,45 @@ const createEmptyListStorage = (searchQuery = '', first = false): ListStorage =>
 
 // simple cache with a setTimeout expiry
 const API_CACHE_TIMEOUT = 60000
-let apiCache: Record<string, ListStorage> = {}
-let apiCacheTimers: Record<string, number> = {}
 
 async function fetchCachedListResponse(path: string, searchParams: Record<string, any>): Promise<ListStorage> {
     const url = combineUrl(path, searchParams).url
-    let response
-    if (apiCache[url]) {
-        response = apiCache[url]
-    } else {
-        response = await api.get(url)
-        apiCache[url] = response
-        apiCacheTimers[url] = window.setTimeout(() => {
-            delete apiCache[url]
-            delete apiCacheTimers[url]
-        }, API_CACHE_TIMEOUT)
+    const cacheKey = `taxonomic_filter_${url}`
+
+    // Try localStorage first
+    const cachedData = localStorage.getItem(cacheKey)
+    if (cachedData) {
+        const { data, timestamp } = JSON.parse(cachedData)
+        if (Date.now() - timestamp < API_CACHE_TIMEOUT) {
+            return data
+        }
     }
+
+    // If not in localStorage or expired, fetch from API
+    const response = await api.get(url)
+
+    // Cache in localStorage
+    localStorage.setItem(
+        cacheKey,
+        JSON.stringify({
+            data: response,
+            timestamp: Date.now(),
+        })
+    )
+
     return response
+}
+
+// Only clear specific cache entries instead of all
+function invalidateCache(itemName: string | null | undefined): void {
+    if (!itemName) {
+        return
+    }
+    Object.keys(localStorage).forEach((key) => {
+        if (key.startsWith('taxonomic_filter_') && key.includes(itemName)) {
+            localStorage.removeItem(key)
+        }
+    })
 }
 
 export const infiniteListLogic = kea<infiniteListLogicType>([
@@ -156,9 +179,8 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     }
                 },
                 updateRemoteItem: ({ item }) => {
-                    // On updating item, invalidate cache
-                    apiCache = {}
-                    apiCacheTimers = {}
+                    // Only invalidate cache for this specific item
+                    invalidateCache(item.name)
                     const popFromResults = 'hidden' in item && item.hidden
                     const results: TaxonomicDefinitionTypes[] = values.remoteItems.results
                         .map((i) => (i.name === item.name ? (popFromResults ? null : item) : i))
@@ -181,7 +203,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         ],
         showPopover: [props.popoverEnabled !== false, {}],
         limit: [
-            100,
+            EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
             {
                 setLimit: (_, { limit }) => limit,
             },
