@@ -7,8 +7,9 @@ use config::{Config, TeamFilterMode, TeamList};
 use metrics_consts::{
     BATCH_ACQUIRE_TIME, CACHE_CONSUMED, CHUNK_SIZE, COMPACTED_UPDATES, DUPLICATES_IN_BATCH,
     EMPTY_EVENTS, EVENTS_RECEIVED, EVENT_PARSE_ERROR, FORCED_SMALL_BATCH, ISSUE_FAILED,
-    RECV_DEQUEUED, SKIPPED_DUE_TO_TEAM_FILTER, UPDATES_CACHE, UPDATES_DROPPED, UPDATES_FILTERED_BY_CACHE,
-    UPDATES_PER_EVENT, UPDATES_SEEN, UPDATE_ISSUE_TIME, UPDATE_PRODUCER_OFFSET, WORKER_BLOCKED,
+    RECV_DEQUEUED, SKIPPED_DUE_TO_TEAM_FILTER, UPDATES_CACHE, UPDATES_DROPPED,
+    UPDATES_FILTERED_BY_CACHE, UPDATES_PER_EVENT, UPDATES_SEEN, UPDATE_ISSUE_TIME,
+    UPDATE_PRODUCER_OFFSET, WORKER_BLOCKED,
 };
 use quick_cache::sync::Cache;
 use tokio::sync::mpsc::{self, error::TrySendError};
@@ -94,7 +95,7 @@ pub async fn update_consumer_loop(
             let m_cache = cache.clone();
             let handle = tokio::spawn(async move {
                 let mut tries: u64 = 0;
-                // We occasionally enocounter deadlocks while issuing updates, so we retry a few times, and
+                // We occasionally encounter deadlocks while issuing updates, so we retry a few times, and
                 // if we still fail, we drop the batch and clear it's content from the cached update set, because
                 // we assume everything in it will be seen again.
                 while let Err(e) = m_context.issue(&mut chunk, cache_utilization).await {
@@ -111,8 +112,13 @@ pub async fn update_consumer_loop(
                         // We clear any updates that were in this batch from the cache, so that
                         // if we see them again we'll try again to issue them.
                         chunk.iter().for_each(|u| {
-                            metrics::counter!(UPDATES_CACHE, &[("action", "dropped")]).increment(1);
-                            m_cache.remove(u);
+                            if m_cache.remove(u).is_some() {
+                                metrics::counter!(UPDATES_CACHE, &[("action", "removed")])
+                                    .increment(1);
+                            } else {
+                                metrics::counter!(UPDATES_CACHE, &[("action", "not_cached")])
+                                    .increment(1);
+                            }
                         });
                         return;
                     }
