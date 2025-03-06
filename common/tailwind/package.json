@@ -1,8 +1,8 @@
 {
     "name": "@posthog/tailwind",
     "scripts": {
-        "build": "pnpm dlx @tailwindcss/cli -i ./tailwind.css -o ./dist/tailwind.css",
-        "start": "pnpm dlx @tailwindcss/cli -i ./tailwind.css -o ./dist/tailwind.css --watch"
+        "build": "npx @tailwindcss/cli -i ./tailwind.css -o ./dist/tailwind.css",
+        "start": "npx @tailwindcss/cli -i ./tailwind.css -o ./dist/tailwind.css --watch"
     },
     "dependencies": {
         "tailwindcss": "4.0.7",
