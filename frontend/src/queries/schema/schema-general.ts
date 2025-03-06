@@ -2394,7 +2394,8 @@ export type EventTaxonomyResponse = EventTaxonomyItem[]
 
 export interface EventTaxonomyQuery extends DataNode<EventTaxonomyQueryResponse> {
     kind: NodeKind.EventTaxonomyQuery
-    event: string
+    event?: string
+    action?: integer
     properties?: string[]
     maxPropertyValues?: integer
 }

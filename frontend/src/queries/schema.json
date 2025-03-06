@@ -6770,6 +6770,9 @@
         "EventTaxonomyQuery": {
             "additionalProperties": false,
             "properties": {
+                "action": {
+                    "$ref": "#/definitions/integer"
+                },
                 "event": {
                     "type": "string"
                 },
@@ -6794,7 +6797,7 @@
                     "$ref": "#/definitions/EventTaxonomyQueryResponse"
                 }
             },
-            "required": ["event", "kind"],
+            "required": ["kind"],
             "type": "object"
         },
         "EventTaxonomyQueryResponse": {

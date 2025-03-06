@@ -44,6 +44,8 @@ class ProductAnalyticsRetriever(AssistantNode):
         root = ET.Element("defined_actions")
         for action in actions:
             action_tag = ET.SubElement(root, "action")
+            id_tag = ET.SubElement(action_tag, "id")
+            id_tag.text = str(action.id)
             name_tag = ET.SubElement(action_tag, "name")
             name_tag.text = action.name
 

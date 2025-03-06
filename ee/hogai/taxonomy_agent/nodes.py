@@ -289,10 +289,12 @@ class TaxonomyAgentPlannerToolsNode(AssistantNode, ABC):
         return "continue"
 
     def _handle_tool(self, input: TaxonomyAgentToolUnion, toolkit: TaxonomyAgentToolkit) -> str:
-        if input.name == "retrieve_event_properties":
-            output = toolkit.retrieve_event_properties(input.arguments)
-        elif input.name == "retrieve_event_property_values":
-            output = toolkit.retrieve_event_property_values(input.arguments.event_name, input.arguments.property_name)
+        if input.name == "retrieve_event_or_action_properties":
+            output = toolkit.retrieve_event_or_action_properties(input.arguments)
+        elif input.name == "retrieve_event_or_action_property_values":
+            output = toolkit.retrieve_event_or_action_property_values(
+                input.arguments.event_name_or_action_id, input.arguments.property_name
+            )
         elif input.name == "retrieve_entity_properties":
             output = toolkit.retrieve_entity_properties(input.arguments)
         elif input.name == "retrieve_entity_property_values":

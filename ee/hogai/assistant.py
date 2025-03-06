@@ -226,11 +226,11 @@ class Assistant:
                     if intermediate_steps := input.intermediate_steps:
                         for action, _ in intermediate_steps:
                             match action.tool:
-                                case "retrieve_event_properties":
+                                case "retrieve_event_or_action_properties":
                                     substeps.append(f"Exploring `{action.tool_input}` event's properties")
                                 case "retrieve_entity_properties":
                                     substeps.append(f"Exploring {action.tool_input} properties")
-                                case "retrieve_event_property_values":
+                                case "retrieve_event_or_action_property_values":
                                     assert isinstance(action.tool_input, dict)
                                     substeps.append(
                                         f"Analyzing `{action.tool_input['property_name']}` event's property `{action.tool_input['event_name']}`"
