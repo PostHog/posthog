@@ -95,7 +95,7 @@ class TableStructureRow:
 
 def _get_partition_bucket_size(cursor: psycopg.Cursor, schema: str, table_name: str) -> int | None:
     query = sql.SQL("""
-        SELECT round(({bytes_per_partition}) / (pg_total_relation_size({schema_table_name_literal}) / count(*)))
+        SELECT round(({bytes_per_partition}) / (pg_table_size({schema_table_name_literal}) / count(*)))
         FROM {schema}.{table}""").format(
         bytes_per_partition=sql.Literal(DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES),
         schema_table_name_literal=sql.Literal(f"{schema}.{table_name}"),
