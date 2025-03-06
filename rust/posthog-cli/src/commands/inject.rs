@@ -1,4 +1,4 @@
-use anyhow::{anyhow, bail, Error, Ok, Result};
+use anyhow::{anyhow, bail, Ok, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
@@ -27,7 +27,8 @@ impl Source {
     }
 
     pub fn read(path: &PathBuf) -> Result<Source> {
-        let content = std::fs::read_to_string(path)?;
+        let content = std::fs::read_to_string(path)
+            .map_err(|_| anyhow!("Failed to read source file: {}", path.display()))?;
         Ok(Source {
             path: path.clone(),
             content,
@@ -134,12 +135,7 @@ fn read_pairs(directory: &PathBuf) -> Result<Vec<SourcePair>> {
     for entry in std::fs::read_dir(directory)? {
         let entry_path = entry?.path().canonicalize()?;
         if is_javascript_file(&entry_path) {
-            let source = Source::read(&entry_path).map_err(|_| {
-                Error::msg(format!(
-                    "Failed to read source file: {}",
-                    entry_path.display()
-                ))
-            })?;
+            let source = Source::read(&entry_path)?;
             let sourcemap_path = source.get_sourcemap_path();
             if sourcemap_path.exists() {
                 let sourcemap = SourceMap::read(&sourcemap_path)?;
