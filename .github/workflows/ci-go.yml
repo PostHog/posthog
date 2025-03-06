@@ -1,0 +1,95 @@
+name: Go Services CI
+
+on:
+    pull_request:
+    push:
+        branches:
+            - master
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    cancel-in-progress: true
+
+jobs:
+    changes:
+        runs-on: depot-ubuntu-24.04-4
+        timeout-minutes: 5
+        name: Determine need to run Go checks
+        outputs:
+            go-services: ${{ steps.filter.outputs.go-services }}
+        steps:
+            - uses: actions/checkout@v3
+
+            - uses: dorny/paths-filter@v2
+              id: filter
+              with:
+                  filters: |
+                      go-services:
+                        - '.github/workflows/ci-go.yml'
+                        - 'go/**'
+                        - 'docker*.yml'
+                        - '*Dockerfile*'
+
+    lint:
+        name: Lint
+        needs: changes
+        if: needs.changes.outputs.go-services == 'true'
+        runs-on: depot-ubuntu-24.04-4
+        steps:
+            - uses: actions/checkout@v3
+
+            - name: Set up Go
+              uses: actions/setup-go@v5
+              with:
+                  go-version: '1.21'
+                  cache: true
+
+            - name: Install golangci-lint
+              run: curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.55.2
+
+            - name: Run linter
+              working-directory: go
+              run: make lint
+
+    test:
+        name: Test
+        needs: changes
+        if: needs.changes.outputs.go-services == 'true'
+        runs-on: depot-ubuntu-24.04-4
+        steps:
+            - uses: actions/checkout@v3
+
+            - name: Set up Go
+              uses: actions/setup-go@v5
+              with:
+                  go-version: '1.21'
+                  cache: true
+
+            - name: Run tests
+              working-directory: go
+              run: make test
+
+    build:
+        name: Build
+        needs: changes
+        if: needs.changes.outputs.go-services == 'true'
+        runs-on: depot-ubuntu-24.04-4
+        steps:
+            - uses: actions/checkout@v3
+
+            - name: Set up Go
+              uses: actions/setup-go@v5
+              with:
+                  go-version: '1.21'
+                  cache: true
+
+            - name: Build all services
+              working-directory: go
+              run: make build
+
+            - name: Upload build artifacts
+              uses: actions/upload-artifact@v4
+              with:
+                  name: go-binaries
+                  path: go/bin/
+                  if-no-files-found: error
