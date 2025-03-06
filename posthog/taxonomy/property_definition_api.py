@@ -20,7 +20,7 @@ from posthog.api.utils import action
 from posthog.constants import GROUP_TYPES_LIMIT, AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.exceptions import EnterpriseFeatureException
-from posthog.filters import TermSearchFilterBackend
+from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
 from posthog.models import EventProperty, PropertyDefinition, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.utils import UUIDT
@@ -568,8 +568,49 @@ class PropertyDefinitionViewSet(
             return results
 
     def _build_query_context(self, query, limit, offset) -> QueryContext:
-        # ... existing query context building logic ...
-        pass
+        """Build the query context for property definitions"""
+        context = QueryContext(
+            project_id=self.project_id,
+            table="posthog_propertydefinition",
+            property_definition_fields="id, name, is_numerical, property_type, type, group_type_index, tags, verified, hidden",
+            property_definition_table="posthog_propertydefinition",
+            limit=limit,
+            offset=offset,
+        )
+
+        # Apply filters
+        context = (
+            context.with_properties_to_filter(query.validated_data.get("properties"))
+            .with_is_numerical_flag(query.validated_data.get("is_numerical"))
+            .with_feature_flags(query.validated_data.get("is_feature_flag"))
+            .with_type_filter(
+                query.validated_data.get("type", "event"),
+                query.validated_data.get("group_type_index"),
+            )
+            .with_event_property_filter(
+                query.validated_data.get("event_names"),
+                query.validated_data.get("filter_by_event_names"),
+            )
+            .with_excluded_properties(
+                query.validated_data.get("excluded_properties"),
+                query.validated_data.get("type", "event"),
+            )
+            .with_hidden_filter(
+                query.validated_data.get("exclude_hidden", False),
+                self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY),
+            )
+        )
+
+        # Add search if present
+        if query.validated_data.get("search"):
+            search_query, search_kwargs = term_search_filter_sql(
+                ["name", "property_type"],
+                query.validated_data["search"],
+                exact=False,
+            )
+            context = context.with_search(search_query, search_kwargs)
+
+        return context
 
     def _execute_query(self, query_context: QueryContext):
         with connection.cursor() as cursor:
