@@ -12,7 +12,7 @@ from dags.common import JobOwners
 from posthog import settings
 from posthog.clickhouse.cluster import (
     ClickhouseCluster,
-    Mutation,
+    MutationWaiter,
     AlterTableMutationRunner,
     LightweightDeleteMutationRunner,
 )
@@ -328,16 +328,16 @@ def run_person_id_update_mutations(
 def start_overrides_delete_mutations(
     cluster: dagster.ResourceParam[ClickhouseCluster],
     dictionary: PersonOverridesSnapshotDictionary,
-) -> tuple[PersonOverridesSnapshotDictionary, Mutation]:
+) -> tuple[PersonOverridesSnapshotDictionary, MutationWaiter]:
     """Start the mutation to remove overrides contained within the snapshot from the overrides table."""
-    mutation = cluster.any_host(dictionary.overrides_delete_mutation_runner.enqueue).result()
+    mutation = cluster.any_host(dictionary.overrides_delete_mutation_runner).result()
     return (dictionary, mutation)
 
 
 @dagster.op
 def wait_for_overrides_delete_mutations(
     cluster: dagster.ResourceParam[ClickhouseCluster],
-    inputs: tuple[PersonOverridesSnapshotDictionary, Mutation],
+    inputs: tuple[PersonOverridesSnapshotDictionary, MutationWaiter],
 ) -> PersonOverridesSnapshotDictionary:
     """Wait for all hosts to complete the mutation to remove overrides contained within the snapshot from the overrides table."""
     [dictionary, mutation] = inputs

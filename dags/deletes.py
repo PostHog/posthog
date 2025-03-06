@@ -19,7 +19,7 @@ from django.utils import timezone
 from dags.common import JobOwners
 from posthog.clickhouse.cluster import (
     ClickhouseCluster,
-    Mutation,
+    MutationWaiter,
     LightweightDeleteMutationRunner,
     NodeRole,
     Query,
@@ -61,7 +61,7 @@ class DeleteConfig(Config):
         return datetime.fromisoformat(self.timestamp)
 
 
-ShardMutations = dict[int, Mutation]
+ShardMutations = dict[int, MutationWaiter]
 
 
 @dataclass
@@ -454,9 +454,7 @@ def delete_person_events(
     shard_mutations = {
         host.shard_num: mutation
         for host, mutation in (
-            cluster.map_one_host_per_shard(load_and_verify_deletes_dictionary.delete_mutation_runner.enqueue)
-            .result()
-            .items()
+            cluster.map_one_host_per_shard(load_and_verify_deletes_dictionary.delete_mutation_runner).result().items()
         )
     }
 

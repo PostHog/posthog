@@ -411,15 +411,15 @@ class MutationWaiter:
             WHERE database = %(database)s AND table = %(table)s AND mutation_id IN %(mutation_ids)s
             GROUP BY ALL
             """,
-            {"database": settings.CLICKHOUSE_DATABASE, "table": self.table, "mutation_ids": self.mutation_ids},
+            {"database": settings.CLICKHOUSE_DATABASE, "table": self.table, "mutation_ids": list(self.mutation_ids)},
         )
 
         statuses = dict(rows)
         assert len(rows) == len(statuses)
 
-        if missing_mutations := self.mutation_ids - statuses.keys():
+        if missing_mutations := (self.mutation_ids - statuses.keys()):
             raise MutationNotFound(f"could not find mutation(s): {missing_mutations!r}")
-        elif unexpected_mutations := statuses.keys() - self.mutation_ids:
+        elif unexpected_mutations := (statuses.keys() - self.mutation_ids):
             raise ValueError(f"received unexpected mutation(s): {unexpected_mutations!r}")  # should never happen
         else:
             return all(statuses.values())
@@ -510,6 +510,7 @@ class MutationRunner(abc.ABC):
                     AND NOT is_killed  -- ok to restart a killed mutation
             ) mutations USING (command)
             ORDER BY position ASC
+            SETTINGS join_use_nulls = 1
             """,
             {
                 f"__database": settings.CLICKHOUSE_DATABASE,
