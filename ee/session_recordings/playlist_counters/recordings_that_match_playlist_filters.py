@@ -246,8 +246,12 @@ def convert_filters_to_recordings_query(playlist: SessionRecordingPlaylist) -> R
     rate_limit="60/h",
     expires=TASK_EXPIRATION_TIME,
     autoretry_for=(CHQueryErrorTooManySimultaneousQueries,),
-    retry_backoff=True,
+    # will retry twice, once after 120 seconds (with jitter)
+    # and once after 240 seconds (with jitter)
+    # will be retried again on the next run anyway
+    # so does not need many retries here
     retry_jitter=True,
+    retry_backoff=120,
     max_retries=2,
 )
 def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
