@@ -12,7 +12,6 @@ import {
     TaxonomicDefinitionTypes,
     TaxonomicFilterGroup,
 } from 'lib/components/TaxonomicFilter/types'
-import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'lib/constants'
 import { getCoreFilterDefinition } from 'lib/taxonomy'
 import { RenderedRows } from 'react-virtualized/dist/es/List'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
@@ -101,11 +100,9 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             createEmptyListStorage('', true),
             {
                 loadRemoteItems: async ({ offset, limit }, breakpoint) => {
-                    // avoid the 150ms delay on first load
-                    if (!values.remoteItems.first) {
-                        await breakpoint(500)
-                    } else {
-                        await breakpoint(1)
+                    // Only add delay for non-first loads and when we're loading more items
+                    if (!values.remoteItems.first && offset > 0) {
+                        await breakpoint(50)
                     }
 
                     const {
@@ -134,49 +131,56 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     const start = performance.now()
                     actions.abortAnyRunningQuery()
 
-                    const [response, expandedCountResponse] = await Promise.all([
-                        // get the list of results
-                        fetchCachedListResponse(
-                            scopedRemoteEndpoint && !isExpanded ? scopedRemoteEndpoint : remoteEndpoint,
-                            searchParams
-                        ),
-                        // if this is an unexpanded scoped list, get the count for the full list
-                        scopedRemoteEndpoint && !isExpanded
-                            ? fetchCachedListResponse(remoteEndpoint, {
-                                  ...searchParams,
-                                  limit: 1,
-                                  offset: 0,
-                              })
-                            : null,
-                    ])
-                    breakpoint()
+                    try {
+                        const [response, expandedCountResponse] = await Promise.all([
+                            // get the list of results
+                            fetchCachedListResponse(
+                                scopedRemoteEndpoint && !isExpanded ? scopedRemoteEndpoint : remoteEndpoint,
+                                searchParams
+                            ),
+                            // if this is an unexpanded scoped list, get the count for the full list
+                            scopedRemoteEndpoint && !isExpanded
+                                ? fetchCachedListResponse(remoteEndpoint, {
+                                      ...searchParams,
+                                      limit: 1,
+                                      offset: 0,
+                                  })
+                                : null,
+                        ])
 
-                    const queryChanged = values.remoteItems.searchQuery !== values.searchQuery
+                        await captureTimeToSeeData(values.currentTeamId, {
+                            type: 'properties_load',
+                            context: 'filters',
+                            action: listGroupType,
+                            primary_interaction_id: '',
+                            status: 'success',
+                            time_to_see_data_ms: Math.floor(performance.now() - start),
+                            api_response_bytes: 0,
+                        })
 
-                    await captureTimeToSeeData(values.currentTeamId, {
-                        type: 'properties_load',
-                        context: 'filters',
-                        action: listGroupType,
-                        primary_interaction_id: '',
-                        status: 'success',
-                        time_to_see_data_ms: Math.floor(performance.now() - start),
-                        api_response_bytes: 0,
-                    })
-                    cache.abortController = null
+                        const queryChanged = values.remoteItems.searchQuery !== values.searchQuery
+                        cache.abortController = null
 
-                    return {
-                        results: appendAtIndex(
-                            queryChanged ? [] : values.remoteItems.results,
-                            response.results || response,
-                            offset
-                        ),
-                        searchQuery: values.searchQuery,
-                        queryChanged,
-                        count:
-                            response.count ||
-                            (Array.isArray(response) ? response.length : 0) ||
-                            (response.results || []).length,
-                        expandedCount: expandedCountResponse?.count,
+                        return {
+                            results: appendAtIndex(
+                                queryChanged ? [] : values.remoteItems.results,
+                                response.results || response,
+                                offset
+                            ),
+                            searchQuery: values.searchQuery,
+                            queryChanged,
+                            count:
+                                response.count ||
+                                (Array.isArray(response) ? response.length : 0) ||
+                                (response.results || []).length,
+                            expandedCount: expandedCountResponse?.count,
+                            first: values.remoteItems.first,
+                        }
+                    } catch (e: any) {
+                        if (e.name === 'AbortError') {
+                            return values.remoteItems
+                        }
+                        throw e
                     }
                 },
                 updateRemoteItem: ({ item }) => {
@@ -205,7 +209,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         ],
         showPopover: [props.popoverEnabled !== false, {}],
         limit: [
-            EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
+            100,
             {
                 setLimit: (_, { limit }) => limit,
             },
@@ -354,7 +358,10 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 }
             },
         ],
-        totalResultCount: [(s) => [s.totalCount], (totalCount) => totalCount],
+        totalResultCount: [
+            (s) => [s.items, s.totalCount],
+            (items: ListStorage, totalCount: number) => Math.max(items.count || 0, totalCount || 0),
+        ],
         totalExtraCount: [
             (s) => [s.isExpandable, s.hasRenderFunction],
             (isExpandable, hasRenderFunction) => (isExpandable ? 1 : 0) + (hasRenderFunction ? 1 : 0),
@@ -379,17 +386,11 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         ],
     }),
     listeners(({ values, actions, props, cache }) => ({
-        onRowsRendered: ({ rowInfo: { startIndex, stopIndex, overscanStopIndex } }) => {
+        onRowsRendered: ({ rowInfo: { stopIndex } }) => {
             if (values.hasRemoteDataSource) {
-                let loadFrom: number | null = null
-                for (let i = startIndex; i < (stopIndex + overscanStopIndex) / 2; i++) {
-                    if (!values.results[i]) {
-                        loadFrom = i
-                        break
-                    }
-                }
-                if (loadFrom !== null) {
-                    const offset = (loadFrom || startIndex) - values.localItems.count
+                const shouldLoadMore = stopIndex > 0 && stopIndex >= (values.results?.length || 0) - 5
+                if (shouldLoadMore && !values.isLoading && values.hasMore) {
+                    const offset = values.results?.length || 0
                     actions.loadRemoteItems({ offset, limit: values.limit })
                 }
             }

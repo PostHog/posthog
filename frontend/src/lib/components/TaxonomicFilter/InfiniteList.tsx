@@ -306,7 +306,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                         )}
                     </span>
                 </div>
-            ) : isLoading && (!results || results.length === 0) ? (
+            ) : isLoading && (!results || results.length === 0) && !totalListCount ? (
                 <div className="flex items-center justify-center h-full">
                     <Spinner className="text-3xl" />
                 </div>
@@ -318,15 +318,15 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                             width={width}
                             height={height}
                             rowCount={Math.max(results.length || 0, totalListCount || 0)}
-                            overscanRowCount={20}
+                            overscanRowCount={10}
                             rowHeight={36}
                             rowRenderer={renderItem}
                             onRowsRendered={(rowInfo) => {
                                 onRowsRendered(rowInfo)
 
-                                // Load more when near the bottom
+                                // Load more when near the bottom - adjusted threshold
                                 if (
-                                    rowInfo.stopIndex >= results.length - 10 &&
+                                    rowInfo.stopIndex >= results.length - 5 && // Reduced from 10 to 5 for more precise loading
                                     hasRemoteDataSource &&
                                     !isLoading &&
                                     hasMore
@@ -335,6 +335,10 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                                 }
                             }}
                             scrollToIndex={index}
+                            scrollToAlignment="center" // Added for better scroll behavior
+                            // Added performance props
+                            containerStyle={{ width: '100%' }}
+                            style={{ overflowX: 'hidden' }}
                         />
                     )}
                 </AutoSizer>

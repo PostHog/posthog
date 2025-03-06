@@ -2,7 +2,7 @@ import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
-import React, { useMemo, useState } from 'react'
+import React, { useState } from 'react'
 
 interface EventSelectProps {
     onItemChange?: (values: any[]) => void
@@ -23,9 +23,6 @@ export const EventSelect = ({
 }: EventSelectProps): JSX.Element => {
     const [open, setOpen] = useState<boolean>(false)
     const eventSelectFilterGroupTypes = filterGroupTypes || [TaxonomicFilterGroupType.Events]
-
-    // Generate a stable key for the taxonomic filter to avoid re-renders
-    const stableKey = useMemo(() => 'event-select-taxonomic-filter', [])
 
     const handleChange = (name: string): void => {
         if (onChange) {
@@ -64,7 +61,6 @@ export const EventSelect = ({
                 onClickOutside={() => setOpen(false)}
                 overlay={
                     <TaxonomicFilter
-                        taxonomicFilterLogicKey={stableKey}
                         onChange={(_, value, item) => {
                             handleItemChange(item)
                             handleChange(value as string)
