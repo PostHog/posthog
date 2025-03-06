@@ -1366,7 +1366,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                   limit: 10,
                                                   filterTestAccounts,
                                                   conversionGoal,
-                                                  orderBy: tablesOrderBy ?? undefined,
+                                                  orderBy: tablesOrderBy ?? ['Clicks', 'DESC'],
                                                   stripQueryParams: shouldStripQueryParams,
                                               },
                                               embedded: false,
