@@ -41,7 +41,7 @@ const ActionsListToolbarMenu = (): JSX.Element => {
                 />
             </ToolbarMenu.Header>
             <ToolbarMenu.Body>
-                <div className="px-1 space-y-px py-2">
+                <div className="px-1 deprecated-space-y-px py-2">
                     {allActions.length === 0 && allActionsLoading ? (
                         <div className="text-center my-4">
                             <Spinner />

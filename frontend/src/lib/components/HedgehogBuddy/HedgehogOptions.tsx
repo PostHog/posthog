@@ -43,7 +43,7 @@ export function HedgehogOptions(): JSX.Element {
                 </div>
             </div>
 
-            <div className="space-y-2">
+            <div className="deprecated-space-y-2">
                 <h4>Options</h4>
                 <div className="flex items-center gap-2 flex-wrap">
                     <LemonSwitch
