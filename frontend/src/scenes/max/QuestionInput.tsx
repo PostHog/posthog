@@ -33,7 +33,7 @@ export function QuestionInput(): JSX.Element {
                 className={clsx(
                     'flex flex-col items-center gap-2',
                     isFloating &&
-                        'p-1 mb-3 bottom-3 border border-[var(--border-primary)] rounded-lg backdrop-blur bg-[var(--glass-bg-3000)]'
+                        'p-1 mb-3 bottom-3 border border-[var(--border-primary)] rounded-lg backdrop-blur-sm bg-[var(--glass-bg-3000)]'
                 )}
             >
                 <LemonTextArea
