@@ -12,7 +12,7 @@ pub fn upload(host: &str, directory: &str, build_id: &Option<String>) -> Result<
     todo!();
     let client = reqwest::blocking::Client::new();
 
-    let url = format!("{}/error/", host);
+    let url = format!("{}/api/projects/{}/error_tracking/symbol_sets", host);
 
     Ok(())
 }
