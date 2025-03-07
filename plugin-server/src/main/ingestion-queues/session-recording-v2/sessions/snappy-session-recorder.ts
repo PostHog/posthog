@@ -125,8 +125,7 @@ export class SnappySessionRecorder {
             this.endDateTime = message.eventsRange.end
         }
 
-        for (const windowId in message.eventsByWindowId) {
-            const events = message.eventsByWindowId[windowId]
+        for (const [windowId, events] of Object.entries(message.eventsByWindowId)) {
             for (const event of events) {
                 // Store segmentation event for later use in active time calculation
                 this.segmentationEvents.push(toSegmentationEvent(event))
