@@ -33,8 +33,8 @@ export function getSurveyStatus(survey: Pick<Survey, 'start_date' | 'end_date'>)
     return ProgressStatus.Complete
 }
 
-function hasMorePages(results: any[], count: number): boolean {
-    return results.length < count
+function hasMorePages(surveys: any[], count: number): boolean {
+    return surveys.length < count
 }
 
 export interface SurveysFilters {
