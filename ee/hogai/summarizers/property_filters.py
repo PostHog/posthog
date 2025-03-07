@@ -61,11 +61,11 @@ PROPERTY_FILTER_VERBOSE_NAME: dict[PropertyOperator, str] = {
     PropertyOperator.IS_DATE_AFTER: "is after date",
     PropertyOperator.BETWEEN: "is between",
     PropertyOperator.NOT_BETWEEN: "is not between",
-    PropertyOperator.MIN: "is min",
-    PropertyOperator.MAX: "is max",
-    PropertyOperator.IN_: "is in",
-    PropertyOperator.NOT_IN: "is not in",
-    PropertyOperator.IS_CLEANED_PATH_EXACT: "is cleaned path exact",
+    PropertyOperator.MIN: "is a minimum value",
+    PropertyOperator.MAX: "is a maximum value",
+    PropertyOperator.IN_: "is one of the values in",
+    PropertyOperator.NOT_IN: "is not one of the values in",
+    PropertyOperator.IS_CLEANED_PATH_EXACT: "has a link without a hash and URL parameters that matches exactly",
 }
 
 

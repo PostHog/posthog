@@ -1,41 +1,12 @@
 from collections import defaultdict
 
 from posthog.models.action.action import Action, ActionStepJSON, ActionStepMatching
-from posthog.schema import (
-    PropertyOperator,
-)
 
 from .property_filters import (
     PropertyFilterCollectionDescriber,
     PropertyFilterTaxonomyEntry,
     retrieve_hardcoded_taxonomy,
 )
-
-PROPERTY_FILTER_VERBOSE_NAME: dict[PropertyOperator, str] = {
-    PropertyOperator.EXACT: "matches exactly",
-    PropertyOperator.IS_NOT: "is not",
-    PropertyOperator.ICONTAINS: "contains",
-    PropertyOperator.NOT_ICONTAINS: "doesn't contain",
-    PropertyOperator.REGEX: "matches regex",
-    PropertyOperator.NOT_REGEX: "doesn't match regex",
-    PropertyOperator.GT: "greater than",
-    PropertyOperator.GTE: "greater than or equal to",
-    PropertyOperator.LT: "less than",
-    PropertyOperator.LTE: "less than or equal to",
-    PropertyOperator.IS_SET: "is set",
-    PropertyOperator.IS_NOT_SET: "is not set",
-    PropertyOperator.IS_DATE_EXACT: "is on exact date",
-    PropertyOperator.IS_DATE_BEFORE: "is before date",
-    PropertyOperator.IS_DATE_AFTER: "is after date",
-    PropertyOperator.BETWEEN: "is between",
-    PropertyOperator.NOT_BETWEEN: "is not between",
-    PropertyOperator.MIN: "is min",
-    PropertyOperator.MAX: "is max",
-    PropertyOperator.IN_: "is in",
-    PropertyOperator.NOT_IN: "is not in",
-    PropertyOperator.IS_CLEANED_PATH_EXACT: "is cleaned path exact",
-}
-
 
 ACTION_MATCH_FILTER_VERBOSE_NAME: dict[ActionStepMatching, str] = {
     "regex": "matches regex",
