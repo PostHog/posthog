@@ -11,7 +11,25 @@ from posthog.schema import (
     HogQLFilters,
 )
 
-BREAKDOWN_NULL_DISPLAY = "(none)"
+
+# NOTE: These must exist on `sessions_v1` and `sessions_v2` tables
+AD_IDS_PREFIXES = [
+    "gclid",
+    "gad_source",
+    "gclsrc",
+    "dclid",
+    "gbraid",
+    "wbraid",
+    "fbclid",
+    "msclkid",
+    "twclid",
+    "li_fat_id",
+    "mc_cid",
+    "igshid",
+    "ttclid",
+    "_kx",
+    "irclid",
+]
 
 
 class SessionAttributionExplorerQueryRunner(QueryRunner):
@@ -62,7 +80,7 @@ class SessionAttributionExplorerQueryRunner(QueryRunner):
             )
             ad_ids = group_or_agg(
                 SessionAttributionGroupBy.AD_IDS,
-                "nullIf(arrayStringConcat([if(isNotNull($entry_gclid), 'glcid', NULL), if(isNotNull($entry_gad_source), 'gad_source', NULL)], ','), '')",
+                f"nullIf(arrayStringConcat([{', '.join([f'if(isNotNull($entry_{ad_id}), \'{ad_id}\', NULL)' for ad_id in AD_IDS_PREFIXES])}], ','), '')",
                 "context.columns.ad_ids",
             )
             entry_url = group_or_agg(
