@@ -80,7 +80,6 @@ class PathsV2QueryRunner(QueryRunner):
         results = [
             PathsV2Item(step_index=step_index, source_step=source, target_step=target, value=value)
             for step_index, source, target, value in response.results
-            if source is not None
         ]
 
         return PathsV2QueryResponse(
@@ -279,7 +278,7 @@ class PathsV2QueryRunner(QueryRunner):
             },
         )
 
-    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+    def _paths_top_nodes_grouped(self) -> ast.SelectQuery | ast.SelectSetQuery:
         """
         - Groups the individual paths and orders them by frequency.
 
@@ -368,4 +367,20 @@ class PathsV2QueryRunner(QueryRunner):
                 "POSTHOG_OTHER": ast.Constant(value=POSTHOG_OTHER),
                 "POSTHOG_DROPOFF": ast.Constant(value=POSTHOG_DROPOFF),
             },
+        )
+
+    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        return parse_select(
+            """
+            SELECT
+                step_index - 1 AS step_index,
+                grouped_source_step AS source_step,
+                grouped_target_step AS target_step,
+                sum(value) AS value
+            FROM {paths_top_nodes_grouped}
+            WHERE step_index > 0
+            GROUP BY step_index, source_step, target_step
+            ORDER BY step_index ASC, value DESC
+        """,
+            placeholders={"paths_top_nodes_grouped": self._paths_top_nodes_grouped()},
         )
