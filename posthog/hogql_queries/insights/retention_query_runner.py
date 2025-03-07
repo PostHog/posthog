@@ -3,7 +3,7 @@ from posthog.hogql.property import property_to_expr
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.constants import HogQLGlobalSettings, MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY
 from math import ceil
-from typing import Any, Optional
+from typing import Any, cast, Optional
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
 from posthog.constants import (
@@ -185,7 +185,9 @@ class RetentionQueryRunner(QueryRunner):
 
         return refresh_frequency
 
-    def breakdown_extract_expr(self, property_name: str, breakdown_type: str, group_type_index: int | None = None):
+    def breakdown_extract_expr(
+        self, property_name: str, breakdown_type: str, group_type_index: int | None = None
+    ) -> ast.Expr:
         if breakdown_type == "person":
             return ast.Call(
                 name="JSONExtractString",
@@ -202,20 +204,21 @@ class RetentionQueryRunner(QueryRunner):
                     ast.Constant(value=property_name),
                 ],
             )
-        else:  # Default to event properties
-            return ast.Call(
-                name="JSONExtractString",
-                args=[
-                    ast.Field(chain=["events", "properties"]),
-                    ast.Constant(value=property_name),
-                ],
-            )
+
+        # Default to event properties
+        return ast.Call(
+            name="JSONExtractString",
+            args=[
+                ast.Field(chain=["events", "properties"]),
+                ast.Constant(value=property_name),
+            ],
+        )
 
     def concat_breakdowns(self, fields: list[ast.Expr]) -> ast.Expr:
         if not fields:
             return ast.Constant(value="")
 
-        string_fields = [ast.Call(name="toString", args=[field]) for field in fields]
+        string_fields: list[ast.Expr] = [ast.Call(name="toString", args=[field]) for field in fields]
 
         return ast.Call(name="arrayStringConcat", args=[ast.Array(exprs=string_fields), ast.Constant(value="::")])
 
@@ -459,7 +462,7 @@ class RetentionQueryRunner(QueryRunner):
                 # extract and group by all breakdowns
                 for i, breakdown in enumerate(self.query.breakdownFilter.breakdowns):
                     breakdown_extract_expr = self.breakdown_extract_expr(
-                        breakdown.property, breakdown.type, breakdown.group_type_index
+                        breakdown.property, cast(str, breakdown.type), breakdown.group_type_index
                     )
                     breakdown = f"breakdown_{i}"
                     breakdowns.append(breakdown)
