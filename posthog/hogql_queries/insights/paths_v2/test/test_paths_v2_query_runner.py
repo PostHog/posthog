@@ -1,5 +1,4 @@
 from abc import ABC
-from calendar import c
 from datetime import datetime
 
 from clickhouse_driver.util.escape import UUID
@@ -150,12 +149,12 @@ class TestPathsV2(SharedSetup):
         )
 
     def test_max_rows_aggregates(self):
-        # 4x a1->b1
-        # 3x a1->b2
-        # 2x a2->x
-        # 1x a3->a3 (a3->$) or (a3->a3) depeding on collapseEvents
-        # 1x a4->b1 ($->b1)
-        # 1x a5->x  ($->x)
+        # 6x a1->b1
+        # 5x a1->b2
+        # 4x a2->dropoff
+        # 3x a3->a3 (other->dropoff) or (other->a3) depeding on collapseEvents
+        # 2x a4->b1 (other->b1)
+        # 1x a5->x  (other->dropoff)
 
         _ = journeys_for(
             team=self.team,

@@ -306,20 +306,6 @@ class PathsV2QueryRunner(QueryRunner):
                         previous_path_item,
                         path_item
                 ),
-                top_n_sources AS (
-                    SELECT step_index, source_step
-                    FROM (
-                        SELECT
-                            step_index,
-                            source_step,
-                            SUM(value) AS total_value,
-                            ROW_NUMBER() OVER (PARTITION BY step_index ORDER BY SUM(value) DESC) AS rn
-                        FROM paths
-                        WHERE source_step != {POSTHOG_DROPOFF}
-                        GROUP BY step_index, source_step
-                    )
-                    WHERE rn <= {max_rows_per_step}
-                ),
                 top_n_targets AS (
                     SELECT step_index, target_step
                     FROM (
@@ -337,14 +323,14 @@ class PathsV2QueryRunner(QueryRunner):
             SELECT
                 p.step_index,
                 p.source_step,
-                /* Replace source_step with "other", when it's not found in the top sources subquery. */
+                /* Replace source_step with "other", when it's not found in the top targets subquery for the previous step. */
                 CASE
                     -- always keep dropoffs
                     WHEN p.source_step = '$$_posthog_dropoff_$$'
                     -- always keep nulls, they indicate the path start
                     OR p.source_step IS NULL
                     -- lookup step in the subquery
-                    OR s.source_step IS NOT NULL THEN p.source_step
+                    OR s.target_step IS NOT NULL THEN p.source_step
                     ELSE '$$_posthog_other_$$'
                 END AS grouped_source_step,
                 p.target_step,
@@ -358,7 +344,7 @@ class PathsV2QueryRunner(QueryRunner):
                 END AS grouped_target_step,
                 p.value
             FROM paths p
-            LEFT JOIN top_n_sources s ON p.step_index = s.step_index AND p.source_step = s.source_step
+            LEFT JOIN top_n_targets s ON p.step_index - 1 = s.step_index AND p.source_step = s.target_step
             LEFT JOIN top_n_targets t ON p.step_index = t.step_index AND p.target_step = t.target_step
             """,
             placeholders={
