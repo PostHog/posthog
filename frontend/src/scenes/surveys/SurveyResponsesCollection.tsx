@@ -20,7 +20,8 @@ export function SurveyResponsesCollection(): JSX.Element | null {
     return (
         <LemonField.Pure
             label={<h3 className="mb-0">Do you want to store partial responses?</h3>}
-            info="If you enable this, we'll store responses even if the user does not complete the survey."
+            // TODO: update posthog-js minimum version
+            info="If you enable this, we'll store responses even if the user does not complete the survey. Requires version X.XXX.X or higher of posthog-js."
         >
             <LemonRadio
                 value={survey.store_partial_responses ? SurveyPartialResponses.Yes : SurveyPartialResponses.No}
