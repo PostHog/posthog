@@ -216,7 +216,7 @@ class PathsV2QueryRunner(QueryRunner):
                 arrayPushBack(paths_array_per_session, (now(), {POSTHOG_DROPOFF}, now())) as paths_array_per_session_with_dropoffs,
 
                 /* Returns the first n events per session. */
-                arraySlice(paths_array_per_session_with_dropoffs, 1, {max_steps}) as limited_paths_array_per_session
+                arraySlice(paths_array_per_session, 1, {max_steps}) as limited_paths_array_per_session
             FROM {paths_per_actor_as_array_query}
             ARRAY JOIN paths_array_session_split AS paths_array_per_session,
                 arrayEnumerate(paths_array_session_split) AS session_index
@@ -228,6 +228,7 @@ class PathsV2QueryRunner(QueryRunner):
                     name=interval_unit_to_sql(self.interval_unit),
                     args=[ast.Constant(value=self.interval)],
                 ),
+                "POSTHOG_DROPOFF": ast.Constant(value=POSTHOG_DROPOFF),
             },
         )
 
