@@ -16,13 +16,23 @@ import type { SDKsProps } from './SDKs'
 import { sdksLogic } from './sdksLogic'
 import { SDKSnippet } from './SDKSnippet'
 
-const NextButton = ({ installationComplete }: { installationComplete: boolean }): JSX.Element => {
+const NextButton = ({
+    installationComplete,
+    size = 'medium',
+}: {
+    installationComplete: boolean
+    size?: 'small' | 'medium'
+}): JSX.Element => {
     const { hasNextStep } = useValues(onboardingLogic)
     const { completeOnboarding, goToNextStep } = useActions(onboardingLogic)
 
     if (!installationComplete) {
         return (
-            <LemonButton type="secondary" onClick={() => (!hasNextStep ? completeOnboarding() : goToNextStep())}>
+            <LemonButton
+                type="secondary"
+                size={size}
+                onClick={() => (!hasNextStep ? completeOnboarding() : goToNextStep())}
+            >
                 Skip installation
             </LemonButton>
         )
@@ -122,14 +132,14 @@ export function AlternativeSDKs({
         >
             <div className="flex flex-col gap-y-4 mt-6">
                 <div className="flex flex-col gap-y-2">
-                    <div className="flex flex-row justify-between gap-4 flex-wrap">
+                    <div className="flex flex-col-reverse md:flex-row justify-between gap-4">
                         <LemonInput
                             value={searchTerm}
                             onChange={setSearchTerm}
                             placeholder="Search"
-                            className="w-full max-w-xs"
+                            className="w-full max-w-[220px]"
                         />
-                        <div className="flex flex-row gap-2">
+                        <div className="flex flex-row flex-wrap gap-2">
                             <InviteMembersButton
                                 type="primary"
                                 size="small"
@@ -148,6 +158,7 @@ export function AlternativeSDKs({
                             >
                                 Get help
                             </LemonButton>
+                            <NextButton size="small" installationComplete={installationComplete} />
                         </div>
                     </div>
                     <LemonTabs
