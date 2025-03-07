@@ -47,7 +47,7 @@ export const LemonActionableTooltip = ({
                 <div className="LemonActionableTooltip">
                     <div className="LemonActionableTooltip__header">
                         {maxSteps === 1 && (
-                            <div className="flex space-x-4">
+                            <div className="flex deprecated-space-x-4">
                                 {icon && <div className="LemonActionableTooltip__icon">{icon}</div>}
                                 <div className="LemonActionableTooltip__title">{title ?? ''}</div>
                             </div>
@@ -85,7 +85,7 @@ export const LemonActionableTooltip = ({
                     </div>
                     <div className="LemonActionableTooltip__body">
                         {maxSteps > 1 && (
-                            <div className="flex space-x-4">
+                            <div className="flex deprecated-space-x-4">
                                 {icon && <div className="LemonActionableTooltip__icon">{icon}</div>}
                                 <div className="LemonActionableTooltip__title">{title ?? ''}</div>
                             </div>

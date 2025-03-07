@@ -22,8 +22,10 @@ import {
     IconWeb,
     IconWindows,
 } from 'lib/lemon-ui/icons'
-import { forwardRef, HTMLAttributes, Ref } from 'react'
-import { countryCodeToFlag } from 'scenes/insights/views/WorldMap'
+import { countryCodeToFlag } from 'lib/utils/geography/country'
+import { forwardRef, Ref } from 'react'
+
+import { PropertyIconProps } from './types'
 
 const osIcons = {
     // backwards compatibility, Mac OS X is now macOS, we need to match both
@@ -44,7 +46,7 @@ const osIcons = {
     ['watchos']: <IconMacOS />,
 }
 
-export const PROPERTIES_ICON_MAP = {
+export const PROPERTIES_ICON_MAP: Record<string, Record<string, JSX.Element>> = {
     $browser: {
         ['chrome']: <IconChrome />,
         ['chrome ios']: <IconChrome />,
@@ -82,14 +84,7 @@ export const PROPERTIES_ICON_MAP = {
     },
 }
 
-interface PropertyIconProps {
-    property: string
-    value?: string
-    className?: string
-    onClick?: HTMLAttributes<HTMLDivElement>['onClick']
-}
-
-export const PropertyIcon = forwardRef(function PropertyIcon(
+export const PropertyIconStandalone = forwardRef(function PropertyIconBase(
     { property, value, className }: PropertyIconProps,
     ref: Ref<HTMLDivElement>
 ): JSX.Element {
@@ -102,9 +97,8 @@ export const PropertyIcon = forwardRef(function PropertyIcon(
         !!needle && needle in PROPERTIES_ICON_MAP[property]
             ? PROPERTIES_ICON_MAP[property][needle]
             : PROPERTIES_ICON_MAP[property]['other']
-
     if (property === '$geoip_country_code' && value?.length === 2) {
-        icon = countryCodeToFlag(value)
+        icon = <>{countryCodeToFlag(value)}</>
     }
 
     return (

@@ -1,4 +1,5 @@
 /** @type {import('tailwindcss').Config} */
+const plugin = require('tailwindcss/plugin')
 
 const commonColors = {
     'inherit': 'inherit',
@@ -307,15 +308,14 @@ const deprecatedColors = {
 
 const config = {
     content: [
-        // Starting all paths with '.." to share this between frontend/, cypress/, playwright/ and common/storybook/
-        // Update common/storybook/tailwind.config.js if you change this
-        '../frontend/src/**/*.{ts,tsx}',
-        '../ee/frontend/**/*.{ts,tsx}',
-        '../frontend/src/index.html',
-        '../products/**/frontend/**/*.{ts,tsx}',
-        '../common/**/src/**/*.{ts,tsx}',
-        '../common/**/frontend/**/*.{ts,tsx}',
-        '!../frontend/src/**/*Type.ts',
+        // Starting all paths with '../.." to share this between frontend/, cypress/, playwright/ and common/storybook/
+        '../../frontend/src/**/*.{ts,tsx}',
+        '../../ee/frontend/**/*.{ts,tsx}',
+        '../../frontend/src/index.html',
+        '../../products/**/frontend/**/*.{ts,tsx}',
+        '../../common/**/src/**/*.{ts,tsx}',
+        '../../common/**/frontend/**/*.{ts,tsx}',
+        '!../../frontend/src/**/*Type.ts',
     ],
     darkMode: ['selector', '[theme="dark"]'],
     important: true,
@@ -732,9 +732,6 @@ const config = {
                 lg: 'var(--radius-lg)',
                 full: '9999px',
             },
-            fontSize: {
-                xxs: ['0.625rem', '0.75rem'], // 10px (12px of line height)
-            },
             spacing: {
                 // Some additional larger widths for compatibility with our pre-Tailwind system
                 // Don't add new ones here, in new code just use the `w-[32rem]` style for arbitrary values
@@ -781,6 +778,29 @@ const config = {
     },
     plugins: [
         require('@tailwindcss/container-queries'),
+        plugin(({ addUtilities, theme }) => {
+            const spacing = theme("spacing");
+            const newUtilities = {};
+            
+
+            // Standard spacing utilities for backwards compatibility
+            for (const [key, value] of Object.entries(spacing)) {
+                if (!key.includes('.')) {
+                    newUtilities[`.deprecated-space-y-${key} > :not([hidden]) ~ :not([hidden])`] = {
+                        '--tw-space-y-reverse': '0',
+                        'margin-top': `calc(${value} * calc(1 - var(--tw-space-y-reverse)))`,
+                        'margin-bottom': `calc(${value} * var(--tw-space-y-reverse))`,
+                    };
+                    newUtilities[`.deprecated-space-x-${key} > :not([hidden]) ~ :not([hidden])`] = {
+                        '--tw-space-x-reverse': '0',
+                        'margin-right': `calc(${value} * var(--tw-space-x-reverse))`,
+                        'margin-left': `calc(${value} * calc(1 - var(--tw-space-x-reverse)))`,
+                    };
+                }
+            }
+
+            addUtilities(newUtilities);
+        }),
     ],
 }
 

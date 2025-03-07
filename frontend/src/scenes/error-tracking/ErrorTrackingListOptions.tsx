@@ -19,7 +19,7 @@ export const ErrorTrackingListOptions = (): JSX.Element => {
     return (
         <>
             <div className="sticky top-[var(--breadcrumbs-height-compact)] z-20 py-2 bg-primary flex justify-between">
-                <div className="flex space-x-2">
+                <div className="flex deprecated-space-x-2">
                     <LemonButton
                         disabledReason={selectedIssueIds.length < 2 ? 'Select at least two issues to merge' : null}
                         type="secondary"
@@ -38,7 +38,7 @@ export const ErrorTrackingListOptions = (): JSX.Element => {
                     )}
                 </div>
                 {selectedIssueIds.length < 1 && (
-                    <span className="flex space-x-2">
+                    <span className="flex deprecated-space-x-2">
                         <div className="flex items-center gap-1">
                             <span>Status:</span>
                             <LemonSelect
