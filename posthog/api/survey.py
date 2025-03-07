@@ -960,15 +960,7 @@ def surveys(request: Request):
             ),
         )
 
-    if team.surveys_opt_in:
-        return cors_response(request, JsonResponse(get_surveys_response(team)))
-    else:
-        response = {
-            "surveys": [],
-            "survey_config": None,
-        }
-
-        return cors_response(request, JsonResponse(response))
+    return cors_response(request, JsonResponse(get_surveys_response(team)))
 
 
 @contextmanager
