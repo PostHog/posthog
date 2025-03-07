@@ -77,10 +77,19 @@ class PathsV2QueryRunner(QueryRunner):
             limit_context=self.limit_context,
         )
 
-        results = [
-            PathsV2Item(step_index=step_index, source_step=source, target_step=target, value=value)
-            for step_index, source, target, value in response.results
-        ]
+        results = sorted(
+            [
+                PathsV2Item(step_index=step_index, source_step=source, target_step=target, value=value)
+                for step_index, source, target, value in response.results
+            ],
+            # sort items within each step by value, and put other and dropoffs at the end
+            key=lambda item: (
+                item.step_index,
+                item.target_step == POSTHOG_OTHER,
+                item.target_step == POSTHOG_DROPOFF,
+                -item.value,
+            ),
+        )
 
         return PathsV2QueryResponse(
             results=results, timings=response.timings, hogql=response.hogql, modifiers=self.modifiers

@@ -86,73 +86,7 @@ class TestPathsV2(SharedSetup):
             ],
         )
 
-    def test_max_rows_aggregates_target_step(self):
-        # null -> a           null -> a
-        # null -> b           null -> b
-        # null -> c           null -> $$__other__$$
-        # null -> d           null -> $$__other__$$
-
-        # Node(item="a", value=1, type="start")
-        # Node(item="b", value=1, type="start")
-        # Node(item="$$__other__$$", value=2, type="start")
-
-        # a -> a              a -> a
-        # a -> b              a -> b
-        # a -> c              a -> $$__other__$$
-        # a -> d              a -> $$__other__$$
-
-        # Link(source="a", target="a", value=1)
-        # Link(source="a", target="b", value=1)
-        # Link(source="a", target="$$__other__$$", value=2)
-        # Link(source="b", target="$$__dropoff__$$", value=1)
-        # Link(source="$$__other__$$", target="$$__dropoff__$$", value=2)
-        # Link(source="b", target="$$__dropoff__$$", value=2)
-
-        # value for a node is sum of all incoming link values
-
-        # can the graph with dropoffs and aggregation counts always be displayed as links only?
-
-        _ = journeys_for(
-            team=self.team,
-            events_by_person={
-                "person1": [
-                    {"event": "step_1_a"},
-                    {"event": "step_2_a"},
-                ],
-                "person2": [
-                    {"event": "step_1_a"},
-                    {"event": "step_2_b"},
-                ],
-                "person3": [
-                    {"event": "step_1_a"},
-                    {"event": "step_2_c"},
-                ],
-                "person4": [
-                    {"event": "step_1_a"},
-                    {"event": "step_2_d"},
-                ],
-            },
-        )
-
-        filter = PathsV2Filter(maxRowsPerStep=2)
-        query = PathsV2Query(pathsV2Filter=filter)
-        query_runner = self._get_query_runner(query=query)
-
-        response = query_runner.calculate()
-
-        # we expect two ungrouped results, and a grouped one
-        # count for the grouped one should be aggregated
-
-        self.assertEqual(
-            response.results,
-            [
-                PathsV2Item(value=1.0, source_step="step_1_a", target_step="step_2_a", step_index=2),
-                PathsV2Item(value=1.0, source_step="step_1_a", target_step="step_2_b", step_index=2),
-                PathsV2Item(value=2.0, source_step="step_1_a", target_step=POSTHOG_OTHER, step_index=2),
-            ],
-        )
-
-    def test_max_rows_aggregates(self):
+    def test_aggregates_nodes_exceeding_limit(self):
         _ = journeys_for(
             team=self.team,
             events_by_person={
@@ -200,6 +134,34 @@ class TestPathsV2(SharedSetup):
                 PathsV2Item(step_index=1, source_step="a3", target_step="a3", value=3),
                 PathsV2Item(step_index=1, source_step=POSTHOG_OTHER, target_step="b1", value=2),
                 PathsV2Item(step_index=1, source_step=POSTHOG_OTHER, target_step=POSTHOG_DROPOFF, value=1),
+            ],
+        )
+
+    def test_aggregates_nodes_grouping(self):
+        _ = journeys_for(
+            team=self.team,
+            events_by_person={
+                # 2x a1 -> b1
+                "person1": [{"event": "a1"}, {"event": "b1"}],
+                "person2": [{"event": "a1"}, {"event": "b1"}],
+                # 1x a2 -> b2
+                "person3": [{"event": "a2"}, {"event": "b2"}],
+                # 1x a3 -> b3
+                "person4": [{"event": "a3"}, {"event": "b3"}],
+            },
+        )
+
+        filter = PathsV2Filter(maxRowsPerStep=1)
+        query = PathsV2Query(pathsV2Filter=filter)
+        query_runner = self._get_query_runner(query=query)
+
+        response = query_runner.calculate()
+
+        self.assertEqual(
+            [item for item in response.results if item.step_index == 1],
+            [
+                PathsV2Item(step_index=1, source_step="a1", target_step="b1", value=2),
+                PathsV2Item(step_index=1, source_step=POSTHOG_OTHER, target_step=POSTHOG_OTHER, value=2),
             ],
         )
 
