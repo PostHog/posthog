@@ -175,12 +175,12 @@ def load_private_key(private_key: str, passphrase: str | None) -> bytes:
         elif "Password was given but private key is not encrypted" in str(e):
             if passphrase == "":
                 try:
-                    p_key = load_private_key(private_key, None)
+                    loaded = load_private_key(private_key, None)
                 except (ValueError, TypeError):
                     # Proceed with top level handling
                     pass
                 else:
-                    return p_key
+                    return loaded
             msg = "Could not load private key: passphrase was given but private key is not encrypted"
 
         raise InvalidPrivateKeyError(msg)
