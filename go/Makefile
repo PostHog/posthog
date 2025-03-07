@@ -77,6 +77,11 @@ lint-%: download-%
 		exit 1; \
 	fi
 
-clean:
+clean-go:
+	go clean -modcache
+	go clean -testcache
+	go clean -cache
+
+clean: clean-go
 	rm -rf bin/
 	find . -name "*.test" -delete 
