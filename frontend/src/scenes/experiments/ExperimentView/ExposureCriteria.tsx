@@ -57,7 +57,7 @@ function ExposureCriteriaModal(): JSX.Element {
                     className={`trends-metric-form__exposure-button flex-1 cursor-pointer p-4 rounded border ${
                         !experiment.exposure_criteria?.exposure_config
                             ? 'border-accent-primary bg-accent-primary-highlight'
-                            : 'border-border'
+                            : 'border-primary'
                     }`}
                     onClick={() => {
                         setExposureCriteria({
@@ -81,7 +81,7 @@ function ExposureCriteriaModal(): JSX.Element {
                     className={`trends-metric-form__exposure-button flex-1 cursor-pointer p-4 rounded border ${
                         experiment.exposure_criteria?.exposure_config
                             ? 'border-accent-primary bg-accent-primary-highlight'
-                            : 'border-border'
+                            : 'border-primary'
                     }`}
                     onClick={() => {
                         setExposureCriteria({

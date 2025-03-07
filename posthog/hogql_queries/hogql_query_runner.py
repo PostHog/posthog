@@ -57,6 +57,7 @@ class HogQLQueryRunner(QueryRunner):
             Callable[..., HogQLQueryResponse],
             execute_hogql_query if paginator is None else paginator.execute_hogql_query,
         )
+
         response = func(
             query_type="HogQLQuery",
             query=query,
