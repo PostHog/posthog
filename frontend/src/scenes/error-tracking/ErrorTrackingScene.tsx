@@ -59,8 +59,8 @@ export function ErrorTrackingScene(): JSX.Element {
             occurrences: { align: 'center', render: CountColumn },
             sessions: { align: 'center', render: CountColumn },
             users: { align: 'center', render: CountColumn },
-            volume: { renderTitle: VolumeColumnHeader, render: VolumeColumn },
-            assignee: { render: AssigneeColumn },
+            volume: { align: 'right', renderTitle: VolumeColumnHeader, render: VolumeColumn },
+            assignee: { align: 'center', render: AssigneeColumn },
         },
         showOpenEditorButton: false,
         insightProps: insightProps,
@@ -103,7 +103,11 @@ const VolumeColumn: QueryContextColumnComponent = (props) => {
             ? [record.aggregations.customVolume, sparklineLabels(customSparklineConfig)]
             : [null, null]
 
-    return data ? <Sparkline className="h-8" data={data} labels={labels} /> : null
+    return data ? (
+        <div className="flex justify-end">
+            <Sparkline className="h-8" data={data} labels={labels} />
+        </div>
+    ) : null
 }
 
 const VolumeColumnHeader: QueryContextColumnTitleComponent = ({ columnName }) => {
@@ -132,7 +136,7 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
     const checked = selectedIssueIds.includes(record.id)
 
     return (
-        <div className="flex items-start space-x-1.5 group">
+        <div className="flex items-start gap-x-1.5 group">
             <LemonCheckbox
                 className="pt-1"
                 checked={checked}
@@ -147,9 +151,9 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
             <LemonTableLink
                 title={record.name || 'Unknown Type'}
                 description={
-                    <div className="space-y-1">
+                    <div className="deprecated-space-y-1">
                         <div className="line-clamp-1">{record.description}</div>
-                        <div className="space-x-1">
+                        <div className="deprecated-space-x-1">
                             <TZLabel time={record.first_seen} className="border-dotted border-b" delayMs={750} />
                             <span>|</span>
                             {record.last_seen ? (
@@ -160,7 +164,7 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                         </div>
                     </div>
                 }
-                className="flex-1"
+                className="flex-1 pr-12"
                 to={urls.errorTrackingIssue(record.id)}
                 onClick={() => {
                     const issueLogic = errorTrackingIssueSceneLogic({ id: record.id })
@@ -176,12 +180,16 @@ const CountColumn = ({ record, columnName }: { record: unknown; columnName: stri
     const aggregations = (record as ErrorTrackingIssue).aggregations as ErrorTrackingIssueAggregations
     const count = aggregations[columnName as 'occurrences' | 'sessions' | 'users']
 
-    return columnName === 'sessions' && count === 0 ? (
-        <Tooltip title="No $session_id was set for any event in this issue" delayMs={0}>
-            -
-        </Tooltip>
-    ) : (
-        <>{humanFriendlyLargeNumber(count)}</>
+    return (
+        <span className="text-lg font-medium">
+            {columnName === 'sessions' && count === 0 ? (
+                <Tooltip title="No $session_id was set for any event in this issue" delayMs={0}>
+                    -
+                </Tooltip>
+            ) : (
+                humanFriendlyLargeNumber(count)
+            )}
+        </span>
     )
 }
 

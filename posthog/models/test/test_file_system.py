@@ -1,6 +1,14 @@
 from django.test import TestCase
 from posthog.models import FeatureFlag, Experiment, Dashboard, Insight, Notebook, Team, User, Organization
-from posthog.models.file_system import FileSystem, save_unfiled_files, FileSystemType, sanitize_filename
+from posthog.models.file_system import (
+    FileSystem,
+    save_unfiled_files,
+    UnfiledFileSaver,
+    FileSystemType,
+    escape_path,
+    join_path,
+    split_path,
+)
 
 
 class TestFileSystemModel(TestCase):
@@ -140,9 +148,112 @@ class TestFileSystemModel(TestCase):
             ],
         )
 
-    def test_sanitize_filename(self):
-        self.assertEqual(sanitize_filename("Hello, World!"), "Hello, World!")
-        self.assertEqual(sanitize_filename("Hello/World"), "Hello\\/World")
-        self.assertEqual(sanitize_filename("Hello: World"), "Hello: World")
-        self.assertEqual(sanitize_filename("Hello\\World"), "Hello\\\\World")
-        self.assertEqual(sanitize_filename("Hello\\/World"), "Hello\\\\\\/World")
+    def test_split_path(self):
+        self.assertEqual(split_path("a/b"), ["a", "b"])
+        self.assertEqual(split_path("a\\/b/c"), ["a/b", "c"])
+        self.assertEqual(split_path("a\\/b\\\\/c"), ["a/b\\", "c"])
+        self.assertEqual(split_path("a\n\t/b"), ["a\n\t", "b"])
+        self.assertEqual(split_path("a"), ["a"])
+        self.assertEqual(split_path(""), [])
+        self.assertEqual(split_path("///"), [])  # all empty segments
+        self.assertEqual(split_path("a////b"), ["a", "b"])
+
+    def test_escape_path(self):
+        self.assertEqual(escape_path(""), "")
+        self.assertEqual(escape_path("abc"), "abc")
+        self.assertEqual(escape_path("a/b"), "a\\/b")
+        self.assertEqual(escape_path("a\\b"), "a\\\\b")
+        self.assertEqual(escape_path("a/b\\c"), "a\\/b\\\\c")
+        self.assertEqual(escape_path("\\/"), "\\\\\\/")  # each slash/backslash gets escaped
+        self.assertEqual(escape_path("Hello, World!"), "Hello, World!")
+        self.assertEqual(escape_path("Hello/World"), "Hello\\/World")
+        self.assertEqual(escape_path("Hello: World"), "Hello: World")
+        self.assertEqual(escape_path("Hello\\World"), "Hello\\\\World")
+        self.assertEqual(escape_path("Hello\\/World"), "Hello\\\\\\/World")
+
+    def test_join_path(self):
+        # Normal usage
+        self.assertEqual(join_path(["a", "b"]), "a/b")
+        self.assertEqual(join_path(["one", "two", "three"]), "one/two/three")
+        # Check that forward slashes and backslashes get escaped within segments
+        self.assertEqual(join_path(["a/b", "c\\d"]), "a\\/b/c\\\\d")
+        # Edge case: empty list
+        self.assertEqual(join_path([]), "")
+
+    def test_generate_unique_path_no_conflict(self):
+        """
+        Directly test _generate_unique_path in a scenario with no existing conflicts.
+        """
+        saver = UnfiledFileSaver(self.team, self.user)
+        # There's nothing in DB, so "Unfiled/Feature Flags/My Flag" should be used directly
+        path = saver._generate_unique_path("Unfiled/Feature Flags", "My Flag")
+        self.assertEqual(path, "Unfiled/Feature Flags/My Flag")
+
+        # Now it's in memory, but not in DB
+        # A new name "Another Flag" should be used with no conflict
+        path_2 = saver._generate_unique_path("Unfiled/Feature Flags", "Another Flag")
+        self.assertEqual(path_2, "Unfiled/Feature Flags/Another Flag")
+
+    def test_generate_unique_path_db_conflict(self):
+        """
+        Directly test _generate_unique_path where the DB already has a path.
+        """
+        # Create an existing FileSystem object in DB to mimic a conflict
+        existing_path = "Unfiled/Feature Flags/My Flag"
+        FileSystem.objects.create(
+            team=self.team,
+            path=existing_path,
+            type=FileSystemType.FEATURE_FLAG,
+            ref="some_ref",
+            created_by=self.user,
+        )
+
+        saver = UnfiledFileSaver(self.team, self.user)
+
+        # The original name is taken by the DB object
+        path = saver._generate_unique_path("Unfiled/Feature Flags", "My Flag")
+        self.assertEqual(path, "Unfiled/Feature Flags/My Flag (1)")
+
+        # Add a second item with the same name, ensure it increments
+        path_2 = saver._generate_unique_path("Unfiled/Feature Flags", "My Flag")
+        self.assertEqual(path_2, "Unfiled/Feature Flags/My Flag (2)")
+
+    def test_generate_unique_path_in_memory_conflict(self):
+        """
+        Directly test _generate_unique_path conflicts within the same run
+        (no conflict in DB, but two items with the same name in memory).
+        """
+        saver = UnfiledFileSaver(self.team, self.user)
+        path_1 = saver._generate_unique_path("Unfiled/Feature Flags", "My Flag")
+        self.assertEqual(path_1, "Unfiled/Feature Flags/My Flag")
+
+        # This second path will conflict with the first in-memory, even though DB is empty
+        path_2 = saver._generate_unique_path("Unfiled/Feature Flags", "My Flag")
+        self.assertEqual(path_2, "Unfiled/Feature Flags/My Flag (1)")
+
+    # Example test for save_unfiled_files with a specific file_type
+    def test_save_unfiled_files_specific_type(self):
+        """
+        If we pass a specific file_type (e.g., FEATURE_FLAG) then only that type should be saved.
+        """
+        # Create a FeatureFlag and a Dashboard
+        FeatureFlag.objects.create(team=self.team, name="A Flag", created_by=self.user, key="flaggy")
+        Dashboard.objects.create(team=self.team, name="A Dashboard", created_by=self.user)
+
+        # Call with file_type=FEATURE_FLAG
+        created_flags = save_unfiled_files(self.team, self.user, file_type=FileSystemType.FEATURE_FLAG)
+        self.assertEqual(len(created_flags), 1)
+        self.assertEqual(created_flags[0].type, FileSystemType.FEATURE_FLAG)
+        self.assertEqual(created_flags[0].path, "Unfiled/Feature Flags/A Flag")
+
+        # Ensure dashboard is still unfiled
+        self.assertEqual(FileSystem.objects.count(), 1)
+
+        # Now explicitly save dashboards
+        created_dashboards = save_unfiled_files(self.team, self.user, file_type=FileSystemType.DASHBOARD)
+        self.assertEqual(len(created_dashboards), 1)
+        self.assertEqual(created_dashboards[0].type, FileSystemType.DASHBOARD)
+        self.assertEqual(created_dashboards[0].path, "Unfiled/Dashboards/A Dashboard")
+
+        # Confirm total in DB
+        self.assertEqual(FileSystem.objects.count(), 2)

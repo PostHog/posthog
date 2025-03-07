@@ -223,6 +223,7 @@ def enqueue_process_query_task(
     refresh_requested: bool = False,
     force: bool = False,
     _test_only_bypass_celery: bool = False,
+    api_query_personal_key: bool = False,
 ) -> QueryStatus:
     if not query_id:
         query_id = uuid.uuid4().hex
@@ -246,7 +247,9 @@ def enqueue_process_query_task(
     )
     manager.store_query_status(query_status)
 
-    task_signature = process_query_task.si(team.id, user_id, query_id, query_json, LimitContext.QUERY_ASYNC)
+    task_signature = process_query_task.si(
+        team.id, user_id, query_id, query_json, api_query_personal_key, LimitContext.QUERY_ASYNC
+    )
 
     if _test_only_bypass_celery:
         task_signature()

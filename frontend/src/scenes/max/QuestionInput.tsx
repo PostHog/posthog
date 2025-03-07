@@ -4,6 +4,8 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
+import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+
 import { maxLogic } from './maxLogic'
 
 export function QuestionInput(): JSX.Element {
@@ -31,7 +33,7 @@ export function QuestionInput(): JSX.Element {
                 className={clsx(
                     'flex flex-col items-center gap-2',
                     isFloating &&
-                        'p-1 mb-3 bottom-3 border border-[var(--border-primary)] rounded-lg backdrop-blur bg-[var(--glass-bg-3000)]'
+                        'p-1 mb-3 bottom-3 border border-[var(--border-primary)] rounded-lg backdrop-blur-sm bg-[var(--glass-bg-3000)]'
                 )}
             >
                 <LemonTextArea
@@ -65,7 +67,15 @@ export function QuestionInput(): JSX.Element {
                                 askMax(question)
                             }
                         }}
-                        tooltip={threadLoading ? "Let's bail" : "Let's go!"}
+                        tooltip={
+                            threadLoading ? (
+                                "Let's bail"
+                            ) : (
+                                <>
+                                    Let's go! <KeyboardShortcut enter />
+                                </>
+                            )
+                        }
                         disabledReason={submissionDisabledReason}
                         size="small"
                         icon={threadLoading ? <IconStopFilled /> : <IconArrowRight />}

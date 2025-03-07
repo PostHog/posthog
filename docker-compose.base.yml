@@ -158,6 +158,7 @@ services:
             PGUSER: posthog
             PGPASSWORD: posthog
             DEPLOYMENT: hobby
+            CDP_API_URL: 'http://plugins:6738'
 
     web:
         <<: *worker

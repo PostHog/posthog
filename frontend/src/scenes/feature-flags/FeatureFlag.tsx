@@ -128,7 +128,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
 
     if (featureFlagLoading) {
         return (
-            <div className="space-y-2">
+            <div className="deprecated-space-y-2">
                 <LemonSkeleton active className="h-4 w-2/5" />
                 <LemonSkeleton active className="h-4 w-full" />
                 <LemonSkeleton active className="h-4 w-full" />
@@ -250,7 +250,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                         props={props}
                         formKey="featureFlag"
                         enableFormOnSubmit
-                        className="space-y-4"
+                        className="deprecated-space-y-4"
                     >
                         <PageHeader
                             buttons={
@@ -290,7 +290,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                             </LemonBanner>
                         )}
                         <div className="my-4">
-                            <div className="max-w-1/2 space-y-4">
+                            <div className="max-w-1/2 deprecated-space-y-4">
                                 <LemonField
                                     name="key"
                                     label="Key"
@@ -486,7 +486,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                             caption={
                                 <div>
                                     <div className="flex flex-wrap items-center gap-2">
-                                        <div className="flex space-x-1">
+                                        <div className="flex deprecated-space-x-1">
                                             <div>
                                                 <span className="text-secondary">Key:</span>{' '}
                                                 <CopyToClipboardInline
@@ -546,6 +546,13 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                         </>
                                                     )}
 
+                                                    <LemonButton
+                                                        to={urls.featureFlagDuplicate(featureFlag.id)}
+                                                        fullWidth
+                                                    >
+                                                        <span>Duplicate feature flag</span>
+                                                    </LemonButton>
+                                                    <LemonDivider />
                                                     <AccessControlledLemonButton
                                                         userAccessLevel={featureFlag.user_access_level}
                                                         minAccessLevel="editor"
@@ -1151,7 +1158,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                 <div className="feature-flag-variants">
                     <h3 className="l4">Variant keys</h3>
                     <span>The rollout percentage of feature flag variants must add up to 100%</span>
-                    <div className="VariantFormList space-y-2">
+                    <div className="VariantFormList deprecated-space-y-2">
                         <div className="VariantFormList__row grid label-row gap-2 items-center">
                             <div />
                             <div className="col-span-4">Variant key</div>

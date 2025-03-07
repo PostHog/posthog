@@ -8,7 +8,7 @@ interface SurveyDragHandleProps {
 }
 
 const DragHandle = ({ listeners }: { listeners: DraggableSyntheticListeners | undefined }): JSX.Element => (
-    <span className="SurveyQuestionDragHandle" {...listeners} data-testid="survey-question-drag-handle">
+    <span className="SurveyQuestionDragHandle" {...listeners} data-attr="survey-question-drag-handle">
         <SortableDragIcon />
     </span>
 )
