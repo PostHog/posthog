@@ -1,7 +1,7 @@
 import { HeadBucketCommand, S3Client } from '@aws-sdk/client-s3'
 
-import { PluginsServerConfig } from '../../types'
-import { status } from '../../utils/status'
+import { PluginsServerConfig } from '../types'
+import { status } from './status'
 
 export interface ObjectStorage {
     healthcheck: () => Promise<boolean>
