@@ -320,6 +320,20 @@ class PathsV2QueryRunner(QueryRunner):
                         GROUP BY step_index, source_step
                     )
                     WHERE rn <= {max_rows_per_step}
+                ),
+                top_n_targets AS (
+                    SELECT step_index, target_step
+                    FROM (
+                        SELECT
+                            step_index,
+                            target_step,
+                            SUM(value) AS total_value,
+                            ROW_NUMBER() OVER (PARTITION BY step_index ORDER BY SUM(value) DESC) AS rn
+                        FROM paths
+                        WHERE target_step != {POSTHOG_DROPOFF}
+                        GROUP BY step_index, target_step
+                    )
+                    WHERE rn <= {max_rows_per_step}
                 )
             SELECT
                 p.step_index,
@@ -335,9 +349,18 @@ class PathsV2QueryRunner(QueryRunner):
                     ELSE '$$_posthog_other_$$'
                 END AS grouped_source_step,
                 p.target_step,
+                /* Replace target_step with "other", when it's not found in the top targets subquery. */
+                CASE
+                    -- always keep dropoffs
+                    WHEN p.target_step = '$$_posthog_dropoff_$$'
+                    -- lookup step in the subquery
+                    OR t.target_step IS NOT NULL THEN p.target_step
+                    ELSE '$$_posthog_other_$$'
+                END AS grouped_target_step,
                 p.value
             FROM paths p
             LEFT JOIN top_n_sources s ON p.step_index = s.step_index AND p.source_step = s.source_step
+            LEFT JOIN top_n_targets t ON p.step_index = t.step_index AND p.target_step = t.target_step
             """,
             placeholders={
                 "paths_flattened_with_previous_item": self._paths_flattened_with_previous_item(),
