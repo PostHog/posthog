@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import {
     convertPropertiesToPropertyGroup,
     formatPropertyLabel,
@@ -39,6 +40,7 @@ import {
     isActionsNode,
     isEventsNode,
     isFunnelsQuery,
+    isHogQLQuery,
     isInsightQueryWithBreakdown,
     isInsightQueryWithSeries,
     isInsightVizNode,
@@ -322,36 +324,47 @@ export function SeriesSummary({
     return (
         <section>
             {heading !== null && <h5>{heading || 'Query summary'}</h5>}
-            <div className="InsightDetails__query">
-                {isTrendsQuery(query) && query.trendsFilter?.formula && (
-                    <>
-                        <LemonRow className="InsightDetails__formula" icon={<IconCalculate />} fullWidth>
-                            <span>
-                                Formula:<code>{query.trendsFilter?.formula}</code>
-                            </span>
-                        </LemonRow>
-                        <LemonDivider />
-                    </>
-                )}
-                <div className="InsightDetails__series">
-                    {isPathsQuery(query) ? (
-                        <PathsSummary query={query} />
-                    ) : isRetentionQuery(query) ? (
-                        <RetentionSummary query={query} />
-                    ) : isInsightQueryWithSeries(query) ? (
+            {isHogQLQuery(query) ? (
+                <CodeSnippet
+                    language={Language.SQL}
+                    maxLinesWithoutExpansion={10}
+                    compact
+                    className="InsightDetails__query"
+                >
+                    {query.query}
+                </CodeSnippet>
+            ) : (
+                <div className="InsightDetails__query">
+                    {isTrendsQuery(query) && query.trendsFilter?.formula && (
                         <>
-                            {query.series.map((_entity, index) => (
-                                <React.Fragment key={index}>
-                                    {index !== 0 && <LemonDivider className="my-1" />}
-                                    <SeriesDisplay query={query} seriesIndex={index} />
-                                </React.Fragment>
-                            ))}
+                            <LemonRow className="InsightDetails__formula" icon={<IconCalculate />} fullWidth>
+                                <span>
+                                    Formula:<code>{query.trendsFilter?.formula}</code>
+                                </span>
+                            </LemonRow>
+                            <LemonDivider />
                         </>
-                    ) : (
-                        <i>Query summary is not available for {(query as Node).kind} yet</i>
                     )}
+                    <div className="InsightDetails__series">
+                        {isPathsQuery(query) ? (
+                            <PathsSummary query={query} />
+                        ) : isRetentionQuery(query) ? (
+                            <RetentionSummary query={query} />
+                        ) : isInsightQueryWithSeries(query) ? (
+                            <>
+                                {query.series.map((_entity, index) => (
+                                    <React.Fragment key={index}>
+                                        {index !== 0 && <LemonDivider className="my-1" />}
+                                        <SeriesDisplay query={query} seriesIndex={index} />
+                                    </React.Fragment>
+                                ))}
+                            </>
+                        ) : (
+                            <i>Query summary is not available for {(query as Node).kind} yet</i>
+                        )}
+                    </div>
                 </div>
-            </div>
+            )}
         </section>
     )
 }
@@ -419,7 +432,11 @@ export const InsightDetails = React.memo(
                 {isInsightVizNode(query) && (
                     <>
                         <SeriesSummary query={query.source} />
-                        <PropertiesSummary properties={query.source.properties} />
+                        <PropertiesSummary
+                            properties={
+                                isHogQLQuery(query.source) ? query.source.filters?.properties : query.source.properties
+                            }
+                        />
                         <BreakdownSummary query={query.source} />
                     </>
                 )}
