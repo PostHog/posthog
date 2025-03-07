@@ -91,6 +91,7 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
             use_remote_config = True
 
     REMOTE_CONFIG_CACHE_COUNTER.labels(result=use_remote_config).inc()
+    surveys_opt_in = True if team.surveys_opt_in else False
 
     if use_remote_config:
         response = RemoteConfig.get_config_via_token(token, request=request)
@@ -99,7 +100,7 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
         response["isAuthenticated"] = False
         response["toolbarParams"] = {}
         response["config"] = {"enable_collect_everything": True}
-        response["surveys"] = True if len(response["surveys"]) > 0 else False
+        response["surveys"] = surveys_opt_in
 
         # Remove some stuff that is specific to the new RemoteConfig
         del response["hasFeatureFlags"]
@@ -168,7 +169,7 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
             response["quotaLimited"] = ["recordings"]
             response["sessionRecording"] = False
 
-    response["surveys"] = True if team.surveys_opt_in else False
+    response["surveys"] = surveys_opt_in
     response["heatmaps"] = True if team.heatmaps_opt_in else False
     response["flagsPersistenceDefault"] = True if team.flags_persistence_default else False
     response["defaultIdentifiedOnly"] = True  # Support old SDK versions with setting that is now the default
