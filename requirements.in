@@ -7,7 +7,7 @@
 aiohttp==3.11.10
 aioboto3==12.0.0
 aiokafka>=0.8
-anthropic==0.44.0
+anthropic==0.49.0
 antlr4-python3-runtime==4.13.1
 beautifulsoup4==4.12.3
 boto3==1.28.16
@@ -55,9 +55,10 @@ infi-clickhouse-orm@ git+https://github.com/PostHog/infi.clickhouse_orm@9578c79f
 jsonref==1.1.0
 kafka-python==2.0.2
 kombu==5.3.2
-langchain==0.3.9
+langchain==0.3.20
 langchain-community==0.3.2
 langchain-openai==0.2.11
+langchain-anthropic==0.3.9
 langgraph==0.2.56
 lzstring==1.0.4
 multidict==6.0.5 # Not used by us directly, but code won't run on Ubuntu 24.04 unless we resolve this to 6.0.5

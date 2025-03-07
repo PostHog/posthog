@@ -95,7 +95,7 @@ class Assistant:
         self._latest_message = new_message.model_copy(deep=True, update={"id": str(uuid4())})
         self._is_new_conversation = is_new_conversation
         self._graph = AssistantGraph(team).compile_full_graph()
-        self._chunks = AIMessageChunk(content="")
+        self._chunks = AIMessageChunk(content=[])
         self._state = None
         self._callback_handler = (
             CallbackHandler(
@@ -270,7 +270,7 @@ class Assistant:
 
         if intersected_nodes := state_update.keys() & VISUALIZATION_NODES.keys():
             # Reset chunks when schema validation fails.
-            self._chunks = AIMessageChunk(content="")
+            self._chunks = AIMessageChunk(content=[])
 
             node_name = intersected_nodes.pop()
             node_val = state_update[node_name]
@@ -284,7 +284,7 @@ class Assistant:
         for node_name in VERBOSE_NODES:
             if node_val := state_update.get(node_name):
                 if isinstance(node_val, PartialAssistantState) and node_val.messages:
-                    self._chunks = AIMessageChunk(content="")
+                    self._chunks = AIMessageChunk(content=[])
                     for candidate_message in node_val.messages:
                         # Filter out tool calls and empty assistant messages
                         if not isinstance(candidate_message, AssistantToolCallMessage) and (
@@ -307,11 +307,15 @@ class Assistant:
                         return None
                     else:
                         return AssistantMessage(
-                            content=MemoryInitializerNode.format_message(cast(str, self._chunks.content))
+                            content=MemoryInitializerNode.format_message(cast(str, self._chunks.content[0]["text"]))
                         )
                 if self._chunks.content:
                     # Only return an in-progress message if there is already some content (and not e.g. just tool calls)
-                    return AssistantMessage(content=self._chunks.content)
+                    return AssistantMessage(
+                        content=self._chunks.content[0]["text"]  # Anthropic outputs are dicts
+                        if isinstance(self._chunks.content[0], dict)
+                        else self._chunks.content[0]  # Other providers usually are just strings
+                    )
         return None
 
     def _process_task_started_update(self, update: GraphTaskStartedUpdateTuple) -> BaseModel | None:

@@ -13,7 +13,7 @@ from langchain_core.messages import (
 )
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
 from langchain_core.runnables import RunnableConfig
-from langchain_openai import ChatOpenAI
+from langchain_anthropic import ChatAnthropic
 from pydantic import ValidationError
 
 from ee.hogai.taxonomy_agent.parsers import (
@@ -128,8 +128,8 @@ class TaxonomyAgentPlannerNode(AssistantNode):
         )
 
     @property
-    def _model(self) -> ChatOpenAI:
-        return ChatOpenAI(model="gpt-4o", temperature=0, streaming=True, stream_usage=True)
+    def _model(self) -> ChatAnthropic:
+        return ChatAnthropic(model="claude-3-7-sonnet-latest", temperature=0, streaming=True, stream_usage=True)
 
     def _get_react_format_prompt(self, toolkit: TaxonomyAgentToolkit) -> str:
         return cast(

@@ -14,7 +14,7 @@ from langchain_core.messages import (
 from langchain_core.output_parsers import PydanticToolsParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
-from langchain_openai import ChatOpenAI
+from langchain_anthropic import ChatAnthropic
 from pydantic import BaseModel, Field, ValidationError
 
 from ee.hogai.root.prompts import (
@@ -101,7 +101,7 @@ class RootNode(AssistantNode):
             root_conversation_start_id=new_window_id,
             messages=[
                 AssistantMessage(
-                    content=str(message.content),
+                    content=str(message.content[0]["text"]),
                     tool_calls=[
                         AssistantToolCall(id=tool_call["id"], name=tool_call["name"], args=tool_call["args"])
                         for tool_call in message.tool_calls
@@ -114,7 +114,7 @@ class RootNode(AssistantNode):
     def _get_model(self, state: AssistantState):
         # Research suggests temperature is not _massively_ correlated with creativity, hence even in this very
         # conversational context we're using a temperature of 0, for near determinism (https://arxiv.org/html/2405.00492v1)
-        base_model = ChatOpenAI(model="gpt-4o", temperature=0.0, streaming=True, stream_usage=True)
+        base_model = ChatAnthropic(model="claude-3-7-sonnet-latest", temperature=0.0, streaming=True, stream_usage=True)
 
         # The agent can now be in loops. Since insight building is an expensive operation, we want to limit a recursion depth.
         # This will remove the functions, so the agent doesn't have any other option but to exit.
@@ -125,7 +125,7 @@ class RootNode(AssistantNode):
         if settings.INKEEP_API_KEY:
             available_tools.append(search_documentation)
 
-        return base_model.bind_tools(available_tools, strict=True, parallel_tool_calls=False)
+        return base_model.bind_tools(available_tools, parallel_tool_calls=False)
 
     def _get_assistant_messages_in_window(self, state: AssistantState) -> list[RootMessageUnion]:
         filtered_conversation = [message for message in state.messages if isinstance(message, RootMessageUnion)]
