@@ -78,7 +78,11 @@ export function Exposures(): JSX.Element {
             },
         }
 
-        chartRef.current = new Chart(ctx, config)
+        try {
+            chartRef.current = new Chart(ctx, config)
+        } catch (error) {
+            console.error('Error creating chart:', error)
+        }
 
         return () => {
             if (chartRef.current) {
