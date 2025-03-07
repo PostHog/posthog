@@ -9,7 +9,7 @@ import { useState } from 'react'
 import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 // Keep in sync with defaults in schema
-const DEFAULT_COLLAPE_EVENTS = true
+const DEFAULT_COLLAPE_EVENTS = false
 
 export function PathsV2Steps(): JSX.Element {
     const { insightProps } = useValues(insightLogic)

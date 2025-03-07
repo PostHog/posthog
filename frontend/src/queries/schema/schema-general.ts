@@ -1200,7 +1200,7 @@ export type PathsV2Filter = {
     windowInterval?: integer
     /** @default day */
     windowIntervalUnit?: ConversionWindowIntervalUnit
-    /** @default true */
+    /** @default false */
     collapseEvents?: boolean
 }
 export interface PathsV2Query extends InsightsQueryBase<PathsV2QueryResponse> {

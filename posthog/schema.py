@@ -2548,7 +2548,7 @@ class PathsV2Filter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    collapseEvents: Optional[bool] = True
+    collapseEvents: Optional[bool] = False
     maxRowsPerStep: Optional[int] = 3
     maxSteps: Optional[int] = 5
     windowInterval: Optional[int] = 14

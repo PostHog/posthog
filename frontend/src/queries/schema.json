@@ -10442,7 +10442,7 @@
             "additionalProperties": false,
             "properties": {
                 "collapseEvents": {
-                    "default": true,
+                    "default": false,
                     "type": "boolean"
                 },
                 "maxRowsPerStep": {

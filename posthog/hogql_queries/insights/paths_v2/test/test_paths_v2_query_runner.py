@@ -1,17 +1,12 @@
 from abc import ABC
-from datetime import datetime
 
-from clickhouse_driver.util.escape import UUID
 from freezegun.api import freeze_time
-import pytz
-from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.insights.paths_v2.paths_v2_query_runner import (
     POSTHOG_OTHER,
     POSTHOG_DROPOFF,
     PathsV2QueryRunner,
 )
-from posthog.models import Team
-from posthog.schema import PathsV2Filter, PathsV2Item, PathsV2Query, PathsV2QueryResponse
+from posthog.schema import PathsV2Filter, PathsV2Item, PathsV2Query
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -139,9 +134,9 @@ class TestPathsV2(SharedSetup):
             [
                 PathsV2Item(step_index=1, source_step="a1", target_step="b1", value=6),
                 PathsV2Item(step_index=1, source_step="a1", target_step="b2", value=5),
-                PathsV2Item(step_index=1, source_step="a2", target_step=POSTHOG_DROPOFF, value=4),
                 PathsV2Item(step_index=1, source_step="a3", target_step="a3", value=3),
                 PathsV2Item(step_index=1, source_step=POSTHOG_OTHER, target_step="b1", value=2),
+                PathsV2Item(step_index=1, source_step="a2", target_step=POSTHOG_DROPOFF, value=4),
                 PathsV2Item(step_index=1, source_step=POSTHOG_OTHER, target_step=POSTHOG_DROPOFF, value=1),
             ],
         )
@@ -220,7 +215,7 @@ class TestPathsV2(SharedSetup):
         )
 
         # doesn't collapse when false
-        filter = PathsV2Filter(collapseEvents=False)
+        filter = PathsV2Filter(collapseEvents=False, maxSteps=10)
 
         query = PathsV2Query(pathsV2Filter=filter)
         query_runner = self._get_query_runner(query=query)
@@ -229,11 +224,11 @@ class TestPathsV2(SharedSetup):
         self.assertEqual(
             response.results,
             [
-                PathsV2Item(value=1.0, source_step=None, step_index=1.0, target_step="a"),
-                PathsV2Item(value=1.0, source_step="a", step_index=2.0, target_step="b"),
-                PathsV2Item(value=1.0, source_step="b", step_index=3.0, target_step="b"),
-                PathsV2Item(value=1.0, source_step="b", step_index=4.0, target_step="c"),
-                PathsV2Item(value=1.0, source_step="c", step_index=5.0, target_step="c"),
+                PathsV2Item(step_index=1.0, source_step="a", target_step="b", value=1.0),
+                PathsV2Item(step_index=2.0, source_step="b", target_step="b", value=1.0),
+                PathsV2Item(step_index=3.0, source_step="b", target_step="c", value=1.0),
+                PathsV2Item(step_index=4.0, source_step="c", target_step="c", value=1.0),
+                PathsV2Item(step_index=5.0, source_step="c", target_step="$$_posthog_dropoff_$$", value=1.0),
             ],
         )
 
@@ -247,9 +242,9 @@ class TestPathsV2(SharedSetup):
         self.assertEqual(
             response.results,
             [
-                PathsV2Item(value=1.0, source_step=None, step_index=1.0, target_step="a"),
-                PathsV2Item(value=1.0, source_step="a", step_index=2.0, target_step="b"),
-                PathsV2Item(value=1.0, source_step="b", step_index=3.0, target_step="c"),
+                PathsV2Item(step_index=1.0, source_step="a", target_step="b", value=1.0),
+                PathsV2Item(step_index=2.0, source_step="b", target_step="c", value=1.0),
+                PathsV2Item(step_index=3.0, source_step="c", target_step="$$_posthog_dropoff_$$", value=1.0),
             ],
         )
 

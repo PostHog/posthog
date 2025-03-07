@@ -4,7 +4,7 @@ from functools import cached_property
 from typing import Any
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
-from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
@@ -44,18 +44,30 @@ class PathsV2QueryRunner(QueryRunner):
         if not self.query.pathsV2Filter:
             self.query.pathsV2Filter = PathsV2Filter()
 
-        self.max_steps: int = self.query.pathsV2Filter.maxSteps or PathsV2Filter.model_fields["maxSteps"].default
+        self.max_steps: int = (
+            self.query.pathsV2Filter.maxSteps
+            if self.query.pathsV2Filter.maxSteps is not None
+            else PathsV2Filter.model_fields["maxSteps"].default
+        )
         self.max_rows_per_step: int = (
-            self.query.pathsV2Filter.maxRowsPerStep or PathsV2Filter.model_fields["maxRowsPerStep"].default
+            self.query.pathsV2Filter.maxRowsPerStep
+            if self.query.pathsV2Filter.maxRowsPerStep is not None
+            else PathsV2Filter.model_fields["maxRowsPerStep"].default
         )
         self.interval: int = (
-            self.query.pathsV2Filter.windowInterval or PathsV2Filter.model_fields["windowInterval"].default
+            self.query.pathsV2Filter.windowInterval
+            if self.query.pathsV2Filter.windowInterval is not None
+            else PathsV2Filter.model_fields["windowInterval"].default
         )
         self.interval_unit: ConversionWindowIntervalUnit = (
-            self.query.pathsV2Filter.windowIntervalUnit or PathsV2Filter.model_fields["windowIntervalUnit"].default
+            self.query.pathsV2Filter.windowIntervalUnit
+            if self.query.pathsV2Filter.windowIntervalUnit is not None
+            else PathsV2Filter.model_fields["windowIntervalUnit"].default
         )
         self.collapse_events: bool = (
-            self.query.pathsV2Filter.collapseEvents or PathsV2Filter.model_fields["collapseEvents"].default
+            self.query.pathsV2Filter.collapseEvents
+            if self.query.pathsV2Filter.collapseEvents is not None
+            else PathsV2Filter.model_fields["collapseEvents"].default
         )
 
     @cached_property
@@ -220,8 +232,15 @@ class PathsV2QueryRunner(QueryRunner):
                 previous timestamp is greater than the session window. */
                 arraySplit(x->if(x.1 < x.3 + {session_interval}, 0, 1), paths_array) as paths_array_session_split,
 
+                /* Filters out the steps that are the same as the previous step. */
+                arrayFilter(
+                    (x, i) -> i = 1 OR x.2 != arrayElement(paths_array_per_session, i - 1).2,
+                    paths_array_per_session,
+                    arrayEnumerate(paths_array_per_session)
+                ) as filtered_paths_array_per_session,
+
                 /* Adds dropoffs. */
-                arrayPushBack(paths_array_per_session, (now(), {POSTHOG_DROPOFF}, now())) as paths_array_per_session_with_dropoffs,
+                arrayPushBack({collapsed_path_array_alias}, (now(), {POSTHOG_DROPOFF}, now())) as paths_array_per_session_with_dropoffs,
 
                 /* Returns the first n events per session. */
                 arraySlice(paths_array_per_session_with_dropoffs, 1, {max_steps}) as limited_paths_array_per_session
@@ -235,6 +254,11 @@ class PathsV2QueryRunner(QueryRunner):
                 "session_interval": ast.Call(
                     name=interval_unit_to_sql(self.interval_unit),
                     args=[ast.Constant(value=self.interval)],
+                ),
+                "collapsed_path_array_alias": (
+                    ast.Field(chain=["filtered_paths_array_per_session"])
+                    if self.collapse_events is True
+                    else ast.Field(chain=["paths_array_per_session"])
                 ),
                 "POSTHOG_DROPOFF": ast.Constant(value=POSTHOG_DROPOFF),
             },
