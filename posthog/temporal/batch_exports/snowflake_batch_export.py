@@ -162,17 +162,26 @@ def load_private_key(private_key: str, passphrase: str | None) -> bytes:
     try:
         p_key = serialization.load_pem_private_key(
             private_key.encode("utf-8"),
-            password=passphrase.encode() if passphrase is not None and passphrase != "" else None,
+            password=passphrase.encode() if passphrase is not None else None,
             backend=default_backend(),
         )
     except (ValueError, TypeError) as e:
         msg = "Invalid private key"
+
         if passphrase is not None and "Incorrect password?" in str(e):
             msg = "Could not load private key: incorrect passphrase?"
         elif "Password was not given but private key is encrypted" in str(e):
             msg = "Could not load private key: passphrase was not given but private key is encrypted"
         elif "Password was given but private key is not encrypted" in str(e):
+            if passphrase == "":
+                try:
+                    p_key = load_private_key(private_key, None)
+                except (ValueError, TypeError):
+                    pass
+                else:
+                    return p_key
             msg = "Could not load private key: passphrase was given but private key is not encrypted"
+
         raise InvalidPrivateKeyError(msg)
 
     return p_key.private_bytes(
