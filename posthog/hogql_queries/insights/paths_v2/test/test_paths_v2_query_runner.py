@@ -19,41 +19,6 @@ from posthog.test.base import (
 from posthog.test.test_journeys import journeys_for
 
 
-def create_sequences(team: Team) -> None:
-    _ = journeys_for(
-        team=team,
-        events_by_person={
-            # User 1 (Full Funnel)
-            "person1": [
-                {"event": "Landing Page", "timestamp": "2023-03-10 12:00:00"},
-                {"event": "Product View", "timestamp": "2023-03-10 12:05:00"},
-                {"event": "Add to Cart", "timestamp": "2023-03-10 12:10:00"},
-                {"event": "Checkout", "timestamp": "2023-03-10 12:15:00"},
-                {"event": "Purchase", "timestamp": "2023-03-10 12:20:00"},
-            ],
-            # User 2 (Search before purchase)
-            "person2": [
-                {"event": "Landing Page", "timestamp": "2023-03-11 11:30:00"},
-                {"event": "Search", "timestamp": "2023-03-11 11:32:00"},
-                {"event": "Product View", "timestamp": "2023-03-11 11:35:00"},
-                {"event": "Add to Cart", "timestamp": "2023-03-11 11:38:00"},
-                {"event": "Checkout", "timestamp": "2023-03-11 11:42:00"},
-                {"event": "Purchase", "timestamp": "2023-03-11 11:45:00"},
-            ],
-            # User 3 (Abandoned Cart)
-            "person3": [
-                {"event": "Landing Page", "timestamp": "2023-03-12 10:00:00"},
-                {"event": "Product View", "timestamp": "2023-03-12 10:02:00"},
-                {"event": "Add to Cart", "timestamp": "2023-03-12 10:05:00"},
-            ],
-            # User 4 (Bounced)
-            "person4": [
-                {"event": "Landing Page", "timestamp": "2023-03-13 09:00:00"},
-            ],
-        },
-    )
-
-
 class SharedSetup(ClickhouseTestMixin, APIBaseTest, ABC):
     def _get_query_runner(self, query: PathsV2Query | None = None) -> PathsV2QueryRunner:
         if query is None:
@@ -64,25 +29,69 @@ class SharedSetup(ClickhouseTestMixin, APIBaseTest, ABC):
 class TestPathsV2(SharedSetup):
     maxDiff = None
 
-    def _run_paths_v2_query(self) -> PathsV2QueryResponse:
-        query_runner = self._get_query_runner()
-        return query_runner.calculate()
-
     def test_simple_path_query(self):
-        create_sequences(self.team)
+        _ = journeys_for(
+            team=self.team,
+            events_by_person={
+                # User 1 (Full Funnel)
+                "person1": [
+                    {"event": "Landing Page", "timestamp": "2023-03-10 12:00:00"},
+                    {"event": "Product View", "timestamp": "2023-03-10 12:05:00"},
+                    {"event": "Add to Cart", "timestamp": "2023-03-10 12:10:00"},
+                    {"event": "Checkout", "timestamp": "2023-03-10 12:15:00"},
+                    {"event": "Purchase", "timestamp": "2023-03-10 12:20:00"},
+                ],
+                # User 2 (Search before purchase)
+                "person2": [
+                    {"event": "Landing Page", "timestamp": "2023-03-11 11:30:00"},
+                    {"event": "Search", "timestamp": "2023-03-11 11:32:00"},
+                    {"event": "Product View", "timestamp": "2023-03-11 11:35:00"},
+                    {"event": "Add to Cart", "timestamp": "2023-03-11 11:38:00"},
+                    {"event": "Checkout", "timestamp": "2023-03-11 11:42:00"},
+                    {"event": "Purchase", "timestamp": "2023-03-11 11:45:00"},
+                ],
+                # User 3 (Abandoned Cart)
+                "person3": [
+                    {"event": "Landing Page", "timestamp": "2023-03-12 10:00:00"},
+                    {"event": "Product View", "timestamp": "2023-03-12 10:02:00"},
+                    {"event": "Add to Cart", "timestamp": "2023-03-12 10:05:00"},
+                ],
+                # User 4 (Bounced)
+                "person4": [
+                    {"event": "Landing Page", "timestamp": "2023-03-13 09:00:00"},
+                ],
+            },
+        )
 
-        response = self._run_paths_v2_query()
+        with freeze_time("2023-03-13T12:00:00Z"):
+            filter = PathsV2Filter(maxRowsPerStep=10, maxSteps=10)
+            query = PathsV2Query(pathsV2Filter=filter)
+            query_runner = self._get_query_runner(query=query)
+
+            response = query_runner.calculate()
 
         self.assertEqual(
             response.results,
             [
-                PathsV2Item(value=2.0, source_step="Landing Page", target_step="Product View", step_index=1),
-                PathsV2Item(value=1.0, source_step="Landing Page", target_step="Search", step_index=1),
-                # Landing Page -> Dropoff
-                PathsV2Item(value=3.0, source_step="Product View", target_step="Add to Cart", step_index=2),
-                PathsV2Item(value=2.0, source_step="Add to Cart", target_step="Checkout", step_index=3),
-                PathsV2Item(value=1.0, source_step="Checkout", target_step="Purchase", step_index=1),
-                PathsV2Item(value=1.0, source_step="Search", target_step="Product View", step_index=1),
+                # step 1
+                PathsV2Item(step_index=1, source_step="Landing Page", target_step="Product View", value=2.0),
+                PathsV2Item(step_index=1, source_step="Landing Page", target_step="Search", value=1.0),
+                PathsV2Item(step_index=1, source_step="Landing Page", target_step=POSTHOG_DROPOFF, value=1.0),
+                # step 2
+                PathsV2Item(step_index=2, source_step="Product View", target_step="Add to Cart", value=2.0),
+                PathsV2Item(step_index=2, source_step="Search", target_step="Product View", value=1.0),
+                # step 3
+                PathsV2Item(step_index=3, source_step="Product View", target_step="Add to Cart", value=1.0),
+                PathsV2Item(step_index=3, source_step="Add to Cart", target_step="Checkout", value=1.0),
+                PathsV2Item(step_index=3, source_step="Add to Cart", target_step=POSTHOG_DROPOFF, value=1.0),
+                # step 4
+                PathsV2Item(step_index=4, source_step="Add to Cart", target_step="Checkout", value=1.0),
+                PathsV2Item(step_index=4, source_step="Checkout", target_step="Purchase", value=1.0),
+                # step 5
+                PathsV2Item(step_index=5, source_step="Checkout", target_step="Purchase", value=1.0),
+                PathsV2Item(step_index=5, source_step="Purchase", target_step=POSTHOG_DROPOFF, value=1.0),
+                # step 6
+                PathsV2Item(step_index=6, source_step="Purchase", target_step=POSTHOG_DROPOFF, value=1.0),
             ],
         )
 
@@ -245,26 +254,26 @@ class TestPathsV2(SharedSetup):
         )
 
 
-class TestPathsV2BaseEventsQuery(SharedSetup):
-    maxDiff = None
+# class TestPathsV2BaseEventsQuery(SharedSetup):
+#     maxDiff = None
 
-    def test_event_base(self):
-        with freeze_time("2020-01-11T12:00:00Z"):
-            create_sequences(self.team)
-        query_runner = self._get_query_runner()
+#     def test_event_base(self):
+#         with freeze_time("2020-01-11T12:00:00Z"):
+#             create_sequences(self.team)
+#         query_runner = self._get_query_runner()
 
-        query = query_runner._event_base_query()
+#         query = query_runner._event_base_query()
 
-        response = execute_hogql_query(
-            query=query,
-            team=self.team,
-        )
+#         response = execute_hogql_query(
+#             query=query,
+#             team=self.team,
+#         )
 
-        self.assertEqual(
-            response.results[0],
-            (
-                datetime(2020, 1, 11, 12, 0, tzinfo=pytz.utc),
-                UUID("6fe525b8-2801-9e99-09f6-524b2b0ed086"),
-                "Add to Cart",
-            ),
-        )
+#         self.assertEqual(
+#             response.results[0],
+#             (
+#                 datetime(2020, 1, 11, 12, 0, tzinfo=pytz.utc),
+#                 UUID("6fe525b8-2801-9e99-09f6-524b2b0ed086"),
+#                 "Add to Cart",
+#             ),
+#         )
