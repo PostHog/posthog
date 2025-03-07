@@ -1,6 +1,6 @@
 import json
 import uuid
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Annotated
 from unittest.mock import patch
 
@@ -285,7 +285,6 @@ class PgEmbeddingRecord(BaseModel):
     embedding: Annotated[list[float], PlainValidator(lambda x: [round(val, 5) for val in x])]
     summary: str
     properties: dict | None
-    timestamp: datetime
     is_deleted: int
 
 
@@ -298,7 +297,6 @@ def parse_records(rows: list[tuple]) -> list[PgEmbeddingRecord]:
             embedding=t[3],
             summary=t[4],
             properties=json.loads(t[5]) if t[5] else None,
-            timestamp=t[6],
             is_deleted=t[7],
         )
         for t in rows
@@ -326,7 +324,6 @@ async def test_sync_action_vectors_for_team_valid_inputs(mock_flag, summarized_a
             embedding=action.embedding,
             summary=action.summary,
             properties={"name": action.name, "description": action.description},
-            timestamp=start_dt.replace(microsecond=0),
             is_deleted=0,
         )
         for action in summarized_actions
