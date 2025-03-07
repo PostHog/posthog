@@ -4,7 +4,7 @@ import { Chart, ChartConfiguration } from 'chart.js/auto'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { humanFriendlyNumber } from 'lib/utils'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
 import { experimentLogic } from '../experimentLogic'
 import { VariantTag } from './components'
@@ -13,29 +13,28 @@ import { ExposureCriteriaButton } from './ExposureCriteria'
 export function Exposures(): JSX.Element {
     const { experimentId, exposures, exposuresLoading, exposureCriteriaLabel } = useValues(experimentLogic)
 
+    const chartRef = useRef<Chart | null>(null)
+
     useEffect(() => {
+        if (chartRef.current) {
+            chartRef.current.destroy()
+            chartRef.current = null
+        }
+
         if (!exposures || !exposures?.timeseries?.length) {
             return
         }
 
         const ctx = document.getElementById('exposuresChart') as HTMLCanvasElement
         if (!ctx) {
-            console.error('Canvas element not found')
             return
         }
-
-        const existingChart = Chart.getChart(ctx)
-        if (existingChart) {
-            existingChart.destroy()
-        }
-
-        const data = exposures.timeseries
 
         const config: ChartConfiguration = {
             type: 'line',
             data: {
-                labels: data[0].days,
-                datasets: data.map((series: Record<string, any>) => ({
+                labels: exposures.timeseries[0].days,
+                datasets: exposures.timeseries.map((series: Record<string, any>) => ({
                     label: series.variant,
                     data: series.exposure_counts,
                     borderColor: 'rgb(17 17 17 / 60%)',
@@ -79,7 +78,14 @@ export function Exposures(): JSX.Element {
             },
         }
 
-        new Chart(ctx, config)
+        chartRef.current = new Chart(ctx, config)
+
+        return () => {
+            if (chartRef.current) {
+                chartRef.current.destroy()
+                chartRef.current = null
+            }
+        }
     }, [exposures])
 
     const chartWrapperClasses = 'relative border rounded bg-white p-4 h-[250px]'
