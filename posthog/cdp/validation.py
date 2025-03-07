@@ -257,7 +257,7 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
     actions = serializers.ListField(child=serializers.DictField(), required=False)
     events = serializers.ListField(child=serializers.DictField(), required=False)
     properties = serializers.ListField(child=serializers.DictField(), required=False)
-    bytecode = serializers.JSONField(required=False)
+    bytecode = serializers.JSONField(required=False, allow_null=True)
     transpiled = serializers.JSONField(required=False)
     filter_test_accounts = serializers.BooleanField(required=False)
     bytecode_error = serializers.CharField(required=False)
@@ -270,6 +270,9 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
     def validate(self, data):
         function_type = self.context["function_type"]
         team = self.context["get_team"]()
+
+        # Ensure data is initialized as an empty dict if it's None
+        data = data or {}
 
         # If we have a bytecode, we need to validate the transpiled
         if function_type in TYPES_WITH_COMPILED_FILTERS:
