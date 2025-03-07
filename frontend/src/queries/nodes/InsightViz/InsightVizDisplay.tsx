@@ -70,7 +70,7 @@ export function InsightVizDisplay({
         isPathsV2,
         hasDetailedResultsTable,
         showLegend,
-        trendsFilter,
+        hasFormula,
         funnelsFilter,
         supportsDisplay,
         samplingFactor,
@@ -214,7 +214,12 @@ export function InsightVizDisplay({
                     <InsightsTable
                         isLegend
                         filterKey={keyForInsightLogicProps('new')(insightProps)}
-                        canEditSeriesNameInline={!trendsFilter?.formula && insightMode === ItemMode.Edit}
+                        canEditSeriesNameInline={!hasFormula && insightMode === ItemMode.Edit}
+                        seriesNameTooltip={
+                            hasFormula && insightMode === ItemMode.Edit
+                                ? 'Formula series names are not editable'
+                                : undefined
+                        }
                         canCheckUncheckSeries={canEditInsight}
                     />
                 </>
@@ -235,7 +240,7 @@ export function InsightVizDisplay({
             {/* These are filters that are reused between insight features. They each have generic logic that updates the url */}
             <div
                 className={clsx(
-                    `InsightVizDisplay InsightVizDisplay--type-${activeView.toLowerCase()} ph-no-capture`,
+                    `InsightVizDisplay InsightVizDisplay--type-${activeView.toLowerCase()}`,
                     !embedded && 'border rounded bg-surface-primary'
                 )}
                 data-attr="insights-graph"

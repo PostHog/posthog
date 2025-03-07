@@ -80,12 +80,14 @@ def to_dict(query: BaseModel) -> dict:
                                 "toggledLifecycles",
                                 "showLabelsOnSeries",
                                 "showMean",
+                                "meanRetentionCalculation",
                                 "yAxisScaleType",
                                 "hiddenLegendIndexes",
                                 "hiddenLegendBreakdowns",
                                 "resultCustomizations",
                                 "resultCustomizationBy",
                                 "goalLines",
+                                "dashboardDisplay",
                             ]
                         }
 

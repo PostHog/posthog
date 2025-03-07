@@ -2,6 +2,7 @@ import { IconCalendar, IconSearch } from '@posthog/icons'
 import {
     LemonButton,
     LemonCheckbox,
+    LemonDropdown,
     LemonInput,
     LemonTable,
     LemonTableColumn,
@@ -16,16 +17,10 @@ import { pluralize } from 'lib/utils'
 
 import { LogEntryLevel } from '~/types'
 
-import {
-    ALL_LOG_LEVELS,
-    DEFAULT_LOG_LEVELS,
-    GroupedLogEntry,
-    LOG_VIEWER_LIMIT,
-    logsViewerLogic,
-} from './logsViewerLogic'
+import { ALL_LOG_LEVELS, GroupedLogEntry, LOG_VIEWER_LIMIT, logsViewerLogic } from './logsViewerLogic'
 import { LogsViewerLogicProps } from './logsViewerLogic'
 
-const tagTypeForLevel = (level: LogEntryLevel): LemonTagProps['type'] => {
+export const tagTypeForLevel = (level: LogEntryLevel): LemonTagProps['type'] => {
     switch (level.toLowerCase()) {
         case 'debug':
             return 'muted'
@@ -54,63 +49,86 @@ export type LogsViewerProps = LogsViewerLogicProps & {
 export function LogsViewer({ renderColumns = (c) => c, ...props }: LogsViewerProps): JSX.Element {
     const logic = logsViewerLogic(props)
 
-    const { logs, logsLoading, backgroundLogs, isThereMoreToLoad, expandedRows, filters } = useValues(logic)
-    const { revealBackground, loadMoreLogs, setFilters, setRowExpanded } = useActions(logic)
+    const { logs, logsLoading, hiddenLogs, hiddenLogsLoading, isThereMoreToLoad, expandedRows, filters } =
+        useValues(logic)
+    const { revealHiddenLogs, loadMoreLogs, setFilters, setRowExpanded } = useActions(logic)
 
     return (
-        <div className="flex-1 space-y-2 ph-no-capture">
-            <LemonInput
-                type="search"
-                placeholder="Search for messages containing…"
-                fullWidth
-                onChange={(value) => setFilters({ searchTerm: value })}
-                allowClear
-                prefix={
-                    <>
-                        <IconSearch />
-                    </>
-                }
-            />
-            <div className="flex items-center gap-4">
-                <DateFilter
-                    dateTo={filters.before}
-                    dateFrom={filters.after}
-                    onChange={(from, to) => setFilters({ after: from || undefined, before: to || undefined })}
-                    allowedRollingDateOptions={['days', 'weeks', 'months', 'years']}
-                    makeLabel={(key) => (
+        <div className="flex-1 deprecated-space-y-2 ph-no-capture">
+            <div className="flex flex-wrap items-center gap-2">
+                <LemonInput
+                    className="flex-1 min-w-120"
+                    type="search"
+                    placeholder="Search for messages containing…"
+                    fullWidth
+                    onChange={(value) => setFilters({ search: value })}
+                    allowClear
+                    prefix={
                         <>
-                            <IconCalendar /> {key}
+                            <IconSearch />
                         </>
-                    )}
+                    }
                 />
+                <div className="flex items-center gap-2">
+                    <LemonDropdown
+                        closeOnClickInside={false}
+                        matchWidth={false}
+                        placement="right-end"
+                        overlay={
+                            <div className="deprecated-space-y-2 overflow-hidden max-w-100">
+                                {ALL_LOG_LEVELS.map((level) => {
+                                    return (
+                                        <LemonButton
+                                            key={level}
+                                            fullWidth
+                                            sideIcon={<LemonCheckbox checked={filters.levels.includes(level)} />}
+                                            onClick={() => {
+                                                setFilters({
+                                                    levels: filters.levels.includes(level)
+                                                        ? filters.levels.filter((t) => t != level)
+                                                        : [...filters.levels, level],
+                                                })
+                                            }}
+                                        >
+                                            {level}
+                                        </LemonButton>
+                                    )
+                                })}
+                            </div>
+                        }
+                    >
+                        <LemonButton
+                            size="small"
+                            type="secondary"
+                            tooltip="Filtering for any log groups containing any of the selected levels"
+                        >
+                            {filters.levels.map((level) => level).join(', ')}
+                        </LemonButton>
+                    </LemonDropdown>
 
-                <span className="mr-1">Show logs of level:</span>
-                {ALL_LOG_LEVELS.map((level) => {
-                    return (
-                        <LemonCheckbox
-                            key={level}
-                            label={level}
-                            checked={filters.logLevels.includes(level)}
-                            onChange={(checked) => {
-                                const newLogLevels = checked
-                                    ? [...filters.logLevels, level]
-                                    : filters.logLevels.filter((t) => t != level)
-                                setFilters({ logLevels: newLogLevels.length ? newLogLevels : DEFAULT_LOG_LEVELS })
-                            }}
-                        />
-                    )
-                })}
+                    <DateFilter
+                        dateTo={filters.date_to}
+                        dateFrom={filters.date_from}
+                        onChange={(from, to) => setFilters({ date_from: from || undefined, date_to: to || undefined })}
+                        allowedRollingDateOptions={['days', 'weeks', 'months', 'years']}
+                        makeLabel={(key) => (
+                            <>
+                                <IconCalendar /> {key}
+                            </>
+                        )}
+                    />
+                </div>
             </div>
             <LemonButton
-                onClick={revealBackground}
-                loading={logsLoading}
+                onClick={revealHiddenLogs}
+                loading={hiddenLogsLoading}
                 type="secondary"
                 fullWidth
                 center
-                disabledReason={!backgroundLogs.length ? "There's nothing to load" : undefined}
+                disabledReason={!hiddenLogs.length ? "There's nothing to load" : undefined}
             >
-                {backgroundLogs.length
-                    ? `Load ${pluralize(backgroundLogs.length, 'newer entry', 'newer entries')}`
+                {hiddenLogs.length
+                    ? `Show ${pluralize(hiddenLogs.length, 'newer entry', 'newer entries')}`
                     : 'No new entries'}
             </LemonButton>
 

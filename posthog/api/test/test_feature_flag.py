@@ -362,6 +362,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             ],
         )
 
+        self.assertEqual(instance.created_by, self.user)
+
     @patch("posthog.api.feature_flag.report_user_action")
     def test_create_minimal_feature_flag(self, mock_capture):
         response = self.client.post(
@@ -780,6 +782,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                     ]
                                 },
                             },
+                            {"action": "changed", "after": 1, "before": 0, "field": "version", "type": "FeatureFlag"},
                         ],
                         "trigger": None,
                         "type": None,
@@ -806,6 +809,418 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 },
             ],
         )
+
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_updating_feature_flag_partial(self, mock_capture):
+        # Test that we can update a feature flag with only some of the fields
+        # And the unchanged fields are not updated
+        with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/",
+                {
+                    "name": "original name",
+                    "key": "a-feature-flag-that-is-updated",
+                    "filters": {
+                        "groups": [
+                            {
+                                "variant": None,
+                                "properties": [
+                                    {"key": "plan", "type": "person", "value": ["pro"], "operator": "exact"}
+                                ],
+                                "rollout_percentage": 100,
+                            }
+                        ],
+                        "payloads": {},
+                        "multivariate": None,
+                    },
+                },
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            flag_id = response.json()["id"]
+
+            frozen_datetime.tick(delta=timedelta(minutes=10))
+
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
+                {
+                    "name": "Updated name",
+                },
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.assertEqual(response.json()["name"], "Updated name")
+        self.assertEqual(response.json()["filters"]["groups"][0]["rollout_percentage"], 100)
+
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_updating_feature_flag_with_different_user(self, mock_capture):
+        with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
+            # Create flag with original user
+            original_user = self.user
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/",
+                {"name": "original name", "key": "a-feature-flag-that-is-updated"},
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            flag_id = response.json()["id"]
+
+            frozen_datetime.tick(delta=timedelta(minutes=10))
+
+            # Create and login as different user
+            different_user = User.objects.create_and_join(self.organization, "different_user@posthog.com", None)
+            self.client.force_login(different_user)
+            self.assertNotEqual(original_user, different_user)
+
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
+                {"name": "Updated name"},
+                format="json",
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            # Grab the feature flag and assert created_by is original user and updated_by is different user
+            feature_flag = FeatureFlag.objects.get(id=flag_id)
+            self.assertEqual(feature_flag.created_by, original_user)
+            self.assertEqual(feature_flag.last_modified_by, different_user)
+
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_updating_feature_flag_fails_concurrency_check_when_version_outdated(self, mock_capture):
+        with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
+            # Create flag with original user: version 0
+            original_user = self.user
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/",
+                {"name": "original name", "key": "a-feature-flag-that-is-updated"},
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            flag_id = response.json()["id"]
+            original_version = response.json()["version"]
+            self.assertEqual(original_version, 0)
+            feature_flag = FeatureFlag.objects.get(id=flag_id)
+            self.assertEqual(feature_flag.version, 0)
+            self.assertEqual(feature_flag.last_modified_by, original_user)
+
+            frozen_datetime.tick(delta=timedelta(minutes=10))
+
+            # Create and login as different user
+            different_user = User.objects.create_and_join(self.organization, "different_user@posthog.com", None)
+            self.client.force_login(different_user)
+            self.assertNotEqual(original_user, different_user)
+
+            # Successfully update the feature flag with the different user. This will increment the version
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
+                {"name": "Updated name", "version": original_version},
+                format="json",
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            updated_version = response.json()["version"]
+            self.assertEqual(updated_version, 1)
+            feature_flag = FeatureFlag.objects.get(id=flag_id)
+            self.assertEqual(feature_flag.version, 1)
+            self.assertEqual(feature_flag.last_modified_by, different_user)
+
+            self.client.force_login(original_user)
+
+            # Original user tries to update the feature flag with the original version
+            # This should fail because the version has been incremented and the user is
+            # trying to update the name
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
+                data={
+                    "name": "Another Updated name",
+                    "version": original_version,
+                    "original_flag": {
+                        # Name has since been changed, leading to a conflict
+                        "name": "original name",
+                        "key": "a-feature-flag-that-is-updated",
+                    },
+                },
+                format="json",
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+            self.assertEqual(response.json().get("type"), "server_error")
+            self.assertEqual(
+                response.json().get("detail"),
+                "The feature flag was updated by different_user@posthog.com since you started editing it. Please refresh and try again.",
+            )
+
+            # Grab the feature flag and assert created_by is original user and last_modified_by is different user
+            feature_flag = FeatureFlag.objects.get(id=flag_id)
+            self.assertEqual(feature_flag.name, "Updated name")
+            self.assertEqual(feature_flag.last_modified_by, different_user)
+
+            # The different user refreshes and tries to update again
+            self.client.force_login(different_user)
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
+                data={"name": "Another Updated name", "version": updated_version},
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            feature_flag = FeatureFlag.objects.get(id=flag_id)
+            self.assertEqual(feature_flag.name, "Another Updated name")
+            self.assertEqual(feature_flag.last_modified_by, different_user)
+
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_updating_feature_flag_does_not_fail_concurrency_check_when_changing_different_fields(self, mock_capture):
+        # If another users saves changes, but my changes don't conflict with those changes,
+        # then we should not fail the concurrency check
+        with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
+            # Create flag with original user: version 0
+            original_user = self.user
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/",
+                {
+                    "name": "original name",
+                    "key": "a-feature-flag-that-is-updated",
+                    "filters": {
+                        "groups": [
+                            {
+                                "variant": None,
+                                "properties": [
+                                    {"key": "plan", "type": "person", "value": ["pro"], "operator": "exact"}
+                                ],
+                                "rollout_percentage": 100,
+                            }
+                        ],
+                        "payloads": {},
+                        "multivariate": None,
+                    },
+                },
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            flag_id = response.json()["id"]
+            original_version = response.json()["version"]
+
+            frozen_datetime.tick(delta=timedelta(minutes=10))
+
+            # Create and login as different user
+            different_user = User.objects.create_and_join(self.organization, "different_user@posthog.com", None)
+            self.client.force_login(different_user)
+
+            # Successfully update the feature flag with the different user. This will increment the version
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
+                {"name": "Updated name", "version": original_version},
+                format="json",
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.client.force_login(original_user)
+
+            # Original user tries to update the feature flag with the original version
+            # However, the user is changing a field that wasn't changed by the other user
+            # This should succeed
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
+                data={
+                    "name": "Updated name",
+                    "filters": {
+                        "groups": [
+                            {
+                                "variant": None,
+                                "properties": [
+                                    {"key": "plan", "type": "person", "value": ["pro"], "operator": "exact"}
+                                ],
+                                "rollout_percentage": 45,
+                            }
+                        ],
+                        "payloads": {},
+                        "multivariate": None,
+                    },
+                    "original_flag": {
+                        "name": "original name",  # This is the same as the name (though not the current name)
+                        "filters": {
+                            "groups": [
+                                {
+                                    "variant": None,
+                                    "properties": [
+                                        {"key": "plan", "type": "person", "value": ["pro"], "operator": "exact"}
+                                    ],
+                                    "rollout_percentage": 100,
+                                }
+                            ],
+                            "payloads": {},
+                            "multivariate": None,
+                        },
+                    },
+                    "version": original_version,
+                },
+                format="json",
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            feature_flag = FeatureFlag.objects.get(id=flag_id)
+            self.assertEqual(feature_flag.name, "Updated name")
+            self.assertEqual(feature_flag.last_modified_by, original_user)
+            self.assertEqual(response.json()["filters"]["groups"][0]["rollout_percentage"], 45)
+
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_updating_feature_flag_does_not_fail_when_version_not_in_request(self, mock_capture):
+        with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/",
+                data={"name": "original name", "key": "a-feature-flag-that-is-updated"},
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            flag_id = response.json()["id"]
+
+            frozen_datetime.tick(delta=timedelta(minutes=10))
+
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
+                data={"name": "Updated name"},
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.json()["version"], 1)
+
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
+                data={"name": "Yet another updated name"},
+                format="json",
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.json()["version"], 2)
+            feature_flag = FeatureFlag.objects.get(id=flag_id)
+            self.assertEqual(feature_flag.version, 2)
+            self.assertEqual(feature_flag.name, "Yet another updated name")
+
+    def test_get_conflicting_changes(self):
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="my-flag",
+            name="Beta feature",
+            active=True,
+            filters={"groups": [{"properties": [], "rollout_percentage": 50}]},
+        )
+
+        serializer = FeatureFlagSerializer(instance=feature_flag, context={"team_id": self.team.id})
+
+        original_flag = {
+            "key": "my-flag",
+            "name": "Alpha feature",  # This has since been changed by another user
+            "active": True,
+            "filters": {"groups": [{"properties": [], "rollout_percentage": 50}]},
+        }
+
+        # Test 1: No conflicts when changing fields that haven't been changed by another user
+        # The name is different from the current value, but the user is not trying to change it
+        validated_data = {"active": False, "key": "my-flag-2", "name": "Alpha feature"}
+        conflicts = serializer._get_conflicting_changes(feature_flag, validated_data, original_flag)
+        self.assertEqual(conflicts, [])
+
+        # Test 2: Detect conflict when changing a field that has been changed by another user
+        feature_flag.active = False
+        feature_flag.save()
+        validated_data = {"name": "Gamma feature"}
+        conflicts = serializer._get_conflicting_changes(feature_flag, validated_data, original_flag)
+        self.assertEqual(conflicts, ["name"])
+
+    def test_get_conflicting_changes_returns_empty_when_original_flag_is_none(self):
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="my-flag",
+            name="Beta feature",
+            active=True,
+            filters={"groups": [{"properties": [], "rollout_percentage": 50}]},
+        )
+
+        serializer = FeatureFlagSerializer(instance=feature_flag, context={"team_id": self.team.id})
+
+        original_flag = None
+
+        # Should be conflict, but since original_flag is None, it will be ignored
+        feature_flag.active = False
+        feature_flag.save()
+        validated_data = {"name": "Gamma feature"}
+        conflicts = serializer._get_conflicting_changes(feature_flag, validated_data, original_flag)
+        self.assertEqual(conflicts, [])
+
+    def test_get_conflicting_changes_with_filter_changes(self):
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="my-flag",
+            name="Beta feature",
+            active=True,
+            filters={
+                # This has since been changed by another user
+                "groups": [{"properties": [], "rollout_percentage": 45}]
+            },
+        )
+
+        serializer = FeatureFlagSerializer(instance=feature_flag, context={"team_id": self.team.id})
+
+        original_flag = {
+            "key": "my-flag",
+            # This has since been changed by another user
+            "name": "Alpha feature",
+            "active": True,
+            "filters": {
+                # This has since been changed by another user
+                "groups": [{"properties": [], "rollout_percentage": 50}]
+            },
+        }
+
+        # Test 1: No conflicts when changing fields that haven't been changed by another user
+        # The name and fliters are different from the current value, but the user is not trying to change them
+        validated_data = {
+            "active": False,
+            "key": "my-flag-2",
+            "name": "Alpha feature",
+            "filters": {"groups": [{"properties": [], "rollout_percentage": 50}]},
+        }
+        conflicts = serializer._get_conflicting_changes(feature_flag, validated_data, original_flag)
+        self.assertEqual(conflicts, [])
+
+        # Test 2: Detect conflict when changing a field that has been changed by another user
+        feature_flag.active = False
+        feature_flag.save()
+        validated_data = {
+            "name": "Gamma feature",
+            "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
+            "active": False,
+            "key": "my-flag-2",
+        }
+        conflicts = serializer._get_conflicting_changes(feature_flag, validated_data, original_flag)
+        self.assertEqual(conflicts, ["name", "filters"])
+
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_updating_feature_flag_treats_null_version_as_zero(self, mock_capture):
+        with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/",
+                data={"name": "original name", "key": "a-feature-flag-that-is-updated"},
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            flag_id = response.json()["id"]
+            feature_flag = FeatureFlag.objects.get(id=flag_id)
+            feature_flag.version = None
+            feature_flag.save()
+            frozen_datetime.tick(delta=timedelta(minutes=10))
+
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
+                data={"name": "Updated name", "version": 0},
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.json()["version"], 1)
+            feature_flag = FeatureFlag.objects.get(id=flag_id)
+            self.assertEqual(feature_flag.version, 1)
+            self.assertEqual(feature_flag.name, "Updated name")
 
     @patch("posthog.api.feature_flag.report_user_action")
     def test_updating_feature_flag_key(self, mock_capture):
@@ -930,6 +1345,13 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                         }
                                     ]
                                 },
+                            },
+                            {
+                                "type": "FeatureFlag",
+                                "action": "changed",
+                                "field": "version",
+                                "before": 0,
+                                "after": 1,
                             },
                         ],
                         "trigger": None,
@@ -1310,7 +1732,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                 "field": "filters",
                                 "before": None,
                                 "after": {"groups": [{"properties": [], "rollout_percentage": 74}]},
-                            }
+                            },
+                            {"action": "changed", "after": 1, "before": 0, "field": "version", "type": "FeatureFlag"},
                         ],
                         "trigger": None,
                         "type": None,
@@ -1415,7 +1838,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                 "field": "filters",
                                 "before": None,
                                 "after": {"groups": [{"properties": [], "rollout_percentage": 74}]},
-                            }
+                            },
+                            {"action": "changed", "after": 1, "before": 0, "field": "version", "type": "FeatureFlag"},
                         ],
                         "trigger": None,
                         "type": None,

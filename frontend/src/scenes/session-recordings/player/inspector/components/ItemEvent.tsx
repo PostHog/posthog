@@ -17,6 +17,7 @@ import { insightUrlForEvent } from 'scenes/insights/utils'
 import { eventPropertyFilteringLogic } from 'scenes/session-recordings/player/inspector/components/eventPropertyFilteringLogic'
 
 import { InspectorListItemEvent } from '../playerInspectorLogic'
+import { AIEventExpanded, AIEventSummary } from './AIEventItems'
 import { SimpleKeyValueList } from './SimpleKeyValueList'
 
 export interface ItemEventProps {
@@ -65,6 +66,10 @@ export function ItemEvent({ item }: ItemEventProps): JSX.Element {
             <SummarizeWebVitals properties={item.data.properties} />
         ) : item.data.elements.length ? (
             <AutocapturePreviewImage elements={item.data.elements} />
+        ) : item.data.event === '$ai_generation' ||
+          item.data.event === '$ai_span' ||
+          item.data.event === '$ai_trace' ? (
+            <AIEventSummary event={item.data} />
         ) : null
 
     return (
@@ -92,9 +97,20 @@ export function ItemEvent({ item }: ItemEventProps): JSX.Element {
 }
 
 export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
+    // // Check if this is an LLM-related event
+    const isAIEvent =
+        item.data.event === '$ai_generation' || item.data.event === '$ai_span' || item.data.event === '$ai_trace'
+
     const [activeTab, setActiveTab] = useState<
-        'properties' | 'flags' | 'image' | 'elements' | '$set_properties' | '$set_once_properties' | 'raw'
-    >('properties')
+        | 'properties'
+        | 'flags'
+        | 'image'
+        | 'elements'
+        | '$set_properties'
+        | '$set_once_properties'
+        | 'raw'
+        | 'conversation'
+    >(isAIEvent ? 'conversation' : 'properties')
 
     const insightUrl = insightUrlForEvent(item.data)
     const { filterProperties } = useValues(eventPropertyFilteringLogic)
@@ -120,22 +136,44 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
         }
     }
 
+    // Get trace ID for linking to LLM trace view
+    const traceId = item.data.properties.$ai_trace_id
+    const traceUrl = traceId
+        ? `/llm-observability/traces/${traceId}${
+              item.data.id && item.data.event !== '$ai_trace' ? `?event=${item.data.id}` : ''
+          }`
+        : null
+
     return (
         <div data-attr="item-event" className="font-light w-full">
             <div className="px-2 py-1 text-xs border-t">
-                {insightUrl ? (
+                {insightUrl || traceUrl ? (
                     <>
-                        <div className="flex justify-end">
-                            <LemonButton
-                                size="xsmall"
-                                type="secondary"
-                                sideIcon={<IconOpenInNew />}
-                                data-attr="recordings-event-to-insights"
-                                to={insightUrl}
-                                targetBlank
-                            >
-                                Try out in Insights
-                            </LemonButton>
+                        <div className="flex justify-end gap-2">
+                            {insightUrl && (
+                                <LemonButton
+                                    size="xsmall"
+                                    type="secondary"
+                                    sideIcon={<IconOpenInNew />}
+                                    data-attr="recordings-event-to-insights"
+                                    to={insightUrl}
+                                    targetBlank
+                                >
+                                    Try out in Insights
+                                </LemonButton>
+                            )}
+                            {traceUrl && (
+                                <LemonButton
+                                    size="xsmall"
+                                    type="secondary"
+                                    sideIcon={<IconOpenInNew />}
+                                    data-attr="recordings-event-to-llm-trace"
+                                    to={traceUrl}
+                                    targetBlank
+                                >
+                                    View LLM Trace
+                                </LemonButton>
+                            )}
                         </div>
                         <LemonDivider dashed />
                     </>
@@ -185,6 +223,14 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
                                           key: 'image',
                                           label: 'Image',
                                           content: <AutocaptureImageTab elements={item.data.elements} />,
+                                      }
+                                    : null,
+                                // Add conversation tab for $ai_generation events
+                                isAIEvent
+                                    ? {
+                                          key: 'conversation',
+                                          label: 'Conversation',
+                                          content: <AIEventExpanded event={item.data} />,
                                       }
                                     : null,
                                 Object.keys(setProperties).length > 0

@@ -54,7 +54,7 @@ function LinkedFlagSelector(): JSX.Element | null {
 
     return (
         <>
-            <div className="flex flex-col space-y-2">
+            <div className="flex flex-col deprecated-space-y-2">
                 <LemonLabel className="text-base">
                     Enable recordings using feature flag {featureFlagLoading && <Spinner />}
                 </LemonLabel>
@@ -229,6 +229,10 @@ export function SessionRecordingIngestionSettings(): JSX.Element | null {
                                     {
                                         label: '5%',
                                         value: '0.05',
+                                    },
+                                    {
+                                        label: '1%',
+                                        value: '0.01',
                                     },
                                     {
                                         label: '0% (replay disabled)',

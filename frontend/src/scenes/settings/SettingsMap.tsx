@@ -35,12 +35,14 @@ import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
 import { OtherIntegrations } from './environment/OtherIntegrations'
 import { PathCleaningFiltersConfig } from './environment/PathCleaningFiltersConfig'
 import { PersonDisplayNameProperties } from './environment/PersonDisplayNameProperties'
+import { RevenueBaseCurrencySettings } from './environment/RevenueBaseCurrencySettings'
 import { SessionRecordingIngestionSettings } from './environment/SessionRecordingIngestionSettings'
 import {
     NetworkCaptureSettings,
     ReplayAISettings,
     ReplayAuthorizedDomains,
     ReplayGeneral,
+    ReplayMaskingSettings,
 } from './environment/SessionRecordingSettings'
 import { SlackIntegration } from './environment/SlackIntegration'
 import { SurveySettings } from './environment/SurveySettings'
@@ -48,9 +50,9 @@ import { TeamAccessControl } from './environment/TeamAccessControl'
 import { TeamDangerZone } from './environment/TeamDangerZone'
 import {
     Bookmarklet,
+    TeamAuthorizedURLs,
     TeamDisplayName,
     TeamTimezone,
-    TeamToolbarURLs,
     TeamVariables,
     WebSnippet,
 } from './environment/TeamSettings'
@@ -97,6 +99,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <WebSnippet />,
             },
             {
+                id: 'authorized-urls',
+                title: 'Toolbar Authorized URLs',
+                component: <TeamAuthorizedURLs />,
+            },
+            {
                 id: 'bookmarklet',
                 title: 'Bookmarklet',
                 component: <Bookmarklet />,
@@ -141,7 +148,6 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
         ],
     },
-
     {
         level: 'environment',
         id: 'environment-product-analytics',
@@ -220,16 +226,26 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
         ],
     },
-
     {
         level: 'environment',
         id: 'environment-web-analytics',
         title: 'Web analytics',
         settings: [
             {
+                id: 'web-analytics-authorized-urls',
+                title: 'Web Analytics Domains',
+                component: <TeamAuthorizedURLs />,
+            },
+            {
                 id: 'channel-type',
                 title: 'Custom channel type',
                 component: <CustomChannelTypes />,
+            },
+            {
+                id: 'revenue-base-currency',
+                title: 'Revenue base currency',
+                component: <RevenueBaseCurrencySettings />,
+                flag: 'WEB_REVENUE_TRACKING',
             },
             {
                 id: 'cookieless-server-hash-mode',
@@ -250,7 +266,6 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
         ],
     },
-
     {
         level: 'environment',
         id: 'environment-replay',
@@ -265,6 +280,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'replay-network',
                 title: 'Network capture',
                 component: <NetworkCaptureSettings />,
+            },
+            {
+                id: 'replay-masking',
+                title: 'Masking',
+                component: <ReplayMaskingSettings />,
             },
             {
                 id: 'replay-authorized-domains',
@@ -356,18 +376,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'Max automatically remembers details about your company and product. This context helps our AI assistant provide relevant answers and suggestions. If there are any details you don’t want Max to remember, you can edit or remove them below.',
                 component: <MaxMemorySettings />,
                 hideOn: [Realm.SelfHostedClickHouse, Realm.SelfHostedPostgres],
-            },
-        ],
-    },
-    {
-        level: 'environment',
-        id: 'environment-toolbar',
-        title: 'Toolbar',
-        settings: [
-            {
-                id: 'authorized-toolbar-urls',
-                title: 'Authorized toolbar URLs',
-                component: <TeamToolbarURLs />,
             },
         ],
     },

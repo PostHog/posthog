@@ -1,6 +1,7 @@
 import { IconCalculator } from '@posthog/icons'
 import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { humanFriendlyNumber } from 'lib/utils'
 import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
 
 import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
@@ -82,7 +83,7 @@ const ResultsTab = (): JSX.Element => {
 const VariantsTab = (): JSX.Element => {
     const { shouldUseExperimentMetrics, isExperimentRunning } = useValues(experimentLogic)
     return (
-        <div className="space-y-8 mt-2">
+        <div className="deprecated-space-y-8 mt-2">
             {shouldUseExperimentMetrics && isExperimentRunning && <Exposures />}
             <ReleaseConditionsTable />
             <DistributionTable />
@@ -91,14 +92,15 @@ const VariantsTab = (): JSX.Element => {
 }
 
 export function ExperimentView(): JSX.Element {
-    const { experimentLoading, experimentId, tabKey, shouldUseExperimentMetrics } = useValues(experimentLogic)
+    const { experiment, experimentLoading, experimentId, tabKey, shouldUseExperimentMetrics } =
+        useValues(experimentLogic)
 
     const { setTabKey, openCalculateRunningTimeModal } = useActions(experimentLogic)
 
     return (
         <>
             <PageHeaderCustom />
-            <div className="space-y-8 experiment-view">
+            <div className="deprecated-space-y-8 experiment-view">
                 {experimentLoading ? (
                     <LoadingState />
                 ) : (
@@ -108,15 +110,36 @@ export function ExperimentView(): JSX.Element {
                             {shouldUseExperimentMetrics ? (
                                 <>
                                     <div className="w-1/2 mt-8 xl:mt-0">
-                                        <h2 className="font-semibold text-lg mb-1">Data collection</h2>
-                                        <LemonButton
-                                            icon={<IconCalculator />}
-                                            type="secondary"
-                                            size="xsmall"
-                                            onClick={openCalculateRunningTimeModal}
-                                        >
-                                            Calculate running time
-                                        </LemonButton>
+                                        <div className="flex items-center gap-2 mb-1">
+                                            <h2 className="font-semibold text-lg m-0">Data collection</h2>
+                                            <LemonButton
+                                                icon={<IconCalculator />}
+                                                type="secondary"
+                                                size="xsmall"
+                                                onClick={openCalculateRunningTimeModal}
+                                                tooltip="Calculate running time"
+                                            />
+                                        </div>
+                                        <div>
+                                            <span className="card-secondary">Recommended sample size:</span>{' '}
+                                            <span className="font-semibold">
+                                                {humanFriendlyNumber(
+                                                    experiment.parameters.recommended_sample_size || 0,
+                                                    0
+                                                )}{' '}
+                                                persons
+                                            </span>
+                                        </div>
+                                        <div>
+                                            <span className="card-secondary">Estimated running time:</span>{' '}
+                                            <span className="font-semibold">
+                                                {humanFriendlyNumber(
+                                                    experiment.parameters.recommended_running_time || 0,
+                                                    0
+                                                )}
+                                            </span>{' '}
+                                            days
+                                        </div>
                                         <div className="mt-4">
                                             <ExposureCriteria />
                                         </div>

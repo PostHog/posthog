@@ -48,7 +48,7 @@ export const OnboardingInviteTeammates = ({ stepKey }: { stepKey: OnboardingStep
         <OnboardingStep
             title="Invite teammates"
             stepKey={stepKey}
-            continueAction={() =>
+            onContinue={() =>
                 preflight?.email_service_available &&
                 invitesToSend[0]?.target_email &&
                 canSubmitInvites &&

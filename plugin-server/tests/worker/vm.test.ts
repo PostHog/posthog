@@ -4,7 +4,7 @@ import { getParsedQueuedMessages, mockProducer } from '../helpers/mocks/producer
 import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import fetch from 'node-fetch'
 
-import { KAFKA_EVENTS_PLUGIN_INGESTION, KAFKA_PLUGIN_LOG_ENTRIES } from '../../src/config/kafka-topics'
+import { KAFKA_PLUGIN_LOG_ENTRIES } from '../../src/config/kafka-topics'
 import { Hub, PluginLogEntrySource, PluginLogEntryType } from '../../src/types'
 import { PluginConfig, PluginConfigVMResponse } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
@@ -15,7 +15,6 @@ import { plugin60 } from '../helpers/plugins'
 import { resetTestDatabase } from '../helpers/sql'
 
 jest.mock('../../src/utils/status')
-jest.mock('../../src/main/graphile-worker/graphile-worker')
 
 jest.setTimeout(100000)
 
@@ -57,7 +56,7 @@ describe('vm tests', () => {
         const indexJs = ''
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
 
-        expect(Object.keys(vm).sort()).toEqual(['methods', 'tasks', 'usedImports', 'vm', 'vmResponseVariable'])
+        expect(Object.keys(vm).sort()).toEqual(['methods', 'usedImports', 'vm', 'vmResponseVariable'])
         expect(Object.keys(vm.methods).sort()).toEqual([
             'composeWebhook',
             'getSettings',
@@ -907,135 +906,6 @@ describe('vm tests', () => {
         await vm.methods.processEvent!(event)
 
         expect(event.properties).toEqual(attachments)
-    })
-
-    test('runEvery', async () => {
-        const indexJs = `
-            function runEveryMinute (meta) {
-
-            }
-            function runEveryHour (meta) {
-
-            }
-            function runEveryDay (meta) {
-
-            }
-        `
-        await resetTestDatabase(indexJs)
-        const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
-
-        expect(Object.keys(vm.tasks).sort()).toEqual(['job', 'schedule'])
-        expect(Object.keys(vm.tasks.schedule)).toEqual(['runEveryMinute', 'runEveryHour', 'runEveryDay'])
-        expect(Object.values(vm.tasks.schedule).map((v) => v?.name)).toEqual([
-            'runEveryMinute',
-            'runEveryHour',
-            'runEveryDay',
-        ])
-        expect(Object.values(vm.tasks.schedule).map((v) => v?.type)).toEqual(['schedule', 'schedule', 'schedule'])
-        expect(Object.values(vm.tasks.schedule).map((v) => typeof v?.exec)).toEqual([
-            'function',
-            'function',
-            'function',
-        ])
-    })
-
-    test('runEvery must be a function', async () => {
-        const indexJs = `
-            function runEveryMinute(meta) {
-
-            }
-            const runEveryHour = false
-            const runEveryDay = { some: 'object' }
-        `
-        await resetTestDatabase(indexJs)
-        const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
-
-        expect(Object.keys(vm.tasks.schedule)).toEqual(['runEveryMinute'])
-        expect(Object.values(vm.tasks.schedule).map((v) => v?.name)).toEqual(['runEveryMinute'])
-        expect(Object.values(vm.tasks.schedule).map((v) => v?.type)).toEqual(['schedule'])
-        expect(Object.values(vm.tasks.schedule).map((v) => typeof v?.exec)).toEqual(['function'])
-    })
-
-    test('posthog in runEvery', async () => {
-        const indexJs = `
-            async function runEveryMinute(meta) {
-                await posthog.capture('my-new-event', { random: 'properties' })
-                return 'haha'
-            }
-        `
-        await resetTestDatabase(indexJs)
-        const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
-        const response = await vm.tasks.schedule.runEveryMinute.exec()
-
-        expect(response).toBe('haha')
-        expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
-        const queuedMessages = getParsedQueuedMessages()
-        expect(queuedMessages[0].topic).toEqual(KAFKA_EVENTS_PLUGIN_INGESTION)
-        const parsedMessage = JSON.parse(queuedMessages[0].messages[0].value!.data)
-        expect(parsedMessage).toMatchObject({
-            distinct_id: 'plugin-id-60',
-            event: 'my-new-event',
-            properties: expect.objectContaining({
-                $lib: 'posthog-plugin-server',
-                random: 'properties',
-                distinct_id: 'plugin-id-60',
-            }),
-        })
-    })
-
-    test('posthog in runEvery with timestamp', async () => {
-        const indexJs = `
-            async function runEveryMinute(meta) {
-                await posthog.capture('my-new-event', { random: 'properties', timestamp: '2020-02-23T02:15:00Z' })
-                return 'haha'
-            }
-        `
-        await resetTestDatabase(indexJs)
-        const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
-
-        const response = await vm.tasks.schedule.runEveryMinute.exec()
-
-        expect(response).toBe('haha')
-        expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
-        const queuedMessages = getParsedQueuedMessages()
-        expect(queuedMessages[0].topic).toEqual(KAFKA_EVENTS_PLUGIN_INGESTION)
-        const parsedMessage = JSON.parse(queuedMessages[0].messages[0].value!.data)
-        expect(parsedMessage).toMatchObject({
-            timestamp: '2020-02-23T02:15:00Z', // taken out of the properties
-            distinct_id: 'plugin-id-60',
-            event: 'my-new-event',
-            properties: expect.objectContaining({ $lib: 'posthog-plugin-server', random: 'properties' }),
-        })
-    })
-
-    test('posthog.capture accepts user-defined distinct id', async () => {
-        const indexJs = `
-            function runEveryMinute(meta) {
-                posthog.capture('my-new-event', { random: 'properties', distinct_id: 'custom id' })
-                return 'haha'
-            }
-        `
-        await resetTestDatabase(indexJs)
-        const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
-        const response = await vm.tasks.schedule.runEveryMinute.exec()
-
-        expect(response).toBe('haha')
-        expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
-        const queuedMessages = getParsedQueuedMessages()
-
-        expect(queuedMessages[0].topic).toEqual(KAFKA_EVENTS_PLUGIN_INGESTION)
-
-        const parsedData = JSON.parse(queuedMessages[0].messages[0].value!.data)
-
-        expect(parsedData).toMatchObject({
-            distinct_id: 'custom id',
-            event: 'my-new-event',
-            properties: expect.objectContaining({
-                $lib: 'posthog-plugin-server',
-                random: 'properties',
-                distinct_id: 'custom id',
-            }),
-        })
     })
 
     test('onEvent', async () => {

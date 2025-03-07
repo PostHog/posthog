@@ -70,7 +70,7 @@ function formatTickValue(value: number): string {
 
     return `${(value * 100).toFixed(decimals)}%`
 }
-const getMetricTitle = (metric: any, metricType: InsightType): JSX.Element => {
+export const getMetricTitle = (metric: any, metricType?: InsightType): JSX.Element => {
     if (metric.name) {
         return <span className="truncate">{metric.name}</span>
     }
@@ -296,14 +296,14 @@ export function DeltaChart({
                         style={{ height: `${ticksSvgHeight}px` }}
                     />
                 )}
-                {isFirstMetric && <div className="w-full border-t border-border" />}
+                {isFirstMetric && <div className="w-full border-t border-primary" />}
                 <div
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{ height: `${chartSvgHeight}px`, borderRight: `1px solid ${COLORS.BOUNDARY_LINES}` }}
                     className="p-2 overflow-auto"
                 >
                     <div className="text-xs font-semibold whitespace-nowrap overflow-hidden">
-                        <div className="space-y-1">
+                        <div className="deprecated-space-y-1">
                             <div className="flex items-center gap-2">
                                 <div className="cursor-default text-xs font-semibold whitespace-nowrap overflow-hidden text-ellipsis flex-grow flex items-center">
                                     <span className="mr-1">{metricIndex + 1}.</span>
@@ -329,7 +329,7 @@ export function DeltaChart({
                                     }}
                                 />
                             </div>
-                            <div className="space-x-1">
+                            <div className="deprecated-space-x-1">
                                 <LemonTag type="muted" size="small">
                                     {getMetricTag(metric)}
                                 </LemonTag>
@@ -385,7 +385,7 @@ export function DeltaChart({
                         </svg>
                     </div>
                 )}
-                {isFirstMetric && <div className="w-full border-t border-border" />}
+                {isFirstMetric && <div className="w-full border-t border-primary" />}
                 {/* Chart */}
                 {result ? (
                     <div className="relative">

@@ -22,9 +22,9 @@ import { ShowLegendFilter } from 'scenes/insights/EditorFilters/ShowLegendFilter
 import { ShowMultipleYAxesFilter } from 'scenes/insights/EditorFilters/ShowMultipleYAxesFilter'
 import { ValueOnSeriesFilter } from 'scenes/insights/EditorFilters/ValueOnSeriesFilter'
 import { InsightDateFilter } from 'scenes/insights/filters/InsightDateFilter'
-import { RetentionCumulativeCheckbox } from 'scenes/insights/filters/RetentionCumulativeCheckbox'
-import { RetentionMeanCheckbox } from 'scenes/insights/filters/RetentionMeanCheckbox'
-import { RetentionReferencePicker } from 'scenes/insights/filters/RetentionReferencePicker'
+import { RetentionChartPicker } from 'scenes/insights/filters/RetentionChartPicker'
+import { RetentionDashboardDisplayPicker } from 'scenes/insights/filters/RetentionDashboardDisplayPicker'
+import { RetentionMeanDropdown } from 'scenes/insights/filters/RetentionMeanDropdown'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { RetentionDatePicker } from 'scenes/insights/RetentionDatePicker'
@@ -143,6 +143,14 @@ export function InsightDisplayConfig(): JSX.Element {
                   },
               ]
             : []),
+        ...(isRetention
+            ? [
+                  {
+                      title: 'On dashboards',
+                      items: [{ label: () => <RetentionDashboardDisplayPicker /> }],
+                  },
+              ]
+            : []),
     ]
     const advancedOptionsCount: number =
         (supportsValueOnSeries && showValuesOnSeries ? 1 : 0) +
@@ -184,9 +192,7 @@ export function InsightDisplayConfig(): JSX.Element {
                 {!!isRetention && (
                     <ConfigFilter>
                         <RetentionDatePicker />
-                        <RetentionReferencePicker />
-                        <RetentionMeanCheckbox />
-                        <RetentionCumulativeCheckbox />
+                        <RetentionMeanDropdown />
                     </ConfigFilter>
                 )}
 
@@ -226,6 +232,11 @@ export function InsightDisplayConfig(): JSX.Element {
                         <ChartFilter />
                     </ConfigFilter>
                 )}
+                {!!isRetention && (
+                    <ConfigFilter>
+                        <RetentionChartPicker />
+                    </ConfigFilter>
+                )}
                 {!!isStepsFunnel && (
                     <ConfigFilter>
                         <FunnelDisplayLayoutPicker />
@@ -248,7 +259,7 @@ export function InsightDisplayConfig(): JSX.Element {
 }
 
 function ConfigFilter({ children }: { children: ReactNode }): JSX.Element {
-    return <span className="space-x-2 flex items-center text-sm">{children}</span>
+    return <span className="deprecated-space-x-2 flex items-center text-sm">{children}</span>
 }
 
 function DecimalPrecisionInput(): JSX.Element {

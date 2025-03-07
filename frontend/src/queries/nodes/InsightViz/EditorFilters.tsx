@@ -17,6 +17,7 @@ import { PathsTargetEnd, PathsTargetStart } from 'scenes/insights/EditorFilters/
 import { PathsWildcardGroups } from 'scenes/insights/EditorFilters/PathsWildcardGroups'
 import { PoeFilter } from 'scenes/insights/EditorFilters/PoeFilter'
 import { RetentionCondition } from 'scenes/insights/EditorFilters/RetentionCondition'
+import { RetentionOptions } from 'scenes/insights/EditorFilters/RetentionOptions'
 import { SamplingFilter } from 'scenes/insights/EditorFilters/SamplingFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -92,13 +93,20 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         {
             title: 'General',
             editorFilters: filterFalsy([
-                isRetention
-                    ? {
-                          key: 'retention-condition',
-                          label: 'Retention Condition',
-                          component: RetentionCondition,
-                      }
-                    : null,
+                ...(isRetention
+                    ? [
+                          {
+                              key: 'retention-condition',
+                              label: 'Retention condition',
+                              component: RetentionCondition,
+                          },
+                          {
+                              key: 'retention-options',
+                              label: 'Retention calculation options',
+                              component: RetentionOptions,
+                          },
+                      ]
+                    : []),
                 isFunnels
                     ? {
                           key: 'query-steps',
@@ -203,7 +211,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                                   <Tooltip
                                       closeDelayMs={200}
                                       title={
-                                          <div className="space-y-2">
+                                          <div className="deprecated-space-y-2">
                                               <div>
                                                   The stickiness criteria defines how many times a user must perform an
                                                   event inside of a given interval in order to be considered "sticky."
@@ -227,7 +235,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                                   <Tooltip
                                       closeDelayMs={200}
                                       title={
-                                          <div className="space-y-2">
+                                          <div className="deprecated-space-y-2">
                                               <div>
                                                   Choose how to compute stickiness values. Non-cumulative shows exact
                                                   numbers for each day count, while cumulative shows users active for at
@@ -268,7 +276,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                                   <Tooltip
                                       closeDelayMs={200}
                                       title={
-                                          <div className="space-y-2">
+                                          <div className="deprecated-space-y-2">
                                               <div>
                                                   When breaking down funnels, it's possible that the same properties
                                                   don't exist on every event. For example, if you want to break down by

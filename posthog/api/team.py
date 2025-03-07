@@ -8,10 +8,11 @@ from django.shortcuts import get_object_or_404
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.permissions import BasePermission, IsAuthenticated
-
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
 from posthog.api.utils import action
+from posthog.cloud_utils import get_api_host
+from posthog.api.wizard import SETUP_WIZARD_CACHE_PREFIX, SETUP_WIZARD_CACHE_TIMEOUT
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
@@ -45,6 +46,7 @@ from posthog.permissions import (
     TeamMemberStrictManagementPermission,
     get_organization_from_view,
 )
+from posthog.rate_limit import SetupWizardAuthenticationRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
@@ -53,6 +55,7 @@ from posthog.utils import (
     get_ip_address,
     get_week_start_for_country_code,
 )
+from django.core.cache import cache
 
 
 class PremiumMultiProjectPermissions(BasePermission):  # TODO: Rename to include "Env" in name
@@ -132,6 +135,7 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "session_recording_minimum_duration_milliseconds",
             "session_recording_linked_flag",
             "session_recording_network_payload_capture_config",
+            "session_recording_masking_config",
             "session_recording_url_trigger_config",
             "session_recording_url_blocklist_config",
             "session_recording_event_trigger_config",
@@ -172,6 +176,7 @@ TEAM_CONFIG_FIELDS = (
     "session_recording_minimum_duration_milliseconds",
     "session_recording_linked_flag",
     "session_recording_network_payload_capture_config",
+    "session_recording_masking_config",
     "session_recording_url_trigger_config",
     "session_recording_url_blocklist_config",
     "session_recording_event_trigger_config",
@@ -319,6 +324,31 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             raise exceptions.ValidationError(
                 "Must provide a dictionary with only 'recordHeaders' and/or 'recordBody' keys."
             )
+
+        return value
+
+    @staticmethod
+    def validate_session_recording_masking_config(value) -> dict | None:
+        if value is None:
+            return None
+
+        if not isinstance(value, dict):
+            raise exceptions.ValidationError("Must provide a dictionary or None.")
+
+        allowed_keys = {"maskAllInputs", "maskTextSelector"}
+
+        if not all(key in allowed_keys for key in value.keys()):
+            raise exceptions.ValidationError(
+                f"Must provide a dictionary with only known keys: {', '.join(allowed_keys)}."
+            )
+
+        if "maskAllInputs" in value:
+            if not isinstance(value["maskAllInputs"], bool):
+                raise exceptions.ValidationError("maskAllInputs must be a boolean.")
+
+        if "maskTextSelector" in value:
+            if not isinstance(value["maskTextSelector"], str):
+                raise exceptions.ValidationError("maskTextSelector must be a string.")
 
         return value
 
@@ -762,6 +792,34 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
             )
 
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
+
+    @action(
+        methods=["POST"],
+        detail=True,
+        url_path="authenticate_wizard",
+        throttle_classes=[SetupWizardAuthenticationRateThrottle],
+    )
+    def authenticate_wizard(self, request, **kwargs):
+        hash = request.data.get("hash")
+
+        if not hash:
+            raise serializers.ValidationError({"hash": ["This field is required."]}, code="required")
+
+        cache_key = f"{SETUP_WIZARD_CACHE_PREFIX}{hash}"
+        wizard_data = cache.get(cache_key)
+
+        if wizard_data is None:
+            raise serializers.ValidationError({"hash": ["This hash is invalid or has expired."]}, code="invalid_hash")
+
+        wizard_data = {
+            "project_api_key": request.user.team.api_token,
+            "host": get_api_host(),
+            "user_distinct_id": request.user.distinct_id,
+        }
+
+        cache.set(cache_key, wizard_data, SETUP_WIZARD_CACHE_TIMEOUT)
+
+        return response.Response({"success": True}, status=200)
 
     @cached_property
     def user_permissions(self):
