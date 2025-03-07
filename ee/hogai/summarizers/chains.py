@@ -1,4 +1,6 @@
+import uuid
 from collections.abc import Sequence
+from typing import Any
 
 import posthoganalytics
 import structlog
@@ -6,6 +8,7 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompt_values import PromptValue
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
+from posthoganalytics.ai.langchain import CallbackHandler
 
 from posthog.models import Action
 
@@ -15,7 +18,21 @@ from .prompts import ACTIONS_SUMMARIZER_SYSTEM_PROMPT
 logger = structlog.get_logger(__name__)
 
 
-async def abatch_summarize_actions(actions: Sequence[Action]) -> list[str | BaseException]:
+async def abatch_summarize_actions(
+    actions: Sequence[Action], start_dt: str | None = None, properties: dict[str, Any] | None = None
+) -> list[str | BaseException]:
+    trace_id = f"batch_actions_{start_dt}_{uuid.uuid4()}"
+    props = properties or {}
+    callback_handler = CallbackHandler(
+        posthoganalytics.default_client,
+        properties={
+            **props,
+            "batch_processing": True,
+            "domain": "actions",
+        },
+        trace_id=trace_id,
+    )
+
     prompts: list[PromptValue] = []
     for action in actions:
         try:
@@ -38,4 +55,4 @@ async def abatch_summarize_actions(actions: Sequence[Action]) -> list[str | Base
         prompts.append(prompt)
 
     chain = ChatOpenAI(model="gpt-4o", temperature=0, streaming=False) | StrOutputParser()
-    return await chain.abatch(prompts, return_exceptions=True)  # type: ignore  # typing doesn't match in LangChain
+    return await chain.abatch(prompts, config={"callbacks": [callback_handler]}, return_exceptions=True)  # type: ignore  # typing doesn't match in LangChain

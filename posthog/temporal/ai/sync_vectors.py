@@ -101,7 +101,11 @@ async def batch_summarize_and_embed_actions(inputs: RetrieveActionsInputs):
         actions_count=len(actions),
     )
 
-    summaries = await abatch_summarize_actions(actions)
+    summaries = await abatch_summarize_actions(
+        actions,
+        start_dt=inputs.start_dt,
+        properties={"offset": inputs.offset, "batch_size": inputs.batch_size, "start_dt": inputs.start_dt},
+    )
     models_to_update = []
     for action, maybe_summary in zip(actions, summaries):
         # If a few actions across the batch fail, we don't want to fail the entire workflow.
