@@ -5,7 +5,7 @@ import hashlib
 from rest_framework import serializers, viewsets, status, request
 from rest_framework.response import Response
 from rest_framework.exceptions import ValidationError
-from rest_framework.parsers import BaseParser
+from rest_framework.parsers import BaseParser, FileUploadParser
 
 from django.http import JsonResponse
 from django.conf import settings
@@ -252,7 +252,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
     scope_object = "error_tracking"
     queryset = ErrorTrackingSymbolSet.objects.all()
     serializer_class = ErrorTrackingSymbolSetSerializer
-    parser_classes = [PlainTextParser]
+    parser_classes = [FileUploadParser]
 
     def safely_get_queryset(self, queryset):
         return queryset.filter(team_id=self.team.id)
