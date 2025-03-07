@@ -23,10 +23,31 @@ class TestActionSummarizer(BaseTest):
 
             OR
 
-            Match group 2: event is `$autocapture` AND element text contains `Send` AND element `href` attribute matches exactly `/max` AND the URL of event matches regex `/max` AND element matches HTML selector `button` AND element property `tag_name` matches exactly `button`
+            Match group 2: event is `$autocapture` AND element matches HTML selector `button` AND element text contains `Send` AND element `href` attribute matches exactly `/max` AND the URL of event matches regex `/max` AND element property `tag_name` matches exactly `button`
 
             OR
 
             Match group 3: event is `chat with ai`
+        """
+        self.assertEqual(summarizer.summary, dedent(expected_summary).strip())
+
+    def test_optional_matching_parameters(self):
+        steps = [
+            {"event": "$pageview", "url": "/max"},
+            {"event": "$autocapture", "selector": "button", "text": "Send", "href": "/max", "url": "\\/max"},
+        ]
+        action = Action.objects.create(
+            name="Test Action", description="Test Description", steps_json=steps, team=self.team
+        )
+        summarizer = ActionSummarizer(action)
+        expected_summary = r"""
+            Name: Test Action
+            Description: Test Description
+
+            Match group 1: event is `$pageview` AND the URL of event contains `/max`
+
+            OR
+
+            Match group 2: event is `$autocapture` AND element matches HTML selector `button` AND element text matches exactly `Send` AND element `href` attribute matches exactly `/max` AND the URL of event contains `\/max`
         """
         self.assertEqual(summarizer.summary, dedent(expected_summary).strip())

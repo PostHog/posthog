@@ -88,21 +88,24 @@ class ActionSummarizer:
             description.append(f"event is `{step.event}`")
             if event_description := retrieve_hardcoded_taxonomy("events", step.event):
                 taxonomy.add(PropertyFilterTaxonomyEntry(group="events", key=step.event, description=event_description))
-        if step.text_matching and step.text:
-            text_desc = f"element text {ACTION_MATCH_FILTER_VERBOSE_NAME[step.text_matching]} `{step.text}`"
-            description.append(text_desc)
-        if step.href_matching and step.href:
-            href_desc = f"element `href` attribute {ACTION_MATCH_FILTER_VERBOSE_NAME[step.href_matching]} `{step.href}`"
-            description.append(href_desc)
-        if step.url_matching and step.url:
-            url_desc = f"the URL of event {ACTION_MATCH_FILTER_VERBOSE_NAME[step.url_matching]} `{step.url}`"
-            description.append(url_desc)
         if step.selector:
             html_desc = f"element matches HTML selector `{step.selector}`"
             description.append(html_desc)
         if step.tag_name:
             tag_desc = f"element tag is `{step.tag_name}`"
             description.append(tag_desc)
+        if step.text:
+            match_filter: ActionStepMatching = step.text_matching or "exact"
+            text_desc = f"element text {ACTION_MATCH_FILTER_VERBOSE_NAME[match_filter]} `{step.text}`"
+            description.append(text_desc)
+        if step.href:
+            match_filter: ActionStepMatching = step.href_matching or "exact"
+            href_desc = f"element `href` attribute {ACTION_MATCH_FILTER_VERBOSE_NAME[match_filter]} `{step.href}`"
+            description.append(href_desc)
+        if step.url:
+            match_filter: ActionStepMatching = step.url_matching or "contains"
+            url_desc = f"the URL of event {ACTION_MATCH_FILTER_VERBOSE_NAME[match_filter]} `{step.url}`"
+            description.append(url_desc)
 
         if step.properties:
             property_desc, used_properties = PropertyFilterCollectionDescriber(filters=step.properties).describe()
