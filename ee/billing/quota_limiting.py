@@ -167,12 +167,8 @@ def org_quota_limited_until(
     #       a. not over limit
     #       b. 'never_drop_data' set or a high trust score (15)
     #       c. feature flag to retain data past quota limit
-    # 2. limit the org
-    #       a. already being limited
-    #       b. no trust score
-    #       b. low trust (3)
-    # 3. add quote suspension
-    #       a. medium / medium high trust (7, 10)
+    # 2. limit the org if already being limited
+    # 3. add quote suspension based on grace period`
 
     # 1a. not over limit
     if not is_over_limit:
@@ -209,7 +205,7 @@ def org_quota_limited_until(
     team_tokens = get_team_attribute_by_quota_resource(organization)
     team_being_limited = any(x in previously_quota_limited_team_tokens for x in team_tokens)
 
-    # 2a. already being limited
+    # 2 already being limited
     if team_being_limited:
         # They are already being limited, do not update their status.
         report_organization_action(
@@ -253,6 +249,7 @@ def org_quota_limited_until(
     # These trust score levels are defined in billing::customer::TrustScores.
     # Please keep the logic and levels in sync with what is defined in billing.
 
+    # 3. add quote suspension based on grace period
     # If trust_score is None, set it to 0
     if trust_score is None:
         organization.customer_trust_scores[resource.value] = 0
