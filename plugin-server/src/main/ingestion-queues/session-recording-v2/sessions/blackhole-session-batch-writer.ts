@@ -21,4 +21,9 @@ export class BlackholeSessionBatchFileStorage implements SessionBatchFileStorage
         status.debug('🔁', 'blackhole_writer_creating_batch')
         return new BlackholeBatchFileWriter()
     }
+
+    public checkHealth(): Promise<boolean> {
+        status.debug('🔁', 'blackhole_writer_healthcheck')
+        return Promise.resolve(true)
+    }
 }

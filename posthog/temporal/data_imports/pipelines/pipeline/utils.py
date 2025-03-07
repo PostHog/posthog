@@ -1,15 +1,16 @@
+import datetime
 import decimal
+import hashlib
 from ipaddress import IPv4Address, IPv6Address
 import json
 import math
 import uuid
-from collections.abc import Hashable, Iterator, Sequence
+from collections.abc import Iterator, Sequence
 from typing import Any, Optional
 
 import deltalake as deltalake
 import numpy as np
 import orjson
-import pandas as pd
 import pyarrow as pa
 import pyarrow.compute as pc
 from dateutil import parser
@@ -20,6 +21,7 @@ from dlt.common.normalizers.naming.snake_case import NamingConvention
 from dlt.sources import DltResource
 
 from posthog.temporal.common.logger import FilteringBoundLogger
+from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema
 
@@ -37,13 +39,14 @@ DLT_TO_PA_TYPE_MAP = {
 
 DEFAULT_NUMERIC_PRECISION = 76
 DEFAULT_NUMERIC_SCALE = 32
+DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES = 200 * 1024 * 1024  # 200 MB
 
 
 def normalize_column_name(column_name: str) -> str:
     return NamingConvention().normalize_identifier(column_name)
 
 
-def safe_parse_datetime(date_str):
+def safe_parse_datetime(date_str) -> None | pa.TimestampScalar | datetime.datetime:
     try:
         if date_str is None:
             return None
@@ -159,14 +162,6 @@ def _evolve_pyarrow_schema(table: pa.Table, delta_schema: deltalake.Schema | Non
             table = table.set_column(table.schema.get_field_index(column_name), column_name, seconds_column)
             column = table.column(column_name)
 
-        # Normalize column names
-        normalized_column_name = normalize_column_name(column_name)
-        if normalized_column_name != column_name:
-            table = table.set_column(table.schema.get_field_index(column_name), normalized_column_name, column)
-
-    # Refresh column names after potential name updates
-    py_table_field_names = table.schema.names
-
     if delta_schema:
         for field in delta_schema.to_pyarrow():
             if field.name not in py_table_field_names:
@@ -257,6 +252,64 @@ def _append_debug_column_to_pyarrows_table(table: pa.Table, load_id: int) -> pa.
 
     column = pa.array([debug_info] * table.num_rows, type=pa.string())
     return table.append_column("_ph_debug", column)
+
+
+def should_partition_table(
+    delta_table: deltalake.DeltaTable | None, schema: ExternalDataSchema, source: SourceResponse
+) -> bool:
+    if not schema.is_incremental:
+        return False
+
+    if schema.partitioning_enabled and schema.partitioning_size is not None and schema.partitioning_keys is not None:
+        return True
+
+    if source.partition_bucket_size is None:
+        return False
+
+    if delta_table is None:
+        return True
+
+    delta_schema = delta_table.schema().to_pyarrow()
+    if PARTITION_KEY in delta_schema.names:
+        return True
+
+    return False
+
+
+def normalize_table_column_names(table: pa.Table) -> pa.Table:
+    for column_name in table.column_names:
+        normalized_column_name = normalize_column_name(column_name)
+        if normalized_column_name != column_name:
+            table = table.set_column(
+                table.schema.get_field_index(column_name),
+                normalized_column_name,
+                table.column(column_name),  # type: ignore
+            )
+
+    return table
+
+
+def append_partition_key_to_table(
+    table: pa.Table, partition_size: int, primary_keys: list[str], logger: FilteringBoundLogger
+) -> pa.Table:
+    normalized_primary_keys = [normalize_column_name(key) for key in primary_keys]
+
+    partition_array: list[str] = []
+
+    for batch in table.to_batches():
+        for row in batch.to_pylist():
+            primary_key_values = [str(row[key]) for key in normalized_primary_keys]
+            delimited_primary_key_value = "|".join(primary_key_values)
+
+            hash_value = int(hashlib.md5(delimited_primary_key_value.encode()).hexdigest(), 16)
+            partition = math.floor(hash_value / partition_size)
+
+            partition_array.append(str(partition))
+
+    new_column = pa.array(partition_array, type=pa.string())
+    logger.debug(f"Partition key added")
+
+    return table.append_column(PARTITION_KEY, new_column)
 
 
 def _update_incremental_state(schema: ExternalDataSchema | None, table: pa.Table, logger: FilteringBoundLogger) -> None:
@@ -422,12 +475,23 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
     else:
         arrow_schema = schema
 
-    drop_column_names: list[Hashable] = []
+    drop_column_names: set[str] = set()
 
-    columnar_table_data: dict[Hashable, pa.Array | np.ndarray[Any, np.dtype[Any]]] = {
-        key: np.array([None if isinstance(x, float) and np.isnan(x) else x for x in values], dtype=object)
-        for key, values in pd.DataFrame(table_data, dtype=object).to_dict(orient="list").items()
-    }
+    column_names = set(table_data[0].keys())
+    columnar_table_data: dict[str, pa.Array | np.ndarray[Any, np.dtype[Any]]] = {}
+
+    for col in column_names:
+        values = [
+            None if isinstance(row.get(col, None), float) and np.isnan(row.get(col, None)) else row.get(col, None)
+            for row in table_data
+        ]
+
+        try:
+            # We want to use pyarrow arrays where possible to optimise on memory usage
+            columnar_table_data[col] = pa.array(values)
+        except:
+            # Some values can't be interpreted by pyarrows directly
+            columnar_table_data[col] = np.array(values, dtype=object)
 
     for field_name in columnar_table_data.keys():
         py_type: type = type(None)
@@ -466,6 +530,10 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
 
                 adjusted_field = arrow_schema.field(field_index).with_nullable(has_nulls)
                 arrow_schema = arrow_schema.set(field_index, adjusted_field)
+
+            # Remove any binary columns
+            if pa.types.is_binary(field.type):
+                drop_column_names.add(field_name)
 
         # Convert UUIDs to strings
         if issubclass(py_type, uuid.UUID):
@@ -574,7 +642,7 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
 
         # Remove any binary columns
         if issubclass(py_type, bytes):
-            drop_column_names.append(field_name)
+            drop_column_names.add(field_name)
 
     if len(drop_column_names) != 0:
         for column in drop_column_names:

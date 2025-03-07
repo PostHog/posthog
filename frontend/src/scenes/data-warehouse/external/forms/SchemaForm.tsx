@@ -30,13 +30,12 @@ export default function SchemaForm(): JSX.Element {
                                         <LemonCheckbox
                                             checked={schema.should_sync}
                                             onChange={(checked) => {
+                                                if (schema.sync_type === null) {
+                                                    openSyncMethodModal(schema)
+                                                    return
+                                                }
                                                 toggleSchemaShouldSync(schema, checked)
                                             }}
-                                            disabledReason={
-                                                schema.sync_type === null
-                                                    ? 'Please set up a sync method first'
-                                                    : undefined
-                                            }
                                         />
                                     )
                                 },
@@ -45,7 +44,7 @@ export default function SchemaForm(): JSX.Element {
                                 title: 'Table',
                                 key: 'table',
                                 render: function RenderTable(_, schema) {
-                                    return schema.table
+                                    return <span className="font-mono">{schema.table}</span>
                                 },
                             },
                             {
@@ -126,8 +125,9 @@ export default function SchemaForm(): JSX.Element {
                                                     className="my-1"
                                                     type="primary"
                                                     onClick={() => openSyncMethodModal(schema)}
+                                                    size="small"
                                                 >
-                                                    Set up
+                                                    Configure
                                                 </LemonButton>
                                             </div>
                                         )
@@ -166,7 +166,11 @@ const SyncMethodModal = (): JSX.Element => {
 
     return (
         <LemonModal
-            title={`Sync method for ${currentSyncMethodModalSchema.table}`}
+            title={
+                <>
+                    Sync method for <span className="font-mono">{currentSyncMethodModalSchema.table}</span>
+                </>
+            }
             isOpen={syncMethodModalOpen}
             onClose={cancelSyncMethodModal}
         >

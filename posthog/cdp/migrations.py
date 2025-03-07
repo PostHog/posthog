@@ -157,7 +157,7 @@ def migrate_legacy_plugins(
     # Get all legacy plugin_configs that are active with their attachments and global values
     # Plugins are huge (JS and assets) so we only grab the bits we really need
 
-    legacy_plugin_ids = PluginConfig.objects.values("id").filter(enabled=True).order_by("-id").all()
+    legacy_plugin_ids = PluginConfig.objects.values("id").filter(enabled=True, deleted=False).order_by("-id").all()
 
     if kind == "destination":
         legacy_plugin_ids = legacy_plugin_ids.filter(

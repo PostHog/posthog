@@ -5,7 +5,7 @@ import structlog
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.kafka_client.client import KafkaProducer
 from posthog.models.person import PersonDistinctId
 from posthog.models.person.util import create_person_distinct_id
@@ -96,9 +96,9 @@ def get_version_for_distinct_id(team_id: int, distinct_id: str) -> int:
             "distinct_id": distinct_id,
         },
     )
-    assert (
-        len(rows) == 1
-    ), f"Expected to find exactly one row in person_distinct_id2 for team_id:{team_id}, distinct_id:{distinct_id}, got {len(rows)}"
+    assert len(rows) == 1, (
+        f"Expected to find exactly one row in person_distinct_id2 for team_id:{team_id}, distinct_id:{distinct_id}, got {len(rows)}"
+    )
     return rows[0][0]
 
 

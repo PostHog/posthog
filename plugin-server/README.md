@@ -80,7 +80,6 @@ Each one does a single thing. They are listed in the table below, in order of pr
 | ------- | ---------------------------------------------------------- | ----------------- |
 | Help    | Show plugin server [configuration options](#configuration) | `-h`, `--help`    |
 | Version | Only show currently running plugin server version          | `-v`, `--version` |
-| Migrate | Migrate Graphile Worker                                    | `--migrate`       |
 
 ## Alternative modes
 

@@ -53,7 +53,7 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
     status = models.CharField(max_length=400, null=True, blank=True)
     last_synced_at = models.DateTimeField(null=True, blank=True)
     sync_type = models.CharField(max_length=128, choices=SyncType.choices, null=True, blank=True)
-    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "reset_pipeline": bool }
+    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "reset_pipeline": bool, "partitioning_enabled": bool, "partitioning_size": int, "partitioning_keys": list[str] }
     sync_type_config = models.JSONField(
         default=dict,
         blank=True,
@@ -77,6 +77,79 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
     @property
     def is_incremental(self):
         return self.sync_type == self.SyncType.INCREMENTAL
+
+    @property
+    def incremental_field(self) -> str | None:
+        if self.sync_type_config:
+            return self.sync_type_config.get("incremental_field", None)
+
+        return None
+
+    @property
+    def incremental_field_type(self) -> str | None:
+        if self.sync_type_config:
+            return self.sync_type_config.get("incremental_field_type", None)
+
+        return None
+
+    @property
+    def incremental_field_last_value(self) -> str | None:
+        if self.sync_type_config:
+            return self.sync_type_config.get("incremental_field_last_value", None)
+
+        return None
+
+    @property
+    def reset_pipeline(self) -> bool:
+        if self.sync_type_config:
+            value = self.sync_type_config.get("reset_pipeline", None)
+            if value is None:
+                return False
+
+            if value is True or (isinstance(value, str) and value.lower() == "true"):
+                return True
+
+        return False
+
+    @property
+    def partitioning_enabled(self) -> bool:
+        if self.sync_type_config:
+            value = self.sync_type_config.get("partitioning_enabled", None)
+            if value is None:
+                return False
+
+            if value is True or (isinstance(value, str) and value.lower() == "true"):
+                return True
+
+        return False
+
+    @property
+    def partitioning_size(self) -> int | None:
+        if self.sync_type_config:
+            return self.sync_type_config.get("partitioning_size", None)
+
+        return None
+
+    @property
+    def partitioning_keys(self) -> list[str] | None:
+        if self.sync_type_config:
+            return self.sync_type_config.get("partitioning_keys", None)
+
+        return None
+
+    def set_partitioning_enabled(self, partitioning_keys: list[str], partitioning_size: int) -> None:
+        self.sync_type_config["partitioning_enabled"] = True
+        self.sync_type_config["partitioning_size"] = partitioning_size
+        self.sync_type_config["partitioning_keys"] = partitioning_keys
+        self.save()
+
+    def update_sync_type_config_for_reset_pipeline(self) -> None:
+        self.sync_type_config.pop("reset_pipeline", None)
+        self.sync_type_config.pop("incremental_field_last_value", None)
+        self.sync_type_config.pop("partitioning_enabled", None)
+        self.sync_type_config.pop("partitioning_size", None)
+        self.sync_type_config.pop("partitioning_keys", None)
+        self.save()
 
     def update_incremental_field_last_value(self, last_value: Any) -> None:
         incremental_field_type = self.sync_type_config.get("incremental_field_type")

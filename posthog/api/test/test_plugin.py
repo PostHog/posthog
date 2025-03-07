@@ -810,14 +810,11 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         plugin_source = PluginSourceFile.objects.get(plugin_id=id)
         assert plugin_source.source == "export const scene = { name: 'new' }"
         assert plugin_source.error is None
-        assert (
-            plugin_source.transpiled
-            == (
-                '"use strict";\nexport function getFrontendApp (require) { let exports = {}; "use strict";\n\n'
-                'Object.defineProperty(exports, "__esModule", {\n  value: true\n});\nexports.scene = void 0;\n'
-                "var scene = exports.scene = {\n  name: 'new'\n};"  # this is it
-                "; return exports; }"
-            )
+        assert plugin_source.transpiled == (
+            '"use strict";\nexport function getFrontendApp (require) { let exports = {}; "use strict";\n\n'
+            'Object.defineProperty(exports, "__esModule", {\n  value: true\n});\nexports.scene = void 0;\n'
+            "var scene = exports.scene = {\n  name: 'new'\n};"  # this is it
+            "; return exports; }"
         )
         assert plugin_source.status == PluginSourceFile.Status.TRANSPILED
 
@@ -1634,6 +1631,44 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                     "value": "snake_case",
                 },
             }
+
+    def test_create_plugin_config_when_hog_function_fails(self, mock_get, mock_reload):
+        mock_plugin = Plugin.objects.create(
+            organization=self.organization,
+            plugin_type="local",
+            name="Test Plugin",
+            description="Test plugin that should create plugin config even if hog function fails",
+            url="https://github.com/PostHog/test-plugin",
+        )
+
+        with self.settings(CREATE_HOG_FUNCTION_FROM_PLUGIN_CONFIG=True):
+            # Mock the hog_function_from_plugin_config to raise an exception
+            with patch("posthog.cdp.legacy_plugins.hog_function_from_plugin_config") as mock_hog_function:
+                mock_hog_function.side_effect = Exception("Failed to create hog function")
+
+                response = self.client.post(
+                    "/api/plugin_config/",
+                    {
+                        "plugin": mock_plugin.id,
+                        "enabled": True,
+                        "order": 0,
+                        "config": json.dumps({"test": "value"}),
+                    },
+                    format="multipart",
+                )
+
+                assert response.status_code == 201, response.json()
+
+                # Verify plugin config was created despite hog function failure
+                assert PluginConfig.objects.count() == 1
+                plugin_config = PluginConfig.objects.get(plugin_id=mock_plugin.id)
+                self.assertEqual(plugin_config.plugin_id, mock_plugin.id)
+                self.assertEqual(plugin_config.enabled, True)
+                self.assertEqual(plugin_config.order, 0)
+                self.assertEqual(plugin_config.config, {"test": "value"})
+
+                # Verify no hog function was created
+                assert HogFunction.objects.count() == 0
 
     @patch("posthog.api.plugin.validate_plugin_job_payload")
     @patch("posthog.api.plugin.connections")

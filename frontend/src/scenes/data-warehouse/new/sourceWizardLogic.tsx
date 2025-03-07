@@ -84,7 +84,7 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
         fields: [
             {
                 name: 'connection_string',
-                label: 'Connection String (optional)',
+                label: 'Connection string (optional)',
                 type: 'text',
                 required: false,
                 placeholder: 'postgresql://user:password@localhost:5432/database',
@@ -1035,6 +1035,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         sources && sources.results.find((source) => source.source_type === connector.name)
                             ? 'Already linked'
                             : null,
+                    existingSource:
+                        sources && sources.results.find((source) => source.source_type === connector.name)
+                            ? true
+                            : false,
                 }))
             },
         ],
@@ -1190,7 +1194,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     source_type: values.selectedConnector.name,
                 })
 
-                lemonToast.success('New Data Resource Created')
+                lemonToast.success('New data resource created')
 
                 activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.ConnectSource)
 
@@ -1293,7 +1297,15 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         sourceConnectionDetails: {
             defaults: buildKeaFormDefaultFromSourceDetails(SOURCE_DETAILS),
             errors: (sourceValues) => {
-                return getErrorsForFields(values.selectedConnector?.fields ?? [], sourceValues as any)
+                const errors = getErrorsForFields(values.selectedConnector?.fields ?? [], sourceValues as any)
+
+                if (values.sourceConnectionDetailsManualErrors.prefix && sourceValues.prefix) {
+                    actions.setSourceConnectionDetailsManualErrors({
+                        prefix: undefined,
+                    })
+                }
+
+                return errors
             },
             submit: async (sourceValues) => {
                 if (values.selectedConnector) {

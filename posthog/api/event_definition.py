@@ -1,14 +1,8 @@
 from typing import Any, Literal, cast
 
 from django.db.models import Manager
-from rest_framework import (
-    mixins,
-    serializers,
-    viewsets,
-    request,
-    status,
-    response,
-)
+from loginas.utils import is_impersonated_session
+from rest_framework import mixins, request, response, serializers, status, viewsets
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -23,7 +17,6 @@ from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.user import User
 from posthog.models.utils import UUIDT
 from posthog.settings import EE_AVAILABLE
-from loginas.utils import is_impersonated_session
 
 # If EE is enabled, we use ee.api.ee_event_definition.EnterpriseEventDefinitionSerializer
 
@@ -54,6 +47,15 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
             "created_by",
             "post_to_slack",
         )
+
+    def validate(self, data):
+        validated_data = super().validate(data)
+
+        if "hidden" in validated_data and "verified" in validated_data:
+            if validated_data["hidden"] and validated_data["verified"]:
+                raise serializers.ValidationError("An event cannot be both hidden and verified")
+
+        return validated_data
 
     def update(self, event_definition: EventDefinition, validated_data):
         raise EnterpriseFeatureException()
@@ -102,6 +104,10 @@ class EventDefinitionViewSet(
 
         else:
             event_definition_object_manager = EventDefinition.objects
+
+        exclude_hidden = self.request.GET.get("exclude_hidden", "false").lower() == "true"
+        if exclude_hidden and is_enterprise:
+            search_query = search_query + " AND (hidden IS NULL OR hidden = false)"
 
         sql = create_event_definitions_sql(
             event_type,

@@ -1,1 +1,1 @@
-0680_externaldataschema_sync_time_of_day
+0682_datawarehousesavedquery_latest_error

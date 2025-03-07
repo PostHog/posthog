@@ -371,7 +371,11 @@ const SyncMethodModal = ({ schema }: { schema: ExternalDataSourceSchema }): JSX.
 
     return (
         <LemonModal
-            title={`Sync method for ${currentSyncMethodModalSchema.name}`}
+            title={
+                <>
+                    Sync method for <span className="font-mono">{currentSyncMethodModalSchema.name}</span>
+                </>
+            }
             isOpen={syncMethodModalIsOpen}
             onClose={closeSyncMethodModal}
             footer={
@@ -384,7 +388,7 @@ const SyncMethodModal = ({ schema }: { schema: ExternalDataSourceSchema }): JSX.
             }
         >
             {schemaLoading && (
-                <div className="space-y-2">
+                <div className="deprecated-space-y-2">
                     <LemonSkeleton className="w-1/2 h-4" />
                     <LemonSkeleton.Row repeat={3} />
                 </div>
