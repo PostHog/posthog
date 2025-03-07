@@ -29,7 +29,7 @@ import {
     FailureMessage,
     VisualizationMessage,
 } from '~/queries/schema/schema-assistant-messages'
-import { DataVisualizationNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { DataVisualizationNode, InsightQueryNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { isHogQLQuery } from '~/queries/utils'
 
 import { maxLogic, MessageStatus, ThreadMessage } from './maxLogic'
@@ -310,7 +310,7 @@ function VisualizationAnswer({
                       </div>
                       {isSummaryShown && (
                           <>
-                              <SeriesSummary query={query.source} heading={null} />
+                              <SeriesSummary query={query.source as InsightQueryNode} heading={null} />
                               <div className="flex flex-wrap gap-4 mt-1 *:grow">
                                   <PropertiesSummary
                                       properties={
@@ -319,7 +319,7 @@ function VisualizationAnswer({
                                               : query.source.properties
                                       }
                                   />
-                                  <BreakdownSummary query={query.source} />
+                                  <BreakdownSummary query={query.source as InsightQueryNode} />
                               </div>
                           </>
                       )}
