@@ -24,7 +24,7 @@ class ModelActivityMixin(models.Model):
     def save(self, *args: Any, **kwargs: Any) -> None:
         # Get a copy of the existing instance before saving
         if self.pk:
-            before_update = self.__class__.objects.filter(pk=self.pk).first()
+            before_update = self.__class__.objects.filter(pk=self.pk).first()  # type: ignore[attr-defined]
             if before_update:
                 before_update._state.adding = False  # Ensure the copy knows it's not a new instance
                 before_update.pk = before_update.pk  # Ensure pk is copied
