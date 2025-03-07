@@ -1,3 +1,4 @@
+from enum import Enum
 import dagster
 from clickhouse_driver.errors import Error, ErrorCodes
 
@@ -7,6 +8,11 @@ from posthog.clickhouse.cluster import (
     RetryPolicy,
     get_cluster,
 )
+
+
+class JobOwners(str, Enum):
+    TEAM_CLICKHOUSE = "team-clickhouse"
+    TEAM_WEB_ANALYTICS = "team-web-analytics"
 
 
 class ClickhouseClusterResource(dagster.ConfigurableResource):

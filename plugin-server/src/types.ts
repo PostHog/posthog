@@ -201,9 +201,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     KAFKA_CONSUMPTION_MAX_POLL_INTERVAL_MS: number
     KAFKA_TOPIC_CREATION_TIMEOUT_MS: number
     KAFKA_TOPIC_METADATA_REFRESH_INTERVAL_MS: number | undefined
-    KAFKA_PRODUCER_LINGER_MS: number // linger.ms rdkafka parameter
-    KAFKA_PRODUCER_BATCH_SIZE: number // batch.size rdkafka parameter
-    KAFKA_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES: number // queue.buffering.max.messages rdkafka parameter
     KAFKA_FLUSH_FREQUENCY_MS: number
     APP_METRICS_FLUSH_FREQUENCY_MS: number
     APP_METRICS_FLUSH_MAX_QUEUE_SIZE: number
@@ -218,7 +215,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     SCHEDULE_LOCK_TTL: number // how many seconds to hold the lock for the schedule
     DISABLE_MMDB: boolean // whether to disable fetching MaxMind database for IP location
     MMDB_FILE_LOCATION: string // if set we will load the MMDB file from this location instead of downloading it
-    MMDB_COMPARE_MODE: boolean // whether to compare the MMDB file to the local file
     DISTINCT_ID_LRU_SIZE: number
     EVENT_PROPERTY_LRU_SIZE: number // size of the event property tracker's LRU cache (keyed by [team.id, event])
     JOB_QUEUES: string // retry queue engine and fallback queues

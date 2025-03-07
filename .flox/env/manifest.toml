@@ -47,6 +47,9 @@ openssl = { pkg-path = "openssl", version = "3.4.1", pkg-group = "openssl" }
 cmake = { pkg-path = "cmake", version = "3.31.5", pkg-group = "cmake" }
 freetds = { pkg-path = "freetds" }
 
+# PostgreSQL
+postgresql = { pkg-path = "postgresql_14" }
+
 # Set environment variables in the `[vars]` section. These variables may not
 # reference one another, and are added to the environment without first
 # expanding them. They are available for use in the `[profile]` and `[hook]`

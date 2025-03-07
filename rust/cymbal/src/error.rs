@@ -1,11 +1,10 @@
 use aws_sdk_s3::primitives::ByteStreamError;
 use common_kafka::kafka_producer::KafkaProduceError;
+use common_symbol_data::SymbolDataError;
 use rdkafka::error::KafkaError;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
-
-use crate::hack::js_data::JsDataError;
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -88,7 +87,9 @@ pub enum JsResolveErr {
     #[error("Redirect error while fetching: {0}")]
     RedirectError(String),
     #[error("JSDataError: {0}")]
-    JSDataError(#[from] JsDataError),
+    JSDataError(#[from] SymbolDataError),
+    #[error("Invalid Source and Map")]
+    InvalidSourceAndMap,
     #[error("Invalid data url found at {0}. {1}")]
     InvalidDataUrl(String, String),
 }
