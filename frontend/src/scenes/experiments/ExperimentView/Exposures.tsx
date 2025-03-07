@@ -92,7 +92,7 @@ export function Exposures(): JSX.Element {
         }
     }, [exposures])
 
-    const chartWrapperClasses = 'relative border rounded bg-white p-4 h-[250px]'
+    const chartWrapperClasses = 'relative border rounded bg-surface-primary p-4 h-[250px]'
 
     return (
         <div>
@@ -124,7 +124,7 @@ export function Exposures(): JSX.Element {
                     <div className={clsx(chartWrapperClasses, 'w-full md:w-2/3')}>
                         <canvas id="exposuresChart" />
                     </div>
-                    <div className="md:w-1/3 border rounded bg-white p-4">
+                    <div className="md:w-1/3 border rounded bg-surface-primary p-4">
                         <div className="flex justify-between mb-4">
                             <div>
                                 <h3 className="card-secondary">Exposure criteria</h3>
