@@ -7,9 +7,18 @@
  */
 
 import { RRWebEvent } from '../../../types'
-import { RRWebEventType } from './rrweb-types'
+import { RRWebEventSource, RRWebEventType } from './rrweb-types'
 
-const activeSources = [1, 2, 3, 4, 5, 6, 7, 12]
+const activeSources = [
+    RRWebEventSource.MouseMove,
+    RRWebEventSource.MouseInteraction,
+    RRWebEventSource.Scroll,
+    RRWebEventSource.ViewportResize,
+    RRWebEventSource.Input,
+    RRWebEventSource.TouchMove,
+    RRWebEventSource.MediaInteraction,
+    RRWebEventSource.Drag,
+]
 
 const ACTIVITY_THRESHOLD_MS = 5000
 
