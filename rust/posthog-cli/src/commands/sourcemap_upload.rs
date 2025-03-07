@@ -69,12 +69,14 @@ fn upload_chunks(url: &str, token: &str, uploads: Vec<ChunkUpload>) -> Result<()
     let client = reqwest::blocking::Client::new();
     for upload in uploads {
         info!("Uploading chunk {}", upload.chunk_id);
-        print!("{:?}", token);
         let res = client
             .post(url)
             .header("Authorization", format!("Bearer {}", token))
             .header("Content-Type", "application/octet-stream")
-            .query(&[("chunk_id", &upload.chunk_id), ("filename", "chunk")])
+            .query(&[
+                ("chunk_id", &upload.chunk_id),
+                ("filename", &String::from("chunk")),
+            ])
             .body(upload.data)
             .send()
             .context(format!("While uploading chunk to {}", url))?;
