@@ -16,7 +16,6 @@ import { AvailableFeature, ProductKey } from '~/types'
 
 import { OnboardingUpgradeStep } from './billing/OnboardingUpgradeStep'
 import { OnboardingDataWarehouseSourcesStep } from './data-warehouse/OnboardingDataWarehouseSourcesStep'
-import { OnboardingBillingStep } from './OnboardingBillingStep'
 import { OnboardingInviteTeammates } from './OnboardingInviteTeammates'
 import { onboardingLogic, OnboardingStepKey } from './onboardingLogic'
 import { OnboardingProductConfiguration } from './OnboardingProductConfiguration'
@@ -56,8 +55,6 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
     const { setAllOnboardingSteps } = useActions(onboardingLogic)
     const [allSteps, setAllSteps] = useState<JSX.Element[]>([])
 
-    const showNewPlansStep = useFeatureFlag('ONBOARDING_NEW_PLANS_STEP', 'test')
-
     useEffect(() => {
         let steps = []
         if (Array.isArray(children)) {
@@ -83,11 +80,8 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
 
         const billingProduct = billing?.products.find((p) => p.type === productKey)
         if (shouldShowBillingStep && billingProduct) {
-            const BillingStep = showNewPlansStep ? (
-                <OnboardingUpgradeStep product={billingProduct} stepKey={OnboardingStepKey.PLANS} />
-            ) : (
-                <OnboardingBillingStep product={billingProduct} stepKey={OnboardingStepKey.PLANS} />
-            )
+            const BillingStep = <OnboardingUpgradeStep product={billingProduct} stepKey={OnboardingStepKey.PLANS} />
+
             steps = [...steps, BillingStep]
         }
 
