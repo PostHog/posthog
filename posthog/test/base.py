@@ -72,6 +72,13 @@ from posthog.models.sessions.sql import (
     SESSIONS_TABLE_SQL,
     SESSIONS_VIEW_SQL,
 )
+from posthog.models.exchange_rate.sql import (
+    EXCHANGE_RATE_DICTIONARY_SQL,
+    EXCHANGE_RATE_TABLE_SQL,
+    DROP_EXCHANGE_RATE_TABLE_SQL,
+    DROP_EXCHANGE_RATE_DICTIONARY_SQL,
+    EXCHANGE_RATE_DATA_BACKFILL_SQL,
+)
 from posthog.models.raw_sessions.sql import (
     DISTRIBUTED_RAW_SESSIONS_TABLE_SQL,
     DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL,
@@ -519,7 +526,7 @@ class MemoryLeakTestMixin:
         self.assertLessEqual(
             avg_memory_increase_factor,
             self.MEMORY_INCREASE_INCREMENTAL_FACTOR_LIMIT,
-            f"Possible memory leak - exceeded {self.MEMORY_INCREASE_INCREMENTAL_FACTOR_LIMIT*100:.2f}% limit of incremental memory per parse",
+            f"Possible memory leak - exceeded {self.MEMORY_INCREASE_INCREMENTAL_FACTOR_LIMIT * 100:.2f}% limit of incremental memory per parse",
         )
 
 
@@ -797,9 +804,9 @@ class BaseTestMigrations(QueryMatchingTest):
     assert_snapshots = False
 
     def setUp(self):
-        assert hasattr(self, "migrate_from") and hasattr(
-            self, "migrate_to"
-        ), "TestCase '{}' must define migrate_from and migrate_to properties".format(type(self).__name__)
+        assert hasattr(self, "migrate_from") and hasattr(self, "migrate_to"), (
+            "TestCase '{}' must define migrate_from and migrate_to properties".format(type(self).__name__)
+        )
         migrate_from = [(self.app, self.migrate_from)]
         migrate_to = [(self.app, self.migrate_to)]
         executor = MigrationExecutor(connection)
@@ -1030,12 +1037,14 @@ def reset_clickhouse_database() -> None:
             DROP_RAW_SESSION_VIEW_SQL(),
             DROP_SESSION_MATERIALIZED_VIEW_SQL(),
             DROP_SESSION_VIEW_SQL(),
+            DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
+            DROP_EXCHANGE_RATE_DICTIONARY_SQL(),
         ]
     )
     run_clickhouse_statement_in_parallel(
         [
-            DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
             DROP_CHANNEL_DEFINITION_TABLE_SQL,
+            DROP_EXCHANGE_RATE_TABLE_SQL(),
             DROP_DISTRIBUTED_EVENTS_TABLE_SQL,
             DROP_EVENTS_TABLE_SQL(),
             DROP_PERSON_TABLE_SQL,
@@ -1055,8 +1064,8 @@ def reset_clickhouse_database() -> None:
     )
     run_clickhouse_statement_in_parallel(
         [
-            CHANNEL_DEFINITION_DICTIONARY_SQL(),
             CHANNEL_DEFINITION_TABLE_SQL(),
+            EXCHANGE_RATE_TABLE_SQL(),
             EVENTS_TABLE_SQL(),
             PERSONS_TABLE_SQL(),
             RAW_SESSIONS_TABLE_SQL(),
@@ -1068,6 +1077,8 @@ def reset_clickhouse_database() -> None:
     )
     run_clickhouse_statement_in_parallel(
         [
+            CHANNEL_DEFINITION_DICTIONARY_SQL(),
+            EXCHANGE_RATE_DICTIONARY_SQL(),
             DISTRIBUTED_EVENTS_TABLE_SQL(),
             DISTRIBUTED_RAW_SESSIONS_TABLE_SQL(),
             DISTRIBUTED_SESSIONS_TABLE_SQL(),
@@ -1079,6 +1090,7 @@ def reset_clickhouse_database() -> None:
     run_clickhouse_statement_in_parallel(
         [
             CHANNEL_DEFINITION_DATA_SQL(),
+            EXCHANGE_RATE_DATA_BACKFILL_SQL(),
             RAW_SESSIONS_TABLE_MV_SQL(),
             RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL(),
             SESSIONS_TABLE_MV_SQL(),

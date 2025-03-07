@@ -79,6 +79,7 @@ export function SurveyTemplates(): JSX.Element {
                                                     whiteLabel: true,
                                                     ...template.appearance,
                                                     ...surveyAppearance,
+                                                    disabledButtonOpacity: '1',
                                                 },
                                             } as Survey
                                         }
