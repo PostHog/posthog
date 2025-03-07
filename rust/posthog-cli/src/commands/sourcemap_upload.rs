@@ -52,7 +52,7 @@ fn collect_uploads(pairs: Vec<SourcePair>) -> Result<Vec<ChunkUpload>, Error> {
         uploads.push(upload);
     }
 
-    return Ok(uploads);
+    Ok(uploads)
 }
 
 fn get_chunk_id(sourcemap: &str) -> Result<String, Error> {
