@@ -30,7 +30,7 @@ from posthog.schema import (
     RetentionEntity,
     EntityType,
 )
-from posthog.schema import RetentionQuery, RetentionType
+from posthog.schema import RetentionQuery, RetentionType, Breakdown
 
 DEFAULT_INTERVAL = IntervalType("day")
 DEFAULT_TOTAL_INTERVALS = 7
@@ -63,9 +63,23 @@ class RetentionQueryRunner(QueryRunner):
         self.start_event = self.query.retentionFilter.targetEntity or DEFAULT_ENTITY
         self.return_event = self.query.retentionFilter.returningEntity or DEFAULT_ENTITY
 
+        self.convert_single_breakdown_to_multiple_breakdowns()
+
     @property
     def group_type_index(self) -> int | None:
         return self.query.aggregation_group_type_index
+
+    def convert_single_breakdown_to_multiple_breakdowns(self):
+        if self.query.breakdownFilter and self.query.breakdownFilter.breakdown:
+            self.query.breakdownFilter.breakdowns = [
+                Breakdown(
+                    type=self.query.breakdownFilter.breakdown_type,
+                    property=self.query.breakdownFilter.breakdown,
+                    group_type_index=self.query.breakdownFilter.breakdown_group_type_index,
+                    histogram_bin_count=self.query.breakdownFilter.breakdown_histogram_bin_count,
+                    normalize_url=self.query.breakdownFilter.breakdown_normalize_url,
+                )
+            ]
 
     @cached_property
     def breakdowns_in_query(self) -> bool:
