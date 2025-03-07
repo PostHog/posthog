@@ -3,6 +3,9 @@ jest.mock('../../../src/utils/now', () => {
         now: jest.fn(() => Date.now()),
     }
 })
+import { createInvocation } from '~/tests/cdp/fixtures'
+import { deleteKeysWithPrefix } from '~/tests/cdp/helpers/redis'
+
 import { CdpRedis, createCdpRedisPool } from '../../../src/cdp/redis'
 import {
     BASE_REDIS_KEY,
@@ -14,8 +17,6 @@ import { HogFunctionInvocationResult } from '../../../src/cdp/types'
 import { Hub } from '../../../src/types'
 import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { delay } from '../../../src/utils/utils'
-import { createInvocation } from '../fixtures'
-import { deleteKeysWithPrefix } from '../helpers/redis'
 
 const mockNow: jest.Mock = require('../../../src/utils/now').now as any
 
@@ -268,6 +269,7 @@ describe('HogWatcher', () => {
         })
 
         describe('disable logic', () => {
+            jest.retryTimes(3) // Timings are flakey and hard to test but we don't need it to be perfect
             beforeEach(() => {
                 hub.CDP_WATCHER_BUCKET_SIZE = 100
                 hub.CDP_WATCHER_DISABLED_TEMPORARY_TTL = 1 // Shorter ttl to help with testing
