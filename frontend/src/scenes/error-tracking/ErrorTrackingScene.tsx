@@ -136,7 +136,7 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
     const checked = selectedIssueIds.includes(record.id)
 
     return (
-        <div className="flex items-start space-x-1.5 group">
+        <div className="flex items-start gap-x-1.5 group">
             <LemonCheckbox
                 className="pt-1"
                 checked={checked}
@@ -151,9 +151,9 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
             <LemonTableLink
                 title={record.name || 'Unknown Type'}
                 description={
-                    <div className="space-y-1">
+                    <div className="deprecated-space-y-1">
                         <div className="line-clamp-1">{record.description}</div>
-                        <div className="space-x-1">
+                        <div className="deprecated-space-x-1">
                             <TZLabel time={record.first_seen} className="border-dotted border-b" delayMs={750} />
                             <span>|</span>
                             {record.last_seen ? (

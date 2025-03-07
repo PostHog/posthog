@@ -64,7 +64,7 @@ function TraceSceneWrapper(): JSX.Element {
             ) : !trace ? (
                 <NotFound object="trace" />
             ) : (
-                <div className="relative space-y-4 flex flex-col md:h-[calc(100vh_-_var(--breadcrumbs-height-full)_-_var(--scene-padding)_-_var(--scene-padding-bottom))] ">
+                <div className="relative deprecated-space-y-4 flex flex-col md:h-[calc(100vh_-_var(--breadcrumbs-height-full)_-_var(--scene-padding)_-_var(--scene-padding-bottom))] ">
                     <TraceMetadata
                         trace={trace}
                         metricEvents={metricEvents as LLMTraceEvent[]}
@@ -173,12 +173,12 @@ function TraceSidebar({
 
     return (
         <aside
-            className="border-border max-h-fit bg-surface-primary border rounded overflow-hidden flex flex-col md:w-80"
+            className="border-primary max-h-fit bg-surface-primary border rounded overflow-hidden flex flex-col md:w-80"
             ref={ref}
         >
             <h3 className="font-medium text-sm px-2 my-2">Tree</h3>
             <LemonDivider className="m-0" />
-            <ul className="overflow-y-auto p-1 first:*:mt-0 overflow-x-hidden">
+            <ul className="overflow-y-auto p-1 *:first:mt-0 overflow-x-hidden">
                 <TreeNode topLevelTrace={trace} item={trace} isSelected={!eventId || eventId === trace.id} />
                 <TreeNodeChildren tree={tree} trace={trace} selectedEventId={eventId} />
             </ul>
@@ -356,12 +356,12 @@ function EventContentDisplay({
 
 const EventContent = React.memo(({ event }: { event: LLMTrace | LLMTraceEvent | null }): JSX.Element => {
     return (
-        <div className="flex-1 bg-surface-primary max-h-fit border rounded flex flex-col border-border p-4 overflow-y-auto">
+        <div className="flex-1 bg-surface-primary max-h-fit border rounded flex flex-col border-primary p-4 overflow-y-auto">
             {!event ? (
                 <InsightEmptyState heading="Event not found" detail="Check if the event ID is correct." />
             ) : (
                 <>
-                    <header className="space-y-2">
+                    <header className="deprecated-space-y-2">
                         <div className="flex-row flex items-center gap-2">
                             <EventTypeTag event={event} />
                             <h3 className="text-lg font-semibold p-0 m-0 truncate flex-1">
@@ -401,6 +401,7 @@ const EventContent = React.memo(({ event }: { event: LLMTrace | LLMTraceEvent | 
                     {isLLMTraceEvent(event) ? (
                         event.event === '$ai_generation' ? (
                             <ConversationMessagesDisplay
+                                tools={event.properties.$ai_tools}
                                 input={event.properties.$ai_input}
                                 output={
                                     event.properties.$ai_is_error

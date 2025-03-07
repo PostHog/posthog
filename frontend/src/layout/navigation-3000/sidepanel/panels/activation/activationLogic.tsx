@@ -378,19 +378,30 @@ export const activationLogic = kea<activationLogicType>([
             }
         },
         onTeamLoad: ({ team }) => {
-            if (
-                team?.session_recording_opt_in &&
-                values.savedOnboardingTasks[ActivationTask.SetupSessionRecordings] !== ActivationTaskStatus.COMPLETED
-            ) {
-                actions.markTaskAsCompleted(ActivationTask.SetupSessionRecordings)
-            }
+            const teamPropertiesToCheck: { property: keyof TeamType; task: ActivationTask }[] = [
+                {
+                    property: 'session_recording_opt_in',
+                    task: ActivationTask.SetupSessionRecordings,
+                },
+                {
+                    property: 'ingested_event',
+                    task: ActivationTask.IngestFirstEvent,
+                },
+                {
+                    property: 'autocapture_web_vitals_opt_in',
+                    task: ActivationTask.SetUpWebVitals,
+                },
+                {
+                    property: 'app_urls',
+                    task: ActivationTask.AddAuthorizedDomain,
+                },
+            ]
 
-            if (
-                team?.ingested_event &&
-                values.savedOnboardingTasks[ActivationTask.IngestFirstEvent] !== ActivationTaskStatus.COMPLETED
-            ) {
-                actions.markTaskAsCompleted(ActivationTask.IngestFirstEvent)
-            }
+            teamPropertiesToCheck.forEach(({ property, task }) => {
+                if (team?.[property]) {
+                    actions.markTaskAsCompleted(task)
+                }
+            })
         },
     })),
     afterMount(({ actions, values }) => {

@@ -1,1 +1,1 @@
-0680_alter_integration_kind
+0682_datawarehousesavedquery_latest_error
