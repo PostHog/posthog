@@ -7,6 +7,7 @@ import psycopg
 from psycopg import sql
 from psycopg.adapt import Loader
 
+from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
@@ -128,15 +129,22 @@ class TableStructureRow:
 
 def _get_partition_bucket_size(cursor: psycopg.Cursor, schema: str, table_name: str) -> int | None:
     query = sql.SQL("""
-        SELECT CASE WHEN count(*) = 0 THEN NULL ELSE round(({bytes_per_partition}) / (pg_table_size({schema_table_name_literal}) / count(*))) END
+        SELECT
+            CASE WHEN count(*) = 0 OR pg_table_size({schema_table_name_literal}) THEN NULL
+            ELSE round({bytes_per_partition} / (pg_table_size({schema_table_name_literal}) / count(*))) END
         FROM {schema}.{table}""").format(
         bytes_per_partition=sql.Literal(DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES),
-        schema_table_name_literal=sql.Literal(f"{schema}.{table_name}"),
+        schema_table_name_literal=sql.Literal(f'{schema}."{table_name}"'),
         schema=sql.Identifier(schema),
         table=sql.Identifier(table_name),
     )
 
-    cursor.execute(query)
+    try:
+        cursor.execute(query)
+    except Exception as e:
+        capture_exception(e)
+        return None
+
     result = cursor.fetchone()
 
     if result is None or len(result) == 0 or result[0] is None:
