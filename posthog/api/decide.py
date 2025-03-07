@@ -2,7 +2,7 @@ from random import random
 
 import structlog
 from django.conf import settings
-from django.http import HttpRequest, JsonResponse
+from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from prometheus_client import Counter
 from rest_framework import status
@@ -188,7 +188,7 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
 
 @csrf_exempt
 @timed("posthog_cloud_decide_endpoint")
-def get_decide(request: HttpRequest):
+def get_decide(request: HttpRequest) -> HttpResponse:
     """Handle the /decide endpoint which provides configuration and feature flags to PostHog clients.
     The decide endpoint is a critical API that tells PostHog clients (like posthog-js) how they should behave,
     including which feature flags are enabled, whether to record sessions, etc.
@@ -340,7 +340,7 @@ def get_decide(request: HttpRequest):
 
 
 def get_feature_flags_response(request: HttpRequest, data: dict, team: Team, token: str, api_version: int) -> dict:
-    """Determine feature flag response based on various conditions."""
+    """Determine feature flag response body based on various conditions."""
 
     # Early exit if flags are disabled via request
     if process_bool(data.get("disable_flags")) is True:
