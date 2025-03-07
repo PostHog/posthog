@@ -299,7 +299,10 @@ def get_decide(request: HttpRequest) -> HttpResponse:
         maybe_log_decide_data(request_body=data)
 
         # --- 5. Handle feature flags ---
-        flags_response = get_feature_flags_response(request, data, team, token, api_version)
+        flags_response = get_feature_flags_response_or_body(request, data, team, token, api_version)
+        if isinstance(flags_response, HttpResponse):
+            return flags_response
+
         response = get_base_config(token, team, request, skip_db=flags_response.get("errorsWhileComputingFlags", False))
 
         try:
@@ -339,8 +342,13 @@ def get_decide(request: HttpRequest) -> HttpResponse:
     return cors_response(request, JsonResponse(response))
 
 
-def get_feature_flags_response(request: HttpRequest, data: dict, team: Team, token: str, api_version: int) -> dict:
-    """Determine feature flag response body based on various conditions."""
+def get_feature_flags_response_or_body(
+    request: HttpRequest, data: dict, team: Team, token: str, api_version: int
+) -> dict | HttpResponse:
+    """
+    Determine feature flag response body based on various conditions.
+    If the distinct_id is not provided, return a 400 response.
+    """
 
     # Early exit if flags are disabled via request
     if process_bool(data.get("disable_flags")) is True:
