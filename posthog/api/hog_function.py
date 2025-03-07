@@ -332,7 +332,7 @@ class HogFunctionFilterSet(FilterSet):
 class HogFunctionViewSet(
     TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, ForbidDestroyModel, viewsets.ModelViewSet
 ):
-    scope_object = "INTERNAL"  # Keep internal until we are happy to release this GA
+    scope_object = "hog_function"
     queryset = HogFunction.objects.all()
     filter_backends = [DjangoFilterBackend]
     filterset_class = HogFunctionFilterSet
