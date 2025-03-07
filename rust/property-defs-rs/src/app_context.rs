@@ -122,10 +122,10 @@ impl AppContext {
     }
 
     fn is_pg_constraint_error(&self, pg_code: &Option<Cow<'_, str>>) -> bool {
-        return match pg_code {
+        match pg_code {
             Some(code) => PG_CONSTRAINT_CODES.contains(&code.as_ref()),
             None => false,
-        };
+        }
     }
 
     async fn resolve_group_types_indexes(&self, updates: &mut [Update]) -> Result<(), sqlx::Error> {
