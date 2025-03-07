@@ -15,10 +15,10 @@ const DEFAULT_PATH_LOGIC_KEY = 'default_path_key'
 
 /** Convert results to the v1 format, so that I don't have to rewrite the frontend immmediately. */
 const convertToLegacyPaths = (results: PathsV2Item[]): PathsLink[] => {
-    return results.map(({ event_count, source_step, target_step, step_index }) => ({
+    return results.map(({ value, source_step, target_step, step_index }) => ({
         source: step_index + '_' + source_step,
         target: step_index + 1 + '_' + target_step,
-        value: event_count,
+        value,
         average_conversion_time: 0,
     }))
 }
@@ -69,23 +69,37 @@ export const pathsV2DataLogic = kea<pathsV2DataLogicType>([
 
                 // return { nodes, links }
 
-                const nodes: Record<string, PathsNode> = {}
+                // const nodes: Record<string, PathsNode> = {}
 
-                for (const path of results) {
-                    console.debug('path', path)
+                // for (const path of results) {
+                //     // if (!path.source.startsWith('1_')) {
+                //     if (!nodes[path.source]) {
+                //         nodes[path.source] = { name: path.source }
+                //     }
+                //     if (!nodes[path.target]) {
+                //         nodes[path.target] = { name: path.target }
+                //     }
+                //     // }
+                // }
 
-                    // if (!path.source.startsWith('1_')) {
-                    if (!nodes[path.source]) {
-                        nodes[path.source] = { name: path.source }
-                    }
-                    if (!nodes[path.target]) {
-                        nodes[path.target] = { name: path.target }
-                    }
-                    // }
-                }
+                const uniqueNodeNames = new Set(results.flatMap((link) => [link.source, link.target]))
+
+                const nodes = Array.from(uniqueNodeNames).map((nodeName) => ({
+                    name: nodeName,
+                    type: nodeName.includes('$$__posthog_dropoff__$$')
+                        ? PathNodeType.Dropoff
+                        : nodeName.includes('$$__posthog_other__$$')
+                        ? PathNodeType.Other
+                        : PathNodeType.Node,
+                    step_index: parseInt(nodeName.split('_')[0], 10),
+                }))
+
+                console.debug('nodes', nodes)
+                console.debug('links', results)
 
                 return {
-                    nodes: Object.values(nodes),
+                    nodes,
+                    // nodes: Object.values(nodes),
                     links: results,
                 }
             },
