@@ -16,7 +16,7 @@ from django.db.models import F, Q
 from openai import APIError as OpenAIAPIError
 
 from ee.hogai.summarizers.chains import abatch_summarize_actions
-from posthog.models import Action, FeatureFlag
+from posthog.models import Action
 from posthog.models.ai.pg_embeddings import INSERT_BULK_PG_EMBEDDINGS_SQL
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
@@ -26,10 +26,7 @@ logger = structlog.get_logger(__name__)
 
 
 async def _get_orgs_from_the_feature_flag() -> list[str]:
-    feature_flag = await FeatureFlag.objects.filter(key="max-rag", team_id=1).afirst()
-    if not feature_flag:
-        return []
-    payload = feature_flag.get_payload("true")
+    payload = posthoganalytics.get_feature_flag_payload("max-rag", "temporal_worker")
     try:
         orgs = json.loads(cast(str, payload))["organizations"]
         if isinstance(orgs, list):
