@@ -353,6 +353,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 }
 
                 const allItems = [...defaultTreeNodes, ...projectRow, ...projectTree]
+
+                // TODO: remove from client side @marius :)
                 const fuse = new Fuse(allItems, {
                     keys: ['name'],
                     threshold: 0.3,
