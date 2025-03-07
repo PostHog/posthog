@@ -2,9 +2,11 @@ import json
 from typing import Optional, cast
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
+from django_filters import BaseInFilter, CharFilter, FilterSet
 from django.db.models import QuerySet
 from loginas.utils import is_impersonated_session
 from django.db import transaction
+
 
 from rest_framework import serializers, viewsets, exceptions
 from rest_framework.serializers import BaseSerializer
@@ -315,14 +317,25 @@ class HogFunctionInvocationSerializer(serializers.Serializer):
     invocation_id = serializers.CharField(required=False, allow_null=True)
 
 
+class CommaSeparatedListFilter(BaseInFilter, CharFilter):
+    pass
+
+
+class HogFunctionFilterSet(FilterSet):
+    type = CommaSeparatedListFilter(field_name="type", lookup_expr="in")
+
+    class Meta:
+        model = HogFunction
+        fields = ["type", "enabled", "id", "created_by", "created_at", "updated_at"]
+
+
 class HogFunctionViewSet(
     TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, ForbidDestroyModel, viewsets.ModelViewSet
 ):
-    scope_object = "INTERNAL"  # Keep internal until we are happy to release this GA
+    scope_object = "hog_function"
     queryset = HogFunction.objects.all()
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ["id", "created_by", "enabled", "type"]
-
+    filterset_class = HogFunctionFilterSet
     log_source = "hog_function"
     app_source = "hog_function"
 

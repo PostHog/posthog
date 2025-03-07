@@ -1133,7 +1133,52 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert len(response.json()["results"]) == 1
         assert response.json()["results"][0]["id"] == transformation_id
 
-        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?types=destination,transformation")
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?type=destination,site_app")
+        assert len(response.json()["results"]) == 1
+        assert response.json()["results"][0]["id"] == destination_id
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?type=destination,transformation")
+        assert len(response.json()["results"]) == 2
+
+    def test_list_with_enabled_filter(self, *args):
+        response_destination = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                **EXAMPLE_FULL,
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                },
+            },
+        )
+
+        destination_id = response_destination.json()["id"]
+
+        response_transform = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "HogTransform",
+                "hog": "return event",
+                "type": "transformation",
+                "template_id": "template-geoip",
+                "enabled": False,
+            },
+        )
+
+        transformation_id = response_transform.json()["id"]
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/")
+        assert len(response.json()["results"]) == 2
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?enabled=true")
+
+        assert len(response.json()["results"]) == 1
+        assert response.json()["results"][0]["id"] == destination_id
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?enabled=false")
+        assert len(response.json()["results"]) == 1
+        assert response.json()["results"][0]["id"] == transformation_id
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?enabled=true,false")
         assert len(response.json()["results"]) == 2
 
     def test_create_hog_function_with_site_app_type(self):

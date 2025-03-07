@@ -89,7 +89,12 @@ function ResetForm(): JSX.Element {
     const { isRequestPasswordResetSubmitting } = useValues(passwordResetLogic)
 
     return (
-        <Form logic={passwordResetLogic} formKey="requestPasswordReset" className="space-y-4" enableFormOnSubmit>
+        <Form
+            logic={passwordResetLogic}
+            formKey="requestPasswordReset"
+            className="deprecated-space-y-4"
+            enableFormOnSubmit
+        >
             <div className="text-center">
                 Enter your email address. If an account exists, you’ll receive an email with a password reset link soon.
             </div>

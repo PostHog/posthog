@@ -518,6 +518,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     timings: HogQLTimings
     modifiers: HogQLQueryModifiers
     limit_context: LimitContext
+    is_query_service: bool = False
 
     def __init__(
         self,
@@ -592,6 +593,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             query_json=self.query.model_dump(),
             query_id=self.query_id or cache_manager.cache_key,  # Use cache key as query ID to avoid duplicates
             refresh_requested=refresh_requested,
+            api_query_personal_key=self.query_endpoint_with_personal_key(),
         )
 
     def get_async_query_status(self, *, cache_key: str) -> Optional[QueryStatus]:
@@ -682,6 +684,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # Nothing useful out of cache, nor async query status
         return None
 
+    def query_endpoint_with_personal_key(self):
+        return self.is_query_service and get_query_tag_value("access_method") == "personal_api_key"
+
     def run(
         self,
         execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
@@ -736,8 +741,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             self.modifiers = create_default_modifiers_for_user(user, self.team, self.modifiers)
             self.modifiers.useMaterializedViews = True
 
-        is_api = get_query_tag_value("access_method") == "personal_api_key"
-        with get_api_personal_rate_limiter().run(is_api=is_api, team_id=self.team.pk, task_id=self.query_id):
+        with get_api_personal_rate_limiter().run(
+            is_api=self.query_endpoint_with_personal_key(), team_id=self.team.pk, task_id=self.query_id
+        ):
             fresh_response_dict = {
                 **self.calculate().model_dump(),
                 "is_cached": False,
