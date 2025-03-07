@@ -2,7 +2,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 
 from ee.hogai.schema_generator.nodes import SchemaGeneratorNode, SchemaGeneratorToolsNode
-from ee.hogai.schema_generator.parsers import PydanticOutputParserException
+from ee.hogai.schema_generator.parsers import PydanticOutputParserException, parse_pydantic_structured_output
 from ee.hogai.schema_generator.utils import SchemaGeneratorOutput
 from ee.hogai.taxonomy_agent.nodes import TaxonomyAgentPlannerNode, TaxonomyAgentPlannerToolsNode
 from ee.hogai.sql.prompts import SQL_REACT_SYSTEM_PROMPT
@@ -35,7 +35,7 @@ class SQLPlannerToolsNode(TaxonomyAgentPlannerToolsNode):
         return super()._run_with_toolkit(state, toolkit, config=config)
 
 
-SQLSchemaGeneratorOutput = SchemaGeneratorOutput[str]
+SQLSchemaGeneratorOutput = SchemaGeneratorOutput[AssistantHogQLQuery]
 
 
 class SQLGeneratorNode(SchemaGeneratorNode[AssistantHogQLQuery]):
@@ -69,14 +69,15 @@ class SQLGeneratorNode(SchemaGeneratorNode[AssistantHogQLQuery]):
         )
         return super()._run_with_prompt(state, prompt, config=config)
 
-    def _parse_output(self, output: dict):
-        result = super()._parse_output(output)
+    def _parse_output(self, output):  # type: ignore
+        result = parse_pydantic_structured_output(SchemaGeneratorOutput[str])(output)  # type: ignore
         # We also ensure the generated SQL is valid
+        assert result.query is not None
         try:
             print_ast(parse_select(result.query), context=self.hogql_context, dialect="clickhouse")
         except (ExposedHogQLError, ResolutionError) as e:
             raise PydanticOutputParserException(llm_output=result.query, validation_message=str(e))
-        return SchemaGeneratorOutput(query=AssistantHogQLQuery(query=result.query))
+        return SQLSchemaGeneratorOutput(query=AssistantHogQLQuery(query=result.query))
 
 
 class SQLGeneratorToolsNode(SchemaGeneratorToolsNode):

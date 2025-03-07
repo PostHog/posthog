@@ -101,7 +101,7 @@ export function DataTableVisualization({
         variablesOverride,
     }
 
-    const { exportContext } = useValues(insightDataLogic(insightProps))
+    const { exportContext } = useValues(insightDataLogic(insightProps as unknown as InsightLogicProps))
 
     return (
         <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>

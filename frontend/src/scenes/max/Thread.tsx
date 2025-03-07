@@ -312,7 +312,13 @@ function VisualizationAnswer({
                           <>
                               <SeriesSummary query={query.source} heading={null} />
                               <div className="flex flex-wrap gap-4 mt-1 *:grow">
-                                  <PropertiesSummary properties={query.source.properties} />
+                                  <PropertiesSummary
+                                      properties={
+                                          isHogQLQuery(query.source)
+                                              ? query.source.filters?.properties
+                                              : query.source.properties
+                                      }
+                                  />
                                   <BreakdownSummary query={query.source} />
                               </div>
                           </>
