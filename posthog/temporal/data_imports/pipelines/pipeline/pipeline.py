@@ -186,6 +186,7 @@ class PipelineNonDLT:
         if (
             should_partition_table(delta_table, self._schema, self._resource)
             and not table_using_old_partitioning_system
+            and False
         ):
             partition_size = self._schema.partitioning_size or self._resource.partition_bucket_size
             partition_keys = self._schema.partitioning_keys or self._resource.primary_keys
