@@ -1,8 +1,9 @@
 import asyncio
 import json
+from collections.abc import Coroutine
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import cast
+from typing import Any, TypedDict, TypeVar, cast
 
 import cohere
 import posthoganalytics
@@ -11,7 +12,6 @@ import temporalio.activity
 import temporalio.common
 import temporalio.exceptions
 import temporalio.workflow
-from cohere.core.api_error import ApiError as CohereApiError
 from django.conf import settings
 from django.db.models import F, Q
 from openai import APIError as OpenAIAPIError
@@ -131,42 +131,57 @@ async def batch_summarize_and_embed_actions(inputs: RetrieveActionsInputs):
         action.summary = maybe_summary
         models_to_update.append(action)
 
+    await Action.objects.abulk_update(models_to_update, ["last_summarized_at", "summary"])
+
+
+class ActionDict(TypedDict):
+    summary: str | None
+
+
+T = TypeVar("T", bound=ActionDict)
+
+
+async def embed_action_batch(actions: list[T], batch_size: int) -> list[tuple[T, list[float]]]:
     logger.info(
         "Preparing to embed actions",
-        offset=inputs.offset,
-        batch_size=inputs.batch_size,
-        start_dt=inputs.start_dt,
         actions_count=len(actions),
     )
+    cohere_client = get_cohere_client()
 
-    try:
-        cohere_client = get_cohere_client()
-        embeddings_response = await cohere_client.embed(
-            texts=[action.summary for action in models_to_update],
+    filtered_batches = [
+        [action for action in actions[i : i + batch_size] if action["summary"]]
+        for i in range(0, len(actions), batch_size)
+    ]
+    embedding_requests = [
+        cohere_client.embed(
+            texts=[cast(str, action["summary"]) for action in action_batch],
             model="embed-english-v3.0",
             input_type="search_document",
             embedding_types=["float"],
         )
-    # Retry on Cohere API errors.
-    except CohereApiError:
-        raise
-    # Do not retry on any other errors.
-    except Exception as e:
-        logger.exception("Error embedding actions", error=e)
-        raise temporalio.exceptions.ApplicationError(f"Error embedding actions", non_retryable=True) from e
+        for action_batch in filtered_batches
+    ]
+    responses = await asyncio.gather(*embedding_requests, return_exceptions=True)
 
-    if not embeddings_response.embeddings.float_:
-        raise ValueError("No embeddings found")
+    successful_batches = []
+    for action_batch, response in zip(filtered_batches, responses):
+        if isinstance(response, BaseException):
+            logger.exception("Error embedding actions", error=response, action_batch=action_batch)
+            continue
+        if not response.embeddings.float_:
+            logger.exception("No embeddings found", error=response, action_batch=action_batch)
+            continue
+        for action, embedding in zip(action_batch, response.embeddings.float_):
+            successful_batches.append((action, embedding))
 
-    for action, embedding in zip(models_to_update, embeddings_response.embeddings.float_):
-        action.embedding = embedding
-
-    await Action.objects.abulk_update(models_to_update, ["embedding", "last_summarized_at", "summary"])
+    return successful_batches
 
 
 @dataclass
 class SyncActionVectorsForTeamInputs:
-    batch_size: int
+    insert_batch_size: int
+    embeddings_batch_size: int
+    max_parallel_requests: int
     start_dt: str
 
 
@@ -178,7 +193,7 @@ class SyncActionVectorsForTeamOutputs:
 @temporalio.activity.defn
 async def sync_action_vectors_for_team(inputs: SyncActionVectorsForTeamInputs) -> SyncActionVectorsForTeamOutputs:
     workflow_start_dt = datetime.fromisoformat(inputs.start_dt)
-    actions_to_sync = (
+    actions_to_sync_qs = (
         Action.objects.filter(
             Q(last_summarized_at__lte=workflow_start_dt)
             & (
@@ -187,20 +202,36 @@ async def sync_action_vectors_for_team(inputs: SyncActionVectorsForTeamInputs) -
             )
         )
         .order_by("updated_at", "id")
-        .values("team_id", "id", "embedding", "summary", "name", "description", "deleted")
-    )[: inputs.batch_size]
+        .values("team_id", "id", "summary", "name", "description", "deleted")
+    )
+
+    actions_batch_size = inputs.embeddings_batch_size * inputs.max_parallel_requests
+    offset = 0
+    embedded_actions = []
+
+    while offset < inputs.insert_batch_size:
+        batch = [action async for action in actions_to_sync_qs[offset : offset + actions_batch_size]]
+        if not batch:
+            break
+
+        offset += len(batch)
+        embedded_actions += await embed_action_batch(batch, inputs.embeddings_batch_size)
+
+        # Exit early if we don't have enough actions to fill the batch.
+        if len(batch) != actions_batch_size:
+            break
 
     batch = [
         (
             "action",
             action["team_id"],
             action["id"],
-            action["embedding"],
+            embedding,
             action["summary"],
             json.dumps({"name": action["name"], "description": action["description"]}),
             1 if action["deleted"] else 0,
         )
-        async for action in actions_to_sync
+        for (action, embedding) in embedded_actions
     ]
 
     if not batch:
@@ -214,17 +245,18 @@ async def sync_action_vectors_for_team(inputs: SyncActionVectorsForTeamInputs) -
     )
 
     async with get_client() as client:
-        await client.execute_query(
-            INSERT_BULK_PG_EMBEDDINGS_SQL,
-            *batch,
-        )
+        for i in range(0, len(batch), inputs.insert_batch_size):
+            await client.execute_query(
+                INSERT_BULK_PG_EMBEDDINGS_SQL,
+                *batch[i : i + inputs.insert_batch_size],
+            )
+            bulk_update = [
+                Action(id=action["id"], embedding_last_synced_at=workflow_start_dt) async for action in embedded_actions
+            ]
+            await Action.objects.abulk_update(bulk_update, ["embedding_last_synced_at"])
 
-    bulk_update = [
-        Action(id=action["id"], embedding_last_synced_at=workflow_start_dt) async for action in actions_to_sync
-    ]
-    await Action.objects.abulk_update(bulk_update, ["embedding_last_synced_at"])
-
-    return SyncActionVectorsForTeamOutputs(has_more=len(batch) == inputs.batch_size)
+    # Returning True as we can't tell that there are no more actions to sync without doing a one additional run.
+    return SyncActionVectorsForTeamOutputs(has_more=True)
 
 
 @dataclass
@@ -269,11 +301,11 @@ class SyncVectorsWorkflow(PostHogWorkflow):
 
             # Maximum allowed parallel request count to LLMs is 384 (96 * 4).
             if len(tasks) == inputs.max_parallel_requests:
-                await asyncio.gather(*tasks)
+                await self._process_batch(tasks)
                 tasks = []
 
         if tasks:
-            await asyncio.gather(*tasks)
+            await self._process_batch(tasks)
 
         while True:
             res = await temporalio.workflow.execute_activity(
@@ -284,3 +316,9 @@ class SyncVectorsWorkflow(PostHogWorkflow):
             )
             if not res.has_more:
                 break
+
+    async def _process_batch(self, tasks: list[Coroutine[Any, Any, Any]]):
+        res = await asyncio.gather(*tasks, return_exceptions=True)
+        for maybe_exc in res:
+            if isinstance(maybe_exc, BaseException):
+                raise maybe_exc
