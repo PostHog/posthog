@@ -55,6 +55,20 @@ jobs:
               working-directory: go
               run: make download-${{ matrix.service }}
 
+            - name: Debug Go Environment
+              working-directory: go
+              run: |
+                  echo "Go version:"
+                  go version
+                  echo "\nGo env:"
+                  go env
+                  echo "\nGo mod graph:"
+                  cd services/${{ matrix.service }} && go mod graph
+                  echo "\nGo mod tidy:"
+                  go mod tidy -v
+                  echo "\nDirectory contents:"
+                  ls -la services/${{ matrix.service }}
+
             - name: Run linter
               working-directory: go
               run: make lint-${{ matrix.service }}
