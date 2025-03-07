@@ -23,7 +23,7 @@ import { ValueOnSeriesFilter } from 'scenes/insights/EditorFilters/ValueOnSeries
 import { InsightDateFilter } from 'scenes/insights/filters/InsightDateFilter'
 import { RetentionChartPicker } from 'scenes/insights/filters/RetentionChartPicker'
 import { RetentionDashboardDisplayPicker } from 'scenes/insights/filters/RetentionDashboardDisplayPicker'
-import { RetentionMeanCheckbox } from 'scenes/insights/filters/RetentionMeanCheckbox'
+import { RetentionMeanDropdown } from 'scenes/insights/filters/RetentionMeanDropdown'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { RetentionDatePicker } from 'scenes/insights/RetentionDatePicker'
@@ -189,7 +189,7 @@ export function InsightDisplayConfig(): JSX.Element {
                 {!!isRetention && (
                     <ConfigFilter>
                         <RetentionDatePicker />
-                        <RetentionMeanCheckbox />
+                        <RetentionMeanDropdown />
                     </ConfigFilter>
                 )}
 
@@ -250,7 +250,7 @@ export function InsightDisplayConfig(): JSX.Element {
 }
 
 function ConfigFilter({ children }: { children: ReactNode }): JSX.Element {
-    return <span className="space-x-2 flex items-center text-sm">{children}</span>
+    return <span className="deprecated-space-x-2 flex items-center text-sm">{children}</span>
 }
 
 function DecimalPrecisionInput(): JSX.Element {

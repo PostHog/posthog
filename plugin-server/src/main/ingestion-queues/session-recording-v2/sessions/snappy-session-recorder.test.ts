@@ -236,6 +236,37 @@ describe('SnappySessionRecorder', () => {
         })
     })
 
+    describe('metadata', () => {
+        it('should return default metadata', async () => {
+            const events = [
+                {
+                    type: EventType.FullSnapshot,
+                    timestamp: 1000,
+                    data: { source: 1 },
+                },
+            ]
+            const message = createMessage('window1', events)
+
+            recorder.recordMessage(message)
+            const result = await recorder.end()
+
+            // Check that all new fields are included with default values
+            expect(result.firstUrl).toBeNull()
+            expect(result.urls).toEqual([])
+            expect(result.clickCount).toBe(0)
+            expect(result.keypressCount).toBe(0)
+            expect(result.mouseActivityCount).toBe(0)
+            expect(result.activeMilliseconds).toBe(0)
+            expect(result.consoleLogCount).toBe(0)
+            expect(result.consoleWarnCount).toBe(0)
+            expect(result.consoleErrorCount).toBe(0)
+            expect(result.size).toBe(result.buffer.length)
+            expect(result.messageCount).toBe(0)
+            expect(result.snapshotSource).toBeNull()
+            expect(result.snapshotLibrary).toBeNull()
+        })
+    })
+
     describe('distinctId', () => {
         it('should throw error when accessing distinctId before recording any messages', () => {
             expect(() => recorder.distinctId).toThrow('No distinct_id set. No messages recorded yet.')

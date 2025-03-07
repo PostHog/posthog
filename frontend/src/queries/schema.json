@@ -1262,6 +1262,11 @@
                     "description": "Whether retention should be rolling (aka unbounded, cumulative). Rolling retention means that a user coming back in period 5 makes them count towards all the previous periods.",
                     "type": "boolean"
                 },
+                "meanRetentionCalculation": {
+                    "description": "Whether an additional series should be shown, showing the mean conversion for each period across cohorts.",
+                    "enum": ["simple", "weighted", "none"],
+                    "type": "string"
+                },
                 "period": {
                     "$ref": "#/definitions/RetentionPeriod",
                     "default": "Day",
@@ -1281,7 +1286,7 @@
                     "description": "Retention event (event marking the user coming back)."
                 },
                 "showMean": {
-                    "description": "Whether an additional series should be shown, showing the mean conversion for each period across cohorts.",
+                    "description": "DEPRECATED: Whether an additional series should be shown, showing the mean conversion for each period across cohorts.",
                     "type": "boolean"
                 },
                 "targetEntity": {
@@ -4598,6 +4603,163 @@
             ],
             "type": "string"
         },
+        "CurrencyCode": {
+            "enum": [
+                "AED",
+                "AFN",
+                "ALL",
+                "AMD",
+                "ANG",
+                "AOA",
+                "ARS",
+                "AUD",
+                "AWG",
+                "AZN",
+                "BAM",
+                "BBD",
+                "BDT",
+                "BGN",
+                "BHD",
+                "BIF",
+                "BMD",
+                "BND",
+                "BOB",
+                "BRL",
+                "BSD",
+                "BTC",
+                "BTN",
+                "BWP",
+                "BYN",
+                "BZD",
+                "CAD",
+                "CDF",
+                "CHF",
+                "CLP",
+                "CNY",
+                "COP",
+                "CRC",
+                "CVE",
+                "CZK",
+                "DJF",
+                "DKK",
+                "DOP",
+                "DZD",
+                "EGP",
+                "ERN",
+                "ETB",
+                "EUR",
+                "FJD",
+                "GBP",
+                "GEL",
+                "GHS",
+                "GIP",
+                "GMD",
+                "GNF",
+                "GTQ",
+                "GYD",
+                "HKD",
+                "HNL",
+                "HRK",
+                "HTG",
+                "HUF",
+                "IDR",
+                "ILS",
+                "INR",
+                "IQD",
+                "IRR",
+                "ISK",
+                "JMD",
+                "JOD",
+                "JPY",
+                "KES",
+                "KGS",
+                "KHR",
+                "KMF",
+                "KRW",
+                "KWD",
+                "KYD",
+                "KZT",
+                "LAK",
+                "LBP",
+                "LKR",
+                "LRD",
+                "LTL",
+                "LVL",
+                "LSL",
+                "LYD",
+                "MAD",
+                "MDL",
+                "MGA",
+                "MKD",
+                "MMK",
+                "MNT",
+                "MOP",
+                "MRU",
+                "MTL",
+                "MUR",
+                "MVR",
+                "MWK",
+                "MXN",
+                "MYR",
+                "MZN",
+                "NAD",
+                "NGN",
+                "NIO",
+                "NOK",
+                "NPR",
+                "NZD",
+                "OMR",
+                "PAB",
+                "PEN",
+                "PGK",
+                "PHP",
+                "PKR",
+                "PLN",
+                "PYG",
+                "QAR",
+                "RON",
+                "RSD",
+                "RUB",
+                "RWF",
+                "SAR",
+                "SBD",
+                "SCR",
+                "SDG",
+                "SEK",
+                "SGD",
+                "SRD",
+                "SSP",
+                "STN",
+                "SYP",
+                "SZL",
+                "THB",
+                "TJS",
+                "TMT",
+                "TND",
+                "TOP",
+                "TRY",
+                "TTD",
+                "TWD",
+                "TZS",
+                "UAH",
+                "UGX",
+                "USD",
+                "UYU",
+                "UZS",
+                "VES",
+                "VND",
+                "VUV",
+                "WST",
+                "XAF",
+                "XCD",
+                "XOF",
+                "XPF",
+                "YER",
+                "ZAR",
+                "ZMW"
+            ],
+            "type": "string"
+        },
         "CustomChannelCondition": {
             "additionalProperties": false,
             "properties": {
@@ -7041,7 +7203,7 @@
                     "type": "string"
                 },
                 "math": {
-                    "$ref": "#/definitions/ExperimentMetricMath"
+                    "$ref": "#/definitions/ExperimentMetricMathType"
                 },
                 "math_hogql": {
                     "type": "string"
@@ -7077,7 +7239,7 @@
                     "type": "string"
                 },
                 "math": {
-                    "$ref": "#/definitions/ExperimentMetricMath"
+                    "$ref": "#/definitions/ExperimentMetricMathType"
                 },
                 "math_hogql": {
                     "type": "string"
@@ -7129,7 +7291,7 @@
                     "type": "string"
                 },
                 "math": {
-                    "$ref": "#/definitions/ExperimentMetricMath"
+                    "$ref": "#/definitions/ExperimentMetricMathType"
                 },
                 "math_hogql": {
                     "type": "string"
@@ -7354,17 +7516,20 @@
                 },
                 "name": {
                     "type": "string"
+                },
+                "time_window_hours": {
+                    "type": "number"
                 }
             },
             "required": ["kind", "metric_type", "metric_config"],
             "type": "object"
         },
-        "ExperimentMetricMath": {
-            "enum": ["total", "sum", "avg", "median", "min", "max"],
+        "ExperimentMetricMathType": {
+            "enum": ["total", "sum"],
             "type": "string"
         },
         "ExperimentMetricType": {
-            "enum": ["count", "continuous", "funnel"],
+            "enum": ["funnel", "mean"],
             "type": "string"
         },
         "ExperimentQuery": {
@@ -10085,6 +10250,9 @@
                 },
                 {
                     "$ref": "#/definitions/HogQLMathType"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentMetricMathType"
                 }
             ]
         },
@@ -13535,6 +13703,10 @@
                     "$ref": "#/definitions/ChartDisplayType",
                     "description": "controls the display of the retention graph"
                 },
+                "meanRetentionCalculation": {
+                    "enum": ["simple", "weighted", "none"],
+                    "type": "string"
+                },
                 "period": {
                     "$ref": "#/definitions/RetentionPeriod",
                     "default": "Day"
@@ -13569,6 +13741,10 @@
             "properties": {
                 "cumulative": {
                     "type": "boolean"
+                },
+                "mean_retention_calculation": {
+                    "enum": ["simple", "weighted", "none"],
+                    "type": "string"
                 },
                 "period": {
                     "$ref": "#/definitions/RetentionPeriod"
@@ -13813,6 +13989,9 @@
         "RevenueTrackingConfig": {
             "additionalProperties": false,
             "properties": {
+                "baseCurrency": {
+                    "$ref": "#/definitions/CurrencyCode"
+                },
                 "events": {
                     "items": {
                         "$ref": "#/definitions/RevenueTrackingEventItem"
@@ -13827,6 +14006,9 @@
             "additionalProperties": false,
             "properties": {
                 "eventName": {
+                    "type": "string"
+                },
+                "revenueCurrencyProperty": {
                     "type": "string"
                 },
                 "revenueProperty": {
