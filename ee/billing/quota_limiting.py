@@ -168,7 +168,7 @@ def org_quota_limited_until(
     #       b. 'never_drop_data' set or a high trust score (15)
     #       c. feature flag to retain data past quota limit
     # 2. limit the org if already being limited
-    # 3. add quote suspension based on grace period`
+    # 3. add quota suspension based on grace period
 
     # 1a. not over limit
     if not is_over_limit:
