@@ -35,6 +35,7 @@ import { useState } from 'react'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 import { SurveyRepeatSchedule } from 'scenes/surveys/SurveyRepeatSchedule'
+import { SurveyResponsesCollection } from 'scenes/surveys/SurveyResponsesCollection'
 
 import {
     ActionType,
@@ -219,6 +220,7 @@ function SurveyCompletionConditions(): JSX.Element {
                 </LemonField>
             )}
             <SurveyRepeatSchedule />
+            <SurveyResponsesCollection />
         </div>
     )
 }

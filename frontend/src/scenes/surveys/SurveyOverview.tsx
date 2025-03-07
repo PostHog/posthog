@@ -2,6 +2,8 @@ import { LemonDivider, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { capitalizeFirstLetter } from 'kea-forms'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { pluralize } from 'lib/utils'
 import { SurveyQuestionLabel } from 'scenes/surveys/constants'
 import { SurveyDisplaySummary } from 'scenes/surveys/Survey'
@@ -48,6 +50,7 @@ export function SurveyOverview(): JSX.Element {
     const { survey, selectedPageIndex, targetingFlagFilters } = useValues(surveyLogic)
     const { setSelectedPageIndex } = useActions(surveyLogic)
     const { surveyUsesLimit, surveyUsesAdaptiveLimit } = useValues(surveyLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <div className="flex flex-row">
@@ -93,6 +96,12 @@ export function SurveyOverview(): JSX.Element {
                         <SurveySchedule />
                     </div>
                 </div>
+                {featureFlags[FEATURE_FLAGS.SURVEYS_PARTIAL_RESPONSES] && (
+                    <div className="flex flex-col mt-4">
+                        <span className="card-secondary">Store partial responses</span>
+                        <span>{survey.store_partial_responses ? 'Yes' : 'No'}</span>
+                    </div>
+                )}
                 {surveyUsesLimit && (
                     <>
                         <span className="mt-4 card-secondary">Completion conditions</span>
