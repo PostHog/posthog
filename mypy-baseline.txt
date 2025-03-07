@@ -823,6 +823,7 @@ posthog/api/plugin.py:0: error: Incompatible type for "file_size" of "PluginAtta
 posthog/api/plugin.py:0: error: Item "None" of "IO[Any] | None" has no attribute "read"  [union-attr]
 posthog/api/plugin.py:0: error: Item "None" of "Team | None" has no attribute "organization"  [union-attr]
 posthog/api/plugin.py:0: error: Item "None" of "Team | None" has no attribute "id"  [union-attr]
+posthog/temporal/data_imports/pipelines/pipeline/pipeline.py:0: error: Statement is unreachable  [unreachable]
 posthog/temporal/batch_exports/spmc.py:0: error: Incompatible types in assignment (expression has type "Schema", variable has type "None")  [assignment]
 posthog/temporal/batch_exports/spmc.py:0: error: Incompatible return value type (got "None", expected "Schema")  [return-value]
 posthog/temporal/batch_exports/postgres_batch_export.py:0: error: Need type annotation for "connect"  [var-annotated]
