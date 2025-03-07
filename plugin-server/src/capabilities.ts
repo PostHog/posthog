@@ -11,6 +11,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
         case null:
             return {
                 mmdb: true,
+                propertyDefs: true,
                 ingestionV2Combined: true,
                 processAsyncOnEventHandlers: true,
                 processAsyncWebhooksHandlers: true,
@@ -35,6 +36,11 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             return {
                 mmdb: true,
                 ingestionV2: true,
+                ...sharedCapabilities,
+            }
+        case PluginServerMode.property_defs:
+            return {
+                propertyDefs: true,
                 ...sharedCapabilities,
             }
         case PluginServerMode.recordings_blob_ingestion:

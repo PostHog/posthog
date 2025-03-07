@@ -75,6 +75,7 @@ export enum KafkaSaslMechanism {
 
 export enum PluginServerMode {
     ingestion_v2 = 'ingestion-v2',
+    property_defs = 'property-defs',
     async_onevent = 'async-onevent',
     async_webhooks = 'async-webhooks',
     recordings_blob_ingestion = 'recordings-blob-ingestion',
@@ -336,6 +337,9 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
 
     // Destination Migration Diffing
     DESTINATION_MIGRATION_DIFFING_ENABLED: boolean
+
+    PROPERTY_DEFS_CONSUMER_GROUP_ID: string
+    PROPERTY_DEFS_CONSUMER_CONSUME_TOPIC: string
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -388,6 +392,7 @@ export interface PluginServerCapabilities {
     // and the shouldSetupPluginInServer() test accordingly.
     ingestionV2Combined?: boolean
     ingestionV2?: boolean
+    propertyDefs?: boolean
     processAsyncOnEventHandlers?: boolean
     processAsyncWebhooksHandlers?: boolean
     sessionRecordingBlobIngestion?: boolean
@@ -1154,19 +1159,20 @@ export enum PropertyDefinitionTypeEnum {
     Event = 1,
     Person = 2,
     Group = 3,
+    Session = 4,
 }
 
 export interface PropertyDefinitionType {
     id: string
     name: string
     is_numerical: boolean
-    volume_30_day: number | null
-    query_usage_30_day: number | null
     team_id: number
     project_id: number | null
-    property_type?: PropertyType
+    property_type: PropertyType | null
     type: PropertyDefinitionTypeEnum
-    group_type_index: number | null
+    group_type_index?: number | null
+    volume_30_day?: number | null
+    query_usage_30_day?: number | null
 }
 
 export interface EventPropertyType {

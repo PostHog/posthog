@@ -22,6 +22,7 @@ import {
 } from '../config/kafka-topics'
 import { IngestionConsumer } from '../ingestion/ingestion-consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
+import { PropertyDefsConsumer } from '../property-defs/property-defs-consumer'
 import { Hub, PluginServerCapabilities, PluginServerService, PluginsServerConfig } from '../types'
 import { closeHub, createHub, createKafkaClient } from '../utils/db/hub'
 import { PostgresRouter } from '../utils/db/postgres'
@@ -245,6 +246,12 @@ export async function startPluginsServer(
         } else if (capabilities.ingestionV2) {
             await initPlugins()
             const consumer = new IngestionConsumer(hub)
+            await consumer.start()
+            services.push(consumer.service)
+        }
+
+        if (capabilities.propertyDefs) {
+            const consumer = new PropertyDefsConsumer(hub)
             await consumer.start()
             services.push(consumer.service)
         }
