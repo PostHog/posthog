@@ -58,20 +58,22 @@ fn collect_uploads(pairs: Vec<SourcePair>) -> Result<Vec<ChunkUpload>, Error> {
 fn get_chunk_id(sourcemap: &str) -> Result<String, Error> {
     #[derive(serde::Deserialize)]
     struct S {
-        debug_id: String,
+        chunk_id: String,
     }
 
     let s: S = serde_json::from_str(sourcemap).context("While getting chunk id")?;
-    Ok(s.debug_id)
+    Ok(s.chunk_id)
 }
 
 fn upload_chunks(url: &str, token: &str, uploads: Vec<ChunkUpload>) -> Result<(), Error> {
     let client = reqwest::blocking::Client::new();
     for upload in uploads {
         info!("Uploading chunk {}", upload.chunk_id);
+        print!("{:?}", token);
         let res = client
             .post(url)
             .header("Authorization", format!("Bearer {}", token))
+            .header("Content-Type", "application/octet-stream")
             .query(&[("chunk_id", &upload.chunk_id)])
             .body(upload.data)
             .send()

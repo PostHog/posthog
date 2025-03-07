@@ -5,6 +5,7 @@ import hashlib
 from rest_framework import serializers, viewsets, status, request
 from rest_framework.response import Response
 from rest_framework.exceptions import ValidationError
+from rest_framework.parsers import BaseParser
 
 from django.http import JsonResponse
 from django.conf import settings
@@ -237,10 +238,21 @@ class ErrorTrackingSymbolSetSerializer(serializers.ModelSerializer):
         read_only_fields = ["team_id"]
 
 
+class PlainTextParser(BaseParser):
+    media_type = "*/*"
+
+    def parse(self, stream, media_type=None, parser_context=None):
+        """
+        Simply return a string representing the body of the request.
+        """
+        return stream.read()
+
+
 class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "error_tracking"
     queryset = ErrorTrackingSymbolSet.objects.all()
     serializer_class = ErrorTrackingSymbolSetSerializer
+    parser_classes = [PlainTextParser]
 
     def safely_get_queryset(self, queryset):
         return queryset.filter(team_id=self.team.id)
@@ -268,9 +280,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         # pull the symbol set reference from the query params
         chunk_id = request.query_params.get("chunk_id", None)
         if not chunk_id:
-            return Response(
-                {"detail": "chunk_id query parameter is required"}, status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({"detail": "chunk_id query parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
 
         (storage_ptr, content_hash) = upload_content(bytearray(request.body))
 

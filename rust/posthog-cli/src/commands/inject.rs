@@ -17,7 +17,7 @@ impl Source {
     pub fn get_sourcemap_path(&self) -> PathBuf {
         // Try to resolve the sourcemap by adding .map to the path
         let mut path = self.path.clone();
-        path.push(".map");
+        path.set_extension("js.map");
         path
     }
 
