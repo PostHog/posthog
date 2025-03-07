@@ -4,6 +4,7 @@ import {
     LemonButton,
     LemonDialog,
     LemonDivider,
+    LemonSelect,
     LemonSwitch,
     LemonTag,
     Link,
@@ -24,7 +25,7 @@ import { isObject, objectsEqual } from 'lib/utils'
 import { ReactNode, useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { SessionRecordingAIConfig } from '~/types'
+import { SessionRecordingAIConfig, type SessionRecordingMaskingLevel } from '~/types'
 
 interface SupportedPlatformProps {
     note?: ReactNode
@@ -499,6 +500,51 @@ export function ReplayAISettings(): JSX.Element | null {
                     </div>
                 </>
             )}
+        </div>
+    )
+}
+
+export function ReplayMaskingSettings(): JSX.Element {
+    const { updateCurrentTeam } = useActions(teamLogic)
+    const { currentTeam } = useValues(teamLogic)
+
+    const handleMaskingChange = (level: SessionRecordingMaskingLevel): void => {
+        updateCurrentTeam({
+            session_recording_masking_config: {
+                ...currentTeam?.session_recording_masking_config,
+                maskAllInputs: level !== 'free-love',
+                maskTextSelector: level === 'total-privacy' ? '*' : undefined,
+            },
+        })
+    }
+
+    const maskingLevel =
+        currentTeam?.session_recording_masking_config?.maskTextSelector === '*'
+            ? 'total-privacy'
+            : currentTeam?.session_recording_masking_config?.maskAllInputs
+            ? 'normal'
+            : 'free-love'
+
+    return (
+        <div>
+            <SupportedPlatforms web={true} />
+            <p>This controls what data is masked during session recordings.</p>
+            <p>
+                You can configure more advanced settings or change masking for other platforms directly in code.{' '}
+                <Link to="https://posthog.com/docs/session-replay/privacy" target="_blank">
+                    Learn more
+                </Link>
+            </p>
+            <p>If you specify this in code, it will take precedence over the setting here.</p>
+            <LemonSelect
+                value={maskingLevel}
+                onChange={(val) => val && handleMaskingChange(val)}
+                options={[
+                    { value: 'total-privacy', label: 'Total privacy (mask all text/images)' },
+                    { value: 'normal', label: 'Normal (mask inputs but not text/images)' },
+                    { value: 'free-love', label: 'Free love (mask only passwords)' },
+                ]}
+            />
         </div>
     )
 }

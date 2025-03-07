@@ -6,6 +6,7 @@ import {
     MessageKey as RdKafkaMessageKey,
     MessageValue,
     NumberNullUndefined,
+    ProducerGlobalConfig,
 } from 'node-rdkafka'
 import { Counter, Summary } from 'prom-client'
 
@@ -42,14 +43,10 @@ export class KafkaProducerWrapper {
     public producer: HighLevelProducer
 
     static async create(config: PluginsServerConfig, mode: 'producer' | 'consumer' = 'producer') {
-        const globalConfig = createRdConnectionConfigFromEnvVars(config, mode)
-
         // NOTE: In addition to some defaults we allow overriding any setting via env vars.
         // This makes it much easier to react to issues without needing code changes
 
-        // Finds all proces.env prefixed with KAFKA_PRODUCER_ and converts them to rdkafka config
-
-        const producer = new HighLevelProducer({
+        const producerConfig: ProducerGlobalConfig = {
             // Defaults that could be overridden by env vars
             'linger.ms': 20,
             'batch.size': 8 * 1024 * 1024,
@@ -57,9 +54,13 @@ export class KafkaProducerWrapper {
             'compression.codec': 'snappy',
             'enable.idempotence': true,
             ...getProducerConfigFromEnv(),
-            ...globalConfig,
+            ...createRdConnectionConfigFromEnvVars(config, mode),
             dr_cb: true,
-        })
+        }
+
+        status.info('📝', 'librdkafka producer config', { config: producerConfig })
+
+        const producer = new HighLevelProducer(producerConfig)
 
         producer.on('event.log', function (log) {
             status.info('📝', 'librdkafka log', { log: log })
