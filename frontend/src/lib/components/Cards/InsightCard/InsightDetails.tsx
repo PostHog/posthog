@@ -39,6 +39,7 @@ import {
 } from '~/queries/schema/schema-general'
 import {
     isActionsNode,
+    isDataTableNodeWithHogQLQuery,
     isDataVisualizationNode,
     isEventsNode,
     isFunnelsQuery,
@@ -327,12 +328,7 @@ export function SeriesSummary({
         <section>
             {heading !== null && <h5>{heading || 'Query summary'}</h5>}
             {isHogQLQuery(query) ? (
-                <CodeSnippet
-                    language={Language.SQL}
-                    maxLinesWithoutExpansion={10}
-                    compact
-                    className="InsightDetails__query"
-                >
+                <CodeSnippet language={Language.SQL} maxLinesWithoutExpansion={8} compact>
                     {query.query}
                 </CodeSnippet>
             ) : (
@@ -431,7 +427,7 @@ export const InsightDetails = React.memo(
         // TODO: Implement summaries for HogQL query insights
         return (
             <div className="InsightDetails" ref={ref}>
-                {isInsightVizNode(query) || isDataVisualizationNode(query) ? (
+                {isInsightVizNode(query) || isDataVisualizationNode(query) || isDataTableNodeWithHogQLQuery(query) ? (
                     <>
                         <SeriesSummary query={query.source} />
                         <PropertiesSummary
