@@ -78,6 +78,7 @@ def process_query_model(
     query_id: Optional[str] = None,
     insight_id: Optional[int] = None,
     dashboard_id: Optional[int] = None,
+    is_query_service: bool = False,
 ) -> dict | BaseModel:
     result: dict | BaseModel
 
@@ -132,7 +133,7 @@ def process_query_model(
             query_runner.apply_dashboard_filters(dashboard_filters)
         if variables_override:
             query_runner.apply_variable_overrides(variables_override)
-        query_runner.is_query_service = True
+        query_runner.is_query_service = is_query_service
         result = query_runner.run(
             execution_mode=execution_mode,
             user=user,
