@@ -171,7 +171,7 @@ async def sync_action_vectors_for_team(inputs: SyncActionVectorsForTeamInputs) -
                 | (Q(embedding_last_synced_at__isnull=True) & Q(last_summarized_at__isnull=False))
             )
         )
-        .order_by("id", "team_id", "updated_at")
+        .order_by("updated_at", "id")
         .values("team_id", "id", "embedding", "summary", "name", "description", "deleted")
     )[: inputs.batch_size]
 
@@ -232,7 +232,7 @@ class SyncVectorsWorkflow(PostHogWorkflow):
     async def run(self, inputs: SyncVectorsInputs):
         start_dt_str = inputs.start_dt or get_scheduled_start_time().isoformat()
 
-        approximate_count = await temporalio.workflow.execute_activity(
+        approximate_actions_count = await temporalio.workflow.execute_activity(
             get_approximate_actions_count,
             GetApproximateActionsCountInputs(start_dt_str),
             start_to_close_timeout=timedelta(seconds=15),
@@ -240,7 +240,7 @@ class SyncVectorsWorkflow(PostHogWorkflow):
         )
 
         tasks = []
-        for i in range(0, approximate_count, inputs.batch_size):
+        for i in range(0, approximate_actions_count, inputs.batch_size):
             tasks.append(
                 temporalio.workflow.execute_activity(
                     batch_summarize_and_embed_actions,
