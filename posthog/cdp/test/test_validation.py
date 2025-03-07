@@ -3,8 +3,26 @@ import json
 from inline_snapshot import snapshot
 
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
-from posthog.cdp.validation import validate_inputs, validate_inputs_schema
+from posthog.cdp.validation import InputsSchemaItemSerializer, MappingsSerializer
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
+
+
+def validate_inputs(schema, inputs):
+    serializer = MappingsSerializer(
+        data={
+            "inputs_schema": schema,
+            "inputs": inputs,
+        },
+        context={"function_type": "destination"},
+    )
+    serializer.is_valid(raise_exception=True)
+    return serializer.validated_data["inputs"]
+
+
+def validate_inputs_schema(data):
+    serializer = InputsSchemaItemSerializer(data=data, many=True)
+    serializer.is_valid(raise_exception=True)
+    return serializer.validated_data
 
 
 def create_example_inputs_schema():

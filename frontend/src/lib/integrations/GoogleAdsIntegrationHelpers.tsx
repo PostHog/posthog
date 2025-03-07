@@ -7,11 +7,11 @@ import { GoogleAdsConversionActionType, IntegrationType } from '~/types'
 import { googleAdsIntegrationLogic } from './googleAdsIntegrationLogic'
 
 const getGoogleAdsAccountOptions = (
-    googleAdsAccounts?: { id: string; name: string }[] | null
+    googleAdsAccounts?: { id: string; name: string; parent_id: string; level: string }[] | null
 ): LemonInputSelectOption[] | null => {
     return googleAdsAccounts
         ? googleAdsAccounts.map((customer) => ({
-              key: customer.id,
+              key: `${customer.id}/${customer.parent_id}`,
               labelComponent: (
                   <span className="flex items-center">
                       {customer.name} ({customer.id.replace(/(\d{3})(\d{3})(\d{4})/, '$1-$2-$3')})
@@ -65,7 +65,7 @@ export function GoogleAdsConversionActionPicker({
 
     useEffect(() => {
         if (requiresFieldValue) {
-            loadGoogleAdsConversionActions(requiresFieldValue)
+            loadGoogleAdsConversionActions(requiresFieldValue.split('/')[0], requiresFieldValue.split('/')[1])
         }
     }, [loadGoogleAdsConversionActions, requiresFieldValue])
 
@@ -78,7 +78,7 @@ export function GoogleAdsConversionActionPicker({
                     !googleAdsConversionActions &&
                     !googleAdsConversionActionsLoading &&
                     requiresFieldValue &&
-                    loadGoogleAdsConversionActions(requiresFieldValue)
+                    loadGoogleAdsConversionActions(requiresFieldValue.split('/')[0], requiresFieldValue.split('/')[1])
                 }
                 disabled={disabled}
                 mode="single"

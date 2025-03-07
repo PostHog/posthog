@@ -11,7 +11,7 @@ from dateutil.relativedelta import relativedelta
 
 from dags.common import JobOwners
 from posthog import settings
-from posthog.clickhouse.cluster import ClickhouseCluster, MutationRunner
+from posthog.clickhouse.cluster import ClickhouseCluster, AlterTableMutationRunner
 
 
 class PartitionRange(dagster.Config):
@@ -126,8 +126,10 @@ def run_materialize_mutations(
     # Step through the remaining partitions, materializing the column in any shards where the column hasn't already been
     # materialized.
     for partition in sorted(remaining_partitions, reverse=True):
-        MutationRunner(
-            config.table, f"MATERIALIZE COLUMN {config.column} IN PARTITION %(partition)s", {"partition": partition}
+        AlterTableMutationRunner(
+            config.table,
+            f"MATERIALIZE COLUMN {config.column} IN PARTITION %(partition)s",
+            parameters={"partition": partition},
         ).run_on_shards(
             cluster,
             shards={
