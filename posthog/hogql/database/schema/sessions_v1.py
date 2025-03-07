@@ -416,6 +416,7 @@ def get_lazy_session_table_properties_v1(search: Optional[str]):
     return results
 
 
+# NOTE: Keep the AD IDs in sync with `posthog.hogql_queries.web_analytics.session_attribution_explorer_query_runner.py`
 SESSION_PROPERTY_TO_RAW_SESSIONS_EXPR_MAP = {
     "$entry_referring_domain": "finalizeAggregation(initial_referring_domain)",
     "$entry_utm_source": "finalizeAggregation(initial_utm_source)",
@@ -436,6 +437,8 @@ SESSION_PROPERTY_TO_RAW_SESSIONS_EXPR_MAP = {
     "$entry_mc_cid": "finalizeAggregation(initial_mc_cid)",
     "$entry_igshid": "finalizeAggregation(initial_igshid)",
     "$entry_ttclid": "finalizeAggregation(initial_ttclid)",
+    "$entry__kx": "finalizeAggregation(initial__kx)",
+    "$entry_irclid": "finalizeAggregation(initial_irclid)",
     "$entry_current_url": "finalizeAggregation(entry_url)",
     "$exit_current_url": "finalizeAggregation(exit_url)",
 }
