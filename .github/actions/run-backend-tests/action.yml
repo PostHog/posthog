@@ -149,9 +149,6 @@ runs:
           shell: bash
           run: echo "PYTEST_ARGS=--snapshot-update" >> $GITHUB_ENV # We can only update snapshots within the PostHog org
 
-        - name: Setup tmate session
-          uses: mxschmitt/action-tmate@v3
-
         # Tests
         - name: Run Core tests
           id: run-core-tests
