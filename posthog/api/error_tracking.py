@@ -5,7 +5,7 @@ import hashlib
 from rest_framework import serializers, viewsets, status, request
 from rest_framework.response import Response
 from rest_framework.exceptions import ValidationError
-from rest_framework.parsers import FileUploadParser
+from rest_framework.parsers import MultiPartParser, FileUploadParser
 
 from django.http import JsonResponse
 from django.conf import settings
@@ -242,6 +242,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
     scope_object = "error_tracking"
     queryset = ErrorTrackingSymbolSet.objects.all()
     serializer_class = ErrorTrackingSymbolSetSerializer
+    parser_classes = [MultiPartParser, FileUploadParser]
 
     def safely_get_queryset(self, queryset):
         return queryset.filter(team_id=self.team.id)
@@ -265,14 +266,15 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         ErrorTrackingStackFrame.objects.filter(team=self.team, symbol_set=symbol_set).delete()
         return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
 
-    @action(detail=False, parser_classes=[FileUploadParser])
     def create(self, request, *args, **kwargs) -> Response:
         # pull the symbol set reference from the query params
         chunk_id = request.query_params.get("chunk_id", None)
         if not chunk_id:
             return Response({"detail": "chunk_id query parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-        (storage_ptr, content_hash) = upload_content(bytearray(request.body))
+        # file added to the request data by the FileUploadParser
+        data = request.data["file"].read()
+        (storage_ptr, content_hash) = upload_content(bytearray(data))
 
         ErrorTrackingSymbolSet.objects.create(
             team=self.team,

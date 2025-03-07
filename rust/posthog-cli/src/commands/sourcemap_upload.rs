@@ -73,10 +73,8 @@ fn upload_chunks(url: &str, token: &str, uploads: Vec<ChunkUpload>) -> Result<()
             .post(url)
             .header("Authorization", format!("Bearer {}", token))
             .header("Content-Type", "application/octet-stream")
-            .query(&[
-                ("chunk_id", &upload.chunk_id),
-                ("filename", &String::from("chunk")),
-            ])
+            .header("Content-Disposition", "attachment; filename='chunk'")
+            .query(&[("chunk_id", &upload.chunk_id)])
             .body(upload.data)
             .send()
             .context(format!("While uploading chunk to {}", url))?;
