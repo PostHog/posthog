@@ -20,7 +20,7 @@ describe('segmentation', () => {
         it('should calculate active time for a single active event', () => {
             const segmentationEvents: SegmentationEvent[] = [{ timestamp: 1000, isActive: true }]
 
-            // This is a special case where we cound duration of active segments with one event as 1ms
+            // This is a special case where we count duration of active segments with one event as 1ms
             expect(activeMillisecondsFromSegmentationEvents(segmentationEvents)).toBe(1)
         })
 
