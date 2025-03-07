@@ -110,6 +110,7 @@ def send_invite(invite_id: str) -> None:
         id=invite_id
     )
     message = EmailMessage(
+        use_http=True,
         campaign_key=campaign_key,
         subject=f"{invite.created_by.first_name} invited you to join {invite.organization.name} on PostHog",
         template_name="invite",
@@ -129,6 +130,7 @@ def send_member_join(invitee_uuid: str, organization_id: str) -> None:
     organization: Organization = Organization.objects.get(id=organization_id)
     campaign_key: str = f"member_join_email_org_{organization_id}_user_{invitee_uuid}"
     message = EmailMessage(
+        use_http=True,
         campaign_key=campaign_key,
         subject=f"{invitee.first_name} joined you on PostHog",
         template_name="member_join",
@@ -146,6 +148,7 @@ def send_member_join(invitee_uuid: str, organization_id: str) -> None:
 def send_password_reset(user_id: int, token: str) -> None:
     user = User.objects.get(pk=user_id)
     message = EmailMessage(
+        use_http=True,
         campaign_key=f"password-reset-{user.uuid}-{timezone.now().timestamp()}",
         subject=f"Reset your PostHog password",
         template_name="password_reset",
@@ -165,6 +168,7 @@ def send_password_reset(user_id: int, token: str) -> None:
 def send_email_verification(user_id: int, token: str) -> None:
     user: User = User.objects.get(pk=user_id)
     message = EmailMessage(
+        use_http=True,
         campaign_key=f"email-verification-{user.uuid}-{timezone.now().timestamp()}",
         subject=f"Verify your email address",
         template_name="email_verification",
@@ -302,6 +306,7 @@ def send_canary_email(user_email: str) -> None:
 @shared_task(**EMAIL_TASK_KWARGS)
 def send_email_change_emails(now_iso: str, user_name: str, old_address: str, new_address: str) -> None:
     message_old_address = EmailMessage(
+        use_http=True,
         campaign_key=f"email_change_old_address_{now_iso}",
         subject="This is no longer your PostHog account email",
         template_name="email_change_old_address",
@@ -312,6 +317,7 @@ def send_email_change_emails(now_iso: str, user_name: str, old_address: str, new
         },
     )
     message_new_address = EmailMessage(
+        use_http=True,
         campaign_key=f"email_change_new_address_{now_iso}",
         subject="This is your new PostHog account email",
         template_name="email_change_new_address",
