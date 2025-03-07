@@ -1,10 +1,10 @@
-import { IconCorrelationAnalysis, IconInfo } from '@posthog/icons'
+import { IconCorrelationAnalysis, IconInfo, IconWarning } from '@posthog/icons'
 import { LemonTable, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { Chart, ChartConfiguration } from 'chart.js/auto'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { humanFriendlyNumber } from 'lib/utils'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { experimentLogic } from '../experimentLogic'
 import { VariantTag } from './components'
@@ -12,8 +12,8 @@ import { ExposureCriteriaButton } from './ExposureCriteria'
 
 export function Exposures(): JSX.Element {
     const { experimentId, exposures, exposuresLoading, exposureCriteriaLabel } = useValues(experimentLogic)
-
     const chartRef = useRef<Chart | null>(null)
+    const [chartError, setChartError] = useState<string | null>(null)
 
     useEffect(() => {
         if (chartRef.current) {
@@ -21,12 +21,16 @@ export function Exposures(): JSX.Element {
             chartRef.current = null
         }
 
+        // Reset error state on new data
+        setChartError(null)
+
         if (!exposures || !exposures?.timeseries?.length) {
             return
         }
 
         const ctx = document.getElementById('exposuresChart') as HTMLCanvasElement
         if (!ctx) {
+            setChartError('Canvas element not found')
             return
         }
 
@@ -81,7 +85,7 @@ export function Exposures(): JSX.Element {
         try {
             chartRef.current = new Chart(ctx, config)
         } catch (error) {
-            console.error('Error creating chart:', error)
+            setChartError(`Error creating chart: ${error instanceof Error ? error.message : String(error)}`)
         }
 
         return () => {
@@ -122,7 +126,15 @@ export function Exposures(): JSX.Element {
             ) : (
                 <div className="flex gap-2">
                     <div className={clsx(chartWrapperClasses, 'w-full md:w-2/3')}>
-                        <canvas id="exposuresChart" />
+                        {chartError ? (
+                            <div className="h-full flex flex-col items-center justify-center text-center">
+                                <IconWarning className="text-3xl mb-2 text-warning" />
+                                <h3 className="text-lg">Chart rendering issue</h3>
+                                <p className="text-sm text-muted">{chartError}</p>
+                            </div>
+                        ) : (
+                            <canvas id="exposuresChart" />
+                        )}
                     </div>
                     <div className="md:w-1/3 border rounded bg-white p-4">
                         <div className="flex justify-between mb-4">
