@@ -2008,11 +2008,24 @@ def test_load_private_key_raises_error_if_passphrase_missing():
     assert "passphrase was not given but private key is encrypted" in str(exc_info.value)
 
 
+def test_load_private_key_passes_with_empty_passphrase_and_no_encryption():
+    """Test we succeed in loading a passphrase without encryption and an empty passphrase."""
+    key = paramiko.RSAKey.generate(2048)
+    buffer = io.StringIO()
+    key.write_private_key(buffer, password=None)
+    _ = buffer.seek(0)
+
+    loaded = load_private_key(buffer.read(), "")
+
+    assert loaded
+
+
 @pytest.mark.parametrize("passphrase", ["a-passphrase", None, ""])
 def test_load_private_key(passphrase: str | None):
     """Test we can load a private key.
 
-    We treat `None` and empty string the same (no passphrase).
+    We treat `None` and empty string the same (no passphrase) because paramiko does
+    not support passphrases smaller than 1 byte.
     """
     key = paramiko.RSAKey.generate(2048)
     buffer = io.StringIO()

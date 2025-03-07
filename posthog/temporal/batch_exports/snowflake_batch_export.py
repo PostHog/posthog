@@ -177,6 +177,7 @@ def load_private_key(private_key: str, passphrase: str | None) -> bytes:
                 try:
                     p_key = load_private_key(private_key, None)
                 except (ValueError, TypeError):
+                    # Proceed with top level handling
                     pass
                 else:
                     return p_key
