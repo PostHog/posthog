@@ -29,7 +29,7 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
 
     return (
         <Form formKey="billingLimitInput" props={{ product: product }} logic={billingProductLogic} enableFormOnSubmit>
-            <div className="border-t border-border p-8" data-attr={`billing-limit-input-wrapper-${product.type}`}>
+            <div className="border-t border-primary p-8" data-attr={`billing-limit-input-wrapper-${product.type}`}>
                 <h4 className="mb-2">Billing limit</h4>
                 <div className="flex">
                     {!isEditingBillingLimit ? (
