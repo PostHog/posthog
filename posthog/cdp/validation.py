@@ -277,6 +277,9 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
         # If we have a bytecode, we need to validate the transpiled
         if function_type in TYPES_WITH_COMPILED_FILTERS:
             data = compile_filters_bytecode(data, team)
+            # Check if bytecode compilation resulted in an error
+            if data.get("bytecode_error"):
+                raise serializers.ValidationError(f"Invalid filter configuration: {data['bytecode_error']}")
         elif function_type in TYPES_WITH_TRANSPILED_FILTERS:
             compiler = JavaScriptCompiler()
             code = compiler.visit(compile_filters_expr(data, team))
