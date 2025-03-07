@@ -90,8 +90,8 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
             ref={ref}
             data-attr={`billing-product-${product.type}`}
         >
-            <div className="border border-border rounded w-full bg-surface-primary" ref={productRef}>
-                <div className="border-b border-border rounded-t p-4">
+            <div className="border border-primary rounded w-full bg-surface-primary" ref={productRef}>
+                <div className="border-b border-primary rounded-t p-4">
                     <div className="flex gap-4 items-center justify-between">
                         {getProductIcon(product.name, product.icon_key, 'text-2xl')}
                         <div>

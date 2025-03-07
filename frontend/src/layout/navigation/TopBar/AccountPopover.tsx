@@ -111,12 +111,11 @@ function CurrentOrganization({ organization }: { organization: OrganizationBasic
 }
 
 export function InviteMembersButton({
+    text = 'Invite members',
     center = false,
     type = 'tertiary',
-}: {
-    center?: boolean
-    type?: LemonButtonPropsBase['type']
-}): JSX.Element {
+    ...props
+}: LemonButtonPropsBase & { text?: string }): JSX.Element {
     const { closeAccountPopover } = useActions(navigationLogic)
     const { showInviteModal } = useActions(inviteLogic)
     const { reportInviteMembersButtonClicked } = useActions(eventUsageLogic)
@@ -133,8 +132,9 @@ export function InviteMembersButton({
             type={type}
             fullWidth
             data-attr="top-menu-invite-team-members"
+            {...props}
         >
-            Invite members
+            {text}
         </LemonButton>
     )
 }

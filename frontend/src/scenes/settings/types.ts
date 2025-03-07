@@ -73,6 +73,7 @@ export type SettingId =
     | 'persons-on-events'
     | 'replay'
     | 'replay-network'
+    | 'replay-masking'
     | 'replay-authorized-domains'
     | 'replay-ingestion'
     | 'surveys-interface'

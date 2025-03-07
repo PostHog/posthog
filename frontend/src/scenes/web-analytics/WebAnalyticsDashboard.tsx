@@ -23,7 +23,7 @@ import {
     QueryTile,
     TabsTile,
     TileId,
-    TileVsualizationOption,
+    TileVisualizationOption,
     WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
     webAnalyticsLogic,
 } from 'scenes/web-analytics/webAnalyticsLogic'
@@ -258,7 +258,7 @@ export const WebTabs = ({
                 {isVisualizationToggleEnabled && (
                     <LemonSegmentedButton
                         value={visualization || 'table'}
-                        onChange={(value) => setTileVisualization(tileId, value as TileVsualizationOption)}
+                        onChange={(value) => setTileVisualization(tileId, value as TileVisualizationOption)}
                         options={[
                             {
                                 value: 'table',

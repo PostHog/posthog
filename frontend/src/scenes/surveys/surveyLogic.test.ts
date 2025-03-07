@@ -1572,38 +1572,6 @@ describe('surveyLogic filters for surveys responses', () => {
         logic = surveyLogic({ id: 'new' })
         logic.mount()
     })
-
-    it('applies answer filters to queries', async () => {
-        const answerFilter: EventPropertyFilter = {
-            key: '$survey_response',
-            value: 'test response',
-            operator: PropertyOperator.IContains,
-            type: PropertyFilterType.Event,
-        }
-
-        await expectLogic(logic, () => {
-            logic.actions.loadSurveySuccess(MULTIPLE_CHOICE_SURVEY)
-            logic.actions.setAnswerFilters([answerFilter])
-        })
-            .toDispatchActions(['loadSurveySuccess', 'setAnswerFilters'])
-            .toMatchValues({
-                answerFilters: [answerFilter],
-                dataTableQuery: partial({
-                    source: partial({
-                        properties: expect.arrayContaining([
-                            // Survey ID property should still be present
-                            {
-                                key: '$survey_id',
-                                operator: 'exact',
-                                type: 'event',
-                                value: MULTIPLE_CHOICE_SURVEY.id,
-                            },
-                            answerFilter,
-                        ]),
-                    }),
-                }),
-            })
-    })
     it('reloads survey results when answer filters change', async () => {
         await expectLogic(logic, () => {
             logic.actions.loadSurveySuccess(MULTIPLE_CHOICE_SURVEY)

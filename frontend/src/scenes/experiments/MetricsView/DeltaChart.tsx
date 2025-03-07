@@ -296,7 +296,7 @@ export function DeltaChart({
                         style={{ height: `${ticksSvgHeight}px` }}
                     />
                 )}
-                {isFirstMetric && <div className="w-full border-t border-border" />}
+                {isFirstMetric && <div className="w-full border-t border-primary" />}
                 <div
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{ height: `${chartSvgHeight}px`, borderRight: `1px solid ${COLORS.BOUNDARY_LINES}` }}
@@ -385,7 +385,7 @@ export function DeltaChart({
                         </svg>
                     </div>
                 )}
-                {isFirstMetric && <div className="w-full border-t border-border" />}
+                {isFirstMetric && <div className="w-full border-t border-primary" />}
                 {/* Chart */}
                 {result ? (
                     <div className="relative">

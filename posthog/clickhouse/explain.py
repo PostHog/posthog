@@ -87,17 +87,16 @@ def guestimate_index_use(plan_with_indexes: dict) -> ReadIndexUsage:
     partition = False
     primary_key = False
     for index in indexes:
-        if index.get("Condition", "") == "true":
-            continue
+        override_not_using = index.get("Condition", "") == "true"
         index_type = index.get("Type", "")
         if index_type == "MinMax":
             has_min_max = True
-            min_max = selected_less_granules(index)
+            min_max = not override_not_using and selected_less_granules(index)
         elif index_type == "Partition":
             has_partition = True
-            partition = selected_less_granules(index)
+            partition = not override_not_using and selected_less_granules(index)
         elif index_type == "PrimaryKey":
-            primary_key = len(index.get("Keys", [])) > 0 and selected_less_granules(index)
+            primary_key = not override_not_using and len(index.get("Keys", [])) > 0 and selected_less_granules(index)
     if primary_key:
         if (not has_min_max and not has_partition) or min_max or partition:
             result.use = QueryIndexUsage.YES
@@ -113,10 +112,11 @@ def extract_index_usage_from_plan(plan: str) -> QueryIndexUsage:
         all_indices_use = [guestimate_index_use(r) for r in find_all_reads(explain[0])]
         if all(x.use == QueryIndexUsage.YES for x in all_indices_use):
             return QueryIndexUsage.YES
-        elif any(x.use == QueryIndexUsage.YES for x in all_indices_use):
-            return QueryIndexUsage.PARTIAL
         elif all(x.use == QueryIndexUsage.NO for x in all_indices_use):
             return QueryIndexUsage.NO
+        elif any(x.use in (QueryIndexUsage.YES, QueryIndexUsage.PARTIAL) for x in all_indices_use):
+            return QueryIndexUsage.PARTIAL
+
     except json.decoder.JSONDecodeError:
         pass
 

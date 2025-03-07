@@ -48,7 +48,7 @@ export function SharedMetric(): JSX.Element {
                         className={`flex-1 cursor-pointer p-4 rounded border ${
                             sharedMetric.query.kind === NodeKind.ExperimentTrendsQuery
                                 ? 'border-accent-primary bg-accent-primary-highlight'
-                                : 'border-border'
+                                : 'border-primary'
                         }`}
                         onClick={() => {
                             setSharedMetric({
@@ -70,7 +70,7 @@ export function SharedMetric(): JSX.Element {
                         className={`flex-1 cursor-pointer p-4 rounded border ${
                             sharedMetric.query.kind === NodeKind.ExperimentFunnelsQuery
                                 ? 'border-accent-primary bg-accent-primary-highlight'
-                                : 'border-border'
+                                : 'border-primary'
                         }`}
                         onClick={() => {
                             setSharedMetric({

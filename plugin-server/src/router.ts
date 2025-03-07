@@ -4,25 +4,24 @@ import * as prometheus from 'prom-client'
 
 import { PluginServerService } from '~/src/types'
 
-import { status } from '../../utils/status'
-import { delay } from '../../utils/utils'
+import { status } from './utils/status'
+import { delay } from './utils/utils'
 
 prometheus.collectDefaultMetrics()
 const v8Profiler = require('v8-profiler-next')
 v8Profiler.setGenerateType(1)
 
-export const expressApp: express.Application = express()
+export function setupCommonRoutes(
+    app: express.Application,
+    services: Pick<PluginServerService, 'id' | 'healthcheck'>[]
+): express.Application {
+    app.get('/_health', buildGetHealth(services))
+    app.get('/_ready', buildGetHealth(services))
+    app.get('/_metrics', getMetrics)
+    app.get('/metrics', getMetrics)
+    app.get('/_profile/:type', getProfileByType)
 
-expressApp.use(express.json())
-
-export function setupCommonRoutes(services: Pick<PluginServerService, 'id' | 'healthcheck'>[]): express.Application {
-    expressApp.get('/_health', buildGetHealth(services))
-    expressApp.get('/_ready', buildGetHealth(services))
-    expressApp.get('/_metrics', getMetrics)
-    expressApp.get('/metrics', getMetrics)
-    expressApp.get('/_profile/:type', getProfileByType)
-
-    return expressApp
+    return app
 }
 
 const buildGetHealth =

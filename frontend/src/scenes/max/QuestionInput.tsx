@@ -50,7 +50,7 @@ export function QuestionInput(): JSX.Element {
                     disabled={inputDisabled}
                     minRows={1}
                     maxRows={10}
-                    className={clsx('p-3 pr-12', isFloating && 'border-border-bold')}
+                    className={clsx('p-3 pr-12', isFloating && 'border-primary')}
                 />
                 <div
                     className={clsx(

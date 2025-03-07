@@ -54,7 +54,7 @@ export const ProductPricingModal = ({
                                 return (
                                     <div
                                         key={`tiers-modal-${product.name}-tier-${i}`}
-                                        className="flex justify-between border-b border-border border-dashed py-1 gap-x-8"
+                                        className="flex justify-between border-b border-primary border-dashed py-1 gap-x-8"
                                     >
                                         <p className="col-span-1 mb-0">
                                             {getTierDescription(tiers, i, product, 'month')}

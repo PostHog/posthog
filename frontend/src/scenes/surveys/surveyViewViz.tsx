@@ -25,7 +25,7 @@ import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { NPS_DETRACTOR_LABEL, NPS_PASSIVE_LABEL, NPS_PROMOTER_LABEL } from 'scenes/surveys/constants'
-import { getSurveyResponseKey, NPSBreakdown } from 'scenes/surveys/utils'
+import { getResponseFieldWithId, NPSBreakdown } from 'scenes/surveys/utils'
 
 import { GraphType, InsightLogicProps, SurveyQuestionType } from '~/types'
 
@@ -588,7 +588,6 @@ export function OpenTextViz({
 }): JSX.Element {
     const { loadSurveyOpenTextResults } = useActions(surveyLogic)
     const { survey } = useValues(surveyLogic)
-    const surveyResponseKey = getSurveyResponseKey(questionIndex)
 
     const question = survey.questions[questionIndex]
     if (question.type !== SurveyQuestionType.Open) {
@@ -605,7 +604,7 @@ export function OpenTextViz({
             {!surveyOpenTextResultsReady[questionIndex] ? (
                 <LemonTable dataSource={[]} columns={[]} loading={true} />
             ) : !surveyOpenTextResults[questionIndex]?.events.length ? (
-                <></>
+                <>no results for open text analysis</>
             ) : (
                 <>
                     <div className="flex flex-row justify-between items-center">
@@ -628,12 +627,17 @@ export function OpenTextViz({
                                 properties: event.personProperties,
                             }
 
+                            const { idBasedKey, indexBasedKey } = getResponseFieldWithId(questionIndex, question?.id)
+                            const surveyResponse = idBasedKey
+                                ? event.properties[idBasedKey] ?? event.properties[indexBasedKey]
+                                : event.properties[indexBasedKey]
+
                             return (
                                 <div key={`open-text-${questionIndex}-${i}`} className="masonry-item border rounded">
                                     <div className="max-h-80 overflow-y-auto text-center italic font-semibold px-5 py-4">
-                                        {typeof event.properties[surveyResponseKey] !== 'string'
-                                            ? JSON.stringify(event.properties[surveyResponseKey])
-                                            : event.properties[surveyResponseKey]}
+                                        {typeof surveyResponse !== 'string'
+                                            ? JSON.stringify(surveyResponse)
+                                            : surveyResponse}
                                     </div>
                                     <div className="bg-surface-primary items-center px-5 py-4 border-t rounded-b truncate w-full">
                                         <PersonDisplay

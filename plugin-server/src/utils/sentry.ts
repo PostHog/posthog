@@ -6,7 +6,7 @@ import { Span, SpanContext, TransactionContext } from '@sentry/types'
 import { timestampWithMs } from '@sentry/utils'
 import { AsyncLocalStorage } from 'node:async_hooks'
 
-import { PluginsServerConfig } from './types'
+import { PluginsServerConfig } from '../types'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
