@@ -15,6 +15,7 @@ from posthog.settings import (
 from posthog.storage.object_storage import (
     health_check,
     read,
+    read_bytes,
     write,
     get_presigned_url,
     list_objects,
@@ -172,42 +173,28 @@ class TestStorage(APIBaseTest):
         storage = ObjectStorage(mock_client)
 
         # Test with both first_byte and last_byte
-        result = storage.read_bytes("test-bucket", "test-key", first_byte=5, last_byte=10)
-
-        # Assert
+        storage.read_bytes("test-bucket", "test-key", first_byte=5, last_byte=10)
         mock_client.get_object.assert_called_with(Bucket="test-bucket", Key="test-key", Range="bytes=5-10")
-        assert result == b"test content"
 
         # Test with only first_byte
-        result = storage.read_bytes("test-bucket", "test-key", first_byte=5)
-
-        # Assert
+        storage.read_bytes("test-bucket", "test-key", first_byte=5)
         mock_client.get_object.assert_called_with(Bucket="test-bucket", Key="test-key", Range="bytes=5-")
-        assert result == b"test content"
 
         # Test without byte range
-        result = storage.read_bytes("test-bucket", "test-key")
-
-        # Assert
+        storage.read_bytes("test-bucket", "test-key")
         mock_client.get_object.assert_called_with(Bucket="test-bucket", Key="test-key")
-        assert result == b"test content"
 
-        # Test that the correct byte range is returned from S3
-        # Setup a new mock that returns exactly the requested bytes
-        mock_client2 = MagicMock()
-        mock_body2 = MagicMock()
+    def test_read_specific_byte_range(self):
+        with self.settings(OBJECT_STORAGE_ENABLED=True):
+            # Setup
+            session_id = str(uuid.uuid4())
+            chunk_id = uuid.uuid4()
+            name = f"{session_id}/{0}-{chunk_id}"
+            file_name = f"{TEST_BUCKET}/test_read_specific_byte_range/{name}"
+            content = b"abcdefghij" * 11  # 110 bytes total
+            write(file_name, content)
 
-        # Full content would be "abcdefghijklmnopqrstuvwxyz"
-        # We're requesting bytes 5-10, which should be "fghijk"
-        mock_body2.read.return_value = b"fghijk"
-        mock_client2.get_object.return_value = {"Body": mock_body2}
-        storage2 = ObjectStorage(mock_client2)
+            result = read_bytes(file_name, first_byte=91, last_byte=101)
 
-        # Request bytes 5-10
-        result = storage2.read_bytes("test-bucket", "test-key", first_byte=5, last_byte=10)
-
-        # Assert
-        mock_client2.get_object.assert_called_with(Bucket="test-bucket", Key="test-key", Range="bytes=5-10")
-        assert result == b"fghijk"
-        assert result is not None  # Ensure result is not None before calling len()
-        assert len(result) == 6  # Bytes 5-10 inclusive should be 6 bytes
+            assert result == b"bcdefghijab"
+            assert len(result) == 11
