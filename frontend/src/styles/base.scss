@@ -977,590 +977,592 @@
     --data-color-10: #6576b3;
 }
 
-*,
-::after,
-::before,
-::backdrop,
-::file-selector-button {
-    border-color: var(--border-primary, currentColor);
-}
-
-.rendering-pixelated {
-    image-rendering: pixelated;
-}
-
-input[type='text'] {
-    font-weight: 400;
-}
-
-input[type='radio'] {
-    accent-color: var(--accent-primary);
-}
-
-input[type='search'] {
-    &::-webkit-search-decoration,
-    &::-webkit-search-cancel-button,
-    &::-webkit-search-results-button,
-    &::-webkit-search-results-decoration {
-        display: none;
-    }
-}
-
-body {
-    font-size: 14px;
-    font-weight: 400;
-    line-height: 1.5715;
-    color: var(--text-3000);
-    color-scheme: light dark;
-    touch-action: manipulation; // Disable double-tap-to-zoom on mobile, making taps slightly snappier
-    background: var(--bg-primary);
-
-    &[theme='light'] {
-        color-scheme: light;
+@layer base {
+    *,
+    ::after,
+    ::before,
+    ::backdrop,
+    ::file-selector-button {
+        border-color: var(--border-primary, currentColor);
     }
 
-    &[theme='dark'] {
-        color-scheme: dark;
+    .rendering-pixelated {
+        image-rendering: pixelated;
     }
 
-    &.is-resizing {
-        cursor: grabbing !important;
+    input[type='text'] {
+        font-weight: 400;
+    }
 
-        // Disable pointer events on all elements except the resizer
-        *:not(.Resizer) {
-            pointer-events: none;
+    input[type='radio'] {
+        accent-color: var(--accent-primary);
+    }
+
+    input[type='search'] {
+        &::-webkit-search-decoration,
+        &::-webkit-search-cancel-button,
+        &::-webkit-search-results-button,
+        &::-webkit-search-results-decoration {
+            display: none;
         }
     }
 
-    * > {
-        ::-webkit-scrollbar {
-            width: 0.5rem;
-            height: 0.5rem;
+    body {
+        font-size: 14px;
+        font-weight: 400;
+        line-height: 1.5715;
+        color: var(--text-3000);
+        color-scheme: light dark;
+        touch-action: manipulation; // Disable double-tap-to-zoom on mobile, making taps slightly snappier
+        background: var(--bg-primary);
+
+        &[theme='light'] {
+            color-scheme: light;
         }
 
-        ::-webkit-scrollbar-track {
-            background: var(--bg-surface-primary);
+        &[theme='dark'] {
+            color-scheme: dark;
         }
 
-        ::-webkit-scrollbar-thumb {
-            background: var(--trace-3000);
-            border-radius: var(--radius);
+        &.is-resizing {
+            cursor: grabbing !important;
+
+            // Disable pointer events on all elements except the resizer
+            *:not(.Resizer) {
+                pointer-events: none;
+            }
+        }
+
+        * > {
+            ::-webkit-scrollbar {
+                width: 0.5rem;
+                height: 0.5rem;
+            }
+
+            ::-webkit-scrollbar-track {
+                background: var(--bg-surface-primary);
+            }
+
+            ::-webkit-scrollbar-thumb {
+                background: var(--trace-3000);
+                border-radius: var(--radius);
+
+                &:hover {
+                    background: var(--muted-3000);
+                }
+            }
+        }
+
+        b,
+        strong {
+            font-weight: 600; // Tailwind's default is "bolder" (800)
+        }
+
+        h1,
+        h2,
+        // Note: .thank-you-message is excluded in h3 below to prevent the survey thank you message to be styled,
+        // as these styles are only for PostHog main app. It's important to use :where() to avoid increased specificity
+        h3:where(:not(.thank-you-message)),
+        h4,
+        h5 {
+            margin-top: 0;
+            margin-bottom: 0.5em;
+            font-family: var(--font-title);
+            font-weight: 500;
+        }
+
+        h1,
+        h2,
+        h3,
+        h4 {
+            color: var(--text-3000);
+        }
+
+        h1 {
+            font-size: 1.75rem;
+        }
+
+        h2 {
+            font-size: 1.3125rem;
+        }
+
+        h3 {
+            font-size: 1rem;
+        }
+
+        h5 {
+            margin-bottom: 0.25rem;
+            font-size: 0.6875rem;
+            font-weight: 600;
+            line-height: 1.5rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.075em;
+        }
+
+        pre {
+            margin-top: 0;
+            margin-bottom: 1em;
+            overflow: auto;
+        }
+
+        dialog {
+            background-color: var(--bg-primary);
+        }
+
+        .LemonButton,
+        .Link {
+            .text-link {
+                color: var(--text-3000) !important;
+            }
 
             &:hover {
-                background: var(--muted-3000);
+                .text-link {
+                    color: var(--accent-primary) !important;
+                }
             }
         }
     }
 
-    b,
-    strong {
-        font-weight: 600; // Tailwind's default is "bolder" (800)
+    .page-title-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem 1rem;
+        align-items: center;
+        min-height: 2.5rem;
+        margin: 1rem 0 0.25rem;
+
+        @include screen($md) {
+            flex-wrap: nowrap;
+        }
     }
 
-    h1,
-    h2,
-    // Note: .thank-you-message is excluded in h3 below to prevent the survey thank you message to be styled,
-    // as these styles are only for PostHog main app. It's important to use :where() to avoid increased specificity
-    h3:where(:not(.thank-you-message)),
-    h4,
-    h5 {
-        margin-top: 0;
-        margin-bottom: 0.5em;
-        font-family: var(--font-title);
-        font-weight: 500;
-    }
-
-    h1,
-    h2,
-    h3,
-    h4 {
-        color: var(--text-3000);
-    }
-
-    h1 {
-        font-size: 1.75rem;
-    }
-
-    h2 {
-        font-size: 1.3125rem;
-    }
-
-    h3 {
-        font-size: 1rem;
-    }
-
-    h5 {
-        margin-bottom: 0.25rem;
-        font-size: 0.6875rem;
+    .page-title {
+        min-width: 0;
+        margin: 0;
+        font-size: 28px;
         font-weight: 600;
-        line-height: 1.5rem;
+        line-height: 34px;
+    }
+
+    .page-caption {
+        max-width: 48rem;
+        margin-bottom: 1rem;
+        font-size: 0.875rem;
+        line-height: 1.25rem;
+
+        &.tabbed {
+            margin-bottom: 0.5rem;
+        }
+    }
+
+    .secondary {
+        font-size: 0.9em;
+        font-weight: var(--font-medium);
+        color: var(--primary-alt);
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        background: none;
+        border: 0;
+    }
+
+    .card-secondary {
+        font-size: 11px;
+        font-weight: 600;
         color: var(--text-secondary);
         text-transform: uppercase;
-        letter-spacing: 0.075em;
+        letter-spacing: 0.5px;
     }
 
-    pre {
-        margin-top: 0;
-        margin-bottom: 1em;
-        overflow: auto;
+    mark {
+        background-color: var(--mark) !important;
+        border-radius: var(--radius);
     }
 
-    dialog {
-        background-color: var(--bg-primary);
+    hr {
+        margin: 1em 0;
+        border-top: 1px solid var(--border);
     }
 
-    .LemonButton,
-    .Link {
-        .text-link {
-            color: var(--text-3000) !important;
-        }
-
-        &:hover {
-            .text-link {
-                color: var(--accent-primary) !important;
-            }
-        }
-    }
-}
-
-.page-title-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem 1rem;
-    align-items: center;
-    min-height: 2.5rem;
-    margin: 1rem 0 0.25rem;
-
-    @include screen($md) {
-        flex-wrap: nowrap;
-    }
-}
-
-.page-title {
-    min-width: 0;
-    margin: 0;
-    font-size: 28px;
-    font-weight: 600;
-    line-height: 34px;
-}
-
-.page-caption {
-    max-width: 48rem;
-    margin-bottom: 1rem;
-    font-size: 0.875rem;
-    line-height: 1.25rem;
-
-    &.tabbed {
-        margin-bottom: 0.5rem;
-    }
-}
-
-.secondary {
-    font-size: 0.9em;
-    font-weight: var(--font-medium);
-    color: var(--primary-alt);
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    background: none;
-    border: 0;
-}
-
-.card-secondary {
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--text-secondary);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-}
-
-mark {
-    background-color: var(--mark) !important;
-    border-radius: var(--radius);
-}
-
-hr {
-    margin: 1em 0;
-    border-top: 1px solid var(--border);
-}
-
-dfn {
-    font-style: normal;
-    text-decoration: underline;
-    text-decoration-style: dotted;
-}
-
-// Vendor-specific adjustments
-
-input::-ms-clear {
-    display: none; // Hide IE/Edge's clear button that can mess input sizing up
-}
-
-// Toasts
-
-.Toastify__toast {
-    align-items: center;
-    padding: 0.75rem;
-    margin-bottom: 0.5rem !important;
-    font-family: var(--font-sans);
-    font-size: 1rem;
-    cursor: unset;
-    border: 1px solid var(--secondary-3000-button-border);
-    border-radius: var(--radius);
-    box-shadow: var(--shadow-elevation-3000);
-    opacity: 1 !important;
-}
-
-.Toastify__toast-container {
-    padding: 0;
-}
-
-.Toastify__toast-body {
-    padding: 0;
-    font-size: 0.875rem;
-    font-weight: 500;
-    line-height: 1.25rem;
-    color: var(--text-3000);
-
-    b,
-    strong {
-        font-weight: 700;
+    dfn {
+        font-style: normal;
+        text-decoration: underline;
+        text-decoration-style: dotted;
     }
 
-    button {
-        margin: 0 0.75rem;
-    }
-}
+    // Vendor-specific adjustments
 
-.Toastify__toast-icon {
-    width: 1.5rem;
-    height: 1.5rem;
-    margin-right: 0.75rem;
-    font-size: 1.5rem;
-    color: var(--text-secondary);
-
-    .Toastify__toast--success & {
-        color: var(--toastify-color-success);
+    input::-ms-clear {
+        display: none; // Hide IE/Edge's clear button that can mess input sizing up
     }
 
-    .Toastify__toast--warning & {
-        color: var(--toastify-color-warning);
+    // Toasts
+
+    .Toastify__toast {
+        align-items: center;
+        padding: 0.75rem;
+        margin-bottom: 0.5rem !important;
+        font-family: var(--font-sans);
+        font-size: 1rem;
+        cursor: unset;
+        border: 1px solid var(--secondary-3000-button-border);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow-elevation-3000);
+        opacity: 1 !important;
     }
 
-    .Toastify__toast--error & {
-        color: var(--toastify-color-error);
-    }
-}
-
-.Toastify__progress-bar {
-    height: var(--radius);
-}
-
-// Form & input styles
-
-.error-on-blur {
-    &.errored:not(:focus) {
-        border-color: var(--danger) !important;
-    }
-}
-
-// Button styles
-
-.info-indicator {
-    margin-left: 4px;
-    color: var(--primary-alt) !important;
-    cursor: pointer;
-
-    &.left {
-        margin-right: 4px;
-        margin-left: 0;
-    }
-}
-
-// Graph series glyph
-
-.graph-series-glyph {
-    display: flex;
-    flex-shrink: 0;
-    align-items: center;
-    justify-content: center;
-    width: 22px;
-    height: 22px;
-    font-size: 12px;
-    font-weight: bold;
-    line-height: 1rem;
-    pointer-events: none;
-    border: 2px solid var(--text-3000);
-    border-radius: 50%;
-
-    // variants
-    &.funnel-step-glyph {
-        width: 23px;
-        height: 23px;
-        font-size: unset;
-        color: var(--primary-alt);
-        background-color: var(--bg-surface-primary);
-        border-color: var(--border);
-    }
-}
-
-// Bottom notice (DEBUG=1 mode)
-
-#bottom-notice {
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    z-index: var(--z-bottom-notice);
-    display: flex !important;
-    flex-direction: row;
-    width: 100%;
-    font-size: 0.75rem;
-    line-height: 1.5rem;
-    color: #fff;
-    background: #000;
-
-    code {
-        font-size: inherit;
-        color: inherit;
-    }
-
-    &.warning div {
-        height: auto;
-        background: var(--danger);
-    }
-
-    &.tricolor {
-        cursor: pointer;
-
-        div:nth-child(1) {
-            background: var(--brand-blue);
-        }
-
-        div:nth-child(2) {
-            background: var(--brand-red);
-        }
-
-        div:nth-child(3) {
-            background: var(--brand-yellow);
-        }
-
-        span {
-            cursor: text;
-        }
-    }
-
-    div {
-        flex-basis: 0;
-        flex-grow: 1;
-        height: 1.5rem;
-        text-align: center;
-    }
-
-    span {
-        display: none;
-    }
-
-    button {
-        width: 1.5rem;
-        height: 1.5rem;
+    .Toastify__toast-container {
         padding: 0;
-        font-size: 1rem;
-        font-weight: bold;
-        color: inherit;
-        cursor: pointer;
-        background: transparent;
-        border: none;
     }
 
-    @media screen and (min-width: 750px) {
-        font-size: 1rem;
-        line-height: 2rem;
+    .Toastify__toast-body {
+        padding: 0;
+        font-size: 0.875rem;
+        font-weight: 500;
+        line-height: 1.25rem;
+        color: var(--text-3000);
 
-        div {
-            height: 2rem;
-        }
-
-        span {
-            display: inline;
+        b,
+        strong {
+            font-weight: 700;
         }
 
         button {
-            width: 2rem;
-            height: 2rem;
-            font-size: 1.25rem;
-        }
-    }
-}
-
-html {
-    text-size-adjust: 100%;
-}
-
-input::placeholder,
-textarea::placeholder {
-    // Overrides Tailwind's default
-    color: var(--text-tertiary);
-}
-
-a {
-    color: var(--link);
-    text-decoration: none;
-}
-
-p {
-    margin-top: 0;
-    margin-bottom: 1em;
-}
-
-img {
-    vertical-align: middle;
-    border-style: none;
-}
-
-[tabindex='-1']:focus {
-    outline: none !important;
-}
-
-.storybook-test-runner {
-    &.storybook-test-runner--fullscreen {
-        height: fit-content;
-    }
-
-    &.storybook-test-runner--padded {
-        #storybook-root {
-            // Make the root element (which is the default screenshot reference) hug the component
-            display: inline-block;
+            margin: 0 0.75rem;
         }
     }
 
-    // Only use this class in visual regression tests
-    *,
-    *::before,
-    *::after {
-        transition-duration: 0ms !important;
-        animation-fill-mode: forwards !important;
-        animation-duration: 0ms !important;
-        animation-iteration-count: 1 !important;
+    .Toastify__toast-icon {
+        width: 1.5rem;
+        height: 1.5rem;
+        margin-right: 0.75rem;
+        font-size: 1.5rem;
+        color: var(--text-secondary);
+
+        .Toastify__toast--success & {
+            color: var(--toastify-color-success);
+        }
+
+        .Toastify__toast--warning & {
+            color: var(--toastify-color-warning);
+        }
+
+        .Toastify__toast--error & {
+            color: var(--toastify-color-error);
+        }
     }
 
-    // Hide some parts of the UI that were causing flakiness
-    ::-webkit-scrollbar,
-    *> ::-webkit-scrollbar,
-    // Scrollbar in WebKit/Blink browsers
-    .LemonTabs__bar::after,
-    // Active tab slider
-    .scrollable::after,
-    // Scrollability indicators
-    .scrollable::before {
-        display: none;
+    .Toastify__progress-bar {
+        height: var(--radius);
     }
 
-    #storybook-root > .fixed:only-child {
-        // Fix for stories of fixed overlays like CommandBar - otherwise body would be zero-sized
-        position: static !important;
+    // Form & input styles
+
+    .error-on-blur {
+        &.errored:not(:focus) {
+            border-color: var(--danger) !important;
+        }
     }
 
-    #storybook-root:empty ~ .ReactModalPortal > .ReactModal__Overlay {
-        // Fix for stories of fixed modals - otherwise body would be zero-sized
-        position: static !important;
-    }
-}
+    // Button styles
 
-.ligatures-none {
-    font-variant-ligatures: none;
-}
+    .info-indicator {
+        margin-left: 4px;
+        color: var(--primary-alt) !important;
+        cursor: pointer;
 
-.hide-scrollbar {
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-
-    &::-webkit-scrollbar {
-        display: none;
-    }
-}
-
-.arial {
-    font-family: Arial, sans-serif;
-}
-
-.verdana {
-    font-family: Verdana, sans-serif;
-}
-
-.tahoma {
-    font-family: Tahoma, sans-serif;
-}
-
-.trebuchet-ms {
-    font-family: 'Trebuchet MS', sans-serif;
-}
-
-.helvetica {
-    font-family: Helvetica, sans-serif;
-}
-
-.times-new-roman {
-    font-family: 'Times New Roman', serif;
-}
-
-.georgia {
-    font-family: Georgia, serif;
-}
-
-.courier-new {
-    font-family: 'Courier New', monospace;
-}
-
-.system-ui {
-    font-family: system-ui;
-}
-
-.inherit {
-    font-family: inherit;
-}
-
-// Highlight background blink
-
-/* stylelint-disable-next-line keyframes-name-pattern */
-@keyframes highlight {
-    0% {
-        background-color: var(--mark);
+        &.left {
+            margin-right: 4px;
+            margin-left: 0;
+        }
     }
 
-    100% {
-        background-color: initial;
-    }
-}
+    // Graph series glyph
 
-// Generic 360 spin
+    .graph-series-glyph {
+        display: flex;
+        flex-shrink: 0;
+        align-items: center;
+        justify-content: center;
+        width: 22px;
+        height: 22px;
+        font-size: 12px;
+        font-weight: bold;
+        line-height: 1rem;
+        pointer-events: none;
+        border: 2px solid var(--text-3000);
+        border-radius: 50%;
 
-/* stylelint-disable-next-line keyframes-name-pattern */
-@keyframes spin {
-    0% {
-        transform: rotateZ(0deg);
-    }
-
-    100% {
-        transform: rotateZ(360deg);
-    }
-}
-
-// Floating animation
-
-/* stylelint-disable-next-line keyframes-name-pattern */
-@keyframes float {
-    0% {
-        transform: translateY(0);
-    }
-
-    50% {
-        transform: translateY(-10px);
+        // variants
+        &.funnel-step-glyph {
+            width: 23px;
+            height: 23px;
+            font-size: unset;
+            color: var(--primary-alt);
+            background-color: var(--bg-surface-primary);
+            border-color: var(--border);
+        }
     }
 
-    100% {
-        transform: translateY(0);
-    }
-}
+    // Bottom notice (DEBUG=1 mode)
 
-.animate-float {
-    animation: float 3s infinite ease-in-out;
+    #bottom-notice {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        z-index: var(--z-bottom-notice);
+        display: flex !important;
+        flex-direction: row;
+        width: 100%;
+        font-size: 0.75rem;
+        line-height: 1.5rem;
+        color: #fff;
+        background: #000;
+
+        code {
+            font-size: inherit;
+            color: inherit;
+        }
+
+        &.warning div {
+            height: auto;
+            background: var(--danger);
+        }
+
+        &.tricolor {
+            cursor: pointer;
+
+            div:nth-child(1) {
+                background: var(--brand-blue);
+            }
+
+            div:nth-child(2) {
+                background: var(--brand-red);
+            }
+
+            div:nth-child(3) {
+                background: var(--brand-yellow);
+            }
+
+            span {
+                cursor: text;
+            }
+        }
+
+        div {
+            flex-basis: 0;
+            flex-grow: 1;
+            height: 1.5rem;
+            text-align: center;
+        }
+
+        span {
+            display: none;
+        }
+
+        button {
+            width: 1.5rem;
+            height: 1.5rem;
+            padding: 0;
+            font-size: 1rem;
+            font-weight: bold;
+            color: inherit;
+            cursor: pointer;
+            background: transparent;
+            border: none;
+        }
+
+        @media screen and (min-width: 750px) {
+            font-size: 1rem;
+            line-height: 2rem;
+
+            div {
+                height: 2rem;
+            }
+
+            span {
+                display: inline;
+            }
+
+            button {
+                width: 2rem;
+                height: 2rem;
+                font-size: 1.25rem;
+            }
+        }
+    }
+
+    html {
+        text-size-adjust: 100%;
+    }
+
+    input::placeholder,
+    textarea::placeholder {
+        // Overrides Tailwind's default
+        color: var(--text-tertiary);
+    }
+
+    a {
+        color: var(--link);
+        text-decoration: none;
+    }
+
+    p {
+        margin-top: 0;
+        margin-bottom: 1em;
+    }
+
+    img {
+        vertical-align: middle;
+        border-style: none;
+    }
+
+    [tabindex='-1']:focus {
+        outline: none !important;
+    }
+
+    .storybook-test-runner {
+        &.storybook-test-runner--fullscreen {
+            height: fit-content;
+        }
+
+        &.storybook-test-runner--padded {
+            #storybook-root {
+                // Make the root element (which is the default screenshot reference) hug the component
+                display: inline-block;
+            }
+        }
+
+        // Only use this class in visual regression tests
+        *,
+        *::before,
+        *::after {
+            transition-duration: 0ms !important;
+            animation-fill-mode: forwards !important;
+            animation-duration: 0ms !important;
+            animation-iteration-count: 1 !important;
+        }
+
+        // Hide some parts of the UI that were causing flakiness
+        ::-webkit-scrollbar,
+        *> ::-webkit-scrollbar,
+        // Scrollbar in WebKit/Blink browsers
+        .LemonTabs__bar::after,
+        // Active tab slider
+        .scrollable::after,
+        // Scrollability indicators
+        .scrollable::before {
+            display: none;
+        }
+
+        #storybook-root > .fixed:only-child {
+            // Fix for stories of fixed overlays like CommandBar - otherwise body would be zero-sized
+            position: static !important;
+        }
+
+        #storybook-root:empty ~ .ReactModalPortal > .ReactModal__Overlay {
+            // Fix for stories of fixed modals - otherwise body would be zero-sized
+            position: static !important;
+        }
+    }
+
+    .ligatures-none {
+        font-variant-ligatures: none;
+    }
+
+    .hide-scrollbar {
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+
+        &::-webkit-scrollbar {
+            display: none;
+        }
+    }
+
+    .arial {
+        font-family: Arial, sans-serif;
+    }
+
+    .verdana {
+        font-family: Verdana, sans-serif;
+    }
+
+    .tahoma {
+        font-family: Tahoma, sans-serif;
+    }
+
+    .trebuchet-ms {
+        font-family: 'Trebuchet MS', sans-serif;
+    }
+
+    .helvetica {
+        font-family: Helvetica, sans-serif;
+    }
+
+    .times-new-roman {
+        font-family: 'Times New Roman', serif;
+    }
+
+    .georgia {
+        font-family: Georgia, serif;
+    }
+
+    .courier-new {
+        font-family: 'Courier New', monospace;
+    }
+
+    .system-ui {
+        font-family: system-ui;
+    }
+
+    .inherit {
+        font-family: inherit;
+    }
+
+    .animate-float {
+        animation: float 3s infinite ease-in-out;
+    }
+
+    // Highlight background blink
+
+    /* stylelint-disable-next-line keyframes-name-pattern */
+    @keyframes highlight {
+        0% {
+            background-color: var(--mark);
+        }
+
+        100% {
+            background-color: initial;
+        }
+    }
+
+    // Generic 360 spin
+
+    /* stylelint-disable-next-line keyframes-name-pattern */
+    @keyframes spin {
+        0% {
+            transform: rotateZ(0deg);
+        }
+
+        100% {
+            transform: rotateZ(360deg);
+        }
+    }
+
+    // Floating animation
+
+    /* stylelint-disable-next-line keyframes-name-pattern */
+    @keyframes float {
+        0% {
+            transform: translateY(0);
+        }
+
+        50% {
+            transform: translateY(-10px);
+        }
+
+        100% {
+            transform: translateY(0);
+        }
+    }
 }
