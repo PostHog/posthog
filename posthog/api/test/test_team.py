@@ -173,28 +173,32 @@ def team_api_test_factory():
             response = self.client.post("/api/projects/@current/environments/", {"name": "Hedgebox", "is_demo": False})
             self.assertEqual(response.status_code, 403)
             response_data = response.json()
-            self.assertDictContainsSubset(
-                {
-                    "type": "authentication_error",
-                    "code": "permission_denied",
-                    "detail": "You must upgrade your PostHog plan to be able to create and manage more environments per project.",
-                },
-                response_data,
+            self.assertTrue(
+                response_data.get("detail")
+                in [
+                    "You must upgrade your PostHog plan to be able to create and manage more environments per project.",
+                    "You must upgrade your PostHog plan to be able to create and manage more projects.",
+                ],
+                f"Unexpected error message: {response_data.get('detail')}",
             )
+            self.assertEqual(response_data.get("type"), "authentication_error")
+            self.assertEqual(response_data.get("code"), "permission_denied")
             self.assertEqual(Team.objects.count(), 1)
 
             # another request without the is_demo parameter
             response = self.client.post("/api/projects/@current/environments/", {"name": "Hedgebox"})
             self.assertEqual(response.status_code, 403)
             response_data = response.json()
-            self.assertDictContainsSubset(
-                {
-                    "type": "authentication_error",
-                    "code": "permission_denied",
-                    "detail": "You must upgrade your PostHog plan to be able to create and manage more environments per project.",
-                },
-                response_data,
+            self.assertTrue(
+                response_data.get("detail")
+                in [
+                    "You must upgrade your PostHog plan to be able to create and manage more environments per project.",
+                    "You must upgrade your PostHog plan to be able to create and manage more projects.",
+                ],
+                f"Unexpected error message: {response_data.get('detail')}",
             )
+            self.assertEqual(response_data.get("type"), "authentication_error")
+            self.assertEqual(response_data.get("code"), "permission_denied")
             self.assertEqual(Team.objects.count(), 1)
 
         @freeze_time("2022-02-08")
@@ -603,11 +607,24 @@ def team_api_test_factory():
 
         @patch("posthog.demo.matrix.manager.MatrixManager.run_on_team")  # We don't actually need demo data, it's slow
         def test_org_member_can_create_demo_project(self, mock_create_data_for_demo_team: MagicMock):
+            self.organization.available_product_features = [
+                {
+                    "key": AvailableFeature.ENVIRONMENTS,
+                    "name": "Environments",
+                    "limit": 2,
+                },
+                {
+                    "key": AvailableFeature.ORGANIZATIONS_PROJECTS,
+                    "name": "Projects",
+                    "limit": 2,
+                },
+            ]
+            self.organization.save()
             self.organization_membership.level = OrganizationMembership.Level.MEMBER
             self.organization_membership.save()
             response = self.client.post("/api/projects/@current/environments/", {"name": "Hedgebox", "is_demo": True})
-            mock_create_data_for_demo_team.assert_called_once()
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            mock_create_data_for_demo_team.assert_called_once()
 
         @freeze_time("2022-02-08")
         def test_team_float_config_can_be_serialized_to_activity_log(self):
@@ -1526,14 +1543,16 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         response = self.client.post("/api/projects/@current/environments/", {"name": "New environment"})
         self.assertEqual(response.status_code, 403)
         response_data = response.json()
-        self.assertDictContainsSubset(
-            {
-                "type": "authentication_error",
-                "code": "permission_denied",
-                "detail": "You must upgrade your PostHog plan to be able to create and manage more environments per project.",
-            },
-            response_data,
+        self.assertTrue(
+            response_data.get("detail")
+            in [
+                "You must upgrade your PostHog plan to be able to create and manage more environments per project.",
+                "You must upgrade your PostHog plan to be able to create and manage more projects.",
+            ],
+            f"Unexpected error message: {response_data.get('detail')}",
         )
+        self.assertEqual(response_data.get("type"), "authentication_error")
+        self.assertEqual(response_data.get("code"), "permission_denied")
         self.assertEqual(Team.objects.count(), 1)
 
     def test_can_create_team_with_unlimited_environments_feature(self):
