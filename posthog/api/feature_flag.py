@@ -418,6 +418,10 @@ class FeatureFlagSerializer(
 
     def update(self, instance: FeatureFlag, validated_data: dict, *args: Any, **kwargs: Any) -> FeatureFlag:
         request = self.context["request"]
+        # This is a workaround to ensure update works when called from a scheduled task.
+        if request and not hasattr(request, "data"):
+            request.data = {}
+
         validated_data["last_modified_by"] = request.user
 
         if "deleted" in validated_data and validated_data["deleted"] is True and instance.features.count() > 0:
@@ -425,46 +429,54 @@ class FeatureFlagSerializer(
                 "Cannot delete a feature flag that is in use with early access features. Please delete the early access feature before deleting the flag."
             )
 
+        # First apply all transformations to validated_data
+        validated_key = validated_data.get("key", None)
+        self._update_filters(validated_data)
+
+        if validated_data.get("has_encrypted_payloads", False):
+            if validated_data["filters"]["payloads"]["true"] == REDACTED_PAYLOAD_VALUE:
+                # Don't write the redacted payload to the db, keep the current value instead
+                validated_data["filters"]["payloads"]["true"] = instance.filters["payloads"]["true"]
+            else:
+                encrypt_flag_payloads(validated_data)
+
+        version = request.data.get("version", -1)
+
         with transaction.atomic():
             # select_for_update locks the database row so we ensure version updates are atomic
             locked_instance = FeatureFlag.objects.select_for_update().get(pk=instance.pk)
             locked_version = locked_instance.version or 0
 
-            version = validated_data.get("version", -1)
-
-            # If version is not provided, we don't check for conflicts. This is just in case there's a place
-            # that's using the feature flag that doesn't know about the version field yet.
-            if version != -1 and version != locked_version:
-                raise Conflict(
-                    f"The feature flag was updated by {locked_instance.last_modified_by.email if locked_instance.last_modified_by else 'another user'} since you started editing it. Please refresh and try again."
-                )
-
-            validated_data["version"] = locked_version + 1
-
-            validated_key = validated_data.get("key", None)
             if validated_key:
                 # Delete any soft deleted feature flags with the same key to prevent conflicts
                 FeatureFlag.objects.filter(
                     key=validated_key, team__project_id=instance.team.project_id, deleted=True
                 ).delete()
-            self._update_filters(validated_data)
 
-            if validated_data.get("has_encrypted_payloads", False):
-                if validated_data["filters"]["payloads"]["true"] == REDACTED_PAYLOAD_VALUE:
-                    # Don't write the redacted payload to the db, keep the current value instead
-                    validated_data["filters"]["payloads"]["true"] = instance.filters["payloads"]["true"]
-                else:
-                    encrypt_flag_payloads(validated_data)
+            # NOW check for conflicts after all transformations
+            if version != -1 and version != locked_version:
+                conflicting_changes = self._get_conflicting_changes(
+                    locked_instance, validated_data, request.data.get("original_flag", {})
+                )
+                if len(conflicting_changes) > 0:
+                    raise Conflict(
+                        f"The feature flag was updated by {locked_instance.last_modified_by.email if locked_instance.last_modified_by else 'another user'} since you started editing it. Please refresh and try again."
+                    )
 
-            analytics_dashboards = validated_data.pop("analytics_dashboards", None)
-
-            if analytics_dashboards is not None:
-                for dashboard in analytics_dashboards:
-                    FeatureFlagDashboards.objects.get_or_create(dashboard=dashboard, feature_flag=instance)
-
+            # Continue with the update
+            validated_data["version"] = locked_version + 1
             old_key = instance.key
 
             instance = super().update(instance, validated_data)
+
+        # Continue with the update outside of the transaction. This is an intentional choice
+        # to avoid deadlocks. Not to mention, before making the concurrency changes, these
+        # updates were already occurring outside of a transaction.
+        analytics_dashboards = validated_data.pop("analytics_dashboards", None)
+
+        if analytics_dashboards is not None:
+            for dashboard in analytics_dashboards:
+                FeatureFlagDashboards.objects.get_or_create(dashboard=dashboard, feature_flag=instance)
 
         # Propagate the new variants and aggregation group type index to the linked experiments
         if "filters" in validated_data:
@@ -494,6 +506,41 @@ class FeatureFlagSerializer(
             instance.filters["payloads"] = get_decrypted_flag_payloads(request, instance.filters.get("payloads", {}))
 
         return instance
+
+    def _get_conflicting_changes(
+        self, current_instance: FeatureFlag, validated_data: dict, original_flag: dict | None
+    ) -> list[str]:
+        """
+        Returns the list of fields that have conflicts. A conflict is defined as a field that
+        the current user is trying to change that has been changed by another user.
+
+        If the field in validated_data is different from the original_flag, then the current user
+        is trying to change it.
+
+        If a field that the user is trying to change is different in the current_instance, then
+        there is a conflict.
+        """
+
+        if original_flag is None or original_flag == {}:
+            return []
+
+        # Get the fields that the user is trying to change
+        user_changes = [
+            field
+            for field, new_value in validated_data.items()
+            if field in original_flag and new_value != original_flag[field]
+        ]
+
+        # Return the fields that have conflicts
+        # Only include fields where the user's intended change is different from the current value
+        # AND the original value is different from the current value (indicating someone else changed it)
+        return [
+            field
+            for field in user_changes
+            if field in original_flag
+            and original_flag[field] != getattr(current_instance, field)
+            and validated_data[field] != getattr(current_instance, field)
+        ]
 
     def _update_filters(self, validated_data):
         if "get_filters" in validated_data:
