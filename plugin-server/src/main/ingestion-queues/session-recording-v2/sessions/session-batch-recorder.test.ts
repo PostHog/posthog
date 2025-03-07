@@ -96,6 +96,7 @@ export class SnappySessionRecorderMock {
             messageCount: 0,
             snapshotSource: null,
             snapshotLibrary: null,
+            batchId: 'test_batch_id',
         }
     }
 }

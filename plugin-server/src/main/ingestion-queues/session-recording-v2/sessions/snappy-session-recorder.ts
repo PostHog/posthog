@@ -40,6 +40,8 @@ export interface EndResult {
     snapshotSource?: string | null
     /** Library used for the snapshot */
     snapshotLibrary?: string | null
+    /** ID of the batch this session belongs to */
+    batchId: string
 }
 
 /**
@@ -86,7 +88,7 @@ export class SnappySessionRecorder {
     private consoleErrorCount: number = 0
     private segmentationEvents: SegmentationEvent[] = []
 
-    constructor(public readonly sessionId: string, public readonly teamId: number) {}
+    constructor(public readonly sessionId: string, public readonly teamId: number, public readonly batchId: string) {}
 
     /**
      * Records a message containing events for this session
@@ -219,6 +221,7 @@ export class SnappySessionRecorder {
             messageCount: this.messageCount,
             snapshotSource: this.snapshotSource,
             snapshotLibrary: this.snapshotLibrary,
+            batchId: this.batchId,
         }
     }
 }

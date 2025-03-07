@@ -9,7 +9,7 @@ describe('SnappySessionRecorder', () => {
     let recorder: SnappySessionRecorder
 
     beforeEach(() => {
-        recorder = new SnappySessionRecorder('test_session_id', 1)
+        recorder = new SnappySessionRecorder('test_session_id', 1, 'test_batch_id')
     })
 
     const createMessage = (windowId: string, events: any[]): ParsedMessageData => ({
@@ -1102,6 +1102,47 @@ describe('SnappySessionRecorder', () => {
             expect(result.consoleLogCount).toBe(0)
             expect(result.consoleWarnCount).toBe(0)
             expect(result.consoleErrorCount).toBe(0)
+        })
+    })
+
+    describe('Batch ID', () => {
+        it('should include batch ID in end result', async () => {
+            const batchId = 'test-batch-123'
+            const recorder = new SnappySessionRecorder('test_session_id', 1, batchId)
+            const message = createMessage('window1', [
+                {
+                    type: RRWebEventType.Meta,
+                    timestamp: 1000,
+                    data: {},
+                },
+            ])
+
+            recorder.recordMessage(message)
+            const result = await recorder.end()
+
+            expect(result.batchId).toBe(batchId)
+        })
+
+        it('should maintain batch ID across multiple messages', async () => {
+            const batchId = 'test-batch-456'
+            const recorder = new SnappySessionRecorder('test_session_id', 1, batchId)
+
+            const message1 = createMessage('window1', [{ type: RRWebEventType.Meta, timestamp: 1000, data: {} }])
+            const message2 = createMessage('window2', [{ type: RRWebEventType.Meta, timestamp: 2000, data: {} }])
+
+            recorder.recordMessage(message1)
+            recorder.recordMessage(message2)
+            const result = await recorder.end()
+
+            expect(result.batchId).toBe(batchId)
+        })
+
+        it('should include batch ID even with no messages', async () => {
+            const batchId = 'test-batch-789'
+            const recorder = new SnappySessionRecorder('test_session_id', 1, batchId)
+            const result = await recorder.end()
+
+            expect(result.batchId).toBe(batchId)
         })
     })
 
