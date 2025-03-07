@@ -1,5 +1,4 @@
 import { LemonDivider, Link } from '@posthog/lemon-ui'
-import { id } from 'chartjs-plugin-trendline'
 import { useActions, useValues } from 'kea'
 import { capitalizeFirstLetter } from 'kea-forms'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -113,7 +112,7 @@ export function SurveyOverview(): JSX.Element {
                     </>
                 )}
                 <LemonDivider />
-                <SurveyDisplaySummary id={id} survey={survey} targetingFlagFilters={targetingFlagFilters} />
+                <SurveyDisplaySummary id={survey.id} survey={survey} targetingFlagFilters={targetingFlagFilters} />
             </div>
             <div className="flex flex-col items-center w-full">
                 {survey.type === SurveyType.API && (
