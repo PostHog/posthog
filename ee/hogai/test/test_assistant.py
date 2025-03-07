@@ -634,7 +634,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         res2 = FakeRunnableLambdaWithTokenCounter(
             lambda _: messages.AIMessage(content="The results indicate a great future for you.")
         )
-        root_mock.side_effect = cycle([res1, res2])
+        root_mock.side_effect = cycle([res1, res1, res2, res2])
 
         planner_mock.return_value = RunnableLambda(
             lambda _: messages.AIMessage(
@@ -651,7 +651,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             )
         )
         query = AssistantHogQLQuery(query="SELECT 1")
-        generator_mock.return_value = RunnableLambda(lambda _: SQLSchemaGeneratorOutput(query=query))
+        generator_mock.return_value = RunnableLambda(lambda _: SQLSchemaGeneratorOutput(query=query.query).model_dump())
 
         # First run
         actual_output = self._run_assistant_graph(is_new_conversation=True)
