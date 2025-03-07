@@ -3,7 +3,7 @@ import Fuse from 'fuse.js'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
-import api from 'lib/api'
+import api, { CountedPaginatedResponse } from 'lib/api'
 import { Scene } from 'scenes/sceneTypes'
 import { SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 import { teamLogic } from 'scenes/teamLogic'
@@ -43,6 +43,50 @@ export interface SurveysFilters {
     archived: boolean
 }
 
+export interface SurveyDataState {
+    surveys: Survey[]
+    surveysCount: number
+    searchSurveys: Survey[]
+    searchSurveysCount: number
+}
+
+function mergeSurveyData(
+    currentData: SurveyDataState,
+    response: CountedPaginatedResponse<Survey>,
+    appendResults = false
+): SurveyDataState {
+    if (response.results.length === 0) {
+        return currentData
+    }
+
+    const surveys = appendResults ? [...currentData.surveys, ...response.results] : response.results
+
+    return {
+        ...currentData,
+        surveys,
+        surveysCount: response.count ?? currentData.surveysCount,
+    }
+}
+
+function mergeSearchData(
+    currentData: SurveyDataState,
+    response: CountedPaginatedResponse<Survey>,
+    appendResults = false
+): SurveyDataState {
+    if (response.results.length === 0) {
+        return currentData
+    }
+
+    const searchSurveys =
+        appendResults && response.results ? [...currentData.searchSurveys, ...response.results] : response.results
+
+    return {
+        ...currentData,
+        searchSurveys,
+        searchSurveysCount: response.count ?? 0,
+    }
+}
+
 function deleteSurvey(surveys: Survey[], id: string): Survey[] {
     return surveys.filter((s) => s.id !== id)
 }
@@ -71,14 +115,10 @@ export const surveysLogic = kea<surveysLogicType>([
                 surveysCount: 0,
                 searchSurveys: [] as Survey[],
                 searchSurveysCount: 0,
-            },
+            } as SurveyDataState,
             loadSurveys: async () => {
                 const response = await api.surveys.list()
-                return {
-                    ...values.data,
-                    surveys: response.results,
-                    surveysCount: response.count,
-                }
+                return mergeSurveyData(values.data, response)
             },
             loadNextPage: async () => {
                 const offset = values.data.surveys.length
@@ -87,20 +127,12 @@ export const surveysLogic = kea<surveysLogicType>([
                     offset,
                 })
 
-                return {
-                    ...values.data,
-                    surveys: [...values.data.surveys, ...response.results],
-                    surveysCount: response.count,
-                }
+                return mergeSurveyData(values.data, response, true)
             },
             loadSearchResults: async () => {
                 const trimmedSearchTerm = values.searchTerm?.trim() || ''
                 if (trimmedSearchTerm === '') {
-                    return {
-                        ...values.data,
-                        searchSurveys: [],
-                        searchSurveysCount: 0,
-                    }
+                    return mergeSearchData(values.data, { results: [], count: 0 })
                 }
 
                 // Only do backend search if we have more total items than the page size
@@ -113,11 +145,7 @@ export const surveysLogic = kea<surveysLogicType>([
                     search: trimmedSearchTerm,
                 })
 
-                return {
-                    ...values.data,
-                    searchSurveys: response?.results || [],
-                    searchSurveysCount: response?.count || 0,
-                }
+                return mergeSearchData(values.data, response)
             },
             loadNextSearchPage: async () => {
                 const offset = values.data.searchSurveys.length
@@ -127,11 +155,7 @@ export const surveysLogic = kea<surveysLogicType>([
                     offset,
                 })
 
-                return {
-                    ...values.data,
-                    searchSurveys: [...values.data.searchSurveys, ...response.results],
-                    searchSurveysCount: response.count,
-                }
+                return mergeSearchData(values.data, response, true)
             },
             deleteSurvey: async (id) => {
                 await api.surveys.delete(id)
