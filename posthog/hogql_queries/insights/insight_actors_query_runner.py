@@ -57,7 +57,10 @@ class InsightActorsQueryRunner(QueryRunner):
         elif isinstance(self.source_runner, RetentionQueryRunner):
             query = cast(InsightActorsQuery, self.query)
             retention_runner = cast(RetentionQueryRunner, self.source_runner)
-            return retention_runner.to_actors_query(interval=query.interval)
+            return retention_runner.to_actors_query(
+                interval=query.interval,
+                breakdown_values=query.breakdown,
+            )
         elif isinstance(self.source_runner, PathsQueryRunner):
             paths_runner = cast(PathsQueryRunner, self.source_runner)
             return paths_runner.to_actors_query()
