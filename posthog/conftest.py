@@ -3,8 +3,6 @@ from django.conf import settings
 from infi.clickhouse_orm import Database
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models.ai.pg_embeddings import TRUNCATE_PG_EMBEDDINGS_TABLE_SQL
-from posthog.models.raw_sessions.sql import TRUNCATE_RAW_SESSIONS_TABLE_SQL
 from posthog.test.base import PostHogTestCase, run_clickhouse_statement_in_parallel
 
 
@@ -73,6 +71,7 @@ def reset_clickhouse_tables():
         TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
     )
     from posthog.heatmaps.sql import TRUNCATE_HEATMAPS_TABLE_SQL
+    from posthog.models.ai.pg_embeddings import TRUNCATE_PG_EMBEDDINGS_TABLE_SQL
     from posthog.models.app_metrics.sql import TRUNCATE_APP_METRICS_TABLE_SQL
     from posthog.models.channel_type.sql import TRUNCATE_CHANNEL_DEFINITION_TABLE_SQL
     from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
@@ -88,6 +87,7 @@ def reset_clickhouse_tables():
         TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
         TRUNCATE_PERSON_TABLE_SQL,
     )
+    from posthog.models.raw_sessions.sql import TRUNCATE_RAW_SESSIONS_TABLE_SQL
     from posthog.models.sessions.sql import TRUNCATE_SESSIONS_TABLE_SQL
     from posthog.session_recordings.sql.session_recording_event_sql import (
         TRUNCATE_SESSION_RECORDING_EVENTS_TABLE_SQL,
