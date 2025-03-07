@@ -43,6 +43,14 @@ export interface SurveysFilters {
     archived: boolean
 }
 
+function deleteSurvey(surveys: Survey[], id: string): Survey[] {
+    return surveys.filter((s) => s.id !== id)
+}
+
+function updateSurvey(surveys: Survey[], id: string, updatedSurvey: Survey): Survey[] {
+    return surveys.map((s) => (s.id === id ? updatedSurvey : s))
+}
+
 export const surveysLogic = kea<surveysLogicType>([
     path(['scenes', 'surveys', 'surveysLogic']),
     connect(() => ({
@@ -129,18 +137,16 @@ export const surveysLogic = kea<surveysLogicType>([
                 await api.surveys.delete(id)
                 return {
                     ...values.data,
-                    surveys: values.data.surveys.filter((survey) => survey.id !== id),
-                    searchSurveys: values.data.searchSurveys.filter((survey) => survey.id !== id),
+                    surveys: deleteSurvey(values.data.surveys, id),
+                    searchSurveys: deleteSurvey(values.data.searchSurveys, id),
                 }
             },
             updateSurvey: async ({ id, updatePayload }) => {
                 const updatedSurvey = await api.surveys.update(id, { ...updatePayload })
                 return {
                     ...values.data,
-                    surveys: values.data.surveys.map((survey) => (survey.id === id ? updatedSurvey : survey)),
-                    searchSurveys: values.data.searchSurveys.map((survey) =>
-                        survey.id === id ? updatedSurvey : survey
-                    ),
+                    surveys: updateSurvey(values.data.surveys, id, updatedSurvey),
+                    searchSurveys: updateSurvey(values.data.searchSurveys, id, updatedSurvey),
                 }
             },
         },
