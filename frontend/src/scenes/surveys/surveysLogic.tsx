@@ -50,7 +50,7 @@ export interface SurveyDataState {
     searchSurveysCount: number
 }
 
-function mergeSurveyData(
+function mergeSurveysData(
     currentData: SurveyDataState,
     response: CountedPaginatedResponse<Survey>,
     appendResults = false
@@ -68,7 +68,7 @@ function mergeSurveyData(
     }
 }
 
-function mergeSearchData(
+function mergeSearchSurveysData(
     currentData: SurveyDataState,
     response: CountedPaginatedResponse<Survey>,
     appendResults = false
@@ -118,7 +118,7 @@ export const surveysLogic = kea<surveysLogicType>([
             } as SurveyDataState,
             loadSurveys: async () => {
                 const response = await api.surveys.list()
-                return mergeSurveyData(values.data, response)
+                return mergeSurveysData(values.data, response)
             },
             loadNextPage: async () => {
                 const offset = values.data.surveys.length
@@ -127,12 +127,12 @@ export const surveysLogic = kea<surveysLogicType>([
                     offset,
                 })
 
-                return mergeSurveyData(values.data, response, true)
+                return mergeSurveysData(values.data, response, true)
             },
             loadSearchResults: async () => {
                 const trimmedSearchTerm = values.searchTerm?.trim() || ''
                 if (trimmedSearchTerm === '') {
-                    return mergeSearchData(values.data, { results: [], count: 0 })
+                    return mergeSearchSurveysData(values.data, { results: [], count: 0 })
                 }
 
                 // Only do backend search if we have more total items than the page size
@@ -145,7 +145,7 @@ export const surveysLogic = kea<surveysLogicType>([
                     search: trimmedSearchTerm,
                 })
 
-                return mergeSearchData(values.data, response)
+                return mergeSearchSurveysData(values.data, response)
             },
             loadNextSearchPage: async () => {
                 const offset = values.data.searchSurveys.length
@@ -155,7 +155,7 @@ export const surveysLogic = kea<surveysLogicType>([
                     offset,
                 })
 
-                return mergeSearchData(values.data, response, true)
+                return mergeSearchSurveysData(values.data, response, true)
             },
             deleteSurvey: async (id) => {
                 await api.surveys.delete(id)
