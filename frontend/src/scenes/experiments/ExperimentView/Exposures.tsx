@@ -14,6 +14,7 @@ export function Exposures(): JSX.Element {
     const { experimentId, exposures, exposuresLoading, exposureCriteriaLabel } = useValues(experimentLogic)
     const chartRef = useRef<Chart | null>(null)
     const [chartError, setChartError] = useState<string | null>(null)
+    const [debugInfo, setDebugInfo] = useState<string | null>(null)
 
     useEffect(() => {
         if (chartRef.current) {
@@ -23,9 +24,30 @@ export function Exposures(): JSX.Element {
 
         // Reset error state on new data
         setChartError(null)
+        setDebugInfo(null)
 
         if (!exposures || !exposures?.timeseries?.length) {
             return
+        }
+
+        // Prepare debug info about the data structure
+        try {
+            const debugData = {
+                timeseriesCount: exposures.timeseries.length,
+                variants: exposures.timeseries.map((s) => s.variant),
+                firstSeries: {
+                    variant: exposures.timeseries[0]?.variant,
+                    daysCount: exposures.timeseries[0]?.days?.length || 0,
+                    exposureCountsCount: exposures.timeseries[0]?.exposure_counts?.length || 0,
+                    // Include sample of actual data
+                    sampleDays: exposures.timeseries[0]?.days?.slice(0, 3),
+                    sampleCounts: exposures.timeseries[0]?.exposure_counts?.slice(0, 3),
+                },
+                totalExposures: exposures.total_exposures,
+            }
+            setDebugInfo(JSON.stringify(debugData, null, 2))
+        } catch (e) {
+            setDebugInfo('Error generating debug info')
         }
 
         const ctx = document.getElementById('exposuresChart') as HTMLCanvasElement
@@ -131,6 +153,11 @@ export function Exposures(): JSX.Element {
                                 <IconWarning className="text-3xl mb-2 text-warning" />
                                 <h3 className="text-lg">Chart rendering issue</h3>
                                 <p className="text-sm text-muted">{chartError}</p>
+                                {debugInfo && (
+                                    <div className="mt-2 text-xs text-left bg-bg-light p-2 rounded overflow-auto max-h-[120px] w-full">
+                                        <pre>{debugInfo}</pre>
+                                    </div>
+                                )}
                             </div>
                         ) : (
                             <canvas id="exposuresChart" />
