@@ -23,7 +23,7 @@ export const formatFlatRate = (flatRate: number, unit: string | null): string | 
         return `$${flatRate}`
     }
     return (
-        <span className="deprecated-space-x-0_5">
+        <span className="flex gap-x-0.5">
             <span>{humanFriendlyCurrency(flatRate)}</span>
             <span>/</span>
             <span>{unit}</span>
@@ -224,7 +224,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                 }
             >
                 <p className="mb-1.5">Here's some stuff about the trial:</p>
-                <ul className="deprecated-space-y-0_5">
+                <ul className="flex flex-col gap-0.5">
                     <li className="ml-2">
                         🎉 It's <b>free!</b>
                     </li>
