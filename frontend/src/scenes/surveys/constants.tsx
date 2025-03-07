@@ -154,6 +154,7 @@ export interface NewSurvey
         | 'response_sampling_interval'
         | 'response_sampling_limit'
         | 'schedule'
+        | 'store_partial_responses'
     > {
     id: 'new'
     linked_flag_id: number | null
