@@ -5,7 +5,11 @@ from clickhouse_driver.util.escape import UUID
 from freezegun.api import freeze_time
 import pytz
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql_queries.insights.paths_v2.paths_v2_query_runner import POSTHOG_OTHER, PathsV2QueryRunner
+from posthog.hogql_queries.insights.paths_v2.paths_v2_query_runner import (
+    POSTHOG_OTHER,
+    POSTHOG_DROPOFF,
+    PathsV2QueryRunner,
+)
 from posthog.models import Team
 from posthog.schema import PathsV2Filter, PathsV2Item, PathsV2Query, PathsV2QueryResponse
 from posthog.test.base import (
@@ -149,13 +153,6 @@ class TestPathsV2(SharedSetup):
         )
 
     def test_max_rows_aggregates(self):
-        # 6x a1->b1
-        # 5x a1->b2
-        # 4x a2->dropoff
-        # 3x a3->a3 (other->dropoff) or (other->a3) depeding on collapseEvents
-        # 2x a4->b1 (other->b1)
-        # 1x a5->x  (other->dropoff)
-
         _ = journeys_for(
             team=self.team,
             events_by_person={
@@ -177,7 +174,7 @@ class TestPathsV2(SharedSetup):
                 "person13": [{"event": "a2"}],
                 "person14": [{"event": "a2"}],
                 "person15": [{"event": "a2"}],
-                # 3x a3 -> a3 (grouped into "other")
+                # 3x a3 -> a3
                 "person16": [{"event": "a3"}, {"event": "a3"}],
                 "person17": [{"event": "a3"}, {"event": "a3"}],
                 "person18": [{"event": "a3"}, {"event": "a3"}],
@@ -186,53 +183,23 @@ class TestPathsV2(SharedSetup):
                 "person20": [{"event": "a4"}, {"event": "b1"}],
                 # 1x a5 (grouped into "other") -> dropoff
                 "person21": [{"event": "a5"}],
-                #
-                #
-                #
-                # # 4x a1 -> b1
-                # "person1": [{"event": "a1"}, {"event": "b1"}],
-                # "person2": [{"event": "a1"}, {"event": "b1"}],
-                # "person3": [{"event": "a1"}, {"event": "b1"}],
-                # "person4": [{"event": "a1"}, {"event": "b1"}],
-                # # 3x a1 -> b2
-                # "person5": [{"event": "a1"}, {"event": "b2"}],
-                # "person6": [{"event": "a1"}, {"event": "b2"}],
-                # "person7": [{"event": "a1"}, {"event": "b2"}],
-                # # 2x a2 -> dropoff
-                # "person8": [{"event": "a2"}],
-                # "person9": [{"event": "a2"}],
-                # # 1x a3 -> a3 (grouped into "other")
-                # "person10": [{"event": "a3"}, {"event": "a3"}],
-                # # 1x a4 (grouped into "other") -> b1
-                # "person11": [{"event": "a4"}, {"event": "b1"}],
-                # # 1x a5 (grouped into "other") -> dropoff
-                # "person12": [{"event": "a5"}],
             },
         )
-
-        filter = PathsV2Filter(maxRowsPerStep=2, collapseEvents=False)
+        filter = PathsV2Filter(maxRowsPerStep=3)
         query = PathsV2Query(pathsV2Filter=filter)
         query_runner = self._get_query_runner(query=query)
 
         response = query_runner.calculate()
 
-        # we expect two ungrouped results, and a grouped one
-        # count for the grouped one should be aggregated
-
         self.assertEqual(
-            response.results,
+            [item for item in response.results if item.step_index == 1],
             [
-                PathsV2Item(step_index=1, source_step="a1", target_step="b1", value=4),
-                PathsV2Item(step_index=1, source_step="a1", target_step="b2", value=3),
-                PathsV2Item(step_index=1, source_step="a2", target_step="$$__posthog_dropoff__$$", value=2),
-                PathsV2Item(step_index=1, source_step="a3", target_step="$$__posthog_step_other__$$", value=1),
-                PathsV2Item(step_index=1, source_step="$$__posthog_step_other__$$", target_step="b1", value=1),
-                PathsV2Item(
-                    step_index=1,
-                    source_step="$$__posthog_step_other__$$",
-                    target_step="$$__posthog_dropoff__$$",
-                    value=4,
-                ),
+                PathsV2Item(step_index=1, source_step="a1", target_step="b1", value=6),
+                PathsV2Item(step_index=1, source_step="a1", target_step="b2", value=5),
+                PathsV2Item(step_index=1, source_step="a2", target_step=POSTHOG_DROPOFF, value=4),
+                PathsV2Item(step_index=1, source_step="a3", target_step="a3", value=3),
+                PathsV2Item(step_index=1, source_step=POSTHOG_OTHER, target_step="b1", value=2),
+                PathsV2Item(step_index=1, source_step=POSTHOG_OTHER, target_step=POSTHOG_DROPOFF, value=1),
             ],
         )
 

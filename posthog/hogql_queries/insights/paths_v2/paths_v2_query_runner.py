@@ -268,13 +268,9 @@ class PathsV2QueryRunner(QueryRunner):
             FROM {paths_per_actor_and_session_as_tuple_query}
             ARRAY JOIN limited_paths_array_per_session AS path_tuple,
                 arrayEnumerate(limited_paths_array_per_session) AS step_in_session_index
-            WHERE {collapse_events_filter}
         """,
             placeholders={
                 "paths_per_actor_and_session_as_tuple_query": self._paths_per_actor_and_session_as_tuple_query(),
-                "collapse_events_filter": (
-                    parse_expr("path_item != previous_path_item") if self.collapse_events else parse_expr("1=1")
-                ),
             },
         )
 
@@ -330,7 +326,7 @@ class PathsV2QueryRunner(QueryRunner):
                     -- always keep nulls, they indicate the path start
                     OR p.source_step IS NULL
                     -- lookup step in the subquery
-                    OR s.target_step IS NOT NULL THEN p.source_step
+                    OR s.target_step != '' THEN p.source_step
                     ELSE '$$_posthog_other_$$'
                 END AS grouped_source_step,
                 p.target_step,
@@ -339,7 +335,7 @@ class PathsV2QueryRunner(QueryRunner):
                     -- always keep dropoffs
                     WHEN p.target_step = '$$_posthog_dropoff_$$'
                     -- lookup step in the subquery
-                    OR t.target_step IS NOT NULL THEN p.target_step
+                    OR t.target_step != '' THEN p.target_step
                     ELSE '$$_posthog_other_$$'
                 END AS grouped_target_step,
                 p.value
