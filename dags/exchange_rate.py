@@ -225,9 +225,9 @@ def daily_exchange_rates_in_clickhouse(
 
     # Calculate some statistics for metadata
     currencies_count = len(rows)
-    min_rate = min(row["rate"] for row in rows) if rows else 0.0
-    max_rate = max(row["rate"] for row in rows) if rows else 0.0
-    avg_rate = sum(row["rate"] for row in rows) / len(rows) if rows else 0.0
+    min_rate = float(min(row["rate"] for row in rows)) if rows else 0.0
+    max_rate = float(max(row["rate"] for row in rows)) if rows else 0.0
+    avg_rate = float(sum(row["rate"] for row in rows) / len(rows)) if rows else 0.0
 
     # Return the rows with metadata
     return dagster.MaterializeResult(
@@ -266,9 +266,9 @@ def hourly_exchange_rates_in_clickhouse(
 
     # Calculate some statistics for metadata
     currencies_count = len(rows)
-    min_rate = min(row["rate"] for row in rows) if rows else 0.0
-    max_rate = max(row["rate"] for row in rows) if rows else 0.0
-    avg_rate = sum(row["rate"] for row in rows) / len(rows) if rows else 0.0
+    min_rate = float(min(row["rate"] for row in rows)) if rows else 0.0
+    max_rate = float(max(row["rate"] for row in rows)) if rows else 0.0
+    avg_rate = float(sum(row["rate"] for row in rows) / len(rows)) if rows else 0.0
 
     # Return the rows with metadata
     return dagster.MaterializeResult(
