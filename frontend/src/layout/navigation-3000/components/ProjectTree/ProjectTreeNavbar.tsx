@@ -5,8 +5,9 @@ import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { IconFolderOpen } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
+import { IconCircleDashed, IconFolderOpen } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
 import { useRef } from 'react'
+import { urls } from 'scenes/urls'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
@@ -101,6 +102,7 @@ export function ProjectTreeNavbar(): JSX.Element {
                             icon={<IconClock className="size-5" />}
                             size="small"
                             sideIcon={<IconChevronRight className="size-4" />}
+                            to={urls.activity()}
                         >
                             <span>Activity</span>
                         </LemonButton>
@@ -108,7 +110,7 @@ export function ProjectTreeNavbar(): JSX.Element {
                         <LemonButton
                             className="hover:bg-fill-highlight-100"
                             fullWidth
-                            icon={<IconBolt className="size-5" />}
+                            icon={<IconCircleDashed className="size-5" />}
                             size="small"
                             sideIcon={<IconChevronRight className="size-4" />}
                         >
