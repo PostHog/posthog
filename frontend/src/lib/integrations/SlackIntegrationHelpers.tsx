@@ -36,14 +36,14 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
     const { loadAllSlackChannels, loadSlackChannelById } = useActions(slackIntegrationLogic({ id: integration.id }))
 
     // If slackChannels aren't loaded, make sure we display only the channel name and not the actual underlying value
-    const slackChannelOptions = useMemo(() => getSlackChannelOptions(slackChannels.list()), [slackChannels])
+    const slackChannelOptions = useMemo(() => getSlackChannelOptions(slackChannels), [slackChannels])
     const showSlackMembershipWarning = value && isMemberOfSlackChannel(value) === false
 
     // Sometimes the parent will only store the channel ID and not the name, so we need to handle that
 
     const modifiedValue = useMemo(() => {
         if (value?.split('|').length === 1) {
-            const channel = slackChannels.list().find((x: SlackChannelType) => x.id === value)
+            const channel = slackChannels.find((x: SlackChannelType) => x.id === value)
 
             if (channel) {
                 return `${channel.id}|#${channel.name}`
@@ -69,7 +69,7 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                     }
                 }}
                 value={modifiedValue ? [modifiedValue] : []}
-                onFocus={() => !slackChannels.list().length && !allSlackChannelsLoading && loadAllSlackChannels()}
+                onFocus={() => !slackChannels.length && !allSlackChannelsLoading && loadAllSlackChannels()}
                 disabled={disabled}
                 mode="single"
                 data-attr="select-slack-channel"

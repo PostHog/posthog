@@ -7,33 +7,6 @@ import { SlackChannelType } from '~/types'
 
 import type { slackIntegrationLogicType } from './slackIntegrationLogicType'
 
-export class SlackChannels {
-    private fetchedSlackChannels: SlackChannelType[]
-    private fetchedSlackChannelById: SlackChannelType | null
-    private all: SlackChannelType[]
-
-    constructor(fetchedSlackChannels: SlackChannelType[], fetchedSlackChannelById: SlackChannelType | null) {
-        this.fetchedSlackChannels = fetchedSlackChannels
-        this.fetchedSlackChannelById = fetchedSlackChannelById
-        this.all = [...this.fetchedSlackChannels]
-        if (this.fetchedSlackChannelById && !this.all.find((x) => x.id === this.fetchedSlackChannelById!.id)) {
-            this.all.push(this.fetchedSlackChannelById)
-        }
-    }
-
-    withNewChannelById(channel: SlackChannelType): SlackChannels {
-        return new SlackChannels(this.fetchedSlackChannels, channel)
-    }
-
-    withNewChannels(channels: SlackChannelType[]): SlackChannels {
-        return new SlackChannels(channels, this.fetchedSlackChannelById)
-    }
-
-    list(): SlackChannelType[] {
-        return this.all
-    }
-}
-
 export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
     props({} as { id: number }),
     key((props) => props.id),
@@ -69,32 +42,37 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
     })),
 
     reducers({
-        slackChannels: [
-            new SlackChannels([], null),
+        _fetchedSlackChannels: [
+            [] as SlackChannelType[],
             {
-                loadSlackChannelByIdSuccess: (
-                    state: SlackChannels,
-                    { slackChannelById }: { slackChannelById: SlackChannelType }
-                ) => {
-                    return state.withNewChannelById(slackChannelById)
-                },
-                loadAllSlackChannelsSuccess: (
-                    state: SlackChannels,
-                    { allSlackChannels }: { allSlackChannels: SlackChannelType[] }
-                ) => {
-                    return state.withNewChannels(allSlackChannels)
-                },
+                loadAllSlackChannelsSuccess: (_, { allSlackChannels }) => allSlackChannels ?? [],
+            },
+        ],
+        _fetchedSlackChannelById: [
+            null as SlackChannelType | null,
+            {
+                loadSlackChannelByIdSuccess: (_, { slackChannelById }) => slackChannelById,
             },
         ],
     }),
 
     selectors({
+        slackChannels: [
+            (s) => [s._fetchedSlackChannels, s._fetchedSlackChannelById],
+            (_fetchedSlackChannels, _fetchedSlackChannelById): SlackChannelType[] => {
+                const channels = [..._fetchedSlackChannels]
+                if (_fetchedSlackChannelById && !channels.find((x) => x.id === _fetchedSlackChannelById.id)) {
+                    channels.push(_fetchedSlackChannelById)
+                }
+                return channels
+            },
+        ],
         isMemberOfSlackChannel: [
             (s) => [s.slackChannels],
-            (slackChannels: SlackChannels) => {
+            (slackChannels: SlackChannelType[]) => {
                 return (channel: string) => {
                     const [channelId] = channel.split('|')
-                    return slackChannels.list().find((x) => x.id === channelId)?.is_member ?? false
+                    return slackChannels.find((x) => x.id === channelId)?.is_member ?? false
                 }
             },
         ],
