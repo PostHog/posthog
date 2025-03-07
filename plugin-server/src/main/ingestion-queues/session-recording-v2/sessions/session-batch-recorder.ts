@@ -181,6 +181,7 @@ export class SessionBatchRecorder {
                         messageCount,
                         snapshotSource,
                         snapshotLibrary,
+                        batchId,
                     } = await recorder.end()
                     const { bytesWritten, url } = await writer.writeSession(buffer)
 
@@ -206,6 +207,7 @@ export class SessionBatchRecorder {
                         messageCount,
                         snapshotSource,
                         snapshotLibrary,
+                        batchId,
                     })
 
                     totalEvents += eventCount

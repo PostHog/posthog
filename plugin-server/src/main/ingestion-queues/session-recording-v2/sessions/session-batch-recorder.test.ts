@@ -1,4 +1,5 @@
 import { DateTime } from 'luxon'
+import { validate as uuidValidate } from 'uuid'
 
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { ParsedMessageData } from '../kafka/types'
@@ -40,7 +41,7 @@ export class SnappySessionRecorderMock {
     private endDateTime: DateTime | null = null
     private _distinctId: string | null = null
 
-    constructor(public readonly sessionId: string, public readonly teamId: number) {}
+    constructor(public readonly sessionId: string, public readonly teamId: number, private readonly batchId: string) {}
 
     public recordMessage(message: ParsedMessageData): number {
         let bytesWritten = 0
@@ -96,7 +97,7 @@ export class SnappySessionRecorderMock {
             messageCount: 0,
             snapshotSource: null,
             snapshotLibrary: null,
-            batchId: 'test_batch_id',
+            batchId: this.batchId,
         }
     }
 }
@@ -116,7 +117,10 @@ jest.mock('./blackhole-session-batch-writer')
 jest.mock('./snappy-session-recorder', () => ({
     SnappySessionRecorder: jest
         .fn()
-        .mockImplementation((sessionId: string, teamId: number) => new SnappySessionRecorderMock(sessionId, teamId)),
+        .mockImplementation(
+            (sessionId: string, teamId: number, batchId: string) =>
+                new SnappySessionRecorderMock(sessionId, teamId, batchId)
+        ),
 }))
 
 describe('SessionBatchRecorder', () => {
@@ -130,8 +134,8 @@ describe('SessionBatchRecorder', () => {
         jest.clearAllMocks()
 
         jest.mocked(SnappySessionRecorder).mockImplementation(
-            (sessionId: string, teamId: number) =>
-                new SnappySessionRecorderMock(sessionId, teamId) as unknown as SnappySessionRecorder
+            (sessionId: string, teamId: number, batchId: string) =>
+                new SnappySessionRecorderMock(sessionId, teamId, batchId) as unknown as SnappySessionRecorder
         )
 
         mockWriter = {
@@ -901,7 +905,7 @@ describe('SessionBatchRecorder', () => {
     describe('metadata handling', () => {
         it('should pass non-default metadata values to storeSessionBlocks', async () => {
             // Create a custom mock implementation of SnappySessionRecorderMock that returns non-default values
-            const customRecorder = new SnappySessionRecorderMock('session_custom', 3)
+            const customRecorder = new SnappySessionRecorderMock('session_custom', 3, 'test_batch_id')
 
             // Override the end method to return non-default values
             customRecorder.end = jest.fn().mockReturnValue({
@@ -967,6 +971,33 @@ describe('SessionBatchRecorder', () => {
                     snapshotLibrary: 'rrweb@1.0.0',
                 }),
             ])
+        })
+
+        it('should use the same batch ID for all sessions in a batch', async () => {
+            const messages = [
+                createMessage('session1', [{ type: EventType.Meta, timestamp: 1000, data: {} }]),
+                createMessage('session2', [{ type: EventType.Meta, timestamp: 2000, data: {} }]),
+            ]
+
+            messages.forEach((message) => recorder.record(message))
+            await recorder.flush()
+
+            const storedBlocks = mockMetadataStore.storeSessionBlocks.mock.calls[0][0]
+            expect(storedBlocks).toHaveLength(2)
+
+            // All sessions should have the same batch ID
+            const batchId = storedBlocks[0].batchId
+            expect(batchId).toBeDefined()
+            expect(typeof batchId).toBe('string')
+            expect(storedBlocks[1].batchId).toBe(batchId)
+        })
+
+        it('should generate UUIDv7 format batch IDs', async () => {
+            recorder.record(createMessage('session1', [{ type: EventType.Meta, timestamp: 1000, data: {} }]))
+            await recorder.flush()
+
+            const batchId = mockMetadataStore.storeSessionBlocks.mock.calls[0][0][0].batchId
+            expect(uuidValidate(batchId)).toBe(true)
         })
     })
 
