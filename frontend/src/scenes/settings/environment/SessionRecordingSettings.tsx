@@ -25,7 +25,7 @@ import { isObject, objectsEqual } from 'lib/utils'
 import { ReactNode, useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { SessionRecordingAIConfig } from '~/types'
+import { SessionRecordingAIConfig, type SessionRecordingMaskingLevel } from '~/types'
 
 interface SupportedPlatformProps {
     note?: ReactNode
@@ -504,32 +504,26 @@ export function ReplayAISettings(): JSX.Element | null {
     )
 }
 
-enum MaskingLevel {
-    TotalPrivacy = 'Total privacy',
-    Normal = 'Normal',
-    FreeLove = 'Free love',
-}
-
 export function ReplayMaskingSettings(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
 
-    const handleMaskingChange = (level: MaskingLevel): void => {
+    const handleMaskingChange = (level: SessionRecordingMaskingLevel): void => {
         updateCurrentTeam({
             session_recording_masking_config: {
                 ...currentTeam?.session_recording_masking_config,
-                maskAllInputs: level !== MaskingLevel.FreeLove,
-                maskTextSelector: level === MaskingLevel.TotalPrivacy ? '*' : undefined,
+                maskAllInputs: level !== 'free-love',
+                maskTextSelector: level === 'total-privacy' ? '*' : undefined,
             },
         })
     }
 
     const maskingLevel =
         currentTeam?.session_recording_masking_config?.maskTextSelector === '*'
-            ? MaskingLevel.TotalPrivacy
+            ? 'total-privacy'
             : currentTeam?.session_recording_masking_config?.maskAllInputs
-            ? MaskingLevel.Normal
-            : MaskingLevel.FreeLove
+            ? 'normal'
+            : 'free-love'
 
     return (
         <div>
@@ -546,9 +540,9 @@ export function ReplayMaskingSettings(): JSX.Element {
                 value={maskingLevel}
                 onChange={(val) => val && handleMaskingChange(val)}
                 options={[
-                    { value: MaskingLevel.TotalPrivacy, label: 'Total privacy (mask all text/images)' },
-                    { value: MaskingLevel.Normal, label: 'Normal (mask inputs but not text/images)' },
-                    { value: MaskingLevel.FreeLove, label: 'Free love (mask only passwords)' },
+                    { value: 'total-privacy', label: 'Total privacy (mask all text/images)' },
+                    { value: 'normal', label: 'Normal (mask inputs but not text/images)' },
+                    { value: 'free-love', label: 'Free love (mask only passwords)' },
                 ]}
             />
         </div>
