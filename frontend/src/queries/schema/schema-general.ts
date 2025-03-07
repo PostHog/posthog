@@ -1820,7 +1820,6 @@ export type InsightQueryNode =
     | PathsQuery
     | StickinessQuery
     | LifecycleQuery
-    | HogQLQuery
 
 export interface ExperimentVariantTrendsBaseStats {
     key: string

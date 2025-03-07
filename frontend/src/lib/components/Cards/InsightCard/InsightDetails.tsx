@@ -27,6 +27,7 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import {
     AnyEntityNode,
     FunnelsQuery,
+    HogQLQuery,
     InsightQueryNode,
     LifecycleQuery,
     Node,
@@ -38,6 +39,7 @@ import {
 } from '~/queries/schema/schema-general'
 import {
     isActionsNode,
+    isDataVisualizationNode,
     isEventsNode,
     isFunnelsQuery,
     isHogQLQuery,
@@ -318,7 +320,7 @@ export function SeriesSummary({
     query,
     heading,
 }: {
-    query: InsightQueryNode
+    query: InsightQueryNode | HogQLQuery
     heading?: JSX.Element | null
 }): JSX.Element {
     return (
@@ -384,7 +386,7 @@ export function PropertiesSummary({
     )
 }
 
-export function BreakdownSummary({ query }: { query: InsightQueryNode }): JSX.Element | null {
+export function BreakdownSummary({ query }: { query: InsightQueryNode | HogQLQuery }): JSX.Element | null {
     if (!isInsightQueryWithBreakdown(query) || !isValidBreakdown(query.breakdownFilter)) {
         return null
     }
@@ -429,7 +431,7 @@ export const InsightDetails = React.memo(
         // TODO: Implement summaries for HogQL query insights
         return (
             <div className="InsightDetails" ref={ref}>
-                {isInsightVizNode(query) && (
+                {isInsightVizNode(query) || isDataVisualizationNode(query) ? (
                     <>
                         <SeriesSummary query={query.source} />
                         <PropertiesSummary
@@ -439,7 +441,7 @@ export const InsightDetails = React.memo(
                         />
                         <BreakdownSummary query={query.source} />
                     </>
-                )}
+                ) : null}
                 {footerInfo && (
                     <div className="InsightDetails__footer">
                         <div>
