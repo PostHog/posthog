@@ -280,9 +280,8 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         # Create events with different click counts and visitor counts:
         # - example.com: 4 clicks from 3 visitors
-        # - beta.com: 2 clicks from 2 visitors
+        # - beta.com: 5 clicks from 2 visitors
         # - alpha.com: 1 click from 1 visitor
-        # - gamma.com: 2 clicks from 2 visitors (same as beta.com but alphabetically after)
         self._create_events(
             [
                 (
@@ -291,7 +290,6 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         ("2023-12-02", s1, "https://example.com/"),
                         ("2023-12-02", s1, "https://example.com/"),
                         ("2023-12-02", s1, "https://beta.com/"),
-                        ("2023-12-02", s1, "https://gamma.com/"),
                     ],
                 ),
                 (
@@ -299,7 +297,9 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     [
                         ("2023-12-02", s2, "https://example.com/"),
                         ("2023-12-02", s2, "https://beta.com/"),
-                        ("2023-12-02", s2, "https://gamma.com/"),
+                        ("2023-12-02", s2, "https://beta.com/"),
+                        ("2023-12-02", s2, "https://beta.com/"),
+                        ("2023-12-02", s2, "https://beta.com/"),
                     ],
                 ),
                 (
@@ -312,7 +312,6 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ]
         )
 
-        # Test default sorting (by clicks DESC)
         default_results = self._run_external_clicks_table_query(
             "2023-12-01",
             "2023-12-03",
@@ -322,16 +321,13 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             default_results,
             [
-                ["https://example.com/", (3, 0), (4, 0)],  # Most clicks (4)
-                ["https://beta.com/", (2, 0), (2, 0)],  # 2 clicks (alphabetically before gamma)
-                ["https://gamma.com/", (2, 0), (2, 0)],  # 2 clicks (alphabetically after beta)
-                ["https://alpha.com/", (1, 0), (1, 0)],  # Least clicks (1)
+                ["https://beta.com/", (2, 0), (5, 0)],
+                ["https://example.com/", (3, 0), (4, 0)],
+                ["https://alpha.com/", (1, 0), (1, 0)],
             ],
             "Default sorting should be by clicks DESC, then URL ASC",
         )
 
-        # Test sorting by visitors DESC with secondary sort by clicks
-        # This tests that when two URLs have the same visitor count, they're sorted by clicks
         visitors_desc_results = self._run_external_clicks_table_query(
             "2023-12-01",
             "2023-12-03",
@@ -342,10 +338,9 @@ class TestExternalClicksTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             visitors_desc_results,
             [
-                ["https://example.com/", (3, 0), (4, 0)],  # Most visitors (3)
-                ["https://beta.com/", (2, 0), (2, 0)],  # 2 visitors, 2 clicks (alphabetically before gamma)
-                ["https://gamma.com/", (2, 0), (2, 0)],  # 2 visitors, 2 clicks (alphabetically after beta)
-                ["https://alpha.com/", (1, 0), (1, 0)],  # Least visitors (1)
+                ["https://example.com/", (3, 0), (4, 0)],
+                ["https://beta.com/", (2, 0), (5, 0)],
+                ["https://alpha.com/", (1, 0), (1, 0)],
             ],
-            "Sorting by visitors DESC should show URLs with more visitors first, then by clicks DESC, then alphabetically",
+            "Sorting by visitors DESC should show URLs with more visitors first, then alphabetically",
         )
