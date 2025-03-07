@@ -1,6 +1,7 @@
 mod steps;
 mod trends;
 mod unordered_steps;
+mod unordered_trends;
 
 use serde::{Deserialize, Serialize};
 use std::env;

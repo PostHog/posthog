@@ -1,30 +1,35 @@
-use crate::steps::{Args, EnteredTimestamp, Event, Result};
+use crate::trends::{Args, EnteredTimestamp, Event, Exclusion, MaxStep, ResultStruct};
 use crate::PropVal;
+use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::iter::repeat;
 use uuid::Uuid;
 
-pub struct Vars {
-    pub max_step: (usize, EnteredTimestamp),
-    pub events_by_step: Vec<VecDeque<Event>>,
-    pub num_steps_completed: usize,
+pub type ResultsMap = HashMap<u64, ResultStruct>;
+
+struct Vars {
+    events_by_step: Vec<VecDeque<Event>>,
+    num_steps_completed: usize,
+    interval_start_to_interval_data: HashMap<u64, IntervalData>,
+}
+
+struct IntervalData {
+    max_step: MaxStep,
 }
 
 pub struct AggregateFunnelRowUnordered {
     pub breakdown_step: Option<usize>,
-    pub results: Vec<Result>,
+    pub results: Vec<ResultStruct>,
 }
 
 const DEFAULT_ENTERED_TIMESTAMP: EnteredTimestamp = EnteredTimestamp {
     timestamp: 0.0,
     excluded: false,
-    timings: vec![],
-    uuids: vec![],
 };
 
 impl AggregateFunnelRowUnordered {
     #[inline(always)]
-    pub fn calculate_funnel_from_user_events(&mut self, args: &Args) -> &Vec<Result> {
+    pub fn calculate_funnel_from_user_events(&mut self, args: &Args) -> &Vec<ResultStruct> {
         if args.breakdown_attribution_type.starts_with("step_") {
             self.breakdown_step = args.breakdown_attribution_type[5..].parse::<usize>().ok()
         }
@@ -40,8 +45,8 @@ impl AggregateFunnelRowUnordered {
     fn loop_prop_val(&mut self, args: &Args, prop_val: &PropVal) {
         let mut vars = Vars {
             events_by_step: repeat(VecDeque::new()).take(args.num_steps).collect(),
-            max_step: (0, DEFAULT_ENTERED_TIMESTAMP.clone()),
             num_steps_completed: 0,
+            interval_start_to_interval_data: HashMap::new(),
         };
 
         // Get all relevant events, both exclusions and non-exclusions
@@ -59,10 +64,6 @@ impl AggregateFunnelRowUnordered {
 
         for (i, event) in all_events.iter().enumerate() {
             self.process_event(args, &mut vars, event, prop_val);
-            // If we've completed all steps, we can finalize right away
-            if vars.max_step.0 == args.num_steps {
-                break;
-            }
             // Call update_max_step if this is the last event
             if i == all_events.len() - 1 {
                 self.update_max_step(&mut vars, event);
@@ -173,31 +174,25 @@ impl AggregateFunnelRowUnordered {
 
     #[inline(always)]
     fn update_max_step(&self, vars: &mut Vars, event: &Event) {
-        if vars.num_steps_completed > vars.max_step.0 {
-            let mut timestamps_with_uuids: Vec<(f64, Uuid)> = vars
-                .events_by_step
-                .iter()
-                .filter_map(|deque| deque.front().map(|e| (e.timestamp, e.uuid)))
-                .collect();
+        let interval_start = event.interval_start;
 
-            timestamps_with_uuids.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+        let greater_than_max_step = vars
+            .interval_start_to_interval_data
+            .get(&interval_start)
+            .map_or(true, |interval_data| {
+                vars.num_steps_completed > interval_data.max_step.step
+            });
 
-            let timings = timestamps_with_uuids
-                .iter()
-                .map(|(t, _)| *t)
-                .collect::<Vec<f64>>();
-            let uuids = timestamps_with_uuids
-                .iter()
-                .map(|(_, u)| *u)
-                .collect::<Vec<Uuid>>();
-
-            vars.max_step = (
-                vars.num_steps_completed,
-                EnteredTimestamp {
-                    timestamp: event.timestamp,
-                    excluded: false,
-                    timings,
-                    uuids,
+        if greater_than_max_step {
+            vars.interval_start_to_interval_data.insert(
+                interval_start,
+                IntervalData {
+                    max_step: MaxStep {
+                        step: vars.num_steps_completed,
+                        timestamp: event.timestamp,
+                        excluded: Exclusion::Not,
+                        event_uuid: event.uuid,
+                    },
                 },
             );
         }
