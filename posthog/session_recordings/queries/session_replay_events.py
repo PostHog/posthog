@@ -165,6 +165,119 @@ class SessionReplayEvents:
 
         return result.columns, result.results
 
+    def get_events_for_session(self, session_id: str, team: Team) -> list[dict]:
+        """Get all events for a session."""
+        query = """
+            SELECT event, timestamp
+            FROM events
+            WHERE team_id = %(team_id)s
+            AND $session_id = %(session_id)s
+            ORDER BY timestamp ASC
+        """
+
+        events = sync_execute(
+            query,
+            {
+                "team_id": team.pk,
+                "session_id": session_id,
+            },
+        )
+        return [{"event": e[0], "timestamp": e[1]} for e in events]
+
+    def get_similar_recordings(self, session_id: str, team: Team, limit: int = 10) -> list[dict]:
+        """Find recordings with similar event sequences.
+        The similarity is based on:
+        1. Having similar event patterns (types and order)
+        2. Similar activity metrics (clicks, keypresses, etc)
+        3. Similar duration
+        """
+        # First get the target recording's metadata
+        target_metadata = self.get_metadata(session_id=session_id, team=team)
+        if not target_metadata:
+            return []
+
+        # Get target recording's events
+        target_events = self.get_events_for_session(session_id, team)
+        if not target_events:
+            return []
+
+        # Build event pattern string for comparison
+        target_pattern = ",".join([e["event"] for e in target_events])
+        # target_duration = (target_metadata["end_time"] - target_metadata["start_time"]).total_seconds()
+
+        query = """
+        SELECT
+            sre.session_id,
+            sre.distinct_id,
+            min_first_timestamp,
+            max_last_timestamp,
+            click_count,
+            keypress_count,
+            mouse_activity_count,
+            active_milliseconds,
+            arrayStringConcat(groupArray(e.event), ',') as event_pattern
+        FROM session_replay_events sre
+        JOIN events e ON e.team_id = sre.team_id AND e.$session_id = sre.session_id
+        WHERE sre.team_id = %(team_id)s
+        AND sre.session_id != %(session_id)s
+        GROUP BY
+            sre.session_id,
+            sre.distinct_id,
+            sre.min_first_timestamp,
+            sre.max_last_timestamp,
+            sre.click_count,
+            sre.keypress_count,
+            sre.mouse_activity_count,
+            sre.active_milliseconds
+        HAVING
+            -- Similar activity levels (within 50%% range)
+            abs(click_count - %(target_clicks)s) <= greatest(%(target_clicks)s * 0.5, 5) AND
+            abs(keypress_count - %(target_keypresses)s) <= greatest(%(target_keypresses)s * 0.5, 5) AND
+            abs(mouse_activity_count - %(target_mouse)s) <= greatest(%(target_mouse)s * 0.5, 5) AND
+            abs(active_milliseconds - %(target_active_ms)s) <= greatest(%(target_active_ms)s * 0.5, 5000) AND
+            -- Similar event pattern using Levenshtein distance
+            length(event_pattern) > 0 AND
+            event_pattern != %(target_pattern)s AND
+            length(event_pattern) >= greatest(length(%(target_pattern)s) * 0.5, 1) AND
+            length(event_pattern) <= length(%(target_pattern)s) * 1.5
+        ORDER BY
+            -- Order by similarity score (lower is more similar)
+            abs(click_count - %(target_clicks)s) +
+            abs(keypress_count - %(target_keypresses)s) +
+            abs(mouse_activity_count - %(target_mouse)s) +
+            abs(active_milliseconds - %(target_active_ms)s) / 1000 ASC
+        LIMIT %(limit)s
+        """
+
+        results = sync_execute(
+            query,
+            {
+                "team_id": team.pk,
+                "session_id": session_id,
+                "target_pattern": target_pattern,
+                "target_clicks": target_metadata["click_count"],
+                "target_keypresses": target_metadata["keypress_count"],
+                "target_mouse": target_metadata["mouse_activity_count"],
+                "target_active_ms": target_metadata["active_seconds"] * 1000,  # convert to ms
+                "limit": limit,
+            },
+        )
+
+        return [
+            {
+                "session_id": r[0],
+                "distinct_id": r[1],
+                "start_time": r[2],
+                "end_time": r[3],
+                "click_count": r[4],
+                "keypress_count": r[5],
+                "mouse_activity_count": r[6],
+                "active_milliseconds": r[7],
+                "event_pattern": r[8],
+            }
+            for r in results
+        ]
+
 
 def ttl_days(team: Team) -> int:
     if is_cloud():

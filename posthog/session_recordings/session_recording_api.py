@@ -974,6 +974,38 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
         return Response(response_data)
 
+    @action(methods=["GET"], detail=True, url_path="analyze/similar")
+    def similar_recordings(self, request: request.Request, **kwargs) -> Response:
+        """Find recordings with similar event sequences to the given recording."""
+        recording = self.get_object()
+
+        if recording.deleted:
+            raise exceptions.NotFound("Recording not found")
+
+        if not SessionReplayEvents().exists(session_id=str(recording.session_id), team=self.team):
+            raise exceptions.NotFound("Recording not found")
+
+        # Get events for the target recording
+        target_events = SessionReplayEvents().get_events_for_session(
+            session_id=str(recording.session_id), team=self.team
+        )
+
+        if not target_events:
+            return Response({"count": 0, "results": []})
+
+        # Find recordings with similar event sequences using ClickHouse
+        similar_recordings = SessionReplayEvents().get_similar_recordings(
+            session_id=str(recording.session_id), team=self.team, limit=10
+        )
+
+        recordings = []
+        for rec in similar_recordings:
+            recording_instance = SessionRecording.get_or_build(session_id=rec["session_id"], team=self.team)
+            recordings.append(recording_instance)
+
+        serializer = SessionRecordingSerializer(recordings, many=True)
+        return Response({"count": len(recordings), "results": serializer.data})
+
 
 # TODO i guess this becomes the query runner for our _internal_ use of RecordingsQuery
 def list_recordings_from_query(

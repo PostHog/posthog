@@ -19,6 +19,7 @@ import {
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { delay } from 'kea-test-utils'
+import api from 'lib/api'
 import { now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { clamp, downloadFile, objectsEqual } from 'lib/utils'
@@ -190,6 +191,19 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setDebugSnapshotIncrementalSources: (incrementalSources: IncrementalSource[]) => ({ incrementalSources }),
         setPlayNextAnimationInterrupted: (interrupted: boolean) => ({ interrupted }),
         setMaskWindow: (shouldMaskWindow: boolean) => ({ shouldMaskWindow }),
+        loadSimilarRecordings: true,
+        loadSimilarRecordingsSuccess: (count: number) => ({ count }),
+        showNextRecordingConfirmation: true,
+        hideNextRecordingConfirmation: true,
+        confirmNextRecording: true,
+        loadRecordingMeta: async () => {
+            if (!values.sessionRecordingId) {
+                return
+            }
+            const recording = await api.recordings.get(values.sessionRecordingId)
+            actions.setRecordingMeta(recording)
+            await actions.loadSimilarRecordings()
+        },
     }),
     reducers(() => ({
         maskingWindow: [
@@ -417,6 +431,20 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             {
                 setDebugSnapshotTypes: (s, { types }) => ({ ...s, types }),
                 setDebugSnapshotIncrementalSources: (s, { incrementalSources }) => ({ ...s, incrementalSources }),
+            },
+        ],
+        showingNextRecordingConfirmation: [
+            false,
+            {
+                showNextRecordingConfirmation: () => true,
+                hideNextRecordingConfirmation: () => false,
+                confirmNextRecording: () => false,
+            },
+        ],
+        similarRecordingsCount: [
+            0,
+            {
+                loadSimilarRecordingsSuccess: (_, { count }) => count,
             },
         ],
     })),
@@ -744,29 +772,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         loadRecordingMetaSuccess: () => {
             // As the connected data logic may be preloaded we call a shared function here and on mount
             actions.syncSnapshotsWithPlayer()
+            actions.loadSimilarRecordings()
             if (props.autoPlay) {
                 // Autoplay assumes we are playing immediately so lets go ahead and load more data
                 actions.setPlay()
 
                 if (router.values.searchParams.pause) {
                     setTimeout(() => {
-                        /** KLUDGE: when loaded for visual regression tests we want to pause the player
-                         ** but only after it has had time to buffer and show the frame
-                         *
-                         * Frustratingly if we start paused we never process the data,
-                         * so the player frame is just a black square.
-                         *
-                         * If we play (the default behaviour) and then stop after its processed the data
-                         * then we see the player screen
-                         * and can assert that _at least_ the full snapshot has been processed
-                         * (i.e. we didn't completely break rrweb playback)
-                         *
-                         * We have to be paused so that the visual regression snapshot doesn't flap
-                         * (because of the seekbar timestamp changing)
-                         *
-                         * And don't want to be at 0, so we can see that the seekbar
-                         * at least paints the "played" portion of the recording correctly
-                         **/
                         actions.setPause()
                     }, 400)
                 }
@@ -819,12 +831,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 currentSegment: values.currentSegment,
             })
         },
-        setEndReached: ({ reached }) => {
+        setEndReached: async ({ reached }) => {
             if (reached) {
                 actions.setPause()
-                // TODO: this will be time-gated so won't happen immediately, but we need it to
                 if (!values.wasMarkedViewed) {
                     actions.markViewed(0)
+                }
+                if (values.similarRecordingsCount > 0) {
+                    actions.showNextRecordingConfirmation()
                 }
             }
         },
@@ -1095,6 +1109,36 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 }
             } else if (document.fullscreenElement === props.playerRef?.current) {
                 await document.exitFullscreen()
+            }
+        },
+        showNextRecordingConfirmation: () => {
+            if (props.playlistLogic) {
+                //props.playlistLogic.actions.loadNextRecording()
+            }
+        },
+        confirmNextRecording: () => {
+            if (props.playlistLogic) {
+                //props.playlistLogic.actions.loadNextRecording()
+            }
+        },
+        loadSimilarRecordings: async () => {
+            const response = await api.recordings.getSimilarRecordings(values.sessionRecordingId)
+            actions.loadSimilarRecordingsSuccess(response.count)
+        },
+        maybeLoadRecordingMeta: async (_, breakpoint) => {
+            if (!values.sessionRecordingId) {
+                return
+            }
+
+            breakpoint()
+
+            try {
+                const recording = await api.recordings.get(values.sessionRecordingId)
+                actions.setRecordingMeta(recording)
+                actions.loadSimilarRecordings()
+            } catch (e) {
+                console.error('Failed to load recording meta', e)
+                actions.setPlayerError()
             }
         },
     })),
