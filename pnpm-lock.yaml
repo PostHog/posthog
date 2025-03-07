@@ -806,8 +806,8 @@ importers:
         specifier: ^2.11.0
         version: 2.11.0
       posthog-js:
-        specifier: 1.229.4
-        version: 1.229.4(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.229.5
+        version: 1.229.5(@rrweb/types@2.0.0-alpha.17)
       posthog-js-lite:
         specifier: 3.0.0
         version: 3.0.0
@@ -12958,8 +12958,8 @@ packages:
   posthog-js@1.217.2:
     resolution: {integrity: sha512-3KC+UjI0UT5zh8kAOVqe/AfvRjBMKynRIBQNlv0TXnfpZG0+h3r/1ONecDgCCGLs/a/55SJCExrugDlx+HPH3w==}
 
-  posthog-js@1.229.4:
-    resolution: {integrity: sha512-iX0mrMGsX9uK1PvnIWljXYQKapiv6UH7WU8ITPOLhZfVhEf6XZP3dcU8s6MAh0tqiOF0X7G44Ef0zm0sE5yBRQ==}
+  posthog-js@1.229.5:
+    resolution: {integrity: sha512-M7WewK9nltttOpQ7TVksrTYun+A4MOC3auHQ7IGTEariXfTrRApvWnQFbRTZ1C4kLWFvsvsamotJf9nC+PgCug==}
     peerDependencies:
       '@rrweb/types': 2.0.0-alpha.17
       rrweb-snapshot: 2.0.0-alpha.17
@@ -30613,7 +30613,7 @@ snapshots:
       preact: 10.25.4
       web-vitals: 4.2.4
 
-  posthog-js@1.229.4(@rrweb/types@2.0.0-alpha.17):
+  posthog-js@1.229.5(@rrweb/types@2.0.0-alpha.17):
     dependencies:
       core-js: 3.40.0
       fflate: 0.4.8
