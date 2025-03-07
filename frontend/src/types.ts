@@ -521,6 +521,8 @@ export interface TeamSurveyConfigType {
     appearance?: SurveyAppearance
 }
 
+export type SessionRecordingMaskingLevel = 'normal' | 'total-privacy' | 'free-love'
+
 export interface SessionRecordingMaskingConfig {
     maskAllInputs?: boolean
     maskTextSelector?: string
@@ -2921,6 +2923,7 @@ export interface SurveyAppearance {
     widgetLabel?: string
     widgetColor?: string
     fontFamily?: (typeof WEB_SAFE_FONTS)[number]['value']
+    disabledButtonOpacity?: string
 }
 
 export interface SurveyQuestionBase {
@@ -3961,6 +3964,7 @@ export type APIScopeObject =
     | 'export'
     | 'feature_flag'
     | 'group'
+    | 'hog_function'
     | 'insight'
     | 'query'
     | 'notebook'
@@ -4179,6 +4183,7 @@ export interface DataWarehouseSavedQuery {
     last_run_at?: string
     sync_frequency: string
     status?: string
+    latest_error: string | null
 }
 
 export interface DataWarehouseViewLink {
@@ -4537,7 +4542,7 @@ export type SDK = {
     name: string
     key: string
     recommended?: boolean
-    tags: string[]
+    tags: SDKTag[]
     image:
         | string
         | JSX.Element
@@ -4593,12 +4598,12 @@ export enum SDKKey {
 }
 
 export enum SDKTag {
+    RECOMMENDED = 'Recommended',
     WEB = 'Web',
     MOBILE = 'Mobile',
     SERVER = 'Server',
-    INTEGRATION = 'Integration',
-    RECOMMENDED = 'Recommended',
     LLM = 'LLM',
+    INTEGRATION = 'Integration',
     OTHER = 'Other',
 }
 
@@ -4691,6 +4696,7 @@ export interface SourceConfig {
     fields: SourceFieldConfig[]
     disabledReason?: string | null
     oauthPayload?: string[]
+    existingSource?: boolean
 }
 
 export interface ProductPricingTierSubrows {

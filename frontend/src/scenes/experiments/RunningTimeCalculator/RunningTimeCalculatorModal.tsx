@@ -21,6 +21,7 @@ export function RunningTimeCalculatorModal(): JSX.Element {
         uniqueUsers,
         averageEventsPerUser,
         averagePropertyValuePerUser,
+        conversionRate,
         metricResultLoading,
     } = useValues(runningTimeCalculatorLogic({ experimentId }))
     const { setMinimumDetectableEffect, setMetricIndex } = useActions(runningTimeCalculatorLogic({ experimentId }))
@@ -61,9 +62,9 @@ export function RunningTimeCalculatorModal(): JSX.Element {
                 </div>
             }
         >
-            <div className="space-y-6">
+            <div className="deprecated-space-y-6">
                 {/* Step 1: Metric selection */}
-                <div className="rounded bg-light p-4 space-y-3">
+                <div className="rounded bg-light p-4 deprecated-space-y-3">
                     <div className="flex items-center gap-2">
                         <span className="rounded-full bg-muted text-white w-6 h-6 flex items-center justify-center font-semibold">
                             1
@@ -74,7 +75,7 @@ export function RunningTimeCalculatorModal(): JSX.Element {
                         Choose a metric to analyze. We'll use historical data from this metric to estimate the
                         experiment duration.
                     </p>
-                    <div className="space-y-2">
+                    <div className="deprecated-space-y-2">
                         <div className="mb-4">
                             <div className="card-secondary mb-2">Experiment metric</div>
                             <LemonSelect
@@ -102,18 +103,20 @@ export function RunningTimeCalculatorModal(): JSX.Element {
                                     <Spinner className="text-3xl transform -translate-y-[-10px]" />
                                 </div>
                             </div>
-                        ) : uniqueUsers !== null && standardDeviation !== null ? (
+                        ) : (
                             <div className="border-t pt-2">
                                 <div className="grid grid-cols-3 gap-4">
-                                    <div>
-                                        <div className="card-secondary">Unique users</div>
-                                        <div className="font-semibold">
-                                            ~{humanFriendlyNumber(uniqueUsers || 0, 0)} persons
+                                    {uniqueUsers !== null && (
+                                        <div>
+                                            <div className="card-secondary">Unique users</div>
+                                            <div className="font-semibold">
+                                                ~{humanFriendlyNumber(uniqueUsers || 0, 0)} persons
+                                            </div>
+                                            <div className="text-xs text-muted">
+                                                Last {TIMEFRAME_HISTORICAL_DATA_DAYS} days
+                                            </div>
                                         </div>
-                                        <div className="text-xs text-muted">
-                                            Last {TIMEFRAME_HISTORICAL_DATA_DAYS} days
-                                        </div>
-                                    </div>
+                                    )}
                                     {averageEventsPerUser !== null && (
                                         <div>
                                             <div className="card-secondary">Avg. events per user</div>
@@ -130,22 +133,32 @@ export function RunningTimeCalculatorModal(): JSX.Element {
                                             </div>
                                         </div>
                                     )}
-                                    <div>
-                                        <div className="card-secondary">Estimated standard deviation</div>
-                                        <div className="font-semibold">
-                                            ~{humanFriendlyNumber(standardDeviation, 0)}
+                                    {conversionRate !== null && (
+                                        <div>
+                                            <div className="card-secondary">Conversion rate</div>
+                                            <div className="font-semibold">
+                                                ~{humanFriendlyNumber(conversionRate * 100, 2)}%
+                                            </div>
                                         </div>
-                                    </div>
+                                    )}
+                                    {standardDeviation !== null && (
+                                        <div>
+                                            <div className="card-secondary">Estimated standard deviation</div>
+                                            <div className="font-semibold">
+                                                ~{humanFriendlyNumber(standardDeviation, 0)}
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
-                        ) : null}
+                        )}
                     </div>
                 </div>
 
                 {!metricResultLoading && uniqueUsers !== null && (
                     <>
                         {/* Step 2: MDE configuration */}
-                        <div className="rounded bg-light p-4 space-y-3">
+                        <div className="rounded bg-light p-4 deprecated-space-y-3">
                             <div className="flex items-center gap-2">
                                 <span className="rounded-full bg-muted text-white w-6 h-6 flex items-center justify-center font-semibold">
                                     2
@@ -176,7 +189,7 @@ export function RunningTimeCalculatorModal(): JSX.Element {
 
                         {/* Step 3: Results */}
                         {recommendedSampleSize !== null && recommendedRunningTime !== null && (
-                            <div className="rounded bg-light p-4 space-y-3">
+                            <div className="rounded bg-light p-4 deprecated-space-y-3">
                                 <div className="flex items-center gap-2">
                                     <span className="rounded-full bg-muted text-white w-6 h-6 flex items-center justify-center font-semibold">
                                         3

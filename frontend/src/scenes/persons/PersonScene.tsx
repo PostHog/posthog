@@ -48,7 +48,7 @@ export const scene: SceneExport = {
 function PersonCaption({ person }: { person: PersonType }): JSX.Element {
     return (
         <div className="flex flex-wrap items-center gap-2">
-            <div className="flex space-x-1">
+            <div className="flex deprecated-space-x-1">
                 <div>
                     <span className="text-secondary">IDs:</span>{' '}
                     <CopyToClipboardInline
@@ -274,12 +274,12 @@ export function PersonScene(): JSX.Element | null {
                               label: <span data-attr="persons-related-flags-tab">Feature flags</span>,
                               content: (
                                   <>
-                                      <div className="flex space-x-2 items-center mb-2">
+                                      <div className="flex deprecated-space-x-2 items-center mb-2">
                                           <div className="flex items-center">
                                               Choose ID:
                                               <Tooltip
                                                   title={
-                                                      <div className="space-y-2">
+                                                      <div className="deprecated-space-y-2">
                                                           <div>
                                                               Feature flags values can depend on a person's distinct ID.
                                                           </div>
@@ -312,7 +312,7 @@ export function PersonScene(): JSX.Element | null {
                                           />
                                       </div>
                                       <LemonDivider className="mb-4" />
-                                      <RelatedFeatureFlags distinctId={distinctId || person.distinct_ids[0]} />
+                                      <RelatedFeatureFlags distinctId={distinctId || primaryDistinctId} />
                                   </>
                               ),
                           }

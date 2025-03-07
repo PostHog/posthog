@@ -189,7 +189,7 @@ export function FunnelAttributionSelect({
                 <Tooltip
                     closeDelayMs={200}
                     title={
-                        <div className="space-y-2">
+                        <div className="deprecated-space-y-2">
                             <div>
                                 When breaking down funnels, it's possible that the same properties don't exist on every
                                 event. For example, if you want to break down by browser on a funnel that contains both

@@ -86,14 +86,14 @@ export function NoResultEmptyState({ error, metric }: { error: any; metric: any 
         }
 
         return (
-            <div className="flex items-center space-x-2">
+            <div className="flex items-center deprecated-space-x-2">
                 {value === false ? (
-                    <span className="flex items-center space-x-2">
+                    <span className="flex items-center deprecated-space-x-2">
                         <IconCheck className="text-success" fontSize={16} />
                         <span className="text-secondary">{successText[errorCode]}</span>
                     </span>
                 ) : (
-                    <span className="flex items-center space-x-2">
+                    <span className="flex items-center deprecated-space-x-2">
                         <IconX className="text-danger" fontSize={16} />
                         <span>{failureText[errorCode]}</span>
                         <Tooltip title="Verify missing events in the Activity tab">
