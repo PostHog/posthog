@@ -142,6 +142,9 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             payload["incremental_field"] = data.get("incremental_field")
             payload["incremental_field_type"] = data.get("incremental_field_type")
             payload["incremental_field_last_value"] = None
+            payload["partitioning_enabled"] = None
+            payload["partitioning_size"] = None
+            payload["partitioning_keys"] = None
 
             validated_data["sync_type_config"] = payload
         else:
@@ -149,6 +152,9 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             payload.pop("incremental_field", None)
             payload.pop("incremental_field_type", None)
             payload.pop("incremental_field_last_value", None)
+            payload.pop("partitioning_enabled", None)
+            payload.pop("partitioning_size", None)
+            payload.pop("partitioning_keys", None)
 
             validated_data["sync_type_config"] = payload
 
