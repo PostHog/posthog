@@ -74,7 +74,7 @@ export function EnvironmentSwitcherOverlay({ onClickInside }: { onClickInside?: 
                 label: 'New environment in project',
                 onClick: () => {
                     onClickInside?.()
-                    guardAvailableFeature(AvailableFeature.MULTIPLE_ENVIRONMENTS, showCreateEnvironmentModal, {
+                    guardAvailableFeature(AvailableFeature.ENVIRONMENTS, showCreateEnvironmentModal, {
                         currentUsage: currentOrganization?.teams?.filter(
                             (team) => team.project_id === currentTeam.project_id
                         ).length,
