@@ -216,7 +216,7 @@ class PathsV2QueryRunner(QueryRunner):
                 arrayPushBack(paths_array_per_session, (now(), {POSTHOG_DROPOFF}, now())) as paths_array_per_session_with_dropoffs,
 
                 /* Returns the first n events per session. */
-                arraySlice(paths_array_per_session, 1, {max_steps}) as limited_paths_array_per_session
+                arraySlice(paths_array_per_session_with_dropoffs, 1, {max_steps}) as limited_paths_array_per_session
             FROM {paths_per_actor_as_array_query}
             ARRAY JOIN paths_array_session_split AS paths_array_per_session,
                 arrayEnumerate(paths_array_session_split) AS session_index
@@ -296,7 +296,7 @@ class PathsV2QueryRunner(QueryRunner):
         return parse_select(
             """
             WITH
-                path_links AS (
+                paths AS (
                     SELECT
                         step_in_session_index as step_index,
                         COUNT(*) AS value,
@@ -307,7 +307,7 @@ class PathsV2QueryRunner(QueryRunner):
                         previous_path_item,
                         path_item
                 ),
-                source_steps_to_keep AS (
+                top_n_sources AS (
                     SELECT step_index, source_step
                     FROM (
                         SELECT
@@ -315,24 +315,29 @@ class PathsV2QueryRunner(QueryRunner):
                             source_step,
                             SUM(value) AS total_value,
                             ROW_NUMBER() OVER (PARTITION BY step_index ORDER BY SUM(value) DESC) AS rn
-                        FROM path_links
+                        FROM paths
                         WHERE source_step != {POSTHOG_DROPOFF}
                         GROUP BY step_index, source_step
                     )
                     WHERE rn <= {max_rows_per_step}
                 )
             SELECT
-                path_links.step_index,
-                CASE WHEN path_links.source_step = {POSTHOG_DROPOFF} OR ts.source_step IS NOT NULL THEN path_links.source_step ELSE {POSTHOG_OTHER} END AS source_step,
-                target_step,
-                SUM(path_links.value) AS total_value
-            FROM path_links
-            LEFT JOIN source_steps_to_keep ts ON path_links.step_index = ts.step_index AND path_links.source_step = ts.source_step
-            GROUP BY
-                path_links.step_index,
-                CASE WHEN path_links.source_step = {POSTHOG_DROPOFF} OR ts.source_step IS NOT NULL THEN path_links.source_step ELSE {POSTHOG_OTHER} END,
-                target_step
-            ORDER BY path_links.step_index ASC, total_value DESC
+                p.step_index,
+                p.source_step,
+                /* Replace source_step with "other", when it's not found in the top sources subquery. */
+                CASE
+                    -- always keep dropoffs
+                    WHEN p.source_step = '$$_posthog_dropoff_$$'
+                    -- always keep nulls, they indicate the path start
+                    OR p.source_step IS NULL
+                    -- lookup step in the subquery
+                    OR s.source_step IS NOT NULL THEN p.source_step
+                    ELSE '$$_posthog_other_$$'
+                END AS grouped_source_step,
+                p.target_step,
+                p.value
+            FROM paths p
+            LEFT JOIN top_n_sources s ON p.step_index = s.step_index AND p.source_step = s.source_step
             """,
             placeholders={
                 "paths_flattened_with_previous_item": self._paths_flattened_with_previous_item(),
