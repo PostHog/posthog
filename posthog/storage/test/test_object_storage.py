@@ -1,3 +1,4 @@
+import re
 import uuid
 from unittest.mock import patch
 from unittest.mock import MagicMock
@@ -41,7 +42,7 @@ class TestStorage(APIBaseTest):
     @patch("posthog.storage.object_storage.client")
     def test_does_not_create_client_if_storage_is_disabled(self, patched_s3_client) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=False):
-            self.assertFalse(health_check())
+            assert not health_check()
             patched_s3_client.assert_not_called()
 
     def test_write_and_read_works_with_known_content(self) -> None:
@@ -51,7 +52,7 @@ class TestStorage(APIBaseTest):
             name = f"{session_id}/{0}-{chunk_id}"
             file_name = f"{TEST_BUCKET}/test_write_and_read_works_with_known_content/{name}"
             write(file_name, "my content")
-            self.assertEqual(read(file_name), "my content")
+            assert read(file_name) == "my content"
 
     def test_write_and_read_works_with_known_byte_content(self) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=True):
@@ -60,7 +61,7 @@ class TestStorage(APIBaseTest):
             name = f"{session_id}/{0}-{chunk_id}"
             file_name = f"{TEST_BUCKET}/test_write_and_read_works_with_known_content/{name}"
             write(file_name, b"my content")
-            self.assertEqual(read(file_name), "my content")
+            assert read(file_name) == "my content"
 
     def test_can_generate_presigned_url_for_existing_file(self) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=True):
@@ -72,9 +73,9 @@ class TestStorage(APIBaseTest):
 
             presigned_url = get_presigned_url(file_name)
             assert presigned_url is not None
-            self.assertRegex(
-                presigned_url,
+            assert re.match(
                 r"^http://localhost:\d+/posthog/test_storage_bucket/test_can_generate_presigned_url_for_existing_file/.*\?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=.*$",
+                presigned_url,
             )
 
     def test_can_generate_presigned_url_for_non_existent_file(self) -> None:
@@ -84,9 +85,9 @@ class TestStorage(APIBaseTest):
 
             presigned_url = get_presigned_url(file_name)
             assert presigned_url is not None
-            self.assertRegex(
-                presigned_url,
+            assert re.match(
                 r"^http://localhost:\d+/posthog/test_storage_bucket/test_can_ignore_presigned_url_for_non_existent_file/.*?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=.*$",
+                presigned_url,
             )
 
     def test_can_list_objects_with_prefix(self) -> None:
@@ -175,21 +176,21 @@ class TestStorage(APIBaseTest):
 
         # Assert
         mock_client.get_object.assert_called_with(Bucket="test-bucket", Key="test-key", Range="bytes=5-10")
-        self.assertEqual(result, b"test content")
+        assert result == b"test content"
 
         # Test with only first_byte
         result = storage.read_bytes("test-bucket", "test-key", first_byte=5)
 
         # Assert
         mock_client.get_object.assert_called_with(Bucket="test-bucket", Key="test-key", Range="bytes=5-")
-        self.assertEqual(result, b"test content")
+        assert result == b"test content"
 
         # Test without byte range
         result = storage.read_bytes("test-bucket", "test-key")
 
         # Assert
         mock_client.get_object.assert_called_with(Bucket="test-bucket", Key="test-key")
-        self.assertEqual(result, b"test content")
+        assert result == b"test content"
 
         # Test that the correct byte range is returned from S3
         # Setup a new mock that returns exactly the requested bytes
@@ -207,6 +208,6 @@ class TestStorage(APIBaseTest):
 
         # Assert
         mock_client2.get_object.assert_called_with(Bucket="test-bucket", Key="test-key", Range="bytes=5-10")
-        self.assertEqual(result, b"fghijk")
-        self.assertIsNotNone(result)  # Ensure result is not None before calling len()
-        self.assertEqual(len(result), 6)  # Bytes 5-10 inclusive should be 6 bytes
+        assert result == b"fghijk"
+        assert result is not None  # Ensure result is not None before calling len()
+        assert len(result) == 6  # Bytes 5-10 inclusive should be 6 bytes

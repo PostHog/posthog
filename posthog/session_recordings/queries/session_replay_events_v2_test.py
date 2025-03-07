@@ -48,7 +48,7 @@ class SessionReplayEventsV2Test:
         if len(replay_response) == 0:
             return None
         if len(replay_response) > 1:
-            raise ValueError("Multiple sessions found for session_id: {}".format(session_id))
+            raise ValueError(f"Multiple sessions found for session_id: {session_id}")
 
         replay = replay_response[0]
         return RecordingMetadataV2Test(
