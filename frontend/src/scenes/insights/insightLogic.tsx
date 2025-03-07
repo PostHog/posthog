@@ -338,9 +338,14 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             },
         ],
         showPersonsModal: [
-            (s) => [s.query, s.insightProps],
-            (query: Record<string, any>, insightProps: InsightLogicProps): boolean =>
-                !(query?.hidePersonsModal || insightProps?.query?.hidePersonsModal),
+            (s) => [s.query, s.insightProps, s.featureFlags],
+            (query: Record<string, any>, insightProps: InsightLogicProps, featureFlags: Record<string, boolean>): boolean => {
+                if (featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_HIDE_MODAL_ACTORS]) {
+                    const theQuery = query || insightProps?.query
+                    return !theQuery || !theQuery.hidePersonsModal
+                }
+                return !query || !query.hidePersonsModal
+            },
         ],
         supportsCreatingExperiment: [
             (s) => [s.insight, s.activeScene],
