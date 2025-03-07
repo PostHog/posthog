@@ -131,6 +131,8 @@ export type IngestionConsumerConfig = {
     INGESTION_CONSUMER_DLQ_TOPIC: string
     /** If set then overflow routing is enabled and the topic is used for overflow events */
     INGESTION_CONSUMER_OVERFLOW_TOPIC?: string
+    /** If set the ingestion consumer doesn't process events the usual way but rather just writes to a dummy topic */
+    INGESTION_CONSUMER_TESTING_TOPIC?: string
 }
 
 export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig {
