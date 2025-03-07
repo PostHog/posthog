@@ -205,7 +205,7 @@ def org_quota_limited_until(
     team_tokens = get_team_attribute_by_quota_resource(organization)
     team_being_limited = any(x in previously_quota_limited_team_tokens for x in team_tokens)
 
-    # 2 already being limited
+    # 2. already being limited
     if team_being_limited:
         # They are already being limited, do not update their status.
         report_organization_action(
