@@ -149,6 +149,9 @@ runs:
           shell: bash
           run: echo "PYTEST_ARGS=--snapshot-update" >> $GITHUB_ENV # We can only update snapshots within the PostHog org
 
+        - name: Setup tmate session
+          uses: mxschmitt/action-tmate@v3
+
         # Tests
         - name: Run Core tests
           id: run-core-tests
@@ -170,9 +173,9 @@ runs:
 
         # Uncomment this code to create an ssh-able console so you can debug issues with github actions
         # (Consider changing the timeout in ci-backend.yml to have more time)
-        - name: Setup tmate session
-          if: failure()
-          uses: mxschmitt/action-tmate@v3
+        # - name: Setup tmate session
+        #   if: failure()
+        #   uses: mxschmitt/action-tmate@v3
 
         - name: Run /decide read replica tests
           id: run-decide-read-replica-tests
