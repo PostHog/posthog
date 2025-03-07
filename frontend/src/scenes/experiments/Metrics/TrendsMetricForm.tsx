@@ -146,7 +146,7 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                         className={`trends-metric-form__exposure-button flex-1 cursor-pointer p-4 rounded border ${
                                             !currentMetric.exposure_query
                                                 ? 'border-accent-primary bg-accent-primary-highlight'
-                                                : 'border-border'
+                                                : 'border-primary'
                                         }`}
                                         onClick={() => {
                                             const metricsField = isSecondary ? 'metrics_secondary' : 'metrics'
@@ -177,7 +177,7 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                         className={`trends-metric-form__exposure-button flex-1 cursor-pointer p-4 rounded border ${
                                             currentMetric.exposure_query
                                                 ? 'border-accent-primary bg-accent-primary-highlight'
-                                                : 'border-border'
+                                                : 'border-primary'
                                         }`}
                                         disabledReason={
                                             isDataWarehouseMetric
