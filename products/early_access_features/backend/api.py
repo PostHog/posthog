@@ -243,6 +243,7 @@ class EarlyAccessFeatureViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 @csrf_exempt
 def early_access_features(request: Request):
     token = get_token(None, request)
+    stages = request.GET.getlist("stage", [EarlyAccessFeature.Stage.BETA, EarlyAccessFeature.Stage.CONCEPT])
 
     if not token:
         return cors_response(
@@ -270,9 +271,9 @@ def early_access_features(request: Request):
         )
 
     early_access_features = MinimalEarlyAccessFeatureSerializer(
-        EarlyAccessFeature.objects.filter(
-            team__project_id=team.project_id, stage=EarlyAccessFeature.Stage.BETA
-        ).select_related("feature_flag"),
+        EarlyAccessFeature.objects.filter(team__project_id=team.project_id, stage__in=stages).select_related(
+            "feature_flag"
+        ),
         many=True,
     ).data
 

@@ -22,6 +22,9 @@ export function FeaturePreviews({ focusedFeatureFlagKey }: { focusedFeatureFlagK
         }
     }, [focusedFeatureFlagKey, earlyAccessFeatures])
 
+    const conceptFeatures = earlyAccessFeatures.filter((f) => f.stage === 'concept')
+    const betaFeatures = earlyAccessFeatures.filter((f) => f.stage === 'beta')
+
     return (
         <div
             className={clsx(
@@ -29,17 +32,18 @@ export function FeaturePreviews({ focusedFeatureFlagKey }: { focusedFeatureFlagK
                 earlyAccessFeatures.length === 0 && 'items-center justify-center'
             )}
         >
-            {earlyAccessFeatures.map((feature, i) => {
-                if (!feature.flagKey) {
-                    return false
-                }
-                return (
-                    <div key={feature.flagKey} id={`feature-preview-${feature.flagKey}`}>
-                        {i > 0 && <LemonDivider className="my-4" />}
-                        <FeaturePreview key={feature.flagKey} feature={feature} />
-                    </div>
-                )
-            })}
+            {conceptFeatures.map((feature, i) => (
+                <div key={feature.flagKey} id={`feature-preview-${feature.flagKey}`}>
+                    {i > 0 && <LemonDivider className="my-4" />}
+                    <ConceptPreview key={feature.flagKey} feature={feature} />
+                </div>
+            ))}
+            {betaFeatures.map((feature, i) => (
+                <div key={feature.flagKey} id={`feature-preview-${feature.flagKey}`}>
+                    {i > 0 && <LemonDivider className="my-4" />}
+                    <FeaturePreview key={feature.flagKey} feature={feature} />
+                </div>
+            ))}
             {rawEarlyAccessFeaturesLoading ? (
                 <SpinnerOverlay />
             ) : earlyAccessFeatures.length === 0 ? (
@@ -49,6 +53,37 @@ export function FeaturePreviews({ focusedFeatureFlagKey }: { focusedFeatureFlagK
                     Check back later!
                 </i>
             ) : null}
+        </div>
+    )
+}
+
+function ConceptPreview({ feature }: { feature: EnrichedEarlyAccessFeature }): JSX.Element {
+    const { updateEarlyAccessFeatureEnrollment, copyExternalFeaturePreviewLink } = useActions(featurePreviewsLogic)
+
+    const { flagKey, enabled, name, description } = feature
+
+    console.log('enabled: ', enabled)
+
+    return (
+        <div>
+            <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1">
+                    <h4 className="font-semibold mb-0">{name}</h4>
+                    <LemonButton
+                        icon={<IconLink />}
+                        size="small"
+                        onClick={() => copyExternalFeaturePreviewLink(flagKey)}
+                    />
+                </div>
+                <LemonButton
+                    type="primary"
+                    disabledReason={enabled && 'You have already expressed your interest'}
+                    onClick={() => updateEarlyAccessFeatureEnrollment(flagKey, true)}
+                >
+                    Get notified
+                </LemonButton>
+            </div>
+            <p className="my-2">{description || <i>No description.</i>}</p>
         </div>
     )
 }
