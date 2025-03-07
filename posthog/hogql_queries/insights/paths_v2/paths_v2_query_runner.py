@@ -22,8 +22,8 @@ from posthog.schema import (
     PathsV2QueryResponse,
 )
 
-POSTHOG_OTHER = "$$_posthog_other_$$"
-POSTHOG_DROPOFF = "$$_posthog_dropoff_$$"
+POSTHOG_OTHER = "$$__posthog_other__$$"
+POSTHOG_DROPOFF = "$$__posthog_dropoff__$$"
 
 
 class PathsV2QueryRunner(QueryRunner):
@@ -360,7 +360,7 @@ class PathsV2QueryRunner(QueryRunner):
                     OR p.source_step IS NULL
                     -- lookup step in the subquery
                     OR s.target_step != '' THEN p.source_step
-                    ELSE '$$_posthog_other_$$'
+                    ELSE {POSTHOG_OTHER}
                 END AS grouped_source_step,
                 p.target_step,
                 /* Replace target_step with "other", when it's not found in the top targets subquery. */
@@ -369,7 +369,7 @@ class PathsV2QueryRunner(QueryRunner):
                     WHEN p.target_step = '$$_posthog_dropoff_$$'
                     -- lookup step in the subquery
                     OR t.target_step != '' THEN p.target_step
-                    ELSE '$$_posthog_other_$$'
+                    ELSE {POSTHOG_OTHER}
                 END AS grouped_target_step,
                 p.value
             FROM paths p

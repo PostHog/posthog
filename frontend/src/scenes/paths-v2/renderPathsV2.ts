@@ -107,7 +107,6 @@ const appendNodes = (svg: any, nodes: PathNodeData[], pathsFilter: PathsFilter):
         .attr('height', (node: PathNodeData) => Math.max(node.y1 - node.y0, NODE_MIN_HEIGHT))
         .attr('width', (node: PathNodeData) => node.x1 - node.x0 + 2 * NODE_BORDER_RADIUS)
         .attr('fill', (node: PathNodeData) => {
-            console.debug('node', node)
             if (node.type === PathNodeType.Other) {
                 return 'var(--paths-node--other)'
             } else if (node.type === PathNodeType.Dropoff) {
