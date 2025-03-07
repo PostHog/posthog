@@ -177,7 +177,7 @@ def team_api_test_factory():
                 {
                     "type": "authentication_error",
                     "code": "permission_denied",
-                    "detail": "You must upgrade your PostHog plan to be able to create and manage multiple projects or environments.",
+                    "detail": "You must upgrade your PostHog plan to be able to create and manage more environments per project.",
                 },
                 response_data,
             )
@@ -191,7 +191,7 @@ def team_api_test_factory():
                 {
                     "type": "authentication_error",
                     "code": "permission_denied",
-                    "detail": "You must upgrade your PostHog plan to be able to create and manage multiple projects or environments.",
+                    "detail": "You must upgrade your PostHog plan to be able to create and manage more environments per project.",
                 },
                 response_data,
             )
@@ -1530,7 +1530,7 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
             {
                 "type": "authentication_error",
                 "code": "permission_denied",
-                "detail": "You must upgrade your PostHog plan to be able to create and manage multiple environments per project.",
+                "detail": "You must upgrade your PostHog plan to be able to create and manage more environments per project.",
             },
             response_data,
         )
