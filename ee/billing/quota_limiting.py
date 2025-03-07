@@ -27,12 +27,15 @@ from posthog.utils import get_current_day
 
 QUOTA_LIMIT_DATA_RETENTION_FLAG = "retain-data-past-quota-limit"
 
-QUOTA_LIMIT_MEDIUM_TRUST_GRACE_PERIOD_DAYS = 1
+QUOTA_LIMIT_NO_TRUST_GRACE_PERIOD_DAYS = 1
+QUOTA_LIMIT_LOW_TRUST_GRACE_PERIOD_DAYS = 3
+QUOTA_LIMIT_MEDIUM_TRUST_GRACE_PERIOD_DAYS = 3
 QUOTA_LIMIT_MEDIUM_HIGH_TRUST_GRACE_PERIOD_DAYS = 3
 
 # Lookup table for trust scores to grace period days
 GRACE_PERIOD_DAYS: dict[int, int] = {
-    3: 0,
+    0: QUOTA_LIMIT_NO_TRUST_GRACE_PERIOD_DAYS,
+    3: QUOTA_LIMIT_LOW_TRUST_GRACE_PERIOD_DAYS,
     7: QUOTA_LIMIT_MEDIUM_TRUST_GRACE_PERIOD_DAYS,
     10: QUOTA_LIMIT_MEDIUM_HIGH_TRUST_GRACE_PERIOD_DAYS,
 }
@@ -250,12 +253,21 @@ def org_quota_limited_until(
     # These trust score levels are defined in billing::customer::TrustScores.
     # Please keep the logic and levels in sync with what is defined in billing.
 
-    # 2b. no trust score
-    if not trust_score:
-        # Set them to the default trust score and immediately limit
-        if trust_score is None:
-            organization.customer_trust_scores[resource.value] = 0
-            organization.save(update_fields=["customer_trust_scores"])
+    # If trust_score is None, set it to 0
+    if trust_score is None:
+        organization.customer_trust_scores[resource.value] = 0
+        organization.save(update_fields=["customer_trust_scores"])
+        trust_score = 0
+
+    # Apply grace period based on trust score
+    grace_period_days = GRACE_PERIOD_DAYS.get(trust_score, 0)
+
+    # If the suspension is expired or never set, we want to suspend the limit for a grace period
+    if (
+        not quota_limiting_suspended_until
+        or (datetime.fromtimestamp(quota_limiting_suspended_until) - timedelta(grace_period_days)).timestamp()
+        < billing_period_start
+    ):
         report_organization_action(
             organization,
             "org_quota_limited_until",
@@ -264,104 +276,46 @@ def org_quota_limited_until(
                 "current_usage": usage + todays_usage,
                 "resource": resource.value,
                 "trust_score": trust_score,
+                "grace_period_days": grace_period_days,
+            },
+        )
+        quota_limiting_suspended_until = round((today_end + timedelta(days=grace_period_days)).timestamp())
+        update_organization_usage_field(
+            organization, resource, "quota_limiting_suspended_until", quota_limiting_suspended_until
+        )
+        return {
+            "quota_limited_until": None,
+            "quota_limiting_suspended_until": quota_limiting_suspended_until,
+        }
+
+    elif today_end.timestamp() <= quota_limiting_suspended_until:
+        # If the suspension is still active (after today's end), we want to return the existing suspension date
+        report_organization_action(
+            organization,
+            "org_quota_limited_until",
+            properties={
+                "event": "suspension not expired",
+                "current_usage": usage + todays_usage,
+                "resource": resource.value,
+                "quota_limiting_suspended_until": quota_limiting_suspended_until,
             },
         )
         return {
-            "quota_limited_until": billing_period_end,
-            "quota_limiting_suspended_until": None,
+            "quota_limited_until": None,
+            "quota_limiting_suspended_until": quota_limiting_suspended_until,
         }
-
-    # 2c. low trust
-    elif trust_score == 3:
-        # Low trust, immediately limit
+    else:
+        # If the suspension is expired, we want to limit the org
         report_organization_action(
             organization,
             "org_quota_limited_until",
             properties={
-                "event": "suspended",
+                "event": "suspended expired",
                 "current_usage": usage + todays_usage,
                 "resource": resource.value,
-                "trust_score": trust_score,
             },
         )
         update_organization_usage_field(organization, resource, "quota_limiting_suspended_until", None)
-        return {
-            "quota_limited_until": billing_period_end,
-            "quota_limiting_suspended_until": None,
-        }
-
-    # 3. medium / medium high trust
-    elif trust_score in [7, 10]:
-        grace_period_days = GRACE_PERIOD_DAYS[trust_score]
-
-        # If the suspension is expired or never set, we want to suspend the limit for a grace period
-        if (
-            not quota_limiting_suspended_until
-            or (datetime.fromtimestamp(quota_limiting_suspended_until) - timedelta(grace_period_days)).timestamp()
-            < billing_period_start
-        ):
-            report_organization_action(
-                organization,
-                "org_quota_limited_until",
-                properties={
-                    "event": "suspended",
-                    "current_usage": usage + todays_usage,
-                    "resource": resource.value,
-                    "grace_period_days": grace_period_days,
-                },
-            )
-            quota_limiting_suspended_until = round((today_end + timedelta(days=grace_period_days)).timestamp())
-            update_organization_usage_field(
-                organization, resource, "quota_limiting_suspended_until", quota_limiting_suspended_until
-            )
-            return {
-                "quota_limited_until": None,
-                "quota_limiting_suspended_until": quota_limiting_suspended_until,
-            }
-
-        elif today_end.timestamp() <= quota_limiting_suspended_until:
-            # If the suspension is still active (after today's end), we want to return the existing suspension date
-            report_organization_action(
-                organization,
-                "org_quota_limited_until",
-                properties={
-                    "event": "suspension not expired",
-                    "current_usage": usage + todays_usage,
-                    "resource": resource.value,
-                    "quota_limiting_suspended_until": quota_limiting_suspended_until,
-                },
-            )
-            return {
-                "quota_limited_until": None,
-                "quota_limiting_suspended_until": quota_limiting_suspended_until,
-            }
-        else:
-            # If the suspension is expired, we want to limit the org
-            report_organization_action(
-                organization,
-                "org_quota_limited_until",
-                properties={
-                    "event": "suspended expired",
-                    "current_usage": usage + todays_usage,
-                    "resource": resource.value,
-                },
-            )
-            update_organization_usage_field(organization, resource, "quota_limiting_suspended_until", None)
-            return {
-                "quota_limited_until": billing_period_end,
-                "quota_limiting_suspended_until": None,
-            }
-    else:
-        # Should never reach here - return the default behavior just to be safe
-        report_quota_limiting_event(
-            "org_quota_limited_until",
-            {
-                "event": "unexpected trust score",
-                "current_usage": usage + todays_usage,
-                "resource": resource.value,
-                "trust_score": trust_score,
-            },
-        )
         return {
             "quota_limited_until": billing_period_end,
             "quota_limiting_suspended_until": None,
