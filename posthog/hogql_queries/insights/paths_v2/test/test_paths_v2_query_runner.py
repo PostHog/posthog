@@ -6,7 +6,7 @@ from clickhouse_driver.util.escape import UUID
 from freezegun.api import freeze_time
 import pytz
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql_queries.insights.paths_v2.paths_v2_query_runner import ROW_LIMIT_OTHER, PathsV2QueryRunner
+from posthog.hogql_queries.insights.paths_v2.paths_v2_query_runner import POSTHOG_OTHER, PathsV2QueryRunner
 from posthog.models import Team
 from posthog.schema import PathsV2Filter, PathsV2Item, PathsV2Query, PathsV2QueryResponse
 from posthog.test.base import (
@@ -145,7 +145,7 @@ class TestPathsV2(SharedSetup):
             [
                 PathsV2Item(value=1.0, source_step="step_1_a", target_step="step_2_a", step_index=2),
                 PathsV2Item(value=1.0, source_step="step_1_a", target_step="step_2_b", step_index=2),
-                PathsV2Item(value=2.0, source_step="step_1_a", target_step=ROW_LIMIT_OTHER, step_index=2),
+                PathsV2Item(value=2.0, source_step="step_1_a", target_step=POSTHOG_OTHER, step_index=2),
             ],
         )
 

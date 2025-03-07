@@ -22,7 +22,8 @@ from posthog.schema import (
     PathsV2QueryResponse,
 )
 
-ROW_LIMIT_OTHER = "$$_posthog_breakdown_other_$$"
+POSTHOG_OTHER = "$$_posthog_other_$$"
+POSTHOG_DROPOFF = "$$_posthog_dropoff_$$"
 
 
 class PathsV2QueryRunner(QueryRunner):
@@ -78,7 +79,7 @@ class PathsV2QueryRunner(QueryRunner):
 
         results = [
             PathsV2Item(step_index=step_index, source_step=source, target_step=target, value=value)
-            for step_index, value, _row_number, source, target in response.results
+            for step_index, source, target, value in response.results
             if source is not None
         ]
 
@@ -211,8 +212,11 @@ class PathsV2QueryRunner(QueryRunner):
                 previous timestamp is greater than the session window. */
                 arraySplit(x->if(x.1 < x.3 + {session_interval}, 0, 1), paths_array) as paths_array_session_split,
 
+                /* Adds dropoffs. */
+                arrayPushBack(paths_array_per_session, (now(), {POSTHOG_DROPOFF}, now())) as paths_array_per_session_with_dropoffs,
+
                 /* Returns the first n events per session. */
-                arraySlice(paths_array_per_session, 1, {max_steps}) as limited_paths_array_per_session
+                arraySlice(paths_array_per_session_with_dropoffs, 1, {max_steps}) as limited_paths_array_per_session
             FROM {paths_per_actor_as_array_query}
             ARRAY JOIN paths_array_session_split AS paths_array_per_session,
                 arrayEnumerate(paths_array_session_split) AS session_index
@@ -290,22 +294,49 @@ class PathsV2QueryRunner(QueryRunner):
         """
         return parse_select(
             """
+            WITH
+                path_links AS (
+                    SELECT
+                        step_in_session_index as step_index,
+                        COUNT(*) AS value,
+                        previous_path_item as source_step,
+                        path_item AS target_step
+                    FROM {paths_flattened_with_previous_item}
+                    GROUP BY step_index,
+                        previous_path_item,
+                        path_item
+                ),
+                source_steps_to_keep AS (
+                    SELECT step_index, source_step
+                    FROM (
+                        SELECT
+                            step_index,
+                            source_step,
+                            SUM(value) AS total_value,
+                            ROW_NUMBER() OVER (PARTITION BY step_index ORDER BY SUM(value) DESC) AS rn
+                        FROM path_links
+                        WHERE source_step != {POSTHOG_DROPOFF}
+                        GROUP BY step_index, source_step
+                    )
+                    WHERE rn <= {max_rows_per_step}
+                )
             SELECT
-                step_in_session_index as step_index,
-                COUNT(*) AS value,
-                row_number() OVER (PARTITION BY step_index ORDER BY value DESC) AS row_number,
-                previous_path_item as source_step,
-                if(row_number <= {max_rows_per_step}, path_item, {other}) AS target_step,
-            FROM {paths_flattened_with_previous_item}
-            --WHERE source_step IS NOT NULL
-            GROUP BY step_index,
-                previous_path_item,
-                path_item
-            ORDER BY step_index ASC, value DESC
-        """,
+                path_links.step_index,
+                CASE WHEN path_links.source_step = {POSTHOG_DROPOFF} OR ts.source_step IS NOT NULL THEN path_links.source_step ELSE {POSTHOG_OTHER} END AS source_step,
+                target_step,
+                SUM(path_links.value) AS total_value
+            FROM path_links
+            LEFT JOIN source_steps_to_keep ts ON path_links.step_index = ts.step_index AND path_links.source_step = ts.source_step
+            GROUP BY
+                path_links.step_index,
+                CASE WHEN path_links.source_step = {POSTHOG_DROPOFF} OR ts.source_step IS NOT NULL THEN path_links.source_step ELSE {POSTHOG_OTHER} END,
+                target_step
+            ORDER BY path_links.step_index ASC, total_value DESC
+            """,
             placeholders={
                 "paths_flattened_with_previous_item": self._paths_flattened_with_previous_item(),
                 "max_rows_per_step": ast.Constant(value=self.max_rows_per_step),
-                "other": ast.Constant(value=ROW_LIMIT_OTHER),
+                "POSTHOG_OTHER": ast.Constant(value=POSTHOG_OTHER),
+                "POSTHOG_DROPOFF": ast.Constant(value=POSTHOG_DROPOFF),
             },
         )
