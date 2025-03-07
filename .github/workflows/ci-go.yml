@@ -51,6 +51,19 @@ jobs:
             - name: Install golangci-lint
               run: curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.55.2
 
+            - name: Debug golangci-lint
+              run: |
+                  echo "golangci-lint version:"
+                  $(go env GOPATH)/bin/golangci-lint --version
+                  echo "\nGOPATH:"
+                  echo $GOPATH
+                  echo "\nPATH:"
+                  echo $PATH
+                  echo "\nCurrent directory:"
+                  pwd
+                  echo "\nDirectory contents:"
+                  ls -la
+
             - name: Download dependencies
               working-directory: go
               run: make download-${{ matrix.service }}
