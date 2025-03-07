@@ -118,6 +118,7 @@ def process_query_model(
         elif isinstance(query, HogQLAutocomplete):
             result = get_hogql_autocomplete(query=query, team=team)
         elif isinstance(query, HogQLMetadata):
+            print("1: Processing HogQL metadata...")
             metadata_query = HogQLMetadata.model_validate(query)
             metadata_response = get_hogql_metadata(query=metadata_query, team=team)
             result = metadata_response

@@ -16,6 +16,7 @@ ConstantDataType: TypeAlias = Literal[
     "date",
     "datetime",
     "uuid",
+    "decimal",
     "unknown",
 ]
 ConstantSupportedPrimitive: TypeAlias = int | float | str | bool | date | datetime | UUID | None

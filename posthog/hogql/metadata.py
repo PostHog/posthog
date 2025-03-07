@@ -69,11 +69,14 @@ def get_hogql_metadata(
             else:
                 process_expr_on_table(node, context=context)
         elif query.language == HogLanguage.HOG_QL:
+            print("2: Processing HogQL query...")
             select_ast = parse_select(query.query)
             if query.filters:
                 select_ast = replace_filters(select_ast, query.filters, team)
+            print("3: Processing HogQL query...")
             if query.variables:
                 select_ast = replace_variables(select_ast, list(query.variables.values()), team)
+            print("4: Processing HogQL query...")
             _is_valid_view = is_valid_view(select_ast)
             table_names = get_table_names(select_ast)
             response.table_names = table_names
