@@ -3,7 +3,16 @@ import { IconUpload } from '@posthog/icons'
 import * as AccordionPrimitive from '@radix-ui/react-accordion'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { cn } from 'lib/utils/css-classes'
-import { forwardRef, HTMLAttributes, useCallback, useEffect, useRef, useState } from 'react'
+import {
+    ForwardedRef,
+    forwardRef,
+    HTMLAttributes,
+    useCallback,
+    useEffect,
+    useImperativeHandle,
+    useRef,
+    useState,
+} from 'react'
 
 import { findInProjectTreeByPath } from '~/layout/navigation-3000/components/ProjectTree/utils'
 
@@ -93,6 +102,11 @@ export type LemonTreeNodeProps = LemonTreeBaseProps & {
     depth?: number
     /** Whether the context menu is open */
     onContextMenuOpen?: (open: boolean) => void
+}
+
+export interface LemonTreeRef {
+    getVisibleItems: () => TreeDataItem[]
+    focusItem: (id: string) => void
 }
 
 const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
@@ -291,7 +305,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
 )
 LemonTreeNode.displayName = 'LemonTreeNode'
 
-const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
+const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
     (
         {
             data,
@@ -314,7 +328,7 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
             isFinishedBuildingTreeData,
             ...props
         },
-        ref
+        ref: ForwardedRef<LemonTreeRef>
     ): JSX.Element => {
         const TYPE_AHEAD_TIMEOUT = 500
         // Scrollable container
@@ -488,6 +502,27 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
             ]
         )
 
+        // Helper function to find next/previous non-separator item
+        const findNextFocusableItem = (
+            items: TreeDataItem[],
+            currentIndex: number,
+            direction: 1 | -1
+        ): TreeDataItem | undefined => {
+            let index = currentIndex
+            while (true) {
+                index += direction
+                if (direction > 0 && index >= items.length) {
+                    return undefined
+                }
+                if (direction < 0 && index < 0) {
+                    return undefined
+                }
+                if (items[index].type !== 'separator') {
+                    return items[index]
+                }
+            }
+        }
+
         const handleClick = useCallback(
             (item: TreeDataItem | undefined, isKeyboardAction = false): void => {
                 // Update focusedId when clicking
@@ -633,13 +668,16 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                     case 'ArrowDown': {
                         e.preventDefault()
                         if (currentIndex === -1) {
-                            // If no item is focused, focus the first item
-                            if (visibleItems.length > 0) {
-                                setFocusedId(visibleItems[0].id)
+                            // If no item is focused, focus the first non-separator item
+                            const firstItem = visibleItems.find((item) => item.type !== 'separator')
+                            if (firstItem) {
+                                setFocusedId(firstItem.id)
                             }
-                        } else if (currentIndex < visibleItems.length - 1) {
-                            setFocusedId(visibleItems[currentIndex + 1].id)
-                            // setSelectedd(undefined)
+                        } else {
+                            const nextItem = findNextFocusableItem(visibleItems, currentIndex, 1)
+                            if (nextItem) {
+                                setFocusedId(nextItem.id)
+                            }
                         }
                         break
                     }
@@ -649,13 +687,16 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                     case 'ArrowUp': {
                         e.preventDefault()
                         if (currentIndex === -1) {
-                            // If no item is focused, focus the first item
-                            if (visibleItems.length > 0) {
-                                setFocusedId(visibleItems[0].id)
+                            // If no item is focused, focus the last non-separator item
+                            const lastItem = [...visibleItems].reverse().find((item) => item.type !== 'separator')
+                            if (lastItem) {
+                                setFocusedId(lastItem.id)
                             }
-                        } else if (currentIndex > 0) {
-                            // Otherwise move focus to previous item
-                            setFocusedId(visibleItems[currentIndex - 1].id)
+                        } else {
+                            const prevItem = findNextFocusableItem(visibleItems, currentIndex, -1)
+                            if (prevItem) {
+                                setFocusedId(prevItem.id)
+                            }
                         }
                         break
                     }
@@ -788,6 +829,16 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
             }
         }, [defaultSelectedFolderOrNodeId, hasFocusedContent])
 
+        useImperativeHandle(ref, () => ({
+            getVisibleItems,
+            focusItem: (id: string) => {
+                setFocusedId(id)
+                // Find and focus the actual DOM element
+                const element = containerRef.current?.querySelector(`[data-id="${id}"]`) as HTMLElement
+                element?.focus()
+            },
+        }))
+
         return (
             <DndContext
                 onDragStart={(dragEvent) => {
@@ -823,7 +874,6 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                     <TreeNodeDroppable id="" isDroppable={enableDragAndDrop} className="h-full pb-32">
                         <LemonTreeNode
                             data={data}
-                            ref={ref}
                             selectedId={selectedId}
                             focusedId={focusedId}
                             handleClick={handleClick}

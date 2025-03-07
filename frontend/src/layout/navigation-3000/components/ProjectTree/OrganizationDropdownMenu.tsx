@@ -54,6 +54,7 @@ export function OrganizationDropdownMenu(): JSX.Element {
                     }
                     size="small"
                     className="hover:bg-fill-highlight-100 w-fit"
+                    tooltip="Open organization dropdown"
                 >
                     <span>{currentOrganization ? currentOrganization.name : 'Open'}</span>
                     <IconChevronDown

@@ -1,4 +1,5 @@
 import { IconBook } from '@posthog/icons'
+import Fuse from 'fuse.js'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
@@ -55,6 +56,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         loadFolderFailure: (folder: string, error: string) => ({ folder, error }),
         rename: (path: string) => ({ path }),
         createFolder: (parentPath: string) => ({ parentPath }),
+        setSearchTerm: (searchTerm: string) => ({ searchTerm }),
+        clearSearch: true,
     }),
     loaders(({ actions, values }) => ({
         allUnfiledItems: [
@@ -178,6 +181,13 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             true,
             {
                 setHelpNoticeVisibility: (_, { visible }) => visible,
+            },
+        ],
+        searchTerm: [
+            '',
+            {
+                setSearchTerm: (_, { searchTerm }) => searchTerm,
+                clearSearch: () => '',
             },
         ],
     }),
@@ -330,10 +340,67 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 },
             ],
         ],
+        searchedTreeItems: [
+            (s) => [s.defaultTreeNodes, s.projectTree, s.projectRow, s.searchTerm],
+            (
+                defaultTreeNodes: TreeDataItem[],
+                projectTree: TreeDataItem[],
+                projectRow: TreeDataItem[],
+                searchTerm: string
+            ): TreeDataItem[] => {
+                if (!searchTerm) {
+                    return [...defaultTreeNodes, ...projectRow, ...projectTree]
+                }
+
+                const allItems = [...defaultTreeNodes, ...projectRow, ...projectTree]
+                const fuse = new Fuse(allItems, {
+                    keys: ['name'],
+                    threshold: 0.3,
+                    ignoreLocation: true,
+                })
+
+                const searchResults = fuse.search(searchTerm).map((result) => result.item)
+
+                // Helper function to check if any child matches the search
+                const hasMatchingChild = (item: TreeDataItem): boolean => {
+                    if (!item.children) {
+                        return false
+                    }
+                    return item.children.some(
+                        (child) => searchResults.some((result) => result.id === child.id) || hasMatchingChild(child)
+                    )
+                }
+
+                // Include parent folders of matching items
+                const resultWithParents = searchResults.reduce((acc: TreeDataItem[], item) => {
+                    if (!acc.some((i) => i.id === item.id)) {
+                        acc.push(item)
+                    }
+
+                    // If it's a matching folder, include its children
+                    if (item.children) {
+                        item.children.forEach((child) => {
+                            if (
+                                !acc.some((i) => i.id === child.id) &&
+                                (searchResults.some((r) => r.id === child.id) || hasMatchingChild(child))
+                            ) {
+                                acc.push(child)
+                            }
+                        })
+                    }
+                    return acc
+                }, [])
+
+                return resultWithParents
+            },
+        ],
         treeData: [
-            (s) => [s.defaultTreeNodes, s.projectTree, s.projectRow],
-            (defaultTreeNodes, projectTree, projectRow): TreeDataItem[] => {
-                return [...defaultTreeNodes, ...projectRow, ...projectTree]
+            (s) => [s.searchTerm, s.searchedTreeItems, s.defaultTreeNodes, s.projectTree, s.projectRow],
+            (searchTerm, searchedTreeItems, defaultTreeNodes, projectTree, projectRow): TreeDataItem[] => {
+                if (searchTerm) {
+                    return searchedTreeItems
+                }
+                return [...defaultTreeNodes, ...projectRow, ...projectTree] as TreeDataItem[]
             },
         ],
     }),

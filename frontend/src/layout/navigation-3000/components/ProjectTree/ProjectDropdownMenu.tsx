@@ -90,7 +90,7 @@ export function ProjectDropdownMenu(): JSX.Element | null {
                 </LemonButton>
             </DropdownMenuTrigger>
             <DropdownMenuContent loop align="start">
-                <DropdownMenuLabel>Organizations</DropdownMenuLabel>
+                <DropdownMenuLabel>Projects</DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <LemonButton
                     active
