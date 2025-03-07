@@ -162,7 +162,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         data["inputs"] = data.get("inputs", instance.inputs if instance else {})
 
         # Always ensure filters is initialized as an empty object if it's null
-        data["filters"] = data.get("filters") or {}
+        data["filters"] = data.get("filters", instance.filters if instance else {}) or {}
 
         # Set some context variables that are used in the sub validators
         self.context["function_type"] = data["type"]
