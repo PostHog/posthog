@@ -12,8 +12,6 @@ const meta: Meta<typeof LemonWidget> = {
 export default meta
 
 const Template: StoryFn<typeof LemonWidget> = (props: LemonWidgetProps) => {
-    // We need to explicitly set size on the banner's parent, because LemonBanner is a CSS container
-    // See: https://stackoverflow.com/a/73980194/3515268
     return (
         <div>
             <LemonWidget {...props}>

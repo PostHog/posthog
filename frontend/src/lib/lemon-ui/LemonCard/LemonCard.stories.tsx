@@ -11,8 +11,6 @@ const meta: Meta<typeof LemonCard> = {
 export default meta
 
 const Template: StoryFn<typeof LemonCard> = (props: LemonCardProps) => {
-    // We need to explicitly set size on the banner's parent, because LemonBanner is a CSS container
-    // See: https://stackoverflow.com/a/73980194/3515268
     return (
         <div>
             <LemonCard {...props}>
