@@ -228,10 +228,15 @@ class RemoteConfig(UUIDModel):
                 config["sessionRecording"] = False
 
         config["heatmaps"] = True if team.heatmaps_opt_in else False
-        surveys_response = get_surveys_response(team)
-        config["surveys"] = surveys_response["surveys"]
-        if surveys_response["survey_config"]:
-            config["survey_config"] = surveys_response["survey_config"]
+
+        if team.surveys_opt_in:
+            surveys_response = get_surveys_response(team)
+            config["surveys"] = surveys_response["surveys"]
+
+            if surveys_response["survey_config"]:
+                config["survey_config"] = surveys_response["survey_config"]
+        else:
+            config["surveys"] = False
 
         config["defaultIdentifiedOnly"] = True  # Support old SDK versions with setting that is now the default
 
