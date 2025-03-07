@@ -102,7 +102,7 @@ export function InfiniteSelectResults({
     return (
         <>
             {hasMultipleGroups && (
-                <div className="border-b border-border-light">
+                <div className="border-b border-primary">
                     <div className="taxonomic-group-title">Categories</div>
                     <div className="taxonomic-pills flex gap-0.5 flex-wrap">
                         {taxonomicGroupTypes.map((groupType) => {
