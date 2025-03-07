@@ -3,9 +3,6 @@ jest.mock('../../../src/utils/now', () => {
         now: jest.fn(() => Date.now()),
     }
 })
-import { createInvocation } from '~/tests/cdp/fixtures'
-import { deleteKeysWithPrefix } from '~/tests/cdp/helpers/redis'
-
 import { CdpRedis, createCdpRedisPool } from '../../../src/cdp/redis'
 import {
     BASE_REDIS_KEY,
@@ -17,6 +14,8 @@ import { HogFunctionInvocationResult } from '../../../src/cdp/types'
 import { Hub } from '../../../src/types'
 import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { delay } from '../../../src/utils/utils'
+import { createInvocation } from '../_tests/fixtures'
+import { deleteKeysWithPrefix } from '../_tests/redis'
 
 const mockNow: jest.Mock = require('../../../src/utils/now').now as any
 
