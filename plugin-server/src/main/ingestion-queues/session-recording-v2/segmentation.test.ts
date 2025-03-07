@@ -82,8 +82,8 @@ describe('segmentation', () => {
                 { timestamp: 4000, isActive: false }, // 3 seconds after first event
                 { timestamp: 5000, isActive: false }, // 4 seconds after first event
                 { timestamp: 6000, isActive: false }, // 5 seconds after first event
-                // Another active event within the activity threshold (10 seconds)
-                { timestamp: 6001, isActive: false }, // Just after the last inactive event
+                // After the activity threshold (5 seconds since the last active event)
+                { timestamp: 6001, isActive: false },
             ]
 
             // Should create one active segment with duration of 5000ms (from 1000 to 6000)
