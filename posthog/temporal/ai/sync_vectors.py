@@ -12,6 +12,7 @@ import temporalio.common
 import temporalio.exceptions
 import temporalio.workflow
 from cohere.core.api_error import ApiError as CohereApiError
+from django.conf import settings
 from django.db.models import F, Q
 from openai import APIError as OpenAIAPIError
 
@@ -37,21 +38,32 @@ async def _get_orgs_from_the_feature_flag() -> list[str]:
 
 
 async def get_actions_qs(start_dt: datetime, offset: int | None = None, batch_size: int | None = None):
-    orgs = await _get_orgs_from_the_feature_flag()
-    actions_to_summarize = Action.objects.filter(
-        Q(team__organization__in=orgs, team__organization__is_ai_data_processing_approved=True)
-        & Q(updated_at__lte=start_dt)
-        & (
-            # Never summarized actions
-            Q(last_summarized_at__isnull=True)
-            # Actions updated after last summarization workflow
-            | Q(updated_at__gte=F("last_summarized_at"))
-            # Actions updated during this sync to preserve order
-            | Q(last_summarized_at=start_dt)
-        )
-    ).order_by("id", "team_id", "updated_at")
-    if offset is None or batch_size is None:
+    filter_conditions = Q(
+        # Only orgs that have accepted data processing
+        team__organization__is_ai_data_processing_approved=True,
+        # Only actions updated before the start date
+        updated_at__lte=start_dt,
+    ) & (
+        # Never summarized actions
+        Q(last_summarized_at__isnull=True)
+        # Actions updated after last summarization workflow
+        | Q(updated_at__gte=F("last_summarized_at"))
+        # The line below preserves the execution order of the workflow. Temporal workflows must be deterministic,
+        # so activities can be executed in the same order in case of retries. If this line was removed, the execution
+        # order with list slices would be non-deterministic, as the queryset would remove already processed actions.
+        | Q(last_summarized_at=start_dt)
+    )
+
+    # Include only orgs from the feature flag in non-development environments
+    if not settings.DEBUG:
+        orgs = await _get_orgs_from_the_feature_flag()
+        filter_conditions &= Q(team__organization__in=orgs)
+
+    actions_to_summarize = Action.objects.filter(filter_conditions).order_by("id", "team_id", "updated_at")
+    if offset is None and batch_size is None:
         return actions_to_summarize
+    if offset is None or batch_size is None:
+        raise ValueError("Cannot provide only offset or only batch_size")
     return actions_to_summarize[offset : offset + batch_size]
 
 
@@ -107,7 +119,10 @@ async def batch_summarize_and_embed_actions(inputs: RetrieveActionsInputs):
     for action, maybe_summary in zip(actions, summaries):
         # If a few actions across the batch fail, we don't want to fail the entire workflow.
         if isinstance(maybe_summary, BaseException):
-            # Avoid capturing OpenAI API errors, as they are expected, but capture SDK errors.
+            # We know OpenAI APIs might be unavailable or have token or request limits exceeded.
+            # Since we spawn up to 96 parallel requests here, we should expect some requests to fail,
+            # so we can retry them later. It's not practical to cancel the other 95 requests if
+            # one fails, but we can retry summarization later.
             if not isinstance(maybe_summary, OpenAIAPIError):
                 posthoganalytics.capture_exception(maybe_summary, properties={"action_id": action.id, "tag": "max_ai"})
             logger.exception("Error summarizing actions", error=maybe_summary, action_id=action.id)
