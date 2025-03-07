@@ -6,7 +6,7 @@ import { Dispatch, RefObject, SetStateAction } from 'react'
 import { PathsFilter } from '~/queries/schema/schema-general'
 
 import { isSelectedPathStartOrEnd, PathNodeData, PathTargetLink } from './pathUtils'
-import { Paths } from './types'
+import { PathNodeType, Paths } from './types'
 
 /*
  * Canvas
@@ -107,8 +107,15 @@ const appendNodes = (svg: any, nodes: PathNodeData[], pathsFilter: PathsFilter):
         .attr('height', (node: PathNodeData) => Math.max(node.y1 - node.y0, NODE_MIN_HEIGHT))
         .attr('width', (node: PathNodeData) => node.x1 - node.x0 + 2 * NODE_BORDER_RADIUS)
         .attr('fill', (node: PathNodeData) => {
+            console.debug('node', node)
+            if (node.type === PathNodeType.Other) {
+                return 'var(--paths-node--other)'
+            } else if (node.type === PathNodeType.Dropoff) {
+                return 'var(--paths-node--dropoff)'
+            }
+
             if (isSelectedPathStartOrEnd(pathsFilter, {}, node)) {
-                return 'var(--paths-node-start-or-end)'
+                return 'var(--paths-node--start-or-end)'
             }
             return 'var(--paths-node)'
         })
@@ -119,7 +126,7 @@ const appendNodes = (svg: any, nodes: PathNodeData[], pathsFilter: PathsFilter):
 
             // apply effect to hovered node
             const isStartOrEndNode = isSelectedPathStartOrEnd(pathsFilter, {}, node)
-            const nodeColor = isStartOrEndNode ? 'var(--paths-node-start-or-end-hover)' : 'var(--paths-node-hover)'
+            const nodeColor = isStartOrEndNode ? 'var(--paths-node--start-or-end-hover)' : 'var(--paths-node--hover)'
             svg.select(`#node-${node.index}`).attr('fill', nodeColor)
 
             // recursively apply effect to incoming links
@@ -145,7 +152,7 @@ const appendNodes = (svg: any, nodes: PathNodeData[], pathsFilter: PathsFilter):
         .on('mouseleave', (_event: MouseEvent, node: PathNodeData) => {
             // reset hovered node
             const isStartOrEndNode = isSelectedPathStartOrEnd(pathsFilter, {}, node)
-            const nodeColor = isStartOrEndNode ? 'var(--paths-node-start-or-end)' : 'var(--paths-node)'
+            const nodeColor = isStartOrEndNode ? 'var(--paths-node--start-or-end)' : 'var(--paths-node)'
             svg.select(`#node-${node.index}`).attr('fill', nodeColor)
 
             // reset all links

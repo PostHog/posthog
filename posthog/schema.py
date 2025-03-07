@@ -1211,10 +1211,10 @@ class PathsV2Item(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    event_count: float
     source_step: Optional[str] = None
     step_index: float
     target_step: Optional[str] = None
+    value: float
 
 
 class PersonType(BaseModel):
@@ -2548,6 +2548,7 @@ class PathsV2Filter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    collapseEvents: Optional[bool] = True
     maxRowsPerStep: Optional[int] = 3
     maxSteps: Optional[int] = 5
     windowInterval: Optional[int] = 14

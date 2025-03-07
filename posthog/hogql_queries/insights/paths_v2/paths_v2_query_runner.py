@@ -4,7 +4,7 @@ from functools import cached_property
 from typing import Any
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
@@ -21,6 +21,8 @@ from posthog.schema import (
     PathsV2Query,
     PathsV2QueryResponse,
 )
+
+ROW_LIMIT_OTHER = "$$_posthog_breakdown_other_$$"
 
 
 class PathsV2QueryRunner(QueryRunner):
@@ -51,6 +53,9 @@ class PathsV2QueryRunner(QueryRunner):
         self.interval_unit: ConversionWindowIntervalUnit = (
             self.query.pathsV2Filter.windowIntervalUnit or PathsV2Filter.model_fields["windowIntervalUnit"].default
         )
+        self.collapse_events: bool = (
+            self.query.pathsV2Filter.collapseEvents or PathsV2Filter.model_fields["collapseEvents"].default
+        )
 
     @cached_property
     def query_date_range(self) -> QueryDateRange:
@@ -72,8 +77,9 @@ class PathsV2QueryRunner(QueryRunner):
         )
 
         results = [
-            PathsV2Item(step_index=step_index, source_step=source, target_step=target, event_count=count)
-            for step_index, source, count, _row_number, target in response.results
+            PathsV2Item(step_index=step_index, source_step=source, target_step=target, value=value)
+            for step_index, value, _row_number, source, target in response.results
+            if source is not None
         ]
 
         return PathsV2QueryResponse(
@@ -86,10 +92,23 @@ class PathsV2QueryRunner(QueryRunner):
         - Extracts "path items" i.e. strings representing the current step in the sequence of events.
 
         Example:
-        timestamp            actor_id                              path_item
-        -------------------  ------------------------------------  ----------
-        2025-02-20T20:57:55  018dd1b5-b644-0000-0000-20b757aa605e  some event
-        2025-02-21T20:46:27  018dd1b5-b644-0000-0000-20b757aa605e  some event
+        ┌──────────────────timestamp─┬─actor_id─────────────────────────────┬─path_item────┐
+        │ 2023-03-11 11:30:00.000000 │ 631e1988-3971-79a2-02ae-b09da769be2e │ Landing Page │
+        │ 2023-03-11 11:32:00.000000 │ 631e1988-3971-79a2-02ae-b09da769be2e │ Search       │
+        │ 2023-03-11 11:35:00.000000 │ 631e1988-3971-79a2-02ae-b09da769be2e │ Product View │
+        │ 2023-03-11 11:38:00.000000 │ 631e1988-3971-79a2-02ae-b09da769be2e │ Add to Cart  │
+        │ 2023-03-11 11:42:00.000000 │ 631e1988-3971-79a2-02ae-b09da769be2e │ Checkout     │
+        │ 2023-03-11 11:45:00.000000 │ 631e1988-3971-79a2-02ae-b09da769be2e │ Purchase     │
+        │ 2023-03-12 10:00:00.000000 │ 30b444d4-6fb7-8f08-67f1-3f70d30c5746 │ Landing Page │
+        │ 2023-03-12 10:02:00.000000 │ 30b444d4-6fb7-8f08-67f1-3f70d30c5746 │ Product View │
+        │ 2023-03-12 10:05:00.000000 │ 30b444d4-6fb7-8f08-67f1-3f70d30c5746 │ Add to Cart  │
+        │ 2023-03-13 09:00:00.000000 │ 6c012bb7-f3f6-5f0f-f72a-473ee658fdec │ Landing Page │
+        │ 2023-03-10 12:00:00.000000 │ be012a47-61e6-43d7-fa0a-8f0a1d229610 │ Landing Page │
+        │ 2023-03-10 12:05:00.000000 │ be012a47-61e6-43d7-fa0a-8f0a1d229610 │ Product View │
+        │ 2023-03-10 12:10:00.000000 │ be012a47-61e6-43d7-fa0a-8f0a1d229610 │ Add to Cart  │
+        │ 2023-03-10 12:15:00.000000 │ be012a47-61e6-43d7-fa0a-8f0a1d229610 │ Checkout     │
+        │ 2023-03-10 12:20:00.000000 │ be012a47-61e6-43d7-fa0a-8f0a1d229610 │ Purchase     │
+        └────────────────────────────┴──────────────────────────────────────┴──────────────┘
         """
 
         # date range filter
@@ -137,9 +156,12 @@ class PathsV2QueryRunner(QueryRunner):
         - Aggregates the timestamps and path items for each actor into arrays.
 
         Example:
-        actor_id                              timestamp_array                                 path_item_array
-        ------------------------------------  ----------------------------------------------  ----------------------------
-        018dd1b5-b644-0000-0000-20b757aa605e  ['2025-02-20T20:57:55', '2025-02-21T20:46:27']  ['some event', 'some event']
+        ┌─actor_id─────────────────────────────┬─timestamp_array─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┬─path_item_array──────────────────────────────────────────────────────────────┐
+        │ 6c012bb7-f3f6-5f0f-f72a-473ee658fdec │ ['2023-03-13 09:00:00.000000']                                                                                                                                                  │ ['Landing Page']                                                             │
+        │ be012a47-61e6-43d7-fa0a-8f0a1d229610 │ ['2023-03-10 12:00:00.000000','2023-03-10 12:05:00.000000','2023-03-10 12:10:00.000000','2023-03-10 12:15:00.000000','2023-03-10 12:20:00.000000']                              │ ['Landing Page','Product View','Add to Cart','Checkout','Purchase']          │
+        │ 30b444d4-6fb7-8f08-67f1-3f70d30c5746 │ ['2023-03-12 10:00:00.000000','2023-03-12 10:02:00.000000','2023-03-12 10:05:00.000000']                                                                                        │ ['Landing Page','Product View','Add to Cart']                                │
+        │ 631e1988-3971-79a2-02ae-b09da769be2e │ ['2023-03-11 11:30:00.000000','2023-03-11 11:32:00.000000','2023-03-11 11:35:00.000000','2023-03-11 11:38:00.000000','2023-03-11 11:42:00.000000','2023-03-11 11:45:00.000000'] │ ['Landing Page','Search','Product View','Add to Cart','Checkout','Purchase'] │
+        └──────────────────────────────────────┴─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┴──────────────────────────────────────────────────────────────────────────────┘
         """
         return parse_select(
             """
@@ -163,6 +185,12 @@ class PathsV2QueryRunner(QueryRunner):
         - Flattens the sessions, annotated by a session index.
 
         Example:
+        ┌─actor_id─────────────────────────────┬─session_index─┬─paths_array────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┬─paths_array_session_split──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┬─limited_paths_array_per_session────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+        │ 6c012bb7-f3f6-5f0f-f72a-473ee658fdec │             1 │ [('2023-03-13 09:00:00.000000','Landing Page',NULL)]                                                                                                                                                                                                       │ [[('2023-03-13 09:00:00.000000','Landing Page',NULL)]]                                                                                                                                                                                                     │ [('2023-03-13 09:00:00.000000','Landing Page',NULL)]                                                                                                                                                                                                       │
+        │ be012a47-61e6-43d7-fa0a-8f0a1d229610 │             1 │ [('2023-03-10 12:00:00.000000','Landing Page',NULL),('2023-03-10 12:05:00.000000','Product View','2023-03-10 12:00:00.000000'),('2023-03-10 12:10:00.000000','Add to Cart','2023-03-10 12:05:00.000000'),('2023-03-10 12:15:00.000000','Checkout','2023-03-10 12:10:00.000000'),('2023-03-10 12:20:00.000000','Purchase','2023-03-10 12:15:00.000000')] │ [[('2023-03-10 12:00:00.000000','Landing Page',NULL),('2023-03-10 12:05:00.000000','Product View','2023-03-10 12:00:00.000000'),('2023-03-10 12:10:00.000000','Add to Cart','2023-03-10 12:05:00.000000'),('2023-03-10 12:15:00.000000','Checkout','2023-03-10 12:10:00.000000'),('2023-03-10 12:20:00.000000','Purchase','2023-03-10 12:15:00.000000')]] │ [('2023-03-10 12:00:00.000000','Landing Page',NULL),('2023-03-10 12:05:00.000000','Product View','2023-03-10 12:00:00.000000'),('2023-03-10 12:10:00.000000','Add to Cart','2023-03-10 12:05:00.000000'),('2023-03-10 12:15:00.000000','Checkout','2023-03-10 12:10:00.000000')] │
+        │ 30b444d4-6fb7-8f08-67f1-3f70d30c5746 │             1 │ [('2023-03-12 10:00:00.000000','Landing Page',NULL),('2023-03-12 10:02:00.000000','Product View','2023-03-12 10:00:00.000000'),('2023-03-12 10:05:00.000000','Add to Cart','2023-03-12 10:02:00.000000')]                                                  │ [[('2023-03-12 10:00:00.000000','Landing Page',NULL),('2023-03-12 10:02:00.000000','Product View','2023-03-12 10:00:00.000000'),('2023-03-12 10:05:00.000000','Add to Cart','2023-03-12 10:02:00.000000')]]                                                │ [('2023-03-12 10:00:00.000000','Landing Page',NULL),('2023-03-12 10:02:00.000000','Product View','2023-03-12 10:00:00.000000'),('2023-03-12 10:05:00.000000','Add to Cart','2023-03-12 10:02:00.000000')]                                                  │
+        │ 631e1988-3971-79a2-02ae-b09da769be2e │             1 │ [('2023-03-11 11:30:00.000000','Landing Page',NULL),('2023-03-11 11:32:00.000000','Search','2023-03-11 11:30:00.000000'),('2023-03-11 11:35:00.000000','Product View','2023-03-11 11:32:00.000000'),('2023-03-11 11:38:00.000000','Add to Cart','2023-03-11 11:35:00.000000'),('2023-03-11 11:42:00.000000','Checkout','2023-03-11 11:38:00.000000'),('2023-03-11 11:45:00.000000','Purchase','2023-03-11 11:42:00.000000')] │ [[('2023-03-11 11:30:00.000000','Landing Page',NULL),('2023-03-11 11:32:00.000000','Search','2023-03-11 11:30:00.000000'),('2023-03-11 11:35:00.000000','Product View','2023-03-11 11:32:00.000000'),('2023-03-11 11:38:00.000000','Add to Cart','2023-03-11 11:35:00.000000'),('2023-03-11 11:42:00.000000','Checkout','2023-03-11 11:38:00.000000'),('2023-03-11 11:45:00.000000','Purchase','2023-03-11 11:42:00.000000')]] │ [('2023-03-11 11:30:00.000000','Landing Page',NULL),('2023-03-11 11:32:00.000000','Search','2023-03-11 11:30:00.000000'),('2023-03-11 11:35:00.000000','Product View','2023-03-11 11:32:00.000000'),('2023-03-11 11:38:00.000000','Add to Cart','2023-03-11 11:35:00.000000')] │
+        └──────────────────────────────────────┴───────────────┴────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┴────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┴────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
         """
         return parse_select(
             """
@@ -203,6 +231,22 @@ class PathsV2QueryRunner(QueryRunner):
         """
         - Adds the previous path item to the output.
         - Flattens the sequence of events (i.e. timestamp/path item tuples) in a session.
+
+        Example:
+        ┌─actor_id─────────────────────────────┬─session_index─┬─step_in_session_index─┬──────────────────timestamp─┬─path_item────┬─previous_path_item─┐
+        │ 6c012bb7-f3f6-5f0f-f72a-473ee658fdec │             1 │                     1 │ 2023-03-13 09:00:00.000000 │ Landing Page │ ᴺᵁᴸᴸ               │
+        │ be012a47-61e6-43d7-fa0a-8f0a1d229610 │             1 │                     1 │ 2023-03-10 12:00:00.000000 │ Landing Page │ ᴺᵁᴸᴸ               │
+        │ be012a47-61e6-43d7-fa0a-8f0a1d229610 │             1 │                     2 │ 2023-03-10 12:05:00.000000 │ Product View │ Landing Page       │
+        │ be012a47-61e6-43d7-fa0a-8f0a1d229610 │             1 │                     3 │ 2023-03-10 12:10:00.000000 │ Add to Cart  │ Product View       │
+        │ be012a47-61e6-43d7-fa0a-8f0a1d229610 │             1 │                     4 │ 2023-03-10 12:15:00.000000 │ Checkout     │ Add to Cart        │
+        │ 30b444d4-6fb7-8f08-67f1-3f70d30c5746 │             1 │                     1 │ 2023-03-12 10:00:00.000000 │ Landing Page │ ᴺᵁᴸᴸ               │
+        │ 30b444d4-6fb7-8f08-67f1-3f70d30c5746 │             1 │                     2 │ 2023-03-12 10:02:00.000000 │ Product View │ Landing Page       │
+        │ 30b444d4-6fb7-8f08-67f1-3f70d30c5746 │             1 │                     3 │ 2023-03-12 10:05:00.000000 │ Add to Cart  │ Product View       │
+        │ 631e1988-3971-79a2-02ae-b09da769be2e │             1 │                     1 │ 2023-03-11 11:30:00.000000 │ Landing Page │ ᴺᵁᴸᴸ               │
+        │ 631e1988-3971-79a2-02ae-b09da769be2e │             1 │                     2 │ 2023-03-11 11:32:00.000000 │ Search       │ Landing Page       │
+        │ 631e1988-3971-79a2-02ae-b09da769be2e │             1 │                     3 │ 2023-03-11 11:35:00.000000 │ Product View │ Search             │
+        │ 631e1988-3971-79a2-02ae-b09da769be2e │             1 │                     4 │ 2023-03-11 11:38:00.000000 │ Add to Cart  │ Product View       │
+        └──────────────────────────────────────┴───────────────┴───────────────────────┴────────────────────────────┴──────────────┴────────────────────┘
         """
         return parse_select(
             """
@@ -220,36 +264,48 @@ class PathsV2QueryRunner(QueryRunner):
             FROM {paths_per_actor_and_session_as_tuple_query}
             ARRAY JOIN limited_paths_array_per_session AS path_tuple,
                 arrayEnumerate(limited_paths_array_per_session) AS step_in_session_index
+            WHERE {collapse_events_filter}
         """,
             placeholders={
                 "paths_per_actor_and_session_as_tuple_query": self._paths_per_actor_and_session_as_tuple_query(),
+                "collapse_events_filter": (
+                    parse_expr("path_item != previous_path_item") if self.collapse_events else parse_expr("1=1")
+                ),
             },
         )
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         """
         - Groups the individual paths and orders them by frequency.
+
+        Example:
+        ┌─event_count─┬─step_index─┬─row_number─┬─source_step──┬─target_step──┐
+        │           2 │          2 │          1 │ Landing Page │ Product View │
+        │           1 │          2 │          2 │ Landing Page │ Search       │
+        │           2 │          3 │          1 │ Product View │ Add to Cart  │
+        │           1 │          3 │          2 │ Search       │ Product View │
+        │           1 │          4 │          2 │ Add to Cart  │ Checkout    │
+        │           1 │          4 │          1 │ Product View │ Add to Cart │
+        └─────────────┴────────────┴────────────┴──────────────┴─────────────┘
         """
         return parse_select(
             """
             SELECT
                 step_in_session_index as step_index,
+                COUNT(*) AS value,
+                row_number() OVER (PARTITION BY step_index ORDER BY value DESC) AS row_number,
                 previous_path_item as source_step,
-                COUNT(*) AS event_count,
-                row_number() OVER (PARTITION BY step_index ORDER BY event_count DESC) AS row_number,
-                if(row_number <= {max_rows_per_step}, path_item, '$$_posthog_breakdown_other_$$') AS target_step
+                if(row_number <= {max_rows_per_step}, path_item, {other}) AS target_step,
             FROM {paths_flattened_with_previous_item}
-            WHERE source_step IS NOT NULL
+            --WHERE source_step IS NOT NULL
             GROUP BY step_index,
-                source_step,
+                previous_path_item,
                 path_item
-            ORDER BY step_index ASC,
-                event_count DESC,
-                source_step,
-                target_step
+            ORDER BY step_index ASC, value DESC
         """,
             placeholders={
                 "paths_flattened_with_previous_item": self._paths_flattened_with_previous_item(),
                 "max_rows_per_step": ast.Constant(value=self.max_rows_per_step),
+                "other": ast.Constant(value=ROW_LIMIT_OTHER),
             },
         )

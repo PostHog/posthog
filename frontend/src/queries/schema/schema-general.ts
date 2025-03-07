@@ -1183,7 +1183,7 @@ export type PathsV2Item = {
     step_index: number
     source_step: string | null
     target_step: string | null
-    event_count: number
+    value: number
 }
 
 export interface PathsV2QueryResponse extends AnalyticsQueryResponseBase<PathsV2Item[]> {}
@@ -1200,6 +1200,8 @@ export type PathsV2Filter = {
     windowInterval?: integer
     /** @default day */
     windowIntervalUnit?: ConversionWindowIntervalUnit
+    /** @default true */
+    collapseEvents?: boolean
 }
 export interface PathsV2Query extends InsightsQueryBase<PathsV2QueryResponse> {
     kind: NodeKind.PathsV2Query

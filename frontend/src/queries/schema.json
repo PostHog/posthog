@@ -10441,6 +10441,10 @@
         "PathsV2Filter": {
             "additionalProperties": false,
             "properties": {
+                "collapseEvents": {
+                    "default": true,
+                    "type": "boolean"
+                },
                 "maxRowsPerStep": {
                     "$ref": "#/definitions/integer",
                     "default": 3
@@ -10463,9 +10467,6 @@
         "PathsV2Item": {
             "additionalProperties": false,
             "properties": {
-                "event_count": {
-                    "type": "number"
-                },
                 "source_step": {
                     "type": ["string", "null"]
                 },
@@ -10474,9 +10475,12 @@
                 },
                 "target_step": {
                     "type": ["string", "null"]
+                },
+                "value": {
+                    "type": "number"
                 }
             },
-            "required": ["step_index", "source_step", "target_step", "event_count"],
+            "required": ["step_index", "source_step", "target_step", "value"],
             "type": "object"
         },
         "PathsV2Query": {
