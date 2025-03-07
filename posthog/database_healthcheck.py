@@ -53,9 +53,11 @@ class DatabaseHealthcheck:
             with connections[DATABASE_FOR_FLAG_MATCHING].cursor() as cursor:
                 cursor.execute("SELECT 1")
             return True
-        except Exception:
-            logger.exception("postgres_connection_failure")
+        except Exception as e:
+            logger.exception(
+                "postgres_connection_failure", error=str(e), database=DATABASE_FOR_FLAG_MATCHING, exc_info=True
+            )
             return False
 
 
-postgres_healthcheck = DatabaseHealthcheck(time_interval=10)
+postgres_healthcheck = DatabaseHealthcheck(time_interval=30)
