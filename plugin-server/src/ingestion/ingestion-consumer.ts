@@ -207,14 +207,15 @@ export class IngestionConsumer {
                 status.debug('🔁', `Processing event`, {
                     event,
                 })
-                const eventKey = `${event.token}:${event.distinct_id}`
-                // Check the rate limiter and emit to overflow if necessary
-                const isBelowRateLimit = this.overflowRateLimiter.consume(eventKey, 1, message.timestamp)
 
                 if (this.testingTopic) {
                     void this.scheduleWork(this.emitToTestingTopic([message]))
                     continue
                 }
+
+                const eventKey = `${event.token}:${event.distinct_id}`
+                // Check the rate limiter and emit to overflow if necessary
+                const isBelowRateLimit = this.overflowRateLimiter.consume(eventKey, 1, message.timestamp)
 
                 if (this.overflowEnabled() && !isBelowRateLimit) {
                     status.debug('🔁', `Sending to overflow`, {
