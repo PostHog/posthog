@@ -165,6 +165,37 @@ class TestPathsV2(SharedSetup):
             ],
         )
 
+    def test_sorts_results(self):
+        _ = journeys_for(
+            team=self.team,
+            events_by_person={
+                # 1x a1 -> b1
+                "person1": [{"event": "a1"}, {"event": "b1"}],
+                # 2x a2 -> b2
+                "person2": [{"event": "a2"}, {"event": "b2"}],
+                "person3": [{"event": "a2"}, {"event": "b2"}],
+                # 1x dropoff
+                "person4": [{"event": "a2"}],
+                # 1x other
+                "person5": [{"event": "a2"}, {"event": "b3"}],
+            },
+        )
+
+        filter = PathsV2Filter(maxRowsPerStep=2)
+        query = PathsV2Query(pathsV2Filter=filter)
+        query_runner = self._get_query_runner(query=query)
+        response = query_runner.calculate()
+
+        self.assertEqual(
+            [item for item in response.results if item.step_index == 1],
+            [
+                PathsV2Item(step_index=1, source_step="a2", target_step="b2", value=2),
+                PathsV2Item(step_index=1, source_step="a1", target_step="b1", value=1),
+                PathsV2Item(step_index=1, source_step="a2", target_step=POSTHOG_DROPOFF, value=1),
+                PathsV2Item(step_index=1, source_step="a2", target_step=POSTHOG_OTHER, value=1),
+            ],
+        )
+
     def test_collapses_events(self):
         _ = journeys_for(
             team=self.team,
