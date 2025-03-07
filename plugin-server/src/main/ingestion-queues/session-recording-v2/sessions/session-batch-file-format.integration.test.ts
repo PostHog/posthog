@@ -120,6 +120,8 @@ describe('session recording integration', () => {
                 timestamp: 0,
                 rawSize: 0,
             },
+            snapshot_source: null,
+            snapshot_library: null,
         },
     })
 

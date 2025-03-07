@@ -21,6 +21,7 @@ describe('SessionMetadataStore', () => {
                 sessionId: 'session123',
                 teamId: 1,
                 distinctId: 'user1',
+                batchId: 'batch123',
                 blockLength: 100,
                 startDateTime: DateTime.fromISO('2025-01-01T10:00:00.000Z'),
                 endDateTime: DateTime.fromISO('2025-01-01T10:00:02.000Z'),
@@ -30,6 +31,7 @@ describe('SessionMetadataStore', () => {
                 sessionId: 'different456',
                 teamId: 2,
                 distinctId: 'user2',
+                batchId: 'batch123',
                 blockLength: 150,
                 startDateTime: DateTime.fromISO('2025-01-01T10:00:01.500Z'),
                 endDateTime: DateTime.fromISO('2025-01-01T10:00:03.500Z'),
@@ -39,6 +41,7 @@ describe('SessionMetadataStore', () => {
                 sessionId: 'session123',
                 teamId: 1,
                 distinctId: 'user1',
+                batchId: 'batch123',
                 blockLength: 200,
                 startDateTime: DateTime.fromISO('2025-01-01T10:00:03.000Z'),
                 endDateTime: DateTime.fromISO('2025-01-01T10:00:05.000Z'),
@@ -60,6 +63,7 @@ describe('SessionMetadataStore', () => {
                 session_id: 'session123',
                 team_id: 1,
                 distinct_id: 'user1',
+                batch_id: 'batch123',
                 first_timestamp: '2025-01-01 10:00:00.000',
                 last_timestamp: '2025-01-01 10:00:02.000',
                 block_url: 's3://bucket/file1?range=bytes=0-99',
@@ -69,6 +73,7 @@ describe('SessionMetadataStore', () => {
                 session_id: 'different456',
                 team_id: 2,
                 distinct_id: 'user2',
+                batch_id: 'batch123',
                 first_timestamp: '2025-01-01 10:00:01.500',
                 last_timestamp: '2025-01-01 10:00:03.500',
                 block_url: 's3://bucket/file1?range=bytes=100-249',
@@ -78,6 +83,7 @@ describe('SessionMetadataStore', () => {
                 session_id: 'session123',
                 team_id: 1,
                 distinct_id: 'user1',
+                batch_id: 'batch123',
                 first_timestamp: '2025-01-01 10:00:03.000',
                 last_timestamp: '2025-01-01 10:00:05.000',
                 block_url: 's3://bucket/file1?range=bytes=250-449',
@@ -111,6 +117,7 @@ describe('SessionMetadataStore', () => {
                 sessionId: 'session123',
                 teamId: 1,
                 distinctId: 'user1',
+                batchId: 'batch123',
                 blockLength: 100,
                 startDateTime: DateTime.fromISO('2025-01-01T10:00:00.000Z'),
                 endDateTime: DateTime.fromISO('2025-01-01T10:00:02.000Z'),
@@ -127,6 +134,7 @@ describe('SessionMetadataStore', () => {
                 sessionId: 'session123',
                 teamId: 1,
                 distinctId: 'user1',
+                batchId: 'batch123',
                 blockLength: 100,
                 startDateTime: DateTime.fromISO('2025-01-01T10:00:00.000Z'),
                 endDateTime: DateTime.fromISO('2025-01-01T10:00:02.000Z'),
@@ -140,5 +148,38 @@ describe('SessionMetadataStore', () => {
         const parsedEvent = JSON.parse(queuedMessage.messages[0].value as string)
         expect(parsedEvent.block_url).toBeNull()
         expect(parsedEvent.distinct_id).toBe('user1')
+    })
+
+    it('should preserve batch IDs when storing blocks', async () => {
+        const blocks = [
+            {
+                sessionId: 'session1',
+                teamId: 1,
+                distinctId: 'user1',
+                batchId: 'batch1',
+                blockLength: 100,
+                startDateTime: DateTime.fromISO('2025-01-01T10:00:00.000Z'),
+                endDateTime: DateTime.fromISO('2025-01-01T10:00:02.000Z'),
+                blockUrl: 's3://bucket/file1',
+            },
+            {
+                sessionId: 'session2',
+                teamId: 1,
+                distinctId: 'user2',
+                batchId: 'batch2',
+                blockLength: 200,
+                startDateTime: DateTime.fromISO('2025-01-01T10:00:03.000Z'),
+                endDateTime: DateTime.fromISO('2025-01-01T10:00:05.000Z'),
+                blockUrl: 's3://bucket/file2',
+            },
+        ]
+
+        await store.storeSessionBlocks(blocks)
+
+        const queuedMessage = mockProducer.queueMessages.mock.calls[0][0] as TopicMessage
+        const parsedEvents = queuedMessage.messages.map((msg) => JSON.parse(msg.value as string))
+
+        expect(parsedEvents[0].batch_id).toBe('batch1')
+        expect(parsedEvents[1].batch_id).toBe('batch2')
     })
 })

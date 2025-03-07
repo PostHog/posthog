@@ -240,7 +240,8 @@ export function EditSubscription({
                                                     <Link to="https://posthog.com/docs/webhooks/slack" target="_blank">
                                                         added the PostHog Slack App
                                                     </Link>{' '}
-                                                    to them
+                                                    to them. You can also paste the channel ID (e.g.{' '}
+                                                    <code>C1234567890</code>) to search for channels.
                                                 </>
                                             }
                                         >

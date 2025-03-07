@@ -20,6 +20,7 @@ export class SessionMetadataStore {
             session_id: metadata.sessionId,
             team_id: metadata.teamId,
             distinct_id: metadata.distinctId,
+            batch_id: metadata.batchId,
             first_timestamp: castTimestampOrNow(metadata.startDateTime, TimestampFormat.ClickHouse),
             last_timestamp: castTimestampOrNow(metadata.endDateTime, TimestampFormat.ClickHouse),
             block_url: metadata.blockUrl,
