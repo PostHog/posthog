@@ -8,6 +8,7 @@ import { ChatCompletionUserMessageParam } from 'openai/resources/chat/completion
 import posthog from 'posthog-js'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
+import { SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
@@ -2434,8 +2435,16 @@ const api = {
     },
 
     surveys: {
-        async list(): Promise<PaginatedResponse<Survey>> {
-            return await new ApiRequest().surveys().get()
+        async list(
+            args: {
+                limit?: number
+                offset?: number
+                search?: string
+            } = {
+                limit: SURVEY_PAGE_SIZE,
+            }
+        ): Promise<CountedPaginatedResponse<Survey>> {
+            return await new ApiRequest().surveys().withQueryString(args).get()
         },
         async get(surveyId: Survey['id']): Promise<Survey> {
             return await new ApiRequest().survey(surveyId).get()

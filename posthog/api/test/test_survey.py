@@ -1742,6 +1742,69 @@ class TestSurvey(APIBaseTest):
         self.assertEqual(response_data["questions"][0]["id"], custom_id_1)
         self.assertEqual(response_data["questions"][1]["id"], custom_id_2)
 
+    def test_search_survey_by_name(self):
+        self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "NPS Survey 2024",
+                "description": "Annual NPS survey",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "What do you think?"}],
+            },
+            format="json",
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/?search=NPS")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(len(data["results"]), 1)
+        self.assertEqual(data["results"][0]["name"], "NPS Survey 2024")
+
+    def test_search_survey_by_description(self):
+        self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Product Feedback Survey",
+                "description": "product feedback collection",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "What do you think?"}],
+            },
+            format="json",
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/?search=product")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(len(data["results"]), 1)
+        self.assertEqual(data["results"][0]["name"], "Product Feedback Survey")
+
+    def test_search_survey_with_no_results(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/?search=nonexistent")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(len(data["results"]), 0)
+
+    def test_search_survey_with_pagination(self):
+        for i in range(15):
+            self.client.post(
+                f"/api/projects/{self.team.id}/surveys/",
+                data={
+                    "name": f"Product Survey {i}",
+                    "description": f"Product feedback {i}",
+                    "type": "popover",
+                    "questions": [{"type": "open", "question": "What do you think?"}],
+                    "targeting_flag_filters": None,
+                },
+                format="json",
+            )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/?search=Product&limit=10")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(len(data["results"]), 10)  # Should return only 10 results
+        self.assertTrue(data["next"] is not None)  # Should have next page
+        self.assertTrue(data["count"] > 10)  # Total count should be more than 10
+
 
 class TestMultipleChoiceQuestions(APIBaseTest):
     def test_create_survey_has_open_choice(self):

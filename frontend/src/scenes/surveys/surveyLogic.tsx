@@ -227,7 +227,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 'reportSurveyCycleDetected',
             ],
         ],
-        values: [enabledFlagLogic, ['featureFlags as enabledFlags'], surveysLogic, ['surveys']],
+        values: [enabledFlagLogic, ['featureFlags as enabledFlags'], surveysLogic, ['data']],
     })),
     actions({
         setSurveyMissing: true,
