@@ -2,6 +2,7 @@ import asyncio
 import dataclasses
 import datetime as dt
 import gzip
+import io
 import json
 import operator
 import os
@@ -12,6 +13,7 @@ import uuid
 from collections import deque
 from uuid import uuid4
 
+import paramiko
 import pytest
 import pytest_asyncio
 import responses
@@ -1965,6 +1967,62 @@ async def test_insert_into_snowflake_activity_handles_person_schema_changes(
 def test_load_private_key_raises_error_if_key_is_invalid():
     with pytest.raises(InvalidPrivateKeyError):
         load_private_key("invalid_key", None)
+
+
+def test_load_private_key_raises_error_if_incorrect_passphrase():
+    """Test we raise the right error when passing an incorrect passphrase."""
+    key = paramiko.RSAKey.generate(2048)
+    buffer = io.StringIO()
+    key.write_private_key(buffer, password="a-passphrase")
+    _ = buffer.seek(0)
+
+    with pytest.raises(InvalidPrivateKeyError) as exc_info:
+        _ = load_private_key(buffer.read(), "another-passphrase")
+
+    assert "incorrect passphrase" in str(exc_info.value)
+
+
+def test_load_private_key_raises_error_if_passphrase_not_empty():
+    """Test we raise the right error when passing a passphrase to a key without one."""
+    key = paramiko.RSAKey.generate(2048)
+    buffer = io.StringIO()
+    key.write_private_key(buffer)
+    _ = buffer.seek(0)
+
+    with pytest.raises(InvalidPrivateKeyError) as exc_info:
+        _ = load_private_key(buffer.read(), "a-passphrase")
+
+    assert "passphrase was given but private key is not encrypted" in str(exc_info.value)
+
+
+def test_load_private_key_raises_error_if_passphrase_missing():
+    """Test we raise the right error when missing a passphrase to an encrypted key."""
+    key = paramiko.RSAKey.generate(2048)
+    buffer = io.StringIO()
+    key.write_private_key(buffer, password="a-passphrase")
+    _ = buffer.seek(0)
+
+    with pytest.raises(InvalidPrivateKeyError) as exc_info:
+        _ = load_private_key(buffer.read(), None)
+
+    assert "passphrase was not given but private key is encrypted" in str(exc_info.value)
+
+
+@pytest.mark.parametrize("passphrase", ["a-passphrase", None, ""])
+def test_load_private_key(passphrase: str | None):
+    """Test we can load a private key.
+
+    We treat `None` and empty string the same (no passphrase).
+    """
+    key = paramiko.RSAKey.generate(2048)
+    buffer = io.StringIO()
+    key.write_private_key(buffer, password=None if passphrase is None or passphrase == "" else passphrase)
+    _ = buffer.seek(0)
+    private_key = buffer.read()
+
+    # Just checking this doesn't fail.
+    loaded = load_private_key(private_key, passphrase)
+    assert loaded
 
 
 @SKIP_IF_MISSING_REQUIRED_ENV_VARS
