@@ -57,8 +57,11 @@ def get_sync_schedule(external_data_schema: "ExternalDataSchema"):
     minute = 0
     # format 15:00:00 --> 3:00 PM UTC | default to midnight UTC
     if external_data_schema.sync_time_of_day:
-        time_str = external_data_schema.sync_time_of_day
-        time = datetime.strptime(time_str, "%H:%M:%S").time()
+        time_value = external_data_schema.sync_time_of_day
+        if isinstance(time_value, str):
+            time = datetime.strptime(time_value, "%H:%M:%S").time()
+        else:
+            time = time_value
         hour = time.hour
         minute = time.minute
 
