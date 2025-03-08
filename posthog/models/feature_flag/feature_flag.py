@@ -326,14 +326,14 @@ class FeatureFlag(ModelActivityMixin, models.Model):
 
         return list(cohort_ids)
 
-    def scheduled_changes_dispatcher(self, payload):
+    def scheduled_changes_dispatcher(self, payload, user):
         from posthog.api.feature_flag import FeatureFlagSerializer
 
         if "operation" not in payload or "value" not in payload:
             raise Exception("Invalid payload")
 
         http_request = HttpRequest()
-        http_request.user = self.created_by
+        http_request.user = user or self.created_by
         context = {
             "request": http_request,
             "team_id": self.team_id,
