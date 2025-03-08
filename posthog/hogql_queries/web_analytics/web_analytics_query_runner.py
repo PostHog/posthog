@@ -17,7 +17,7 @@ from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
-from posthog.hogql_queries.utils.revenue import revenue_sum_expression, revenue_events_exprs
+from posthog.hogql.database.schema.exchange_rate import revenue_sum_expression, revenue_events_where_expr
 
 from posthog.models import Action
 from posthog.models.filters.mixins.utils import cached_property
@@ -183,8 +183,10 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
             if self.team.revenue_tracking_config
             else None
         )
+
         if not config:
             return ast.Constant(value=None)
+
         if isinstance(self.query.conversionGoal, CustomEventConversionGoal):
             event_name = self.query.conversionGoal.customEventName
             revenue_property = next(
@@ -237,7 +239,7 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
         elif self.query.includeRevenue:
             # Use elif here, we don't need to include revenue events if we already included conversion events, because
             # if there is a conversion goal set then we only show revenue from conversion events.
-            exprs.extend(revenue_events_exprs(self.team.revenue_tracking_config))
+            exprs.append(revenue_events_where_expr(self.team.revenue_tracking_config))
 
         return ast.Or(exprs=exprs)
 
