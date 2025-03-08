@@ -23,7 +23,7 @@
         "build:esbuild": "DEBUG=0 node ./build.mjs",
         "build:tailwind": "pnpm --filter=@posthog/tailwind build",
         "watch:tailwind": "pnpm --filter=@posthog/tailwind start",
-        "start": "concurrently -n ESBUILD,TYPEGEN,TAILWIND -c yellow,green,blue \"pnpm start-http\" \"pnpm run typegen:watch\" \"sleep 40 && pnpm watch:tailwind\"",
+        "start": "concurrently -n ESBUILD,TYPEGEN,TAILWIND -c yellow,green,blue \"pnpm start-http\" \"pnpm run typegen:watch\" \"pnpm watch:tailwind\"",
         "start-http": "pnpm clean && pnpm copy-scripts && pnpm build:esbuild --dev",
         "start-docker": "pnpm start-http --host 0.0.0.0",
         "typegen:write": "cd .. && kea-typegen write --delete --show-ts-errors",
