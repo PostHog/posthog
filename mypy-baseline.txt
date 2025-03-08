@@ -176,7 +176,6 @@ posthog/hogql/database/database.py:0: error: Argument "week_start_day" to "Datab
 posthog/warehouse/models/datawarehouse_saved_query.py:0: error: Argument 1 to "create_hogql_database" has incompatible type "int | None"; expected "int"  [arg-type]
 posthog/models/feature_flag/flag_matching.py:0: error: Value of type variable "_E" of "ExpressionWrapper" cannot be "object"  [type-var]
 posthog/models/feature_flag/flag_matching.py:0: error: Value of type variable "_E" of "ExpressionWrapper" cannot be "object"  [type-var]
-posthog/models/feature_flag/flag_matching.py:0: error: Argument 1 to "get" of "dict" has incompatible type "str | None"; expected "str"  [arg-type]
 posthog/models/feature_flag/flag_matching.py:0: error: Value of type variable "_E" of "ExpressionWrapper" cannot be "object"  [type-var]
 posthog/user_permissions.py:0: error: Incompatible return value type (got "int", expected "Level | None")  [return-value]
 posthog/user_permissions.py:0: error: Incompatible return value type (got "int", expected "Level | None")  [return-value]

@@ -696,6 +696,8 @@ class FeatureFlagMatcher:
             # TODO: Don't use the cache if self.groups is empty, since that means no groups provided anyway
             # :TRICKY: If aggregating by groups
             group_type_name = self.cache.group_type_index_to_name.get(feature_flag.aggregation_group_type_index)
+            if group_type_name is None:
+                return None
             group_key = self.groups.get(group_type_name)
             return group_key
 
