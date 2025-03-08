@@ -136,8 +136,8 @@ class FeatureFlag(ModelActivityMixin, models.Model):
             ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER in tile.insight.name for tile in self.usage_dashboard.tiles.all()
         )
 
-    def get_filters(self):
-        if "groups" in self.filters:
+    def get_filters(self) -> dict:
+        if isinstance(self.filters, dict) and "groups" in self.filters:
             return self.filters
         else:
             # :TRICKY: Keep this backwards compatible.
