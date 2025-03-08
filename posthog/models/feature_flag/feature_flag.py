@@ -133,7 +133,9 @@ class FeatureFlag(ModelActivityMixin, models.Model):
             return False
 
         return any(
-            ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER in tile.insight.name for tile in self.usage_dashboard.tiles.all()
+            ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER in (tile.insight.name or "")
+            for tile in self.usage_dashboard.tiles.all()
+            if tile.insight
         )
 
     def get_filters(self) -> dict:
