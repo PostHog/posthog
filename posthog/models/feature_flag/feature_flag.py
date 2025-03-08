@@ -55,7 +55,7 @@ class FeatureFlag(ModelActivityMixin, models.Model):
 
     ensure_experience_continuity = models.BooleanField(default=False, null=True, blank=True)
     usage_dashboard = models.ForeignKey("Dashboard", on_delete=models.SET_NULL, null=True, blank=True)
-    analytics_dashboards = models.ManyToManyField(
+    analytics_dashboards: models.ManyToManyField = models.ManyToManyField(
         "Dashboard",
         through="FeatureFlagDashboards",
         related_name="analytics_dashboards",
