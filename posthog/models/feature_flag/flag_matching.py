@@ -10,7 +10,7 @@ from django.conf import settings
 from django.db import DatabaseError, IntegrityError, DataError
 from django.db.models.expressions import ExpressionWrapper, RawSQL
 from django.db.models.fields import BooleanField
-from django.db.models import Q, Func, F, CharField
+from django.db.models import Q, Func, F, CharField, Expression
 from django.db.models.query import QuerySet
 from sentry_sdk.api import start_span
 from posthog.metrics import LABEL_TEAM_ID
@@ -579,7 +579,7 @@ class FeatureFlagMatcher:
                                     **type_property_annotations,
                                     **{
                                         key: ExpressionWrapper(
-                                            expr if expr else RawSQL("true", []),
+                                            cast(Expression, expr if expr else RawSQL("true", [])),
                                             output_field=BooleanField(),
                                         ),
                                     },
@@ -600,9 +600,9 @@ class FeatureFlagMatcher:
                                     **type_property_annotations,
                                     **{
                                         key: ExpressionWrapper(
-                                            expr if expr else RawSQL("true", []),
+                                            cast(Expression, expr if expr else RawSQL("true", [])),
                                             output_field=BooleanField(),
-                                        )
+                                        ),
                                     },
                                 )
                                 group_fields.append(key)
@@ -1204,7 +1204,7 @@ def check_flag_evaluation_query_is_ok(feature_flag: FeatureFlag, project_id: int
             **type_property_annotations,
             **{
                 key: ExpressionWrapper(
-                    expr if expr else RawSQL("true", []),
+                    cast(Expression, expr if expr else RawSQL("true", [])),
                     output_field=BooleanField(),
                 ),
             },
