@@ -90,7 +90,6 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
                         if (!feature.flagKey) {
                             return false // Filter out features without a flag linked
                         }
-                        debugger
                         if (CONSTRAINED_PREVIEWS.has(feature.flagKey as FeatureFlagKey)) {
                             return !!featureFlags[`${feature.flagKey}-preview`]
                         }

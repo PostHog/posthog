@@ -1,4 +1,4 @@
-import { LemonButton, LemonDivider, LemonSwitch, LemonTextArea, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDivider, LemonSwitch, LemonTabs, LemonTextArea, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useAsyncActions, useValues } from 'kea'
 import { IconLink } from 'lib/lemon-ui/icons'
@@ -8,6 +8,7 @@ import { useLayoutEffect, useState } from 'react'
 import { EnrichedEarlyAccessFeature, featurePreviewsLogic } from './featurePreviewsLogic'
 
 export function FeaturePreviews({ focusedFeatureFlagKey }: { focusedFeatureFlagKey?: string }): JSX.Element {
+    const [activeKey, setActiveKey] = useState<'beta' | 'concept'>('beta')
     const { earlyAccessFeatures, rawEarlyAccessFeaturesLoading } = useValues(featurePreviewsLogic)
     const { loadEarlyAccessFeatures } = useActions(featurePreviewsLogic)
 
@@ -32,18 +33,43 @@ export function FeaturePreviews({ focusedFeatureFlagKey }: { focusedFeatureFlagK
                 earlyAccessFeatures.length === 0 && 'items-center justify-center'
             )}
         >
-            {conceptFeatures.map((feature, i) => (
-                <div key={feature.flagKey} id={`feature-preview-${feature.flagKey}`}>
-                    {i > 0 && <LemonDivider className="my-4" />}
-                    <ConceptPreview key={feature.flagKey} feature={feature} />
-                </div>
-            ))}
-            {betaFeatures.map((feature, i) => (
-                <div key={feature.flagKey} id={`feature-preview-${feature.flagKey}`}>
-                    {i > 0 && <LemonDivider className="my-4" />}
-                    <FeaturePreview key={feature.flagKey} feature={feature} />
-                </div>
-            ))}
+            <LemonTabs
+                activeKey={activeKey}
+                onChange={setActiveKey}
+                tabs={[
+                    {
+                        key: 'beta',
+                        label: 'Previews',
+                        content: (
+                            <div className="flex flex-col flex-1 px-3 overflow-y-auto gap-4">
+                                <LemonBanner type="info">
+                                    Get early access to these upcoming features. Let us know what you think!
+                                </LemonBanner>
+                                {betaFeatures.map((feature, i) => (
+                                    <div key={feature.flagKey} id={`feature-preview-${feature.flagKey}`}>
+                                        {i > 0 && <LemonDivider className="my-4" />}
+                                        <FeaturePreview key={feature.flagKey} feature={feature} />
+                                    </div>
+                                ))}
+                            </div>
+                        ),
+                    },
+                    {
+                        key: 'concept',
+                        label: `Coming soon (${conceptFeatures.length})`,
+                        content: (
+                            <>
+                                {conceptFeatures.map((feature, i) => (
+                                    <div key={feature.flagKey} id={`feature-preview-${feature.flagKey}`}>
+                                        {i > 0 && <LemonDivider className="my-4" />}
+                                        <ConceptPreview key={feature.flagKey} feature={feature} />
+                                    </div>
+                                ))}
+                            </>
+                        ),
+                    },
+                ]}
+            />
             {rawEarlyAccessFeaturesLoading ? (
                 <SpinnerOverlay />
             ) : earlyAccessFeatures.length === 0 ? (
@@ -75,13 +101,17 @@ function ConceptPreview({ feature }: { feature: EnrichedEarlyAccessFeature }): J
                         onClick={() => copyExternalFeaturePreviewLink(flagKey)}
                     />
                 </div>
-                <LemonButton
+                <LemonSwitch
+                    checked={enabled}
+                    onChange={(newChecked) => updateEarlyAccessFeatureEnrollment(flagKey, newChecked)}
+                />
+                {/* <LemonButton
                     type="primary"
                     disabledReason={enabled && 'You have already expressed your interest'}
                     onClick={() => updateEarlyAccessFeatureEnrollment(flagKey, true)}
                 >
                     Get notified
-                </LemonButton>
+                </LemonButton> */}
             </div>
             <p className="my-2">{description || <i>No description.</i>}</p>
         </div>

@@ -92,9 +92,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         ],
     }),
     afterMount(({ actions }) => {
-        posthog.onFeatureFlags((flags) => {
-            debugger
-            actions.setFeatureFlags(flags)
-        })
+        posthog.onFeatureFlags(actions.setFeatureFlags)
     }),
 ])
