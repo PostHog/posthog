@@ -294,8 +294,10 @@ function EmbeddedHeatmapBrowser({
 
     const { width: iframeWidth } = useResizeObserver<HTMLIFrameElement>({ ref: iframeRef })
     useEffect(() => {
-        setIframeWidth(iframeWidth ?? null)
-    }, [iframeWidth, setIframeWidth])
+        if (widthOverride === null) {
+            setIframeWidth(iframeWidth ?? null)
+        }
+    }, [iframeWidth, setIframeWidth, widthOverride])
 
     return browserUrl ? (
         <div className="flex flex-row w-full">
