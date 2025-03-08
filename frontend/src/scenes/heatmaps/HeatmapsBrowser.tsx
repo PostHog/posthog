@@ -218,6 +218,79 @@ function LoadingOverlay(): JSX.Element {
     )
 }
 
+function ViewportChooser({
+    maxWidth = 0,
+    setWidth,
+}: {
+    maxWidth: number | undefined
+    setWidth: (width: number) => void
+}): JSX.Element {
+    const [hoveredWidth, setHoveredWidth] = React.useState<number | null>(null)
+    const [selectedWidth, setSelectedWidth] = React.useState<number | null>(null)
+
+    const viewports = [
+        {
+            name: 'Mobile - S',
+            width: 320,
+        },
+        {
+            name: 'Mobile - M',
+            width: 375,
+        },
+        {
+            name: 'Mobile - L',
+            width: 425,
+        },
+        {
+            name: 'Tablet',
+            width: 768,
+        },
+        {
+            name: 'Desktop',
+            width: 1024,
+        },
+        {
+            name: 'Desktop - L',
+            width: 1440,
+        },
+        {
+            name: 'Desktop - XL',
+            width: 1920,
+        },
+    ].filter(({ width }) => width <= maxWidth)
+
+    const handleWidthSelect = (width: number): void => {
+        setSelectedWidth(width)
+        setWidth(width)
+    }
+
+    return (
+        <div className="w-full flex flex-row items-center justify-center relative h-8 border-b bg-bg-light select-none">
+            {viewports.map(({ name, width }) => (
+                <div
+                    key={name}
+                    className={clsx(
+                        'absolute h-full border-l border-r cursor-pointer flex items-center justify-center px-2 text-xs transition-colors',
+                        'hover:bg-primary/10',
+                        'left-1/2 -translate-x-1/2',
+                        selectedWidth === width && 'bg-primary/20',
+                        hoveredWidth === width && 'bg-primary/10'
+                    )}
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={{
+                        width: width,
+                    }}
+                    onClick={() => handleWidthSelect(width)}
+                    onMouseEnter={() => setHoveredWidth(width)}
+                    onMouseLeave={() => setHoveredWidth(null)}
+                >
+                    {name} ({width}px)
+                </div>
+            ))}
+        </div>
+    )
+}
+
 function EmbeddedHeatmapBrowser({
     iframeRef,
 }: {
@@ -231,7 +304,7 @@ function EmbeddedHeatmapBrowser({
     const { width: iframeWidth } = useResizeObserver<HTMLIFrameElement>({ ref: iframeRef })
     useEffect(() => {
         setIframeWidth(iframeWidth ?? null)
-    }, [iframeWidth])
+    }, [iframeWidth, setIframeWidth])
 
     return browserUrl ? (
         <div className="flex flex-row gap-x-2 w-full">
@@ -239,6 +312,7 @@ function EmbeddedHeatmapBrowser({
             <div className="relative flex-1 w-full h-full">
                 {loading ? <LoadingOverlay /> : null}
                 {!loading && iframeBanner ? <IframeErrorOverlay /> : null}
+                <ViewportChooser maxWidth={iframeWidth} setWidth={setIframeWidth} />
                 <iframe
                     ref={iframeRef}
                     className="w-full h-full bg-white"
