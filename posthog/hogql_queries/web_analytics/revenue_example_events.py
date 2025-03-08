@@ -5,7 +5,7 @@ from posthog.hogql.ast import CompareOperationOp
 from posthog.hogql.constants import LimitContext
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner
-from posthog.hogql_queries.utils.revenue import revenue_expression, revenue_events_expr
+from posthog.hogql.database.schema.exchange_rate import revenue_expression, revenue_events_where_expr
 from posthog.schema import (
     RevenueExampleEventsQuery,
     RevenueExampleEventsQueryResponse,
@@ -56,7 +56,7 @@ class RevenueExampleEventsQueryRunner(QueryRunner):
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             where=ast.And(
                 exprs=[
-                    revenue_events_expr(tracking_config),
+                    revenue_events_where_expr(tracking_config),
                     ast.CompareOperation(
                         op=CompareOperationOp.NotEq,
                         left=ast.Field(chain=["revenue"]),  # refers to the Alias above

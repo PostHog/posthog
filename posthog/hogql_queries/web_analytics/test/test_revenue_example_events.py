@@ -1,3 +1,4 @@
+from decimal import Decimal
 from typing import Optional
 
 from freezegun import freeze_time
@@ -6,6 +7,7 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql_queries.web_analytics.revenue_example_events import RevenueExampleEventsQueryRunner
 from posthog.models.utils import uuid7
 from posthog.schema import (
+    CurrencyCode,
     RevenueExampleEventsQuery,
     RevenueTrackingConfig,
     RevenueExampleEventsQueryResponse,
@@ -14,6 +16,7 @@ from posthog.schema import (
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
+    snapshot_clickhouse_queries,
     _create_event,
     _create_person,
 )
@@ -31,7 +34,24 @@ MULTIPLE_EVENT_REVENUE_TRACKING_CONFIG = RevenueTrackingConfig(
     ]
 )
 
+REVENUE_TRACKING_CONFIG_WITH_REVENUE_CURRENCY_PROPERTY = RevenueTrackingConfig(
+    events=[
+        RevenueTrackingEventItem(
+            eventName="purchase_a",
+            revenueProperty="revenue_a",
+            revenueCurrencyProperty="currency_a",
+        ),
+        RevenueTrackingEventItem(
+            eventName="purchase_b",
+            revenueProperty="revenue_b",
+            revenueCurrencyProperty="currency_b",
+        ),
+    ],
+    baseCurrency=CurrencyCode.EUR,
+)
 
+
+@snapshot_clickhouse_queries
 class TestRevenueExampleEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     QUERY_TIMESTAMP = "2025-01-29"
 
@@ -53,8 +73,9 @@ class TestRevenueExampleEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 elements = None
                 lcp_score = None
                 revenue = None
+                currency = None
                 revenue_property = "revenue"
-
+                currency_property = "currency"
                 if event == "$pageview":
                     url = extra[0] if extra else None
                 elif event == "$autocapture":
@@ -62,10 +83,11 @@ class TestRevenueExampleEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 elif event == "$web_vitals":
                     lcp_score = extra[0] if extra else None
                 elif event.startswith("purchase"):
-                    # purchase_a -> revenue_a, purchase_b -> revenue_b, etc
+                    # purchase_a -> revenue_a/currency_a, purchase_b -> revenue_b/currency_b, etc
                     revenue_property += event[8:]
+                    currency_property += event[8:]
                     revenue = extra[0] if extra else None
-                properties = extra[1] if extra and len(extra) > 1 else {}
+                    currency = extra[1] if extra and len(extra) > 1 else None
 
                 event_ids.append(
                     _create_event(
@@ -78,7 +100,7 @@ class TestRevenueExampleEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                             "$current_url": url,
                             "$web_vitals_LCP_value": lcp_score,
                             revenue_property: revenue,
-                            **properties,
+                            currency_property: currency,
                         },
                         elements=elements,
                     )
@@ -142,3 +164,27 @@ class TestRevenueExampleEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert results[0][2] == 43
         assert results[1][1] == "purchase_a"
         assert results[1][2] == 42
+
+    def test_revenue_currency_property(self):
+        s1 = str(uuid7("2023-12-02"))
+        self._create_events(
+            [
+                ("p1", [("2023-12-02", s1, 42, "USD")]),
+            ],
+            event="purchase_a",
+        )
+        s2 = str(uuid7("2023-12-03"))
+        self._create_events(
+            [
+                ("p2", [("2023-12-03", s2, 43, "BRL")]),
+            ],
+            event="purchase_b",
+        )
+
+        results = self._run_revenue_example_events_query(REVENUE_TRACKING_CONFIG_WITH_REVENUE_CURRENCY_PROPERTY).results
+
+        assert len(results) == 2
+        assert results[0][1] == "purchase_b"
+        assert results[0][2] == Decimal("8.0388947625")  # 43 BRL -> 8.03 EUR
+        assert results[1][1] == "purchase_a"
+        assert results[1][2] == Decimal("38.619")  # 42 USD -> 38.61 EUR
