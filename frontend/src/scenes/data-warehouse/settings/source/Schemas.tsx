@@ -117,8 +117,8 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                                         const newValue = `${value}:00`
                                         const utcValue = isProjectTime
                                             ? dayjs(`${dayjs().format('YYYY-MM-DD')}T${newValue}`)
-                                                  .utc()
                                                   .tz(currentTeam?.timezone || 'UTC')
+                                                  .utc()
                                                   .format('HH:mm:00')
                                             : newValue
                                         updateSchema({ ...schema, sync_time_of_day: utcValue })
