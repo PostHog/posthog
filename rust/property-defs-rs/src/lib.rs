@@ -6,10 +6,9 @@ use common_kafka::kafka_consumer::{RecvErr, SingleTopicConsumer};
 use config::{Config, TeamFilterMode, TeamList};
 use metrics_consts::{
     BATCH_ACQUIRE_TIME, CACHE_CONSUMED, CHUNK_SIZE, COMPACTED_UPDATES, DUPLICATES_IN_BATCH,
-    EMPTY_EVENTS, EVENTS_RECEIVED, EVENT_PARSE_ERROR, FORCED_SMALL_BATCH, ISSUE_FAILED,
-    RECV_DEQUEUED, SKIPPED_DUE_TO_TEAM_FILTER, UPDATES_CACHE, UPDATES_DROPPED,
-    UPDATES_FILTERED_BY_CACHE, UPDATES_PER_EVENT, UPDATES_SEEN, UPDATE_ISSUE_TIME,
-    UPDATE_PRODUCER_OFFSET, WORKER_BLOCKED,
+    EMPTY_EVENTS, EVENTS_RECEIVED, EVENT_PARSE_ERROR, FORCED_SMALL_BATCH, GROUP_TYPE_RESOLVE_TIME,
+    RECV_DEQUEUED, SKIPPED_DUE_TO_TEAM_FILTER, UPDATES_CACHE, UPDATES_FILTERED_BY_CACHE,
+    UPDATES_PER_EVENT, UPDATES_SEEN, UPDATE_ISSUE_TIME, UPDATE_PRODUCER_OFFSET, WORKER_BLOCKED,
 };
 use quick_cache::sync::Cache;
 use tokio::sync::mpsc::{self, error::TrySendError};
@@ -21,9 +20,6 @@ pub mod app_context;
 pub mod config;
 pub mod metrics_consts;
 pub mod types;
-
-const BATCH_UPDATE_MAX_ATTEMPTS: u64 = 5;
-const UPDATE_RETRY_DELAY_MS: u64 = 150;
 
 pub async fn update_consumer_loop(
     config: Config,
@@ -74,7 +70,7 @@ pub async fn update_consumer_loop(
 
         metrics::counter!(DUPLICATES_IN_BATCH).increment((start_len - batch.len()) as u64);
 
-        let cache_utilization = cache.len() as f64 / config.cache_capacity as f64;
+        let cache_utilization = cache.as_ref().len() as f64 / config.cache_capacity as f64;
         metrics::gauge!(CACHE_CONSUMED).set(cache_utilization);
 
         // We split our update batch into chunks, one per transaction. We know each update touches
@@ -91,45 +87,26 @@ pub async fn update_consumer_loop(
         let mut handles = Vec::new();
         let issue_time = common_metrics::timing_guard(UPDATE_ISSUE_TIME, &[]);
         for mut chunk in chunks {
-            let m_context = context.clone();
-            let m_cache = cache.clone();
-            let handle = tokio::spawn(async move {
-                let mut tries: u64 = 0;
-                // We occasionally encounter deadlocks while issuing updates, so we retry a few times, and
-                // if we still fail, we drop the batch and clear it's content from the cached update set, because
-                // we assume everything in it will be seen again.
-                while let Err(e) = m_context.issue(&mut chunk, cache_utilization).await {
-                    tries += 1;
-                    if tries > BATCH_UPDATE_MAX_ATTEMPTS {
-                        let chunk_len = chunk.len() as u64;
-                        metrics::counter!(ISSUE_FAILED, &[("reason", "failed")]).increment(1);
-                        metrics::counter!(UPDATES_DROPPED, &[("reason", "batch_write_fail")])
-                            .increment(chunk_len);
-                        error!(
-                            "Issue failed: retries exhausted, dropping batch of size {} with error: {:?}",
-                            chunk_len, e,
-                        );
-                        // We clear any updates that were in this batch from the cache, so that
-                        // if we see them again we'll try again to issue them.
-                        chunk.iter().for_each(|u| {
-                            if m_cache.remove(u).is_some() {
-                                metrics::counter!(UPDATES_CACHE, &[("action", "removed")])
-                                    .increment(1);
-                            } else {
-                                metrics::counter!(UPDATES_CACHE, &[("action", "not_cached")])
-                                    .increment(1);
-                            }
-                        });
-                        return;
-                    }
+            let chunk_cache = cache.clone();
 
-                    let jitter = rand::random::<u64>() % 50;
-                    let delay: u64 = tries * UPDATE_RETRY_DELAY_MS + jitter;
-                    metrics::counter!(ISSUE_FAILED, &[("attempt", format!("retry_{}", tries))])
-                        .increment(1);
-                    warn!("Issue failed: {:?}, sleeping for {}ms", e, delay);
-                    tokio::time::sleep(Duration::from_millis(delay)).await;
+            // resolve the group types for this chunk
+            let group_type_resolve_time =
+                common_metrics::timing_guard(GROUP_TYPE_RESOLVE_TIME, &[]);
+            let chunk_ctx = context.clone();
+            match chunk_ctx.resolve_group_types_indexes(&mut chunk).await {
+                Ok(_) => (),
+                Err(e) => {
+                    error!(
+                        "failed to resolve group type indices for chunk, got: {:?}",
+                        e
+                    );
+                    return;
                 }
+            };
+            group_type_resolve_time.fin();
+
+            let handle = tokio::spawn(async move {
+                chunk_ctx.issue(chunk, chunk_cache, cache_utilization).await;
             });
             handles.push(handle);
         }

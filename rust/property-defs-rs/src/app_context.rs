@@ -2,6 +2,7 @@ use health::{HealthHandle, HealthRegistry};
 use quick_cache::sync::Cache;
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use std::borrow::Cow;
+use std::sync::Arc;
 use time::Duration;
 use tracing::{error, warn};
 
@@ -9,8 +10,8 @@ use crate::{
     api::v1::query::Manager,
     config::Config,
     metrics_consts::{
-        CACHE_WARMING_STATE, GROUP_TYPE_CACHE, GROUP_TYPE_READS, GROUP_TYPE_RESOLVE_TIME,
-        SINGLE_UPDATE_ISSUE_TIME, UPDATES_SKIPPED, UPDATE_TRANSACTION_TIME,
+        CACHE_WARMING_STATE, GROUP_TYPE_CACHE, GROUP_TYPE_READS, UPDATES_CACHE_EVICTION,
+        UPDATE_STORED, UPDATE_TRANSACTION_TIME,
     },
     types::{GroupType, Update},
 };
@@ -21,6 +22,9 @@ use crate::{
 const PG_CONSTRAINT_CODES: [&str; 7] = [
     "23000", "23001", "23502", "23503", "23505", "23515", "23P01",
 ];
+
+const UPDATE_MAX_ATTEMPTS: u64 = 3;
+const UPDATE_RETRY_DELAY_MS: u64 = 50;
 
 pub struct AppContext {
     pub pool: PgPool,
@@ -61,64 +65,90 @@ impl AppContext {
 
     pub async fn issue(
         &self,
-        updates: &mut [Update],
+        updates: Vec<Update>,
+        mut cache: Arc<Cache<Update, ()>>,
         cache_consumed: f64,
-    ) -> Result<(), sqlx::Error> {
+    ) {
         if cache_consumed < self.cache_warming_cutoff {
             metrics::gauge!(CACHE_WARMING_STATE, &[("state", "warming")]).set(cache_consumed);
-            let to_sleep = self.cache_warming_delay * (1.0 - cache_consumed);
+            let to_sleep = self.cache_warming_delay * (1.0 - cache_consumed) as i32;
             tokio::time::sleep(to_sleep.try_into().unwrap()).await;
         } else {
             metrics::gauge!(CACHE_WARMING_STATE, &[("state", "hot")]).set(1.0);
         }
 
-        let group_type_resolve_time = common_metrics::timing_guard(GROUP_TYPE_RESOLVE_TIME, &[]);
-        self.resolve_group_types_indexes(updates).await?;
-        group_type_resolve_time.fin();
-
-        let transaction_time = common_metrics::timing_guard(UPDATE_TRANSACTION_TIME, &[]);
+        // TODO(eli): I didn't bother to change the metric name here but yes, this is no longer a transaction
+        let update_batch_time = common_metrics::timing_guard(UPDATE_TRANSACTION_TIME, &[]);
         if !self.skip_writes && !self.skip_reads {
-            let mut tx = self.pool.begin().await?;
-
             for update in updates {
-                let issue_time = common_metrics::timing_guard(SINGLE_UPDATE_ISSUE_TIME, &[]);
-                match update.issue(&mut *tx).await {
-                    Ok(_) => issue_time.label("outcome", "success"),
-                    Err(sqlx::Error::Database(e))
-                        if e.constraint().is_some() || self.is_pg_constraint_error(&e.code()) =>
-                    {
-                        // If we hit a constraint violation, we just skip the update. We see
-                        // this in production for group-type-indexes not being resolved, and it's
-                        // not worth aborting the whole batch for.
-                        metrics::counter!(UPDATES_SKIPPED, &[("reason", "constraint_violation")])
-                            .increment(1);
-                        warn!("Failed to issue update: {:?}", e);
-                        issue_time.label("outcome", "skipped")
-                        // for now, we can leave the failed write in the parent Update cache, since these won't
-                        // be helped by additional retries. an hour w/o write attempts is a good thing for these
+                let mut tries: u64 = 1;
+                loop {
+                    let result = update.issue(&self.pool).await;
+                    match result {
+                        Ok(_) => {
+                            metrics::counter!(UPDATE_STORED, &[("result", "success")],);
+                            continue;
+                        }
+
+                        Err(sqlx::Error::Database(e))
+                            if e.constraint().is_some()
+                                || self.is_pg_constraint_error(&e.code()) =>
+                        {
+                            // If we hit a constraint violation, we just skip the update. We see
+                            // this in production for group-type-indexes not being resolved, and it's
+                            // not worth aborting the whole batch for.
+                            AppContext::remove_from_cache(&mut cache, &update);
+                            let tags = [
+                                ("result", "constraint_violation".to_string()),
+                                ("attempt", AppContext::format_attempt(tries)),
+                            ];
+                            metrics::counter!(UPDATE_STORED, &tags).increment(1);
+                            warn!("Issue update failed on DB constraint: {:?}", e);
+                            continue;
+                        }
+
+                        Err(e) => {
+                            AppContext::remove_from_cache(&mut cache, &update);
+                            let tags = [
+                                ("result", "error".to_string()),
+                                ("attempt", AppContext::format_attempt(tries)),
+                            ];
+                            metrics::counter!(UPDATE_STORED, &tags).increment(1);
+                            error!("Issue update failed on error: {:?}", e);
+                        }
                     }
-                    Err(e) => {
-                        // TODO(eli): move retry behavior (and cache removal) here and out of parent batch?
-                        // depends on what kind of errors we see landing here now that it's instrumented,
-                        // and we're (hopefully) catching the frequent constraint errors above
-                        metrics::counter!(UPDATES_SKIPPED, &[("reason", "unhandled_fail")])
-                            .increment(1);
-                        tx.rollback().await?;
-                        error!(
-                            "Unhandled issue update error, bubbling up to batch: {:?}",
-                            e
-                        );
-                        issue_time.label("outcome", "abort");
-                        return Err(e);
+
+                    if tries < UPDATE_MAX_ATTEMPTS {
+                        let jitter = rand::random::<u64>() % 50;
+                        let delay: u64 = tries * UPDATE_RETRY_DELAY_MS + jitter;
+                        tries += 1;
+                        tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                    } else {
+                        error!("Issue update retries exhausted, skipping");
+                        break;
                     }
                 }
-                .fin();
             }
-            tx.commit().await?;
         }
-        transaction_time.fin();
+        update_batch_time.fin();
+    }
 
-        Ok(())
+    fn format_attempt(tries: u64) -> String {
+        if tries < UPDATE_MAX_ATTEMPTS {
+            return tries.to_string();
+        }
+
+        "failed".to_string()
+    }
+
+    fn remove_from_cache(cache: &mut Arc<Cache<Update, ()>>, u: &Update) {
+        // Clear the failed update from the cache, so that if
+        // we see it again, we'll try again to store it ASAP
+        if cache.remove(u).is_some() {
+            metrics::counter!(UPDATES_CACHE_EVICTION, &[("action", "removed")]).increment(1);
+        } else {
+            metrics::counter!(UPDATES_CACHE_EVICTION, &[("action", "not_cached")]).increment(1);
+        }
     }
 
     fn is_pg_constraint_error(&self, pg_code: &Option<Cow<'_, str>>) -> bool {
@@ -128,7 +158,10 @@ impl AppContext {
         }
     }
 
-    async fn resolve_group_types_indexes(&self, updates: &mut [Update]) -> Result<(), sqlx::Error> {
+    pub async fn resolve_group_types_indexes(
+        &self,
+        updates: &mut [Update],
+    ) -> Result<(), sqlx::Error> {
         if self.skip_reads {
             return Ok(());
         }
@@ -170,7 +203,7 @@ impl AppContext {
                     update.group_type_index.take().map(|gti| gti.resolve(index));
             } else {
                 metrics::counter!(GROUP_TYPE_CACHE, &[("action", "fail")]).increment(1);
-                warn!(
+                error!(
                     "Failed to resolve group type index for group name: {} and team id: {}",
                     group_name, update.team_id
                 );
