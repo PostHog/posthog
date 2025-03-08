@@ -125,7 +125,7 @@ class FlagsMatcherCache:
                 group_type_mapping_rows = GroupTypeMapping.objects.db_manager(DATABASE_FOR_FLAG_MATCHING).filter(
                     project_id=self.project_id
                 )
-                return {row.group_type: row.group_type_index for row in group_type_mapping_rows}
+                return {row.group_type: cast(GroupTypeIndex, row.group_type_index) for row in group_type_mapping_rows}
         except DatabaseError:
             self.failed_to_fetch_flags = True
             raise

@@ -174,7 +174,6 @@ posthog/hogql/transforms/in_cohort.py:0: error: List item 0 has incompatible typ
 posthog/hogql/transforms/in_cohort.py:0: error: List item 0 has incompatible type "SelectQueryType | None"; expected "SelectQueryType"  [list-item]
 posthog/hogql/database/database.py:0: error: Argument "week_start_day" to "Database" has incompatible type "int | Any | None"; expected "WeekStartDay | None"  [arg-type]
 posthog/warehouse/models/datawarehouse_saved_query.py:0: error: Argument 1 to "create_hogql_database" has incompatible type "int | None"; expected "int"  [arg-type]
-posthog/models/feature_flag/flag_matching.py:0: error: Value expression in dictionary comprehension has incompatible type "int"; expected type "Literal[0, 1, 2, 3, 4]"  [misc]
 posthog/models/feature_flag/flag_matching.py:0: error: Value of type variable "_E" of "ExpressionWrapper" cannot be "object"  [type-var]
 posthog/models/feature_flag/flag_matching.py:0: error: Value of type variable "_E" of "ExpressionWrapper" cannot be "object"  [type-var]
 posthog/models/feature_flag/flag_matching.py:0: error: Argument 1 to "get" of "dict" has incompatible type "str | None"; expected "str"  [arg-type]
