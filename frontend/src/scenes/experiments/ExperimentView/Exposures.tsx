@@ -129,10 +129,25 @@ export function Exposures(): JSX.Element {
                                 title: '%',
                                 key: 'percentage',
                                 render: function Percentage(_, series) {
-                                    const total = exposures?.total_exposures.test + exposures?.total_exposures.control
+                                    let total = 0
+                                    if (exposures?.total_exposures) {
+                                        for (const [_, value] of Object.entries(exposures.total_exposures)) {
+                                            total += Number(value)
+                                        }
+                                    }
                                     return (
                                         <span className="font-semibold">
-                                            {((exposures?.total_exposures[series.variant] / total) * 100).toFixed(1)}%
+                                            {total ? (
+                                                <>
+                                                    {(
+                                                        (exposures?.total_exposures[series.variant] / total) *
+                                                        100
+                                                    ).toFixed(1)}
+                                                    %
+                                                </>
+                                            ) : (
+                                                <>-%</>
+                                            )}
                                         </span>
                                     )
                                 },
