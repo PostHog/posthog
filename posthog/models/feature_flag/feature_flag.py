@@ -2,6 +2,7 @@ import json
 from django.http import HttpRequest
 import structlog
 from typing import Optional, cast
+from django.contrib.auth.base_user import AbstractBaseUser
 
 from django.core.cache import cache
 from django.db import models
@@ -326,14 +327,16 @@ class FeatureFlag(ModelActivityMixin, models.Model):
 
         return list(cohort_ids)
 
-    def scheduled_changes_dispatcher(self, payload, user):
+    def scheduled_changes_dispatcher(self, payload, user: Optional[AbstractBaseUser] = None):
         from posthog.api.feature_flag import FeatureFlagSerializer
 
         if "operation" not in payload or "value" not in payload:
             raise Exception("Invalid payload")
 
         http_request = HttpRequest()
-        http_request.user = user or self.created_by
+        # We kind of cheat here set the request user to the user who created the scheduled change
+        # It's not the correct type, but it matches enough to get the job done
+        http_request.user = user or self.created_by  # type: ignore
         context = {
             "request": http_request,
             "team_id": self.team_id,
