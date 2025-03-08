@@ -78,21 +78,22 @@ class FeatureFlagMatchReason(StrEnum):
     OUT_OF_ROLLOUT_BOUND = "out_of_rollout_bound"
     NO_GROUP_TYPE = "no_group_type"
 
-    def score(self):
-        if self == FeatureFlagMatchReason.SUPER_CONDITION_VALUE:
-            return 4
-        if self == FeatureFlagMatchReason.HOLDOUT_CONDITION_VALUE:
-            return 3.5
-        if self == FeatureFlagMatchReason.CONDITION_MATCH:
-            return 3
-        if self == FeatureFlagMatchReason.NO_GROUP_TYPE:
-            return 2
-        if self == FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND:
-            return 1
-        if self == FeatureFlagMatchReason.NO_CONDITION_MATCH:
-            return 0
-
-        return -1
+    def score(self) -> float:
+        match self:
+            case FeatureFlagMatchReason.SUPER_CONDITION_VALUE:
+                return 4
+            case FeatureFlagMatchReason.HOLDOUT_CONDITION_VALUE:
+                return 3.5
+            case FeatureFlagMatchReason.CONDITION_MATCH:
+                return 3
+            case FeatureFlagMatchReason.NO_GROUP_TYPE:
+                return 2
+            case FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND:
+                return 1
+            case FeatureFlagMatchReason.NO_CONDITION_MATCH:
+                return 0
+            case _:
+                raise AssertionError("Unreachable - all enum cases are handled")
 
     def __lt__(self, other):
         if self.__class__ is other.__class__:
@@ -663,9 +664,9 @@ class FeatureFlagMatcher:
                             with start_span(op="execute_group_query"):
                                 group_query = group_query.values(*group_fields)
                                 if len(group_query) > 0:
-                                    assert (
-                                        len(group_query) == 1
-                                    ), f"Expected 1 group query result, got {len(group_query)}"
+                                    assert len(group_query) == 1, (
+                                        f"Expected 1 group query result, got {len(group_query)}"
+                                    )
                                     all_conditions = {**all_conditions, **group_query[0]}
                     return all_conditions
         except DatabaseError:
