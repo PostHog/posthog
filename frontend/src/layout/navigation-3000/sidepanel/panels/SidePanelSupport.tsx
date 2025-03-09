@@ -212,11 +212,13 @@ export const SidePanelSupport = (): JSX.Element => {
     const region = preflight?.region
 
     const isLocalDev = process.env.NODE_ENV === 'development'
-    // Check if user has a paid subscription or is on an active trial
-    const hasActiveTrial = !!billing?.free_trial_until && billing.free_trial_until.isAfter(dayjs())
+
+    // Check if user has a paid subscription or is on an active trial (either old-style or new-style)
+    const hasActiveTrial =
+        (!!billing?.free_trial_until && billing.free_trial_until.isAfter(dayjs())) ||
+        billing?.trial?.status === 'active'
     const canEmailEngineer = billing?.subscription_level !== 'free' || hasActiveTrial
     // In development, we always show the button regardless of cloud status
-    // In production, we only show it if isCloud is true
     const showEmailSupport = isLocalDev ? canEmailEngineer : isCloud && canEmailEngineer
 
     return (
@@ -224,6 +226,22 @@ export const SidePanelSupport = (): JSX.Element => {
             <div className="overflow-y-auto" data-attr="side-panel-support-container">
                 <SidePanelPaneHeader title="Help" />
                 <div className="p-3 max-w-160 w-full mx-auto">
+                    {/* Simple debug information for development */}
+                    {isLocalDev && (
+                        <div className="mb-4 border p-2 rounded bg-bg-light">
+                            <p className="text-xs">
+                                This ensures that users on either type of trial can see the "Email our support
+                                engineers" button.
+                            </p>
+                            <div className="text-xs mt-2">
+                                <div>Old-style trial: {billing?.free_trial_until ? 'Yes' : 'No'}</div>
+                                <div>New-style trial: {billing?.trial?.status === 'active' ? 'Yes' : 'No'}</div>
+                                <div>Subscription: {billing?.subscription_level}</div>
+                                <div>Show email button: {showEmailSupport ? 'Yes' : 'No'}</div>
+                            </div>
+                        </div>
+                    )}
+
                     {isEmailFormOpen ? (
                         <SupportFormBlock onCancel={() => closeEmailForm()} />
                     ) : isMaxChatInterfaceOpen ? (
