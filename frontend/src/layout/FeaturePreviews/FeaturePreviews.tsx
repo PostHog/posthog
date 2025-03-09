@@ -58,14 +58,17 @@ export function FeaturePreviews({ focusedFeatureFlagKey }: { focusedFeatureFlagK
                         key: 'concept',
                         label: `Coming soon (${conceptFeatures.length})`,
                         content: (
-                            <>
+                            <div className="flex flex-col flex-1 px-3 overflow-y-auto gap-4">
+                                <LemonBanner type="info">
+                                    Get notified about features we're going to work on soon!
+                                </LemonBanner>
                                 {conceptFeatures.map((feature, i) => (
                                     <div key={feature.flagKey} id={`feature-preview-${feature.flagKey}`}>
                                         {i > 0 && <LemonDivider className="my-4" />}
                                         <ConceptPreview key={feature.flagKey} feature={feature} />
                                     </div>
                                 ))}
-                            </>
+                            </div>
                         ),
                     },
                 ]}
@@ -88,8 +91,6 @@ function ConceptPreview({ feature }: { feature: EnrichedEarlyAccessFeature }): J
 
     const { flagKey, enabled, name, description } = feature
 
-    console.log('enabled: ', enabled)
-
     return (
         <div>
             <div className="flex items-center justify-between">
@@ -101,17 +102,15 @@ function ConceptPreview({ feature }: { feature: EnrichedEarlyAccessFeature }): J
                         onClick={() => copyExternalFeaturePreviewLink(flagKey)}
                     />
                 </div>
-                <LemonSwitch
-                    checked={enabled}
-                    onChange={(newChecked) => updateEarlyAccessFeatureEnrollment(flagKey, newChecked)}
-                />
-                {/* <LemonButton
+                <LemonButton
                     type="primary"
-                    disabledReason={enabled && 'You have already expressed your interest'}
+                    disabledReason={
+                        enabled && "You have already expressed your interest. We'll contact you when it's ready"
+                    }
                     onClick={() => updateEarlyAccessFeatureEnrollment(flagKey, true)}
                 >
-                    Get notified
-                </LemonButton> */}
+                    {enabled ? 'Registered' : 'Get notified'}
+                </LemonButton>
             </div>
             <p className="my-2">{description || <i>No description.</i>}</p>
         </div>
