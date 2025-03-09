@@ -757,11 +757,15 @@ def get_teams_with_recording_bytes_in_period(
 
     result = sync_execute(
         """
-        SELECT team_id, sum(size) as bytes
-        FROM session_replay_events
-        WHERE min_first_timestamp BETWEEN %(begin)s AND %(end)s
-        AND ifNull(snapshot_source, 'web') == %(snapshot_source)s
-        AND session_id NOT IN (
+        SELECT team_id, sum(total_size) as bytes
+        FROM (
+            SELECT any(team_id) as team_id, session_id, sum(size) as total_size
+            FROM session_replay_events
+            WHERE min_first_timestamp BETWEEN %(begin)s AND %(end)s
+            GROUP BY session_id
+            HAVING ifNull(argMinMerge(snapshot_source), 'web') == %(snapshot_source)s
+        )
+        WHERE session_id NOT IN (
             -- we want to exclude sessions that might have events with timestamps
             -- before the period we are interested in
             SELECT DISTINCT session_id
@@ -770,6 +774,7 @@ def get_teams_with_recording_bytes_in_period(
             -- we assume it is also the very first instant of a day
             -- so we can to subtract 1 second to get the day before
             WHERE min_first_timestamp BETWEEN %(previous_begin)s AND %(begin)s
+            GROUP BY session_id
         )
         GROUP BY team_id
     """,
