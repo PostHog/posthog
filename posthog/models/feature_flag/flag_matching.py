@@ -664,9 +664,9 @@ class FeatureFlagMatcher:
                             with start_span(op="execute_group_query"):
                                 group_query = group_query.values(*group_fields)
                                 if len(group_query) > 0:
-                                    assert len(group_query) == 1, (
-                                        f"Expected 1 group query result, got {len(group_query)}"
-                                    )
+                                    assert (
+                                        len(group_query) == 1
+                                    ), f"Expected 1 group query result, got {len(group_query)}"
                                     all_conditions = {**all_conditions, **group_query[0]}
                     return all_conditions
         except DatabaseError:
