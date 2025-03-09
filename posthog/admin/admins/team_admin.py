@@ -33,12 +33,12 @@ class TeamAdmin(admin.ModelAdmin):
         "id",
         "uuid",
         "organization",
-        "project",
         "primary_dashboard",
         "test_account_filters",
         "created_at",
         "updated_at",
     ]
+    autocomplete_fields = ["project"]
 
     inlines = [GroupTypeMappingInline, ActionInline]
     fieldsets = [
