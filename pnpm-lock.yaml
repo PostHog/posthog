@@ -368,14 +368,14 @@ importers:
   common/tailwind:
     dependencies:
       '@tailwindcss/container-queries':
-        specifier: ^0.1.1
+        specifier: 0.1.1
         version: 0.1.1(tailwindcss@4.0.12)
       tailwindcss:
         specifier: 4.0.12
         version: 4.0.12
     devDependencies:
       '@tailwindcss/cli':
-        specifier: ^4.0.12
+        specifier: 4.0.12
         version: 4.0.12
 
   cypress:
