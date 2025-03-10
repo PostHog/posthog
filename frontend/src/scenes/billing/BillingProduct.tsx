@@ -16,7 +16,7 @@ import { getProductIcon } from 'scenes/products/Products'
 
 import { BillingProductV2AddonType, BillingProductV2Type, BillingTierType, ProductKey } from '~/types'
 
-import { summarizeUsage } from './billing-utils'
+import { getUpgradeProductLink, summarizeUsage } from './billing-utils'
 import { BillingGauge } from './BillingGauge'
 import { BillingLimit } from './BillingLimit'
 import { billingLogic } from './billingLogic'
@@ -344,7 +344,11 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                             </BillingUpgradeCTA>
                                         ) : (
                                             <BillingUpgradeCTA
-                                                to={`/api/billing/activate?products=all_products:&redirect_path=${redirectPath}`}
+                                                to={getUpgradeProductLink({
+                                                    product,
+                                                    redirectPath,
+                                                    includeAddons: true,
+                                                })}
                                                 type="primary"
                                                 status="alt"
                                                 data-attr="billing-page-addon-cta-upgrade-cta"
