@@ -178,12 +178,8 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                     selectedId === item.id &&
                                                         'border-l-[4px] border-l-accent-primary rounded-tl-sm rounded-bl-sm'
                                                 )}
-                                                onClick={(e) => {
-                                                    // If it's a drag event (mouse has moved), the event will have a different type
-                                                    // Regular clicks will be 'click', drag events will be 'mouseup'
-                                                    if (e.type === 'click') {
-                                                        handleClick(item)
-                                                    }
+                                                onClick={() => {
+                                                    handleClick(item)
                                                 }}
                                                 onKeyDown={(e) => e.key === 'Enter' && handleClick(item, true)}
                                                 type="tertiary"
