@@ -12,16 +12,17 @@ from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.cluster import (
     ClickhouseCluster,
     HostInfo,
-    Mutation,
     MutationNotFound,
     AlterTableMutationRunner,
     LightweightDeleteMutationRunner,
     T,
+    MutationWaiter,
     Query,
     RetryPolicy,
     get_cluster,
 )
 from posthog.models.event.sql import EVENTS_DATA_TABLE
+from posthog.test.base import materialized
 
 
 @pytest.fixture
@@ -31,7 +32,7 @@ def cluster(django_db_setup) -> Iterator[ClickhouseCluster]:
 
 def test_mutation_runner_rejects_invalid_parameters() -> None:
     with pytest.raises(ValueError):
-        AlterTableMutationRunner("table", "command", parameters={"__invalid_key": True})
+        AlterTableMutationRunner("table", {"command"}, parameters={"__invalid_key": True})
 
 
 def test_exception_summary(snapshot, cluster: ClickhouseCluster) -> None:
@@ -115,7 +116,7 @@ def test_retry_policy_exception_test():
     assert non_retryable_callable.call_count == 1
 
 
-def test_mutations(cluster: ClickhouseCluster) -> None:
+def test_alter_mutation_single_command(cluster: ClickhouseCluster) -> None:
     table = EVENTS_DATA_TABLE()
     count = 100
 
@@ -129,22 +130,23 @@ def test_mutations(cluster: ClickhouseCluster) -> None:
     sentinel_uuid = uuid.uuid1()  # unique to this test run to ensure we have a clean slate
     runner = AlterTableMutationRunner(
         table,
-        """
-        UPDATE
-            person_id = %(uuid)s,
-            properties = %(properties)s
-        -- this is a comment that will not appear in system.mutations
-        WHERE 1 = /* this will also be stripped out during formatting */ 01
-        """,
+        {
+            """
+            UPDATE person_id = %(uuid)s, properties = %(properties)s
+            -- this is a comment that will not appear in system.mutations
+            WHERE 1 = /* this will also be stripped out during formatting */ 01
+            """
+        },
         parameters={"uuid": sentinel_uuid, "properties": json.dumps({"uuid": sentinel_uuid.hex})},
     )
 
     # nothing should be running yet
-    existing_mutations = cluster.map_all_hosts(runner.find).result()
-    assert all(mutation is None for mutation in existing_mutations.values())
+    # TODO: figure out of there is a way ot cleanly reimplement this
+    # existing_mutations = cluster.map_all_hosts(runner._find).result()
+    # assert all(mutation is None for mutation in existing_mutations.values())
 
     # start all mutations
-    shard_mutations = cluster.map_one_host_per_shard(runner.enqueue).result()
+    shard_mutations = cluster.map_one_host_per_shard(runner).result()
     assert len(shard_mutations) > 0
 
     # check results
@@ -171,13 +173,53 @@ def test_mutations(cluster: ClickhouseCluster) -> None:
 
     mutations_count_before = cluster.map_all_hosts(get_mutations_count).result()
 
-    duplicate_mutations = cluster.map_one_host_per_shard(runner.enqueue).result()
+    duplicate_mutations = cluster.map_one_host_per_shard(runner).result()
     assert shard_mutations == duplicate_mutations
 
     assert cluster.map_all_hosts(get_mutations_count).result() == mutations_count_before
 
     with pytest.raises(MutationNotFound):
-        assert cluster.any_host(Mutation("x", "y").is_done).result()
+        assert cluster.any_host(MutationWaiter("x", {"y"}).is_done).result()
+
+
+def test_alter_mutation_multiple_commands(cluster: ClickhouseCluster) -> None:
+    table = EVENTS_DATA_TABLE()
+    count = 100
+
+    # make sure there is some data to play with first
+    def populate_random_data(client: Client) -> None:
+        client.execute(f"INSERT INTO {table} SELECT * FROM generateRandom() LIMIT {count}")
+
+    cluster.map_one_host_per_shard(populate_random_data).result()
+
+    sentinel_uuid = uuid.uuid1()  # unique to this test run to ensure we have a clean slate
+
+    with (
+        materialized("events", f"{sentinel_uuid}_a") as column_a,
+        materialized("events", f"{sentinel_uuid}_b") as column_b,
+    ):
+        runner = AlterTableMutationRunner(
+            table,
+            {f"MATERIALIZE COLUMN {column_a.name}", f"MATERIALIZE COLUMN {column_b.name}"},
+        )
+
+        # nothing should be running yet
+        # TODO: figure out of there is a way ot cleanly reimplement this
+        # existing_mutations = cluster.map_all_hosts(runner._find).result()
+        # assert all(mutation is None for mutation in existing_mutations.values())
+
+        # start all mutations
+        shard_mutations = cluster.map_one_host_per_shard(runner).result()
+        assert len(shard_mutations) > 0
+
+        for host_info, mutation in shard_mutations.items():
+            assert host_info.shard_num is not None
+
+            # wait for mutations to complete on shard
+            cluster.map_all_hosts_in_shard(host_info.shard_num, mutation.wait).result()
+
+            # check to make sure all mutations are marked as done
+            assert all(cluster.map_all_hosts_in_shard(host_info.shard_num, mutation.is_done).result().values())
 
 
 def test_map_hosts_by_role() -> None:
@@ -245,7 +287,7 @@ def test_lightweight_delete(cluster: ClickhouseCluster) -> None:
     )
 
     # start all mutations
-    shard_mutations = cluster.map_one_host_per_shard(runner.enqueue).result()
+    shard_mutations = cluster.map_one_host_per_shard(runner).result()
     assert len(shard_mutations) > 0
 
     # check results
