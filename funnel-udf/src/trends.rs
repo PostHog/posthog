@@ -51,6 +51,7 @@ pub enum Exclusion {
     Full,
 }
 
+// Interval start, 1 or -1, the propval, and the event uuid
 #[derive(Serialize)]
 pub struct ResultStruct(pub u64, pub i8, pub PropVal, pub Uuid);
 
@@ -111,6 +112,7 @@ impl AggregateFunnelRow {
             })
             .collect()
     }
+
 
     #[inline(always)]
     fn loop_prop_val(&mut self, args: &Args, prop_val: &PropVal) -> ResultsMap {

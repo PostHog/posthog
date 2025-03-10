@@ -19,7 +19,6 @@ struct IntervalData {
 
 pub struct AggregateFunnelRowUnordered {
     pub breakdown_step: Option<usize>,
-    pub results: Vec<ResultStruct>,
 }
 
 const DEFAULT_ENTERED_TIMESTAMP: EnteredTimestamp = EnteredTimestamp {
@@ -29,20 +28,25 @@ const DEFAULT_ENTERED_TIMESTAMP: EnteredTimestamp = EnteredTimestamp {
 
 impl AggregateFunnelRowUnordered {
     #[inline(always)]
-    pub fn calculate_funnel_from_user_events(&mut self, args: &Args) -> &Vec<ResultStruct> {
+    pub fn calculate_funnel_from_user_events(&mut self, args: &Args) -> Vec<ResultStruct> {
         if args.breakdown_attribution_type.starts_with("step_") {
             self.breakdown_step = args.breakdown_attribution_type[5..].parse::<usize>().ok()
         }
 
+        // At the end of the results, we should have
         args.prop_vals
             .iter()
-            .for_each(|prop_val| self.loop_prop_val(args, prop_val));
-
-        &self.results
+            .flat_map(|prop_val| {
+                let results_map = self.loop_prop_val(args, prop_val);
+                results_map.into_values().collect::<Vec<ResultStruct>>()
+            })
+            .collect()
     }
 
+    // At the end of this function, we should have, for each entered timestamp, a ResultsMap
+    // The ResultsMap should map an interval timestamp to a ResultStruct
     #[inline(always)]
-    fn loop_prop_val(&mut self, args: &Args, prop_val: &PropVal) {
+    fn loop_prop_val(&mut self, args: &Args, prop_val: &PropVal) -> ResultsMap {
         let mut vars = Vars {
             events_by_step: repeat(VecDeque::new()).take(args.num_steps).collect(),
             num_steps_completed: 0,
@@ -70,23 +74,22 @@ impl AggregateFunnelRowUnordered {
             }
         }
 
-        // After processing all events, return the result
-        self.results.push(Result(
-            vars.max_step.0 as i8 - 1,
-            prop_val.clone(),
-            vars.max_step
-                .1
-                .timings
-                .windows(2)
-                .map(|w| w[1] - w[0])
-                .collect(),
-            vars.max_step
-                .1
-                .uuids
-                .iter()
-                .map(|uuid| vec![*uuid])
-                .collect(),
-        ));
+        vars.interval_start_to_interval_data.iter().filter_map(|(&interval_start, interval_data)| {
+            if interval_data.max_step.step >= args.from_step {
+                Some((interval_start, ResultStruct(
+                    interval_start,
+                    if interval_data.max_step.step >= args.num_steps {
+                        1
+                    } else {
+                        -1
+                    },
+                    prop_val.clone(),
+                    interval_data.max_step.event_uuid
+                )))
+            } else {
+                None
+            }
+        }).collect()
     }
 
     #[inline(always)]
