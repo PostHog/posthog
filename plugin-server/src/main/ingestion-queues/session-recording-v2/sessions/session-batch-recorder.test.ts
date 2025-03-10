@@ -3,6 +3,7 @@ import { validate as uuidValidate } from 'uuid'
 
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { ParsedMessageData } from '../kafka/types'
+import { SnapshotEvent } from '../kafka/types'
 import { MessageWithTeam } from '../teams/types'
 import { SessionBatchMetrics } from './metrics'
 import { SessionBatchFileStorage, SessionBatchFileWriter } from './session-batch-file-storage'
@@ -165,7 +166,7 @@ describe('SessionBatchRecorder', () => {
 
     const createMessage = (
         sessionId: string,
-        events: RRWebEvent[],
+        events: SnapshotEvent[],
         metadata: MessageMetadata = {},
         teamId: number = 1,
         distinctId: string = 'distinct_id'

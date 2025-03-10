@@ -1,7 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { HogTransformerService } from '~/src/cdp/hog-transformations/hog-transformer.service'
-
+import { HogTransformerService } from '../../../cdp/hog-transformations/hog-transformer.service'
 import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
 import { Hub, PipelineEvent, Team } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
