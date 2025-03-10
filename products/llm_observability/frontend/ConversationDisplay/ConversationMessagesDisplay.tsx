@@ -91,7 +91,7 @@ export const LLMMessageDisplay = React.memo(
     ({ message, isOutput }: { message: CompatMessage; isOutput?: boolean }): JSX.Element => {
         const { role, content, ...additionalKwargs } = message
         const [isRenderingMarkdown, setIsRenderingMarkdown] = React.useState(true)
-        const [show, setShow] = React.useState(true)
+        const [show, setShow] = React.useState(role !== 'system')
 
         // Compute whether the content looks like Markdown.
         // (Heuristic: looks for code blocks, blockquotes, or headings)
