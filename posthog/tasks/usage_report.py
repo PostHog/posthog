@@ -5,6 +5,7 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import Any, Literal, Optional, TypedDict, Union
 
+import celery
 import requests
 import structlog
 from celery import shared_task
@@ -20,7 +21,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog import version_requirement
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.query_tagging import tags_context
+from posthog.clickhouse.query_tagging import tags_context, tag_queries
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.constants import FlagRequestType
 from posthog.logging.timing import timed_log
@@ -66,6 +67,7 @@ QUERY_RETRY_DELAY = 1
 QUERY_RETRY_BACKOFF = 2
 
 USAGE_REPORT_TASK_KWARGS = {
+    "bind": True,
     "queue": CeleryQueue.USAGE_REPORTS.value,
     "ignore_result": True,
     "autoretry_for": (Exception,),
@@ -289,7 +291,7 @@ def get_org_user_count(organization_id: str) -> int:
 
 
 @shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=3, rate_limit="5/s")
-def send_report_to_billing_service(org_id: str, report: dict[str, Any]) -> None:
+def send_report_to_billing_service(self: celery.Task, org_id: str, report: dict[str, Any]) -> None:
     if not settings.EE_AVAILABLE:
         return
 
@@ -774,6 +776,7 @@ def get_teams_with_hog_function_fetch_calls_in_period(
 
 @shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=0)
 def capture_report(
+    self: celery.Task,
     *,
     capture_event_name: str,
     org_id: Optional[str] = None,
@@ -1187,6 +1190,7 @@ def _get_full_org_usage_report_as_dict(full_report: FullUsageReport) -> dict[str
 
 @shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=3)
 def send_all_org_usage_reports(
+    self: celery.Task,
     dry_run: bool = False,
     at: Optional[str] = None,
     capture_event_name: Optional[str] = None,
@@ -1195,6 +1199,8 @@ def send_all_org_usage_reports(
 ) -> None:
     import posthoganalytics
     from sentry_sdk import capture_message
+
+    tag_queries(celery_request_id=self.request.id)
 
     are_usage_reports_disabled = posthoganalytics.feature_enabled("disable-usage-reports", "internal_billing_events")
     if are_usage_reports_disabled:
