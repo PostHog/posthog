@@ -3,7 +3,7 @@ import json
 from collections.abc import Coroutine
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, TypedDict, TypeVar, cast
+from typing import Any, cast
 
 import cohere
 import posthoganalytics
@@ -20,7 +20,7 @@ from ee.hogai.summarizers.chains import abatch_summarize_actions
 from posthog.models import Action
 from posthog.models.ai.pg_embeddings import INSERT_BULK_PG_EMBEDDINGS_SQL
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.clickhouse import get_client
+from posthog.temporal.common.clickhouse import ClickHouseClient, get_client
 from posthog.temporal.common.utils import get_scheduled_start_time
 
 logger = structlog.get_logger(__name__)
@@ -87,16 +87,19 @@ def get_cohere_client() -> cohere.AsyncClientV2:
 
 
 @dataclass
-class RetrieveActionsInputs:
+class BatchSummarizeActionsInputs:
+    start_dt: str
     offset: int
     batch_size: int
-    start_dt: str
 
 
 @temporalio.activity.defn
-async def batch_summarize_and_embed_actions(inputs: RetrieveActionsInputs):
+async def batch_summarize_actions(inputs: BatchSummarizeActionsInputs):
     """
-    Summarizes and embeds actions in batches.
+    Summarizes actions in batches and saves their summaries to the database.
+
+    Args:
+        inputs: Inputs for the activity.
     """
     workflow_start_dt = datetime.fromisoformat(inputs.start_dt)
     actions_to_summarize = await get_actions_qs(workflow_start_dt, inputs.offset, inputs.batch_size)
@@ -134,14 +137,20 @@ async def batch_summarize_and_embed_actions(inputs: RetrieveActionsInputs):
     await Action.objects.abulk_update(models_to_update, ["last_summarized_at", "summary"])
 
 
-class ActionDict(TypedDict):
-    summary: str | None
+async def batch_embed_actions(
+    actions: list[dict[str, Any]], batch_size: int
+) -> list[tuple[dict[str, Any], list[float]]]:
+    """
+    Embed actions in batches in parallel.
 
+    Args:
+        actions: List of all actions to embed.
+        batch_size: How many actions to embed in a single batch.
 
-T = TypeVar("T", bound=ActionDict)
+    Returns:
+        List of tuples containing the action and its embedding.
+    """
 
-
-async def embed_action_batch(actions: list[T], batch_size: int) -> list[tuple[T, list[float]]]:
     logger.info(
         "Preparing to embed actions",
         actions_count=len(actions),
@@ -166,10 +175,10 @@ async def embed_action_batch(actions: list[T], batch_size: int) -> list[tuple[T,
     successful_batches = []
     for action_batch, response in zip(filtered_batches, responses):
         if isinstance(response, BaseException):
-            logger.exception("Error embedding actions", error=response, action_batch=action_batch)
+            logger.exception("Error embedding actions", error=response)
             continue
         if not response.embeddings.float_:
-            logger.exception("No embeddings found", error=response, action_batch=action_batch)
+            logger.warning("No embeddings found")
             continue
         for action, embedding in zip(action_batch, response.embeddings.float_):
             successful_batches.append((action, embedding))
@@ -177,27 +186,81 @@ async def embed_action_batch(actions: list[T], batch_size: int) -> list[tuple[T,
     return successful_batches
 
 
+async def sync_action_vectors(
+    client: ClickHouseClient,
+    actions_with_embeddings: list[tuple[dict[str, Any], list[float]]],
+    insert_batch_size: int,
+    workflow_start_dt: datetime,
+):
+    """
+    Syncs action vectors to ClickHouse and updates the last synced timestamp.
+
+    Args:
+        actions_with_embeddings: List of tuples containing the action and its embedding.
+        insert_batch_size: How many actions to insert in a single query to ClickHouse.
+        workflow_start_dt: The start date of the workflow to set the timestamp to.
+    """
+    for i in range(0, len(actions_with_embeddings), insert_batch_size):
+        batch = actions_with_embeddings[i : i + insert_batch_size]
+
+        rows = [
+            (
+                "action",
+                action["team_id"],
+                action["id"],
+                embedding,
+                action["summary"],
+                json.dumps({"name": action["name"], "description": action["description"]}),
+                1 if action["deleted"] else 0,
+            )
+            for (action, embedding) in batch
+        ]
+        if not rows:
+            break
+
+        await client.execute_query(INSERT_BULK_PG_EMBEDDINGS_SQL, *rows)
+
+        bulk_update = [Action(id=action["id"], embedding_last_synced_at=workflow_start_dt) for action, _ in batch]
+        await Action.objects.abulk_update(bulk_update, ["embedding_last_synced_at"])
+
+
 @dataclass
-class SyncActionVectorsForTeamInputs:
+class BatchEmbedAndSyncActionsInputs:
+    start_dt: str
     insert_batch_size: int
     embeddings_batch_size: int
     max_parallel_requests: int
-    start_dt: str
 
 
 @dataclass
-class SyncActionVectorsForTeamOutputs:
+class BatchEmbedAndSyncActionsOutputs:
     has_more: bool
 
 
 @temporalio.activity.defn
-async def sync_action_vectors_for_team(inputs: SyncActionVectorsForTeamInputs) -> SyncActionVectorsForTeamOutputs:
+async def batch_embed_and_sync_actions(inputs: BatchEmbedAndSyncActionsInputs) -> BatchEmbedAndSyncActionsOutputs:
+    """
+    Embeds actions in batches and syncs them to ClickHouse.
+
+    Args:
+        inputs: Inputs for the activity.
+
+    Returns:
+        Outputs for the activity: whether there are more actions to sync.
+    """
     workflow_start_dt = datetime.fromisoformat(inputs.start_dt)
     actions_to_sync_qs = (
         Action.objects.filter(
-            Q(last_summarized_at__lte=workflow_start_dt)
+            Q(
+                # Include only actions that have been summarized.
+                last_summarized_at__lte=workflow_start_dt,
+                # And they must have a summary to prevent infinite loops.
+                summary__isnull=False,
+            )
             & (
-                Q(last_summarized_at__gte=F("embedding_last_synced_at"))
+                # Include only updated actions.
+                Q(last_summarized_at__gt=F("embedding_last_synced_at"))
+                # Or actions that haven't never been synced but have summaries.
                 | (Q(embedding_last_synced_at__isnull=True) & Q(last_summarized_at__isnull=False))
             )
         )
@@ -207,64 +270,49 @@ async def sync_action_vectors_for_team(inputs: SyncActionVectorsForTeamInputs) -
 
     actions_batch_size = inputs.embeddings_batch_size * inputs.max_parallel_requests
     offset = 0
-    embedded_actions = []
+    embedded_actions: list[tuple[dict[str, Any], list[float]]] = []
 
     while offset < inputs.insert_batch_size:
-        batch = [action async for action in actions_to_sync_qs[offset : offset + actions_batch_size]]
-        if not batch:
+        qs_slice = [
+            cast(dict[str, Any], action) async for action in actions_to_sync_qs[offset : offset + actions_batch_size]
+        ]
+        if not qs_slice:
             break
 
-        offset += len(batch)
-        embedded_actions += await embed_action_batch(batch, inputs.embeddings_batch_size)
+        offset += len(qs_slice)
+        embedded_actions += await batch_embed_actions(qs_slice, inputs.embeddings_batch_size)
 
         # Exit early if we don't have enough actions to fill the batch.
-        if len(batch) != actions_batch_size:
+        if len(qs_slice) != actions_batch_size:
             break
 
-    batch = [
-        (
-            "action",
-            action["team_id"],
-            action["id"],
-            embedding,
-            action["summary"],
-            json.dumps({"name": action["name"], "description": action["description"]}),
-            1 if action["deleted"] else 0,
-        )
-        for (action, embedding) in embedded_actions
-    ]
-
-    if not batch:
-        return SyncActionVectorsForTeamOutputs(has_more=False)
+    if not embedded_actions:
+        return BatchEmbedAndSyncActionsOutputs(has_more=False)
 
     logger.info(
         "Syncing action vectors",
-        batch_size=inputs.batch_size,
+        insert_batch_size=inputs.insert_batch_size,
         start_dt=inputs.start_dt,
-        actions_count=len(batch),
+        actions_count=len(embedded_actions),
     )
 
     async with get_client() as client:
-        for i in range(0, len(batch), inputs.insert_batch_size):
-            await client.execute_query(
-                INSERT_BULK_PG_EMBEDDINGS_SQL,
-                *batch[i : i + inputs.insert_batch_size],
-            )
-            bulk_update = [
-                Action(id=action["id"], embedding_last_synced_at=workflow_start_dt) async for action in embedded_actions
-            ]
-            await Action.objects.abulk_update(bulk_update, ["embedding_last_synced_at"])
+        await sync_action_vectors(client, embedded_actions, inputs.insert_batch_size, workflow_start_dt)
 
-    # Returning True as we can't tell that there are no more actions to sync without doing a one additional run.
-    return SyncActionVectorsForTeamOutputs(has_more=True)
+    # Returning True as we can't tell that there are no more actions to sync without doing one additional run.
+    return BatchEmbedAndSyncActionsOutputs(has_more=True)
 
 
 @dataclass
 class SyncVectorsInputs:
     start_dt: str | None = None
+    """Start date for the sync if the workflow is not triggered by a schedule."""
     batch_size: int = 96
+    """How many elements to process in a single batch."""
     max_parallel_requests: int = 4
-    sync_batch_size: int = 50000
+    """How many parallel requests to send to vendors."""
+    insert_batch_size: int = 10000
+    """How many rows to insert in a single query to ClickHouse."""
 
 
 @temporalio.workflow.defn(name="ai-sync-vectors")
@@ -290,8 +338,8 @@ class SyncVectorsWorkflow(PostHogWorkflow):
         for i in range(0, approximate_actions_count, inputs.batch_size):
             tasks.append(
                 temporalio.workflow.execute_activity(
-                    batch_summarize_and_embed_actions,
-                    RetrieveActionsInputs(i, inputs.batch_size, start_dt_str),
+                    batch_summarize_actions,
+                    BatchSummarizeActionsInputs(start_dt_str, i, inputs.batch_size),
                     start_to_close_timeout=timedelta(minutes=5),
                     retry_policy=temporalio.common.RetryPolicy(
                         initial_interval=timedelta(seconds=30), maximum_attempts=3
@@ -309,8 +357,10 @@ class SyncVectorsWorkflow(PostHogWorkflow):
 
         while True:
             res = await temporalio.workflow.execute_activity(
-                sync_action_vectors_for_team,
-                SyncActionVectorsForTeamInputs(inputs.sync_batch_size, start_dt_str),
+                batch_embed_and_sync_actions,
+                BatchEmbedAndSyncActionsInputs(
+                    start_dt_str, inputs.insert_batch_size, inputs.batch_size, inputs.max_parallel_requests
+                ),
                 start_to_close_timeout=timedelta(minutes=1),
                 retry_policy=temporalio.common.RetryPolicy(initial_interval=timedelta(seconds=30), maximum_attempts=3),
             )

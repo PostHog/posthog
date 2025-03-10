@@ -1,7 +1,8 @@
 import json
 import uuid
 from datetime import timedelta
-from typing import Annotated
+from itertools import cycle
+from typing import Annotated, Any
 from unittest.mock import patch
 
 import cohere
@@ -20,17 +21,20 @@ from posthog.clickhouse.client import sync_execute
 from posthog.models import Action
 from posthog.models.ai.pg_embeddings import TRUNCATE_PG_EMBEDDINGS_TABLE_SQL
 from posthog.temporal.ai.sync_vectors import (
+    BatchEmbedAndSyncActionsInputs,
+    BatchEmbedAndSyncActionsOutputs,
+    BatchSummarizeActionsInputs,
     GetApproximateActionsCountInputs,
-    RetrieveActionsInputs,
-    SyncActionVectorsForTeamInputs,
-    SyncActionVectorsForTeamOutputs,
     SyncVectorsInputs,
     SyncVectorsWorkflow,
-    batch_summarize_and_embed_actions,
+    batch_embed_actions,
+    batch_embed_and_sync_actions,
+    batch_summarize_actions,
     get_actions_qs,
     get_approximate_actions_count,
-    sync_action_vectors_for_team,
+    sync_action_vectors,
 )
+from posthog.temporal.common.clickhouse import get_client
 
 
 @pytest.fixture(autouse=True)
@@ -86,6 +90,25 @@ async def summarized_actions(action_models, ateam):
 
 
 @pytest.fixture
+def summarized_actions_with_embeddings(summarized_actions) -> list[tuple[dict[str, Any], list[float]]]:
+    embeddings = [[0.1, 0.2], [0.2, 0.1], [0.5, 0.9]]
+    return [
+        (
+            {
+                "id": action.id,
+                "summary": action.summary,
+                "team_id": action.team_id,
+                "name": action.name,
+                "description": action.description,
+                "deleted": action.deleted,
+            },
+            embedding,
+        )
+        for action, embedding in zip(summarized_actions, embeddings)
+    ]
+
+
+@pytest.fixture
 def mock_flag(ateam):
     with patch(
         "posthog.temporal.ai.sync_vectors._get_orgs_from_the_feature_flag", return_value=[str(ateam.organization.id)]
@@ -130,22 +153,16 @@ async def test_get_approximate_actions_count(mock_flag, actions):
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_batch_summarize_and_embed_actions(mock_flag, actions):
+async def test_basic_batch_summarization(mock_flag, actions):
     with (
         patch("posthog.temporal.ai.sync_vectors.get_cohere_client", return_value=cohere.AsyncClientV2(api_key="test")),
         patch("posthog.temporal.ai.sync_vectors.abatch_summarize_actions") as summarize_mock,
-        patch("cohere.AsyncClientV2.embed") as embeddings_mock,
     ):
         summarize_mock.return_value = ["Test1"]
-        embeddings_mock.return_value = EmbeddingsByTypeEmbedResponse(
-            embeddings={"float_": [[0.12, 0.054]]},
-            id="test",
-            texts=["Test1"],
-        )
 
         start_dt = timezone.now()
-        await batch_summarize_and_embed_actions(
-            RetrieveActionsInputs(offset=0, batch_size=1, start_dt=start_dt.isoformat())
+        await batch_summarize_actions(
+            BatchSummarizeActionsInputs(offset=0, batch_size=1, start_dt=start_dt.isoformat())
         )
         assert summarize_mock.call_count == 1
 
@@ -154,7 +171,6 @@ async def test_batch_summarize_and_embed_actions(mock_flag, actions):
         assert updated_action.summary == "Test1"
         assert updated_action.last_summarized_at == start_dt
         assert updated_action.embedding_last_synced_at is None
-        assert updated_action.embedding == [0.12, 0.054]
 
         for action in actions[1:]:
             await action.arefresh_from_db()
@@ -164,78 +180,32 @@ async def test_batch_summarize_and_embed_actions(mock_flag, actions):
             assert action.embedding_last_synced_at is None
 
         summarize_mock.return_value = ["Test2", "Test3"]
-        embeddings_mock.return_value = EmbeddingsByTypeEmbedResponse(
-            embeddings={"float_": [[0.1, 0.7], [0.8, 0.6663]]},
-            id="test",
-            texts=["Test2", "Test3"],
-        )
 
-        await batch_summarize_and_embed_actions(
-            RetrieveActionsInputs(offset=1, batch_size=10, start_dt=start_dt.isoformat())
+        await batch_summarize_actions(
+            BatchSummarizeActionsInputs(offset=1, batch_size=10, start_dt=start_dt.isoformat())
         )
         assert summarize_mock.call_count == 2
-        expected_embeddings = ([0.12, 0.054], [0.1, 0.7], [0.8, 0.6663])
         expected_texts = ["Test1", "Test2", "Test3"]
 
-        for action, expected_embedding, expected_text in zip(actions, expected_embeddings, expected_texts):
+        for action, expected_text in zip(actions, expected_texts):
             await action.arefresh_from_db()
             assert action.summary == expected_text
             assert action.last_summarized_at == start_dt
-            assert action.embedding == expected_embedding
-            assert action.embedding_last_synced_at is None
-
-
-@pytest.mark.django_db
-@pytest.mark.asyncio
-async def test_batch_summarize_in_a_single_batch(mock_flag, actions: tuple[Action]):
-    embeddings = [[0.12, 0.054], [0.1, 0.7], [0.8, 0.6663]]
-    texts = ["Test1", "Test2", "Test3"]
-
-    with (
-        patch("posthog.temporal.ai.sync_vectors.abatch_summarize_actions", return_value=texts),
-        patch(
-            "cohere.AsyncClientV2.embed",
-            return_value=EmbeddingsByTypeEmbedResponse(
-                embeddings={"float_": embeddings},
-                id="test",
-                texts=texts,
-            ),
-        ),
-        patch("posthog.temporal.ai.sync_vectors.get_cohere_client", return_value=cohere.AsyncClientV2(api_key="test")),
-    ):
-        start_dt = timezone.now()
-        await batch_summarize_and_embed_actions(
-            RetrieveActionsInputs(offset=0, batch_size=96, start_dt=start_dt.isoformat())
-        )
-        updated_actions = [action async for action in Action.objects.all()]
-        assert len(updated_actions) == 3
-        for action, expected_embedding, expected_text in zip(updated_actions, embeddings, texts):
-            assert action.summary == expected_text
-            assert action.last_summarized_at == start_dt
-            assert action.embedding == expected_embedding
             assert action.embedding_last_synced_at is None
 
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_batch_summarize_with_errors(mock_flag, actions: tuple[Action]):
-    embeddings = [[0.12, 0.054], [0.1, 0.7], [0.2, 0.7]]
-
     with (
         patch("posthog.temporal.ai.sync_vectors.abatch_summarize_actions") as summarize_mock,
-        patch("cohere.AsyncClientV2.embed") as embed_mock,
         patch("posthog.temporal.ai.sync_vectors.get_cohere_client", return_value=cohere.AsyncClientV2(api_key="test")),
     ):
         summarize_mock.return_value = ["Test1", "Test2", ValueError()]
-        embed_mock.return_value = EmbeddingsByTypeEmbedResponse(
-            embeddings={"float_": embeddings[:2]},
-            id="test",
-            texts=["Test1", "Test2"],
-        )
 
         start_dt = timezone.now()
-        await batch_summarize_and_embed_actions(
-            RetrieveActionsInputs(offset=0, batch_size=96, start_dt=start_dt.isoformat())
+        await batch_summarize_actions(
+            BatchSummarizeActionsInputs(offset=0, batch_size=96, start_dt=start_dt.isoformat())
         )
         updated_actions = [action async for action in Action.objects.order_by("id").all()]
         assert len(updated_actions) == 3
@@ -247,26 +217,17 @@ async def test_batch_summarize_with_errors(mock_flag, actions: tuple[Action]):
         assert updated_actions[1].last_summarized_at == start_dt
         assert updated_actions[2].last_summarized_at is None
 
-        assert updated_actions[0].embedding == embeddings[0]
-        assert updated_actions[1].embedding == embeddings[1]
-        assert updated_actions[2].embedding is None
-
         assert updated_actions[0].embedding_last_synced_at is None
         assert updated_actions[1].embedding_last_synced_at is None
         assert updated_actions[2].embedding_last_synced_at is None
 
         # Next batch must summarize exactly a single action
         summarize_mock.return_value = ["Test3"]
-        embed_mock.return_value = EmbeddingsByTypeEmbedResponse(
-            embeddings={"float_": [embeddings[2]]},
-            id="test",
-            texts=["Test3"],
-        )
         summarize_mock.reset_mock()
 
         new_start_dt = timezone.now()
-        await batch_summarize_and_embed_actions(
-            RetrieveActionsInputs(offset=0, batch_size=96, start_dt=new_start_dt.isoformat())
+        await batch_summarize_actions(
+            BatchSummarizeActionsInputs(offset=0, batch_size=96, start_dt=new_start_dt.isoformat())
         )
         assert summarize_mock.call_count == 1
         assert len(summarize_mock.call_args[0][0]) == 1
@@ -274,8 +235,93 @@ async def test_batch_summarize_with_errors(mock_flag, actions: tuple[Action]):
         updated_actions = [action async for action in Action.objects.order_by("id").all()]
         assert len(updated_actions) == 3
         assert ("Test1", "Test2", "Test3") == tuple(action.summary for action in updated_actions)
-        assert embeddings == [action.embedding for action in updated_actions]
         assert [start_dt, start_dt, new_start_dt] == [action.last_summarized_at for action in updated_actions]
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+async def test_batch_embedding(mock_flag, actions):
+    with (
+        patch("posthog.temporal.ai.sync_vectors.get_cohere_client", return_value=cohere.AsyncClientV2(api_key="test")),
+        patch("cohere.AsyncClientV2.embed") as embeddings_mock,
+    ):
+        # batch_size=1, one call
+        embeddings_mock.return_value = EmbeddingsByTypeEmbedResponse(
+            embeddings={"float_": [[0.12, 0.054]]},
+            id="test",
+            texts=["Test1"],
+        )
+
+        res = await batch_embed_actions([{"summary": "Test1"}], batch_size=1)
+        assert embeddings_mock.call_count == 1
+        assert res == [({"summary": "Test1"}, [0.12, 0.054])]
+
+        embeddings_mock.reset_mock()
+
+        # batch_size=2, one call
+        embeddings_mock.return_value = EmbeddingsByTypeEmbedResponse(
+            embeddings={"float_": [[0.1, 0.7], [0.8, 0.6663]]},
+            id="test",
+            texts=["Test2", "Test3"],
+        )
+
+        res = await batch_embed_actions([{"summary": "Test2"}, {"summary": "Test3"}], batch_size=2)
+        assert embeddings_mock.call_count == 1
+        assert res == [({"summary": "Test2"}, [0.1, 0.7]), ({"summary": "Test3"}, [0.8, 0.6663])]
+
+        embeddings_mock.reset_mock()
+
+        # batch_size=2, two parallel calls
+        embeddings_mock.return_value = EmbeddingsByTypeEmbedResponse(
+            embeddings={"float_": [[0.12, 0.054], [0.1, 0.7]]},
+            id="test",
+            texts=["Test1", "Test2", "Test3"],
+        )
+
+        res = await batch_embed_actions(
+            [{"summary": "Test1"}, {"summary": "Test2"}, {"summary": "Test3"}], batch_size=2
+        )
+        assert embeddings_mock.call_count == 2
+        assert res == [
+            ({"summary": "Test1"}, [0.12, 0.054]),
+            ({"summary": "Test2"}, [0.1, 0.7]),
+            ({"summary": "Test3"}, [0.12, 0.054]),
+        ]
+
+
+@patch("posthog.temporal.ai.sync_vectors.get_cohere_client", return_value=cohere.AsyncClientV2(api_key="test"))
+@pytest.mark.django_db
+@pytest.mark.asyncio
+async def test_batch_embedding_with_errors(cohere_mock, mock_flag, actions: tuple[Action]):
+    with patch("cohere.AsyncClientV2.embed") as embeddings_mock:
+        # batch_size=1, one call
+        embeddings_mock.side_effect = ValueError("Test error")
+
+        res = await batch_embed_actions([{"summary": "Test1"}], batch_size=1)
+        assert embeddings_mock.call_count == 1
+        assert res == []
+
+        call_count = 0
+
+        def side_effect(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 2:
+                raise ValueError("Test error")
+            return EmbeddingsByTypeEmbedResponse(
+                embeddings={"float_": [[0.12, 0.054]]},
+                id="test",
+                texts=["Test1"],
+            )
+
+        embeddings_mock.reset_mock()
+        embeddings_mock.side_effect = side_effect
+
+        res = await batch_embed_actions(
+            [{"summary": "Test1"}, {"summary": "Test2"}, {"summary": "Test3"}], batch_size=2
+        )
+        assert embeddings_mock.call_count == 2
+        assert res == [({"summary": "Test1"}, [0.12, 0.054])]
 
 
 class PgEmbeddingRecord(BaseModel):
@@ -305,36 +351,245 @@ def parse_records(rows: list[tuple]) -> list[PgEmbeddingRecord]:
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_sync_action_vectors_for_team_valid_inputs(mock_flag, summarized_actions, ateam):
-    """Test that sync_action_vectors_for_team handles valid inputs correctly."""
+async def test_clickhouse_sync_single_batch(mock_flag, summarized_actions, summarized_actions_with_embeddings, ateam):
     start_dt = timezone.now()
-    result = await sync_action_vectors_for_team(
-        SyncActionVectorsForTeamInputs(batch_size=10, start_dt=start_dt.isoformat())
-    )
-    assert result.has_more is False
+    async with get_client() as client:
+        await sync_action_vectors(client, summarized_actions_with_embeddings, 10, start_dt)
 
-    embeddings = sync_execute("SELECT * FROM pg_embeddings ORDER BY id")
-    assert len(embeddings) == 3
+        embeddings = sync_execute("SELECT * FROM pg_embeddings ORDER BY id")
+        assert len(embeddings) == 3
 
-    expected_result = [
-        PgEmbeddingRecord(
-            domain="action",
-            team_id=ateam.id,
-            id=str(action.id),
-            embedding=action.embedding,
-            summary=action.summary,
-            properties={"name": action.name, "description": action.description},
-            is_deleted=0,
-        )
-        for action in summarized_actions
-    ]
-    assert expected_result == parse_records(embeddings)
+        expected_result = [
+            PgEmbeddingRecord(
+                domain="action",
+                team_id=ateam.id,
+                id=str(action["id"]),
+                embedding=embedding,
+                summary=action["summary"],
+                properties={"name": action["name"], "description": action["description"]},
+                is_deleted=0,
+            )
+            for action, embedding in summarized_actions_with_embeddings
+        ]
+        assert expected_result == parse_records(embeddings)
+
+        for action in summarized_actions:
+            await action.arefresh_from_db()
+            assert action.embedding_last_synced_at == start_dt
+
+        with patch("posthog.temporal.common.clickhouse.ClickHouseClient.execute_query") as mock:
+            await sync_action_vectors(client, summarized_actions_with_embeddings, 10, start_dt)
+            assert mock.call_count == 1
 
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
-async def test_sync_action_vectors_for_team_last_summarized_at_filter(mock_flag, ateam):
-    """Test that the last_summarized_at filter works correctly in sync_action_vectors_for_team."""
+async def test_clickhouse_sync_multiple_batches(
+    mock_flag, summarized_actions, summarized_actions_with_embeddings, ateam
+):
+    start_dt = timezone.now()
+    async with get_client() as client:
+        await sync_action_vectors(client, summarized_actions_with_embeddings, 1, start_dt)
+
+        embeddings = sync_execute("SELECT * FROM pg_embeddings ORDER BY id")
+        assert len(embeddings) == 3
+
+        expected_result = [
+            PgEmbeddingRecord(
+                domain="action",
+                team_id=ateam.id,
+                id=str(action["id"]),
+                embedding=embedding,
+                summary=action["summary"],
+                properties={"name": action["name"], "description": action["description"]},
+                is_deleted=0,
+            )
+            for action, embedding in summarized_actions_with_embeddings
+        ]
+        assert expected_result == parse_records(embeddings)
+
+        for action in summarized_actions:
+            await action.arefresh_from_db()
+            assert action.embedding_last_synced_at == start_dt
+
+        with patch("posthog.temporal.common.clickhouse.ClickHouseClient.execute_query") as mock:
+            await sync_action_vectors(client, summarized_actions_with_embeddings, 1, start_dt)
+            assert mock.call_count == 3
+
+
+@patch("posthog.temporal.ai.sync_vectors.get_cohere_client", return_value=cohere.AsyncClientV2(api_key="test"))
+@pytest.mark.django_db
+@pytest.mark.asyncio
+async def test_batch_embed_and_sync_actions(cohere_mock, mock_flag, summarized_actions, ateam):
+    start_dt = timezone.now()
+    embeddings = [[0.12, 0.054], [0.1, 0.7], [0.8, 0.6663]]
+    with patch("cohere.AsyncClientV2.embed") as embeddings_mock:
+        embeddings_mock.return_value = EmbeddingsByTypeEmbedResponse(
+            embeddings={"float_": embeddings},
+            id="test",
+            texts=["Test1", "Test2", "Test3"],
+        )
+        result = await batch_embed_and_sync_actions(
+            BatchEmbedAndSyncActionsInputs(
+                start_dt=start_dt.isoformat(),
+                insert_batch_size=10,
+                embeddings_batch_size=10,
+                max_parallel_requests=4,
+            )
+        )
+        assert result.has_more is True
+
+        rows = sync_execute("SELECT * FROM pg_embeddings ORDER BY id")
+        assert len(rows) == 3
+
+        expected_result = [
+            PgEmbeddingRecord(
+                domain="action",
+                team_id=ateam.id,
+                id=str(action.id),
+                embedding=embedding,
+                summary=action.summary,
+                properties={"name": action.name, "description": action.description},
+                is_deleted=0,
+            )
+            for action, embedding in zip(summarized_actions, embeddings)
+        ]
+        assert expected_result == parse_records(rows)
+
+        result = await batch_embed_and_sync_actions(
+            BatchEmbedAndSyncActionsInputs(
+                start_dt=start_dt.isoformat(),
+                insert_batch_size=10,
+                embeddings_batch_size=10,
+                max_parallel_requests=4,
+            )
+        )
+        assert result.has_more is False
+        rows = sync_execute("SELECT * FROM pg_embeddings ORDER BY id")
+        assert len(rows) == 3
+
+
+@patch("posthog.temporal.ai.sync_vectors.get_cohere_client", return_value=cohere.AsyncClientV2(api_key="test"))
+@pytest.mark.django_db
+@pytest.mark.asyncio
+async def test_batch_embed_and_sync_actions_in_batches(cohere_mock, mock_flag, summarized_actions, ateam):
+    start_dt = timezone.now()
+    embeddings = [[0.12, 0.054]]
+
+    with patch("cohere.AsyncClientV2.embed") as embeddings_mock:
+        embeddings_mock.return_value = EmbeddingsByTypeEmbedResponse(
+            embeddings={"float_": embeddings},
+            id="test",
+            texts=["Test1", "Test2", "Test3"],
+        )
+        result = await batch_embed_and_sync_actions(
+            BatchEmbedAndSyncActionsInputs(
+                start_dt=start_dt.isoformat(),
+                insert_batch_size=1,
+                embeddings_batch_size=1,
+                max_parallel_requests=2,
+            )
+        )
+        assert result.has_more is True
+
+        rows = sync_execute("SELECT * FROM pg_embeddings ORDER BY id")
+        assert len(rows) == 2
+
+        result = await batch_embed_and_sync_actions(
+            BatchEmbedAndSyncActionsInputs(
+                start_dt=start_dt.isoformat(),
+                insert_batch_size=1,
+                embeddings_batch_size=1,
+                max_parallel_requests=2,
+            )
+        )
+        assert result.has_more is True
+
+        rows = sync_execute("SELECT * FROM pg_embeddings ORDER BY id")
+        assert len(rows) == 3
+
+        result = await batch_embed_and_sync_actions(
+            BatchEmbedAndSyncActionsInputs(
+                start_dt=start_dt.isoformat(),
+                insert_batch_size=1,
+                embeddings_batch_size=1,
+                max_parallel_requests=2,
+            )
+        )
+        assert result.has_more is False
+
+        expected_result = [
+            PgEmbeddingRecord(
+                domain="action",
+                team_id=ateam.id,
+                id=str(action.id),
+                embedding=embedding,
+                summary=action.summary,
+                properties={"name": action.name, "description": action.description},
+                is_deleted=0,
+            )
+            for action, embedding in zip(summarized_actions, cycle(embeddings))
+        ]
+
+        rows = sync_execute("SELECT * FROM pg_embeddings ORDER BY id")
+        assert len(rows) == 3
+        assert expected_result == parse_records(rows)
+
+
+@patch("posthog.temporal.ai.sync_vectors.get_cohere_client", return_value=cohere.AsyncClientV2(api_key="test"))
+@pytest.mark.django_db
+@pytest.mark.asyncio
+async def test_batch_embed_and_sync_actions_filters_out_actions(cohere_mock, mock_flag, ateam):
+    start_dt = timezone.now()
+    embeddings = [[0.1, 0.1], [0.2, 0.2], [0.3, 0.3]]
+
+    # Create actions with different last_summarized_at values
+    actions = [
+        Action(
+            team=ateam, name="Before start 1", last_summarized_at=start_dt - timedelta(days=1), summary="Test1"
+        ),  # Should be included
+        Action(
+            team=ateam,
+            name="Before start 2",
+            last_summarized_at=start_dt - timedelta(days=1),
+            embedding_last_synced_at=start_dt - timedelta(days=2),
+            summary="Test2",
+        ),  # Should be included
+        Action(team=ateam, name="At start", last_summarized_at=start_dt, summary="Test3"),  # Should be included
+        Action(
+            team=ateam, name="After start", last_summarized_at=start_dt + timedelta(days=1), summary="Test4"
+        ),  # Should not be included
+    ]
+    await Action.objects.abulk_create(actions)
+
+    with patch("cohere.AsyncClientV2.embed") as embeddings_mock:
+        embeddings_mock.return_value = EmbeddingsByTypeEmbedResponse(
+            embeddings={"float_": embeddings},
+            id="test",
+            texts=["Test1", "Test2", "Test3"],
+        )
+        for expected_has_more in (True, False):
+            result = await batch_embed_and_sync_actions(
+                BatchEmbedAndSyncActionsInputs(
+                    start_dt=start_dt.isoformat(),
+                    insert_batch_size=1000,
+                    embeddings_batch_size=96,
+                    max_parallel_requests=4,
+                )
+            )
+            assert result.has_more is expected_has_more
+
+        rows = sync_execute("SELECT * FROM pg_embeddings ORDER BY id")
+        assert len(rows) == 3
+
+        assert {str(actions[0].id), str(actions[1].id), str(actions[2].id)} == {
+            action.id for action in parse_records(rows)
+        }
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+async def test_batch_embed_and_sync_actions_filters_out_actions_with_no_summary(mock_flag, ateam):
     start_dt = timezone.now()
 
     # Create actions with different last_summarized_at values
@@ -342,63 +597,20 @@ async def test_sync_action_vectors_for_team_last_summarized_at_filter(mock_flag,
         Action(
             team=ateam, name="Before start 1", last_summarized_at=start_dt - timedelta(days=1)
         ),  # Should be included
-        Action(
-            team=ateam,
-            name="Before start 2",
-            last_summarized_at=start_dt - timedelta(days=1),
-            embedding_last_synced_at=start_dt - timedelta(days=2),
-        ),  # Should be included
-        Action(team=ateam, name="At start", last_summarized_at=start_dt),  # Should be included
-        Action(
-            team=ateam, name="After start", last_summarized_at=start_dt + timedelta(days=1)
-        ),  # Should not be included
     ]
     await Action.objects.abulk_create(actions)
 
-    # Run the function
-    result = await sync_action_vectors_for_team(
-        SyncActionVectorsForTeamInputs(batch_size=10, start_dt=start_dt.isoformat())
+    result = await batch_embed_and_sync_actions(
+        BatchEmbedAndSyncActionsInputs(
+            start_dt=start_dt.isoformat(),
+            insert_batch_size=1000,
+            embeddings_batch_size=96,
+            max_parallel_requests=4,
+        )
     )
     assert result.has_more is False
-
-    embeddings = sync_execute("SELECT * FROM pg_embeddings ORDER BY id")
-    assert len(embeddings) == 3
-
-    assert {str(actions[0].id), str(actions[1].id), str(actions[2].id)} == {
-        action.id for action in parse_records(embeddings)
-    }
-
-
-@pytest.mark.django_db
-@pytest.mark.asyncio
-async def test_sync_action_vectors_for_team_batches(mock_flag, summarized_actions, ateam):
-    """Test that sync_action_vectors_for_team handles valid inputs correctly."""
-    start_dt = timezone.now()
-    inputs = SyncActionVectorsForTeamInputs(batch_size=1, start_dt=start_dt.isoformat())
-    for i in range(4):
-        result = await sync_action_vectors_for_team(inputs)
-        if i == 3:
-            assert result.has_more is False
-        else:
-            assert result.has_more is True
-
-    embeddings = sync_execute("SELECT * FROM pg_embeddings ORDER BY id")
-    assert len(embeddings) == 3
-
-    expected_result = [
-        PgEmbeddingRecord(
-            domain="action",
-            team_id=ateam.id,
-            id=str(action.id),
-            embedding=action.embedding,
-            summary=action.summary,
-            properties={"name": action.name, "description": action.description},
-            timestamp=start_dt.replace(microsecond=0),
-            is_deleted=0,
-        )
-        for action in summarized_actions
-    ]
-    assert expected_result == parse_records(embeddings)
+    rows = sync_execute("SELECT * FROM pg_embeddings ORDER BY id")
+    assert len(rows) == 0
 
 
 @pytest.mark.asyncio
@@ -410,19 +622,19 @@ async def test_actions_basic_workflow():
         call_count[0] += 1
         return 3
 
-    @activity.defn(name="batch_summarize_and_embed_actions")
-    async def batch_summarize_and_embed_actions_mocked(inputs: RetrieveActionsInputs) -> None:
+    @activity.defn(name="batch_summarize_actions")
+    async def batch_summarize_and_embed_actions_mocked(inputs: BatchSummarizeActionsInputs) -> None:
         call_count[1] += 1
 
-    @activity.defn(name="sync_action_vectors_for_team")
+    @activity.defn(name="batch_embed_and_sync_actions")
     async def sync_action_vectors_for_team_mocked(
-        inputs: SyncActionVectorsForTeamInputs,
-    ) -> SyncActionVectorsForTeamOutputs:
+        inputs: BatchEmbedAndSyncActionsInputs,
+    ) -> BatchEmbedAndSyncActionsOutputs:
         call_count[2] += 1
-        if call_count[2] == 4 or inputs.batch_size != 1:
-            return SyncActionVectorsForTeamOutputs(has_more=False)
+        if call_count[2] == 4 or inputs.insert_batch_size != 1:
+            return BatchEmbedAndSyncActionsOutputs(has_more=False)
         else:
-            return SyncActionVectorsForTeamOutputs(has_more=True)
+            return BatchEmbedAndSyncActionsOutputs(has_more=True)
 
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
@@ -447,7 +659,7 @@ async def test_actions_basic_workflow():
             call_count = [0, 0, 0]
             await activity_environment.client.execute_workflow(
                 SyncVectorsWorkflow.run,
-                SyncVectorsInputs(start_dt=timezone.now().isoformat(), batch_size=1, sync_batch_size=1),
+                SyncVectorsInputs(start_dt=timezone.now().isoformat(), batch_size=1, insert_batch_size=1),
                 id=str(uuid.uuid4()),
                 task_queue=settings.TEMPORAL_TASK_QUEUE,
             )
@@ -465,20 +677,20 @@ async def test_actions_workflow_retries_on_errors():
             raise Exception("Test error")
         return 3
 
-    @activity.defn(name="batch_summarize_and_embed_actions")
-    async def batch_summarize_and_embed_actions_mocked(inputs: RetrieveActionsInputs) -> None:
+    @activity.defn(name="batch_summarize_actions")
+    async def batch_summarize_and_embed_actions_mocked(inputs: BatchSummarizeActionsInputs) -> None:
         call_count[1] += 1
         if call_count[1] < 3:
             raise Exception("Test error")
 
-    @activity.defn(name="sync_action_vectors_for_team")
+    @activity.defn(name="batch_embed_and_sync_actions")
     async def sync_action_vectors_for_team_mocked(
-        inputs: SyncActionVectorsForTeamInputs,
-    ) -> SyncActionVectorsForTeamOutputs:
+        inputs: BatchEmbedAndSyncActionsInputs,
+    ) -> BatchEmbedAndSyncActionsOutputs:
         call_count[2] += 1
         if call_count[2] < 3:
             raise Exception("Test error")
-        return SyncActionVectorsForTeamOutputs(has_more=False)
+        return BatchEmbedAndSyncActionsOutputs(has_more=False)
 
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
@@ -510,15 +722,15 @@ async def test_actions_workflow_cancels():
         call_count[0] += 1
         raise Exception("Test error")
 
-    @activity.defn(name="batch_summarize_and_embed_actions")
-    async def batch_summarize_and_embed_actions_mocked(inputs: RetrieveActionsInputs) -> None:
+    @activity.defn(name="batch_summarize_actions")
+    async def batch_summarize_and_embed_actions_mocked(inputs: BatchSummarizeActionsInputs) -> None:
         pass
 
-    @activity.defn(name="sync_action_vectors_for_team")
+    @activity.defn(name="batch_embed_and_sync_actions")
     async def sync_action_vectors_for_team_mocked(
-        inputs: SyncActionVectorsForTeamInputs,
-    ) -> SyncActionVectorsForTeamOutputs:
-        return SyncActionVectorsForTeamOutputs(has_more=False)
+        inputs: BatchEmbedAndSyncActionsInputs,
+    ) -> BatchEmbedAndSyncActionsOutputs:
+        return BatchEmbedAndSyncActionsOutputs(has_more=False)
 
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
