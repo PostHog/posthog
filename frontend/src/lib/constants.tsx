@@ -248,6 +248,7 @@ export const FEATURE_FLAGS = {
     ONBOARDING_NEW_INSTALLATION_STEP: 'onboarding-new-installation-step', // owner: @joshsny #team-growth
     WEB_ANALYTICS_TREND_VIZ_TOGGLE: 'web-analytics-trend-viz-toggle', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_HIDE_MODAL_ACTORS: 'web-analytics-hide-modal-actors', // owner: @lricoy #team-web-analytics
+    AI_SETUP_WIZARD: 'ai-setup-wizard', // owner: @joshsny #team-growth
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
