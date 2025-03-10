@@ -123,17 +123,11 @@ class HedgeboxMatrix(Matrix):
             ],
         )
         Action.objects.create(
-            name="Visited Marius Tech Tips",
+            name="Visited Marius Tech Tips campaign",
             team=team,
-            description="Visited the best page for tech tips on the internet",
+            description="Visited page of the campaign we did with Marius Tech Tips, the best YouTube channel for tech tips.",
             created_by=user,
-            steps_json=[
-                {
-                    "event": "$pageview",
-                    "url": "mariustechtips",
-                    "url_matching": "regex",
-                }
-            ],
+            steps_json=[{"event": "$pageview", "url": "/mariustechtips", "url_matching": "contains"}],
             pinned_at=self.now - dt.timedelta(days=3),
         )
 

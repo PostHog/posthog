@@ -181,10 +181,9 @@ def _evolve_pyarrow_schema(table: pa.Table, delta_schema: deltalake.Schema | Non
                 if (
                     isinstance(py_arrow_table_column.type, pa.Decimal128Type)
                     or isinstance(py_arrow_table_column.type, pa.Decimal256Type)
-                    and (
-                        field.type.precision > py_arrow_table_column.type.precision
-                        or field.type.scale > py_arrow_table_column.type.scale
-                    )
+                ) and (
+                    field.type.precision > py_arrow_table_column.type.precision
+                    or field.type.scale > py_arrow_table_column.type.scale
                 ):
                     field_index = table.schema.get_field_index(field.name)
 
@@ -260,10 +259,10 @@ def should_partition_table(
     if not schema.is_incremental:
         return False
 
-    if schema.partitioning_enabled and schema.partitioning_size is not None and schema.partitioning_keys is not None:
+    if schema.partitioning_enabled and schema.partition_count is not None and schema.partitioning_keys is not None:
         return True
 
-    if source.partition_bucket_size is None:
+    if source.partition_count is None:
         return False
 
     if delta_table is None:
@@ -290,7 +289,7 @@ def normalize_table_column_names(table: pa.Table) -> pa.Table:
 
 
 def append_partition_key_to_table(
-    table: pa.Table, partition_size: int, primary_keys: list[str], logger: FilteringBoundLogger
+    table: pa.Table, partition_count: int, primary_keys: list[str], logger: FilteringBoundLogger
 ) -> pa.Table:
     normalized_primary_keys = [normalize_column_name(key) for key in primary_keys]
 
@@ -302,7 +301,7 @@ def append_partition_key_to_table(
             delimited_primary_key_value = "|".join(primary_key_values)
 
             hash_value = int(hashlib.md5(delimited_primary_key_value.encode()).hexdigest(), 16)
-            partition = math.floor(hash_value / partition_size)
+            partition = hash_value % partition_count
 
             partition_array.append(str(partition))
 
@@ -475,7 +474,7 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
     else:
         arrow_schema = schema
 
-    drop_column_names: list[str] = []
+    drop_column_names: set[str] = set()
 
     column_names = set(table_data[0].keys())
     columnar_table_data: dict[str, pa.Array | np.ndarray[Any, np.dtype[Any]]] = {}
@@ -530,6 +529,10 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
 
                 adjusted_field = arrow_schema.field(field_index).with_nullable(has_nulls)
                 arrow_schema = arrow_schema.set(field_index, adjusted_field)
+
+            # Remove any binary columns
+            if pa.types.is_binary(field.type):
+                drop_column_names.add(field_name)
 
         # Convert UUIDs to strings
         if issubclass(py_type, uuid.UUID):
@@ -638,7 +641,7 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
 
         # Remove any binary columns
         if issubclass(py_type, bytes):
-            drop_column_names.append(field_name)
+            drop_column_names.add(field_name)
 
     if len(drop_column_names) != 0:
         for column in drop_column_names:

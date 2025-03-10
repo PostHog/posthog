@@ -7,6 +7,8 @@ export interface SessionBlockMetadata {
     teamId: number
     /** Distinct ID of the session recording */
     distinctId: string
+    /** ID of the batch this session block belongs to */
+    batchId: string
     /** Length of this session block in bytes */
     blockLength: number
     /** Timestamp of the first event in the session block */

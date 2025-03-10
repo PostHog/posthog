@@ -26,7 +26,7 @@
         "dev:migrate:postgres": "export DEBUG=1 && source env/bin/activate && python manage.py migrate",
         "dev:migrate:clickhouse": "export DEBUG=1 && source env/bin/activate && python manage.py migrate_clickhouse",
         "mypy-baseline-sync": "mypy -p posthog | mypy-baseline sync",
-        "format:backend": "ruff .",
+        "format:backend": "./bin/ruff.sh .",
         "format:frontend": "pnpm --filter=@posthog/frontend run format",
         "format": "pnpm format:backend && pnpm format:frontend"
     },
@@ -117,8 +117,8 @@
             "pnpm --dir plugin-server exec prettier --write"
         ],
         "!(posthog/hogql/grammar/*)*.{py,pyi}": [
-            "ruff check --fix",
-            "ruff format"
+            "./bin/ruff.sh check --fix",
+            "./bin/ruff.sh format"
         ]
     },
     "browserslist": {

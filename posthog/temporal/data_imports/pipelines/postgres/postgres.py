@@ -1,4 +1,5 @@
 import dataclasses
+import math
 from typing import Any, Optional
 from collections.abc import Iterator
 import psycopg.rows
@@ -7,6 +8,7 @@ import psycopg
 from psycopg import sql
 from psycopg.adapt import Loader
 
+from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
@@ -126,23 +128,38 @@ class TableStructureRow:
     numeric_scale: Optional[int]
 
 
-def _get_partition_bucket_size(cursor: psycopg.Cursor, schema: str, table_name: str) -> int | None:
+def _get_partition_count(cursor: psycopg.Cursor, schema: str, table_name: str) -> int | None:
     query = sql.SQL("""
-        SELECT CASE WHEN count(*) = 0 THEN NULL ELSE round(({bytes_per_partition}) / (pg_table_size({schema_table_name_literal}) / count(*))) END
+        SELECT
+            CASE WHEN count(*) = 0 OR pg_table_size({schema_table_name_literal}) = 0 THEN NULL
+            ELSE round({bytes_per_partition} / (pg_table_size({schema_table_name_literal}) / count(*))) END,
+            COUNT(*)
         FROM {schema}.{table}""").format(
         bytes_per_partition=sql.Literal(DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES),
-        schema_table_name_literal=sql.Literal(f"{schema}.{table_name}"),
+        schema_table_name_literal=sql.Literal(f'{schema}."{table_name}"'),
         schema=sql.Identifier(schema),
         table=sql.Identifier(table_name),
     )
 
-    cursor.execute(query)
+    try:
+        cursor.execute(query)
+    except Exception as e:
+        capture_exception(e)
+        return None
+
     result = cursor.fetchone()
 
     if result is None or len(result) == 0 or result[0] is None:
         return None
 
-    return int(result[0])
+    partition_size = int(result[0])
+    total_rows = int(result[1])
+    partition_count = math.floor(total_rows / partition_size)
+
+    if partition_count == 0:
+        return 1
+
+    return partition_count
 
 
 def _get_table_structure(cursor: psycopg.Cursor, schema: str, table_name: str) -> list[TableStructureRow]:
@@ -261,7 +278,7 @@ def postgres_source(
             primary_keys = _get_primary_keys(cursor, schema, table_name)
             table_structure = _get_table_structure(cursor, schema, table_name)
             chunk_size = _get_table_chunk_size(cursor, schema, table_name, logger)
-            partition_bucket_size = _get_partition_bucket_size(cursor, schema, table_name) if is_incremental else None
+            partition_count = _get_partition_count(cursor, schema, table_name) if is_incremental else None
 
             # Falback on checking for an `id` field on the table
             if primary_keys is None:
@@ -312,5 +329,8 @@ def postgres_source(
     name = NamingConvention().normalize_identifier(table_name)
 
     return SourceResponse(
-        name=name, items=get_rows(chunk_size), primary_keys=primary_keys, partition_bucket_size=partition_bucket_size
+        name=name,
+        items=get_rows(chunk_size),
+        primary_keys=primary_keys,
+        partition_count=partition_count,
     )
