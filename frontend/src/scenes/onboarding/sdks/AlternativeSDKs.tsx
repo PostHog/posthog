@@ -2,6 +2,7 @@ import { IconArrowLeft, IconArrowRight, IconChatHelp } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonInput, LemonModal, LemonTabs, SpinnerOverlay } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useEffect, useState } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
@@ -113,6 +114,7 @@ export function AlternativeSDKs({
     const { selectedTab, sidePanelOpen } = useValues(sidePanelStateLogic)
     const { openSupportForm } = useActions(supportLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
+    const supportFormInOnboarding = useFeatureFlag('SUPPORT_FORM_IN_ONBOARDING')
 
     const installationComplete = useInstallationComplete(teamPropertyToVerify)
 
@@ -150,7 +152,7 @@ export function AlternativeSDKs({
                                 fullWidth={false}
                                 text="Invite developer"
                             />
-                            {isCloudOrDev && (
+                            {isCloudOrDev && supportFormInOnboarding && (
                                 <LemonButton
                                     size="small"
                                     type="primary"
