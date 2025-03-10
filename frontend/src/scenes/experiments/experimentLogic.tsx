@@ -2190,6 +2190,13 @@ export const experimentLogic = kea<experimentLogicType>([
                 return smallestExposure >= EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS
             },
         ],
+        exposureCriteriaLabel: [
+            () => [],
+            (): string => {
+                // TODO: Implement exposure criteria label
+                return 'Default ($feature_flag_called)'
+            },
+        ],
     }),
     forms(({ actions }) => ({
         experiment: {

@@ -518,12 +518,17 @@ export function ReplayMaskingSettings(): JSX.Element {
         })
     }
 
+    const maskingConfig = {
+        maskAllInputs: currentTeam?.session_recording_masking_config?.maskAllInputs ?? true,
+        maskTextSelector: currentTeam?.session_recording_masking_config?.maskTextSelector,
+    }
+
     const maskingLevel =
-        currentTeam?.session_recording_masking_config?.maskTextSelector === '*'
+        maskingConfig.maskTextSelector === '*' && maskingConfig.maskAllInputs
             ? 'total-privacy'
-            : currentTeam?.session_recording_masking_config?.maskAllInputs
-            ? 'normal'
-            : 'free-love'
+            : maskingConfig.maskTextSelector === undefined && !maskingConfig.maskAllInputs
+            ? 'free-love'
+            : 'normal'
 
     return (
         <div>

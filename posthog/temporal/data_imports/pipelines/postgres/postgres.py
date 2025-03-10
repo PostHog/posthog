@@ -7,6 +7,7 @@ import psycopg
 from psycopg import sql
 from psycopg.adapt import Loader
 
+from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
@@ -17,7 +18,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     build_pyarrow_decimal_type,
     table_from_iterator,
 )
-from posthog.temporal.data_imports.pipelines.sql_database.settings import DEFAULT_CHUNK_SIZE
+from posthog.temporal.data_imports.pipelines.sql_database.settings import DEFAULT_CHUNK_SIZE, DEFAULT_TABLE_SIZE_BYTES
 from posthog.warehouse.models import IncrementalFieldType
 
 from dlt.common.normalizers.naming.snake_case import NamingConvention
@@ -84,6 +85,39 @@ def _get_primary_keys(cursor: psycopg.Cursor, schema: str, table_name: str) -> l
     return None
 
 
+def _get_table_chunk_size(cursor: psycopg.Cursor, schema: str, table_name: str, logger: FilteringBoundLogger) -> int:
+    try:
+        query = sql.SQL("""
+            SELECT SUM(pg_column_size(t.*)) / COUNT(t.*) FROM (
+                SELECT * FROM {}
+                LIMIT 100
+            ) as t
+        """).format(sql.Identifier(schema, table_name))
+
+        cursor.execute(query)
+        row = cursor.fetchone()
+
+        if row is None:
+            logger.debug(f"_get_table_chunk_size: No results returned. Using DEFAULT_CHUNK_SIZE={DEFAULT_CHUNK_SIZE}")
+            return DEFAULT_CHUNK_SIZE
+
+        row_size_bytes = row[0] or 1
+
+        chunk_size = int(DEFAULT_TABLE_SIZE_BYTES / row_size_bytes)
+
+        min_chunk_size = min(chunk_size, DEFAULT_CHUNK_SIZE)
+
+        logger.debug(
+            f"_get_table_chunk_size: row_size_bytes={row_size_bytes}. DEFAULT_TABLE_SIZE_BYTES={DEFAULT_TABLE_SIZE_BYTES}. Using CHUNK_SIZE={min_chunk_size}"
+        )
+
+        return min_chunk_size
+    except Exception as e:
+        logger.debug(f"_get_table_chunk_size: Error: {e}. Using DEFAULT_CHUNK_SIZE={DEFAULT_CHUNK_SIZE}", exc_info=e)
+
+        return DEFAULT_CHUNK_SIZE
+
+
 @dataclasses.dataclass
 class TableStructureRow:
     column_name: str
@@ -95,15 +129,22 @@ class TableStructureRow:
 
 def _get_partition_bucket_size(cursor: psycopg.Cursor, schema: str, table_name: str) -> int | None:
     query = sql.SQL("""
-        SELECT CASE WHEN count(*) = 0 THEN NULL ELSE round(({bytes_per_partition}) / (pg_table_size({schema_table_name_literal}) / count(*))) END
+        SELECT
+            CASE WHEN count(*) = 0 OR pg_table_size({schema_table_name_literal}) = 0 THEN NULL
+            ELSE round({bytes_per_partition} / (pg_table_size({schema_table_name_literal}) / count(*))) END
         FROM {schema}.{table}""").format(
         bytes_per_partition=sql.Literal(DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES),
-        schema_table_name_literal=sql.Literal(f"{schema}.{table_name}"),
+        schema_table_name_literal=sql.Literal(f'{schema}."{table_name}"'),
         schema=sql.Identifier(schema),
         table=sql.Identifier(table_name),
     )
 
-    cursor.execute(query)
+    try:
+        cursor.execute(query)
+    except Exception as e:
+        capture_exception(e)
+        return None
+
     result = cursor.fetchone()
 
     if result is None or len(result) == 0 or result[0] is None:
@@ -227,6 +268,7 @@ def postgres_source(
         with connection.cursor() as cursor:
             primary_keys = _get_primary_keys(cursor, schema, table_name)
             table_structure = _get_table_structure(cursor, schema, table_name)
+            chunk_size = _get_table_chunk_size(cursor, schema, table_name, logger)
             partition_bucket_size = _get_partition_bucket_size(cursor, schema, table_name) if is_incremental else None
 
             # Falback on checking for an `id` field on the table
@@ -234,7 +276,7 @@ def postgres_source(
                 if any(ts.column_name == "id" for ts in table_structure):
                     primary_keys = ["id"]
 
-    def get_rows() -> Iterator[Any]:
+    def get_rows(chunk_size: int) -> Iterator[Any]:
         arrow_schema = _get_arrow_schema_from_type_name(table_structure)
 
         with psycopg.connect(
@@ -269,7 +311,7 @@ def postgres_source(
                 column_names = [column.name for column in cursor.description or []]
 
                 while True:
-                    rows = cursor.fetchmany(DEFAULT_CHUNK_SIZE)
+                    rows = cursor.fetchmany(chunk_size)
                     if not rows:
                         break
 
@@ -278,5 +320,5 @@ def postgres_source(
     name = NamingConvention().normalize_identifier(table_name)
 
     return SourceResponse(
-        name=name, items=get_rows(), primary_keys=primary_keys, partition_bucket_size=partition_bucket_size
+        name=name, items=get_rows(chunk_size), primary_keys=primary_keys, partition_bucket_size=partition_bucket_size
     )

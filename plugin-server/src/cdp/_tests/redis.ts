@@ -1,4 +1,4 @@
-import { CdpRedis } from '../../../src/cdp/redis'
+import { CdpRedis } from '../redis'
 
 export async function deleteKeysWithPrefix(redis: CdpRedis, prefix: string) {
     await redis.useClient({ name: 'delete-keys' }, async (client) => {
