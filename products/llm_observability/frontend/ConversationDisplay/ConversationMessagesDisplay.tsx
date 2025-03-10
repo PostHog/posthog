@@ -116,7 +116,7 @@ export const LLMMessageDisplay = React.memo(
               additionalKwargs.tools.map((tool) => {
                   // Handle both formats: {function: {name, description, ...}} and {toolName, toolCallType, ...}
                   if (tool.function) {
-                      const { function: { name, description, ...func } = {}, ...rest } = tool
+                      const { function: { name = undefined, description = undefined, ...func } = {}, ...rest } = tool
                       return {
                           function: { name, description, ...func },
                           ...rest,
