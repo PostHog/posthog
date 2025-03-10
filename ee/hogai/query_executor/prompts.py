@@ -74,4 +74,15 @@ Date|Number of persons on date|Day 0|Day 1|Day 2|Day 3
 ```
 """.strip()
 
+SQL_EXAMPLE_PROMPT = """
+You are given a table with the results of a SQL query. Values are separated by the pipe character "|" and rows are separated by newlines. The first row is the header row with column names. The other rows are the results of the query.
+
+Example:
+```
+| column1 | column2 | column3 |
+| value1  | value2  | value3  |
+| value4  | value5  | value6  |
+```
+""".strip()
+
 FALLBACK_EXAMPLE_PROMPT = "You'll be given a JSON object with the results of a query."

@@ -9,11 +9,12 @@ import {
 } from '~/queries/schema/schema-assistant-messages'
 import {
     AssistantFunnelsQuery,
+    AssistantHogQLQuery,
     AssistantRetentionQuery,
     AssistantTrendsQuery,
 } from '~/queries/schema/schema-assistant-queries'
-import { FunnelsQuery, RetentionQuery, TrendsQuery } from '~/queries/schema/schema-general'
-import { isFunnelsQuery, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
+import { FunnelsQuery, HogQLQuery, RetentionQuery, TrendsQuery } from '~/queries/schema/schema-general'
+import { isFunnelsQuery, isHogQLQuery, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
 
 export function isReasoningMessage(message: RootAssistantMessage | undefined | null): message is ReasoningMessage {
     return message?.type === AssistantMessageType.Reasoning
@@ -48,15 +49,20 @@ function castAssistantFunnelsQuery(query: AssistantFunnelsQuery): FunnelsQuery {
 function castAssistantRetentionQuery(query: AssistantRetentionQuery): RetentionQuery {
     return query
 }
+function castAssistantHogQLQuery(query: AssistantHogQLQuery): HogQLQuery {
+    return query
+}
 export function castAssistantQuery(
-    query: AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery
-): TrendsQuery | FunnelsQuery | RetentionQuery {
+    query: AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery
+): TrendsQuery | FunnelsQuery | RetentionQuery | HogQLQuery {
     if (isTrendsQuery(query)) {
         return castAssistantTrendsQuery(query)
     } else if (isFunnelsQuery(query)) {
         return castAssistantFunnelsQuery(query)
     } else if (isRetentionQuery(query)) {
         return castAssistantRetentionQuery(query)
+    } else if (isHogQLQuery(query)) {
+        return castAssistantHogQLQuery(query)
     }
     throw new Error('Unsupported query type')
 }

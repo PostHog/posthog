@@ -12,6 +12,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
 from posthog.schema import (
     AssistantFunnelsQuery,
+    AssistantHogQLQuery,
     AssistantRetentionQuery,
     AssistantTrendsQuery,
     Compare,
@@ -502,3 +503,21 @@ class FunnelResultsFormatter:
             matrix.append(row)
 
         return _format_matrix(matrix)
+
+
+class SQLResultsFormatter:
+    """
+    Compresses and formats SQL results into a LLM-friendly string.
+    """
+
+    def __init__(self, query: AssistantHogQLQuery, results: list[dict[str, Any]], columns: list[str]):
+        self._query = query
+        self._results = results
+        self._columns = columns
+
+    def format(self) -> str:
+        lines: list[str] = []
+        lines.append("|".join(self._columns))
+        for row in self._results:
+            lines.append("|".join([str(cell) for cell in row.values()]))
+        return "\n".join(lines)
