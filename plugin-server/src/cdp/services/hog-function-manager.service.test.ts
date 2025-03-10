@@ -4,9 +4,9 @@ import { HogFunctionType, IntegrationType } from '~/src/cdp/types'
 import { Hub } from '~/src/types'
 import { closeHub, createHub } from '~/src/utils/db/hub'
 import { PostgresUse } from '~/src/utils/db/postgres'
-import { insertHogFunction, insertIntegration } from '~/tests/cdp/fixtures'
 import { createTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
+import { insertHogFunction, insertIntegration } from '../_tests/fixtures'
 import { HogFunctionManagerService } from './hog-function-manager.service'
 
 describe('HogFunctionManager', () => {

@@ -1,8 +1,8 @@
 import { DateTime } from 'luxon'
 
-import { HogFunctionInvocationGlobals, HogFunctionInvocationLogEntry } from '../../src/cdp/types'
-import { convertToHogFunctionFilterGlobal, fixLogDeduplication, gzipObject, unGzipObject } from '../../src/cdp/utils'
-import { insertHogFunction as _insertHogFunction } from './fixtures'
+import { insertHogFunction as _insertHogFunction } from './_tests/fixtures'
+import { HogFunctionInvocationGlobals, HogFunctionInvocationLogEntry } from './types'
+import { convertToHogFunctionFilterGlobal, fixLogDeduplication, gzipObject, unGzipObject } from './utils'
 
 describe('Utils', () => {
     describe('gzip compressions', () => {

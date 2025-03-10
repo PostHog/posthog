@@ -1,5 +1,5 @@
-import { EncryptedFields } from '../../../src/cdp/encryption-utils'
-import { Hub } from '../../../src/types'
+import { Hub } from '../types'
+import { EncryptedFields } from './encryption-utils'
 
 describe('Encrypted fields', () => {
     jest.setTimeout(1000)
