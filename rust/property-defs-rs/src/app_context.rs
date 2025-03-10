@@ -93,6 +93,7 @@ impl AppContext {
                             tx.commit()
                                 .await
                                 .expect("Update transaction: commit failed")
+                                continue
                         }
 
                         Err(sqlx::Error::Database(e))
