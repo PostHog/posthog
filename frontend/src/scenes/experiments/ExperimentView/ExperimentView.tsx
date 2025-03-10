@@ -13,6 +13,7 @@ import { VariantDeltaTimeseries } from '../MetricsView/VariantDeltaTimeseries'
 import { ExploreButton, LoadingState, PageHeaderCustom, ResultsQuery } from './components'
 import { DistributionModal, DistributionTable } from './DistributionTable'
 import { ExperimentHeader } from './ExperimentHeader'
+import { ExposureCriteriaModal } from './ExposureCriteria'
 import { Info } from './Info'
 import { LegacyExperimentHeader } from './LegacyExperimentHeader'
 import { Overview } from './Overview'
@@ -124,6 +125,7 @@ export function ExperimentView(): JSX.Element {
                             <>
                                 <ExperimentMetricModal experimentId={experimentId} isSecondary={true} />
                                 <ExperimentMetricModal experimentId={experimentId} isSecondary={false} />
+                                <ExposureCriteriaModal />
                             </>
                         ) : (
                             <>
