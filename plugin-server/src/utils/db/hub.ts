@@ -139,7 +139,7 @@ export async function createHub(
 
     const cookielessManager = new CookielessManager(serverConfig, redisPool, teamManager)
 
-    const hub: Hub = {
+    const hub: Omit<Hub, 'legacyOneventCompareService'> = {
         ...serverConfig,
         instanceId,
         capabilities,
@@ -182,9 +182,10 @@ export async function createHub(
         cookielessManager,
     }
 
-    hub.legacyOneventCompareService = new LegacyOneventCompareService(hub)
-
-    return hub as Hub
+    return {
+        ...hub,
+        legacyOneventCompareService: new LegacyOneventCompareService(hub as Hub),
+    }
 }
 
 export const closeHub = async (hub: Hub): Promise<void> => {

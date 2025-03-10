@@ -382,7 +382,7 @@ export interface Hub extends PluginsServerConfig {
     eventsToSkipPersonsProcessingByToken: Map<string, string[]>
     encryptedFields: EncryptedFields
 
-    legacyOneventCompareService?: LegacyOneventCompareService
+    legacyOneventCompareService: LegacyOneventCompareService
     cookielessManager: CookielessManager
 }
 
