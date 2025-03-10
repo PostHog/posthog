@@ -147,8 +147,11 @@ const SupportFormBlock = ({
     // Combine both detection methods
     const teamsAddonActive = hasTeamsAddon || hasTeamsAddonAlt
 
-    // Check for enterprise plan
-    const hasEnterprisePlan = billing?.products?.some((p) => p.type === 'enterprise')
+    // Check for enterprise plan (excluding trials)
+    const hasEnterprisePlan =
+        billing?.products?.some((p) => p.type === 'enterprise') &&
+        billing?.subscription_level === 'paid' &&
+        !hasActiveTrial
 
     // Check for expired trials
     const hasOldStyleExpiredTrial = billing?.free_trial_until && billing.free_trial_until.isBefore(dayjs())
