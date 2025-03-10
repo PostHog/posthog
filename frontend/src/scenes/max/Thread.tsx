@@ -29,7 +29,8 @@ import {
     FailureMessage,
     VisualizationMessage,
 } from '~/queries/schema/schema-assistant-messages'
-import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { DataVisualizationNode, InsightQueryNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { isHogQLQuery } from '~/queries/utils'
 
 import { maxLogic, MessageStatus, ThreadMessage } from './maxLogic'
 import {
@@ -268,13 +269,13 @@ function VisualizationAnswer({
 }): JSX.Element | null {
     const [isSummaryShown, setIsSummaryShown] = useState(false)
 
-    const query = useMemo<InsightVizNode | null>(() => {
+    const query = useMemo<InsightVizNode | DataVisualizationNode | null>(() => {
         if (message.answer) {
-            return {
-                kind: NodeKind.InsightVizNode,
-                source: castAssistantQuery(message.answer),
-                showHeader: true,
+            const source = castAssistantQuery(message.answer)
+            if (isHogQLQuery(source)) {
+                return { kind: NodeKind.DataVisualizationNode, source: source } satisfies DataVisualizationNode
             }
+            return { kind: NodeKind.InsightVizNode, source, showHeader: true } satisfies InsightVizNode
         }
 
         return null
@@ -309,10 +310,16 @@ function VisualizationAnswer({
                       </div>
                       {isSummaryShown && (
                           <>
-                              <SeriesSummary query={query.source} heading={null} />
+                              <SeriesSummary query={query.source as InsightQueryNode} heading={null} />
                               <div className="flex flex-wrap gap-4 mt-1 *:grow">
-                                  <PropertiesSummary properties={query.source.properties} />
-                                  <BreakdownSummary query={query.source} />
+                                  <PropertiesSummary
+                                      properties={
+                                          isHogQLQuery(query.source)
+                                              ? query.source.filters?.properties
+                                              : query.source.properties
+                                      }
+                                  />
+                                  <BreakdownSummary query={query.source as InsightQueryNode} />
                               </div>
                           </>
                       )}
