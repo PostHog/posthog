@@ -189,6 +189,10 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             mock_get_templates.return_value.json.return_value = MOCK_NODE_TEMPLATES
             HogFunctionTemplates._load_templates()  # Cache templates to simplify tests
 
+        # Create the action referenced in EXAMPLE_FULL
+        if not Action.objects.filter(id=9, team=self.team).exists():
+            Action.objects.create(id=9, name="Test Action", team=self.team, created_by=self.user)
+
     def _get_function_activity(
         self,
         function_id: Optional[int] = None,
