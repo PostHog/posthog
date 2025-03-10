@@ -128,7 +128,7 @@ def run_materialize_mutations(
     for partition in sorted(remaining_partitions, reverse=True):
         AlterTableMutationRunner(
             config.table,
-            f"MATERIALIZE COLUMN {config.column} IN PARTITION %(partition)s",
+            {f"MATERIALIZE COLUMN {config.column} IN PARTITION %(partition)s"},
             parameters={"partition": partition},
         ).run_on_shards(
             cluster,
