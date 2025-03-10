@@ -3,6 +3,7 @@ import { getStoryContext, TestRunnerConfig, TestContext } from '@storybook/test-
 import type { Locator, Page, LocatorScreenshotOptions } from '@playwright/test'
 import type { Mocks } from '~/mocks/utils'
 import { StoryContext } from '@storybook/csf'
+import path from 'path'
 
 const DEFAULT_VIEWPORT = { width: 1280, height: 720 }
 
@@ -63,7 +64,8 @@ const LOADER_SELECTORS = [
     '.Lettermark--unknown',
 ]
 
-const customSnapshotsDir = `${process.cwd()}/__snapshots__`
+const customSnapshotsDir = path.resolve(__dirname, '../../../frontend/__snapshots__')
+console.log("[test-runner] Storybook snapshots will be saved to", customSnapshotsDir)
 
 const JEST_TIMEOUT_MS = 15000
 const PLAYWRIGHT_TIMEOUT_MS = 10000 // Must be shorter than JEST_TIMEOUT_MS
@@ -76,25 +78,30 @@ module.exports = {
         jest.retryTimes(RETRY_TIMES, { logErrorsBeforeRetry: true })
         jest.setTimeout(JEST_TIMEOUT_MS)
     },
+
     async preVisit(page, context) {
         const storyContext = await getStoryContext(page, context)
         const viewport = storyContext.parameters?.testOptions?.viewport || DEFAULT_VIEWPORT
         await page.setViewportSize(viewport)
     },
+
     async postVisit(page, context) {
         ATTEMPT_COUNT_PER_ID[context.id] = (ATTEMPT_COUNT_PER_ID[context.id] || 0) + 1
         const storyContext = await getStoryContext(page, context)
         const viewport = storyContext.parameters?.testOptions?.viewport || DEFAULT_VIEWPORT
+
         await page.evaluate(
             ([retry, id]) => console.log(`[${id}] Attempt ${retry}`),
             [ATTEMPT_COUNT_PER_ID[context.id], context.id]
         )
+
         if (ATTEMPT_COUNT_PER_ID[context.id] > 1) {
             // When retrying, resize the viewport and then resize again to default,
             // just in case the retry is due to a useResizeObserver fail
             await page.setViewportSize({ width: 1920, height: 1080 })
             await page.setViewportSize(viewport)
         }
+
         const browserContext = page.context()
         const { snapshotBrowsers = ['chromium'] } = storyContext.parameters?.testOptions ?? {}
 
@@ -115,12 +122,52 @@ async function expectStoryToMatchSnapshot(
     storyContext: StoryContext,
     browser: SupportedBrowserName
 ): Promise<void> {
+    await waitForPageReady(page)
+    await page.evaluate((layout: string) => {
+        // Stop all animations for consistent snapshots, and adjust other styles
+        document.body.classList.add('storybook-test-runner')
+        document.body.classList.add(`storybook-test-runner--${layout}`)
+    }, storyContext.parameters?.layout || 'padded')
+
     const {
         waitForLoadersToDisappear = true,
         waitForSelector,
-        includeNavigationInSnapshot = false,
     } = storyContext.parameters?.testOptions ?? {}
 
+    if (waitForLoadersToDisappear) {
+        // The timeout is reduced so that we never allow toasts – they usually signify something wrong
+        await page.waitForSelector(LOADER_SELECTORS.join(','), { state: 'detached', timeout: 3000 })
+    }
+
+    if (typeof waitForSelector === 'string') {
+        await page.waitForSelector(waitForSelector)
+    } else if (Array.isArray(waitForSelector)) {
+        await Promise.all(waitForSelector.map((selector) => page.waitForSelector(selector)))
+    }
+
+    // Snapshot both light and dark themes
+    await takeSnapshotWithTheme(page, context, browser, 'light', storyContext)
+    await takeSnapshotWithTheme(page, context, browser, 'dark', storyContext)
+}
+
+
+async function takeSnapshotWithTheme(page: Page, context: TestContext, browser: SupportedBrowserName, theme: SnapshotTheme, storyContext: StoryContext) {
+    // Set the right theme
+    await page.evaluate((theme: SnapshotTheme) => document.body.setAttribute('theme', theme), theme)
+
+    // Wait until we're sure we've finished loading everything
+    await waitForPageReady(page)
+    await page.waitForFunction(() => Array.from(document.images).every((i: HTMLImageElement) => !!i.naturalWidth))
+    await page.waitForTimeout(2000)
+
+    // Do take the snapshot
+    await doTakeSnapshotWithTheme(page, context, browser, theme, storyContext)
+}
+
+async function doTakeSnapshotWithTheme(page: Page, context: TestContext, browser: SupportedBrowserName, theme: SnapshotTheme, storyContext: StoryContext) {
+    const { includeNavigationInSnapshot = false, snapshotTargetSelector } = storyContext.parameters?.testOptions ?? {}
+
+    // Figure out what's the right check function depending on the parameters
     let check: (
         page: Page,
         context: TestContext,
@@ -137,44 +184,8 @@ async function expectStoryToMatchSnapshot(
     } else {
         check = expectStoryToMatchComponentSnapshot
     }
-
-    await waitForPageReady(page)
-    await page.evaluate((layout: string) => {
-        // Stop all animations for consistent snapshots, and adjust other styles
-        document.body.classList.add('storybook-test-runner')
-        document.body.classList.add(`storybook-test-runner--${layout}`)
-    }, storyContext.parameters?.layout || 'padded')
-    if (waitForLoadersToDisappear) {
-        // The timeout is reduced so that we never allow toasts – they usually signify something wrong
-        await page.waitForSelector(LOADER_SELECTORS.join(','), { state: 'detached', timeout: 3000 })
-    }
-    if (typeof waitForSelector === 'string') {
-        await page.waitForSelector(waitForSelector)
-    } else if (Array.isArray(waitForSelector)) {
-        await Promise.all(waitForSelector.map((selector) => page.waitForSelector(selector)))
-    }
-
-    // Snapshot light theme
-    await page.evaluate(() => {
-        document.body.setAttribute('theme', 'light')
-    })
-
-    await waitForPageReady(page)
-    await page.waitForFunction(() => Array.from(document.images).every((i: HTMLImageElement) => !!i.naturalWidth))
-    await page.waitForTimeout(2000)
-
-    await check(page, context, browser, 'light', storyContext.parameters?.testOptions?.snapshotTargetSelector)
-
-    // Snapshot dark theme
-    await page.evaluate(() => {
-        document.body.setAttribute('theme', 'dark')
-    })
-
-    await waitForPageReady(page)
-    await page.waitForFunction(() => Array.from(document.images).every((i: HTMLImageElement) => !!i.naturalWidth))
-    await page.waitForTimeout(100)
-
-    await check(page, context, browser, 'dark', storyContext.parameters?.testOptions?.snapshotTargetSelector)
+    
+    await check(page, context, browser, theme, snapshotTargetSelector)
 }
 
 async function expectStoryToMatchViewportSnapshot(
@@ -210,8 +221,9 @@ async function expectStoryToMatchComponentSnapshot(
         if (!rootEl) {
             throw new Error('Could not find root element')
         }
+
         // If needed, expand the root element so that all popovers are visible in the screenshot
-        document.querySelectorAll('.Popover').forEach((popover) => {
+        document.querySelectorAll('.Popover, .Tooltip').forEach((popover) => {
             const currentRootBoundingClientRect = rootEl.getBoundingClientRect()
             const popoverBoundingClientRect = popover.getBoundingClientRect()
             if (popoverBoundingClientRect.right > currentRootBoundingClientRect.right) {
@@ -246,13 +258,14 @@ async function expectLocatorToMatchStorySnapshot(
     if (browser !== 'chromium') {
         customSnapshotIdentifier += `--${browser}`
     }
+
     expect(image).toMatchImageSnapshot({
         customSnapshotsDir,
         customSnapshotIdentifier,
         // Compare structural similarity instead of raw pixels - reducing false positives
         // See https://github.com/americanexpress/jest-image-snapshot#recommendations-when-using-ssim-comparison
         comparisonMethod: 'ssim',
-        // 0.01 would be a 1% difference
+        // 0.01 is a 1% difference
         failureThreshold: 0.01,
         failureThresholdType: 'percent',
     })
@@ -265,8 +278,10 @@ async function expectLocatorToMatchStorySnapshot(
 async function waitForPageReady(page: Page): Promise<void> {
     await page.waitForLoadState('domcontentloaded')
     await page.waitForLoadState('load')
+
     if (process.env.CI) {
         await page.waitForLoadState('networkidle')
     }
+
     await page.evaluate(() => document.fonts.ready)
 }

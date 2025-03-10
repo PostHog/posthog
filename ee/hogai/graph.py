@@ -95,13 +95,7 @@ class AssistantGraph:
 
         create_trends_plan_node = TrendsPlannerNode(self._team)
         builder.add_node(AssistantNodeName.TRENDS_PLANNER, create_trends_plan_node)
-        builder.add_conditional_edges(
-            AssistantNodeName.TRENDS_PLANNER,
-            create_trends_plan_node.router,
-            path_map={
-                "tools": AssistantNodeName.TRENDS_PLANNER_TOOLS,
-            },
-        )
+        builder.add_edge(AssistantNodeName.TRENDS_PLANNER, AssistantNodeName.TRENDS_PLANNER_TOOLS)
 
         create_trends_plan_tools_node = TrendsPlannerToolsNode(self._team)
         builder.add_node(AssistantNodeName.TRENDS_PLANNER_TOOLS, create_trends_plan_tools_node)
@@ -147,13 +141,7 @@ class AssistantGraph:
 
         funnel_planner = FunnelPlannerNode(self._team)
         builder.add_node(AssistantNodeName.FUNNEL_PLANNER, funnel_planner)
-        builder.add_conditional_edges(
-            AssistantNodeName.FUNNEL_PLANNER,
-            funnel_planner.router,
-            path_map={
-                "tools": AssistantNodeName.FUNNEL_PLANNER_TOOLS,
-            },
-        )
+        builder.add_edge(AssistantNodeName.FUNNEL_PLANNER, AssistantNodeName.FUNNEL_PLANNER_TOOLS)
 
         funnel_planner_tools = FunnelPlannerToolsNode(self._team)
         builder.add_node(AssistantNodeName.FUNNEL_PLANNER_TOOLS, funnel_planner_tools)
@@ -199,13 +187,7 @@ class AssistantGraph:
 
         retention_planner = RetentionPlannerNode(self._team)
         builder.add_node(AssistantNodeName.RETENTION_PLANNER, retention_planner)
-        builder.add_conditional_edges(
-            AssistantNodeName.RETENTION_PLANNER,
-            retention_planner.router,
-            path_map={
-                "tools": AssistantNodeName.RETENTION_PLANNER_TOOLS,
-            },
-        )
+        builder.add_edge(AssistantNodeName.RETENTION_PLANNER, AssistantNodeName.RETENTION_PLANNER_TOOLS)
 
         retention_planner_tools = RetentionPlannerToolsNode(self._team)
         builder.add_node(AssistantNodeName.RETENTION_PLANNER_TOOLS, retention_planner_tools)

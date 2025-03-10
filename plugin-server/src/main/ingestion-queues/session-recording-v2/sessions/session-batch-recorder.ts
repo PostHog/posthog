@@ -1,3 +1,5 @@
+import { v7 as uuidv7 } from 'uuid'
+
 import { status } from '../../../../utils/status'
 import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { MessageWithTeam } from '../teams/types'
@@ -49,13 +51,15 @@ export class SessionBatchRecorder {
     private readonly partitionSessions = new Map<number, Map<string, SnappySessionRecorder>>()
     private readonly partitionSizes = new Map<number, number>()
     private _size: number = 0
+    private readonly batchId: string
 
     constructor(
         private readonly offsetManager: KafkaOffsetManager,
         private readonly storage: SessionBatchFileStorage,
         private readonly metadataStore: SessionMetadataStore
     ) {
-        status.debug('🔁', 'session_batch_recorder_created')
+        this.batchId = uuidv7()
+        status.debug('🔁', 'session_batch_recorder_created', { batchId: this.batchId })
     }
 
     /**
@@ -83,11 +87,12 @@ export class SessionBatchRecorder {
                     sessionId,
                     existingTeamId: existingRecorder.teamId,
                     newTeamId: teamId,
+                    batchId: this.batchId,
                 })
                 return 0
             }
         } else {
-            sessions.set(sessionId, new SnappySessionRecorder(sessionId, teamId))
+            sessions.set(sessionId, new SnappySessionRecorder(sessionId, teamId, this.batchId))
         }
 
         const recorder = sessions.get(sessionId)!
@@ -158,7 +163,26 @@ export class SessionBatchRecorder {
         try {
             for (const sessions of this.partitionSessions.values()) {
                 for (const recorder of sessions.values()) {
-                    const { buffer, eventCount, startDateTime, endDateTime } = await recorder.end()
+                    const {
+                        buffer,
+                        eventCount,
+                        startDateTime,
+                        endDateTime,
+                        firstUrl,
+                        urls,
+                        clickCount,
+                        keypressCount,
+                        mouseActivityCount,
+                        activeMilliseconds,
+                        consoleLogCount,
+                        consoleWarnCount,
+                        consoleErrorCount,
+                        size,
+                        messageCount,
+                        snapshotSource,
+                        snapshotLibrary,
+                        batchId,
+                    } = await recorder.end()
                     const { bytesWritten, url } = await writer.writeSession(buffer)
 
                     // Track block metadata
@@ -170,6 +194,20 @@ export class SessionBatchRecorder {
                         startDateTime,
                         endDateTime,
                         blockUrl: url,
+                        firstUrl,
+                        urls,
+                        clickCount,
+                        keypressCount,
+                        mouseActivityCount,
+                        activeMilliseconds,
+                        consoleLogCount,
+                        consoleWarnCount,
+                        consoleErrorCount,
+                        size,
+                        messageCount,
+                        snapshotSource,
+                        snapshotLibrary,
+                        batchId,
                     })
 
                     totalEvents += eventCount

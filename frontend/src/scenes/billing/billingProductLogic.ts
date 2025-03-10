@@ -238,8 +238,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     values.isUnlicensedDebug
                         ? product.plans?.[product.plans.length - 1]
                         : product.plans?.[currentPlanIndex + 1]
-                const downgradePlan = product.plans?.[currentPlanIndex - 1]
-                return { currentPlan, upgradePlan, downgradePlan }
+                return { currentPlan, upgradePlan }
             },
         ],
         freeTier: [
@@ -322,7 +321,6 @@ export const billingProductLogic = kea<billingProductLogicType>([
     listeners(({ actions, values, props }) => ({
         updateBillingLimitsSuccess: () => {
             actions.billingLoaded()
-            actions.loadBilling()
         },
         billingLoaded: () => {
             function calculateDefaultBillingLimit(product: BillingProductV2Type | BillingProductV2AddonType): number {

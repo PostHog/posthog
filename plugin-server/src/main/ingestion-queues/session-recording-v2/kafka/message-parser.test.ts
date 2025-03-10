@@ -69,7 +69,8 @@ describe('KafkaMessageParser', () => {
                     start: DateTime.fromMillis(1234567890),
                     end: DateTime.fromMillis(1234567891),
                 },
-                snapshot_source: undefined,
+                snapshot_source: null,
+                snapshot_library: null,
             })
             expect(KafkaMetrics.incrementMessageDropped).not.toHaveBeenCalled()
         })

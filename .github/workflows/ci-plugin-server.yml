@@ -105,9 +105,9 @@ jobs:
                   docker compose -f docker-compose.dev.yml down
                   docker compose -f docker-compose.dev.yml up -d
 
-            - name: Add Kafka to /etc/hosts
+            - name: Add Kafka and ClickHouse to /etc/hosts
               if: needs.changes.outputs.plugin-server == 'true'
-              run: echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
+              run: echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
 
             - name: Set up Python
               if: needs.changes.outputs.plugin-server == 'true'
@@ -162,6 +162,11 @@ jobs:
                   cache: pnpm
                   cache-dependency-path: pnpm-lock.yaml
 
+            - name: Download MaxMind Database
+              if: needs.changes.outputs.plugin-server == 'true'
+              run: |
+                  ./bin/download-mmdb
+
             - name: Install package.json dependencies with pnpm
               if: needs.changes.outputs.plugin-server == 'true'
               run: pnpm --filter=@posthog/plugin-server... install --frozen-lockfile
@@ -189,6 +194,7 @@ jobs:
                   NODE_OPTIONS: '--max_old_space_size=4096'
                   SHARD_INDEX: ${{ matrix.shard }}
                   SHARD_COUNT: 3
+                  LOG_LEVEL: info
               run: bin/turbo run test --filter=@posthog/plugin-server
 
     functional-tests:
@@ -216,9 +222,9 @@ jobs:
                   docker compose -f docker-compose.dev.yml down
                   docker compose -f docker-compose.dev.yml up -d
 
-            - name: Add Kafka to /etc/hosts
+            - name: Add Kafka and ClickHouse to /etc/hosts
               if: needs.changes.outputs.plugin-server == 'true'
-              run: echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
+              run: echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
 
             - name: Set up Python
               if: needs.changes.outputs.plugin-server == 'true'

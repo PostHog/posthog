@@ -85,7 +85,7 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
         feature_flag_serializer = FeatureFlagSerializer(
             data={
                 "key": self.get_feature_flag_name(validated_data.get("name", "")),
-                "name": f'Feature Flag for Experiment {validated_data["name"]}',
+                "name": f"Feature Flag for Experiment {validated_data['name']}",
                 "filters": filters,
                 "active": False,
                 "creation_context": "web_experiments",
@@ -96,8 +96,12 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
         feature_flag_serializer.is_valid(raise_exception=True)
         feature_flag = feature_flag_serializer.save()
 
+        stats_config = {
+            "version": 2,
+        }
+
         experiment = WebExperiment.objects.create(
-            team_id=self.context["team_id"], feature_flag=feature_flag, **create_params
+            team_id=self.context["team_id"], feature_flag=feature_flag, **create_params, stats_config=stats_config
         )
         return experiment
 

@@ -104,6 +104,13 @@ export function isDataTableNode(node?: Record<string, any> | null): node is Data
     return node?.kind === NodeKind.DataTableNode
 }
 
+/** Previously SQL queries by default were `DataTableNode`s. However now new SQL queries are `DataVisualizationNode`s */
+export function isDataTableNodeWithHogQLQuery(node?: Record<string, any> | null): node is DataTableNode & {
+    source: HogQLQuery
+} {
+    return isDataTableNode(node) && isHogQLQuery(node.source)
+}
+
 export function isDataVisualizationNode(node?: Record<string, any> | null): node is DataVisualizationNode {
     return node?.kind === NodeKind.DataVisualizationNode
 }
@@ -164,6 +171,10 @@ export function isSessionAttributionExplorerQuery(
     node?: Record<string, any> | null
 ): node is SessionAttributionExplorerQuery {
     return node?.kind === NodeKind.SessionAttributionExplorerQuery
+}
+
+export function isRevenueExampleEventsQuery(node?: Record<string, any> | null): boolean {
+    return node?.kind === NodeKind.RevenueExampleEventsQuery
 }
 
 export function isErrorTrackingQuery(node?: Record<string, any> | null): node is ErrorTrackingQuery {

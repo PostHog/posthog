@@ -1,6 +1,7 @@
 import { PluginEvent, Webhook } from '@posthog/plugin-scaffold'
+import { captureException } from '@sentry/node'
 
-import { Hub, PluginConfig, PluginMethodsConcrete, PluginTaskType, PostIngestionEvent } from '../../types'
+import { Hub, PluginConfig, PluginMethodsConcrete, PostIngestionEvent } from '../../types'
 import { processError } from '../../utils/db/error'
 import {
     convertToOnEventPayload,
@@ -8,12 +9,93 @@ import {
     mutatePostIngestionEventWithElementsList,
 } from '../../utils/event'
 import { trackedFetch } from '../../utils/fetch'
+import { getHttpCallRecorder, RecordedHttpCall } from '../../utils/recorded-fetch'
 import { status } from '../../utils/status'
 import { IllegalOperationError } from '../../utils/utils'
 import { WebhookFormatter } from '../ingestion/webhook-formatter'
 import { pluginActionMsSummary } from '../metrics'
 
 const PLUGIN_URL_LEGACY_ACTION_WEBHOOK = 'https://github.com/PostHog/legacy-action-webhook'
+
+/**
+ * Logs HTTP calls made by a plugin
+ */
+function logHttpCalls(
+    recordedCalls: RecordedHttpCall[],
+    eventUuid: string | undefined,
+    pluginConfig: PluginConfig,
+    failed: boolean = false
+): void {
+    if (recordedCalls.length > 0) {
+        const actionText = failed ? 'before failing' : 'during operation'
+
+        status.info(
+            '🌐',
+            `Plugin ${pluginConfig.plugin?.name || 'unknown'} (${pluginConfig.id}) made ${
+                recordedCalls.length
+            } HTTP calls ${actionText} for event ${eventUuid || 'unknown'}`
+        )
+
+        // Log details about each call
+        recordedCalls.forEach((call: RecordedHttpCall, index: number) => {
+            status.info(
+                '🌐',
+                `Event ${eventUuid || 'unknown'} - Call ${index + 1}: ${call.request.method} ${
+                    call.request.url
+                } - Status: ${call.response.status}`
+            )
+
+            // Log errors if any
+            if (call.error) {
+                status.error('🌐', `Event ${eventUuid || 'unknown'} - Call ${index + 1} error: ${call.error.message}`)
+            }
+        })
+    }
+}
+
+/**
+ * Executes an operation while recording HTTP calls if enabled.
+ * This function encapsulates the logic for recording HTTP calls during plugin operations.
+ */
+async function withHttpCallRecording<T>(
+    hub: Hub,
+    eventUuid: string | undefined,
+    pluginConfig: PluginConfig,
+    operation: () => Promise<T>
+): Promise<T> {
+    // Check if we should record HTTP calls - using the same condition as in recorded-fetch.ts
+    const recordHttpCalls = hub.DESTINATION_MIGRATION_DIFFING_ENABLED === true && hub.TASKS_PER_WORKER === 1
+
+    // Clear the recorder before running the operation if recording is enabled
+    if (recordHttpCalls) {
+        getHttpCallRecorder().clearCalls()
+    }
+
+    let failed = false
+    try {
+        // Execute the operation
+        return await operation()
+    } catch (error) {
+        failed = true
+        throw error // Re-throw the error to be handled by the caller
+    } finally {
+        try {
+            if (recordHttpCalls) {
+                // Get recorded HTTP calls even if the operation failed
+                const recordedCalls = getHttpCallRecorder().getCalls()
+                logHttpCalls(recordedCalls, eventUuid, pluginConfig, failed)
+            }
+        } catch (e) {
+            status.error('🌐', `Error checking record logs...`)
+            captureException(e)
+        } finally {
+            if (recordHttpCalls) {
+                // Clear the recorder to prevent memory leaks
+                getHttpCallRecorder().clearCalls()
+            }
+        }
+    }
+}
 
 async function runSingleTeamPluginOnEvent(
     hub: Hub,
@@ -36,7 +118,9 @@ async function runSingleTeamPluginOnEvent(
         // Runs onEvent for a single plugin without any retries
         const timer = new Date()
         try {
-            await onEvent(onEventPayload)
+            await withHttpCallRecording(hub, event.eventUuid, pluginConfig, async () => {
+                await onEvent(onEventPayload)
+            })
 
             pluginActionMsSummary
                 .labels(pluginConfig.plugin?.id.toString() ?? '?', 'onEvent', 'success')
@@ -105,7 +189,7 @@ async function runSingleTeamPluginComposeWebhook(
                     team,
                     siteUrl: hub.SITE_URL || '',
                     // TODO: What about pluginConfig.name ?
-                    sourceName: pluginConfig.plugin.name || 'Unnamed plugin',
+                    sourceName: pluginConfig.plugin?.name || 'Unnamed plugin',
                     sourcePath: `/pipeline/destinations/${pluginConfig.id}`,
                 })
                 maybeWebhook = webhookFormatter.composeWebhook()
@@ -245,7 +329,6 @@ export async function runComposeWebhook(hub: Hub, event: PostIngestionEvent): Pr
 
 export async function runProcessEvent(hub: Hub, event: PluginEvent): Promise<PluginEvent | null> {
     const teamId = event.team_id
-
     const pluginMethodsToRun = await getPluginMethodsForTeam(hub, teamId, 'processEvent')
 
     let returnedEvent: PluginEvent | null = event
@@ -312,72 +395,6 @@ export async function runProcessEvent(hub: Hub, event: PluginEvent): Promise<Plu
     }
 
     return returnedEvent
-}
-
-export async function runPluginTask(
-    hub: Hub,
-    taskName: string,
-    taskType: PluginTaskType,
-    pluginConfigId: number,
-    payload?: Record<string, any>
-): Promise<any> {
-    const timer = new Date()
-    let response
-    const pluginConfig = hub.pluginConfigs.get(pluginConfigId)
-    const teamId = pluginConfig?.team_id
-    let shouldQueueAppMetric = false
-
-    try {
-        const task = await pluginConfig?.instance?.getTask(taskName, taskType)
-        if (!task) {
-            throw new Error(
-                `Task "${taskName}" not found for plugin "${pluginConfig?.plugin?.name}" with config id ${pluginConfigId}`
-            )
-        }
-
-        if (!pluginConfig?.enabled) {
-            status.info('🚮', 'Skipping job for disabled pluginconfig', {
-                taskName: taskName,
-                taskType: taskType,
-                pluginConfigId: pluginConfigId,
-            })
-            return
-        }
-
-        shouldQueueAppMetric = taskType === PluginTaskType.Schedule && !task.__ignoreForAppMetrics
-        response = await (payload ? task?.exec(payload) : task?.exec())
-
-        pluginActionMsSummary
-            .labels(String(pluginConfig?.plugin?.id), 'task', 'success')
-            .observe(new Date().getTime() - timer.getTime())
-        if (shouldQueueAppMetric && teamId) {
-            await hub.appMetrics.queueMetric({
-                teamId: teamId,
-                pluginConfigId: pluginConfigId,
-                category: 'scheduledTask',
-                successes: 1,
-            })
-        }
-    } catch (error) {
-        await processError(hub, pluginConfig || null, error)
-
-        pluginActionMsSummary
-            .labels(String(pluginConfig?.plugin?.id), 'task', 'error')
-            .observe(new Date().getTime() - timer.getTime())
-        if (shouldQueueAppMetric && teamId) {
-            await hub.appMetrics.queueError(
-                {
-                    teamId: teamId,
-                    pluginConfigId: pluginConfigId,
-                    category: 'scheduledTask',
-                    failures: 1,
-                },
-                { error }
-            )
-        }
-    }
-
-    return response
 }
 
 async function getPluginMethodsForTeam<M extends keyof PluginMethodsConcrete>(

@@ -1,7 +1,7 @@
 import './SurveyView.scss'
 
-import { IconGraph } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonDivider, Link, Spinner } from '@posthog/lemon-ui'
+import { IconGraph, IconInfo } from '@posthog/icons'
+import { LemonButton, LemonDialog, LemonDivider, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
@@ -9,7 +9,6 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { IntervalFilterStandalone } from 'lib/components/IntervalFilter'
 import { PageHeader } from 'lib/components/PageHeader'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -19,8 +18,8 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils'
 import { useEffect, useState } from 'react'
 import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
-import { SurveyAnswerFilters } from 'scenes/surveys/SurveyAnswerFilters'
-import { getSurveyResponseKey } from 'scenes/surveys/utils'
+import { SurveyResponseFilters } from 'scenes/surveys/SurveyResponseFilters'
+import { getResponseFieldWithId } from 'scenes/surveys/utils'
 
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -34,7 +33,7 @@ import {
     SurveyType,
 } from '~/types'
 
-import { SURVEY_EVENT_NAME, SurveyQuestionLabel } from './constants'
+import { NPS_DETRACTOR_LABEL, NPS_PASSIVE_LABEL, SURVEY_EVENT_NAME, SurveyQuestionLabel } from './constants'
 import { SurveyDisplaySummary } from './Survey'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { SurveyFormAppearance } from './SurveyFormAppearance'
@@ -42,32 +41,13 @@ import { surveyLogic } from './surveyLogic'
 import { surveysLogic } from './surveysLogic'
 import {
     MultipleChoiceQuestionBarChart,
+    NPSStackedBar,
     NPSSurveyResultsBarChart,
     OpenTextViz,
     RatingQuestionBarChart,
     SingleChoiceQuestionPieChart,
     Summary,
 } from './surveyViewViz'
-
-function SurveyResultsFilters(): JSX.Element {
-    const { propertyFilters } = useValues(surveyLogic)
-    const { setPropertyFilters } = useActions(surveyLogic)
-
-    return (
-        <div className="space-y-2">
-            <h3 className="text-base">Filter survey results</h3>
-            <SurveyAnswerFilters />
-            <div className="w-fit">
-                <PropertyFilters
-                    propertyFilters={propertyFilters}
-                    onChange={setPropertyFilters}
-                    pageKey="survey-results"
-                    buttonText="More filters"
-                />
-            </div>
-        </div>
-    )
-}
 
 function SurveySchedule(): JSX.Element {
     const { survey } = useValues(surveyLogic)
@@ -364,7 +344,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                                         )}
                                                     </span>
                                                     {survey.questions.map((q, idx) => (
-                                                        <li key={idx}>{q.question}</li>
+                                                        <li key={q.id ?? idx}>{q.question}</li>
                                                     ))}
                                                 </>
                                             )}
@@ -526,8 +506,8 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
     } = useValues(surveyLogic)
 
     return (
-        <div className="space-y-4">
-            <SurveyResultsFilters />
+        <div className="deprecated-space-y-4">
+            <SurveyResponseFilters />
             {isAnyResultsLoading && (
                 <div className="flex gap-1">
                     <span className="text-sm text-secondary">Loading results...</span>
@@ -538,12 +518,13 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
             {survey.questions.map((question, i) => {
                 if (question.type === SurveyQuestionType.Rating) {
                     return (
-                        <div key={`survey-q-${i}`} className="space-y-2">
+                        <div key={`survey-q-${i}`} className="deprecated-space-y-2">
                             {question.scale === 10 && (
                                 <SurveyNPSResults
                                     survey={survey as Survey}
                                     surveyNPSScore={surveyNPSScore}
                                     questionIndex={i}
+                                    questionId={question.id}
                                 />
                             )}
 
@@ -614,23 +595,74 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
     )
 }
 
+function createNPSTrendSeries(
+    key: string,
+    values: string[],
+    label: string
+): {
+    event: string
+    kind: NodeKind.EventsNode
+    custom_name: string
+    properties: Array<{
+        type: PropertyFilterType.Event
+        key: string
+        operator: PropertyOperator.Exact
+        value: string[]
+    }>
+} {
+    return {
+        event: SURVEY_EVENT_NAME,
+        kind: NodeKind.EventsNode,
+        custom_name: label,
+        properties: [
+            {
+                type: PropertyFilterType.Event,
+                key,
+                operator: PropertyOperator.Exact,
+                value: values,
+            },
+        ],
+    }
+}
+
 function SurveyNPSResults({
     survey,
     surveyNPSScore,
     questionIndex,
+    questionId,
 }: {
     survey: Survey
-    surveyNPSScore?: string
+    surveyNPSScore?: string | null
     questionIndex: number
+    questionId?: string
 }): JSX.Element {
-    const { dateRange, interval, compareFilter, defaultInterval } = useValues(surveyLogic)
+    const { dateRange, interval, compareFilter, defaultInterval, npsBreakdown } = useValues(surveyLogic)
     const { setDateRange, setInterval, setCompareFilter } = useActions(surveyLogic)
 
     return (
         <div>
-            <div className="text-4xl font-bold">{surveyNPSScore}</div>
-            <div className="mb-2 font-semibold text-secondary">Latest NPS Score</div>
-            <div className="space-y-2 bg-surface-primary p-2 rounded">
+            {surveyNPSScore && (
+                <>
+                    <div className="flex items-center gap-2">
+                        <div className="text-4xl font-bold">{surveyNPSScore}</div>
+                    </div>
+                    <div className="mb-2 font-semibold text-secondary">
+                        <Tooltip
+                            placement="bottom"
+                            title="NPS Score is calculated by subtracting the percentage of detractors (0-6) from the percentage of promoters (9-10). Passives (7-8) are not included in the calculation. It can range from -100 to 100."
+                        >
+                            <IconInfo className="text-muted" />
+                        </Tooltip>{' '}
+                        Latest NPS Score
+                    </div>
+                    {npsBreakdown && (
+                        <div className="deprecated-space-y-2 mt-2 mb-4">
+                            <NPSStackedBar npsBreakdown={npsBreakdown} />
+                        </div>
+                    )}
+                </>
+            )}
+            <div className="deprecated-space-y-2 bg-surface-primary p-2 rounded">
                 <div className="flex items-center justify-between gap-2">
                     <h4 className="text-lg font-semibold">NPS Trend</h4>
                     <div className="flex items-center gap-2">
@@ -675,45 +707,36 @@ function SurveyNPSResults({
                                     : dayjs().add(1, 'day').format('YYYY-MM-DD'),
                             },
                             series: [
-                                {
-                                    event: SURVEY_EVENT_NAME,
-                                    kind: NodeKind.EventsNode,
-                                    custom_name: 'Promoters',
-                                    properties: [
-                                        {
-                                            type: PropertyFilterType.Event,
-                                            key: getSurveyResponseKey(questionIndex),
-                                            operator: PropertyOperator.Exact,
-                                            value: ['9', '10'],
-                                        },
-                                    ],
-                                },
-                                {
-                                    event: SURVEY_EVENT_NAME,
-                                    kind: NodeKind.EventsNode,
-                                    custom_name: 'Passives',
-                                    properties: [
-                                        {
-                                            type: PropertyFilterType.Event,
-                                            key: getSurveyResponseKey(questionIndex),
-                                            operator: PropertyOperator.Exact,
-                                            value: ['7', '8'],
-                                        },
-                                    ],
-                                },
-                                {
-                                    event: SURVEY_EVENT_NAME,
-                                    kind: NodeKind.EventsNode,
-                                    custom_name: 'Detractors',
-                                    properties: [
-                                        {
-                                            type: PropertyFilterType.Event,
-                                            key: getSurveyResponseKey(questionIndex),
-                                            operator: PropertyOperator.Exact,
-                                            value: ['0', '1', '2', '3', '4', '5', '6'],
-                                        },
-                                    ],
-                                },
+                                createNPSTrendSeries(
+                                    getResponseFieldWithId(questionIndex, questionId).indexBasedKey,
+                                    ['9', '10'],
+                                    NPS_PASSIVE_LABEL
+                                ),
+                                createNPSTrendSeries(
+                                    getResponseFieldWithId(questionIndex, questionId).idBasedKey ?? '',
+                                    ['9', '10'],
+                                    NPS_PASSIVE_LABEL
+                                ),
+                                createNPSTrendSeries(
+                                    getResponseFieldWithId(questionIndex, questionId).indexBasedKey,
+                                    ['7', '8'],
+                                    NPS_PASSIVE_LABEL
+                                ),
+                                createNPSTrendSeries(
+                                    getResponseFieldWithId(questionIndex, questionId).idBasedKey ?? '',
+                                    ['7', '8'],
+                                    NPS_PASSIVE_LABEL
+                                ),
+                                createNPSTrendSeries(
+                                    getResponseFieldWithId(questionIndex, questionId).indexBasedKey,
+                                    ['0', '1', '2', '3', '4', '5', '6'],
+                                    NPS_DETRACTOR_LABEL
+                                ),
+                                createNPSTrendSeries(
+                                    getResponseFieldWithId(questionIndex, questionId).idBasedKey ?? '',
+                                    ['0', '1', '2', '3', '4', '5', '6'],
+                                    NPS_DETRACTOR_LABEL
+                                ),
                             ],
                             properties: [
                                 {
@@ -724,7 +747,20 @@ function SurveyNPSResults({
                                 },
                             ],
                             trendsFilter: {
-                                formula: '(A / (A+B+C) * 100) - (C / (A+B+C) * 100)',
+                                /**
+                                 * We now have two response fields to consider: both index-based and id-based.
+                                 * So we need to sum up the promoters and detractors from both fields.
+                                 * A+B is promoters
+                                 * C+D is passives
+                                 * E+F is detractors
+                                 *
+                                 * A+B+C+D+E+F is total responses
+                                 *
+                                 * The old formula is formula: '(A / (A+B+C) * 100) - (C / (A+B+C) * 100)',
+                                 *
+                                 * The new formula is formula: '((A+B) / (A+B+C+D+E+F) * 100) - ((E+F) / (A+B+C+D+E+F) * 100)',
+                                 */
+                                formula: '((A+B) / (A+B+C+D+E+F) * 100) - ((E+F) / (A+B+C+D+E+F) * 100)',
                                 display: 'ActionsBar',
                             },
                         },

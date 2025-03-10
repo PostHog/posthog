@@ -44,18 +44,6 @@ CREATE TABLE IF NOT EXISTS posthog_eventproperty (
 CREATE UNIQUE INDEX IF NOT EXISTS posthog_event_property_unique_team_event_property ON posthog_eventproperty (team_id, event, property);
 CREATE UNIQUE INDEX IF NOT EXISTS posthog_event_property_unique_proj_event_property ON posthog_eventproperty (coalesce(project_id, team_id), event, property);
 
-CREATE TABLE IF NOT EXISTS posthog_hostdefinition (
-    id UUID PRIMARY KEY,
-    host VARCHAR(400) NOT NULL,
-    team_id INTEGER NOT NULL,
-    project_id BIGINT NULL,
-    last_seen_at TIMESTAMPTZ NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL
-);
-
-CREATE UNIQUE INDEX IF NOT EXISTS posthog_hostdefinition_team_project_host_idx ON posthog_hostdefinition (team_id, project_id, host);
-CREATE UNIQUE INDEX IF NOT EXISTS posthog_hostdefinition_proj_uniq ON posthog_hostdefinition (coalesce(project_id, team_id), host);
-
 CREATE TABLE IF NOT EXISTS posthog_grouptypemapping (
     id UUID PRIMARY KEY,
     group_type VARCHAR(400) NOT NULL,
@@ -69,3 +57,19 @@ CREATE TABLE IF NOT EXISTS posthog_grouptypemapping (
 CREATE UNIQUE INDEX IF NOT EXISTS posthog_grouptypemapping_pkey ON posthog_grouptypemapping (id);
 CREATE UNIQUE INDEX IF NOT EXISTS "unique group types for project" ON posthog_grouptypemapping USING btree (project_id, group_type);
 CREATE UNIQUE INDEX IF NOT EXISTS "unique event column indexes for project" ON posthog_grouptypemapping USING btree (project_id, group_type_index);
+
+CREATE TABLE ee_enterprisepropertydefinition (
+    propertydefinition_ptr_id UUID PRIMARY KEY,
+    description text,
+    deprecated_tags character varying(32)[],
+    updated_at timestamp with time zone NOT NULL,
+    updated_by_id integer,
+    tags character varying(32)[],
+    verified boolean NOT NULL,
+    verified_at timestamp with time zone,
+    verified_by_id integer
+);
+
+CREATE INDEX ee_enterprisepropertydefinition_updated_by_id ON ee_enterprisepropertydefinition USING btree (updated_by_id);
+CREATE INDEX ee_enterprisepropertydefinition_verified_by_id ON ee_enterprisepropertydefinition USING btree (verified_by_id);
+-- NOTE: for now, I left off some indices that aren't relevant to property defs query testing

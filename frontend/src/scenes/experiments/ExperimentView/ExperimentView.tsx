@@ -11,11 +11,10 @@ import { SharedMetricModal } from '../Metrics/SharedMetricModal'
 import { MetricsView } from '../MetricsView/MetricsView'
 import { VariantDeltaTimeseries } from '../MetricsView/VariantDeltaTimeseries'
 import { ExploreButton, LoadingState, PageHeaderCustom, ResultsQuery } from './components'
-import { DataCollection } from './DataCollection'
 import { DistributionModal, DistributionTable } from './DistributionTable'
-import { ExposureCriteria } from './ExposureCriteria'
-import { Exposures } from './Exposures'
+import { ExperimentHeader } from './ExperimentHeader'
 import { Info } from './Info'
+import { LegacyExperimentHeader } from './LegacyExperimentHeader'
 import { Overview } from './Overview'
 import { ReleaseConditionsModal, ReleaseConditionsTable } from './ReleaseConditionsTable'
 import { SummaryTable } from './SummaryTable'
@@ -77,10 +76,8 @@ const ResultsTab = (): JSX.Element => {
 }
 
 const VariantsTab = (): JSX.Element => {
-    const { shouldUseExperimentMetrics, isExperimentRunning } = useValues(experimentLogic)
     return (
-        <div className="space-y-8 mt-2">
-            {shouldUseExperimentMetrics && isExperimentRunning && <Exposures />}
+        <div className="deprecated-space-y-8 mt-2">
             <ReleaseConditionsTable />
             <DistributionTable />
         </div>
@@ -95,20 +92,13 @@ export function ExperimentView(): JSX.Element {
     return (
         <>
             <PageHeaderCustom />
-            <div className="space-y-8 experiment-view">
+            <div className="deprecated-space-y-8 experiment-view">
                 {experimentLoading ? (
                     <LoadingState />
                 ) : (
                     <>
                         <Info />
-                        <div className="xl:flex">
-                            <div className="w-1/2 mt-8 xl:mt-0">
-                                <DataCollection />
-                            </div>
-                            <div className="w-1/2 mt-8 xl:mt-0">
-                                {shouldUseExperimentMetrics && <ExposureCriteria />}
-                            </div>
-                        </div>
+                        {shouldUseExperimentMetrics ? <ExperimentHeader /> : <LegacyExperimentHeader />}
                         <LemonTabs
                             activeKey={tabKey}
                             onChange={(key) => setTabKey(key)}

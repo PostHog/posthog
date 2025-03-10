@@ -1,7 +1,6 @@
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass
-from dateutil import parser
 from datetime import date, datetime
 from difflib import get_close_matches
 from typing import Literal, Optional, Union, cast
@@ -25,6 +24,7 @@ from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.database.models import FunctionCallTable, SavedQuery, Table
 from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.query_log import RawQueryLogTable
+from posthog.hogql.database.schema.exchange_rate import ExchangeRateTable
 from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryError, ResolutionError
 from posthog.hogql.escape_sql import (
     escape_clickhouse_identifier,
@@ -47,6 +47,7 @@ from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_co
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 from posthog.hogql.transforms.property_types import PropertySwapper, build_property_swapper
 from posthog.hogql.visitor import Visitor, clone_expr
+from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.models.property import PropertyName, TableColumn
 from posthog.models.team import Team
 from posthog.models.team.team import WeekStartDay
@@ -58,6 +59,7 @@ from posthog.schema import (
     PersonsOnEventsMode,
     PropertyGroupsMode,
 )
+from posthog.settings import CLICKHOUSE_DATABASE
 
 
 def team_id_guard_for_table(table_type: Union[ast.TableType, ast.TableAliasType], context: HogQLContext) -> ast.Expr:
@@ -435,14 +437,17 @@ class _Printer(Visitor):
             else:
                 limit = ast.Constant(value=MAX_SELECT_RETURNED_ROWS)
 
+        if node.limit_by is not None:
+            clauses.append(
+                f"LIMIT {self.visit(node.limit_by.n)} {f'OFFSET {self.visit(node.limit_by.offset_value)}' if node.limit_by.offset_value else ''} BY {', '.join([self.visit(expr) for expr in node.limit_by.exprs])}"
+            )
+
         if limit is not None:
             clauses.append(f"LIMIT {self.visit(limit)}")
             if node.limit_with_ties:
                 clauses.append("WITH TIES")
             if node.offset is not None:
                 clauses.append(f"OFFSET {self.visit(node.offset)}")
-            if node.limit_by is not None:
-                clauses.append(f"BY {', '.join([self.visit(expr) for expr in node.limit_by])}")
 
         if self.context.output_format and self.dialect == "clickhouse" and is_top_level_query:
             clauses.append(f"FORMAT{space}{self.context.output_format}")
@@ -489,6 +494,7 @@ class _Printer(Visitor):
                 self.dialect == "clickhouse"
                 and not isinstance(table_type.table, FunctionCallTable)
                 and not isinstance(table_type.table, SavedQuery)
+                and not isinstance(table_type.table, ExchangeRateTable)
             ):
                 extra_where = team_id_guard_for_table(node.type, self.context)
 
@@ -1055,7 +1061,9 @@ class _Printer(Visitor):
                 )
 
             # check that we're not running inside another aggregate
-            for stack_node in self.stack:
+            for stack_node in reversed(self.stack):
+                if isinstance(stack_node, ast.SelectQuery):
+                    break
                 if stack_node != node and isinstance(stack_node, ast.Call) and find_hogql_aggregation(stack_node.name):
                     raise QueryError(
                         f"Aggregation '{node.name}' cannot be nested inside another aggregation '{stack_node.name}'."
@@ -1141,7 +1149,7 @@ class _Printer(Visitor):
                     if not has_tz_override:
                         args.append(self.visit(ast.Constant(value=self._get_timezone())))
 
-                    # If the datetime is in correct format, use optimal toDateTime, it's more strict but faster
+                    # If the datetime is in correct format, use optimal toDateTime, it's stricter but faster
                     # and it allows CH to use index efficiently.
                     if (
                         relevant_clickhouse_name == "parseDateTime64BestEffortOrNull"
@@ -1149,19 +1157,21 @@ class _Printer(Visitor):
                         and isinstance(node.args[0], Constant)
                         and isinstance(node.args[0].type, StringType)
                     ):
-                        try:
-                            t = parser.isoparse(node.args[0].value)
-                            # if we have timezone info, toDateTime64 cannot handle
-                            if t.tzinfo is None:
-                                relevant_clickhouse_name = "toDateTime64"
-                        except ValueError:
-                            pass
-
+                        relevant_clickhouse_name = "parseDateTime64BestEffort"
+                        pattern_with_microseconds_str = r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{1,6}$"
+                        pattern_mysql_str = r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$"
+                        if re.match(pattern_with_microseconds_str, node.args[0].value):
+                            relevant_clickhouse_name = "toDateTime64"
+                        elif re.match(pattern_mysql_str, node.args[0].value) or re.match(
+                            r"^\d{4}-\d{2}-\d{2}$", node.args[0].value
+                        ):
+                            relevant_clickhouse_name = "toDateTime"
                     if (
                         relevant_clickhouse_name == "now64"
                         and (len(node.args) == 0 or (has_tz_override and len(node.args) == 1))
                     ) or (
-                        relevant_clickhouse_name in ("parseDateTime64BestEffortOrNull", "toDateTime64")
+                        relevant_clickhouse_name
+                        in ("parseDateTime64BestEffortOrNull", "parseDateTime64BestEffort", "toDateTime64")
                         and (len(node.args) == 1 or (has_tz_override and len(node.args) == 2))
                     ):
                         # These two CH functions require a precision argument before timezone
@@ -1202,6 +1212,10 @@ class _Printer(Visitor):
                     return f"coalesce(dictGetOrNull('channel_definition_dict', 'type_if_organic', (coalesce({args[0]}, ''), 'source')), dictGetOrNull('channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
                 elif node.name == "hogql_lookupOrganicMediumType":
                     return f"dictGetOrNull('channel_definition_dict', 'type_if_organic', (coalesce({args[0]}, ''), 'medium'))"
+                elif node.name == "convertCurrency":  # convertCurrency(from_currency, to_currency, amount, timestamp)
+                    from_currency, to_currency, amount, *_rest = args
+                    date = args[3] if len(args) > 3 and args[3] else "today()"
+                    return f"if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64({amount}, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, 10))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {to_currency}, {date}, toDecimal64(0, 10))))"
             raise QueryError(f"Unexpected unresolved HogQL function '{node.name}(...)'")
         else:
             close_matches = get_close_matches(node.name, ALL_EXPOSED_FUNCTION_NAMES, 1)
