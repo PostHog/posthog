@@ -225,7 +225,7 @@ if (inputs.debug) {
                 id=hook_id,
                 user=self.user,
                 team=self.team,
-                resource_id=20,
+                resource_id=self.action.id,
                 target=f"https://hooks.zapier.com/hooks/standard/{hook_id}",
             )
 
