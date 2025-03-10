@@ -797,18 +797,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         onNext: true,
         onSubmit: true,
         setDatabaseSchemas: (schemas: ExternalDataSourceSyncSchema[]) => ({ schemas }),
-        toggleSchemaShouldSync: (schema: ExternalDataSourceSyncSchema, shouldSync: boolean) => ({ schema, shouldSync }),
-        updateSchemaSyncType: (
-            schema: ExternalDataSourceSyncSchema,
-            syncType: ExternalDataSourceSyncSchema['sync_type'],
-            incrementalField: string | null,
-            incrementalFieldType: string | null
-        ) => ({
-            schema,
-            syncType,
-            incrementalField,
-            incrementalFieldType,
-        }),
+        updateSchema: (schema: ExternalDataSourceSyncSchema) => ({ schema }),
         clearSource: true,
         updateSource: (source: Partial<ExternalDataSourceCreatePayload>) => ({ source }),
         createSource: true,
@@ -872,20 +861,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             [] as ExternalDataSourceSyncSchema[],
             {
                 setDatabaseSchemas: (_, { schemas }) => schemas,
-                toggleSchemaShouldSync: (state, { schema, shouldSync }) => {
-                    return state.map((s) => ({
-                        ...s,
-                        should_sync: s.table === schema.table ? shouldSync : s.should_sync,
-                    }))
-                },
-                updateSchemaSyncType: (state, { schema, syncType, incrementalField, incrementalFieldType }) => {
-                    return state.map((s) => ({
-                        ...s,
-                        sync_type: s.table === schema.table ? syncType : s.sync_type,
-                        incremental_field: s.table === schema.table ? incrementalField : s.incremental_field,
-                        incremental_field_type:
-                            s.table === schema.table ? incrementalFieldType : s.incremental_field_type,
-                    }))
+                updateSchema: (state, { schema }) => {
+                    return state.map((s) => (s.table === schema.table ? schema : s))
                 },
             },
         ],
