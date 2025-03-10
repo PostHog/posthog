@@ -39,7 +39,7 @@ export type ThreadMessage = RootAssistantMessage & {
 
 const FAILURE_MESSAGE: FailureMessage & ThreadMessage = {
     type: AssistantMessageType.Failure,
-    content: 'Oops! It looks like I’m having trouble generating this insight. Could you please try again?',
+    content: 'Oops! It looks like I’m having trouble answering this. Could you please try again?',
     status: 'completed',
 }
 
