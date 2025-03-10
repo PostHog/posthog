@@ -1,6 +1,6 @@
 import { LemonButton, LemonInput, LemonModal, Link } from '@posthog/lemon-ui'
 import { isValidRegexp } from 'lib/utils/regexp'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { AiRegexHelperButton } from 'scenes/session-recordings/components/AiRegexHelper/AiRegexHelper'
 import { AiRegexHelper } from 'scenes/session-recordings/components/AiRegexHelper/AiRegexHelper'
 
@@ -25,6 +25,14 @@ export function PathRegexModal({ filter, isOpen, onSave, onClose }: PathRegexMod
         : !isValidRegexp(regex)
         ? 'Malformed regex'
         : null
+
+    // Reset state when reopening the modal with a different filter (or none)
+    useEffect(() => {
+        if (isOpen) {
+            setAlias(filter?.alias ?? '')
+            setRegex(filter?.regex ?? '')
+        }
+    }, [isOpen, filter])
 
     return (
         <LemonModal isOpen={isOpen} onClose={onClose}>
@@ -84,7 +92,9 @@ export function PathRegexModal({ filter, isOpen, onSave, onClose }: PathRegexMod
                             </LemonButton>
                             <LemonButton
                                 type="primary"
-                                onClick={() => onSave({ alias, regex })}
+                                onClick={() => {
+                                    onSave({ alias: alias.trim(), regex: regex.trim() })
+                                }}
                                 disabledReason={disabledReason}
                             >
                                 Save

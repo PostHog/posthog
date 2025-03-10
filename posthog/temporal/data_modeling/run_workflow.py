@@ -382,7 +382,9 @@ def hogql_table(query: str, team: Team, table_name: str, table_columns: dlt_typi
     """A dlt source representing a HogQL table given by a HogQL query."""
 
     async def get_hogql_rows():
-        settings = HogQLGlobalSettings(max_execution_time=60 * 10)  # 10 mins, same as the /query endpoint async workers
+        settings = HogQLGlobalSettings(
+            max_execution_time=60 * 20, max_memory_usage=180 * 1000 * 1000 * 1000
+        )  # 20 mins, 180gb, 2x execution_time, 4x max_memory_usage as the /query endpoint async workers
 
         response = await asyncio.to_thread(
             execute_hogql_query, query, team, settings=settings, limit_context=LimitContext.SAVED_QUERY

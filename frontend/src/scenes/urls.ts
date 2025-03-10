@@ -178,6 +178,7 @@ export const urls = {
     experimentsSharedMetric: (id: string | number): string => `/experiments/shared-metrics/${id}`,
     featureFlags: (tab?: string): string => `/feature_flags${tab ? `?tab=${tab}` : ''}`,
     featureFlag: (id: string | number): string => `/feature_flags/${id}`,
+    featureFlagDuplicate: (sourceId: number | string | null): string => `/feature_flags/new?sourceId=${sourceId}`,
     featureManagement: (id?: string | number): string => `/features${id ? `/${id}` : ''}`,
     errorTracking: (): string => '/error_tracking',
     errorTrackingConfiguration: (): string => '/error_tracking/configuration',

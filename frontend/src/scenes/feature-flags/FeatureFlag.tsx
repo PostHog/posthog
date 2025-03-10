@@ -546,6 +546,13 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                         </>
                                                     )}
 
+                                                    <LemonButton
+                                                        to={urls.featureFlagDuplicate(featureFlag.id)}
+                                                        fullWidth
+                                                    >
+                                                        <span>Duplicate feature flag</span>
+                                                    </LemonButton>
+                                                    <LemonDivider />
                                                     <AccessControlledLemonButton
                                                         userAccessLevel={featureFlag.user_access_level}
                                                         minAccessLevel="editor"

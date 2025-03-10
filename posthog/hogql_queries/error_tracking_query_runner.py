@@ -236,9 +236,9 @@ class ErrorTrackingQueryRunner(QueryRunner):
                         issue
                         | {
                             ## First seen timestamp is bounded by date range when querying for the list (comes from clickhouse) but it is global when querying for a single issue
-                            "first_seen": result_dict.get("first_seen")
-                            if self.query.issueId is None
-                            else issue.get("first_seen"),
+                            "first_seen": (
+                                issue.get("first_seen") if self.query.issueId else result_dict.get("first_seen")
+                            ),
                             "last_seen": result_dict.get("last_seen"),
                             "earliest": result_dict.get("earliest") if self.query.issueId else None,
                             "aggregations": self.extract_aggregations(result_dict),

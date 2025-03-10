@@ -18,14 +18,15 @@ import { DateTime } from 'luxon'
 import { VM } from 'vm2'
 
 import { EncryptedFields } from './cdp/encryption-utils'
+import { LegacyOneventCompareService } from './cdp/services/legacy-onevent-compare.service'
 import type { CookielessManager } from './ingestion/cookieless/cookieless-manager'
 import { BatchConsumer } from './kafka/batch-consumer'
 import { KafkaProducerWrapper } from './kafka/producer'
-import { ObjectStorage } from './main/services/object_storage'
 import { Celery } from './utils/db/celery'
 import { DB } from './utils/db/db'
 import { PostgresRouter } from './utils/db/postgres'
 import { GeoIPService } from './utils/geoip'
+import { ObjectStorage } from './utils/object_storage'
 import { UUID } from './utils/utils'
 import { ActionManager } from './worker/ingestion/action-manager'
 import { ActionMatcher } from './worker/ingestion/action-matcher'
@@ -131,6 +132,8 @@ export type IngestionConsumerConfig = {
     INGESTION_CONSUMER_DLQ_TOPIC: string
     /** If set then overflow routing is enabled and the topic is used for overflow events */
     INGESTION_CONSUMER_OVERFLOW_TOPIC?: string
+    /** If set the ingestion consumer doesn't process events the usual way but rather just writes to a dummy topic */
+    INGESTION_CONSUMER_TESTING_TOPIC?: string
 }
 
 export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig {
@@ -201,10 +204,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     KAFKA_CONSUMPTION_MAX_POLL_INTERVAL_MS: number
     KAFKA_TOPIC_CREATION_TIMEOUT_MS: number
     KAFKA_TOPIC_METADATA_REFRESH_INTERVAL_MS: number | undefined
-    KAFKA_PRODUCER_LINGER_MS: number // linger.ms rdkafka parameter
-    KAFKA_PRODUCER_BATCH_SIZE: number // batch.size rdkafka parameter
-    KAFKA_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES: number // queue.buffering.max.messages rdkafka parameter
-    KAFKA_PRODUCER_IDEMPOTENCE: boolean // enable.idempotence
     KAFKA_FLUSH_FREQUENCY_MS: number
     APP_METRICS_FLUSH_FREQUENCY_MS: number
     APP_METRICS_FLUSH_MAX_QUEUE_SIZE: number
@@ -383,7 +382,7 @@ export interface Hub extends PluginsServerConfig {
     eventsToSkipPersonsProcessingByToken: Map<string, string[]>
     encryptedFields: EncryptedFields
 
-    // cookieless
+    legacyOneventCompareService: LegacyOneventCompareService
     cookielessManager: CookielessManager
 }
 
@@ -405,9 +404,7 @@ export interface PluginServerCapabilities {
     cdpApi?: boolean
     appManagementSingleton?: boolean
     preflightSchedules?: boolean // Used for instance health checks on hobby deploy, not useful on cloud
-    http?: boolean
     mmdb?: boolean
-    syncInlinePlugins?: boolean
 }
 
 export interface EnqueuedPluginJob {

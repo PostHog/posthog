@@ -4421,12 +4421,15 @@ version = "0.0.1"
 dependencies = [
  "anyhow",
  "clap",
+ "common-symbol-data",
  "dirs",
  "inquire",
+ "reqwest 0.12.3",
  "serde",
  "serde_json",
  "tracing",
  "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]
@@ -4898,6 +4901,7 @@ dependencies = [
  "base64 0.22.0",
  "bytes",
  "encoding_rs",
+ "futures-channel",
  "futures-core",
  "futures-util",
  "h2 0.4.2",
