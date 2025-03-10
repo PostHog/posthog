@@ -5,6 +5,8 @@ import { ParsedMessageData } from '../kafka/types'
 import { ConsoleLogLevel, getConsoleLogLevel, hrefFrom, isClick, isKeypress, isMouseActivity } from '../rrweb-types'
 import { activeMillisecondsFromSegmentationEvents, SegmentationEvent, toSegmentationEvent } from '../segmentation'
 
+const MAX_SNAPSHOT_FIELD_LENGTH = 1000
+
 export interface EndResult {
     /** The complete compressed session block */
     buffer: Buffer
@@ -108,10 +110,12 @@ export class SnappySessionRecorder {
         }
 
         if (!this.snapshotSource) {
-            this.snapshotSource = message.snapshot_source || 'web'
+            this.snapshotSource = (message.snapshot_source || 'web').slice(0, MAX_SNAPSHOT_FIELD_LENGTH)
         }
         if (!this.snapshotLibrary) {
-            this.snapshotLibrary = message.snapshot_library || null
+            this.snapshotLibrary = message.snapshot_library
+                ? message.snapshot_library.slice(0, MAX_SNAPSHOT_FIELD_LENGTH)
+                : null
         }
 
         let rawBytesWritten = 0

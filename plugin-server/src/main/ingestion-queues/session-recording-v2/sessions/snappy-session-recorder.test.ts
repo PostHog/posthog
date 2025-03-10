@@ -874,6 +874,26 @@ describe('SnappySessionRecorder', () => {
             expect(result.snapshotLibrary).toBe('posthog-android')
         })
 
+        it('should limit snapshot source and library fields to 1000 characters', async () => {
+            const message = createMessage('window1', [
+                {
+                    type: RRWebEventType.Meta,
+                    timestamp: 1000,
+                    data: {},
+                },
+            ])
+
+            const longString = 'a'.repeat(2000)
+            message.snapshot_source = longString
+            message.snapshot_library = longString
+
+            recorder.recordMessage(message)
+            const result = await recorder.end()
+
+            expect(result.snapshotSource).toBe('a'.repeat(1000))
+            expect(result.snapshotLibrary).toBe('a'.repeat(1000))
+        })
+
         it('should use values from first message when multiple messages have different values', async () => {
             const message1 = createMessage('window1', [
                 {
