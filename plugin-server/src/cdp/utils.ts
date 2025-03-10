@@ -11,6 +11,7 @@ import { safeClickhouseString } from '../utils/db/utils'
 import { captureException } from '../utils/posthog'
 import { status } from '../utils/status'
 import { castTimestampOrNow, clickHouseTimestampToISO, UUIDT } from '../utils/utils'
+import { MAX_GROUP_TYPES_PER_TEAM } from '../worker/ingestion/group-type-manager'
 import { CdpInternalEvent } from './schema'
 import {
     HogFunctionCapturedEvent,
@@ -186,7 +187,7 @@ export function convertToHogFunctionFilterGlobal(globals: HogFunctionInvocationG
 
     // We need to add default empty groups so that filtering works as it expects it to always exist
     // TODO: Write tests and double check this matches the expectation of group filters
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < MAX_GROUP_TYPES_PER_TEAM; i++) {
         groups[`group_${i}`] = {
             key: null,
             index: i,

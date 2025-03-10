@@ -94,7 +94,7 @@ describe('Utils', () => {
     })
 
     describe('convertToHogFunctionFilterGlobal', () => {
-        it('should correctly map groups to response', () => {
+        it('should correctly map groups to response including empty group indexes', () => {
             const globals: HogFunctionInvocationGlobals = {
                 project: {
                     id: 1,
@@ -107,7 +107,7 @@ describe('Utils', () => {
                     distinct_id: 'user_123',
                     properties: {},
                     elements_chain: '',
-                    timestamp: DateTime.now().toISO(),
+                    timestamp: '2025-01-01T00:00:00.000Z',
                     url: 'http://example.com/event',
                 },
                 person: {
@@ -136,25 +136,74 @@ describe('Utils', () => {
 
             const response = convertToHogFunctionFilterGlobal(globals)
 
-            // Verify that group_0 and organization are set correctly
-            expect(response['group_0']).toEqual({
-                key: 'org_123',
-                index: 0,
-                properties: { name: 'Acme Corp' },
-            })
-
-            // @ts-expect-error this is correct TS
-            expect(response['organization']).toBe(response['group_0'])
-
-            // Verify that group_1 and project are set correctly
-            expect(response['group_1']).toEqual({
-                key: 'proj_456',
-                index: 1,
-                properties: { name: 'Project X' },
-            })
-
-            // @ts-expect-error this is correct TS
-            expect(response['project']).toBe(response['group_1'])
+            expect(response).toMatchInlineSnapshot(`
+                {
+                  "distinct_id": "user_123",
+                  "elements_chain": "",
+                  "elements_chain_elements": [],
+                  "elements_chain_href": "",
+                  "elements_chain_ids": [],
+                  "elements_chain_texts": [],
+                  "event": "test_event",
+                  "group_0": {
+                    "index": 0,
+                    "key": "org_123",
+                    "properties": {
+                      "name": "Acme Corp",
+                    },
+                  },
+                  "group_1": {
+                    "index": 1,
+                    "key": "proj_456",
+                    "properties": {
+                      "name": "Project X",
+                    },
+                  },
+                  "group_2": {
+                    "index": 2,
+                    "key": null,
+                    "properties": {},
+                  },
+                  "group_3": {
+                    "index": 3,
+                    "key": null,
+                    "properties": {},
+                  },
+                  "group_4": {
+                    "index": 4,
+                    "key": null,
+                    "properties": {},
+                  },
+                  "organization": {
+                    "index": 0,
+                    "key": "org_123",
+                    "properties": {
+                      "name": "Acme Corp",
+                    },
+                  },
+                  "pdi": {
+                    "distinct_id": "user_123",
+                    "person": {
+                      "id": "person_123",
+                      "properties": {},
+                    },
+                    "person_id": "person_123",
+                  },
+                  "person": {
+                    "id": "person_123",
+                    "properties": {},
+                  },
+                  "project": {
+                    "index": 1,
+                    "key": "proj_456",
+                    "properties": {
+                      "name": "Project X",
+                    },
+                  },
+                  "properties": {},
+                  "timestamp": "2025-01-01T00:00:00.000Z",
+                }
+            `)
         })
     })
 })
