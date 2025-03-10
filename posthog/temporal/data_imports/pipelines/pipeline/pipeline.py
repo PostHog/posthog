@@ -102,6 +102,10 @@ class PipelineNonDLT:
                 self._logger.debug("Deleting existing table due to reset_pipeline being set")
                 self._delta_table_helper.reset_table()
                 self._schema.update_sync_type_config_for_reset_pipeline()
+            elif self._schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH:
+                # Avoid schema mismatches from existing data about to be overwritten
+                self._logger.debug("Deleting existing table due to sync being full refresh")
+                self._delta_table_helper.reset_table()
 
             for item in self._resource.items:
                 py_table = None
