@@ -6,7 +6,7 @@
  * Any changes may need to be sync'd between the two
  */
 
-import { RRWebEvent } from '../../../types'
+import { SnapshotEvent } from './kafka/types'
 import { RRWebEventSource, RRWebEventType } from './rrweb-types'
 
 const activeSources = [
@@ -48,14 +48,18 @@ interface RecordingSegment {
 /**
  * Checks if an event is an active event (indicates user activity)
  */
-const isActiveEvent = (event: RRWebEvent): boolean => {
-    return event.type === RRWebEventType.IncrementalSnapshot && activeSources.includes(event.data?.source || -1)
+const isActiveEvent = (event: SnapshotEvent): boolean => {
+    const eventData = event as { type?: number; data?: { source?: number } } | undefined
+    const type = eventData?.type
+    const source = eventData?.data?.source
+
+    return type === RRWebEventType.IncrementalSnapshot && activeSources.includes(source ?? -1)
 }
 
 /**
  * Converts an RRWebEvent to a simplified SegmentationEvent with just timestamp and activity status
  */
-export const toSegmentationEvent = (event: RRWebEvent): SegmentationEvent => {
+export const toSegmentationEvent = (event: SnapshotEvent): SegmentationEvent => {
     return {
         timestamp: event.timestamp,
         isActive: isActiveEvent(event),
