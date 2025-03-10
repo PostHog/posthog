@@ -1,13 +1,12 @@
 import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
-import { number } from 'zod'
 
 import { Hub, PluginConfig, PluginMethodsConcrete, PostIngestionEvent } from '~/src/types'
-import { captureException } from '~/src/utils/posthog'
 import { getHttpCallRecorder, RecordedHttpCall } from '~/src/utils/recorded-fetch'
 import { status } from '~/src/utils/status'
 
 import { DESTINATION_PLUGINS } from '../legacy-plugins'
-import { HogFunctionType } from '../types'
+import { HogFunctionInvocation, HogFunctionType } from '../types'
+import { createInvocation } from '../utils'
 import { LegacyPluginExecutorService } from './legacy-plugin-executor.service'
 
 /**
@@ -43,50 +42,6 @@ function logHttpCalls(
                 status.error('🌐', `Event ${eventUuid || 'unknown'} - Call ${index + 1} error: ${call.error.message}`)
             }
         })
-    }
-}
-
-/**
- * Executes an operation while recording HTTP calls if enabled.
- * This function encapsulates the logic for recording HTTP calls during plugin operations.
- */
-async function withHttpCallRecording<T>(
-    hub: Hub,
-    eventUuid: string | undefined,
-    pluginConfig: PluginConfig,
-    operation: () => Promise<T>
-): Promise<T> {
-    // Check if we should record HTTP calls - using the same condition as in recorded-fetch.ts
-    const recordHttpCalls = hub.DESTINATION_MIGRATION_DIFFING_ENABLED === true && hub.TASKS_PER_WORKER === 1
-
-    // Clear the recorder before running the operation if recording is enabled
-    if (recordHttpCalls) {
-        getHttpCallRecorder().clearCalls()
-    }
-
-    let failed = false
-    try {
-        // Execute the operation
-        return await operation()
-    } catch (error) {
-        failed = true
-        throw error // Re-throw the error to be handled by the caller
-    } finally {
-        try {
-            if (recordHttpCalls) {
-                // Get recorded HTTP calls even if the operation failed
-                const recordedCalls = getHttpCallRecorder().getCalls()
-                logHttpCalls(recordedCalls, eventUuid, pluginConfig, failed)
-            }
-        } catch (e) {
-            status.error('🌐', `Error checking record logs...`)
-            captureException(e)
-        } finally {
-            if (recordHttpCalls) {
-                // Clear the recorder to prevent memory leaks
-                getHttpCallRecorder().clearCalls()
-            }
-        }
     }
 }
 
@@ -136,12 +91,15 @@ function convertPluginConfigToHogFunction(pluginConfig: PluginConfig): HogFuncti
 
 export class LegacyOneventCompareService {
     legacyPluginExecutorService: LegacyPluginExecutorService
-
     hogFunctionsByPluginConfigId: Record<string, HogFunctionType | null>
 
     constructor(private hub: Hub) {
         this.legacyPluginExecutorService = new LegacyPluginExecutorService(this.hub)
         this.hogFunctionsByPluginConfigId = {}
+    }
+
+    get shouldCompare(): boolean {
+        return this.hub.DESTINATION_MIGRATION_DIFFING_ENABLED === true && this.hub.TASKS_PER_WORKER === 1
     }
 
     getOrCreateHogFunction(pluginConfig: PluginConfig): HogFunctionType | null {
@@ -163,14 +121,90 @@ export class LegacyOneventCompareService {
     /**
      * Temporary code path designed for 1-1 testing of inlined JS plugins with legacy plugins.
      */
-    runOnEvent(
+    async runOnEvent(
         pluginConfig: PluginConfig,
         onEvent: PluginMethodsConcrete['onEvent'],
         event: PostIngestionEvent,
         onEventPayload: ProcessedPluginEvent
     ): Promise<void> {
-        return withHttpCallRecording(this.hub, event.eventUuid, pluginConfig, async () => {
+        if (!this.shouldCompare) {
+            return onEvent(onEventPayload)
+        }
+
+        // Clear the recorder before running the operation if recording is enabled
+        getHttpCallRecorder().clearCalls()
+
+        let pluginConfigError: any = null
+        let hogFunctionError: any = null
+        try {
+            // Execute the operation
             await onEvent(onEventPayload)
-        })
+        } catch (e) {
+            pluginConfigError = e
+        }
+
+        try {
+            const recordedCalls = getHttpCallRecorder().getCalls()
+            await this.runHogFunctionOnEvent(pluginConfig, event, recordedCalls)
+        } catch (e) {
+            hogFunctionError = e
+        }
+
+        // Do the actual comparison of results
+
+        // Throw the original error so it behaves like before
+        if (pluginConfigError) {
+            throw pluginConfigError
+        }
+    }
+
+    async runHogFunctionOnEvent(
+        pluginConfig: PluginConfig,
+        event: PostIngestionEvent,
+        recordedCalls: RecordedHttpCall[]
+    ): Promise<void> {
+        // Try to execute the same thing but polyfilling the fetch calls with the recorded ones
+
+        const hogFunction = this.getOrCreateHogFunction(pluginConfig)
+
+        if (!hogFunction) {
+            throw new Error(`Failed to convert plugin config to hog function: ${pluginConfig.id}`)
+        }
+
+        // Mapped plugin config inputs are always static values
+        const inputs: HogFunctionInvocation['globals']['inputs'] = Object.fromEntries(
+            Object.entries(hogFunction.inputs ?? {}).map(([key, value]) => [key, value.value])
+        )
+
+        const invocation = createInvocation(
+            {
+                project: {
+                    id: event.teamId,
+                    name: '', // NOTE: Not used
+                    url: '', // NOTE: Not used
+                },
+                event: {
+                    distinct_id: event.distinctId,
+                    elements_chain: '',
+                    event: event.event,
+                    properties: event.properties,
+                    uuid: event.eventUuid,
+                    timestamp: event.timestamp,
+                    url: '', // NOTE: Not used
+                },
+                person: event.person_id
+                    ? {
+                          id: event.person_id,
+                          properties: event.person_properties,
+                          name: '', // NOTE: Not used
+                          url: '', // NOTE: Not used
+                      }
+                    : undefined,
+                inputs,
+            },
+            hogFunction
+        )
+
+        await this.legacyPluginExecutorService.execute(invocation)
     }
 }
