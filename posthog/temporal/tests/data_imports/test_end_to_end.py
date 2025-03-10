@@ -1739,8 +1739,8 @@ async def test_partition_folders_delta_merge_called_with_partition_predicate(
         "source": mock.ANY,
         "source_alias": "source",
         "target_alias": "target",
-        "predicate": f"source.id = target.id AND source.{PARTITION_KEY} = target.{PARTITION_KEY}",
-        "streamed_exec": False,
+        "predicate": f"source.id = target.id AND source.{PARTITION_KEY} = target.{PARTITION_KEY} AND target.{PARTITION_KEY} = '0'",
+        "streamed_exec": True,
     }
 
 
