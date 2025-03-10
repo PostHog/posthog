@@ -186,7 +186,6 @@ export function convertToHogFunctionFilterGlobal(globals: HogFunctionInvocationG
     const groups: Record<string, any> = {}
 
     // We need to add default empty groups so that filtering works as it expects it to always exist
-    // TODO: Write tests and double check this matches the expectation of group filters
     for (let i = 0; i < MAX_GROUP_TYPES_PER_TEAM; i++) {
         groups[`group_${i}`] = {
             key: null,
