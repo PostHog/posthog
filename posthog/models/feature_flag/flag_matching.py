@@ -869,7 +869,6 @@ def get_all_feature_flags(
     )
 
     with start_span(op="without_experience_continuity"):
-        # check every 10 seconds whether the database is alive or not
         is_database_alive = not settings.DECIDE_SKIP_POSTGRES_FLAGS
         if not is_database_alive or not flags_have_experience_continuity_enabled:
             return _get_all_feature_flags(
