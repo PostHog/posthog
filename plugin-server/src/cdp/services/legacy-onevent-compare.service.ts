@@ -1,11 +1,10 @@
 import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { Counter } from 'prom-client'
 
-import { Hub, PluginConfig, PluginMethodsConcrete, PostIngestionEvent } from '~/src/types'
-import { Response } from '~/src/utils/fetch'
-import { getHttpCallRecorder, HttpCallRecorder, RecordedHttpCall, recordFetchRequest } from '~/src/utils/recorded-fetch'
-import { status } from '~/src/utils/status'
-
+import { Hub, PluginConfig, PluginMethodsConcrete, PostIngestionEvent } from '../../types'
+import { Response } from '../../utils/fetch'
+import { getHttpCallRecorder, HttpCallRecorder, RecordedHttpCall, recordFetchRequest } from '../../utils/recorded-fetch'
+import { status } from '../../utils/status'
 import { DESTINATION_PLUGINS } from '../legacy-plugins'
 import { HogFunctionInvocation, HogFunctionType } from '../types'
 import { createInvocation } from '../utils'
