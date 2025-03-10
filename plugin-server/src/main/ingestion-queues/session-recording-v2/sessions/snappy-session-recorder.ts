@@ -1,9 +1,14 @@
 import { DateTime } from 'luxon'
 import snappy from 'snappy'
 
+import { status } from '../../../../utils/status'
 import { ParsedMessageData } from '../kafka/types'
 import { ConsoleLogLevel, getConsoleLogLevel, hrefFrom, isClick, isKeypress, isMouseActivity } from '../rrweb-types'
 import { activeMillisecondsFromSegmentationEvents, SegmentationEvent, toSegmentationEvent } from '../segmentation'
+
+const MAX_SNAPSHOT_FIELD_LENGTH = 1000
+const MAX_URL_LENGTH = 4 * 1024 // 4KB
+const MAX_URLS_COUNT = 25
 
 export interface EndResult {
     /** The complete compressed session block */
@@ -87,6 +92,7 @@ export class SnappySessionRecorder {
     private consoleWarnCount: number = 0
     private consoleErrorCount: number = 0
     private segmentationEvents: SegmentationEvent[] = []
+    private droppedUrlsCount: number = 0
 
     constructor(public readonly sessionId: string, public readonly teamId: number, public readonly batchId: string) {}
 
@@ -108,10 +114,12 @@ export class SnappySessionRecorder {
         }
 
         if (!this.snapshotSource) {
-            this.snapshotSource = message.snapshot_source || 'web'
+            this.snapshotSource = (message.snapshot_source || 'web').slice(0, MAX_SNAPSHOT_FIELD_LENGTH)
         }
         if (!this.snapshotLibrary) {
-            this.snapshotLibrary = message.snapshot_library || null
+            this.snapshotLibrary = message.snapshot_library
+                ? message.snapshot_library.slice(0, MAX_SNAPSHOT_FIELD_LENGTH)
+                : null
         }
 
         let rawBytesWritten = 0
@@ -134,10 +142,7 @@ export class SnappySessionRecorder {
 
                 const eventUrl = hrefFrom(event)
                 if (eventUrl) {
-                    this.urls.add(eventUrl)
-                    if (this.firstUrl === null) {
-                        this.firstUrl = eventUrl
-                    }
+                    this.addUrl(eventUrl)
                 }
 
                 if (isClick(event)) {
@@ -172,6 +177,33 @@ export class SnappySessionRecorder {
         this.rawBytesWritten += rawBytesWritten
         this.messageCount += 1
         return rawBytesWritten
+    }
+
+    private addUrl(url: string): void {
+        if (!url) {
+            return
+        }
+
+        const truncatedUrl = url.length > MAX_URL_LENGTH ? url.slice(0, MAX_URL_LENGTH) : url
+        if (url.length > MAX_URL_LENGTH) {
+            status.warn(
+                '🔗',
+                `Truncating URL from ${url.length} to ${MAX_URL_LENGTH} characters for session ${this.sessionId}`
+            )
+        }
+
+        if (!this.firstUrl) {
+            this.firstUrl = truncatedUrl
+        }
+        if (this.urls.size < MAX_URLS_COUNT) {
+            this.urls.add(truncatedUrl)
+        } else {
+            this.droppedUrlsCount++
+            status.warn(
+                '🔗',
+                `Dropping URL (count limit reached) for session ${this.sessionId}, dropped ${this.droppedUrlsCount} URLs`
+            )
+        }
     }
 
     /**
