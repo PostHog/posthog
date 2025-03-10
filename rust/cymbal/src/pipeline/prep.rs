@@ -108,7 +108,7 @@ fn transform_event(
         );
     }
 
-    // TODO - raw_event offset handling
+    // TODO - offset and sent_at handling
 
     ClickHouseEvent {
         uuid: outer.uuid,
