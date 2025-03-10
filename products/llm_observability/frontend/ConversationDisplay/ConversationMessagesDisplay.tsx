@@ -9,7 +9,7 @@ import { isObject } from 'lib/utils'
 import React from 'react'
 
 import { LLMInputOutput } from '../LLMInputOutput'
-import { CompatMessage } from '../types'
+import { CompatMessage, VercelSDKImageMessage } from '../types'
 import { normalizeMessages } from '../utils'
 
 export function ConversationMessagesDisplay({
@@ -126,11 +126,13 @@ export const LLMMessageDisplay = React.memo(
               })
             : Object.fromEntries(Object.entries(additionalKwargs).filter(([, value]) => value !== undefined))
 
-        const renderMessageContent = (content: string): JSX.Element | null => {
+        const renderMessageContent = (
+            content: string | { type: string; content: string } | VercelSDKImageMessage
+        ): JSX.Element | null => {
             if (!content) {
                 return null
             }
-            const trimmed = content.trim()
+            const trimmed = typeof content === 'string' ? content.trim() : JSON.stringify(content).trim()
 
             // If content is valid JSON (we only check when it starts and ends with {} or [] to avoid false positives)
             if (
@@ -138,7 +140,7 @@ export const LLMMessageDisplay = React.memo(
                 (trimmed.startsWith('[') && trimmed.endsWith(']'))
             ) {
                 try {
-                    const parsed = JSON.parse(content)
+                    const parsed = typeof content === 'string' ? JSON.parse(content) : content
                     //check if special type
                     if (parsed.type === 'image') {
                         return <ImageMessageDisplay message={parsed} />
@@ -154,7 +156,7 @@ export const LLMMessageDisplay = React.memo(
             // If the content appears to be Markdown, render based on the toggle.
             if (isMarkdownCandidate) {
                 return isRenderingMarkdown ? (
-                    <LemonMarkdown>{content}</LemonMarkdown>
+                    <LemonMarkdown>{content as string}</LemonMarkdown>
                 ) : (
                     <span className="font-mono text-xs whitespace-pre-wrap">{content}</span>
                 )
@@ -200,7 +202,7 @@ export const LLMMessageDisplay = React.memo(
                             <CopyToClipboardInline
                                 iconSize="small"
                                 description="message content"
-                                explicitValue={content}
+                                explicitValue={typeof content === 'string' ? content : JSON.stringify(content)}
                             />
                         </>
                     )}
