@@ -3,15 +3,15 @@ jest.mock('../../../src/utils/now', () => {
         now: jest.fn(() => Date.now()),
     }
 })
+import { deleteKeysWithPrefix } from '../../../src/cdp/_tests/redis'
 import { CdpRedis, createCdpRedisPool } from '../../../src/cdp/redis'
 import { BASE_REDIS_KEY, HogMaskerService } from '../../../src/cdp/services/hog-masker.service'
 import { HogFunctionType } from '../../../src/cdp/types'
 import { Hub } from '../../../src/types'
 import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { delay } from '../../../src/utils/utils'
-import { HOG_MASK_EXAMPLES } from '../examples'
-import { createHogExecutionGlobals, createHogFunction, createInvocation } from '../fixtures'
-import { deleteKeysWithPrefix } from '../helpers/redis'
+import { HOG_MASK_EXAMPLES } from '../_tests/examples'
+import { createHogExecutionGlobals, createHogFunction, createInvocation } from '../_tests/fixtures'
 
 const mockNow: jest.Mock = require('../../../src/utils/now').now as any
 

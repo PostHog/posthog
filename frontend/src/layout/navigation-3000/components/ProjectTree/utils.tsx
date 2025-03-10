@@ -1,4 +1,5 @@
 import { IconPlus } from '@posthog/icons'
+import { Spinner } from '@posthog/lemon-ui'
 import { router } from 'kea-router'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 
@@ -71,25 +72,33 @@ export function convertFileSystemEntryToTreeDataItem(
         // Place the item in the current (deepest) folder.
         currentLevel.push(node)
 
-        if (item.type === 'folder' && folderStates[item.path] === 'has-more') {
+        if (item.type === 'folder') {
             if (!node.children) {
                 node.children = []
             }
-            node.children.push({
-                id: `${root}-load-more/${item.path}`,
-                name: 'Load more...',
-                icon: <IconPlus />,
-            })
+            if (folderStates[item.path] === 'has-more') {
+                node.children.push({
+                    id: `${root}-load-more/${item.path}`,
+                    name: 'Load more...',
+                    icon: <IconPlus />,
+                })
+            } else if (folderStates[item.path] === 'loading') {
+                node.children.push({
+                    id: `${root}-loading/${item.path}`,
+                    name: 'Loading...',
+                    icon: <Spinner />,
+                })
+            }
         }
     }
 
     // Helper function to sort nodes (and their children) alphabetically by name.
     const sortNodes = (nodes: TreeDataItem[]): void => {
         nodes.sort((a, b) => {
-            if (a.id.startsWith(`${root}-load-more/`)) {
+            if (a.id.startsWith(`${root}-load-more/`) || a.id.startsWith(`${root}-loading/`)) {
                 return 1
             }
-            if (b.id.startsWith(`${root}-load-more/`)) {
+            if (b.id.startsWith(`${root}-load-more/`) || b.id.startsWith(`${root}-loading/`)) {
                 return -1
             }
             return a.name.localeCompare(b.name)

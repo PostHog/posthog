@@ -13,6 +13,7 @@ import { VariantDeltaTimeseries } from '../MetricsView/VariantDeltaTimeseries'
 import { ExploreButton, LoadingState, PageHeaderCustom, ResultsQuery } from './components'
 import { DistributionModal, DistributionTable } from './DistributionTable'
 import { ExperimentHeader } from './ExperimentHeader'
+import { ExposureCriteriaModal } from './ExposureCriteria'
 import { Info } from './Info'
 import { LegacyExperimentHeader } from './LegacyExperimentHeader'
 import { Overview } from './Overview'
@@ -26,6 +27,7 @@ const ResultsTab = (): JSX.Element => {
         firstPrimaryMetric,
         primaryMetricsLengthWithSharedMetrics,
         metricResultsLoading,
+        hasMinimumExposureForResults,
     } = useValues(experimentLogic)
     const hasSomeResults = metricResults?.some((result) => result?.insight)
 
@@ -43,14 +45,14 @@ const ResultsTab = (): JSX.Element => {
                 </>
             )}
             {/* Show overview if there's only a single primary metric */}
-            {hasSinglePrimaryMetric && (
+            {hasSinglePrimaryMetric && hasMinimumExposureForResults && (
                 <div className="mb-4 mt-2">
                     <Overview />
                 </div>
             )}
             <MetricsView isSecondary={false} />
             {/* Show detailed results if there's only a single primary metric */}
-            {hasSomeResults && hasSinglePrimaryMetric && firstPrimaryMetric && (
+            {hasSomeResults && hasMinimumExposureForResults && hasSinglePrimaryMetric && firstPrimaryMetric && (
                 <div>
                     <div className="pb-4">
                         <SummaryTable metric={firstPrimaryMetric} metricIndex={0} isSecondary={false} />
@@ -123,6 +125,7 @@ export function ExperimentView(): JSX.Element {
                             <>
                                 <ExperimentMetricModal experimentId={experimentId} isSecondary={true} />
                                 <ExperimentMetricModal experimentId={experimentId} isSecondary={false} />
+                                <ExposureCriteriaModal />
                             </>
                         ) : (
                             <>
