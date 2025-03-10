@@ -23,6 +23,11 @@
             "persistent": true,
             "cache": false
         },
+        "start-no-typegen": {
+            "dependsOn": ["^build"],
+            "persistent": true,
+            "cache": false
+        },
         "dev": {
             "dependsOn": ["^build"],
             "persistent": true,

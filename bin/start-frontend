@@ -9,4 +9,10 @@ set -e
 export DEBUG=0
 
 pnpm --filter=@posthog/frontend... install
-bin/turbo --filter=@posthog/frontend start
+
+# Choose between start and start-no-typegen based on SKIP_TYPEGEN env variable
+if [ "${SKIP_TYPEGEN}" = "1" ]; then
+    bin/turbo --filter=@posthog/frontend start-no-typegen
+else
+    bin/turbo --filter=@posthog/frontend start
+fi
