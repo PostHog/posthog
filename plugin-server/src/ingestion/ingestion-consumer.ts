@@ -115,6 +115,9 @@ export class IngestionConsumer {
     }
 
     public async start(): Promise<void> {
+        // NOTE: This needs to be started before the kafka consumer starts as other things rely on it
+        await this.hogTransformer.start()
+
         await Promise.all([
             KafkaProducerWrapper.create(this.hub).then((producer) => {
                 this.kafkaProducer = producer
@@ -130,7 +133,6 @@ export class IngestionConsumer {
                 groupId: this.groupId,
                 handleBatch: async (messages) => this.handleKafkaBatch(messages),
             }),
-            this.hogTransformer.start(),
         ])
     }
 

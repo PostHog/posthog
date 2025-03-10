@@ -161,6 +161,9 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         data["inputs_schema"] = data.get("inputs_schema", instance.inputs_schema if instance else [])
         data["inputs"] = data.get("inputs", instance.inputs if instance else {})
 
+        # Always ensure filters is initialized as an empty object if it's null
+        data["filters"] = data.get("filters", instance.filters if instance else {}) or {}
+
         # Set some context variables that are used in the sub validators
         self.context["function_type"] = data["type"]
         self.context["encrypted_inputs"] = instance.encrypted_inputs if instance else {}
@@ -196,7 +199,6 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             data["inputs_schema"] = template.inputs_schema
         if is_create:
             # Set defaults for new functions
-            data["filters"] = data.get("filters") or {}
             data["inputs_schema"] = data.get("inputs_schema") or []
             data["inputs"] = data.get("inputs") or {}
             data["mappings"] = data.get("mappings") or None
