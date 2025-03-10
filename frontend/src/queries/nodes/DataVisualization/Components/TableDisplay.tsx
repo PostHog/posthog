@@ -1,4 +1,4 @@
-import { IconGraph, IconLifecycle, IconTrends } from '@posthog/icons'
+import { IconGraph, IconLifecycle, IconPieChart, IconTrends } from '@posthog/icons'
 import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Icon123, IconAreaChart, IconTableChart } from 'lib/lemon-ui/icons'
@@ -39,6 +39,11 @@ export const TableDisplay = (): JSX.Element => {
                     value: ChartDisplayType.ActionsBar,
                     icon: <IconGraph />,
                     label: 'Bar chart',
+                },
+                {
+                    value: ChartDisplayType.ActionsPie,
+                    icon: <IconPieChart />,
+                    label: 'Pie chart',
                 },
                 {
                     value: ChartDisplayType.ActionsStackedBar,
