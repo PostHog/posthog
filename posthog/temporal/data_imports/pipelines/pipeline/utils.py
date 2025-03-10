@@ -260,10 +260,10 @@ def should_partition_table(
     if not schema.is_incremental:
         return False
 
-    if schema.partitioning_enabled and schema.partitioning_size is not None and schema.partitioning_keys is not None:
+    if schema.partitioning_enabled and schema.partition_count is not None and schema.partitioning_keys is not None:
         return True
 
-    if source.partition_bucket_size is None:
+    if source.partition_count is None:
         return False
 
     if delta_table is None:
@@ -290,7 +290,7 @@ def normalize_table_column_names(table: pa.Table) -> pa.Table:
 
 
 def append_partition_key_to_table(
-    table: pa.Table, partition_size: int, primary_keys: list[str], logger: FilteringBoundLogger
+    table: pa.Table, partition_count: int, primary_keys: list[str], logger: FilteringBoundLogger
 ) -> pa.Table:
     normalized_primary_keys = [normalize_column_name(key) for key in primary_keys]
 
@@ -302,7 +302,7 @@ def append_partition_key_to_table(
             delimited_primary_key_value = "|".join(primary_key_values)
 
             hash_value = int(hashlib.md5(delimited_primary_key_value.encode()).hexdigest(), 16)
-            partition = math.floor(hash_value / partition_size)
+            partition = hash_value % partition_count
 
             partition_array.append(str(partition))
 
