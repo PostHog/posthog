@@ -210,7 +210,7 @@ mod tests {
         let dist_dir = setup_test_directory().unwrap();
         assert!(dist_dir.path().exists());
         let dist_dir_path = dist_dir.path().to_path_buf();
-        let pairs = read_pairs(&dist_dir_path).context("Failed to read pairs");
+        let pairs = read_pairs(&dist_dir_path).expect("Failed to read pairs");
         assert_eq!(pairs.len(), 3);
     }
 }
