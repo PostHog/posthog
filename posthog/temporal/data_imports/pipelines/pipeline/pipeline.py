@@ -204,7 +204,7 @@ class PipelineNonDLT:
                     )
                     self._schema.set_partitioning_enabled(partition_keys, partition_count)
             else:
-                self._logger.debug("Skipping partitioning due to missing partition_size or partition_keys")
+                self._logger.debug("Skipping partitioning due to missing partition_count or partition_keys")
         elif table_using_old_partitioning_system:
             # Will be removed once all tables have been converted over
             self._logger.debug("Table is using old partitioning system. Filling partition key with 2025-03")
