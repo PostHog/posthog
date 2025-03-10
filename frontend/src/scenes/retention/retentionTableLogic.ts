@@ -3,11 +3,11 @@ import { dayjs } from 'lib/dayjs'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
-import { InsightLogicProps, InsightType, RetentionPeriod } from '~/types'
+import { InsightLogicProps, InsightType } from '~/types'
 
 import { retentionLogic } from './retentionLogic'
 import type { retentionTableLogicType } from './retentionTableLogicType'
-import { RetentionTablePayload } from './types'
+import { ProcessedRetentionPayload } from './types'
 
 const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
 
@@ -54,7 +54,7 @@ export const retentionTableLogic = kea<retentionTableLogicType>([
             (results, retentionFilter, hideSizeColumn) => {
                 const { period } = retentionFilter || {}
 
-                return results.map((currentResult: RetentionTablePayload) => {
+                return results.map((currentResult: ProcessedRetentionPayload) => {
                     const currentDate = dayjs.utc(currentResult.date)
 
                     let firstColumn // Prepare for some date gymnastics
@@ -76,22 +76,10 @@ export const retentionTableLogic = kea<retentionTableLogicType>([
                             firstColumn = currentDate.format('MMM D')
                     }
 
-                    const secondColumn = hideSizeColumn ? [] : [currentResult.values[0].count]
-
-                    const otherColumns = currentResult.values.map((value, index) => {
-                        const totalCount = currentResult.values[0]['count']
-                        const percentage = totalCount > 0 ? (value['count'] / totalCount) * 100 : 0
-                        const periodUnit = (period ?? RetentionPeriod.Month).toLowerCase() as dayjs.UnitTypeLong
-                        const cellDate = currentDate.add(index, periodUnit)
-                        const now = dayjs()
-
-                        return {
-                            count: value['count'],
-                            percentage,
-                            isCurrentPeriod: cellDate.isSame(now, periodUnit),
-                            isFuture: cellDate.isAfter(now),
-                        }
-                    })
+                    const secondColumn = hideSizeColumn
+                        ? []
+                        : [currentResult.values[0] ? currentResult.values[0].count : 0]
+                    const otherColumns = currentResult.values
 
                     return [firstColumn, ...secondColumn, ...otherColumns]
                 })

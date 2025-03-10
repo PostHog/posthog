@@ -1,10 +1,10 @@
 import { Meta, StoryFn } from '@storybook/react'
 import { BindLogic } from 'kea'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events_query'
-import recordingMetaJson from 'scenes/session-recordings/__mocks__/recording_meta.json'
-import recording_playlists from 'scenes/session-recordings/__mocks__/recording_playlists.json'
+import { recordingMetaJson } from 'scenes/session-recordings/__mocks__/recording_meta'
+import { recordingPlaylists } from 'scenes/session-recordings/__mocks__/recording_playlists'
 import { snapshotsAsJSONLines } from 'scenes/session-recordings/__mocks__/recording_snapshots'
-import recordings from 'scenes/session-recordings/__mocks__/recordings.json'
+import { recordings } from 'scenes/session-recordings/__mocks__/recordings'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { PlayerSidebarOverviewTab } from 'scenes/session-recordings/player/sidebar/PlayerSidebarOverviewTab'
 
@@ -32,7 +32,7 @@ const meta: Meta = {
                         },
                     ]
                 },
-                '/api/projects/:team_id/session_recording_playlists': recording_playlists,
+                '/api/projects/:team_id/session_recording_playlists': recordingPlaylists,
                 '/api/projects/:team_id/session_recording_playlists/:playlist_id': (req) => {
                     const playlistId = req.params.playlist_id
 

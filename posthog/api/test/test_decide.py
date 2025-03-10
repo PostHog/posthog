@@ -66,6 +66,7 @@ def make_session_recording_decide_response(overrides: Optional[dict] = None) -> 
         "linkedFlag": None,
         "minimumDurationMilliseconds": None,
         "networkPayloadCapture": None,
+        "masking": None,
         "urlTriggers": [],
         "urlBlocklist": [],
         "scriptConfig": None,
@@ -425,6 +426,26 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         response = self._post_decide().json()
         self.assertEqual(response["sessionRecording"]["networkPayloadCapture"], {"recordHeaders": True})
+
+    def test_session_recording_masking_config(self, *args):
+        self._update_team(
+            {
+                "session_recording_opt_in": True,
+            }
+        )
+
+        response = self._post_decide().json()
+        assert response["sessionRecording"]["masking"] is None
+
+        self._update_team({"session_recording_masking_config": {"maskAllInputs": True}})
+
+        response = self._post_decide().json()
+        assert response["sessionRecording"]["masking"] == {"maskAllInputs": True}
+
+        self._update_team({"session_recording_masking_config": {"maskAllInputs": False, "maskTextSelector": "*"}})
+
+        response = self._post_decide().json()
+        assert response["sessionRecording"]["masking"] == {"maskAllInputs": False, "maskTextSelector": "*"}
 
     def test_session_recording_empty_linked_flag(self, *args):
         # :TRICKY: Test for regression around caching
@@ -2365,7 +2386,8 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 "project_id": self.team.id,
             }
         ).json()
-        self.assertEqual(response["featureFlags"], ["test", "default-flag"])
+        self.assertIn("default-flag", response["featureFlags"])
+        self.assertIn("test", response["featureFlags"])
 
     @snapshot_postgres_queries
     def test_flag_with_regular_cohorts(self, *args):
@@ -3708,6 +3730,79 @@ class TestDecide(BaseTest, QueryMatchingTest):
             assert isinstance(response["featureFlags"], list)
             assert "feature_flags" not in response.get("quotaLimited", [])
 
+    def test_decide_with_flag_keys_param(self, *args):
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+        self.client.logout()
+
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["example_id"],
+            properties={"email": "tim@posthog.com"},
+        )
+
+        # Create three different feature flags
+        FeatureFlag.objects.create(
+            team=self.team,
+            rollout_percentage=100,
+            name="Flag 1",
+            key="flag-1",
+            created_by=self.user,
+        )
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            rollout_percentage=100,
+            name="Flag 2",
+            key="flag-2",
+            created_by=self.user,
+        )
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            rollout_percentage=100,
+            name="Flag 3",
+            key="flag-3",
+            created_by=self.user,
+        )
+
+        # Make a decide request with only flag-1 and flag-3 keys
+        response = self._post_decide(
+            api_version=3,
+            data={
+                "token": self.team.api_token,
+                "distinct_id": "example_id",
+                "flag_keys_to_evaluate": ["flag-1", "flag-3"],
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Verify only the requested flags are returned
+        response_data = response.json()
+        self.assertEqual(response_data["featureFlags"], {"flag-1": True, "flag-3": True})
+
+        # Verify flag-2 is not in the response
+        self.assertNotIn("flag-2", response_data["featureFlags"])
+
+    def test_missing_distinct_id(self, *args):
+        response = self._post_decide(
+            data={
+                "token": self.team.api_token,
+                "groups": {},
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "missing_distinct_id",
+                "detail": "Decide requires a distinct_id.",
+                "attr": None,
+            },
+        )
+
 
 class TestDecideRemoteConfig(TestDecide):
     use_remote_config = True
@@ -3720,6 +3815,7 @@ class TestDecideRemoteConfig(TestDecide):
         ) as wrapped_get_config_via_token:
             response = self._post_decide(api_version=3)
             wrapped_get_config_via_token.assert_called_once()
+            request_id = response.json()["requestId"]
 
         # NOTE: If this changes it indicates something is wrong as we should keep this exact format
         # for backwards compatibility
@@ -3738,6 +3834,8 @@ class TestDecideRemoteConfig(TestDecide):
                 "defaultIdentifiedOnly": True,
                 "siteApps": [],
                 "isAuthenticated": False,
+                # requestId is a UUID
+                "requestId": request_id,
                 "toolbarParams": {},
                 "config": {"enable_collect_everything": True},
                 "featureFlags": {},
