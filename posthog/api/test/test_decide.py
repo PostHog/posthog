@@ -3,7 +3,7 @@ import json
 import random
 import time
 from typing import Optional
-from unittest.mock import patch, Mock
+from unittest.mock import patch
 
 from inline_snapshot import snapshot
 import pytest
@@ -538,7 +538,6 @@ class TestDecide(BaseTest, QueryMatchingTest):
     )
     def test_session_recording_script_config(
         self,
-        _mock_is_connected: Mock,
         _name: str,
         rrweb_script_name: str | None,
         team_allow_list: list[str] | None,
@@ -3894,60 +3893,6 @@ class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         client.logout()
-
-    def test_database_check_doesnt_interfere_with_regular_computation(self, *args):
-        self.client.logout()
-        Person.objects.create(
-            team=self.team,
-            distinct_ids=[
-                "a",
-                "{'id': 33040, 'shopify_domain': 'xxx.myshopify.com', 'shopify_token': 'shpat_xxxx', 'created_at': '2023-04-17T08:55:34.624Z', 'updated_at': '2023-04-21T08:43:34.479'}",
-                "{'x': 'y'}",
-                '{"x": "z"}',
-            ],
-            properties={"email": "tim@posthog.com", "realm": "cloud"},
-        )
-        FeatureFlag.objects.create(
-            team=self.team,
-            filters={"groups": [{"rollout_percentage": 100}]},
-            name="This is a group-based flag",
-            key="random-flag",
-            created_by=self.user,
-        )
-        FeatureFlag.objects.create(
-            team=self.team,
-            filters={"properties": [{"key": "email", "value": "tim@posthog.com", "type": "person"}]},
-            rollout_percentage=100,
-            name="Filter by property",
-            key="filer-by-property",
-            created_by=self.user,
-        )
-
-        with freeze_time("2022-05-07 12:23:07"):
-            # one extra query to select 1 to check db is alive
-            # one extra query to select team because not in cache
-            with self.assertNumQueries(6):
-                response = self._post_decide(api_version=3, distinct_id=12345)
-                self.assertEqual(
-                    response.json()["featureFlags"],
-                    {"random-flag": True, "filer-by-property": False},
-                )
-
-            with self.assertNumQueries(4):
-                response = self._post_decide(
-                    api_version=3,
-                    distinct_id={
-                        "id": 33040,
-                        "shopify_domain": "xxx.myshopify.com",
-                        "shopify_token": "shpat_xxxx",
-                        "created_at": "2023-04-17T08:55:34.624Z",
-                        "updated_at": "2023-04-21T08:43:34.479",
-                    },
-                )
-                self.assertEqual(
-                    response.json()["featureFlags"],
-                    {"random-flag": True, "filer-by-property": True},
-                )
 
 
 @pytest.mark.skipif(
