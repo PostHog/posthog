@@ -1,6 +1,7 @@
 import { IconArrowLeft, IconArrowRight, IconChatHelp } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonInput, LemonModal, LemonTabs, SpinnerOverlay } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { supportLogic } from 'lib/components/Support/supportLogic'
 import { useEffect, useState } from 'react'
 
 import { InviteMembersButton } from '~/layout/navigation/TopBar/AccountPopover'
@@ -107,8 +108,9 @@ export function AlternativeSDKs({
     const { setAvailableSDKInstructionsMap, selectSDK, setSearchTerm, setSelectedTag } = useActions(sdksLogic)
     const { filteredSDKs, selectedSDK, tags, searchTerm, selectedTag } = useValues(sdksLogic)
     const [instructionsModalOpen, setInstructionsModalOpen] = useState(false)
-    const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
+    const { closeSidePanel } = useActions(sidePanelStateLogic)
     const { selectedTab, sidePanelOpen } = useValues(sidePanelStateLogic)
+    const { openSupportForm } = useActions(supportLogic)
 
     const installationComplete = useInstallationComplete(teamPropertyToVerify)
 
@@ -153,7 +155,7 @@ export function AlternativeSDKs({
                                 onClick={() =>
                                     selectedTab === SidePanelTab.Support && sidePanelOpen
                                         ? closeSidePanel()
-                                        : openSidePanel(SidePanelTab.Support)
+                                        : openSupportForm({ kind: 'support', target_area: 'onboarding' })
                                 }
                             >
                                 Get help
