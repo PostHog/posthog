@@ -1,6 +1,7 @@
 import { Message } from 'node-rdkafka'
 
-import { KAFKA_CDP_INTERNAL_EVENTS } from '../../config/kafka-topics'
+import { Hub } from '~/src/types'
+
 import { runInstrumentedFunction } from '../../main/utils'
 import { status } from '../../utils/status'
 import { CdpInternalEventSchema } from '../schema'
@@ -11,9 +12,13 @@ import { CdpProcessedEventsConsumer } from './cdp-processed-events.consumer'
 
 export class CdpInternalEventsConsumer extends CdpProcessedEventsConsumer {
     protected name = 'CdpInternalEventsConsumer'
-    protected topic = KAFKA_CDP_INTERNAL_EVENTS
     protected groupId = 'cdp-internal-events-consumer'
     protected hogTypes: HogFunctionTypeType[] = ['internal_destination']
+
+    constructor(hub: Hub) {
+        super(hub)
+        this.topic = hub.KAFKA_CDP_INTERNAL_EVENTS
+    }
 
     // This consumer always parses from kafka
     public async _parseKafkaBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {

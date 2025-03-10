@@ -4,7 +4,6 @@ import { getParsedQueuedMessages, mockProducer } from '../helpers/mocks/producer
 import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import fetch from 'node-fetch'
 
-import { KAFKA_PLUGIN_LOG_ENTRIES } from '../../src/config/kafka-topics'
 import { Hub, PluginLogEntrySource, PluginLogEntryType } from '../../src/types'
 import { PluginConfig, PluginConfigVMResponse } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
@@ -13,6 +12,7 @@ import { createPluginConfigVM } from '../../src/worker/vm/vm'
 import { pluginConfig39 } from '../helpers/plugins'
 import { plugin60 } from '../helpers/plugins'
 import { resetTestDatabase } from '../helpers/sql'
+import { defaultConfig } from '~/src/config/config'
 
 jest.mock('../../src/utils/status')
 
@@ -689,7 +689,7 @@ describe('vm tests', () => {
 
         expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
         expect(getParsedQueuedMessages()[0]).toEqual({
-            topic: KAFKA_PLUGIN_LOG_ENTRIES,
+            topic: defaultConfig.KAFKA_PLUGIN_LOG_ENTRIES,
             messages: [
                 {
                     key: expect.any(String),

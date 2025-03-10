@@ -14,11 +14,6 @@ import { CdpCyclotronWorker, CdpCyclotronWorkerFetch } from './cdp/consumers/cdp
 import { CdpInternalEventsConsumer } from './cdp/consumers/cdp-internal-event.consumer'
 import { CdpProcessedEventsConsumer } from './cdp/consumers/cdp-processed-events.consumer'
 import { defaultConfig } from './config/config'
-import {
-    KAFKA_EVENTS_PLUGIN_INGESTION,
-    KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
-    KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
-} from './config/kafka-topics'
 import { IngestionConsumer } from './ingestion/ingestion-consumer'
 import { KafkaProducerWrapper } from './kafka/producer'
 import {
@@ -108,14 +103,14 @@ export class PluginServer {
                 // in a single process. In production these are each separate Deployments of the standard ingestion consumer
                 const consumersOptions = [
                     {
-                        topic: KAFKA_EVENTS_PLUGIN_INGESTION,
+                        topic: hub.KAFKA_EVENTS_PLUGIN_INGESTION,
                         group_id: `clickhouse-ingestion`,
                     },
                     {
-                        topic: KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
+                        topic: hub.KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
                         group_id: `clickhouse-ingestion-historical`,
                     },
-                    { topic: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW, group_id: 'clickhouse-ingestion-overflow' },
+                    { topic: hub.KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW, group_id: 'clickhouse-ingestion-overflow' },
                     { topic: 'client_iwarnings_ingestion', group_id: 'client_iwarnings_ingestion' },
                     { topic: 'heatmaps_ingestion', group_id: 'heatmaps_ingestion' },
                     { topic: 'exceptions_ingestion', group_id: 'exceptions_ingestion' },

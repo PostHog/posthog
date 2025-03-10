@@ -1,3 +1,5 @@
+import { defaultConfig } from '~/src/config/config'
+
 import { ConsoleLogsIngester } from '../../../../../src/main/ingestion-queues/session-recording/services/console-logs-ingester'
 import { OffsetHighWaterMarker } from '../../../../../src/main/ingestion-queues/session-recording/services/offset-high-water-marker'
 import { IncomingRecordingMessage } from '../../../../../src/main/ingestion-queues/session-recording/types'
@@ -36,7 +38,7 @@ describe('console log ingester', () => {
 
     beforeEach(() => {
         const mockedHighWaterMarker = { isBelowHighWaterMark: jest.fn() } as unknown as OffsetHighWaterMarker
-        consoleLogIngester = new ConsoleLogsIngester(mockProducer, mockedHighWaterMarker)
+        consoleLogIngester = new ConsoleLogsIngester(defaultConfig, mockProducer, mockedHighWaterMarker)
     })
     describe('when enabled on team', () => {
         test('it truncates large console logs', async () => {

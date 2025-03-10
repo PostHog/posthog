@@ -1,3 +1,5 @@
+import { defaultConfig } from '~/src/config/config'
+
 import { KafkaProducerWrapper } from '../../../src/kafka/producer'
 import { Hub } from '../../../src/types'
 import { closeHub, createHub } from '../../../src/utils/db/hub'
@@ -31,7 +33,7 @@ describe('AppMetrics()', () => {
             disconnect: jest.fn(),
         } as unknown as KafkaProducerWrapper
 
-        appMetrics = new AppMetrics(kafkaProducer, 100, 5)
+        appMetrics = new AppMetrics(defaultConfig, kafkaProducer, 100, 5)
     })
 
     afterEach(() => {
