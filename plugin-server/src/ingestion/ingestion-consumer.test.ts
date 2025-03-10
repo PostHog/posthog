@@ -1,9 +1,9 @@
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
+import { insertHogFunction as _insertHogFunction } from '~/src/cdp/_tests/fixtures'
 import { template as geoipTemplate } from '~/src/cdp/templates/_transformations/geoip/geoip.template'
 import { compileHog } from '~/src/cdp/templates/compiler'
-import { insertHogFunction as _insertHogFunction } from '~/tests/cdp/fixtures'
 import {
     getProducedKafkaMessages,
     getProducedKafkaMessagesForTopic,
