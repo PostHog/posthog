@@ -23,6 +23,10 @@ let body := {
     'access_token': inputs.accessToken
 }
 
+if (not empty(inputs.testEventCode)) {
+    body.test_event_code := inputs.testEventCode
+}
+
 for (let key, value in inputs.userData) {
     if (not empty(value)) {
         body.data.1.user_data[key] := value
@@ -149,6 +153,15 @@ if (res.status >= 400) {
             "default": {"currency": "USD", "price": "{event.properties.price}"},
             "secret": False,
             "required": True,
+        },
+        {
+            "key": "testEventCode",
+            "type": "string",
+            "label": "Test Event Code",
+            "description": "Use this field to specify that events should be test events rather than actual traffic. You'll want to remove your Test Event Code when sending real traffic through this integration.",
+            "default": "",
+            "secret": False,
+            "required": False,
         },
     ],
     filters={
