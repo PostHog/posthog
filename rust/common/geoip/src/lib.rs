@@ -85,9 +85,10 @@ mod tests {
     use super::*;
     use std::path::Path;
 
-    // NOTE: this is setup for test CI, and will fail locally.
     fn get_db_path() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
             .parent()
             .unwrap()
             .parent()
