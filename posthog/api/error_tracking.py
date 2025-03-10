@@ -178,6 +178,37 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
 
         return Response({"success": True})
 
+    @action(methods=["POST"], detail=False)
+    def bulk(self, request, **kwargs):
+        issue_ids = request.data.get("ids", [])
+        action = request.data.get("action")
+
+        if action == "resolve":
+            self.queryset.filter(id__in=issue_ids).update(status=ErrorTrackingIssue.Status.RESOLVED)
+        elif action == "assign":
+            assignments = ErrorTrackingIssueAssignment.objects.filter(issue_id__in=issue_ids)
+
+            # given bulk operation it's actually easier to delete all assignments and recreate them
+            assignments.delete()
+
+            assignee = request.data.get("assignee", None)
+            if assignee:
+                ErrorTrackingIssueAssignment.objects.bulk_create(
+                    [
+                        ErrorTrackingIssueAssignment(
+                            issue_id=issue_id,
+                            user_id=(None if assignee["type"] == "user_group" else assignee["id"]),
+                            user_group_id=(None if assignee["type"] == "user" else assignee["id"]),
+                        )
+                        for issue_id in issue_ids
+                    ],
+                    update_conflicts=True,
+                    unique_fields=["issue_id"],
+                    update_fields=["user_id", "user_group_id", "created_at"],
+                )
+
+        return Response({"success": True})
+
     @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
     def all_activity(self, request: request.Request, **kwargs):
         limit = int(request.query_params.get("limit", "10"))

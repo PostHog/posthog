@@ -25,6 +25,7 @@ export const errorTrackingDataNodeLogic = kea<errorTrackingDataNodeLogicType>([
     actions({
         mergeIssues: (ids: string[]) => ({ ids }),
         resolveIssues: (ids: string[]) => ({ ids }),
+        assignIssues: (ids: string[], assignee: ErrorTrackingIssue['assignee']) => ({ ids, assignee }),
         assignIssue: (id: string, assignee: ErrorTrackingIssue['assignee']) => ({ id, assignee }),
     }),
 
@@ -70,6 +71,22 @@ export const errorTrackingDataNodeLogic = kea<errorTrackingDataNodeLogicType>([
             })
             posthog.capture('error_tracking_issue_bulk_resolve')
             await api.errorTracking.bulkResolve(ids)
+            actions.loadData(true)
+        },
+        assignIssues: async ({ ids, assignee }) => {
+            const { results } = values
+
+            // optimistically update local results
+            actions.setResponse({
+                ...values.response,
+                // remove resolved issues
+                results: results.map((issue) =>
+                    // replace primary issue
+                    ids.includes(issue.id) ? { ...issue, assignee } : issue
+                ),
+            })
+            posthog.capture('error_tracking_issue_bulk_assign')
+            await api.errorTracking.bulkAssign(ids, assignee)
             actions.loadData(true)
         },
         assignIssue: async ({ id, assignee }) => {

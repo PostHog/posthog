@@ -2100,7 +2100,14 @@ const api = {
         },
 
         async bulkResolve(ids: ErrorTrackingIssue['id'][]): Promise<{ content: string }> {
-            return await new ApiRequest().errorTrackingIssueBulk().create({ data: { ids, type: 'resolve' } })
+            return await new ApiRequest().errorTrackingIssueBulk().create({ data: { action: 'resolve', ids } })
+        },
+
+        async bulkAssign(
+            ids: ErrorTrackingIssue['id'][],
+            assignee: ErrorTrackingIssue['assignee']
+        ): Promise<{ content: string }> {
+            return await new ApiRequest().errorTrackingIssueBulk().create({ data: { action: 'assign', ids, assignee } })
         },
 
         async mergeInto(
