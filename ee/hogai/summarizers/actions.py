@@ -70,11 +70,11 @@ class ActionSummarizer:
             text_desc = f"element text {ACTION_MATCH_FILTER_VERBOSE_NAME[match_filter]} `{step.text}`"
             description.append(text_desc)
         if step.href:
-            match_filter: ActionStepMatching = step.href_matching or "exact"
+            match_filter = step.href_matching or "exact"
             href_desc = f"element `href` attribute {ACTION_MATCH_FILTER_VERBOSE_NAME[match_filter]} `{step.href}`"
             description.append(href_desc)
         if step.url:
-            match_filter: ActionStepMatching = step.url_matching or "contains"
+            match_filter = step.url_matching or "contains"
             url_desc = f"the URL of event {ACTION_MATCH_FILTER_VERBOSE_NAME[match_filter]} `{step.url}`"
             description.append(url_desc)
 
