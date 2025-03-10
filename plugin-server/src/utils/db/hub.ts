@@ -7,6 +7,8 @@ import * as path from 'path'
 import { types as pgTypes } from 'pg'
 import { ConnectionOptions } from 'tls'
 
+import { LegacyOneventCompareService } from '~/src/cdp/services/legacy-onevent-compare.service'
+
 import { getPluginServerCapabilities } from '../../capabilities'
 import { EncryptedFields } from '../../cdp/encryption-utils'
 import { buildIntegerMatcher, defaultConfig } from '../../config/config'
@@ -204,6 +206,8 @@ export async function createHub(
         celery: new Celery(serverConfig),
         cookielessManager,
     }
+
+    hub.legacyOneventCompareService = new LegacyOneventCompareService(hub)
 
     return hub as Hub
 }
