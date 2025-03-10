@@ -9,7 +9,7 @@ import type { onboardingProductConfigurationLogicType } from './onboardingProduc
 export interface ProductConfigOptionBase {
     title: string
     description: string
-    teamProperty: keyof TeamType
+    teamProperty?: keyof TeamType
     visible: boolean
 }
 
@@ -26,6 +26,7 @@ export interface ProductConfigurationSelect extends ProductConfigOptionBase {
     /** Sets the initial value. Use a team setting to reflect current state, or a static value to set a default. */
     value: string | number | null
     selectOptions: LemonSelectOptions<any>
+    onChange?: (value: string | number | null) => Partial<TeamType>
 }
 
 export type ProductConfigOption = ProductConfigurationToggle | ProductConfigurationSelect
@@ -49,11 +50,19 @@ export const onboardingProductConfigurationLogic = kea<onboardingProductConfigur
     })),
     listeners(({ values, actions }) => ({
         saveConfiguration: async () => {
-            const updateConfig = {}
+            let updateConfig: Partial<TeamType> = {}
             values.configOptions.forEach((configOption) => {
-                updateConfig[configOption.teamProperty] = configOption.inverseToggle
-                    ? !configOption.value
-                    : configOption.value
+                if (configOption.teamProperty) {
+                    updateConfig[configOption.teamProperty as keyof TeamType] = configOption.inverseToggle
+                        ? !configOption.value
+                        : configOption.value
+                }
+                if (configOption.onChange) {
+                    updateConfig = {
+                        ...updateConfig,
+                        ...configOption.onChange(configOption.value),
+                    }
+                }
             })
             actions.updateCurrentTeam(updateConfig)
         },
