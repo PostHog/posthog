@@ -1482,7 +1482,7 @@ async def test_partition_folders_with_int_id(team, postgres_config, postgres_con
     schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
     assert schema.partitioning_enabled is True
     assert schema.partitioning_keys == ["id"]
-    assert schema.partitioning_size is not None
+    assert schema.partition_count is not None
 
 
 @pytest.mark.django_db(transaction=True)
@@ -1566,7 +1566,7 @@ async def test_partition_folders_with_existing_table(team, postgres_config, post
     schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
     assert schema.partitioning_enabled is False
     assert schema.partitioning_keys is None
-    assert schema.partitioning_size is None
+    assert schema.partition_count is None
 
 
 @pytest.mark.django_db(transaction=True)
@@ -1663,7 +1663,7 @@ async def test_partition_folders_with_existing_table_and_pipeline_reset(
     schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
     assert schema.partitioning_enabled is True
     assert schema.partitioning_keys == ["id"]
-    assert schema.partitioning_size is not None
+    assert schema.partition_count is not None
 
 
 @pytest.mark.django_db(transaction=True)
@@ -1872,4 +1872,4 @@ async def test_partition_folders_with_existing_table_using_old_system(
     schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
     assert schema.partitioning_enabled is False
     assert schema.partitioning_keys is None
-    assert schema.partitioning_size is None
+    assert schema.partition_count is None

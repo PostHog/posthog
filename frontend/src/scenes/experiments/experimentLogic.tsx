@@ -65,7 +65,7 @@ import {
     TrendResult,
 } from '~/types'
 
-import { MetricInsightId } from './constants'
+import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS, MetricInsightId } from './constants'
 import type { experimentLogicType } from './experimentLogicType'
 import { experimentsLogic } from './experimentsLogic'
 import { holdoutsLogic } from './holdoutsLogic'
@@ -2170,6 +2170,24 @@ export const experimentLogic = kea<experimentLogicType>([
                     return false
                 }
                 return featureFlags[FEATURE_FLAGS.EXPERIMENTS_NEW_QUERY_RUNNER]
+            },
+        ],
+        hasMinimumExposureForResults: [
+            (s) => [s.exposures, s.shouldUseExperimentMetrics],
+            (exposures, shouldUseExperimentMetrics): boolean => {
+                // Not relevant for old metrics
+                if (!shouldUseExperimentMetrics) {
+                    return true
+                }
+
+                if (!exposures || !exposures.total_exposures) {
+                    return false
+                }
+
+                const exposureValues = Object.values(exposures.total_exposures)
+
+                const smallestExposure = Math.min(...(exposureValues as number[]))
+                return smallestExposure >= EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS
             },
         ],
         exposureCriteriaLabel: [
