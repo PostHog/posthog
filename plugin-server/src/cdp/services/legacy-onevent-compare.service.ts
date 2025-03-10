@@ -198,9 +198,9 @@ export class LegacyOneventCompareService {
         await this.legacyPluginExecutorService
             .execute(invocation, {
                 fetch: (url, init) => {
-                    // For each call we pop the stack. The expectation is that the first call should match URL
+                    // For each call take the first one out of the stack
 
-                    const call = copiedCalls.pop()
+                    const call = copiedCalls.shift()
 
                     if (!call) {
                         throw new Error('No call found')
