@@ -20,7 +20,7 @@ export const ErrorTrackingListOptions = (): JSX.Element => {
     return (
         <>
             <div className="sticky top-[var(--breadcrumbs-height-compact)] z-20 py-2 bg-primary flex justify-between">
-                <div className="flex space-x-2">
+                <div className="flex deprecated-space-x-2">
                     {selectedIssueIds.length > 0 ? (
                         <>
                             <LemonButton type="secondary" size="small" onClick={() => setSelectedIssueIds([])}>

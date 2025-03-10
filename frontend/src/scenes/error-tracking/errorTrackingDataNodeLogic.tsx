@@ -29,12 +29,7 @@ export const errorTrackingDataNodeLogic = kea<errorTrackingDataNodeLogicType>([
     }),
 
     selectors({
-        results: [
-            (s) => [s.response],
-            (response): ErrorTrackingIssue[] => {
-                return response ? response.results : []
-            },
-        ],
+        results: [(s) => [s.response], (response): ErrorTrackingIssue[] => (response ? response.results : [])],
     }),
 
     listeners(({ values, actions }) => ({
