@@ -2923,6 +2923,7 @@ export interface SurveyAppearance {
     widgetLabel?: string
     widgetColor?: string
     fontFamily?: (typeof WEB_SAFE_FONTS)[number]['value']
+    disabledButtonOpacity?: string
 }
 
 export interface SurveyQuestionBase {
@@ -3958,6 +3959,7 @@ export type APIScopeObject =
     | 'dashboard'
     | 'dashboard_template'
     | 'early_access_feature'
+    | 'error_tracking'
     | 'event_definition'
     | 'experiment'
     | 'export'
@@ -3965,7 +3967,6 @@ export type APIScopeObject =
     | 'group'
     | 'hog_function'
     | 'insight'
-    | 'query'
     | 'notebook'
     | 'organization'
     | 'organization_member'
@@ -3973,6 +3974,7 @@ export type APIScopeObject =
     | 'plugin'
     | 'project'
     | 'property_definition'
+    | 'query'
     | 'session_recording'
     | 'session_recording_playlist'
     | 'sharing_configuration'

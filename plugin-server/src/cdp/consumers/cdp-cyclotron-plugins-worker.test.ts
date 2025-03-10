@@ -1,16 +1,16 @@
 import { DateTime } from 'luxon'
 
-import {
-    createHogExecutionGlobals,
-    createInvocation,
-    insertHogFunction as _insertHogFunction,
-} from '~/tests/cdp/fixtures'
 import { getProducedKafkaMessages, getProducedKafkaMessagesForTopic } from '~/tests/helpers/mocks/producer.mock'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
+import {
+    createHogExecutionGlobals,
+    createInvocation,
+    insertHogFunction as _insertHogFunction,
+} from '../_tests/fixtures'
 import { DESTINATION_PLUGINS_BY_ID } from '../legacy-plugins'
 import { HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'
 import { CdpCyclotronWorkerPlugins } from './cdp-cyclotron-plugins-worker.consumer'

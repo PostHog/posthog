@@ -14,7 +14,7 @@ from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
 from loginas.utils import is_impersonated_session
 from nanoid import generate
-from rest_framework import request, serializers, status, viewsets, exceptions
+from rest_framework import request, serializers, status, viewsets, exceptions, filters
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -679,6 +679,8 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "survey"
     queryset = Survey.objects.select_related("linked_flag", "targeting_flag", "internal_targeting_flag").all()
+    filter_backends = [filters.SearchFilter]
+    search_fields = ["name", "description"]
 
     def get_serializer_class(self) -> type[serializers.Serializer]:
         if self.request.method == "POST" or self.request.method == "PATCH":

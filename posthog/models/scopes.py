@@ -16,6 +16,7 @@ APIScopeObject = Literal[
     "dashboard",
     "dashboard_template",
     "early_access_feature",
+    "error_tracking",
     "event_definition",
     "experiment",
     "export",
@@ -24,7 +25,6 @@ APIScopeObject = Literal[
     "group",
     "hog_function",
     "insight",
-    "query",  # Covers query and events endpoints
     "notebook",
     "organization",
     "organization_member",
@@ -32,6 +32,7 @@ APIScopeObject = Literal[
     "plugin",
     "project",
     "property_definition",
+    "query",  # Covers query and events endpoints
     "session_recording",
     "session_recording_playlist",
     "sharing_configuration",

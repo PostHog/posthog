@@ -309,8 +309,6 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     def test_creates_with_template_values_if_not_provided(self, *args):
         payload: dict = {
-            "name": "Fetch URL",
-            "description": "Test description",
             "template_id": template_webhook.id,
             "type": "destination",
         }
@@ -329,6 +327,9 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert response.json()["hog"] == template_webhook.hog
         assert response.json()["inputs_schema"] == template_webhook.inputs_schema
+        assert response.json()["name"] == template_webhook.name
+        assert response.json()["description"] == template_webhook.description
+        assert response.json()["icon_url"] == template_webhook.icon_url
 
     def test_deletes_via_update(self, *args):
         response = self.client.post(

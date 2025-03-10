@@ -159,7 +159,7 @@ def get_api_personal_rate_limiter():
             get_task_name=lambda *args, **kwargs: f"api:query:per-team:{kwargs.get('team_id')}",
             get_task_id=lambda *args, **kwargs: current_task.request.id
             if current_task
-            else kwargs.get("task_id", generate_short_id()),
+            else (kwargs.get("task_id") or generate_short_id()),
             ttl=600,
             bypass_all=True,
         )
