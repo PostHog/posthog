@@ -11,6 +11,7 @@ from posthog.models.product_intent.product_intent import (
     ProductIntent,
     calculate_product_activation,
 )
+from ...session_recordings.models.session_recording import SessionRecording
 from posthog.test.base import BaseTest
 
 
@@ -170,3 +171,49 @@ class TestProductIntent(BaseTest):
         Survey.objects.create(team=self.team, name="Survey Test", targeting_flag=survey_flag)
 
         self.assertFalse(self.product_intent.has_activated_feature_flags())
+
+    @freeze_time("2024-06-15T12:00:00Z")
+    def test_has_activated_session_replay_with_five_recordings_viewed(self):
+        # Create 5 recordings and mark them as viewed
+        for i in range(5):
+            recording = SessionRecording.objects.create(
+                team=self.team,
+                session_id=f"session-{i}",
+            )
+
+            recording.check_viewed_for_user(self.user, save_viewed=True)
+
+        self.assertTrue(self.product_intent.has_activated_session_replay())
+
+    @freeze_time("2024-06-15T12:00:00Z")
+    def test_has_not_activated_session_replay_with_less_than_five_recordings(self):
+        # Create only 4 recordings and mark them as viewed
+        for i in range(4):
+            recording = SessionRecording.objects.create(
+                team=self.team,
+                session_id=f"session-{i}",
+            )
+
+            recording.check_viewed_for_user(self.user, save_viewed=True)
+
+        assert self.product_intent.has_activated_session_replay() is False
+
+    @freeze_time("2024-06-15T12:00:00Z")
+    def test_has_not_activated_session_replay_with_unviewed_recordings(self):
+        for i in range(3):
+            recording = SessionRecording.objects.create(
+                team=self.team,
+                session_id=f"session-{i}",
+            )
+
+            recording.check_viewed_for_user(self.user, save_viewed=True)
+
+        for i in range(4, 6):
+            recording = SessionRecording.objects.create(
+                team=self.team,
+                session_id=f"session-{i}",
+            )
+
+            recording.check_viewed_for_user(self.user, save_viewed=False)
+
+        assert self.product_intent.has_activated_session_replay() is False
