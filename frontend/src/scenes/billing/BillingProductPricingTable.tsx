@@ -11,7 +11,7 @@ import {
 } from '~/types'
 
 import { billingLogic } from './billingLogic'
-import { FeatureFlagUsageNotice, getTierDescription } from './BillingProduct'
+import { getTierDescription } from './BillingProduct'
 import { billingProductLogic } from './billingProductLogic'
 
 function Subrows(props: ProductPricingTierSubrows): JSX.Element {
@@ -211,7 +211,6 @@ export const BillingProductPricingTable = ({
                             rowExpandable: (row) => !!row.subrows?.rows?.length,
                         }}
                     />
-                    <FeatureFlagUsageNotice product={product as BillingProductV2Type} />
                     <LemonBanner type="warning" className="text-sm pt-2 mt-2">
                         Tier breakdowns are updated once daily and may differ from the gauge above.
                     </LemonBanner>

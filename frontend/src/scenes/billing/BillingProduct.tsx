@@ -377,6 +377,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     )}
                 </div>
                 {!isTemporaryFreeProduct && <BillingLimit product={product} />}
+                <FeatureFlagUsageNotice product={product} />
             </div>
             <ProductPricingModal
                 modalOpen={isPricingModalOpen}
@@ -390,13 +391,15 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
 
 export const FeatureFlagUsageNotice = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
     return product.type === 'feature_flags' ? (
-        <p className="mt-4 ml-0 text-sm text-secondary italic">
-            <IconInfo className="mr-1" />
-            Questions? Here's{' '}
-            <Link to="https://posthog.com/docs/feature-flags/common-questions#billing--usage" className="italic">
-                how we calculate usage
-            </Link>{' '}
-            for feature flags.
-        </p>
+        <div className="p-4 px-8 pb-8 sm:pb-0 border-t border-border">
+            <p className="mt-0 ml-0 text-sm text-secondary italic">
+                <IconInfo className="mr-1" />
+                Questions? Here's{' '}
+                <Link to="https://posthog.com/docs/feature-flags/common-questions#billing--usage" className="italic">
+                    how we calculate usage
+                </Link>{' '}
+                for feature flags.
+            </p>
+        </div>
     ) : null
 }
