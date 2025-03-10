@@ -7,10 +7,9 @@ import * as path from 'path'
 import { types as pgTypes } from 'pg'
 import { ConnectionOptions } from 'tls'
 
-import { LegacyOneventCompareService } from '~/src/cdp/services/legacy-onevent-compare.service'
-
 import { getPluginServerCapabilities } from '../../capabilities'
 import { EncryptedFields } from '../../cdp/encryption-utils'
+import { LegacyOneventCompareService } from '../../cdp/services/legacy-onevent-compare.service'
 import { buildIntegerMatcher, defaultConfig } from '../../config/config'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from '../../config/constants'
 import { CookielessManager } from '../../ingestion/cookieless/cookieless-manager'
