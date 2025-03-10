@@ -24,7 +24,7 @@ function SurveyPopupToggle(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
 
     return (
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-1">
             <LemonSwitch
                 data-attr="opt-in-surveys-switch"
                 onChange={(checked) => {
@@ -121,7 +121,7 @@ export function SurveySettings({ isModal = false }: Props): JSX.Element {
             <LemonDivider className="m-0" />
 
             <div className="flex items-center gap-1 flex-1 justify-between">
-                <LemonField.Pure label="Appearance" className="text-base">
+                <LemonField.Pure label="Appearance" className="text-base gap-1">
                     <span className="text-sm">These settings apply to new surveys in this organization.</span>
                 </LemonField.Pure>
                 {globalSurveyAppearanceConfigAvailable && (
