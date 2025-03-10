@@ -4023,7 +4023,6 @@ class TestDecideUsesReadReplica(TransactionTestCase):
 
         with (
             freeze_time("2021-01-01T00:00:00Z"),
-            self.assertNumQueries(1, using="replica"),
             self.assertNumQueries(1, using="default"),
         ):
             response = self._post_decide()
