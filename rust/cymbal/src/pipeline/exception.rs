@@ -1,40 +1,37 @@
-use error::EventError;
-use app_context::AppContext;
-use chrono::{DateTime, NaiveDateTime, Utc};
+use std::{
+    collections::{hash_map::Entry, HashMap},
+    sync::Arc,
+};
+
+use chrono::Utc;
 use common_types::ClickHouseEvent;
-use error::{EventError, UnhandledError};
-use fingerprinting::generate_fingerprint;
-use issue_resolution::{resolve_issue, IssueStatus};
-use metric_consts::{FRAME_RESOLUTION, SUPPRESSED_ISSUE_DROPPED_EVENTS};
-use metrics::counter;
 use serde_json::Value;
-use tracing::warn;
+use tracing::{error, warn};
 
-use uuid::Uuid;
+use crate::{
+    app_context::AppContext,
+    error::{EventError, PipelineFailure, PipelineResult, UnhandledError},
+    fingerprinting::generate_fingerprint,
+    issue_resolution::resolve_issue,
+    metric_consts::FRAME_RESOLUTION,
+    recursively_sanitize_properties,
+    types::{FingerprintedErrProps, RawErrProps, Stacktrace},
+};
 
-pub mod app_context;
-pub mod config;
-pub mod error;
-pub mod fingerprinting;
-pub mod frames;
-pub mod issue_resolution;
-pub mod langs;
-pub mod metric_consts;
-pub mod pipeline;
-pub mod posthog_utils;
-pub mod symbol_store;
-pub mod teams;
-pub mod types;
+use super::parse_ts_assuming_utc;
 
-pub async fn handle_events(
+pub async fn do_exception_processing(
+    mut events: Vec<PipelineResult>,
     context: Arc<AppContext>,
-    mut events: Vec<ClickHouseEvent>,
-) -> Result<Vec<ClickHouseEvent>, (usize, UnhandledError)> {
+) -> Result<Vec<PipelineResult>, PipelineFailure> {
     // First pass through the event list, to get all the exception property sets
     // we'll process. Events we don't get exception properties from will be skipped
     // in all the following passes
     let mut indexed_props = Vec::new();
     for (index, event) in events.iter_mut().enumerate() {
+        let Ok(event) = event else {
+            continue; // Events dropped due to an earlier processing stage are ignored
+        };
         match get_props(event) {
             Ok(r) => indexed_props.push((index, r)),
             Err(e) => {
@@ -57,7 +54,11 @@ pub async fn handle_events(
     // Second pass, to spawn the relevant tokio tasks to resolve the frames
     let mut frame_resolve_handles = HashMap::new();
     for (index, props) in indexed_props.iter_mut() {
-        let team_id = events[*index].team_id;
+        let Ok(event) = &events[*index] else {
+            unreachable!("No index in the indexed props vector can point to a event error");
+        };
+
+        let team_id = event.team_id;
         for exception in props.exception_list.iter_mut() {
             let frames = match exception.stack.take() {
                 Some(Stacktrace::Raw { frames }) => {
@@ -113,7 +114,7 @@ pub async fn handle_events(
             Ok(r) => r,
             Err(e) => {
                 let index = find_index_with_matching_frame_id(&id, &indexed_props);
-                return Err((index, e));
+                return Err((index, e).into());
             }
         };
         frame_lookup_table.insert(id, res);
@@ -125,7 +126,9 @@ pub async fn handle_events(
     let mut indexed_fingerprinted = Vec::new();
     let mut issue_handles = HashMap::new();
     for (index, mut props) in indexed_props.into_iter() {
-        let event = &events[index];
+        let Ok(event) = &events[index] else {
+            unreachable!("No index in the indexed props vector can point to a event error");
+        };
         let team_id = event.team_id;
         for exception in props.exception_list.iter_mut() {
             exception.stack = exception
@@ -148,10 +151,10 @@ pub async fn handle_events(
         if let Entry::Vacant(e) = issue_handles.entry(to_resolve.clone()) {
             let name = fingerprinted.exception_list[0].exception_type.clone();
             let description = fingerprinted.exception_list[0].exception_message.clone();
-            let event_timestamp = get_event_timestamp(event).unwrap_or_else(|| {
+            let event_timestamp = parse_ts_assuming_utc(&event.timestamp).unwrap_or_else(|err| {
                 warn!(
                     event = event.uuid.to_string(),
-                    "Failed to get event timestamp, using current time"
+                    "Failed to get event timestamp: {}, using current time", err
                 );
                 Utc::now()
             });
@@ -178,48 +181,30 @@ pub async fn handle_events(
     // Collect the results of issue resolution
     let mut resolved_issues = HashMap::new();
     for (fingerprint, handle) in issue_handles.into_iter() {
-        let issue = match handle.await.expect("issue resolution task did not panic") {
-            Ok(i) => i,
+        let issue_id = match handle.await.expect("issue resolution task did not panic") {
+            Ok(id) => id,
             Err(e) => {
                 let index =
                     find_index_with_matching_fingerprint(&fingerprint, &indexed_fingerprinted);
-                return Err((index, e));
+                return Err((index, e).into());
             }
         };
-        resolved_issues.insert(fingerprint, issue);
+        resolved_issues.insert(fingerprint, issue_id);
     }
 
     // Fourth pass, to update the events with the resolved issues
     // Unfreeze the events list, since now we have to modify the events we processed
     let mut events = events;
-    let mut to_drop = Vec::new();
     for (index, fingerprinted) in indexed_fingerprinted.into_iter() {
-        let event = &mut events[index];
-        let issue = resolved_issues
+        let Ok(event) = &mut events[index] else {
+            unreachable!("No index in the indexed props vector can point to a event error");
+        };
+        let issue_id = resolved_issues
             .get(&fingerprinted.fingerprint)
             .cloned()
             .expect("Issue was resolved");
-
-        let output = fingerprinted.to_output(issue.id);
-
-        if matches!(issue.status, IssueStatus::Suppressed) {
-            to_drop.push(index);
-        }
-
+        let output = fingerprinted.to_output(issue_id);
         event.properties = Some(serde_json::to_string(&output).map_err(|e| (index, e.into()))?);
-    }
-
-    // Drop the suppressed events. Note we reverse the order of the indices to drop, so that
-    // indices don't shift as we remove items from the list.
-    to_drop.sort_unstable();
-    to_drop.dedup();
-    for index in to_drop.into_iter().rev() {
-        counter!(SUPPRESSED_ISSUE_DROPPED_EVENTS).increment(1);
-        // We can afford the order changes here, because it's the last thing we do, and the order
-        // of the events we emit in this batch doesn't matter - they're sorted by timestamp in
-        // clickhouse anyway, not ingestion order. NOTE: if/when we change this fn to return a
-        // Vec of Results, we should instead replace the items we want to drop with an Err.
-        events.swap_remove(index);
     }
 
     Ok(events)
@@ -246,6 +231,7 @@ pub fn get_props(event: &ClickHouseEvent) -> Result<RawErrProps, EventError> {
         .and_then(|o| o.get_mut("$exception_list"))
     {
         // We PG sanitize the exception list, because the strings in it can end up in PG kind of arbitrarily.
+        // TODO - the prep stage has already sanitized the properties, so maybe we don't need to do this again?
         recursively_sanitize_properties(event.uuid, v, 0)?;
     }
 
@@ -263,50 +249,50 @@ pub fn get_props(event: &ClickHouseEvent) -> Result<RawErrProps, EventError> {
     Ok(props)
 }
 
-pub fn recursively_sanitize_properties(
-    id: Uuid,
-    value: &mut Value,
-    depth: usize,
-) -> Result<(), EventError> {
-    if depth > 64 {
-        // We don't want to recurse too deeply, in case we have a circular reference or something.
-        return Err(EventError::InvalidProperties(
-            id,
-            "Recursion limit exceeded".to_string(),
-        ));
-    }
-    match value {
-        Value::Object(map) => {
-            for (_, v) in map.iter_mut() {
-                recursively_sanitize_properties(id, v, depth + 1)?;
-            }
-        }
-        Value::Array(arr) => {
-            for v in arr.iter_mut() {
-                recursively_sanitize_properties(id, v, depth + 1)?;
-            }
-        }
-        Value::String(s) => {
-            if needs_sanitization(s) {
-                warn!("Sanitizing null bytes from string in event {}", id);
-                *s = sanitize_string(s.clone());
-            }
-        }
-        _ => {}
-    }
+// This is expensive, since it round-trips the event through JSON.
+// We could maybe change ClickhouseEvent to only do serde at the edges
+pub fn add_error_to_event(
+    event: &mut ClickHouseEvent,
+    e: impl ToString,
+) -> Result<(), UnhandledError> {
+    let mut props = event.take_raw_properties()?;
+    let mut errors = match props.remove("$cymbal_errors") {
+        Some(serde_json::Value::Array(errors)) => errors,
+        _ => Vec::new(),
+    };
+
+    errors.push(serde_json::Value::String(e.to_string()));
+    props.insert(
+        "$cymbal_errors".to_string(),
+        serde_json::Value::Array(errors),
+    );
+    event.set_raw_properties(props)?;
     Ok(())
 }
 
-// Postgres doesn't like nulls (u0000) in strings, so we replace them with uFFFD.
-pub fn sanitize_string(s: String) -> String {
-    s.replace('\u{0000}', "\u{FFFD}")
+fn find_index_with_matching_frame_id(id: &str, list: &[(usize, RawErrProps)]) -> usize {
+    for (index, props) in list.iter() {
+        for exception in props.exception_list.iter() {
+            if let Some(Stacktrace::Raw { frames }) = &exception.stack {
+                for frame in frames {
+                    if frame.frame_id() == id {
+                        return *index;
+                    }
+                }
+            }
+        }
+    }
+    0
 }
 
-pub fn needs_sanitization(s: &str) -> bool {
-    s.contains('\u{0000}')
-}
-
-struct WithIndices<T> {
-    indices: Vec<usize>,
-    inner: T,
+fn find_index_with_matching_fingerprint(
+    fingerprint: &str,
+    list: &[(usize, FingerprintedErrProps)],
+) -> usize {
+    for (index, props) in list.iter() {
+        if props.fingerprint == fingerprint {
+            return *index;
+        }
+    }
+    0
 }

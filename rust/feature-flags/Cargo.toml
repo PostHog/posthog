@@ -30,9 +30,9 @@ redis = { version = "0.23.3", features = [
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+serde-pickle = { version = "1.1.1" }
 sha1 = "0.10.6"
-regex = "1.10.4"
-maxminddb = "0.17"
+regex.workspace = true
 metrics = { workspace = true }
 sqlx = { workspace = true }
 uuid = { workspace = true }
@@ -42,6 +42,7 @@ common-alloc = { path = "../common/alloc" }
 strum = { version = "0.26", features = ["derive"] }
 health = { path = "../common/health" }
 common-metrics = { path = "../common/metrics" }
+common-geoip = { path = "../common/geoip" }
 tower = { workspace = true }
 tower-http = { workspace = true }
 petgraph = "0.6.5"
@@ -54,7 +55,8 @@ dateparser = "0.2.1"
 workspace = true
 
 [dev-dependencies]
+
+rstest = "0.25.0"
 assert-json-diff = { workspace = true }
 reqwest = { workspace = true }
 futures = "0.3.30"
-rstest = "0.25.0"

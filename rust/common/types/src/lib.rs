@@ -1,4 +1,5 @@
 mod event;
+mod person;
 mod team;
 
 // Events
@@ -13,3 +14,6 @@ pub use team::Team;
 
 // Utils
 pub mod util;
+
+// Persons
+pub use person::Person;
