@@ -1,4 +1,4 @@
-use anyhow::{anyhow, bail, Ok, Result};
+use anyhow::{anyhow, bail, Context, Ok, Result};
 use common_symbol_data::{write_symbol_data, SourceAndMap};
 use core::str;
 use serde::{Deserialize, Serialize};
@@ -85,7 +85,7 @@ impl SourceMap {
     }
 
     pub fn write(&self) -> Result<()> {
-        std::fs::write(&self.path, serde_json::to_string(&self.content)?)?;
+        std::fs::write(&self.path, self.to_string()?)?;
         Ok(())
     }
 
@@ -127,14 +127,16 @@ impl SourcePair {
     }
 
     pub fn into_chunk_upload(self) -> Result<ChunkUpload> {
-        let path = self.sourcemap.path.clone();
-        let sourcemap = str::from_utf8(&std::fs::read(path)?)?.to_string();
         let chunk_id = self
             .chunk_id()
             .ok_or_else(|| anyhow!("Chunk ID not found"))?;
+        let sourcemap_content = self
+            .sourcemap
+            .to_string()
+            .context("Failed to serialize sourcemap")?;
         let data = SourceAndMap {
             minified_source: self.source.content,
-            sourcemap,
+            sourcemap: sourcemap_content,
         };
         let data = write_symbol_data(data)?;
         Ok(ChunkUpload { chunk_id, data })
@@ -173,7 +175,7 @@ fn is_javascript_file(path: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use anyhow::Result;
+    use anyhow::{Context, Result};
     use std::fs::File;
     use std::io::Write;
     use tempfile::{tempdir, TempDir};
@@ -187,11 +189,11 @@ mod tests {
         }
         let js_path = sub_path.join(format!("{}.{}", pair_name, extension));
         info!("Creating file: {:?}", js_path);
-        let mut file = File::create(&js_path).expect("Failed to create file");
+        let mut file = File::create(&js_path).context("Failed to create file")?;
         let map_path = sub_path.join(format!("{}.{}.{}", pair_name, extension, "map"));
-        let mut map_file = File::create(&map_path).expect("Failed to create map");
-        writeln!(file, "console.log('hello');").expect("Failed to write to file");
-        writeln!(map_file, "{{}}").expect("Failed to write to file");
+        let mut map_file = File::create(&map_path).context("Failed to create map")?;
+        writeln!(file, "console.log('hello');").context("Failed to write to file")?;
+        writeln!(map_file, "{{}}").context("Failed to write to file")?;
         Ok(())
     }
 
@@ -200,7 +202,7 @@ mod tests {
         create_pair(&dir, "", "regular", "js")?;
         create_pair(&dir, "assets", "module", "mjs")?;
         create_pair(&dir, "assets/sub", "common", "cjs")?;
-        return Ok(dir);
+        Ok(dir)
     }
 
     #[test]
@@ -208,7 +210,7 @@ mod tests {
         let dist_dir = setup_test_directory().unwrap();
         assert!(dist_dir.path().exists());
         let dist_dir_path = dist_dir.path().to_path_buf();
-        let pairs = read_pairs(&dist_dir_path).expect("Failed to read pairs");
+        let pairs = read_pairs(&dist_dir_path).context("Failed to read pairs");
         assert_eq!(pairs.len(), 3);
     }
 }
