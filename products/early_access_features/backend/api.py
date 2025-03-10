@@ -243,7 +243,7 @@ class EarlyAccessFeatureViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 @csrf_exempt
 def early_access_features(request: Request):
     token = get_token(None, request)
-    stages = request.GET.getlist("stage", [EarlyAccessFeature.Stage.BETA, EarlyAccessFeature.Stage.CONCEPT])
+    stages = request.GET.getlist("stage", [EarlyAccessFeature.Stage.BETA])
 
     if not token:
         return cors_response(

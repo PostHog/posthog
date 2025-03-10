@@ -24,6 +24,7 @@ export function FeaturePreviews({ focusedFeatureFlagKey }: { focusedFeatureFlagK
     }, [focusedFeatureFlagKey, earlyAccessFeatures])
 
     const conceptFeatures = earlyAccessFeatures.filter((f) => f.stage === 'concept')
+    const disabledConceptFeatureCount = conceptFeatures.filter((f) => !f.enabled).length
     const betaFeatures = earlyAccessFeatures.filter((f) => f.stage === 'beta')
 
     return (
@@ -36,12 +37,13 @@ export function FeaturePreviews({ focusedFeatureFlagKey }: { focusedFeatureFlagK
             <LemonTabs
                 activeKey={activeKey}
                 onChange={setActiveKey}
+                size="small"
                 tabs={[
                     {
                         key: 'beta',
-                        label: 'Previews',
+                        label: <div className="px-2">Previews</div>,
                         content: (
-                            <div className="flex flex-col flex-1 px-3 overflow-y-auto gap-4">
+                            <div className="flex flex-col flex-1 px-3 overflow-y-auto gap-3 pt-2">
                                 <LemonBanner type="info">
                                     Get early access to these upcoming features. Let us know what you think!
                                 </LemonBanner>
@@ -56,12 +58,15 @@ export function FeaturePreviews({ focusedFeatureFlagKey }: { focusedFeatureFlagK
                     },
                     {
                         key: 'concept',
-                        label: `Coming soon (${conceptFeatures.length})`,
+                        label: (
+                            <div className="px-2">
+                                {/* eslint-disable-next-line react-google-translate/no-conditional-text-nodes-with-siblings */}
+                                Coming soon {disabledConceptFeatureCount > 0 && `(${disabledConceptFeatureCount})`}
+                            </div>
+                        ),
                         content: (
-                            <div className="flex flex-col flex-1 px-3 overflow-y-auto gap-4">
-                                <LemonBanner type="info">
-                                    Get notified about features we're going to work on soon!
-                                </LemonBanner>
+                            <div className="flex flex-col flex-1 px-3 overflow-y-auto gap-3 pt-2">
+                                <LemonBanner type="info">Get notified when upcoming features are ready!</LemonBanner>
                                 {conceptFeatures.map((feature, i) => (
                                     <div key={feature.flagKey} id={`feature-preview-${feature.flagKey}`}>
                                         {i > 0 && <LemonDivider className="my-4" />}
