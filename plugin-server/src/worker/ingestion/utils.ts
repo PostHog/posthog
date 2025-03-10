@@ -2,12 +2,11 @@ import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
 import { KafkaProducerWrapper, TopicMessage } from '../../kafka/producer'
-import { PipelineEvent, TeamId, TimestampFormat } from '../../types'
+import { PipelineEvent, PluginsServerConfig, TeamId, TimestampFormat } from '../../types'
 import { safeClickhouseString } from '../../utils/db/utils'
 import { status } from '../../utils/status'
 import { IngestionWarningLimiter } from '../../utils/token-bucket'
 import { castTimestampOrNow, castTimestampToClickhouseFormat, UUIDT } from '../../utils/utils'
-import { KAFKA_EVENTS_DEAD_LETTER_QUEUE, KAFKA_INGESTION_WARNINGS } from './../../config/kafka-topics'
 
 function getClickhouseTimestampOrNull(isoTimestamp?: string): string | null {
     return isoTimestamp
@@ -16,6 +15,7 @@ function getClickhouseTimestampOrNull(isoTimestamp?: string): string | null {
 }
 
 export function generateEventDeadLetterQueueMessage(
+    config: PluginsServerConfig,
     event: PipelineEvent | PluginEvent | ProcessedPluginEvent,
     error: unknown,
     teamId: number,
@@ -49,7 +49,7 @@ export function generateEventDeadLetterQueueMessage(
     }
 
     return {
-        topic: KAFKA_EVENTS_DEAD_LETTER_QUEUE,
+        topic: config.KAFKA_EVENTS_DEAD_LETTER_QUEUE,
         messages: [
             {
                 value: JSON.stringify(deadLetterQueueEvent),

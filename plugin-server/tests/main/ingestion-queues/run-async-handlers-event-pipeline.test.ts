@@ -19,7 +19,8 @@ import Redis from 'ioredis'
 // @ts-expect-error types don't exist for this package
 import LibrdKafkaError from 'node-rdkafka/lib/error'
 
-import { KAFKA_EVENTS_JSON } from '../../../src/config/kafka-topics'
+import { defaultConfig } from '~/src/config/config'
+
 import { buildOnEventIngestionConsumer } from '../../../src/main/ingestion-queues/on-event-handler-consumer'
 import { Hub, ISOTimestamp } from '../../../src/types'
 import { DependencyUnavailableError } from '../../../src/utils/db/error'
@@ -195,7 +196,7 @@ describe('eachBatchAsyncHandlers', () => {
         await expect(
             ingestionConsumer.eachBatchConsumer({
                 batch: {
-                    topic: KAFKA_EVENTS_JSON,
+                    topic: defaultConfig.KAFKA_EVENTS_JSON,
                     partition: 0,
                     highWatermark: '0',
                     messages: [

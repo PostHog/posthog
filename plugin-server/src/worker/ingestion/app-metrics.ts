@@ -2,9 +2,8 @@ import { Message } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { configure } from 'safe-stable-stringify'
 
-import { KAFKA_APP_METRICS } from '../../config/kafka-topics'
 import { KafkaProducerWrapper } from '../../kafka/producer'
-import { TeamId, TimestampFormat } from '../../types'
+import { PluginsServerConfig, TeamId, TimestampFormat } from '../../types'
 import { cleanErrorStackTrace } from '../../utils/db/error'
 import { captureException } from '../../utils/posthog'
 import { status } from '../../utils/status'
@@ -87,7 +86,12 @@ export class AppMetrics {
     // For quick access to queueSize instead of using Object.keys(queuedData).length every time
     queueSize: number
 
-    constructor(kafkaProducer: KafkaProducerWrapper, flushFrequencyMs: number, maxQueueSize: number) {
+    constructor(
+        config: PluginsServerConfig,
+        kafkaProducer: KafkaProducerWrapper,
+        flushFrequencyMs: number,
+        maxQueueSize: number
+    ) {
         this.queuedData = {}
 
         this.kafkaProducer = kafkaProducer
@@ -183,7 +187,7 @@ export class AppMetrics {
         }))
 
         await this.kafkaProducer.queueMessages({
-            topic: KAFKA_APP_METRICS,
+            topic: this.config.KAFKA_APP_METRICS,
             messages: messages,
         })
         status.debug('🚽', `Finished flushing app metrics, took ${Date.now() - startTime}ms`)

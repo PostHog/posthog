@@ -10,9 +10,9 @@ import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 import * as IORedis from 'ioredis'
 import { DateTime } from 'luxon'
 
+import { defaultConfig } from '~/src/config/config'
 import { captureTeamEvent } from '~/src/utils/posthog'
 
-import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../src/config/kafka-topics'
 import {
     ClickHouseEvent,
     Database,
@@ -86,7 +86,7 @@ export const getEventsByPerson = async (hub: Hub): Promise<EventsByPerson[]> => 
 
 const TEST_CONFIG: Partial<PluginsServerConfig> = {
     LOG_LEVEL: LogLevel.Log,
-    KAFKA_CONSUMPTION_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
+    KAFKA_CONSUMPTION_TOPIC: defaultConfig.KAFKA_EVENTS_PLUGIN_INGESTION,
 }
 
 let processEventCounter = 0

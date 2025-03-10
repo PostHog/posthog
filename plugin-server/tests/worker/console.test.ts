@@ -2,11 +2,11 @@
 import { getParsedQueuedMessages, mockProducer } from '../helpers/mocks/producer.mock'
 
 import { ConsoleExtension } from '@posthog/plugin-scaffold'
-import { KAFKA_PLUGIN_LOG_ENTRIES } from '../../src/config/kafka-topics'
 import { Hub, PluginLogEntrySource, PluginLogEntryType } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { createConsole } from '../../src/worker/vm/extensions/console'
 import { pluginConfig39 } from '../../tests/helpers/plugins'
+import { defaultConfig } from '~/src/config/config'
 
 jest.setTimeout(60000) // 60 sec timeout
 jest.mock('../../src/utils/status')
@@ -42,7 +42,7 @@ describe('console extension', () => {
 
                     expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
                     expect(getParsedQueuedMessages()[0]).toEqual({
-                        topic: KAFKA_PLUGIN_LOG_ENTRIES,
+                        topic: defaultConfig.KAFKA_PLUGIN_LOG_ENTRIES,
                         messages: [
                             {
                                 key: expect.any(String),

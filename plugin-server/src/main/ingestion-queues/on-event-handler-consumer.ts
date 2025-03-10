@@ -1,6 +1,5 @@
 import { Consumer } from 'kafkajs'
 
-import { KAFKA_EVENTS_JSON, prefix as KAFKA_PREFIX } from '../../config/kafka-topics'
 import { Hub, PluginServerService } from '../../types'
 import { status } from '../../utils/status'
 import { HookCommander } from '../../worker/ingestion/hooks'
@@ -54,7 +53,7 @@ export const startAsyncWebhooksHandlerConsumer = async (hub: Hub): Promise<Plugi
 
     const consumer = kafka.consumer({
         // NOTE: This should never clash with the group ID specified for the kafka engine posthog/ee/clickhouse/sql/clickhouse.py
-        groupId: `${KAFKA_PREFIX}clickhouse-plugin-server-async-webhooks`,
+        groupId: `clickhouse-plugin-server-async-webhooks`,
         sessionTimeout: hub.KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS,
         rebalanceTimeout: hub.KAFKA_CONSUMPTION_REBALANCE_TIMEOUT_MS ?? undefined,
         readUncommitted: false,
@@ -72,7 +71,7 @@ export const startAsyncWebhooksHandlerConsumer = async (hub: Hub): Promise<Plugi
     const concurrency = hub.TASKS_PER_WORKER || 20
 
     await actionManager.start()
-    await consumer.subscribe({ topic: KAFKA_EVENTS_JSON, fromBeginning: false })
+    await consumer.subscribe({ topic: hub.KAFKA_EVENTS_JSON, fromBeginning: false })
     await consumer.run({
         eachBatch: (payload) =>
             eachBatchWebhooksHandlers(
@@ -110,8 +109,8 @@ export const startAsyncWebhooksHandlerConsumer = async (hub: Hub): Promise<Plugi
 export const buildOnEventIngestionConsumer = ({ hub }: { hub: Hub }) => {
     return new KafkaJSIngestionConsumer(
         hub,
-        KAFKA_EVENTS_JSON,
-        `${KAFKA_PREFIX}clickhouse-plugin-server-async-onevent`,
+        hub.KAFKA_EVENTS_JSON,
+        `clickhouse-plugin-server-async-onevent`,
         eachBatchAppsOnEventHandlers
     )
 }

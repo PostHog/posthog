@@ -119,6 +119,7 @@ export async function createHub(
     }
 
     const db = new DB(
+        serverConfig,
         postgres,
         redisPool,
         kafkaProducer,
@@ -172,6 +173,7 @@ export async function createHub(
             process.env.SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID
         ),
         appMetrics: new AppMetrics(
+            serverConfig,
             kafkaProducer,
             serverConfig.APP_METRICS_FLUSH_FREQUENCY_MS,
             serverConfig.APP_METRICS_FLUSH_MAX_QUEUE_SIZE

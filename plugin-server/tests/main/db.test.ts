@@ -381,7 +381,7 @@ describe('DB', () => {
 
             // verify correct Kafka message was sent
             expect(db.kafkaProducer!.queueMessages).toHaveBeenLastCalledWith([
-                generateKafkaPersonUpdateMessage(updatedPerson),
+                db['generateKafkaPersonUpdateMessage'](updatedPerson),
             ])
         })
     })

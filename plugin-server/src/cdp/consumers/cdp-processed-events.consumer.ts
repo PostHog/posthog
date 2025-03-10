@@ -8,7 +8,6 @@ import {
     isLegacyPluginHogFunction,
     serializeHogFunctionInvocation,
 } from '../../cdp/utils'
-import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
 import { runInstrumentedFunction } from '../../main/utils'
 import { status } from '../../utils/status'
 import { HogWatcherState } from '../services/hog-watcher.service'
@@ -17,14 +16,15 @@ import { CdpConsumerBase } from './cdp-base.consumer'
 
 export class CdpProcessedEventsConsumer extends CdpConsumerBase {
     protected name = 'CdpProcessedEventsConsumer'
-    protected topic = KAFKA_EVENTS_JSON
     protected groupId = 'cdp-processed-events-consumer'
+    protected topic: string
     protected hogTypes: HogFunctionTypeType[] = ['destination']
 
     private cyclotronManager?: CyclotronManager
 
     constructor(hub: Hub) {
         super(hub)
+        this.topic = hub.KAFKA_EVENTS_JSON
     }
 
     public async processBatch(invocationGlobals: HogFunctionInvocationGlobals[]): Promise<HogFunctionInvocation[]> {

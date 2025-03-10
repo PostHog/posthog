@@ -5,10 +5,6 @@ import { CODES, features, KafkaConsumer, librdkafkaVersion, Message, TopicPartit
 import { Counter, Gauge, Histogram, Summary } from 'prom-client'
 
 import { buildIntegerMatcher } from '../../../config/config'
-import {
-    KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
-    KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
-} from '../../../config/kafka-topics'
 import { BatchConsumer, startBatchConsumer } from '../../../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../../../kafka/config'
 import { KafkaProducerWrapper } from '../../../kafka/producer'
@@ -175,8 +171,8 @@ export class SessionRecordingIngester {
         this.isDebugLoggingEnabled = buildIntegerMatcher(config.SESSION_RECORDING_DEBUG_PARTITION, true)
 
         this.topic = consumeOverflow
-            ? KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW
-            : KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
+            ? this.config.KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW
+            : this.config.KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
         this.consumerGroupId = this.consumeOverflow ? KAFKA_CONSUMER_GROUP_ID_OVERFLOW : KAFKA_CONSUMER_GROUP_ID
 
         this.redisPool = createRedisPool(this.config, 'session-recording')
@@ -476,6 +472,7 @@ export class SessionRecordingIngester {
 
         if (this.config.SESSION_RECORDING_CONSOLE_LOGS_INGESTION_ENABLED) {
             this.consoleLogsIngester = new ConsoleLogsIngester(
+                this.config,
                 this.sharedClusterProducerWrapper,
                 this.persistentHighWaterMarker
             )
@@ -483,6 +480,7 @@ export class SessionRecordingIngester {
 
         if (this.config.SESSION_RECORDING_REPLAY_EVENTS_INGESTION_ENABLED) {
             this.replayEventsIngester = new ReplayEventsIngester(
+                this.config,
                 this.sharedClusterProducerWrapper,
                 this.persistentHighWaterMarker
             )

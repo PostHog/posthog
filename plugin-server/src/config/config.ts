@@ -1,21 +1,59 @@
-import { LogLevel, PluginLogLevel, PluginsServerConfig, stringToPluginServerMode, ValueMatcher } from '../types'
+import {
+    KAFKA_TOPICS,
+    LogLevel,
+    PluginLogLevel,
+    PluginsServerConfig,
+    stringToPluginServerMode,
+    ValueMatcher,
+} from '../types'
 import { isDevEnv, isTestEnv, stringToBoolean } from '../utils/env-utils'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from './constants'
-import {
-    KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
-    KAFKA_EVENTS_JSON,
-    KAFKA_EVENTS_PLUGIN_INGESTION,
-    KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
-    KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
-    KAFKA_EXCEPTION_SYMBOLIFICATION_EVENTS,
-} from './kafka-topics'
 
 export const DEFAULT_HTTP_SERVER_PORT = 6738
 
 export const defaultConfig = overrideWithEnv(getDefaultConfig())
 
+const KAFKA_TOPIC_DEFAULTS: KAFKA_TOPICS = {
+    KAFKA_EVENTS_JSON: `clickhouse_events_json`,
+    KAFKA_PERSON: `clickhouse_person`,
+    KAFKA_PERSON_UNIQUE_ID: `clickhouse_person_unique_id`,
+    KAFKA_PERSON_DISTINCT_ID: `clickhouse_person_distinct_id`,
+
+    KAFKA_EVENTS_PLUGIN_INGESTION: `events_plugin_ingestion`,
+    KAFKA_EVENTS_PLUGIN_INGESTION_DLQ: `events_plugin_ingestion_dlq`,
+    KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW: `events_plugin_ingestion_overflow`,
+    KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL: `events_plugin_ingestion_historical`,
+    KAFKA_PLUGIN_LOG_ENTRIES: `plugin_log_entries`,
+    KAFKA_EVENTS_DEAD_LETTER_QUEUE: `events_dead_letter_queue`,
+    KAFKA_GROUPS: `clickhouse_groups`,
+    KAFKA_BUFFER: `conversion_events_buffer`,
+    KAFKA_INGESTION_WARNINGS: `clickhouse_ingestion_warnings`,
+    KAFKA_APP_METRICS: `clickhouse_app_metrics`,
+    KAFKA_APP_METRICS_2: `clickhouse_app_metrics2`,
+    KAFKA_METRICS_TIME_TO_SEE_DATA: `clickhouse_metrics_time_to_see_data`,
+    KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS: `session_recording_snapshot_item_events`,
+    KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW: `session_recording_snapshot_item_overflow`,
+    KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS: `clickhouse_session_recording_events`,
+    KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS: `clickhouse_session_replay_events`,
+    KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS_V2_TEST: `clickhouse_session_replay_events_v2_test`,
+    KAFKA_PERFORMANCE_EVENTS: `clickhouse_performance_events`,
+    KAFKA_CLICKHOUSE_HEATMAP_EVENTS: `clickhouse_heatmap_events`,
+    KAFKA_LOG_ENTRIES: `log_entries`,
+    KAFKA_CDP_FUNCTION_OVERFLOW: `cdp_function_overflow`,
+    KAFKA_CDP_INTERNAL_EVENTS: `cdp_internal_events`,
+    KAFKA_EXCEPTION_SYMBOLIFICATION_EVENTS: `exception_symbolification_events`,
+    KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT: `clickhouse_error_tracking_issue_fingerprint`,
+}
+
+if (isTestEnv()) {
+    for (const key of Object.keys(KAFKA_TOPIC_DEFAULTS)) {
+        KAFKA_TOPIC_DEFAULTS[key as keyof KAFKA_TOPICS] = `${KAFKA_TOPIC_DEFAULTS[key as keyof KAFKA_TOPICS]}_test`
+    }
+}
+
 export function getDefaultConfig(): PluginsServerConfig {
     return {
+        ...KAFKA_TOPIC_DEFAULTS,
         DATABASE_URL: isTestEnv()
             ? 'postgres://posthog:posthog@localhost:5432/test_posthog'
             : isDevEnv()
@@ -51,13 +89,14 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKA_SASL_PASSWORD: undefined,
         KAFKA_CLIENT_ID: undefined,
         KAFKA_CLIENT_RACK: undefined,
+
         KAFKA_CONSUMPTION_MAX_BYTES: 10_485_760, // Default value for kafkajs
         KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION: 1_048_576, // Default value for kafkajs, must be bigger than message size
         KAFKA_CONSUMPTION_MAX_WAIT_MS: 50, // Maximum time the broker may wait to fill the Fetch response with fetch.min.bytes of messages.
         KAFKA_CONSUMPTION_ERROR_BACKOFF_MS: 100, // Timeout when a partition read fails (possibly because empty).
         KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS: 500, // Timeout on reads from the prefetch buffer before running consumer loops
-        KAFKA_CONSUMPTION_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
-        KAFKA_CONSUMPTION_OVERFLOW_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
+        KAFKA_CONSUMPTION_TOPIC: KAFKA_TOPIC_DEFAULTS.KAFKA_EVENTS_PLUGIN_INGESTION,
+        KAFKA_CONSUMPTION_OVERFLOW_TOPIC: KAFKA_TOPIC_DEFAULTS.KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
         KAFKA_CONSUMPTION_REBALANCE_TIMEOUT_MS: null,
         KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS: 30_000,
         KAFKA_CONSUMPTION_MAX_POLL_INTERVAL_MS: 300_000,
@@ -108,9 +147,9 @@ export function getDefaultConfig(): PluginsServerConfig {
         HEALTHCHECK_MAX_STALE_SECONDS: 2 * 60 * 60, // 2 hours
         SITE_URL: null,
         KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: 1,
-        CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: KAFKA_EVENTS_JSON,
-        CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
-        EXCEPTIONS_SYMBOLIFICATION_KAFKA_TOPIC: KAFKA_EXCEPTION_SYMBOLIFICATION_EVENTS,
+        CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: KAFKA_TOPIC_DEFAULTS.KAFKA_EVENTS_JSON,
+        CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: KAFKA_TOPIC_DEFAULTS.KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
+        EXCEPTIONS_SYMBOLIFICATION_KAFKA_TOPIC: KAFKA_TOPIC_DEFAULTS.KAFKA_EXCEPTION_SYMBOLIFICATION_EVENTS,
         PERSON_INFO_CACHE_TTL: 5 * 60, // 5 min
         KAFKA_HEALTHCHECK_SECONDS: 20,
         OBJECT_STORAGE_ENABLED: true,
@@ -215,9 +254,9 @@ export function getDefaultConfig(): PluginsServerConfig {
 
         // New IngestionConsumer config
         INGESTION_CONSUMER_GROUP_ID: 'events-ingestion-consumer',
-        INGESTION_CONSUMER_CONSUME_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
-        INGESTION_CONSUMER_OVERFLOW_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
-        INGESTION_CONSUMER_DLQ_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
+        INGESTION_CONSUMER_CONSUME_TOPIC: KAFKA_TOPIC_DEFAULTS.KAFKA_EVENTS_PLUGIN_INGESTION,
+        INGESTION_CONSUMER_OVERFLOW_TOPIC: KAFKA_TOPIC_DEFAULTS.KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
+        INGESTION_CONSUMER_DLQ_TOPIC: KAFKA_TOPIC_DEFAULTS.KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
 
         // Session recording V2
         SESSION_RECORDING_MAX_BATCH_SIZE_KB: 100 * 1024, // 100MB

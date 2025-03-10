@@ -4,7 +4,6 @@ import { getProducedKafkaMessages, getProducedKafkaMessagesForTopic } from '~/te
 import { CdpCyclotronWorker, CdpCyclotronWorkerFetch } from '../../src/cdp/consumers/cdp-cyclotron-worker.consumer'
 import { CdpProcessedEventsConsumer } from '../../src/cdp/consumers/cdp-processed-events.consumer'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../../src/cdp/types'
-import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '../../src/config/kafka-topics'
 import { Hub, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { waitForExpect } from '~/tests/helpers/expectations'
@@ -128,8 +127,8 @@ describe('CDP Consumer loop', () => {
                 ]
             `)
 
-            const logMessages = getProducedKafkaMessagesForTopic(KAFKA_LOG_ENTRIES)
-            const metricsMessages = getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+            const logMessages = getProducedKafkaMessagesForTopic(hub.KAFKA_LOG_ENTRIES)
+            const metricsMessages = getProducedKafkaMessagesForTopic(hub.KAFKA_APP_METRICS_2)
 
             expect(metricsMessages).toMatchObject([
                 {

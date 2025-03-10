@@ -1,7 +1,6 @@
 import * as Sentry from '@sentry/node'
 import { Message, MessageHeader } from 'node-rdkafka'
 
-import { KAFKA_EVENTS_PLUGIN_INGESTION_DLQ, KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW } from '../../../config/kafka-topics'
 import { PipelineEvent, ValueMatcher } from '../../../types'
 import { formPipelineEvent } from '../../../utils/event'
 import { captureException } from '../../../utils/posthog'
@@ -76,7 +75,7 @@ async function handleProcessingError(
         headers.push({ ['event-id']: pluginEvent.uuid })
         try {
             await queue.pluginsServer.kafkaProducer.produce({
-                topic: KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
+                topic: queue.pluginsServer.KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
                 value: message.value,
                 key: message.key ?? null, // avoid undefined, just to be safe
                 headers: headers,
@@ -272,7 +271,7 @@ async function emitToOverflow(queue: IngestionConsumer, kafkaMessages: Message[]
     await Promise.all(
         kafkaMessages.map((message) =>
             queue.pluginsServer.kafkaProducer.produce({
-                topic: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
+                topic: queue.pluginsServer.KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
                 value: message.value,
                 // ``message.key`` should not be undefined here, but in the
                 // (extremely) unlikely event that it is, set it to ``null``

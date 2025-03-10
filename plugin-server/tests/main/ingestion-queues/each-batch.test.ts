@@ -1,7 +1,6 @@
 import { PostgresRouter } from '~/src/utils/db/postgres'
 
-import { buildStringMatcher } from '../../../src/config/config'
-import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../../src/config/kafka-topics'
+import { buildStringMatcher, defaultConfig } from '../../../src/config/config'
 import {
     eachBatchParallelIngestion,
     IngestionOverflowMode,
@@ -126,7 +125,7 @@ describe('eachBatchX', () => {
             timestamp,
             offset: offset,
             partition: 0,
-            topic: KAFKA_EVENTS_PLUGIN_INGESTION,
+            topic: defaultConfig.KAFKA_EVENTS_PLUGIN_INGESTION,
         }))
     }
 

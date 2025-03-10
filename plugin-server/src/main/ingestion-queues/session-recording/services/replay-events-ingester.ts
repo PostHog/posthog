@@ -2,7 +2,8 @@ import { randomUUID } from 'crypto'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
-import { KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS } from '../../../../config/kafka-topics'
+import { PluginsServerConfig } from '~/src/types'
+
 import { findOffsetsToCommit } from '../../../../kafka/consumer'
 import { retryOnDependencyUnavailableError } from '../../../../kafka/error-handling'
 import { KafkaProducerWrapper } from '../../../../kafka/producer'
@@ -30,6 +31,7 @@ const dataIngestedCounter = new Counter({
 
 export class ReplayEventsIngester {
     constructor(
+        private readonly config: PluginsServerConfig,
         private readonly producer: KafkaProducerWrapper,
         private readonly persistentHighWaterMarker?: OffsetHighWaterMarker
     ) {}
@@ -184,7 +186,7 @@ export class ReplayEventsIngester {
 
             return [
                 this.producer.queueMessages({
-                    topic: KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
+                    topic: this.config.KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
                     messages: [
                         {
                             value: JSON.stringify(replayRecord),

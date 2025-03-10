@@ -135,7 +135,38 @@ export type IngestionConsumerConfig = {
     INGESTION_CONSUMER_TESTING_TOPIC?: string
 }
 
-export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig {
+export type KAFKA_TOPICS = {
+    KAFKA_EVENTS_JSON: string
+    KAFKA_PERSON: string
+    KAFKA_PERSON_UNIQUE_ID: string
+    KAFKA_PERSON_DISTINCT_ID: string
+    KAFKA_EVENTS_PLUGIN_INGESTION: string
+    KAFKA_EVENTS_PLUGIN_INGESTION_DLQ: string
+    KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW: string
+    KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL: string
+    KAFKA_PLUGIN_LOG_ENTRIES: string
+    KAFKA_EVENTS_DEAD_LETTER_QUEUE: string
+    KAFKA_GROUPS: string
+    KAFKA_BUFFER: string
+    KAFKA_INGESTION_WARNINGS: string
+    KAFKA_APP_METRICS: string
+    KAFKA_APP_METRICS_2: string
+    KAFKA_METRICS_TIME_TO_SEE_DATA: string
+    KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS: string
+    KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW: string
+    KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS: string
+    KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS: string
+    KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS_V2_TEST: string
+    KAFKA_PERFORMANCE_EVENTS: string
+    KAFKA_CLICKHOUSE_HEATMAP_EVENTS: string
+    KAFKA_LOG_ENTRIES: string
+    KAFKA_CDP_FUNCTION_OVERFLOW: string
+    KAFKA_CDP_INTERNAL_EVENTS: string
+    KAFKA_EXCEPTION_SYMBOLIFICATION_EVENTS: string
+    KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT: string
+}
+
+export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig, KAFKA_TOPICS {
     TASKS_PER_WORKER: number // number of parallel tasks per worker thread
     INGESTION_CONCURRENCY: number // number of parallel event ingestion queues per batch
     INGESTION_BATCH_SIZE: number // kafka consumer batch size
