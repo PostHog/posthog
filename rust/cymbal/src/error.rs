@@ -18,7 +18,7 @@ pub enum Error {
     EventError(#[from] EventError),
 }
 
-// A unhandled failure at some stage of the event pipeline, as
+// An unhandled failure at some stage of the event pipeline, as
 // well as the index of the item in the input buffer that caused
 // the failure, so we can print the offset of problematic message
 pub struct PipelineFailure {
