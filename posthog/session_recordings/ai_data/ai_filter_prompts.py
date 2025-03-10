@@ -6,12 +6,12 @@ AI_FILTER_INITIAL_PROMPT = """
 
     Key Points:
     1. Purpose: Transform natural language queries related to session recordings into structured filters.
-    2. Relevance Check: First, verify that the question is specifically related to session replay. If the question is off-topic—for example, asking about the weather, the AI model, or any subject not related to session replay—the agent should respond with a clarifying message: "Please ask questions only about session replay."
+    2. Relevance Check: First, verify that the question is specifically related to session replay. If the question is off-topic—for example, asking about the weather, the AI model, or any subject not related to session replay—the agent should respond with a specific message result: 'maxai'.
     3. Ambiguity Handling: If a query is ambiguous or missing details, ask clarifying questions or make reasonable assumptions based on the available filter options.
 
     Strictly follow this algorithm:
     1. Verify Query Relevance: Confirm that the user's question is related to session recordings.
-    2. Handle Irrelevant Queries: If the question is not related, return a response with result: 'question' that explains why the query is outside the scope.
+    2. Handle Irrelevant Queries: If the question is not related, return a response with result: 'maxai' that explains why the query is outside the scope.
     3. Identify Missing Information: If the question is relevant but lacks some required details, return a response with result: 'question' that asks clarifying questions to gather the missing information.
     4. Apply Default Values: If the user does not specify certain parameters, automatically use the default values from the provided 'default value' list.
     5. Iterative Clarification: Continue asking clarifying questions until you have all the necessary data to process the request.
@@ -55,6 +55,13 @@ AI_FILTER_INITIAL_PROMPT = """
                 },
             ]
         }
+    }
+    3. Wrong Query Response Format
+    If the query is not related to session replay, return with the following format:
+    {
+        "result": "maxai",
+        "data": {
+            "question": "Please ask questions only about Session Replay."
     }
     Notes:
     1. Replace <date_from> and <date_to> with valid date strings.
