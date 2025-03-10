@@ -27,6 +27,9 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 uuid.workspace = true
 common-symbol-data = { path = "../common/symbol_data" }
+tempfile = "3.18.0"
+test-log = "0.2.17"
+walkdir = "2.5.0"
 
 [lints]
 workspace = true
