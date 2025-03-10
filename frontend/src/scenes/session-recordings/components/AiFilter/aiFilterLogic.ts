@@ -113,7 +113,7 @@ export const aiFilterLogic = kea<aiFilterLogicType>([
                             {
                                 role: 'assistant',
                                 content:
-                                    'It looks like you are asking not about Session Replay, so I redirect you to Max AI Senior.',
+                                    'It looks like you are asking about something other than session replay, so I redirect you to Max.',
                             } as ChatCompletionAssistantMessageParam,
                         ])
                         posthog.capture('ai_filter_redirect_maxai')
