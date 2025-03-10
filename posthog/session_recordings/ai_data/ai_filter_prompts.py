@@ -61,7 +61,7 @@ AI_FILTER_INITIAL_PROMPT = """
     {
         "result": "maxai",
         "data": {
-            "question": "Please ask only about Session Replay."
+            "question": "Please ask questions only about Session Replay."
     }
     Notes:
     1. Replace <date_from> and <date_to> with valid date strings.
