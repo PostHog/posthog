@@ -209,6 +209,9 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                     data["hog"] = data.get("hog") or template.hog
                     data["inputs_schema"] = data.get("inputs_schema") or template.inputs_schema
                     data["inputs"] = data.get("inputs") or {}
+                    data["icon_url"] = data.get("icon_url") or template.icon_url
+                    data["description"] = data.get("description") or template.description
+                    data["name"] = data.get("name") or template.name
 
         return super().to_internal_value(data)
 
