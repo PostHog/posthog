@@ -7,7 +7,7 @@ use std::{
     collections::HashMap,
     path::{Path, PathBuf},
 };
-use tracing::info;
+use tracing::{info, warn};
 use walkdir::WalkDir;
 
 pub struct Source {
@@ -160,7 +160,7 @@ pub fn read_pairs(directory: &PathBuf) -> Result<Vec<SourcePair>> {
                 let sourcemap = SourceMap::read(&sourcemap_path)?;
                 pairs.push(SourcePair { source, sourcemap });
             } else {
-                bail!("No sourcemap file found for file {}", entry_path.display());
+                warn!("No sourcemap file found for file {}", entry_path.display());
             }
         }
     }
