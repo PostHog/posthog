@@ -1,4 +1,4 @@
-import { IconPlusSmall, IconSearch, IconSort, IconX } from '@posthog/icons'
+import { IconPin, IconPinFilled, IconPlusSmall, IconSearch, IconSort, IconX } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -15,6 +15,7 @@ import { NavbarBottom } from '../NavbarBottom'
 import { ProjectDropdownMenu } from './ProjectDropdownMenu'
 import { projectTreeLogic } from './projectTreeLogic'
 import { joinPath, splitPath } from './utils'
+import { projectPanelLayoutLogic } from '~/layout/project-panel-layout/projectPanelLayoutLogic'
 
 export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLElement> }): JSX.Element {
     const { isNavShown, mobileLayout } = useValues(navigation3000Logic)
@@ -44,6 +45,8 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
         setSearchTerm,
         clearSearch,
     } = useActions(projectTreeLogic)
+    const { togglePanelVisible, togglePanelPinned } = useActions(projectPanelLayoutLogic)
+    const { isPanelPinned } = useValues(projectPanelLayoutLogic)
     const treeRef = useRef<LemonTreeRef>(null)
     const containerRef = useRef<HTMLDivElement | null>(null)
 
@@ -55,7 +58,7 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
 
     return (
         <>
-            <nav className={clsx('Navbar3000 relative', !isNavShown && 'Navbar3000--hidden')} ref={containerRef}>
+            <nav className={clsx('flex flex-col max-h-screen min-h-screen relative min-w-[320px]')} ref={containerRef}>
                 <div className="flex justify-between p-1 bg-surface-tertiary">
                     <ProjectDropdownMenu />
 
@@ -67,6 +70,14 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                             onClick={() => alert('Sort by name')}
                             className="shrink-0"
                             icon={<IconSort />}
+                        />
+                        <LemonButton
+                            size="small"
+                            type="tertiary"
+                            tooltip={isPanelPinned ? 'Unpin panel' : 'Pin panel'}
+                            onClick={() => togglePanelPinned(!isPanelPinned)}
+                            className="shrink-0"
+                            icon={isPanelPinned ? <IconPinFilled /> : <IconPin />}
                         />
                         <LemonButton
                             size="small"
@@ -163,6 +174,7 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                         onNodeClick={(node) => {
                             if (node?.record?.path) {
                                 setLastViewedId(node?.id || '')
+                                togglePanelVisible(false)
                             }
                             if (node?.id.startsWith('project-load-more/')) {
                                 const path = node.id.split('/').slice(1).join('/')

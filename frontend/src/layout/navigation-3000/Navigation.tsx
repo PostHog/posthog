@@ -13,12 +13,12 @@ import { navigationLogic } from '../navigation/navigationLogic'
 import { ProjectNotice } from '../navigation/ProjectNotice'
 import { MinimalNavigation } from './components/MinimalNavigation'
 import { Navbar } from './components/Navbar'
-import { ProjectTree } from './components/ProjectTree/ProjectTree'
 import { Sidebar } from './components/Sidebar'
 import { TopBar } from './components/TopBar'
 import { navigation3000Logic } from './navigationLogic'
 import { SidePanel } from './sidepanel/SidePanel'
 import { themeLogic } from './themeLogic'
+import { ProjectPanelLayout } from '~/layout/project-panel-layout/ProjectPanelLayout'
 
 export function Navigation({
     children,
@@ -55,7 +55,7 @@ export function Navigation({
             </a>
 
             <FlaggedFeature flag={FEATURE_FLAGS.TREE_VIEW} fallback={<Navbar />}>
-                <ProjectTree contentRef={mainRef} />
+                <ProjectPanelLayout mainRef={mainRef} />
             </FlaggedFeature>
             <FlaggedFeature flag={FEATURE_FLAGS.POSTHOG_3000_NAV}>
                 {activeNavbarItem && <Sidebar key={activeNavbarItem.identifier} navbarItem={activeNavbarItem} />}
