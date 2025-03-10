@@ -553,6 +553,53 @@ GET_CUSTOM_EVENTS = """
 SELECT DISTINCT event FROM events where team_id = %(team_id)s AND event NOT IN ['$autocapture', '$pageview', '$identify', '$pageleave', '$screen']
 """
 
+SHARDED_TEAM_EVENT_NUMBER_TABLE = "sharded_event_number_mv"
+
+
+def SHARDED_TEAM_EVENT_NUMBER_MV_SQL(on_cluster=False):
+    return f"""
+CREATE MATERIALIZED VIEW IF NOT EXISTS {SHARDED_TEAM_EVENT_NUMBER_TABLE} {ON_CLUSTER_CLAUSE(on_cluster)}
+ENGINE = AggregatingMergeTree()
+PARTITION BY toYYYYMMDD(date)
+ORDER BY (team_id, event, date)
+AS
+SELECT
+    team_id,
+    event,
+    toDate(timestamp) AS date,
+    countState() AS event_count_state
+FROM {settings.CLICKHOUSE_DATABASE}.sharded_events
+GROUP BY
+    team_id,
+    event,
+    date;
+"""
+
+
+def TEAM_EVENT_NUMBER_DIST_SQL(on_cluster=False):
+    return f"""
+CREATE TABLE IF NOT EXISTS event_number {ON_CLUSTER_CLAUSE(on_cluster)}
+ENGINE = {Distributed(SHARDED_TEAM_EVENT_NUMBER_TABLE, 'cityHash64(team_id, event, date)')}
+AS sharded_event_number_mv;
+"""
+
+
+def TEAM_EVENT_NUMBER_VIEW_SQL(on_cluster=False):
+    return f"""
+CREATE VIEW IF NOT EXISTS event_number_v {ON_CLUSTER_CLAUSE(on_cluster)} AS
+SELECT
+    team_id,
+    event,
+    date,
+    countMerge(event_count_state) AS event_count
+FROM event_number
+GROUP BY
+    team_id,
+    event,
+    date;
+"""
+
+
 #
 # Demo data
 #
