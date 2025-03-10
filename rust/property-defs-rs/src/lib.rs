@@ -10,7 +10,6 @@ use metrics_consts::{
     RECV_DEQUEUED, SKIPPED_DUE_TO_TEAM_FILTER, UPDATES_CACHE, UPDATES_FILTERED_BY_CACHE,
     UPDATES_PER_EVENT, UPDATES_SEEN, UPDATE_ISSUE_TIME, UPDATE_PRODUCER_OFFSET, WORKER_BLOCKED,
 };
-use quick_cache::sync::Cache;
 use tokio::sync::mpsc::{self, error::TrySendError};
 use tracing::{error, warn};
 use types::{Event, Update};
@@ -23,7 +22,6 @@ pub mod types;
 
 pub async fn update_consumer_loop(
     config: Config,
-    cache: Arc<Cache<Update, ()>>,
     context: Arc<AppContext>,
     mut channel: mpsc::Receiver<Update>,
 ) {
@@ -70,7 +68,7 @@ pub async fn update_consumer_loop(
 
         metrics::counter!(DUPLICATES_IN_BATCH).increment((start_len - batch.len()) as u64);
 
-        let cache_utilization = cache.as_ref().len() as f64 / config.cache_capacity as f64;
+        let cache_utilization = context.updates_cache.len() as f64 / config.cache_capacity as f64;
         metrics::gauge!(CACHE_CONSUMED).set(cache_utilization);
 
         // We split our update batch into chunks, one per transaction. We know each update touches
@@ -87,12 +85,11 @@ pub async fn update_consumer_loop(
         let mut handles = Vec::new();
         let issue_time = common_metrics::timing_guard(UPDATE_ISSUE_TIME, &[]);
         for mut chunk in chunks {
-            let chunk_cache = cache.clone();
+            let chunk_ctx = context.clone();
 
             // resolve the group types for this chunk
             let group_type_resolve_time =
                 common_metrics::timing_guard(GROUP_TYPE_RESOLVE_TIME, &[]);
-            let chunk_ctx = context.clone();
             match chunk_ctx.resolve_group_types_indexes(&mut chunk).await {
                 Ok(_) => (),
                 Err(e) => {
@@ -106,8 +103,9 @@ pub async fn update_consumer_loop(
             group_type_resolve_time.fin();
 
             let handle = tokio::spawn(async move {
-                chunk_ctx.issue(chunk, chunk_cache, cache_utilization).await;
+                chunk_ctx.issue(chunk, cache_utilization).await;
             });
+
             handles.push(handle);
         }
 
@@ -121,7 +119,7 @@ pub async fn update_consumer_loop(
 pub async fn update_producer_loop(
     consumer: SingleTopicConsumer,
     channel: mpsc::Sender<Update>,
-    shared_cache: Arc<Cache<Update, ()>>,
+    context: Arc<AppContext>,
     skip_threshold: usize,
     compaction_batch_size: usize,
     team_filter_mode: TeamFilterMode,
@@ -191,14 +189,14 @@ pub async fn update_producer_loop(
         if batch.len() >= compaction_batch_size || last_send.elapsed() > Duration::from_secs(10) {
             last_send = tokio::time::Instant::now();
             for update in batch.drain() {
-                if shared_cache.get(&update).is_some() {
+                if context.updates_cache.get(&update).is_some() {
                     metrics::counter!(UPDATES_CACHE, &[("action", "hit")]).increment(1);
                     // the above can replace this metric when we have new hit/miss stats both flowing
                     metrics::counter!(UPDATES_FILTERED_BY_CACHE).increment(1);
                     continue;
                 }
                 metrics::counter!(UPDATES_CACHE, &[("action", "miss")]).increment(1);
-                shared_cache.insert(update.clone(), ());
+                context.updates_cache.insert(update.clone(), ());
                 match channel.try_send(update) {
                     Ok(_) => {}
                     Err(TrySendError::Full(update)) => {

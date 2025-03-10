@@ -9,7 +9,6 @@ use property_defs_rs::{
     config::Config, update_consumer_loop, update_producer_loop,
 };
 
-use quick_cache::sync::Cache;
 use serve_metrics::{serve, setup_metrics_routes};
 use sqlx::postgres::PgPoolOptions;
 use tokio::{
@@ -81,17 +80,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (tx, rx) = mpsc::channel(config.update_batch_size * config.channel_slots_per_worker);
 
-    let cache = Cache::new(config.cache_capacity);
-
-    let cache = Arc::new(cache);
-
     let mut handles = Vec::new();
 
     for _ in 0..config.worker_loop_count {
         let handle = tokio::spawn(update_producer_loop(
             consumer.clone(),
             tx.clone(),
-            cache.clone(),
+            context.clone(),
             config.update_count_skip_threshold,
             config.compaction_batch_size,
             config.filter_mode.clone(),
@@ -102,7 +97,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     handles.push(tokio::spawn(update_consumer_loop(
-        config, cache, context, rx,
+        config,
+        context.clone(),
+        rx,
     )));
 
     // if any handle returns, abort the other ones, and then return an error

@@ -2,7 +2,6 @@ use health::{HealthHandle, HealthRegistry};
 use quick_cache::sync::Cache;
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use std::borrow::Cow;
-use std::sync::Arc;
 use time::Duration;
 use tracing::{error, warn};
 
@@ -35,6 +34,7 @@ pub struct AppContext {
     pub cache_warming_cutoff: f64,
     pub skip_writes: bool,
     pub skip_reads: bool,
+    pub updates_cache: Cache<Update, ()>,
     pub group_type_cache: Cache<String, i32>, // Keyed on group-type name, and team id
 }
 
@@ -48,6 +48,8 @@ impl AppContext {
             .register("worker".to_string(), Duration::seconds(60))
             .await;
 
+        let updates_cache = Cache::new(config.cache_capacity);
+
         let group_type_cache = Cache::new(config.group_type_cache_size);
 
         Ok(Self {
@@ -59,16 +61,12 @@ impl AppContext {
             cache_warming_cutoff: 0.9,
             skip_writes: config.skip_writes,
             skip_reads: config.skip_reads,
+            updates_cache,
             group_type_cache,
         })
     }
 
-    pub async fn issue(
-        &self,
-        updates: Vec<Update>,
-        mut cache: Arc<Cache<Update, ()>>,
-        cache_consumed: f64,
-    ) {
+    pub async fn issue(&self, updates: Vec<Update>, cache_consumed: f64) {
         if cache_consumed < self.cache_warming_cutoff {
             metrics::gauge!(CACHE_WARMING_STATE, &[("state", "warming")]).set(cache_consumed);
             let to_sleep = self.cache_warming_delay * (1.0 - cache_consumed) as i32;
@@ -97,7 +95,7 @@ impl AppContext {
                             // If we hit a constraint violation, we just skip the update. We see
                             // this in production for group-type-indexes not being resolved, and it's
                             // not worth aborting the whole batch for.
-                            AppContext::remove_from_cache(&mut cache, &update);
+                            self.remove_from_cache(&update);
                             let tags = [
                                 ("result", "constraint_violation".to_string()),
                                 ("attempt", AppContext::format_attempt(tries)),
@@ -108,7 +106,7 @@ impl AppContext {
                         }
 
                         Err(e) => {
-                            AppContext::remove_from_cache(&mut cache, &update);
+                            self.remove_from_cache(&update);
                             let tags = [
                                 ("result", "error".to_string()),
                                 ("attempt", AppContext::format_attempt(tries)),
@@ -141,10 +139,10 @@ impl AppContext {
         "failed".to_string()
     }
 
-    fn remove_from_cache(cache: &mut Arc<Cache<Update, ()>>, u: &Update) {
+    fn remove_from_cache(&self, u: &Update) {
         // Clear the failed update from the cache, so that if
         // we see it again, we'll try again to store it ASAP
-        if cache.remove(u).is_some() {
+        if self.updates_cache.remove(u).is_some() {
             metrics::counter!(UPDATES_CACHE_EVICTION, &[("action", "removed")]).increment(1);
         } else {
             metrics::counter!(UPDATES_CACHE_EVICTION, &[("action", "not_cached")]).increment(1);
