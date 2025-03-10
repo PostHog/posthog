@@ -103,20 +103,19 @@ export class LegacyOneventCompareService {
         }
 
         // Clear the recorder before running the operation if recording is enabled
+        getHttpCallRecorder().clearCalls()
 
         let pluginConfigError: any = null
-        let recordedCalls: RecordedHttpCall[] = []
+
         try {
             // Execute the operation
             await onEvent(onEventPayload)
         } catch (e) {
             pluginConfigError = e
-        } finally {
-            recordedCalls = getHttpCallRecorder().getCalls()
-            getHttpCallRecorder().clearCalls()
         }
 
         try {
+            const recordedCalls = getHttpCallRecorder().getCalls()
             const hogFunctionResult = await this.runHogFunctionOnEvent(pluginConfig, event, recordedCalls)
             const comparer = new HttpCallRecorder()
 
