@@ -7896,6 +7896,7 @@ class PathsV2Query(BaseModel):
     ] = Field(default=[], description="Property filters for all series")
     response: Optional[PathsV2QueryResponse] = None
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
+    series: Optional[list[Union[EventsNode, ActionsNode, DataWarehouseNode]]] = None
 
 
 class QueryResponseAlternative12(BaseModel):

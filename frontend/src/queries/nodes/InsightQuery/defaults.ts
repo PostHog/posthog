@@ -69,6 +69,14 @@ const pathsQueryDefault: PathsQuery = {
 
 const pathsV2QueryDefault: PathsV2Query = {
     kind: NodeKind.PathsV2Query,
+    series: [
+        {
+            kind: NodeKind.EventsNode,
+            event: null,
+            name: 'All events',
+            math: BaseMathType.TotalCount,
+        },
+    ],
     pathsV2Filter: {},
 }
 

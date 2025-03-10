@@ -393,10 +393,6 @@ class FunnelBase(ABC):
         ).to_query(
             skip_entity_filter=skip_entity_filter,
         )
-        # funnel_events_query, params = FunnelEventQuery(
-        #     extra_fields=[*self._extra_event_fields, *extra_fields],
-        #     extra_event_properties=self._extra_event_properties,
-        # ).get_query(entities_to_use, entity_name, skip_entity_filter=skip_entity_filter)
 
         all_step_cols: list[ast.Expr] = []
         for index, entity in enumerate(entities_to_use):

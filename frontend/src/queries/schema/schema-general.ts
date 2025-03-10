@@ -1227,6 +1227,7 @@ export type PathsV2Filter = {
 }
 export interface PathsV2Query extends InsightsQueryBase<PathsV2QueryResponse> {
     kind: NodeKind.PathsV2Query
+    series?: AnyEntityNode[]
     pathsV2Filter?: PathsV2Filter
 }
 

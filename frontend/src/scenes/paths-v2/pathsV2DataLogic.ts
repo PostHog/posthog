@@ -31,7 +31,15 @@ export const pathsV2DataLogic = kea<pathsV2DataLogicType>([
     connect((props: InsightLogicProps) => ({
         values: [
             insightVizDataLogic(props),
-            ['insightQuery', 'insightData', 'insightDataLoading', 'insightDataError', 'pathsV2Filter', 'theme'],
+            [
+                'insightQuery',
+                'insightData',
+                'insightDataLoading',
+                'insightDataError',
+                'pathsV2Filter',
+                'theme',
+                'querySource',
+            ],
         ],
         actions: [insightVizDataLogic(props), ['updateInsightFilter', 'updateQuerySource']],
     })),

@@ -248,6 +248,46 @@ class TestPathsV2(SharedSetup):
             ],
         )
 
+    def test_series(self):
+        _ = journeys_for(
+            team=self.team,
+            events_by_person={
+                "person": [
+                    {"event": "a"},
+                    {"event": "b"},
+                    {"event": "b"},
+                    {"event": "c"},
+                    {"event": "c"},
+                ],
+            },
+        )
+
+        filter = PathsV2Filter()
+        query = PathsV2Query(
+            series=[
+                {
+                    "kind": "EventsNode",
+                    "event": "$identify",
+                    "name": "$identify",
+                    "properties": [{"key": "$browser", "value": ["Chrome"], "operator": "exact", "type": "event"}],
+                }
+            ],
+            pathsV2Filter=filter,
+        )
+        query_runner = self._get_query_runner(query=query)
+        response = query_runner.calculate()
+
+        self.assertEqual(
+            response.results,
+            [
+                PathsV2Item(step_index=1.0, source_step="a", target_step="b", value=1.0),
+                PathsV2Item(step_index=2.0, source_step="b", target_step="b", value=1.0),
+                PathsV2Item(step_index=3.0, source_step="b", target_step="c", value=1.0),
+                PathsV2Item(step_index=4.0, source_step="c", target_step="c", value=1.0),
+                PathsV2Item(step_index=5.0, source_step="c", target_step="$$_posthog_dropoff_$$", value=1.0),
+            ],
+        )
+
 
 # class TestPathsV2BaseEventsQuery(SharedSetup):
 #     maxDiff = None

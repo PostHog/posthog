@@ -139,7 +139,7 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         sampling_factor: query.samplingFactor,
     })
 
-    if (!isRetentionQuery(query) && !isPathsQuery(query) && !isPathsV2Query(query)) {
+    if (!isRetentionQuery(query) && !isPathsQuery(query)) {
         const { actions, events, data_warehouse, new_entity } = seriesToActionsAndEvents(query.series)
         if (actions.length > 0) {
             filters.actions = actions

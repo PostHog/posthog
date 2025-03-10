@@ -159,7 +159,7 @@ class PathsV2QueryRunner(QueryRunner):
             for prop in self.team.test_account_filters:
                 event_filters.append(property_to_expr(prop, self.team))
 
-        return parse_select(
+        query: ast.SelectQuery = parse_select(
             """
             SELECT
                 timestamp,
@@ -171,6 +171,56 @@ class PathsV2QueryRunner(QueryRunner):
         """,
             placeholders={"filters": ast.And(exprs=event_filters)},
         )
+
+        series_entities_flags = []
+
+        #     property_to_expr(self.query.series[0].properties, self.team)
+
+        # if entity.type == TREND_FILTER_TYPE_ACTIONS and entity.id is not None:
+        #     action = Action.objects.get(pk=entity.id)
+        #     return action_to_expr(action)
+        # if entity.id is None:
+        #     return ast.Constant(value=True)
+
+        # filters: list[ast.Expr] = [
+        #     ast.CompareOperation(
+        #         op=ast.CompareOperationOp.Eq,
+        #         left=ast.Field(chain=["events", "event"]),
+        #         right=ast.Constant(value=entity.id),
+        #     )
+        # ]
+
+        # if entity.properties is not None and entity.properties != []:
+        #     filters.append(property_to_expr(entity.properties, team))
+
+        # return ast.And(exprs=filters)
+
+        # if isinstance(series, EventsNode) and series.event is not None:
+        #     filters.append(
+        #         parse_expr(
+        #             "event = {event}",
+        #             placeholders={"event": ast.Constant(value=series.event)},
+        #         )
+        #     )
+        # elif isinstance(series, ActionsNode):
+        #     try:
+        #         action = Action.objects.get(pk=int(series.id), team__project_id=self.team.project_id)
+        #         filters.append(action_to_expr(action))
+        #     except Action.DoesNotExist:
+        #         # If an action doesn't exist, we want to return no events
+        #         filters.append(parse_expr("1 = 2"))
+        #  try:
+        #                 action = Action.objects.get(pk=self.query.actionId, team__project_id=self.team.project_id)
+        #             except Action.DoesNotExist:
+        #                 raise Exception("Action does not exist")
+        #             if not action.steps:
+        #                 raise Exception("Action does not have any match groups")
+        # for entity in query.series:
+        # series_entities_flags = ["if({filters}, 1, 0)"]
+        # query.select.append(ast.Constant(value="42"))
+        query.select.extend([])
+
+        return query
 
     def _paths_per_actor_as_array_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         """
@@ -230,7 +280,7 @@ class PathsV2QueryRunner(QueryRunner):
 
                 /* Splits the tuple array if the difference between the current and the
                 previous timestamp is greater than the session window. */
-                arraySplit(x->if(x.1 < x.3 + {session_interval}, 0, 1), paths_array) as paths_array_session_split,
+                arraySplit(x->if(x.1 < x.3 + {session_interval}, 0, 1), paths_array) as paths_array_session_spli t,
 
                 /* Filters out the steps that are the same as the previous step. */
                 arrayFilter(

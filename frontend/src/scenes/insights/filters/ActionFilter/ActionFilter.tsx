@@ -238,23 +238,21 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
             ) : null}
             {!singleFilter && (
                 <div className="ActionFilter-footer">
-                    {!singleFilter && (
-                        <LemonButton
-                            type={buttonType}
-                            onClick={() => addFilter()}
-                            data-attr="add-action-event-button"
-                            icon={<IconPlusSmall />}
-                            size="small"
-                            disabled={reachedLimit || disabled || readOnly}
-                            {...buttonProps}
-                        >
-                            {!reachedLimit
-                                ? buttonCopy || 'Action or event'
-                                : `Reached limit of ${entitiesLimit} ${
-                                      filters.insight === InsightType.FUNNELS ? 'steps' : 'series'
-                                  }`}
-                        </LemonButton>
-                    )}
+                    <LemonButton
+                        type={buttonType}
+                        onClick={() => addFilter()}
+                        data-attr="add-action-event-button"
+                        icon={<IconPlusSmall />}
+                        size="small"
+                        disabled={reachedLimit || disabled || readOnly}
+                        {...buttonProps}
+                    >
+                        {!reachedLimit
+                            ? buttonCopy || 'Action or event'
+                            : `Reached limit of ${entitiesLimit} ${
+                                  filters.insight === InsightType.FUNNELS ? 'steps' : 'series'
+                              }`}
+                    </LemonButton>
                 </div>
             )}
         </div>

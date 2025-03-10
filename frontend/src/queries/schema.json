@@ -10848,6 +10848,12 @@
                 "samplingFactor": {
                     "description": "Sampling rate",
                     "type": ["number", "null"]
+                },
+                "series": {
+                    "items": {
+                        "$ref": "#/definitions/AnyEntityNode"
+                    },
+                    "type": "array"
                 }
             },
             "required": ["kind"],
