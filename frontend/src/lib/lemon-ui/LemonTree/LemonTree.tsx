@@ -1,4 +1,4 @@
-import { DndContext, DragEndEvent } from '@dnd-kit/core'
+import { DndContext, DragEndEvent, MouseSensor, TouchSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { IconUpload } from '@posthog/icons'
 import * as AccordionPrimitive from '@radix-ui/react-accordion'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
@@ -178,8 +178,10 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                     selectedId === item.id &&
                                                         'border-l-[4px] border-l-accent-primary rounded-tl-sm rounded-bl-sm'
                                                 )}
-                                                onClick={() => {
-                                                    if (!enableDragAndDrop || !isItemDraggable?.(item)) {
+                                                onClick={(e) => {
+                                                    // If it's a drag event (mouse has moved), the event will have a different type
+                                                    // Regular clicks will be 'click', drag events will be 'mouseup'
+                                                    if (e.type === 'click') {
                                                         handleClick(item)
                                                     }
                                                 }}
@@ -317,6 +319,21 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
         ref
     ): JSX.Element => {
         const TYPE_AHEAD_TIMEOUT = 500
+        const mouseSensor = useSensor(MouseSensor, {
+            // Require the mouse to move by 10 pixels before activating
+            activationConstraint: {
+                distance: 10,
+            },
+        })
+        const touchSensor = useSensor(TouchSensor, {
+            // Press delay of 250ms, with tolerance of 5px of movement
+            activationConstraint: {
+                delay: 250,
+                tolerance: 5,
+            },
+        })
+        const sensors = useSensors(mouseSensor, touchSensor)
+
         // Scrollable container
         const containerRef = useRef<HTMLDivElement>(null)
 
@@ -790,6 +807,7 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
 
         return (
             <DndContext
+                sensors={sensors}
                 onDragStart={(dragEvent) => {
                     const active = dragEvent.active?.id
                     const item = findInProjectTreeByPath(String(active), Array.isArray(data) ? data : [data])

@@ -78,9 +78,30 @@ type DraggableProps = DragAndDropProps & {
 }
 
 export const TreeNodeDraggable = (props: DraggableProps): JSX.Element => {
-    const { attributes, listeners, setNodeRef, transform } = useDraggable({
+    const {
+        attributes,
+        listeners: originalListeners,
+        setNodeRef,
+        transform,
+    } = useDraggable({
         id: props.id,
     })
+
+    // Filter out the Enter key from drag listeners
+    const listeners = props.enableDragging
+        ? Object.fromEntries(
+              Object.entries(originalListeners || {}).map(([key, handler]) => [
+                  key,
+                  (e: any) => {
+                      if (e.key === 'Enter') {
+                          return
+                      }
+                      handler(e)
+                  },
+              ])
+          )
+        : {}
+
     const style = transform
         ? {
               transform: CSS.Translate.toString(transform),
