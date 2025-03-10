@@ -50,7 +50,7 @@ export function FeaturePreviews({ focusedFeatureFlagKey }: { focusedFeatureFlagK
                                 {betaFeatures.map((feature, i) => (
                                     <div key={feature.flagKey} id={`feature-preview-${feature.flagKey}`}>
                                         {i > 0 && <LemonDivider className="my-4" />}
-                                        <FeaturePreview key={feature.flagKey} feature={feature} />
+                                        <FeaturePreview feature={feature} />
                                     </div>
                                 ))}
                             </div>
@@ -70,7 +70,7 @@ export function FeaturePreviews({ focusedFeatureFlagKey }: { focusedFeatureFlagK
                                 {conceptFeatures.map((feature, i) => (
                                     <div key={feature.flagKey} id={`feature-preview-${feature.flagKey}`}>
                                         {i > 0 && <LemonDivider className="my-4" />}
-                                        <ConceptPreview key={feature.flagKey} feature={feature} />
+                                        <ConceptPreview feature={feature} />
                                     </div>
                                 ))}
                             </div>
