@@ -62,6 +62,7 @@ export function ErrorTrackingScene(): JSX.Element {
             volume: { align: 'right', renderTitle: VolumeColumnHeader, render: VolumeColumn },
             assignee: { align: 'center', render: AssigneeColumn },
         },
+        refresh: 'blocking',
         showOpenEditorButton: false,
         insightProps: insightProps,
         emptyStateHeading: 'No issues found',
