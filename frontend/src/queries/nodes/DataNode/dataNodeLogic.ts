@@ -81,7 +81,10 @@ export interface DataNodeLogicProps {
     /** Dashboard variables to override the ones in the query */
     variablesOverride?: Record<string, HogQLVariable> | null
 
+    /** Whether to automatically load data when the query changes. Used for manual override in SQL editor */
     autoLoad?: boolean
+    /** Whether to use local cache for the response. */
+    localCache?: boolean
 }
 
 export const AUTOLOAD_INTERVAL = 30000
@@ -161,12 +164,13 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         highlightRows: (rows: any[]) => ({ rows }),
         setElapsedTime: (elapsedTime: number) => ({ elapsedTime }),
         setPollResponse: (status: QueryStatus | null) => ({ status }),
-        setLocalCache: (response: Record<string, any>) => response,
         setLoadingTime: (seconds: number) => ({ seconds }),
         resetLoadingTimer: true,
+        setCachedResponse: (response: Record<string, any> | null) => response,
+        setCachedQuery: (query: string | null) => query,
     }),
     loaders(({ actions, cache, values, props }) => ({
-        response: [
+        _response: [
             props.cachedResults ?? null,
             {
                 setResponse: (response) => response,
@@ -188,9 +192,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
 
                     // if query based and locally cached, return the cached results
                     if ('query' in query) {
-                        const stringifiedQuery = JSON.stringify(query.query)
-                        if (cache.localResults[stringifiedQuery] && !refresh) {
-                            return cache.localResults[stringifiedQuery]
+                        if (values.cachedResponse && values.cachedQuery === query.query && !refresh) {
+                            return values.cachedResponse
                         }
 
                         if (!query.query) {
@@ -250,6 +253,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         })
                         breakpoint()
                         actions.setElapsedTime(response.duration)
+                        if ('query' in query) {
+                            actions.setCachedQuery(query.query)
+                            actions.setCachedResponse(response.data)
+                        }
                         return response.data
                     } catch (error: any) {
                         if (error.duration) {
@@ -427,10 +434,24 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 loadNextData: () => performance.now(),
             },
         ],
-        response: {
+        _response: {
             // Clear the response if a failure to avoid showing inconsistencies in the UI
             loadDataFailure: () => null,
         },
+        cachedResponse: [
+            null as Record<string, any> | null,
+            { persist: true },
+            {
+                setCachedResponse: (_, response) => response,
+            },
+        ],
+        cachedQuery: [
+            null as string | null,
+            { persist: true },
+            {
+                setCachedQuery: (_, query) => query,
+            },
+        ],
         responseErrorObject: [
             null as Record<string, any> | null,
             {
@@ -475,12 +496,6 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 loadNextData: () => null,
             },
         ],
-        localCache: [
-            {} as Record<string, any>,
-            {
-                setLocalCache: (state, response) => ({ ...state, ...response }),
-            },
-        ],
         loadingTimeSeconds: [
             0,
             {
@@ -492,6 +507,16 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         ],
     })),
     selectors(({ cache }) => ({
+        response: [
+            (s) => [s._response, s.cachedResponse, (_, props) => props.localCache],
+            (response, cachedResponse, localCache) => {
+                if (localCache) {
+                    return cachedResponse
+                }
+                return response
+            },
+        ],
+        responseLoading: [(s) => [s._responseLoading], (responseLoading) => responseLoading],
         variableOverridesAreSet: [
             (_, p) => [p.variablesOverride ?? (() => ({}))],
             (variablesOverride) => !!variablesOverride,
@@ -783,7 +808,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             // We need to set them here, as the propsChanged listener will not trigger on mount
             // and if we never change the props, the cached results will never be used.
             actions.setResponse(props.cachedResults)
-        } else if (Object.keys(props.query || {}).length > 0) {
+        } else if (props.autoLoad && Object.keys(props.query || {}).length > 0) {
             actions.loadData()
         }
 
