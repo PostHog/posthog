@@ -1,5 +1,5 @@
 import Fuse from 'fuse.js'
-import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, events, isBreakpoint, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { combineUrl } from 'kea-router'
 import api from 'lib/api'
@@ -93,19 +93,16 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         updateRemoteItem: (item: TaxonomicDefinitionTypes) => ({ item }),
         expand: true,
         abortAnyRunningQuery: true,
+        loadMore: true,
     }),
     loaders(({ actions, values, cache, props }) => ({
         remoteItems: [
             createEmptyListStorage('', true),
             {
                 loadRemoteItems: async ({ offset, limit }, breakpoint) => {
-                    // avoid the 150ms delay on first load
-                    if (!values.remoteItems.first) {
-                        await breakpoint(500)
-                    } else {
-                        // These connected values below might be read before they are available due to circular logic mounting.
-                        // Adding a slight delay (breakpoint) fixes this.
-                        await breakpoint(1)
+                    // Only add delay for non-first loads and when we're loading more items
+                    if (!values.remoteItems.first && offset > 0) {
+                        await breakpoint(50)
                     }
 
                     const {
@@ -119,7 +116,6 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     } = values
 
                     if (!remoteEndpoint) {
-                        // should not have been here in the first place!
                         return createEmptyListStorage(searchQuery)
                     }
 
@@ -129,57 +125,60 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                         offset,
                         excluded_properties: JSON.stringify(excludedProperties),
                         properties: propertyAllowList ? propertyAllowList.join(',') : undefined,
-                        // TODO: remove this filter once we can support behavioral cohorts for feature flags, it's only
-                        // used in the feature flag property filter UI
                         ...(props.hideBehavioralCohorts ? { hide_behavioral_cohorts: 'true' } : {}),
                     }
 
                     const start = performance.now()
                     actions.abortAnyRunningQuery()
 
-                    const [response, expandedCountResponse] = await Promise.all([
-                        // get the list of results
-                        fetchCachedListResponse(
-                            scopedRemoteEndpoint && !isExpanded ? scopedRemoteEndpoint : remoteEndpoint,
-                            searchParams
-                        ),
-                        // if this is an unexpanded scoped list, get the count for the full list
-                        scopedRemoteEndpoint && !isExpanded
-                            ? fetchCachedListResponse(remoteEndpoint, {
-                                  ...searchParams,
-                                  limit: 1,
-                                  offset: 0,
-                              })
-                            : null,
-                    ])
-                    breakpoint()
+                    try {
+                        const [response, expandedCountResponse] = await Promise.all([
+                            fetchCachedListResponse(
+                                scopedRemoteEndpoint && !isExpanded ? scopedRemoteEndpoint : remoteEndpoint,
+                                searchParams
+                            ),
+                            scopedRemoteEndpoint && !isExpanded
+                                ? fetchCachedListResponse(remoteEndpoint, {
+                                      ...searchParams,
+                                      limit: 1,
+                                      offset: 0,
+                                  })
+                                : null,
+                        ])
 
-                    const queryChanged = values.remoteItems.searchQuery !== values.searchQuery
+                        await captureTimeToSeeData(values.currentTeamId, {
+                            type: 'properties_load',
+                            context: 'filters',
+                            action: listGroupType,
+                            primary_interaction_id: '',
+                            status: 'success',
+                            time_to_see_data_ms: Math.floor(performance.now() - start),
+                            api_response_bytes: 0,
+                        })
 
-                    await captureTimeToSeeData(values.currentTeamId, {
-                        type: 'properties_load',
-                        context: 'filters',
-                        action: listGroupType,
-                        primary_interaction_id: '',
-                        status: 'success',
-                        time_to_see_data_ms: Math.floor(performance.now() - start),
-                        api_response_bytes: 0,
-                    })
-                    cache.abortController = null
+                        const queryChanged = values.remoteItems.searchQuery !== values.searchQuery
+                        cache.abortController = null
 
-                    return {
-                        results: appendAtIndex(
-                            queryChanged ? [] : values.remoteItems.results,
-                            response.results || response,
-                            offset
-                        ),
-                        searchQuery: values.searchQuery,
-                        queryChanged,
-                        count:
-                            response.count ||
-                            (Array.isArray(response) ? response.length : 0) ||
-                            (response.results || []).length,
-                        expandedCount: expandedCountResponse?.count,
+                        return {
+                            results: appendAtIndex(
+                                queryChanged ? [] : values.remoteItems.results,
+                                response.results || response,
+                                offset
+                            ),
+                            searchQuery: values.searchQuery,
+                            queryChanged,
+                            count:
+                                response.count ||
+                                (Array.isArray(response) ? response.length : 0) ||
+                                (response.results || []).length,
+                            expandedCount: expandedCountResponse?.count,
+                            first: values.remoteItems.first,
+                        }
+                    } catch (error) {
+                        if (error instanceof Error && error.name === 'AbortError') {
+                            return values.remoteItems
+                        }
+                        throw error
                     }
                 },
                 updateRemoteItem: ({ item }) => {
@@ -216,6 +215,20 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         startIndex: [0, { onRowsRendered: (_, { rowInfo: { startIndex } }) => startIndex }],
         stopIndex: [0, { onRowsRendered: (_, { rowInfo: { stopIndex } }) => stopIndex }],
         isExpanded: [false, { expand: () => true }],
+        totalCount: [
+            0,
+            {
+                loadRemoteItemsSuccess: (_, { remoteItems }) => remoteItems.count || 0,
+            },
+        ],
+        hasMore: [
+            true,
+            {
+                loadRemoteItemsSuccess: (_, { remoteItems }) =>
+                    remoteItems.has_more ||
+                    (remoteItems.results.length > 0 && remoteItems.count > remoteItems.results.length),
+            },
+        ],
     })),
     selectors({
         listGroupType: [() => [(_, props) => props.listGroupType], (listGroupType) => listGroupType],
@@ -343,7 +356,10 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 }
             },
         ],
-        totalResultCount: [(s) => [s.items], (items) => items.count || 0],
+        totalResultCount: [
+            (s) => [s.items, s.totalCount],
+            (items: ListStorage, totalCount: number) => Math.max(items.count || 0, totalCount || 0),
+        ],
         totalExtraCount: [
             (s) => [s.isExpandable, s.hasRenderFunction],
             (isExpandable, hasRenderFunction) => (isExpandable ? 1 : 0) + (hasRenderFunction ? 1 : 0),
@@ -368,18 +384,21 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         ],
     }),
     listeners(({ values, actions, props, cache }) => ({
-        onRowsRendered: ({ rowInfo: { startIndex, stopIndex, overscanStopIndex } }) => {
+        onRowsRendered: async ({ rowInfo: { stopIndex } }, breakpoint) => {
             if (values.hasRemoteDataSource) {
-                let loadFrom: number | null = null
-                for (let i = startIndex; i < (stopIndex + overscanStopIndex) / 2; i++) {
-                    if (!values.results[i]) {
-                        loadFrom = i
-                        break
+                try {
+                    const shouldLoadMore = stopIndex > 0 && stopIndex >= (values.results?.length || 0) - 5
+                    if (shouldLoadMore && !values.isLoading && values.hasMore) {
+                        // Add debounce delay for scroll
+                        await breakpoint(100)
+
+                        const offset = values.results?.length || 0
+                        actions.loadRemoteItems({ offset, limit: values.limit })
                     }
-                }
-                if (loadFrom !== null) {
-                    const offset = (loadFrom || startIndex) - values.localItems.count
-                    actions.loadRemoteItems({ offset, limit: values.limit })
+                } catch (error) {
+                    if (error instanceof Error && !isBreakpoint(error)) {
+                        throw error
+                    }
                 }
             }
         },
