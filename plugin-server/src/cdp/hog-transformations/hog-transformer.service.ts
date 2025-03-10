@@ -1,12 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { Counter } from 'prom-client'
 
-import {
-    HogFunctionInvocationGlobals,
-    HogFunctionInvocationResult,
-    HogFunctionType,
-    HogFunctionTypeType,
-} from '../../cdp/types'
+import { HogFunctionInvocationGlobals, HogFunctionInvocationResult, HogFunctionType } from '../../cdp/types'
 import { createInvocation, isLegacyPluginHogFunction } from '../../cdp/utils'
 import { runInstrumentedFunction } from '../../main/utils'
 import { Hub } from '../../types'
@@ -53,6 +48,7 @@ export class HogTransformerService {
     private hogFunctionManager: HogFunctionManagerService
     private hub: Hub
     private pluginExecutor: LegacyPluginExecutorService
+    private started: boolean = false
     private hogFunctionMonitoringService: HogFunctionMonitoringService
 
     constructor(hub: Hub) {
@@ -93,8 +89,7 @@ export class HogTransformerService {
     }
 
     public async start(): Promise<void> {
-        const hogTypes: HogFunctionTypeType[] = ['transformation']
-        await this.hogFunctionManager.start(hogTypes)
+        await this.hogFunctionManager.start(['transformation'])
     }
 
     public async stop(): Promise<void> {

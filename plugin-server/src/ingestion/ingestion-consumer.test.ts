@@ -3,8 +3,11 @@ import { Message } from 'node-rdkafka'
 
 import { insertHogFunction as _insertHogFunction } from '~/src/cdp/_tests/fixtures'
 import { template as geoipTemplate } from '~/src/cdp/templates/_transformations/geoip/geoip.template'
+import { template as ipAnonymizationTemplate } from '~/src/cdp/templates/_transformations/ip-anonymization/ip-anonymization.template'
+import { template as piiHashingTemplate } from '~/src/cdp/templates/_transformations/pii-hashing/pii-hashing.template'
 import { compileHog } from '~/src/cdp/templates/compiler'
 import {
+    DecodedKafkaMessage,
     getProducedKafkaMessages,
     getProducedKafkaMessagesForTopic,
     mockProducer,
@@ -12,9 +15,21 @@ import {
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createTeam, getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
-import { Hub, PipelineEvent, Team } from '../../src/types'
-import { closeHub, createHub } from '../../src/utils/db/hub'
+import { languageUrlSplitterApp } from '../cdp/legacy-plugins/_transformations/language-url-splitter-app/template'
+import { posthogAppUrlParametersToEventProperties } from '../cdp/legacy-plugins/_transformations/posthog-app-url-parameters-to-event-properties/template'
+import { posthogFilterOutPlugin } from '../cdp/legacy-plugins/_transformations/posthog-filter-out-plugin/template'
+import { posthogPluginGeoip } from '../cdp/legacy-plugins/_transformations/posthog-plugin-geoip/template'
+import { propertyFilterPlugin } from '../cdp/legacy-plugins/_transformations/property-filter-plugin/template'
+import { semverFlattenerPlugin } from '../cdp/legacy-plugins/_transformations/semver-flattener-plugin/template'
+import { taxonomyPlugin } from '../cdp/legacy-plugins/_transformations/taxonomy-plugin/template'
+import { timestampParserPlugin } from '../cdp/legacy-plugins/_transformations/timestamp-parser-plugin/template'
+import { userAgentPlugin } from '../cdp/legacy-plugins/_transformations/user-agent-plugin/template'
+import { template as botDetectionTemplate } from '../cdp/templates/_transformations/bot-detection/bot-detection.template'
+import { template as removeNullPropertiesTemplate } from '../cdp/templates/_transformations/remove-null-properties/remove-null-properties.template'
+import { template as urlMaskingTemplate } from '../cdp/templates/_transformations/url-masking/url-masking.template'
 import { HogFunctionType } from '../cdp/types'
+import { Hub, PipelineEvent, Team } from '../types'
+import { closeHub, createHub } from '../utils/db/hub'
 import { status } from '../utils/status'
 import { UUIDT } from '../utils/utils'
 import { IngestionConsumer } from './ingestion-consumer'
@@ -605,22 +620,21 @@ describe('IngestionConsumer', () => {
             return item
         }
 
-        beforeEach(async () => {
-            // Create a transformation function using the geoip template as an example
-            const hogByteCode = await compileHog(geoipTemplate.hog)
-            transformationFunction = await insertHogFunction({
-                name: 'GeoIP Transformation',
-                hog: geoipTemplate.hog,
-                bytecode: hogByteCode,
+        describe('single transformation', () => {
+            beforeEach(async () => {
+                // Create a transformation function using the geoip template as an example
+                const hogByteCode = await compileHog(geoipTemplate.hog)
+                transformationFunction = await insertHogFunction({
+                    name: 'GeoIP Transformation',
+                    hog: geoipTemplate.hog,
+                    bytecode: hogByteCode,
+                })
+
+                ingester = new IngestionConsumer(hub)
+                await ingester.start()
             })
 
-            ingester = new IngestionConsumer(hub)
-            await ingester.start()
-        })
-
-        it(
-            'should invoke transformation for matching team with error case',
-            async () => {
+            it('should invoke transformation for matching team with error case', async () => {
                 // make the geoip lookup fail
                 const event = createEvent({
                     ip: '256.256.256.256',
@@ -693,13 +707,9 @@ describe('IngestionConsumer', () => {
                         },
                     },
                 ])
-            },
-            TRANSFORMATION_TEST_TIMEOUT
-        )
+            })
 
-        it(
-            'should invoke transformation for matching team with success case',
-            async () => {
+            it('should invoke transformation for matching team with success case', async () => {
                 const event = createEvent({
                     ip: '89.160.20.129',
                     properties: { $ip: '89.160.20.129' },
@@ -771,9 +781,293 @@ describe('IngestionConsumer', () => {
                         },
                     },
                 ])
-            },
-            TRANSFORMATION_TEST_TIMEOUT
-        )
+            })
+        })
+
+        describe('transformation chain', () => {
+            beforeEach(async () => {
+                fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
+                jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
+
+                hub = await createHub()
+                await resetTestDatabase()
+                team = await getFirstTeam(hub)
+
+                // Create and start ingester first
+                ingester = new IngestionConsumer(hub)
+                await ingester.start()
+
+                const transformationTemplates = [
+                    [
+                        botDetectionTemplate,
+                        {
+                            userAgent: { value: '$useragent' },
+                            customBotPatterns: { value: 'custom-bot,test-crawler' },
+                        },
+                    ],
+                    [
+                        posthogFilterOutPlugin.template,
+                        {
+                            filters: { value: '[]' },
+                            eventsToDrop: { value: 'filtered_event' },
+                            keepUndefinedProperties: { value: 'No' },
+                        },
+                    ],
+                    [posthogPluginGeoip.template, {}],
+                    [removeNullPropertiesTemplate, {}],
+                    [
+                        urlMaskingTemplate,
+                        {
+                            urlProperties: {
+                                value: {
+                                    $current_url: 'email, password, token',
+                                    $referrer: 'email, password, token',
+                                },
+                            },
+                            maskWith: { value: '[MASKED]' },
+                        },
+                    ],
+                    [
+                        languageUrlSplitterApp.template,
+                        {
+                            pattern: { value: '^/([a-z]{2})(?=/|#|\\?|$)' },
+                            matchGroup: { value: '1' },
+                            property: { value: 'detected_language' },
+                            replacePattern: { value: '^(/[a-z]{2})(/|(?=/|#|\\?|$))' },
+                            replaceKey: { value: 'clean_path' },
+                            replaceValue: { value: '/' },
+                        },
+                    ],
+                    [
+                        posthogAppUrlParametersToEventProperties.template,
+                        {
+                            parameters: { value: 'source,campaign,medium' },
+                            prefix: { value: 'utm_' },
+                            suffix: { value: '' },
+                            ignoreCase: { value: 'true' },
+                            setAsUserProperties: { value: 'true' },
+                            setAsInitialUserProperties: { value: 'true' },
+                            alwaysJson: { value: 'false' },
+                        },
+                    ],
+                    [
+                        userAgentPlugin.template,
+                        {
+                            overrideUserAgentDetails: { value: 'true' },
+                            enableSegmentAnalyticsJs: { value: 'false' },
+                            debugMode: { value: 'false' },
+                        },
+                    ],
+                    [
+                        piiHashingTemplate,
+                        {
+                            propertiesToHash: { value: '$geoip_city_name,$geoip_country_name' },
+                            hashDistinctId: { value: true },
+                            salt: { value: 'test-salt', secret: true },
+                        },
+                    ],
+                    [ipAnonymizationTemplate, {}],
+                    [
+                        propertyFilterPlugin.template,
+                        {
+                            properties: {
+                                value: '$geoip_latitude,$geoip_longitude,$geoip_postal_code,$geoip_subdivision_2_code,sensitive_info,nested.secretValue',
+                            },
+                        },
+                    ],
+                    [
+                        semverFlattenerPlugin.template,
+                        {
+                            properties: {
+                                value: 'app_version,lib_version',
+                            },
+                        },
+                    ],
+                    [
+                        taxonomyPlugin.template,
+                        {
+                            defaultNamingConvention: {
+                                value: 'snake_case',
+                            },
+                        },
+                    ],
+                    [timestampParserPlugin.template, {}],
+                ] as const
+
+                // Compile all transformations in parallel and create the full transformation objects
+                const compiledTransformations = await Promise.all(
+                    transformationTemplates.map(async ([template, inputs], index) => {
+                        const bytecode = await compileHog(template.hog)
+                        return {
+                            id: new UUIDT().toString(),
+                            team_id: team.id,
+                            type: 'transformation' as const,
+                            name: template.name,
+                            template_id: template.id,
+                            created_at: new Date().toISOString(),
+                            updated_at: new Date().toISOString(),
+                            enabled: true,
+                            deleted: false,
+                            execution_order: index + 1,
+                            bytecode,
+                            hog: template.hog,
+                            inputs_schema: template.inputs_schema,
+                            inputs,
+                        }
+                    })
+                )
+
+                // Insert all transformations in parallel
+                await Promise.all(
+                    compiledTransformations.map((transformation) =>
+                        _insertHogFunction(hub.postgres, team.id, transformation)
+                    )
+                )
+
+                // Reload functions once at the end
+                await ingester.hogTransformer['hogFunctionManager'].reloadAllHogFunctions()
+            })
+
+            it('should chain transformations in correct order and filter bot events', async () => {
+                // Create test events with different characteristics
+                const chainTestEvents = [
+                    createEvent({
+                        distinct_id: 'chain-bot-id',
+                        ip: '89.160.20.129',
+                        properties: {
+                            $ip: '89.160.20.129',
+                            $useragent: 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+                            sensitive_info: 'chain-bot-secret',
+                            $current_url: 'https://example.com?email=chain@test.com&password=secret123',
+                            nullProp: null,
+                        },
+                    }),
+                    createEvent({
+                        distinct_id: 'chain-filtered-id',
+                        ip: '89.160.20.129',
+                        event: 'filtered_event',
+                        properties: {
+                            $ip: '89.160.20.129',
+                            $useragent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                            $current_url: 'https://example.com/filtered-out/chain',
+                            sensitive_info: 'chain-filtered-secret',
+                        },
+                    }),
+                    createEvent({
+                        distinct_id: 'chain-user-id',
+                        ip: '89.160.20.129',
+                        event: 'ChainButtonClick',
+                        timestamp: '2024-01-01T12:30:45.000Z',
+                        properties: {
+                            $ip: '89.160.20.129',
+                            $useragent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0',
+                            sensitive_info: 'chain-user-secret',
+                            $pathname: '/en/chain/stats',
+                            app_version: '2.1.0-alpha+build.123',
+                            $current_url: 'https://example.com/chain?source=email&campaign=chain2024&medium=cpc',
+                            nested: {
+                                secretValue: 'secret-nested-value',
+                                otherValue: 'should-remain',
+                            },
+                        },
+                    }),
+                ]
+
+                await ingester.handleKafkaBatch(createKafkaMessages(chainTestEvents))
+
+                // Get the produced messages
+                const producedMessages: DecodedKafkaMessage[] = getProducedKafkaMessages()
+
+                // Replace timing-dependent values for snapshot
+                const messagesForSnapshot = producedMessages.map((message) => {
+                    if (
+                        typeof message.value?.message === 'string' &&
+                        message.value.message.includes('Function completed in')
+                    ) {
+                        return {
+                            ...message,
+                            value: {
+                                ...message.value,
+                                message: message.value.message.replace(/\d+\.\d+ms/g, '<timing>ms'),
+                            },
+                        }
+                    }
+                    // Replace UUIDs in messages for consistent snapshots
+                    if (message.value?.uuid) {
+                        message.value.uuid = '<REPLACED-UUID>'
+                    }
+                    return message
+                })
+
+                // Use snapshot testing
+                expect(forSnapshot(messagesForSnapshot)).toMatchSnapshot()
+
+                // Verify that only one event made it through (the real user event)
+                const processedEvents = producedMessages.filter((msg) => msg.topic === 'clickhouse_events_json_test')
+                expect(processedEvents).toHaveLength(1)
+
+                const processedEvent = processedEvents[0].value as unknown as PipelineEvent
+                const properties = JSON.parse(processedEvent.properties as unknown as string)
+
+                // Verify bot event was filtered out
+                expect(processedEvent.distinct_id).not.toEqual('chain-bot-id')
+                expect(processedEvent.distinct_id).not.toEqual('chain-filtered-id')
+                expect(processedEvent.event).not.toEqual('filtered_event')
+
+                // Add assertions for all transformations in order
+                expect(properties.$browser).toEqual('chrome') // User Agent plugin processed the Windows browser
+                expect(properties.$browser_version).toEqual('120.0.0')
+                expect(properties.$os).toEqual('Windows 10')
+                expect(properties.$device_type).toEqual('Desktop')
+
+                // Property Filter assertions after IP check
+                expect(properties).not.toHaveProperty('sensitive_info')
+                if (properties.nested) {
+                    expect(properties.nested).not.toHaveProperty('secretValue')
+                }
+                expect(properties).not.toHaveProperty('$geoip_latitude')
+                expect(properties).not.toHaveProperty('$geoip_longitude')
+                expect(properties).not.toHaveProperty('$geoip_postal_code')
+                expect(properties).not.toHaveProperty('$geoip_subdivision_2_code')
+
+                // Semver Flattener
+                expect(properties.app_version__major).toEqual(2)
+                expect(properties.app_version__minor).toEqual(1)
+                expect(properties.app_version__patch).toEqual(0)
+                expect(properties.app_version__preRelease).toEqual('alpha')
+                expect(properties.app_version__build).toEqual('build.123')
+
+                // Taxonomy standardization
+                expect(processedEvent.event).toEqual('chain_button_click') // converted to snake_case
+
+                // Timestamp Parser
+                expect(properties.day_of_the_week).toEqual('Monday')
+                expect(properties.year).toEqual('2024')
+                expect(properties.month).toEqual('01')
+                expect(properties.day).toEqual('01')
+                expect(properties.hour).toEqual(13)
+                expect(properties.minute).toEqual(30)
+
+                // Language URL Splitter
+                expect(properties.detected_language).toEqual('en')
+                expect(properties.clean_path).toEqual('/chain/stats')
+
+                // URL Parameters to Event Properties
+                expect(properties.utm_source).toEqual('email')
+                expect(properties.utm_campaign).toEqual('chain2024')
+                expect(properties.utm_medium).toEqual('cpc')
+                expect(properties.$set.utm_source).toEqual('email')
+                expect(properties.$set.utm_campaign).toEqual('chain2024')
+                expect(properties.$set.utm_medium).toEqual('cpc')
+                expect(properties.$set_once['initial_utm_source']).toEqual('email')
+                expect(properties.$set_once['initial_utm_campaign']).toEqual('chain2024')
+                expect(properties.$set_once['initial_utm_medium']).toEqual('cpc')
+
+                // Add assertions after bot detection checks
+                expect(processedEvent.event).not.toEqual('filtered_event') // Filter Out Plugin dropped filtered events
+                expect(properties.$current_url).not.toContain('filtered-out') // Filter Out Plugin dropped events with filtered-out in URL
+            })
+        })
     })
 
     describe('testing topic', () => {
