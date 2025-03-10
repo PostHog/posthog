@@ -148,6 +148,7 @@ def _evolve_pyarrow_schema(table: pa.Table, delta_schema: deltalake.Schema | Non
 
     for column_name in table.column_names:
         column = table.column(column_name)
+        field = table.field(column_name)
 
         # Change pa.structs to JSON string
         if pa.types.is_struct(column.type) or pa.types.is_list(column.type):
@@ -161,6 +162,11 @@ def _evolve_pyarrow_schema(table: pa.Table, delta_schema: deltalake.Schema | Non
             )
             table = table.set_column(table.schema.get_field_index(column_name), column_name, seconds_column)
             column = table.column(column_name)
+
+        # Convert nanosecond timestamps to microseconds and convert to UTC
+        if pa.types.is_timestamp(field.type) and (field.type.unit == "ns" or field.type.tz is not None):
+            microsecond_timestamps = pc.cast(column, pa.timestamp("us"), safe=False)
+            table = table.set_column(table.schema.get_field_index(column_name), column_name, microsecond_timestamps)
 
     if delta_schema:
         for field in delta_schema.to_pyarrow():
