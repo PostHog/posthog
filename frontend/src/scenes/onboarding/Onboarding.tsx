@@ -9,10 +9,11 @@ import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { WebAnalyticsSDKInstructions } from 'scenes/onboarding/sdks/web-analytics/WebAnalyticsSDKInstructions'
 import { productsLogic } from 'scenes/products/productsLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { getMaskingConfigFromLevel, getMaskingLevelFromConfig } from 'scenes/session-recordings/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature, ProductKey } from '~/types'
+import { AvailableFeature, ProductKey, type SessionRecordingMaskingLevel } from '~/types'
 
 import { OnboardingUpgradeStep } from './billing/OnboardingUpgradeStep'
 import { OnboardingDataWarehouseSourcesStep } from './data-warehouse/OnboardingDataWarehouseSourcesStep'
@@ -315,6 +316,23 @@ const SessionReplayOnboarding = (): JSX.Element => {
             teamProperty: 'session_recording_opt_in',
             value: true,
             visible: false,
+        },
+        {
+            type: 'select',
+            title: 'Masking',
+            description: 'Choose the level of masking for your recordings.',
+            value: getMaskingLevelFromConfig(currentTeam?.session_recording_masking_config ?? {}),
+            onChange: (value: string | number | null) => {
+                return {
+                    session_recording_masking_config: getMaskingConfigFromLevel(value as SessionRecordingMaskingLevel),
+                }
+            },
+            selectOptions: [
+                { value: 'total-privacy', label: 'Total privacy (mask all text/images)' },
+                { value: 'normal', label: 'Normal (mask inputs but not text/images)' },
+                { value: 'free-love', label: 'Free love (mask only passwords)' },
+            ],
+            visible: true,
         },
     ]
 
