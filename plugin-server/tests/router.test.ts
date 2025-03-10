@@ -4,6 +4,7 @@ import { PluginServer } from '../src/server'
 import { PluginServerMode } from '../src/types'
 
 describe('router', () => {
+    jest.retryTimes(3) // Flakey due to reliance on kafka/clickhouse
     let server: PluginServer
 
     beforeAll(async () => {
