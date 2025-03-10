@@ -88,4 +88,5 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.SessionAttributionExplorer]: () =>
         import('scenes/web-analytics/SessionAttributionExplorer/SessionAttributionExplorerScene'),
     [Scene.Wizard]: () => import('./wizard/Wizard'),
+    [Scene.RevenueAnalytics]: () => import('./revenue-analytics/RevenueAnalyticsScene'),
 }

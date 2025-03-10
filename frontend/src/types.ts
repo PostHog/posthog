@@ -201,6 +201,7 @@ export enum ProductKey {
     TEAMS = 'teams',
     WEB_ANALYTICS = 'web_analytics',
     ERROR_TRACKING = 'error_tracking',
+    REVENUE_ANALYTICS = 'revenue_analytics',
 }
 
 type ProductKeyUnion = `${ProductKey}`
@@ -551,9 +552,9 @@ export interface TeamType extends TeamBasicType {
     session_recording_minimum_duration_milliseconds: number | null
     session_recording_linked_flag: ({ variant?: string | null } & Pick<FeatureFlagBasicType, 'id' | 'key'>) | null
     session_recording_network_payload_capture_config:
-        | { recordHeaders?: boolean; recordBody?: boolean }
-        | undefined
-        | null
+    | { recordHeaders?: boolean; recordBody?: boolean }
+    | undefined
+    | null
     session_recording_masking_config: SessionRecordingMaskingConfig | undefined | null
     session_replay_config: { record_canvas?: boolean; ai_config?: SessionRecordingAIConfig } | undefined | null
     survey_config?: TeamSurveyConfigType
@@ -986,15 +987,15 @@ export interface SessionRecordingSnapshotSource {
 
 export type SessionRecordingSnapshotParams =
     | {
-          source: 'blob'
-          blob_key?: string
-      }
+        source: 'blob'
+        blob_key?: string
+    }
     | {
-          source: 'realtime'
-          // originally realtime snapshots were returned in a different format than blob snapshots
-          // since version 2024-04-30 they are returned in the same format
-          version: '2024-04-30'
-      }
+        source: 'realtime'
+        // originally realtime snapshots were returned in a different format than blob snapshots
+        // since version 2024-04-30 they are returned in the same format
+        version: '2024-04-30'
+    }
 
 export interface SessionRecordingSnapshotSourceResponse {
     source: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>
@@ -1434,7 +1435,7 @@ export interface RecordingTimeMixinType {
 
 export interface RecordingEventType
     extends Pick<EventType, 'id' | 'event' | 'properties' | 'timestamp' | 'elements'>,
-        RecordingTimeMixinType {
+    RecordingTimeMixinType {
     fullyLoaded: boolean
 }
 
@@ -1600,23 +1601,23 @@ export interface PerformanceEvent {
     encoded_body_size?: number
 
     initiator_type?:
-        | 'navigation'
-        | 'css'
-        | 'script'
-        | 'xmlhttprequest'
-        | 'fetch'
-        | 'beacon'
-        | 'video'
-        | 'audio'
-        | 'track'
-        | 'img'
-        | 'image'
-        | 'input'
-        | 'a'
-        | 'iframe'
-        | 'frame'
-        | 'link'
-        | 'other'
+    | 'navigation'
+    | 'css'
+    | 'script'
+    | 'xmlhttprequest'
+    | 'fetch'
+    | 'beacon'
+    | 'video'
+    | 'audio'
+    | 'track'
+    | 'img'
+    | 'image'
+    | 'input'
+    | 'a'
+    | 'iframe'
+    | 'frame'
+    | 'link'
+    | 'other'
     next_hop_protocol?: string
     render_blocking_status?: string
     response_status?: number
@@ -2748,9 +2749,9 @@ export interface FunnelCorrelation {
     failure_people_url: string
     correlation_type: FunnelCorrelationType.Failure | FunnelCorrelationType.Success
     result_type:
-        | FunnelCorrelationResultsType.Events
-        | FunnelCorrelationResultsType.Properties
-        | FunnelCorrelationResultsType.EventWithProperties
+    | FunnelCorrelationResultsType.Events
+    | FunnelCorrelationResultsType.Properties
+    | FunnelCorrelationResultsType.EventWithProperties
 }
 
 export enum FunnelCorrelationType {
@@ -2934,10 +2935,10 @@ export interface SurveyQuestionBase {
     optional?: boolean
     buttonText?: string
     branching?:
-        | NextQuestionBranching
-        | ConfirmationMessageBranching
-        | ResponseBasedBranching
-        | SpecificQuestionBranching
+    | NextQuestionBranching
+    | ConfirmationMessageBranching
+    | ResponseBasedBranching
+    | SpecificQuestionBranching
 }
 
 export interface BasicSurveyQuestion extends SurveyQuestionBase {
@@ -2956,10 +2957,10 @@ export interface RatingSurveyQuestion extends SurveyQuestionBase {
     lowerBoundLabel: string
     upperBoundLabel: string
     branching?:
-        | NextQuestionBranching
-        | ConfirmationMessageBranching
-        | ResponseBasedBranching
-        | SpecificQuestionBranching
+    | NextQuestionBranching
+    | ConfirmationMessageBranching
+    | ResponseBasedBranching
+    | SpecificQuestionBranching
 }
 
 export interface MultipleSurveyQuestion extends SurveyQuestionBase {
@@ -2968,10 +2969,10 @@ export interface MultipleSurveyQuestion extends SurveyQuestionBase {
     shuffleOptions?: boolean
     hasOpenChoice?: boolean
     branching?:
-        | NextQuestionBranching
-        | ConfirmationMessageBranching
-        | ResponseBasedBranching
-        | SpecificQuestionBranching
+    | NextQuestionBranching
+    | ConfirmationMessageBranching
+    | ResponseBasedBranching
+    | SpecificQuestionBranching
 }
 
 export type SurveyQuestion = BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion | MultipleSurveyQuestion
@@ -3993,7 +3994,7 @@ export interface AccessControlTypeBase {
     role?: RoleType['id'] | null
 }
 
-export interface AccessControlTypeProject extends AccessControlTypeBase {}
+export interface AccessControlTypeProject extends AccessControlTypeBase { }
 
 export interface AccessControlTypeMember extends AccessControlTypeBase {
     organization_member: OrganizationMemberType['id']
@@ -4453,15 +4454,15 @@ export type BatchExportConfiguration = {
 export type RawBatchExportRun = {
     id: string
     status:
-        | 'Cancelled'
-        | 'Completed'
-        | 'ContinuedAsNew'
-        | 'Failed'
-        | 'FailedRetryable'
-        | 'Terminated'
-        | 'TimedOut'
-        | 'Running'
-        | 'Starting'
+    | 'Cancelled'
+    | 'Completed'
+    | 'ContinuedAsNew'
+    | 'Failed'
+    | 'FailedRetryable'
+    | 'Terminated'
+    | 'TimedOut'
+    | 'Running'
+    | 'Starting'
     created_at: string
     data_interval_start?: string
     data_interval_end: string
@@ -4471,15 +4472,15 @@ export type RawBatchExportRun = {
 export type BatchExportRun = {
     id: string
     status:
-        | 'Cancelled'
-        | 'Completed'
-        | 'ContinuedAsNew'
-        | 'Failed'
-        | 'FailedRetryable'
-        | 'Terminated'
-        | 'TimedOut'
-        | 'Running'
-        | 'Starting'
+    | 'Cancelled'
+    | 'Completed'
+    | 'ContinuedAsNew'
+    | 'Failed'
+    | 'FailedRetryable'
+    | 'Terminated'
+    | 'TimedOut'
+    | 'Running'
+    | 'Starting'
     created_at: Dayjs
     data_interval_start?: Dayjs
     data_interval_end: Dayjs
@@ -4502,15 +4503,15 @@ export type BatchExportBackfillProgress = {
 export type RawBatchExportBackfill = {
     id: string
     status:
-        | 'Cancelled'
-        | 'Completed'
-        | 'ContinuedAsNew'
-        | 'Failed'
-        | 'FailedRetryable'
-        | 'Terminated'
-        | 'TimedOut'
-        | 'Running'
-        | 'Starting'
+    | 'Cancelled'
+    | 'Completed'
+    | 'ContinuedAsNew'
+    | 'Failed'
+    | 'FailedRetryable'
+    | 'Terminated'
+    | 'TimedOut'
+    | 'Running'
+    | 'Starting'
     created_at: string
     finished_at?: string
     start_at?: string
@@ -4522,15 +4523,15 @@ export type RawBatchExportBackfill = {
 export type BatchExportBackfill = {
     id: string
     status:
-        | 'Cancelled'
-        | 'Completed'
-        | 'ContinuedAsNew'
-        | 'Failed'
-        | 'FailedRetryable'
-        | 'Terminated'
-        | 'TimedOut'
-        | 'Running'
-        | 'Starting'
+    | 'Cancelled'
+    | 'Completed'
+    | 'ContinuedAsNew'
+    | 'Failed'
+    | 'FailedRetryable'
+    | 'Terminated'
+    | 'TimedOut'
+    | 'Running'
+    | 'Starting'
     created_at?: Dayjs
     finished_at?: Dayjs
     start_at?: Dayjs
@@ -4545,12 +4546,12 @@ export type SDK = {
     recommended?: boolean
     tags: SDKTag[]
     image:
-        | string
-        | JSX.Element
-        // storybook handles require() differently, so we need to support both
-        | {
-              default: string
-          }
+    | string
+    | JSX.Element
+    // storybook handles require() differently, so we need to support both
+    | {
+        default: string
+    }
     docsLink: string
 }
 

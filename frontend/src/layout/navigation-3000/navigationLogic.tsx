@@ -246,7 +246,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 throw new Error(`Sidebar category '${categoryKey}' doesn't support onAdd`)
             }
             if (category.onAdd.length === 0) {
-                ;(category.onAdd as () => void)() // If a zero-arg function, call it immediately
+                ; (category.onAdd as () => void)() // If a zero-arg function, call it immediately
             } else {
                 actions.initiateNewItemInlineInCategory(categoryKey) // Otherwise initiate inline item creation
             }
@@ -337,8 +337,8 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 return sceneConfig?.layout === 'plain' && !sceneConfig.allowUnauthenticated
                     ? 'minimal'
                     : sceneConfig?.layout !== 'plain'
-                    ? 'full'
-                    : 'none'
+                        ? 'full'
+                        : 'none'
             },
         ],
         isNavShown: [
@@ -372,81 +372,81 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
 
                 const sectionOne: NavbarItem[] = hasOnboardedAnyProduct
                     ? [
-                          {
-                              identifier: Scene.ProjectHomepage,
-                              label: 'Home',
-                              icon: <IconHome />,
-                              to: urls.projectHomepage(),
-                          },
-                          {
-                              identifier: Scene.Dashboards,
-                              label: 'Dashboards',
-                              icon: <IconDashboard />,
-                              logic: isUsingSidebar ? dashboardsSidebarLogic : undefined,
-                              to: isUsingSidebar ? undefined : urls.dashboards(),
-                              sideAction:
-                                  pinnedDashboards.length > 0
-                                      ? {
-                                            identifier: 'pinned-dashboards-dropdown',
-                                            dropdown: {
-                                                overlay: (
-                                                    <LemonMenuOverlay
-                                                        items={[
-                                                            {
-                                                                title: 'Pinned dashboards',
-                                                                items: pinnedDashboards.map((dashboard) => ({
-                                                                    label: dashboard.name,
-                                                                    to: urls.dashboard(dashboard.id),
-                                                                })),
-                                                                footer: dashboardsLoading && (
-                                                                    <div className="px-2 py-1 text-tertiary">
-                                                                        <Spinner /> Loading…
-                                                                    </div>
-                                                                ),
-                                                            },
-                                                        ]}
-                                                    />
-                                                ),
-                                                placement: 'bottom-end',
-                                            },
-                                        }
-                                      : undefined,
-                          },
-                          {
-                              identifier: Scene.Notebooks,
-                              label: 'Notebooks',
-                              icon: <IconNotebook />,
-                              to: urls.notebooks(),
-                          },
-                          {
-                              identifier: Scene.DataManagement,
-                              label: 'Data management',
-                              icon: <IconDatabase />,
-                              logic: isUsingSidebar ? dataManagementSidebarLogic : undefined,
-                              to: isUsingSidebar ? undefined : urls.eventDefinitions(),
-                          },
-                          {
-                              identifier: Scene.PersonsManagement,
-                              label: 'People and groups',
-                              icon: <IconPeople />,
-                              logic: isUsingSidebar ? personsAndGroupsSidebarLogic : undefined,
-                              to: isUsingSidebar ? undefined : urls.persons(),
-                          },
-                          {
-                              identifier: Scene.Activity,
-                              label: 'Activity',
-                              icon: <IconLive />,
-                              to: urls.activity(),
-                          },
-                      ]
+                        {
+                            identifier: Scene.ProjectHomepage,
+                            label: 'Home',
+                            icon: <IconHome />,
+                            to: urls.projectHomepage(),
+                        },
+                        {
+                            identifier: Scene.Dashboards,
+                            label: 'Dashboards',
+                            icon: <IconDashboard />,
+                            logic: isUsingSidebar ? dashboardsSidebarLogic : undefined,
+                            to: isUsingSidebar ? undefined : urls.dashboards(),
+                            sideAction:
+                                pinnedDashboards.length > 0
+                                    ? {
+                                        identifier: 'pinned-dashboards-dropdown',
+                                        dropdown: {
+                                            overlay: (
+                                                <LemonMenuOverlay
+                                                    items={[
+                                                        {
+                                                            title: 'Pinned dashboards',
+                                                            items: pinnedDashboards.map((dashboard) => ({
+                                                                label: dashboard.name,
+                                                                to: urls.dashboard(dashboard.id),
+                                                            })),
+                                                            footer: dashboardsLoading && (
+                                                                <div className="px-2 py-1 text-tertiary">
+                                                                    <Spinner /> Loading…
+                                                                </div>
+                                                            ),
+                                                        },
+                                                    ]}
+                                                />
+                                            ),
+                                            placement: 'bottom-end',
+                                        },
+                                    }
+                                    : undefined,
+                        },
+                        {
+                            identifier: Scene.Notebooks,
+                            label: 'Notebooks',
+                            icon: <IconNotebook />,
+                            to: urls.notebooks(),
+                        },
+                        {
+                            identifier: Scene.DataManagement,
+                            label: 'Data management',
+                            icon: <IconDatabase />,
+                            logic: isUsingSidebar ? dataManagementSidebarLogic : undefined,
+                            to: isUsingSidebar ? undefined : urls.eventDefinitions(),
+                        },
+                        {
+                            identifier: Scene.PersonsManagement,
+                            label: 'People and groups',
+                            icon: <IconPeople />,
+                            logic: isUsingSidebar ? personsAndGroupsSidebarLogic : undefined,
+                            to: isUsingSidebar ? undefined : urls.persons(),
+                        },
+                        {
+                            identifier: Scene.Activity,
+                            label: 'Activity',
+                            icon: <IconLive />,
+                            to: urls.activity(),
+                        },
+                    ]
                     : [
-                          {
-                              identifier: Scene.Products,
-                              label: 'Welcome to PostHog',
-                              icon: <IconLogomark />,
-                              to: urls.products(),
-                          },
-                      ]
+                        {
+                            identifier: Scene.Products,
+                            label: 'Welcome to PostHog',
+                            icon: <IconLogomark />,
+                            to: urls.products(),
+                        },
+                    ]
 
                 if (featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG]) {
                     sectionOne.splice(1, 0, {
@@ -497,12 +497,12 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                         },
                         featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY]
                             ? {
-                                  identifier: 'LLMObservability',
-                                  label: 'LLM observability',
-                                  icon: <IconAI />,
-                                  to: urls.llmObservabilityDashboard(),
-                                  tag: 'beta' as const,
-                              }
+                                identifier: 'LLMObservability',
+                                label: 'LLM observability',
+                                icon: <IconAI />,
+                                to: urls.llmObservabilityDashboard(),
+                                tag: 'beta' as const,
+                            }
                             : null,
                         {
                             identifier: Scene.Replay,
@@ -517,32 +517,32 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                             items={
                                                 playlists.count > 0
                                                     ? [
-                                                          {
-                                                              title: 'Saved playlists',
-                                                              items: playlists.results.map((playlist) => ({
-                                                                  label:
-                                                                      playlist.name ||
-                                                                      playlist.derived_name ||
-                                                                      'Unnamed',
-                                                                  to: urls.replayPlaylist(playlist.short_id),
-                                                              })),
-                                                              footer: playlistsLoading && (
-                                                                  <div className="px-2 py-1 text-tertiary">
-                                                                      <Spinner /> Loading…
-                                                                  </div>
-                                                              ),
-                                                          },
-                                                      ]
+                                                        {
+                                                            title: 'Saved playlists',
+                                                            items: playlists.results.map((playlist) => ({
+                                                                label:
+                                                                    playlist.name ||
+                                                                    playlist.derived_name ||
+                                                                    'Unnamed',
+                                                                to: urls.replayPlaylist(playlist.short_id),
+                                                            })),
+                                                            footer: playlistsLoading && (
+                                                                <div className="px-2 py-1 text-tertiary">
+                                                                    <Spinner /> Loading…
+                                                                </div>
+                                                            ),
+                                                        },
+                                                    ]
                                                     : [
-                                                          {
-                                                              label: 'All recordings',
-                                                              to: urls.replay(ReplayTabs.Home),
-                                                          },
-                                                          {
-                                                              label: 'Playlists',
-                                                              to: urls.replay(ReplayTabs.Playlists),
-                                                          },
-                                                      ]
+                                                        {
+                                                            label: 'All recordings',
+                                                            to: urls.replay(ReplayTabs.Home),
+                                                        },
+                                                        {
+                                                            label: 'Playlists',
+                                                            to: urls.replay(ReplayTabs.Playlists),
+                                                        },
+                                                    ]
                                             }
                                         />
                                     ),
@@ -552,21 +552,21 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                         },
                         featureFlags[FEATURE_FLAGS.ERROR_TRACKING]
                             ? {
-                                  identifier: Scene.ErrorTracking,
-                                  label: 'Error tracking',
-                                  icon: <IconWarning />,
-                                  to: urls.errorTracking(),
-                                  tag: 'beta' as const,
-                              }
+                                identifier: Scene.ErrorTracking,
+                                label: 'Error tracking',
+                                icon: <IconWarning />,
+                                to: urls.errorTracking(),
+                                tag: 'beta' as const,
+                            }
                             : null,
                         featureFlags[FEATURE_FLAGS.HEATMAPS_UI]
                             ? {
-                                  identifier: Scene.Heatmaps,
-                                  label: 'Heatmaps',
-                                  icon: <IconCursorClick />,
-                                  to: isUsingSidebar ? undefined : urls.heatmaps(),
-                                  tag: 'alpha' as const,
-                              }
+                                identifier: Scene.Heatmaps,
+                                label: 'Heatmaps',
+                                icon: <IconCursorClick />,
+                                to: isUsingSidebar ? undefined : urls.heatmaps(),
+                                tag: 'alpha' as const,
+                            }
                             : null,
                         {
                             identifier: Scene.FeatureFlags,
@@ -603,20 +603,29 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                         },
                         hasOnboardedAnyProduct
                             ? {
-                                  identifier: Scene.Pipeline,
-                                  label: 'Data pipelines',
-                                  icon: <IconPlug />,
-                                  to: urls.pipeline(),
-                              }
+                                identifier: Scene.Pipeline,
+                                label: 'Data pipelines',
+                                icon: <IconPlug />,
+                                to: urls.pipeline(),
+                            }
                             : null,
                         featureFlags[FEATURE_FLAGS.MESSAGING] && hasOnboardedAnyProduct
                             ? {
-                                  identifier: Scene.MessagingBroadcasts,
-                                  label: 'Messaging',
-                                  icon: <IconMegaphone />,
-                                  to: urls.messagingBroadcasts(),
-                                  tag: 'alpha' as const,
-                              }
+                                identifier: Scene.MessagingBroadcasts,
+                                label: 'Messaging',
+                                icon: <IconMegaphone />,
+                                to: urls.messagingBroadcasts(),
+                                tag: 'alpha' as const,
+                            }
+                            : null,
+                        featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS]
+                            ? {
+                                identifier: Scene.RevenueAnalytics,
+                                label: 'Revenue analytics',
+                                icon: <IconSparkles />,
+                                to: urls.revenueAnalytics(),
+                                tag: 'beta' as const,
+                            }
                             : null,
                     ].filter(isNotNil) as NavbarItem[],
                 ]
@@ -739,7 +748,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 }
                 document.addEventListener('mousemove', cache.onMouseMove)
                 document.addEventListener('mouseup', cache.onMouseUp)
-                return () => {}
+                return () => { }
             }
             document.removeEventListener('mousemove', cache.onMouseMove)
             document.removeEventListener('mouseup', cache.onMouseUp)

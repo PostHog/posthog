@@ -91,6 +91,7 @@ export enum Scene {
     MessagingProviders = 'MessagingProviders',
     MessagingBroadcasts = 'MessagingBroadcasts',
     Wizard = 'Wizard',
+    RevenueAnalytics = 'RevenueAnalytics',
 }
 
 export type SceneProps = Record<string, any>

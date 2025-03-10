@@ -22,6 +22,7 @@ export enum ProductIntentContext {
     WEB_ANALYTICS_INSIGHT = 'web_analytics_insight',
     WEB_VITALS_INSIGHT = 'web_vitals_insight',
     CREATE_EXPERIMENT_FROM_FUNNEL_BUTTON = 'create experiment from funnel button',
+    REVENUE_ANALYTICS_INSIGHT = 'revenue_analytics_insight',
 }
 
 export type ProductIntentMetadata = Record<string, unknown>

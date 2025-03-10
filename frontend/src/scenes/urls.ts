@@ -157,8 +157,7 @@ export const urls = {
         id: string | number,
         nodeTab?: PipelineNodeTab | ':nodeTab'
     ): string =>
-        `/pipeline/${!stage.startsWith(':') && !stage?.endsWith('s') ? `${stage}s` : stage}/${id}${
-            nodeTab ? `/${nodeTab}` : ''
+        `/pipeline/${!stage.startsWith(':') && !stage?.endsWith('s') ? `${stage}s` : stage}/${id}${nodeTab ? `/${nodeTab}` : ''
         }`,
     groups: (groupTypeIndex: string | number): string => `/groups/${groupTypeIndex}`,
     // :TRICKY: Note that groupKey is provided by user. We need to override urlPatternOptions for kea-router.
@@ -222,8 +221,7 @@ export const urls = {
     inviteSignup: (id: string): string => `/signup/${id}`,
     products: (): string => '/products',
     onboarding: (productKey: string, stepKey?: OnboardingStepKey, sdk?: SDKKey): string =>
-        `/onboarding/${productKey}${stepKey ? '?step=' + stepKey : ''}${
-            sdk && stepKey ? '&sdk=' + sdk : sdk ? '?sdk=' + sdk : ''
+        `/onboarding/${productKey}${stepKey ? '?step=' + stepKey : ''}${sdk && stepKey ? '&sdk=' + sdk : sdk ? '?sdk=' + sdk : ''
         }`,
     // Cloud only
     organizationBilling: (products?: ProductKey[]): string =>
@@ -276,4 +274,5 @@ export const urls = {
         `/insights/${insightShortId}/alerts?alert_id=${alertId}`,
     sessionAttributionExplorer: (): string => '/web/session-attribution-explorer',
     wizard: (): string => `/wizard`,
+    revenueAnalytics: (): string => '/revenue-analytics',
 }

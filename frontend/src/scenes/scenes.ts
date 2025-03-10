@@ -1,7 +1,10 @@
 import { combineUrl } from 'kea-router'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { lazy } from 'react'
 import { getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
+import { revenueAnalyticsLogic } from 'scenes/revenue-analytics/revenueAnalyticsLogic'
+import { RevenueAnalyticsScene } from 'scenes/revenue-analytics/RevenueAnalyticsScene'
 import { LoadedScene, Params, Scene, SceneConfig } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -445,6 +448,14 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Wizard',
         layout: 'plain',
     },
+    [Scene.RevenueAnalytics]: {
+        projectBased: true,
+        name: 'Revenue analytics',
+        layout: 'app-container',
+        component: lazy(() => import('scenes/revenue-analytics/RevenueAnalyticsScene')),
+        sceneComponent: RevenueAnalyticsScene,
+        logic: revenueAnalyticsLogic,
+    },
     ...productConfiguration,
 }
 
@@ -643,5 +654,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.heatmaps()]: [Scene.Heatmaps, 'heatmaps'],
     [urls.sessionAttributionExplorer()]: [Scene.SessionAttributionExplorer, 'sessionAttributionExplorer'],
     [urls.wizard()]: [Scene.Wizard, 'wizard'],
+    [urls.revenueAnalytics()]: [Scene.RevenueAnalytics, 'revenueAnalytics'],
     ...productRoutes,
 }
