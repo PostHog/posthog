@@ -16,6 +16,7 @@ import {
     PluginsAccessLevel,
     PROPERTY_MATCH_TYPE,
     RETENTION_FIRST_TIME,
+    RETENTION_MEAN_NONE,
     RETENTION_RECURRING,
     ShownAsValue,
     TeamMembershipLevel,
@@ -519,6 +520,8 @@ export interface ProjectType extends ProjectBasicType {
 export interface TeamSurveyConfigType {
     appearance?: SurveyAppearance
 }
+
+export type SessionRecordingMaskingLevel = 'normal' | 'total-privacy' | 'free-love'
 
 export interface SessionRecordingMaskingConfig {
     maskAllInputs?: boolean
@@ -2490,7 +2493,8 @@ export interface RetentionFilterType extends FilterType {
     cumulative?: boolean
 
     //frontend only
-    show_mean?: boolean
+    show_mean?: boolean // deprecated
+    mean_retention_calculation?: 'simple' | 'weighted' | typeof RETENTION_MEAN_NONE
 }
 export interface LifecycleFilterType extends FilterType {
     /** @deprecated */
@@ -2919,6 +2923,7 @@ export interface SurveyAppearance {
     widgetLabel?: string
     widgetColor?: string
     fontFamily?: (typeof WEB_SAFE_FONTS)[number]['value']
+    disabledButtonOpacity?: string
 }
 
 export interface SurveyQuestionBase {
@@ -3722,6 +3727,11 @@ export enum GroupMathType {
     UniqueGroup = 'unique_group',
 }
 
+export enum ExperimentMetricMathType {
+    TotalCount = 'total',
+    Sum = 'sum',
+}
+
 export enum ActorGroupType {
     Person = 'person',
     GroupPrefix = 'group',
@@ -3824,6 +3834,7 @@ export type IntegrationKind =
     | 'google-ads'
     | 'linkedin-ads'
     | 'snapchat'
+    | 'intercom'
 
 export interface IntegrationType {
     id: number
@@ -3948,13 +3959,14 @@ export type APIScopeObject =
     | 'dashboard'
     | 'dashboard_template'
     | 'early_access_feature'
+    | 'error_tracking'
     | 'event_definition'
     | 'experiment'
     | 'export'
     | 'feature_flag'
     | 'group'
+    | 'hog_function'
     | 'insight'
-    | 'query'
     | 'notebook'
     | 'organization'
     | 'organization_member'
@@ -3962,6 +3974,7 @@ export type APIScopeObject =
     | 'plugin'
     | 'project'
     | 'property_definition'
+    | 'query'
     | 'session_recording'
     | 'session_recording_playlist'
     | 'sharing_configuration'
@@ -4171,6 +4184,7 @@ export interface DataWarehouseSavedQuery {
     last_run_at?: string
     sync_frequency: string
     status?: string
+    latest_error: string | null
 }
 
 export interface DataWarehouseViewLink {
@@ -4529,7 +4543,7 @@ export type SDK = {
     name: string
     key: string
     recommended?: boolean
-    tags: string[]
+    tags: SDKTag[]
     image:
         | string
         | JSX.Element
@@ -4585,12 +4599,12 @@ export enum SDKKey {
 }
 
 export enum SDKTag {
+    RECOMMENDED = 'Recommended',
     WEB = 'Web',
     MOBILE = 'Mobile',
     SERVER = 'Server',
-    INTEGRATION = 'Integration',
-    RECOMMENDED = 'Recommended',
     LLM = 'LLM',
+    INTEGRATION = 'Integration',
     OTHER = 'Other',
 }
 
@@ -4683,6 +4697,7 @@ export interface SourceConfig {
     fields: SourceFieldConfig[]
     disabledReason?: string | null
     oauthPayload?: string[]
+    existingSource?: boolean
 }
 
 export interface ProductPricingTierSubrows {

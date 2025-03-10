@@ -108,7 +108,7 @@ const EventLabel = ({
     onClick: UniversalFilterButtonProps['onClick']
 }): JSX.Element => {
     return (
-        <div className="flex truncate  items-center space-x-1">
+        <div className="flex truncate  items-center deprecated-space-x-1">
             <EntityFilterInfo filter={filter} />
             <LemonButton
                 size="xsmall"

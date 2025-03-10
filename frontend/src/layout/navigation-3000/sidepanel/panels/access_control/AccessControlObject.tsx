@@ -40,7 +40,7 @@ export function AccessControlObject(props: AccessControlLogicProps): JSX.Element
 
     return (
         <BindLogic logic={accessControlLogic} props={props}>
-            <div className="space-y-6">
+            <div className="deprecated-space-y-6">
                 {canEditAccessControls === false ? (
                     <LemonBanner type="warning">
                         <b>Permission required</b>
@@ -50,12 +50,12 @@ export function AccessControlObject(props: AccessControlLogicProps): JSX.Element
                     </LemonBanner>
                 ) : null}
 
-                <div className="space-y-2">
+                <div className="deprecated-space-y-2">
                     <h3>Default access to {suffix}</h3>
                     <AccessControlObjectDefaults />
                 </div>
 
-                <PayGateMini feature={AvailableFeature.ADVANCED_PERMISSIONS} className="space-y-6">
+                <PayGateMini feature={AvailableFeature.ADVANCED_PERMISSIONS} className="deprecated-space-y-6">
                     <AccessControlObjectUsers />
 
                     {/* Put this inside of Advanced Permissions so two aren't shown at once */}
@@ -176,7 +176,7 @@ function AccessControlObjectUsers(): JSX.Element | null {
 
     return (
         <>
-            <div className="space-y-2">
+            <div className="deprecated-space-y-2">
                 <div className="flex gap-2 items-center justify-between">
                     <h3 className="mb-0">Members</h3>
                     <LemonButton
@@ -289,7 +289,7 @@ function AccessControlObjectRoles(): JSX.Element | null {
 
     return (
         <>
-            <div className="space-y-2">
+            <div className="deprecated-space-y-2">
                 <div className="flex gap-2 items-center justify-between">
                     <h3 className="mb-0">Roles</h3>
                     <LemonButton

@@ -91,7 +91,7 @@ function _SurveyResponseFilters(): JSX.Element {
         .map((question, index) => {
             return {
                 ...question,
-                originalQuestionIndex: index,
+                questionIndex: index,
             }
         })
         .filter((question) => {
@@ -100,7 +100,7 @@ function _SurveyResponseFilters(): JSX.Element {
         })
 
     return (
-        <div className="space-y-2">
+        <div className="deprecated-space-y-2">
             <div className="text-sm font-medium">Filter survey results</div>
             {questionWithFiltersAvailable.length > 0 && (
                 <div className="border rounded">
@@ -111,11 +111,11 @@ function _SurveyResponseFilters(): JSX.Element {
                     </div>
                     <div>
                         {questionWithFiltersAvailable.map((question, index) => {
-                            const currentFilter = getFilterForQuestion(question.originalQuestionIndex)
+                            const currentFilter = getFilterForQuestion(question.questionIndex)
                             const operators = OPERATOR_OPTIONS[question.type] || []
 
                             return (
-                                <React.Fragment key={question.originalQuestionIndex}>
+                                <React.Fragment key={question.id ?? question.questionIndex}>
                                     {index > 0 && <LemonDivider className="my-0" label={FilterLogicalOperator.And} />}
                                     <div className="grid grid-cols-6 gap-2 p-2 items-center hover:bg-bg-light transition-all">
                                         <div className="col-span-3">
@@ -128,7 +128,7 @@ function _SurveyResponseFilters(): JSX.Element {
                                             <LemonSelect
                                                 value={currentFilter?.operator}
                                                 onChange={(val) =>
-                                                    handleUpdateFilter(question.originalQuestionIndex, 'operator', val)
+                                                    handleUpdateFilter(question.questionIndex, 'operator', val)
                                                 }
                                                 options={operators as LemonSelectOptions<PropertyOperator>}
                                                 className="w-full"
@@ -140,18 +140,12 @@ function _SurveyResponseFilters(): JSX.Element {
                                                     currentFilter.operator
                                                 ) && (
                                                     <PropertyValue
-                                                        propertyKey={getSurveyResponseKey(
-                                                            question.originalQuestionIndex
-                                                        )}
+                                                        propertyKey={getSurveyResponseKey(question.questionIndex)}
                                                         type={PropertyFilterType.Event}
                                                         operator={currentFilter.operator}
                                                         value={currentFilter.value || []}
                                                         onSet={(value: any) =>
-                                                            handleUpdateFilter(
-                                                                question.originalQuestionIndex,
-                                                                'value',
-                                                                value
-                                                            )
+                                                            handleUpdateFilter(question.questionIndex, 'value', value)
                                                         }
                                                         placeholder={
                                                             question.type === SurveyQuestionType.Rating

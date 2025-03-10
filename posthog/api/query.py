@@ -7,13 +7,14 @@ from django.http import JsonResponse, StreamingHttpResponse
 from drf_spectacular.utils import OpenApiResponse
 from pydantic import BaseModel
 from rest_framework import status, viewsets
-from rest_framework.exceptions import NotAuthenticated, ValidationError
+from rest_framework.exceptions import NotAuthenticated, ValidationError, Throttled
 from rest_framework.request import Request
 from rest_framework.response import Response
 from sentry_sdk import set_tag
 from asgiref.sync import sync_to_async
 from concurrent.futures import ThreadPoolExecutor
 
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.exceptions_capture import capture_exception
 from posthog.api.documentation import extend_schema
 from posthog.api.mixins import PydanticModelMixin
@@ -128,6 +129,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 execution_mode=execution_mode,
                 query_id=client_query_id,
                 user=request.user,
+                is_query_service=True,
             )
             if isinstance(result, BaseModel):
                 result = result.model_dump(by_alias=True)
@@ -139,6 +141,8 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             return Response(result, status=response_status)
         except (ExposedHogQLError, ExposedCHQueryError) as e:
             raise ValidationError(str(e), getattr(e, "code_name", None))
+        except ConcurrencyLimitExceeded as c:
+            raise Throttled(detail=str(c))
         except Exception as e:
             self.handle_column_ch_error(e)
             capture_exception(e)
