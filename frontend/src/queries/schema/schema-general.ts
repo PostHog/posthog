@@ -1796,6 +1796,19 @@ export type FileSystemType =
     | 'survey'
     | 'transformation'
 
+export interface FileSystemCRUD {
+    name: string
+    icon?: JSX.Element
+    url?: string | ((id?: string) => string)
+}
+
+export interface FileSystemObject {
+    name: string
+    icon?: JSX.Element
+    create?: true | FileSystemCRUD[]
+    read?: true | FileSystemCRUD[]
+}
+
 export interface FileSystemEntry {
     /** Unique UUID for tree entry */
     id?: string
