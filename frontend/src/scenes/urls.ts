@@ -126,6 +126,7 @@ export const urls = {
 
     webAnalytics: (): string => `/web`,
     webAnalyticsWebVitals: (): string => `/web/web-vitals`,
+    webAnalyticsPageReports: (): string => `/web/page-reports`,
 
     replay: (
         tab?: ReplayTabs,

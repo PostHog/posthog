@@ -92,6 +92,7 @@ export enum TileId {
 export enum ProductTab {
     ANALYTICS = 'analytics',
     WEB_VITALS = 'web-vitals',
+    PAGE_REPORTS = 'page-reports',
     SESSION_ATTRIBUTION_EXPLORER = 'session-attribution-explorer',
 }
 
@@ -688,6 +689,14 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     })
                 }
 
+                if (productTab === ProductTab.PAGE_REPORTS) {
+                    breadcrumbs.push({
+                        key: Scene.WebAnalyticsPageReports,
+                        name: `Page reports`,
+                        path: urls.webAnalyticsPageReports(),
+                    })
+                }
+
                 return breadcrumbs
             },
         ],
@@ -851,6 +860,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 currentTeam,
                 tileVisualizations
             ): WebAnalyticsTile[] => {
+                // If we're on the PAGE_REPORTS tab, we want to show the same content as the ANALYTICS tab
+                const effectiveProductTab = productTab === ProductTab.PAGE_REPORTS ? ProductTab.ANALYTICS : productTab
+
                 const dateRange = { date_from: dateFrom, date_to: dateTo }
                 const sampling = { enabled: false, forceSamplingRate: { numerator: 1, denominator: 10 } }
 
@@ -1048,7 +1060,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     }
                 }
 
-                if (productTab === ProductTab.WEB_VITALS) {
+                if (effectiveProductTab === ProductTab.WEB_VITALS) {
                     const createSeries = (name: WebVitalsMetric, math: PropertyMathType): AnyEntityNode => ({
                         kind: NodeKind.EventsNode,
                         event: '$web_vitals',
@@ -2303,7 +2315,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 urlParams.set('tile_visualizations', JSON.stringify(tileVisualizations))
             }
 
-            const basePath = productTab === ProductTab.WEB_VITALS ? '/web/web-vitals' : '/web'
+            let basePath = '/web'
+            if (productTab === ProductTab.PAGE_REPORTS) {
+                basePath = '/web/page-reports'
+            } else if (productTab === ProductTab.WEB_VITALS) {
+                basePath = '/web/web-vitals'
+            }
             return `${basePath}${urlParams.toString() ? '?' + urlParams.toString() : ''}`
         }
 
@@ -2422,7 +2439,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             }
         }
 
-        return { '/web': toAction, '/web/:productTab': toAction }
+        return { '/web': toAction, '/web/:productTab': toAction, '/web/page-reports': toAction }
     }),
 
     listeners(({ values, actions }) => {

@@ -49,7 +49,10 @@ export const WebAnalyticsHealthCheck = (): JSX.Element | null => {
         )
     }
 
-    if (productTab === ProductTab.WEB_VITALS) {
+    // For Page reports tab, use the same health check as the Analytics tab
+    const effectiveProductTab = productTab === ProductTab.PAGE_REPORTS ? ProductTab.ANALYTICS : productTab
+
+    if (effectiveProductTab === ProductTab.WEB_VITALS) {
         if (!statusCheck.isSendingWebVitals) {
             return (
                 <LemonBanner type="warning" className="mt-2">

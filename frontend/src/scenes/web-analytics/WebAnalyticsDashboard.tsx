@@ -14,6 +14,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNotNil } from 'lib/utils'
 import { addProductIntentForCrossSell, ProductIntentContext } from 'lib/utils/product-intents'
 import React, { useState } from 'react'
+import { PageReports } from 'scenes/web-analytics/PageReports'
 import { WebAnalyticsErrorTrackingTile } from 'scenes/web-analytics/tiles/WebAnalyticsErrorTracking'
 import { WebAnalyticsRecordingsTile } from 'scenes/web-analytics/tiles/WebAnalyticsRecordings'
 import { WebQuery } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
@@ -364,6 +365,7 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
                             tabs={[
                                 { key: ProductTab.ANALYTICS, label: 'Web analytics' },
                                 { key: ProductTab.WEB_VITALS, label: 'Web vitals' },
+                                { key: ProductTab.PAGE_REPORTS, label: 'Page reports' },
                             ]}
                         />
 
@@ -371,7 +373,8 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
                     </div>
 
                     <WebAnalyticsHealthCheck />
-                    <Tiles />
+
+                    {productTab === ProductTab.PAGE_REPORTS ? <PageReports /> : <Tiles />}
                 </div>
             </BindLogic>
         </BindLogic>
