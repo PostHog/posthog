@@ -22,7 +22,7 @@ const DropdownMenuSubTrigger = React.forwardRef<
     }
 >(
     ({ className, inset, children, ...props }, ref): JSX.Element => (
-        <DropdownMenuPrimitive.SubTrigger ref={ref} className={cn('', inset && 'pl-8', className)} {...props}>
+        <DropdownMenuPrimitive.SubTrigger ref={ref} className={cn(inset && 'pl-8', className)} {...props}>
             {children}
             <IconChevronRight className="ml-auto" />
         </DropdownMenuPrimitive.SubTrigger>
