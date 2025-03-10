@@ -334,8 +334,6 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                                     expand()
                                 }
                             }}
-                            scrollToIndex={index}
-                            scrollToAlignment="center" // Added for better scroll behavior
                             // Added performance props
                             containerStyle={{ width: '100%' }}
                             style={{ overflowX: 'hidden' }}

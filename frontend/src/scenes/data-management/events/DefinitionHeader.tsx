@@ -39,10 +39,15 @@ function IconWithBadge({ icon, verified, hidden, tooltipTitle, className }: Icon
 }
 
 export function getPropertyDefinitionIcon(definition: PropertyDefinition): JSX.Element {
-    if (CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties[definition.name]) {
+    if (
+        definition.name &&
+        CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties[
+            definition.name as keyof typeof CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties
+        ]
+    ) {
         return (
             <IconWithBadge
-                icon={<IconList />}
+                icon={<IconLogomark />}
                 tooltipTitle="PostHog event property"
                 className="taxonomy-icon taxonomy-icon-muted"
                 verified={definition.verified}
@@ -96,7 +101,12 @@ export function getEventDefinitionIcon(definition: EventDefinition & { value?: s
             />
         )
     }
-    if (definition.name && !!CORE_FILTER_DEFINITIONS_BY_GROUP.events[definition.name]) {
+    if (
+        definition.name &&
+        !!CORE_FILTER_DEFINITIONS_BY_GROUP.events[
+            definition.name as keyof typeof CORE_FILTER_DEFINITIONS_BY_GROUP.events
+        ]
+    ) {
         return (
             <IconWithBadge
                 icon={<IconLogomark />}
