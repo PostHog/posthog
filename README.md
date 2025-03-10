@@ -42,7 +42,6 @@ We're constantly adding new features, and recently launched <a href="https://pos
 - [Get started for free](#get-started-for-free)
 - [Docs](#docs)
 - [Contributing](#contributing)
-- [Philosophy](#philosophy)
 - [Open-source vs paid](#open-source-vs-paid)
 
 ## Get started for free
