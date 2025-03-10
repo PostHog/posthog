@@ -11,7 +11,7 @@ from langchain_core.messages import (
 )
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
 from langchain_core.runnables import RunnableConfig
-from langchain_openai import ChatOpenAI
+from langchain_anthropic import ChatAnthropic
 from pydantic import BaseModel, ValidationError
 
 from ee.hogai.schema_generator.parsers import (
@@ -51,7 +51,9 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
 
     @property
     def _model(self):
-        return ChatOpenAI(model="gpt-4o", temperature=0, disable_streaming=True).with_structured_output(
+        return ChatAnthropic(
+            model="claude-3-7-sonnet-latest", temperature=0, disable_streaming=True
+        ).with_structured_output(
             self.OUTPUT_SCHEMA,
             method="function_calling",
             include_raw=False,
