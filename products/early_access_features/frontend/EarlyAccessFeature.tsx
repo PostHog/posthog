@@ -15,6 +15,9 @@ import { useState } from 'react'
 import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+import { CohortSelector } from 'lib/components/CohortSelector'
+import { api } from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 
 import { Query } from '~/queries/Query/Query'
 import { Node, NodeKind, QuerySchema } from '~/queries/schema/schema-general'
@@ -59,6 +62,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
         deleteEarlyAccessFeature,
         toggleImplementOptInInstructionsModal,
     } = useActions(earlyAccessFeatureLogic)
+    const [isJoiningWaitlist, setIsJoiningWaitlist] = useState<boolean>(false)
 
     const isNewEarlyAccessFeature = id === 'new' || id === undefined
     const showLinkedHogFunctions = useFeatureFlag('HOG_FUNCTIONS_LINKED')
@@ -90,6 +94,22 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                   ],
               }
             : null
+
+    const handleWaitlistSignup = async () => {
+        if (!('id' in earlyAccessFeature)) {
+            return
+        }
+
+        setIsJoiningWaitlist(true)
+        try {
+            await api.create(`api/early-access-feature/${earlyAccessFeature.id}/register/`)
+            lemonToast.success('Successfully joined the waitlist!')
+        } catch (error) {
+            lemonToast.error('Failed to join the waitlist. Please try again.')
+        } finally {
+            setIsJoiningWaitlist(false)
+        }
+    }
 
     return (
         <Form id="early-access-feature" formKey="earlyAccessFeature" logic={earlyAccessFeatureLogic}>
@@ -213,23 +233,39 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
 
                     <div className="flex flex-wrap items-start gap-4">
                         <div className="flex-1 min-w-[20rem]">
-                            {'feature_flag' in earlyAccessFeature ? (
-                                <LemonField.Pure label="Connected Feature flag">
-                                    <div>
-                                        <LemonButton
-                                            type="secondary"
-                                            onClick={() =>
-                                                earlyAccessFeature.feature_flag &&
-                                                router.actions.push(
-                                                    urls.featureFlag(earlyAccessFeature.feature_flag.id)
-                                                )
-                                            }
-                                            icon={<IconFlag />}
-                                        >
-                                            {earlyAccessFeature.feature_flag.key}
-                                        </LemonButton>
-                                    </div>
-                                </LemonField.Pure>
+                            {isEditingFeature || isNewEarlyAccessFeature ? (
+                                <LemonField name="stage" label="Stage">
+                                    <LemonSelect
+                                        options={[
+                                            { label: 'Coming Soon', value: EarlyAccessFeatureStage.ComingSoon },
+                                            { label: 'Draft', value: EarlyAccessFeatureStage.Draft },
+                                            // ... other stages ...
+                                        ]}
+                                    />
+                                </LemonField>
+                            ) : null}
+
+                            {earlyAccessFeature.stage === EarlyAccessFeatureStage.ComingSoon ? (
+                                <LemonField
+                                    name="cohort_id"
+                                    label="Waitlist Cohort"
+                                    info={<>Users who sign up will be added to this cohort</>}
+                                >
+                                    {({ value, onChange }) => (
+                                        <div className="flex">
+                                            <CohortSelector value={value} onChange={onChange} />
+                                            {value && (
+                                                <LemonButton
+                                                    className="ml-2"
+                                                    icon={<IconX />}
+                                                    size="small"
+                                                    onClick={() => onChange(undefined)}
+                                                    aria-label="close"
+                                                />
+                                            )}
+                                        </div>
+                                    )}
+                                </LemonField>
                             ) : (
                                 <LemonField
                                     name="feature_flag_id"
@@ -363,6 +399,23 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                         </div>
                         <PersonList earlyAccessFeature={earlyAccessFeature} />
                     </>
+                )}
+                {!isEditingFeature && !isNewEarlyAccessFeature && 'id' in earlyAccessFeature && 
+                    earlyAccessFeature.stage === EarlyAccessFeatureStage.ComingSoon && (
+                    <div className="mt-4">
+                        <LemonButton
+                            type="primary"
+                            onClick={handleWaitlistSignup}
+                            loading={isJoiningWaitlist}
+                            disabled={!earlyAccessFeature.cohort_id}
+                            tooltip={!earlyAccessFeature.cohort_id ? 'No waitlist cohort configured' : undefined}
+                        >
+                            Sign up to waitlist
+                        </LemonButton>
+                        <p className="text-muted mt-2">
+                            Join the waitlist to be notified when this feature becomes available
+                        </p>
+                    </div>
                 )}
             </div>
 
