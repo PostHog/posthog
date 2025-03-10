@@ -245,6 +245,8 @@ export class IngestionConsumer {
             }
 
             runner?.getPromises().forEach((promise) => {
+                // Schedule each promise with their own error handling
+                // That way if all fail with ignoreable errors we continue but if any one fails with an unexpected error we can crash out
                 this.scheduleWork(promise).catch((error) => {
                     return this.handleProcessingError(error, message, event)
                 })
