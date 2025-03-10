@@ -116,14 +116,14 @@ mod tests {
     #[test]
     fn test_get_geoip_properties_localhost() {
         let service = create_test_service();
-        let result = service.get_geoip_properties(&"127.0.0.1");
+        let result = service.get_geoip_properties("127.0.0.1");
         assert!(result.is_none());
     }
 
     #[test]
     fn test_get_geoip_properties_invalid_ip() {
         let service = create_test_service();
-        let result = service.get_geoip_properties(&"not_an_ip");
+        let result = service.get_geoip_properties("not_an_ip");
         assert!(result.is_none());
     }
 
@@ -138,7 +138,7 @@ mod tests {
         ];
 
         for (ip, expected_country) in test_cases {
-            let result = service.get_geoip_properties(&ip).unwrap();
+            let result = service.get_geoip_properties(ip).unwrap();
             println!("GeoIP lookup result for IP {}: {:?}", ip, result);
             println!(
                 "Expected country: {}, Actual country: {:?}",
@@ -156,14 +156,14 @@ mod tests {
     #[test]
     fn test_geoip_on_local_ip() {
         let service = create_test_service();
-        let result = service.get_geoip_properties(&"127.0.0.1");
+        let result = service.get_geoip_properties("127.0.0.1");
         assert!(result.is_none());
     }
 
     #[test]
     fn test_geoip_on_invalid_ip() {
         let service = create_test_service();
-        let result = service.get_geoip_properties(&"999.999.999.999");
+        let result = service.get_geoip_properties("999.999.999.999");
         assert!(result.is_none());
     }
 
