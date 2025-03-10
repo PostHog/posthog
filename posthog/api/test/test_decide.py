@@ -4035,7 +4035,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual({}, response.json()["featureFlags"])
 
-    def test_decide_uses_read_replica(self, mock_is_connected):
+    def test_decide_uses_read_replica(self):
         org, team, user = self.setup_user_and_team_in_db("default")
         self.organization, self.team, self.user = org, team, user
 
@@ -4105,7 +4105,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                 },
             )
 
-    def test_decide_uses_read_replica_for_cohorts_based_flags(self, mock_is_connected):
+    def test_decide_uses_read_replica_for_cohorts_based_flags(self):
         org, team, user = self.setup_user_and_team_in_db("default")
         self.organization, self.team, self.user = org, team, user
 
@@ -4303,7 +4303,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                 },
             )
 
-    def test_feature_flags_v3_consistent_flags(self, mock_is_connected):
+    def test_feature_flags_v3_consistent_flags(self):
         org, team, user = self.setup_user_and_team_in_db("default")
         self.organization, self.team, self.user = org, team, user
 
@@ -4478,7 +4478,7 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             self.assertTrue(response.json()["featureFlags"]["default-no-prop-flag"])
             self.assertTrue(response.json()["errorsWhileComputingFlags"])
 
-    def test_feature_flags_v3_consistent_flags_with_write_on_hash_key_overrides(self, mock_is_connected):
+    def test_feature_flags_v3_consistent_flags_with_write_on_hash_key_overrides(self):
         org, team, user = self.setup_user_and_team_in_db("default")
         self.organization, self.team, self.user = org, team, user
 
@@ -4601,7 +4601,9 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                 "first-variant", response.json()["featureFlags"]["multivariate-flag"]
             )  # assigned by distinct_id hash
 
-    def test_feature_flags_v2_with_groups(self, mock_is_connected):
+    def test_feature_flags_v2_with_groups(
+        self,
+    ):
         org, team, user = self.setup_user_and_team_in_db("replica")
         self.organization, self.team, self.user = org, team, user
 
@@ -4698,7 +4700,9 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             )
             self.assertFalse(response.json()["errorsWhileComputingFlags"])
 
-    def test_site_apps_in_decide_use_replica(self, mock_is_connected):
+    def test_site_apps_in_decide_use_replica(
+        self,
+    ):
         org, team, user = self.setup_user_and_team_in_db("default")
         self.organization, self.team, self.user = org, team, user
 
