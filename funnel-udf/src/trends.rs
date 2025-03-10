@@ -1,4 +1,5 @@
 use crate::PropVal;
+use crate::unordered_trends::AggregateFunnelRowUnordered;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -85,6 +86,13 @@ const DEFAULT_ENTERED_TIMESTAMP: EnteredTimestamp = EnteredTimestamp {
 
 pub fn process_line(line: &str) -> Value {
     let args = parse_args(line);
+    if args.funnel_order_type == "unordered" {
+        let mut aggregate_funnel_row = AggregateFunnelRowUnordered {
+            breakdown_step: Option::None,
+        };
+        let result = aggregate_funnel_row.calculate_funnel_from_user_events(&args);
+        return json!({ "result": result });
+    }
     let mut aggregate_funnel_row = AggregateFunnelRow {
         breakdown_step: Option::None,
     };

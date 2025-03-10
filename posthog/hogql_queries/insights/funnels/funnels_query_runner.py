@@ -30,7 +30,6 @@ from posthog.schema import (
     FunnelsQuery,
     FunnelsQueryResponse,
     HogQLQueryModifiers,
-    StepOrderValue,
 )
 
 
@@ -124,7 +123,7 @@ class FunnelsQueryRunner(QueryRunner):
         if funnelVizType == FunnelVizType.TRENDS:
             return (
                 FunnelTrendsUDF(context=self.context, **self.kwargs)
-                if self._use_udf and self.context.funnelsFilter.funnelOrderType != StepOrderValue.UNORDERED
+                if self._use_udf
                 else FunnelTrends(context=self.context, **self.kwargs)
             )
         elif funnelVizType == FunnelVizType.TIME_TO_CONVERT:
