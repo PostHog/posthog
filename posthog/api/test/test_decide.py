@@ -3785,6 +3785,24 @@ class TestDecide(BaseTest, QueryMatchingTest):
         # Verify flag-2 is not in the response
         self.assertNotIn("flag-2", response_data["featureFlags"])
 
+    def test_missing_distinct_id(self, *args):
+        response = self._post_decide(
+            data={
+                "token": self.team.api_token,
+                "groups": {},
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "missing_distinct_id",
+                "detail": "Decide requires a distinct_id.",
+                "attr": None,
+            },
+        )
+
 
 class TestDecideRemoteConfig(TestDecide):
     use_remote_config = True
@@ -3797,6 +3815,7 @@ class TestDecideRemoteConfig(TestDecide):
         ) as wrapped_get_config_via_token:
             response = self._post_decide(api_version=3)
             wrapped_get_config_via_token.assert_called_once()
+            request_id = response.json()["requestId"]
 
         # NOTE: If this changes it indicates something is wrong as we should keep this exact format
         # for backwards compatibility
@@ -3815,6 +3834,8 @@ class TestDecideRemoteConfig(TestDecide):
                 "defaultIdentifiedOnly": True,
                 "siteApps": [],
                 "isAuthenticated": False,
+                # requestId is a UUID
+                "requestId": request_id,
                 "toolbarParams": {},
                 "config": {"enable_collect_everything": True},
                 "featureFlags": {},

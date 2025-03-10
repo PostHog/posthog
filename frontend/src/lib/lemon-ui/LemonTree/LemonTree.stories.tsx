@@ -202,9 +202,9 @@ export default meta
 const BasicTemplate: StoryFn<typeof LemonTree> = (props: LemonTreeProps) => {
     const ref = useRef<HTMLDivElement>(null)
     return (
-        <div className="space-y-4">
+        <div className="deprecated-space-y-4">
             <Link to="https://posthog.com">PostHog</Link>
-            <div className="space-y-1">
+            <div className="deprecated-space-y-1">
                 <p>
                     Keyboard navigation: when focused inside the tree, try [up] [right] [down] [left] [enter] [home]
                     [end]
