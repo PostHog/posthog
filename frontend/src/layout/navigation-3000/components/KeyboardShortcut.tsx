@@ -24,12 +24,10 @@ const KEY_TO_SYMBOL: Partial<Record<HotKeyOrModifier, string>> = {
 const MODIFIER_PRIORITY: HotKeyOrModifier[] = ['shift', 'command', 'option']
 
 export interface KeyboardShortcutProps extends Partial<Record<HotKeyOrModifier, true>> {
-    /** Whether this shortcut should be shown with muted opacity. */
-    muted?: boolean
     className?: string
 }
 
-export function KeyboardShortcut({ muted, className, ...keys }: KeyboardShortcutProps): JSX.Element | null {
+export function KeyboardShortcut({ className, ...keys }: KeyboardShortcutProps): JSX.Element | null {
     const sortedKeys = Object.keys(keys).sort(
         (a, b) =>
             (-MODIFIER_PRIORITY.indexOf(a as HotKeyOrModifier) || 0) -
@@ -43,10 +41,10 @@ export function KeyboardShortcut({ muted, className, ...keys }: KeyboardShortcut
     }
 
     return (
-        <span className={clsx('KeyboardShortcut space-x-0.5', muted && 'KeyboardShortcut--muted', className)}>
+        <kbd className={clsx('KeyboardShortcut gap-x-0.5', className)}>
             {sortedKeys.map((key) => (
                 <span key={key}>{KEY_TO_SYMBOL[key] || key}</span>
             ))}
-        </span>
+        </kbd>
     )
 }

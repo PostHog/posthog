@@ -1911,6 +1911,33 @@
           "id": "query_log",
           "name": "query_log",
           "type": "posthog"
+      },
+      "exchange_rate": {
+          "fields": {
+              "currency": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "currency",
+                  "id": null,
+                  "name": "currency",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "date": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "date",
+                  "id": null,
+                  "name": "date",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "date"
+              }
+          },
+          "id": "exchange_rate",
+          "name": "exchange_rate",
+          "type": "posthog"
       }
   }
   '''
@@ -3779,6 +3806,33 @@
           },
           "id": "query_log",
           "name": "query_log",
+          "type": "posthog"
+      },
+      "exchange_rate": {
+          "fields": {
+              "currency": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "currency",
+                  "id": null,
+                  "name": "currency",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "date": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "date",
+                  "id": null,
+                  "name": "date",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "date"
+              }
+          },
+          "id": "exchange_rate",
+          "name": "exchange_rate",
           "type": "posthog"
       }
   }

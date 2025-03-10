@@ -1,4 +1,5 @@
 import decimal
+from unittest.mock import MagicMock
 import uuid
 from ipaddress import IPv4Address, IPv6Address
 
@@ -6,7 +7,13 @@ import pyarrow as pa
 import pytest
 from dateutil import parser
 
-from posthog.temporal.data_imports.pipelines.pipeline.utils import _get_max_decimal_type, table_from_py_list
+from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
+from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from posthog.temporal.data_imports.pipelines.pipeline.utils import (
+    _get_max_decimal_type,
+    should_partition_table,
+    table_from_py_list,
+)
 
 
 def test_table_from_py_list_uuid():
@@ -166,6 +173,20 @@ def test_table_from_py_list_with_binary_column():
     )
 
 
+def test_table_from_py_list_with_null_filled_binary_column():
+    schema = pa.schema([pa.field("column", pa.string()), pa.field("some_bytes", pa.binary())])
+    table = table_from_py_list([{"column": "hello", "some_bytes": None}], schema)
+
+    assert table.equals(pa.table({"column": ["hello"]}))
+    assert table.schema.equals(
+        pa.schema(
+            [
+                ("column", pa.string()),
+            ]
+        )
+    )
+
+
 def test_table_from_py_list_with_mixed_decimal_float_sizes():
     table = table_from_py_list([{"column": decimal.Decimal(1.0)}, {"column": 1000.01}])
 
@@ -269,3 +290,91 @@ def test_table_from_py_list_with_ipv6_address():
             ]
         )
     )
+
+
+def test_should_partition_table_non_incremental_schema():
+    schema = MagicMock()
+    schema.is_incremental = False
+    schema.partitioning_enabled = False
+
+    source = SourceResponse(name="source", items=iter([]), primary_keys=None, partition_bucket_size=1000)
+
+    res = should_partition_table(None, schema, source)
+    assert res is False
+
+
+def test_should_partition_table_paritioning_settingd():
+    schema = MagicMock()
+    schema.is_incremental = True
+    schema.partitioning_enabled = True
+    schema.partitioning_size = 100
+    schema.partitioning_keys = ["id"]
+
+    source = SourceResponse(name="source", items=iter([]), primary_keys=None, partition_bucket_size=1000)
+
+    res = should_partition_table(None, schema, source)
+    assert res is True
+
+
+def test_should_partition_table_incremental_with_bucket_size():
+    schema = MagicMock()
+    schema.is_incremental = True
+    schema.partitioning_enabled = False
+
+    source = SourceResponse(name="source", items=iter([]), primary_keys=None, partition_bucket_size=1000)
+
+    res = should_partition_table(None, schema, source)
+    assert res is True
+
+
+def test_should_partition_table_no_table():
+    schema = MagicMock()
+    schema.is_incremental = True
+    schema.partitioning_enabled = False
+
+    source = SourceResponse(name="source", items=iter([]), primary_keys=None, partition_bucket_size=1000)
+
+    res = should_partition_table(None, schema, source)
+    assert res is True
+
+
+def test_should_partition_table_with_table_and_no_key():
+    schema = MagicMock()
+    schema.is_incremental = True
+    schema.partitioning_enabled = False
+
+    delta_table = MagicMock()
+
+    to_pyarrow_mock = MagicMock()
+    to_pyarrow_mock.names = ["column1", "column2"]
+
+    schema_mock = MagicMock()
+    schema_mock.to_pyarrow = MagicMock(return_value=to_pyarrow_mock)
+
+    delta_table.schema = MagicMock(return_value=schema_mock)
+
+    source = SourceResponse(name="source", items=iter([]), primary_keys=None, partition_bucket_size=1000)
+
+    res = should_partition_table(delta_table, schema, source)
+    assert res is False
+
+
+def test_should_partition_table_with_table_and_key():
+    schema = MagicMock()
+    schema.is_incremental = True
+    schema.partitioning_enabled = False
+
+    delta_table = MagicMock()
+
+    to_pyarrow_mock = MagicMock()
+    to_pyarrow_mock.names = ["column1", "column2", PARTITION_KEY]
+
+    schema_mock = MagicMock()
+    schema_mock.to_pyarrow = MagicMock(return_value=to_pyarrow_mock)
+
+    delta_table.schema = MagicMock(return_value=schema_mock)
+
+    source = SourceResponse(name="source", items=iter([]), primary_keys=None, partition_bucket_size=1000)
+
+    res = should_partition_table(delta_table, schema, source)
+    assert res is True

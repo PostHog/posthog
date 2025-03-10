@@ -24,7 +24,6 @@ import { mutatePostIngestionEventWithElementsList } from '../../utils/event'
 import { captureException } from '../../utils/posthog'
 import { stringify } from '../../utils/utils'
 import { ActionManager } from './action-manager'
-import { TeamManager } from './team-manager'
 
 /** These operators can only be matched if the provided filter's value has the right type. */
 const propertyOperatorToRequiredValueType: Partial<Record<PropertyOperator, string[]>> = {
@@ -133,11 +132,7 @@ export function matchString(actual: string, expected: string, matching: StringMa
 }
 
 export class ActionMatcher {
-    constructor(
-        private postgres: PostgresRouter,
-        private actionManager: ActionManager,
-        private teamManager: TeamManager
-    ) {}
+    constructor(private postgres: PostgresRouter, private actionManager: ActionManager) {}
 
     public hasWebhooks(teamId: number): boolean {
         return Object.keys(this.actionManager.getTeamActions(teamId)).length > 0

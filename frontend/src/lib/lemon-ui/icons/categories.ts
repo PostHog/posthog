@@ -185,6 +185,7 @@ export const ELEMENTS = {
         'IconArrowRightDown',
         'IconArrowUpRight',
         'IconArrowUpLeftDiagonal',
+        'IconCornerDownRight',
         'IconCollapse',
         'IconExpand',
         'IconCollapse45',

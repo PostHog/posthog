@@ -6,6 +6,7 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { TZLabel } from 'lib/components/TZLabel'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { IconArrowUp } from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
@@ -39,7 +40,7 @@ function nameColumn(): LemonTableColumn<SessionRecordingPlaylistType, 'name'> {
 }
 
 function isPlaylistRecordingsCounts(x: unknown): x is PlaylistRecordingsCounts {
-    return isObject(x) && ('query_count' in x || 'pinned_count' in x)
+    return isObject(x) && ('collection' in x || 'saved_filters' in x)
 }
 
 export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPlaylistsProps): JSX.Element {
@@ -74,39 +75,79 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                     return null
                 }
 
-                const count = (recordings_counts.pinned_count || 0) + (recordings_counts.query_count || 0)
+                const hasSavedFiltersCount = recordings_counts.saved_filters?.count !== null
+                const hasCollectionCount = recordings_counts.collection.count !== null
+
+                const totalPinnedCount =
+                    recordings_counts.collection.count === null ? 'null' : recordings_counts.collection.count
+                const unwatchedPinnedCount =
+                    (recordings_counts.collection.count || 0) - (recordings_counts.collection.watched_count || 0)
+                const totalSavedFiltersCount =
+                    recordings_counts.saved_filters?.count === null
+                        ? 'null'
+                        : recordings_counts.saved_filters?.count || 0
+                const unwatchedSavedFiltersCount =
+                    (recordings_counts.saved_filters?.count || 0) -
+                    (recordings_counts.saved_filters?.watched_count || 0)
+
+                const totalCount =
+                    (totalPinnedCount === 'null' ? 0 : totalPinnedCount) +
+                    (totalSavedFiltersCount === 'null' ? 0 : totalSavedFiltersCount)
+                const unwatchedCount = unwatchedPinnedCount + unwatchedSavedFiltersCount
 
                 const tooltip = (
-                    <div className="flex flex-col space-y-1 items-center">
+                    <div className="flex flex-col deprecated-space-y-1 items-center">
                         <span>Playlist counts are recalculated once a day.</span>
-                        {recordings_counts.pinned_count ? (
-                            <span>Collection has {recordings_counts.pinned_count} pinned recordings</span>
-                        ) : null}
-                        {recordings_counts.query_count ? (
-                            <span>
-                                Saved filters match {recordings_counts.query_count}
-                                {recordings_counts.has_more && '+'} recordings
-                            </span>
-                        ) : null}
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Type</th>
+                                    <th>Count</th>
+                                    <th>Unwatched</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>Pinned</td>
+                                    <td>{totalPinnedCount}</td>
+                                    <td>{unwatchedPinnedCount}</td>
+                                </tr>
+                                <tr>
+                                    <td>Saved filters</td>
+                                    <td>
+                                        {totalSavedFiltersCount}
+                                        <span>{recordings_counts.saved_filters?.has_more ? '+' : ''}</span>
+                                    </td>
+                                    <td>{unwatchedSavedFiltersCount}</td>
+                                </tr>
+                            </tbody>
+                        </table>
                     </div>
                 )
 
                 return (
                     <div className="flex items-center justify-center w-full h-full">
                         <Tooltip title={tooltip}>
-                            <span>
-                                {count ? (
+                            {hasSavedFiltersCount || hasCollectionCount ? (
+                                <span className="flex items-center deprecated-space-x-1">
                                     <LemonBadge.Number
-                                        status={count ? 'primary' : 'muted'}
+                                        status={unwatchedCount || totalCount ? 'primary' : 'muted'}
                                         className="text-xs cursor-pointer"
-                                        count={count}
+                                        count={unwatchedCount || totalCount}
                                         maxDigits={3}
-                                        forcePlus={recordings_counts.has_more}
+                                        showZero={true}
+                                        forcePlus={
+                                            !!recordings_counts.saved_filters?.count &&
+                                            !!recordings_counts.saved_filters?.has_more
+                                        }
                                     />
-                                ) : (
+                                    {recordings_counts.saved_filters?.increased ? <IconArrowUp /> : null}
+                                </span>
+                            ) : (
+                                <span>
                                     <LemonBadge status="muted" content="?" className="cursor-pointer" />
-                                )}
-                            </span>
+                                </span>
+                            )}
                         </Tooltip>
                     </div>
                 )
@@ -170,7 +211,7 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
     ]
 
     return (
-        <div className="space-y-4">
+        <div className="deprecated-space-y-4">
             <div className="flex justify-between gap-2 mb-2 items-center flex-wrap">
                 <LemonInput
                     type="search"

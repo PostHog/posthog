@@ -45,9 +45,9 @@ function URLOrScreen({ lastUrl }: { lastUrl: string | undefined }): JSX.Element 
     }
 
     return (
-        <span className="flex flex-row items-center space-x-1 truncate">
+        <span className="flex flex-row items-center deprecated-space-x-1 truncate">
             <span>·</span>
-            <span className="flex flex-row items-center space-x-1 truncate">
+            <span className="flex flex-row items-center deprecated-space-x-1 truncate">
                 {isValidUrl ? (
                     <Tooltip title="Click to open url">
                         <Link to={lastUrl} target="_blank" className="truncate">
@@ -88,7 +88,7 @@ export function ResolutionView({ size }: { size?: PlayerMetaBreakpoints }): JSX.
                 </>
             }
         >
-            <span className="text-secondary text-xs flex flex-row items-center space-x-1">
+            <span className="text-secondary text-xs flex flex-row items-center deprecated-space-x-1">
                 {size === 'normal' && <span>{resolutionDisplay}</span>}
                 <span>({scaleDisplay})</span>
             </span>
@@ -146,7 +146,7 @@ export function PlayerMeta(): JSX.Element {
         windowOptions.push({
             label: <IconWindow value={index + 1} className="text-secondary" />,
             labelInMenu: (
-                <div className="flex flex-row space-x-1 space-between items-center">
+                <div className="flex flex-row deprecated-space-x-1 space-between items-center">
                     Follow window: <IconWindow value={index + 1} className="text-secondary" />
                 </div>
             ),
@@ -162,7 +162,7 @@ export function PlayerMeta(): JSX.Element {
                     'PlayerMeta--fullscreen': isFullScreen,
                 })}
             >
-                <div className="flex flex-row items-center justify-between space-x-1 whitespace-nowrap overflow-hidden px-1 py-0.5 text-xs">
+                <div className="flex flex-row items-center justify-between deprecated-space-x-1 whitespace-nowrap overflow-hidden px-1 py-0.5 text-xs">
                     {loading ? (
                         <LemonSkeleton className="w-1/3 h-4 my-1" />
                     ) : (
@@ -177,9 +177,9 @@ export function PlayerMeta(): JSX.Element {
 
                             <URLOrScreen lastUrl={lastUrl} />
                             {lastPageviewEvent?.properties?.['$screen_name'] && (
-                                <span className="flex flex-row items-center space-x-1 truncate">
+                                <span className="flex flex-row items-center deprecated-space-x-1 truncate">
                                     <span>·</span>
-                                    <span className="flex flex-row items-center space-x-1 truncate">
+                                    <span className="flex flex-row items-center deprecated-space-x-1 truncate">
                                         {lastPageviewEvent?.properties['$screen_name']}
                                     </span>
                                 </span>

@@ -1,7 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
+import { processAiEvent } from '../../../ingestion/ai-costs/process-ai-event'
 import { PreIngestionEvent } from '../../../types'
-import { processAiEvent } from '../../../utils/ai-costs/process-ai-event'
 import { captureException } from '../../../utils/posthog'
 import { status } from '../../../utils/status'
 import { parseEventTimestamp } from '../timestamps'
