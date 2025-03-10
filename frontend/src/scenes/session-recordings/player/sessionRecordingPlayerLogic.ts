@@ -192,7 +192,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setPlayNextAnimationInterrupted: (interrupted: boolean) => ({ interrupted }),
         setMaskWindow: (shouldMaskWindow: boolean) => ({ shouldMaskWindow }),
         loadSimilarRecordings: true,
-        loadSimilarRecordingsSuccess: (count: number) => ({ count }),
+        loadSimilarRecordingsSuccess: (count: number, results: string[]) => ({ count, results }),
         showNextRecordingConfirmation: true,
         hideNextRecordingConfirmation: true,
         confirmNextRecording: true,
@@ -204,6 +204,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.setRecordingMeta(recording)
             await actions.loadSimilarRecordings()
         },
+        setSimilarRecordings: (results: string[]) => ({ results }),
     }),
     reducers(() => ({
         maskingWindow: [
@@ -445,6 +446,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             0,
             {
                 loadSimilarRecordingsSuccess: (_, { count }) => count,
+            },
+        ],
+        similarRecordings: [
+            [] as string[],
+            {
+                setSimilarRecordings: (_, { results }) => results,
             },
         ],
     })),
@@ -1124,6 +1131,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         loadSimilarRecordings: async () => {
             const response = await api.recordings.getSimilarRecordings(values.sessionRecordingId)
             actions.loadSimilarRecordingsSuccess(response.count)
+            actions.setSimilarRecordings(response.results)
         },
         maybeLoadRecordingMeta: async (_, breakpoint) => {
             if (!values.sessionRecordingId) {
