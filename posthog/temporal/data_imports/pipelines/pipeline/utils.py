@@ -475,7 +475,7 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
     else:
         arrow_schema = schema
 
-    drop_column_names: list[str] = []
+    drop_column_names: set[str] = set()
 
     column_names = set(table_data[0].keys())
     columnar_table_data: dict[str, pa.Array | np.ndarray[Any, np.dtype[Any]]] = {}
@@ -530,6 +530,10 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
 
                 adjusted_field = arrow_schema.field(field_index).with_nullable(has_nulls)
                 arrow_schema = arrow_schema.set(field_index, adjusted_field)
+
+            # Remove any binary columns
+            if pa.types.is_binary(field.type):
+                drop_column_names.add(field_name)
 
         # Convert UUIDs to strings
         if issubclass(py_type, uuid.UUID):
@@ -638,7 +642,7 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
 
         # Remove any binary columns
         if issubclass(py_type, bytes):
-            drop_column_names.append(field_name)
+            drop_column_names.add(field_name)
 
     if len(drop_column_names) != 0:
         for column in drop_column_names:

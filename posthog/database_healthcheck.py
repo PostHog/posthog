@@ -19,7 +19,7 @@ class DatabaseHealthcheck:
     """
 
     def __init__(self, time_interval: int = 20) -> None:
-        self.connected: bool = False
+        self.connected: bool = True
         self.last_check: Optional[int] = None
         self.time_interval = time_interval
         self.hits = 0
