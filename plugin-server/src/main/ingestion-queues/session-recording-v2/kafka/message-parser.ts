@@ -29,15 +29,13 @@ function getValidEvents(events: unknown[]): {
         .filter((x): x is { event: SnapshotEvent; dateTime: DateTime } => x !== null)
         .filter(({ dateTime }) => dateTime.isValid)
 
-    const validEventsAndDates = eventsWithDates.filter(({ dateTime }) => dateTime.isValid)
-
-    if (!validEventsAndDates.length) {
+    if (!eventsWithDates.length) {
         return null
     }
 
-    let startDateTime = validEventsAndDates[0].dateTime
-    let endDateTime = validEventsAndDates[0].dateTime
-    for (const { dateTime } of validEventsAndDates) {
+    let startDateTime = eventsWithDates[0].dateTime
+    let endDateTime = eventsWithDates[0].dateTime
+    for (const { dateTime } of eventsWithDates) {
         if (dateTime < startDateTime) {
             startDateTime = dateTime
         }
@@ -47,7 +45,7 @@ function getValidEvents(events: unknown[]): {
     }
 
     return {
-        validEvents: validEventsAndDates.map(({ event }) => event),
+        validEvents: eventsWithDates.map(({ event }) => event),
         startDateTime,
         endDateTime,
     }
