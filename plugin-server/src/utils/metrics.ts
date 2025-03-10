@@ -1,6 +1,6 @@
 import { Summary } from 'prom-client'
 
-import { runInSpan } from '../sentry'
+import { runInSpan } from './sentry'
 
 export async function instrumentQuery<T>(
     metricName: string,

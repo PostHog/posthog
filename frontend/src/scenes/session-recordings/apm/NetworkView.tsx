@@ -30,7 +30,7 @@ function SimpleURL({ name, entryType }: { name: string | undefined; entryType: s
         return (
             <Tooltip
                 title={
-                    <div className="flex flex-col space-y-2">
+                    <div className="flex flex-col deprecated-space-y-2">
                         <div>
                             {url.protocol}://{url.hostname}
                             {url.port.length ? `:${url.port}` : null}
@@ -72,7 +72,7 @@ function Pager(): JSX.Element {
     const { prevPage, nextPage } = useActions(networkViewLogic)
 
     return (
-        <div className="flex space-x-2">
+        <div className="flex deprecated-space-x-2">
             <LemonButton
                 onClick={prevPage}
                 icon={<IconChevronLeft />}
@@ -107,7 +107,7 @@ function WaterfallMeta(): JSX.Element | null {
 
     return (
         <>
-            <div className="flex space-x-12 px-4 justify-between">
+            <div className="flex deprecated-space-x-12 px-4 justify-between">
                 <span className="flex items-center gap-1 truncate">
                     <Link to={pageUrl} target="_blank" className="truncate">
                         {pageUrl}
@@ -143,7 +143,7 @@ export function NetworkView(): JSX.Element {
 
     if (isLoading) {
         return (
-            <div className="flex flex-col px-4 py-2 space-y-2">
+            <div className="flex flex-col px-4 py-2 deprecated-space-y-2">
                 <LemonSkeleton repeat={10} fade={true} />
             </div>
         )
@@ -154,7 +154,7 @@ export function NetworkView(): JSX.Element {
             <div className="NetworkView overflow-auto py-2 px-4">
                 <WaterfallMeta />
                 <LemonDivider />
-                <div className="space-y-1 px-0">
+                <div className="deprecated-space-y-1 px-0">
                     <LemonTable
                         className="NetworkView__table"
                         size="small"

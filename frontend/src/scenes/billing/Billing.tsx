@@ -71,7 +71,7 @@ export function Billing(): JSX.Element {
 
     if (restrictionReason) {
         return (
-            <div className="space-y-4">
+            <div className="deprecated-space-y-4">
                 <h1>Billing</h1>
                 <LemonBanner type="warning">{restrictionReason}</LemonBanner>
                 <div className="flex">
@@ -85,7 +85,7 @@ export function Billing(): JSX.Element {
 
     if (!billing && !billingLoading) {
         return (
-            <div className="space-y-4">
+            <div className="deprecated-space-y-4">
                 <LemonBanner type="error">
                     {
                         'There was an issue retrieving your current billing information. If this message persists, please '
@@ -111,7 +111,12 @@ export function Billing(): JSX.Element {
 
             {showLicenseDirectInput && (
                 <>
-                    <Form logic={billingLogic} formKey="activateLicense" enableFormOnSubmit className="space-y-4">
+                    <Form
+                        logic={billingLogic}
+                        formKey="activateLicense"
+                        enableFormOnSubmit
+                        className="deprecated-space-y-4"
+                    >
                         <Field name="license" label="Activate license key">
                             <LemonInput fullWidth autoFocus />
                         </Field>
@@ -168,7 +173,7 @@ export function Billing(): JSX.Element {
                     >
                         {!isOnboarding && billing?.billing_period && (
                             <div className="flex-1 pt-2">
-                                <div className="space-y-4">
+                                <div className="deprecated-space-y-4">
                                     {billing?.has_active_subscription && (
                                         <>
                                             <div className="flex flex-row gap-10 items-end">

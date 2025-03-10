@@ -142,7 +142,7 @@ export const SidePanelActivity = (): JSX.Element => {
 
                     {/* Controls */}
                     {activeTab === SidePanelActivityTab.Unread ? (
-                        <div className="px-2 pb-2 space-y-2 shrink-0">
+                        <div className="px-2 pb-2 deprecated-space-y-2 shrink-0">
                             <div className="flex items-center justify-between gap-2">
                                 {hasUnread ? (
                                     <LemonButton type="secondary" onClick={() => markAllAsRead()}>
@@ -152,7 +152,7 @@ export const SidePanelActivity = (): JSX.Element => {
                             </div>
                         </div>
                     ) : activeTab === SidePanelActivityTab.All ? (
-                        <div className="flex items-center justify-between gap-2 px-2 pb-2 space-y-2 shrink-0">
+                        <div className="flex items-center justify-between gap-2 px-2 pb-2 deprecated-space-y-2 shrink-0">
                             <div className="flex items-center gap-2">
                                 {allActivityResponseLoading ? <Spinner textColored /> : null}
                             </div>
@@ -189,7 +189,7 @@ export const SidePanelActivity = (): JSX.Element => {
                     ) : null}
 
                     <div className="flex flex-col flex-1 overflow-hidden" ref={contentRef} onScroll={handleScroll}>
-                        <ScrollableShadows direction="vertical" innerClassName="p-2 space-y-px">
+                        <ScrollableShadows direction="vertical" innerClassName="p-2 deprecated-space-y-px">
                             {activeTab === SidePanelActivityTab.Unread ? (
                                 <>
                                     {importantChangesLoading && !hasNotifications ? (

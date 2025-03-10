@@ -20,7 +20,6 @@ pub mod config;
 pub mod error;
 pub mod fingerprinting;
 pub mod frames;
-pub mod hack;
 pub mod issue_resolution;
 pub mod langs;
 pub mod metric_consts;

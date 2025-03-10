@@ -11,7 +11,8 @@ export interface ParsedMessageData {
         start: DateTime
         end: DateTime
     }
-    snapshot_source?: string
+    snapshot_source: string | null
+    snapshot_library: string | null
     headers?: MessageHeader[]
     metadata: {
         partition: number

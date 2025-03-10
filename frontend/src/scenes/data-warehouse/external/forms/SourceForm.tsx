@@ -220,7 +220,7 @@ export function SourceFormComponent({
     const isUpdateMode = !!setSourceConfigValue
 
     return (
-        <div className="space-y-4">
+        <div className="deprecated-space-y-4">
             <Group name="payload">
                 {SOURCE_DETAILS[sourceConfig.name].fields.map((field) =>
                     sourceFieldToElement(field, sourceConfig, jobInputs?.[field.name], isUpdateMode)

@@ -13,3 +13,5 @@ export interface FileSystemImport extends FileSystemEntry {
     icon?: JSX.Element
     flag?: FeatureFlagKey
 }
+
+export type FolderState = 'loading' | 'loaded' | 'has-more' | 'error'
