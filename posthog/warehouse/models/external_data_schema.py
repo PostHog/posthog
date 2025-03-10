@@ -63,6 +63,7 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
         models.CharField(max_length=128, choices=SyncFrequency.choices, default=SyncFrequency.DAILY, blank=True)
     )
     sync_frequency_interval = models.DurationField(default=timedelta(hours=6), null=True, blank=True)
+    sync_time_of_day = models.TimeField(null=True, blank=True, help_text="Time of day to run the sync (UTC)")
 
     __repr__ = sane_repr("name")
 
