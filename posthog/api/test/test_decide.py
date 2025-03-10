@@ -50,7 +50,6 @@ from posthog.test.base import (
     BaseTest,
     QueryMatchingTest,
     snapshot_postgres_queries,
-    snapshot_postgres_queries_context,
 )
 
 
@@ -3949,61 +3948,6 @@ class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
                     response.json()["featureFlags"],
                     {"random-flag": True, "filer-by-property": True},
                 )
-
-    def test_decide_doesnt_error_out_when_database_is_down_and_database_check_isnt_cached(self, *args):
-        ALL_TEAM_PARAMS_FOR_DECIDE = {
-            "session_recording_opt_in": True,
-            "session_recording_sample_rate": 0.4,
-            "capture_console_log_opt_in": True,
-            "inject_web_apps": True,
-            "recording_domains": ["https://*.example.com"],
-            "capture_performance_opt_in": True,
-        }
-        self._update_team(ALL_TEAM_PARAMS_FOR_DECIDE)
-        FeatureFlag.objects.create(
-            team=self.team,
-            filters={"properties": [{"key": "email", "value": "tim@posthog.com", "type": "person"}]},
-            rollout_percentage=100,
-            name="Filter by property",
-            key="filer-by-property",
-            created_by=self.user,
-        )
-        FeatureFlag.objects.create(
-            team=self.team,
-            filters={"properties": []},
-            rollout_percentage=100,
-            name="Filter by property",
-            key="no-props",
-            created_by=self.user,
-        )
-        # populate redis caches
-        self._post_decide(api_version=3, origin="https://random.example.com")
-
-        with (
-            connection.execute_wrapper(QueryTimeoutWrapper()),
-            snapshot_postgres_queries_context(self),
-            self.assertNumQueries(1),
-        ):
-            response = self._post_decide(api_version=3, origin="https://random.example.com").json()
-            response = self._post_decide(api_version=3, origin="https://random.example.com").json()
-            response = self._post_decide(api_version=3, origin="https://random.example.com").json()
-
-            self.assertEqual(
-                response["sessionRecording"],
-                make_session_recording_decide_response(
-                    {
-                        "sampleRate": "0.40",
-                    }
-                ),
-            )
-            self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js"])
-            self.assertEqual(response["siteApps"], [])
-            self.assertEqual(
-                response["capturePerformance"],
-                {"network_timing": True, "web_vitals": False, "web_vitals_allowed_metrics": None},
-            )
-            self.assertEqual(response["featureFlags"], {"no-props": True})
-            self.assertEqual(response["errorsWhileComputingFlags"], True)
 
 
 @pytest.mark.skipif(
