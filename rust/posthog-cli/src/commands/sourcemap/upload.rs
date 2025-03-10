@@ -1,20 +1,13 @@
 use core::str;
 use std::path::PathBuf;
 
-use anyhow::{anyhow, Context, Error, Ok};
-use common_symbol_data::{write_symbol_data, SourceAndMap};
+use anyhow::{anyhow, Context, Ok, Result};
 use tracing::info;
 
-use crate::commands::inject::read_pairs;
+use crate::utils::auth::load_token;
+use crate::utils::sourcemaps::{read_pairs, ChunkUpload, SourcePair};
 
-use super::{auth::load_token, inject::SourcePair};
-
-pub struct ChunkUpload {
-    chunk_id: String,
-    data: Vec<u8>,
-}
-
-pub fn upload(host: &str, directory: &PathBuf, _build_id: &Option<String>) -> Result<(), Error> {
+pub fn upload(host: &str, directory: &PathBuf, _build_id: &Option<String>) -> Result<()> {
     let token = load_token().context("While starting upload command")?;
 
     let url = format!(
@@ -32,40 +25,15 @@ pub fn upload(host: &str, directory: &PathBuf, _build_id: &Option<String>) -> Re
     Ok(())
 }
 
-fn collect_uploads(pairs: Vec<SourcePair>) -> Result<Vec<ChunkUpload>, Error> {
-    let mut uploads = Vec::new();
-    for pair in pairs {
-        let sourcemap = str::from_utf8(&std::fs::read(pair.sourcemap.path)?)?.to_string();
-        let chunk_id = get_chunk_id(&sourcemap)?;
-        let data = SourceAndMap {
-            minified_source: pair.source.content,
-            sourcemap,
-        };
-
-        let bytes = write_symbol_data(data)?;
-
-        let upload = ChunkUpload {
-            chunk_id,
-            data: bytes,
-        };
-
-        uploads.push(upload);
-    }
-
+fn collect_uploads(pairs: Vec<SourcePair>) -> Result<Vec<ChunkUpload>> {
+    let uploads: Vec<ChunkUpload> = pairs
+        .into_iter()
+        .map(|pair| pair.into_chunk_upload())
+        .collect::<Result<Vec<ChunkUpload>>>()?;
     Ok(uploads)
 }
 
-fn get_chunk_id(sourcemap: &str) -> Result<String, Error> {
-    #[derive(serde::Deserialize)]
-    struct S {
-        chunk_id: String,
-    }
-
-    let s: S = serde_json::from_str(sourcemap).context("While getting chunk id")?;
-    Ok(s.chunk_id)
-}
-
-fn upload_chunks(url: &str, token: &str, uploads: Vec<ChunkUpload>) -> Result<(), Error> {
+fn upload_chunks(url: &str, token: &str, uploads: Vec<ChunkUpload>) -> Result<()> {
     let client = reqwest::blocking::Client::new();
     for upload in uploads {
         info!("Uploading chunk {}", upload.chunk_id);
