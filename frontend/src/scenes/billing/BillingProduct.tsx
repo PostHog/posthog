@@ -195,7 +195,6 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                         <div className="grow">
                                             <div className="grow">
                                                 <BillingGauge items={billingGaugeItems} product={product} />
-                                                <FeatureFlagUsageNotice product={product} />
                                             </div>
                                             {/* TODO: rms: remove this notice after August 8 2024 */}
                                             {product.type == ProductKey.DATA_WAREHOUSE &&
@@ -229,9 +228,6 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                 )}
                                                 <div className="grow">
                                                     <BillingGauge items={billingGaugeItems} product={product} />
-                                                    {!product.subscribed && (
-                                                        <FeatureFlagUsageNotice product={product} />
-                                                    )}
                                                 </div>
                                             </div>
                                             {product.subscribed ? (
