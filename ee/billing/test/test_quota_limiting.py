@@ -619,7 +619,7 @@ class TestQuotaLimiting(BaseTest):
             self.organization, QuotaResource.EVENTS, previously_quota_limited_team_tokens_events
         ) == {
             "quota_limited_until": None,
-            "quota_limiting_suspended_until": 1741478400,
+            "quota_limiting_suspended_until": 1741737600,
         }
 
         self.organization.usage["events"]["usage"] = 90
