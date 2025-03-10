@@ -276,13 +276,7 @@ export async function recordedFetch(url: RequestInfo, init?: RequestInit): Promi
     let request: RecordedRequest
     try {
         id = new UUIDT().toString()
-        request = {
-            url: url.toString(),
-            method: init?.method || 'GET',
-            headers: init?.headers ? convertHeadersToRecord(init.headers) : {},
-            body: init?.body ? convertBodyToString(init.body) : null,
-            timestamp: new Date(),
-        }
+        request = recordFetchRequest(url, init)
     } catch {
         // If recording setup fails, just do the fetch
         return trackedFetch(url, init)
@@ -332,6 +326,16 @@ export async function recordedFetch(url: RequestInfo, init?: RequestInit): Promi
     } catch {} // Ignore recording errors
 
     return response
+}
+
+export function recordFetchRequest(url: RequestInfo, init?: RequestInit): RecordedRequest {
+    return {
+        url: url.toString(),
+        method: init?.method || 'GET',
+        headers: init?.headers ? convertHeadersToRecord(init.headers) : {},
+        body: init?.body ? convertBodyToString(init.body) : null,
+        timestamp: new Date(),
+    }
 }
 
 function convertHeadersToRecord(headers: any): Record<string, string> {
