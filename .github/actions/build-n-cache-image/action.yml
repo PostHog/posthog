@@ -28,6 +28,10 @@ inputs:
         required: false
         default: ''
         description: PR number for tagging the image
+    no-cache:
+        required: false
+        default: 'false'
+        description: Whether to disable caching on the docker depot build
 
 outputs:
     tag:
@@ -96,5 +100,6 @@ runs:
               build-args: COMMIT_HASH=${{ github.sha }}
               save: ${{ inputs.save }}
               push: ${{ inputs.push-image }}
+              no-cache: ${{ inputs.no-cache }}
           env:
               ACTIONS_ID_TOKEN_REQUEST_URL: ${{ inputs.actions-id-token-request-url }}
