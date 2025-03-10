@@ -17,13 +17,14 @@ import { resetKafka } from '../../helpers/kafka'
 import { createUserTeamAndOrganization, resetTestDatabase } from '../../helpers/sql'
 
 jest.mock('../../../src/utils/status')
-jest.setTimeout(60000) // 60 sec timeout
+jest.setTimeout(30000)
 
 const extraServerConfig: Partial<PluginsServerConfig> = {
     LOG_LEVEL: LogLevel.Log,
 }
 
 describe('postgres parity', () => {
+    jest.retryTimes(5) // Flakey due to reliance on kafka/clickhouse
     let hub: Hub
     let server: PluginServer
     let teamId = 10 // Incremented every test. Avoids late ingestion causing issues
