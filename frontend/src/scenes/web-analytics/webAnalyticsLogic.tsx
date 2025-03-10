@@ -114,8 +114,6 @@ const loadPriorityMap: Record<TileId, number> = {
     [TileId.WEB_VITALS_PATH_BREAKDOWN]: 12,
 }
 
-export type TileVsualizationOption = 'table' | 'graph'
-
 export interface BaseTile {
     tileId: TileId
     layout: WebTileLayout
@@ -386,7 +384,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         setProductTab: (tab: ProductTab) => ({ tab }),
         setWebVitalsPercentile: (percentile: WebVitalsPercentile) => ({ percentile }),
         setWebVitalsTab: (tab: WebVitalsMetric) => ({ tab }),
-        setTileVisualization: (tileId: TileId, visualization: TileVsualizationOption) => ({ tileId, visualization }),
+        setTileVisualization: (tileId: TileId, visualization: TileVisualizationOption) => ({ tileId, visualization }),
     }),
     reducers({
         rawWebAnalyticsFilters: [

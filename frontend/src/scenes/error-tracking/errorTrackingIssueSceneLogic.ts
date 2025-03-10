@@ -2,7 +2,7 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { dayjs } from 'lib/dayjs'
+import { Dayjs, dayjs } from 'lib/dayjs'
 import posthog from 'posthog-js'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -62,16 +62,18 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                     const response = await api.errorTracking.getIssue(props.id, props.fingerprint)
                     return { ...values.issue, ...response }
                 },
-                loadClickHouseIssue: async (first_seen: string) => {
+                loadClickHouseIssue: async (first_seen: Dayjs) => {
                     const hasLastSeen = values.issue && values.issue.last_seen
                     const lastSeen = hasLastSeen ? dayjs(values.issue?.last_seen).endOf('minute') : dayjs()
-                    const firstSeen = dayjs(first_seen).startOf('minute')
+                    const firstSeen = values.dateRange.date_from
+                        ? values.dateRange.date_from
+                        : first_seen.startOf('minute').toISOString()
 
                     const response = await api.query(
                         errorTrackingIssueQuery({
                             issueId: props.id,
                             dateRange: {
-                                date_from: firstSeen.toISOString(),
+                                date_from: firstSeen,
                                 date_to: lastSeen.toISOString(),
                             },
                             customVolume: values.customSparklineConfig,
@@ -153,7 +155,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 if (!issue) {
                     actions.loadRelationalIssue()
                 } else {
-                    actions.loadClickHouseIssue(values.dateRange.date_from || issue.first_seen)
+                    actions.loadClickHouseIssue(dayjs(issue.first_seen))
                 }
             }
         }

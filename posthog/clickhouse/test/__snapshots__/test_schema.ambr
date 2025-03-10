@@ -949,6 +949,19 @@
   
   '''
 # ---
+# name: test_create_table_query[exchange_rate]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS `posthog_test`.`exchange_rate` ON CLUSTER 'posthog' (
+      currency String,
+      date Date,
+      rate Decimal64(10),
+      version UInt32 DEFAULT toUnixTimestamp(now())
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.exchange_rate', '{replica}-{shard}', version)
+  ORDER BY (date, currency);
+  
+  '''
+# ---
 # name: test_create_table_query[groups]
   '''
   
@@ -3485,6 +3498,19 @@
   ORDER BY (team_id, toStartOfHour(inserted_at), event, cityHash64(distinct_id), cityHash64(uuid))
   TTL toDateTime(inserted_at) + INTERVAL 7 DAY
   SETTINGS storage_policy = 'hot_to_cold'
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[exchange_rate]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS `posthog_test`.`exchange_rate` ON CLUSTER 'posthog' (
+      currency String,
+      date Date,
+      rate Decimal64(10),
+      version UInt32 DEFAULT toUnixTimestamp(now())
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.exchange_rate', '{replica}-{shard}', version)
+  ORDER BY (date, currency);
   
   '''
 # ---

@@ -58,6 +58,7 @@ export class IngestionConsumer {
     protected topic: string
     protected dlqTopic: string
     protected overflowTopic?: string
+    protected testingTopic?: string
 
     batchConsumer?: BatchConsumer
     isStopping = false
@@ -81,6 +82,7 @@ export class IngestionConsumer {
                 | 'INGESTION_CONSUMER_CONSUME_TOPIC'
                 | 'INGESTION_CONSUMER_OVERFLOW_TOPIC'
                 | 'INGESTION_CONSUMER_DLQ_TOPIC'
+                | 'INGESTION_CONSUMER_TESTING_TOPIC'
             >
         > = {}
     ) {
@@ -91,6 +93,7 @@ export class IngestionConsumer {
         this.dlqTopic = overrides.INGESTION_CONSUMER_DLQ_TOPIC ?? hub.INGESTION_CONSUMER_DLQ_TOPIC
         this.tokensToDrop = hub.DROP_EVENTS_BY_TOKEN.split(',').filter((x) => !!x)
         this.tokenDistinctIdsToDrop = hub.DROP_EVENTS_BY_TOKEN_DISTINCT_ID.split(',').filter((x) => !!x)
+        this.testingTopic = overrides.INGESTION_CONSUMER_TESTING_TOPIC ?? hub.INGESTION_CONSUMER_TESTING_TOPIC
 
         this.name = `ingestion-consumer-${this.topic}`
         this.overflowRateLimiter = new MemoryRateLimiter(
@@ -112,6 +115,9 @@ export class IngestionConsumer {
     }
 
     public async start(): Promise<void> {
+        // NOTE: This needs to be started before the kafka consumer starts as other things rely on it
+        await this.hogTransformer.start()
+
         await Promise.all([
             KafkaProducerWrapper.create(this.hub).then((producer) => {
                 this.kafkaProducer = producer
@@ -127,7 +133,6 @@ export class IngestionConsumer {
                 groupId: this.groupId,
                 handleBatch: async (messages) => this.handleKafkaBatch(messages),
             }),
-            this.hogTransformer.start(),
         ])
     }
 
@@ -204,9 +209,16 @@ export class IngestionConsumer {
                 status.debug('🔁', `Processing event`, {
                     event,
                 })
+
+                if (this.testingTopic) {
+                    void this.scheduleWork(this.emitToTestingTopic([message]))
+                    continue
+                }
+
                 const eventKey = `${event.token}:${event.distinct_id}`
                 // Check the rate limiter and emit to overflow if necessary
                 const isBelowRateLimit = this.overflowRateLimiter.consume(eventKey, 1, message.timestamp)
+
                 if (this.overflowEnabled() && !isBelowRateLimit) {
                     status.debug('🔁', `Sending to overflow`, {
                         event,
@@ -418,7 +430,11 @@ export class IngestionConsumer {
     }
 
     private overflowEnabled() {
-        return !!this.hub.INGESTION_CONSUMER_OVERFLOW_TOPIC && this.hub.INGESTION_CONSUMER_OVERFLOW_TOPIC !== this.topic
+        return (
+            !!this.hub.INGESTION_CONSUMER_OVERFLOW_TOPIC &&
+            this.hub.INGESTION_CONSUMER_OVERFLOW_TOPIC !== this.topic &&
+            !this.testingTopic
+        )
     }
 
     private async emitToOverflow(kafkaMessages: Message[]) {
@@ -444,6 +460,24 @@ export class IngestionConsumer {
                     // (extremely) unlikely event that it is, set it to ``null``
                     // instead as that behavior is safer.
                     key: useRandomPartitioning ? null : message.key ?? null,
+                    headers: message.headers,
+                })
+            )
+        )
+    }
+
+    private async emitToTestingTopic(kafkaMessages: Message[]) {
+        const testingTopic = this.testingTopic
+        if (!testingTopic) {
+            throw new Error('No testing topic configured')
+        }
+
+        await Promise.all(
+            kafkaMessages.map((message) =>
+                this.kafkaOverflowProducer!.produce({
+                    topic: this.testingTopic!,
+                    value: message.value,
+                    key: message.key ?? null,
                     headers: message.headers,
                 })
             )

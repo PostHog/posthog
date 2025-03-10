@@ -161,6 +161,9 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         data["inputs_schema"] = data.get("inputs_schema", instance.inputs_schema if instance else [])
         data["inputs"] = data.get("inputs", instance.inputs if instance else {})
 
+        # Always ensure filters is initialized as an empty object if it's null
+        data["filters"] = data.get("filters", instance.filters if instance else {}) or {}
+
         # Set some context variables that are used in the sub validators
         self.context["function_type"] = data["type"]
         self.context["encrypted_inputs"] = instance.encrypted_inputs if instance else {}
@@ -196,7 +199,6 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             data["inputs_schema"] = template.inputs_schema
         if is_create:
             # Set defaults for new functions
-            data["filters"] = data.get("filters") or {}
             data["inputs_schema"] = data.get("inputs_schema") or []
             data["inputs"] = data.get("inputs") or {}
             data["mappings"] = data.get("mappings") or None
@@ -209,6 +211,9 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                     data["hog"] = data.get("hog") or template.hog
                     data["inputs_schema"] = data.get("inputs_schema") or template.inputs_schema
                     data["inputs"] = data.get("inputs") or {}
+                    data["icon_url"] = data.get("icon_url") or template.icon_url
+                    data["description"] = data.get("description") or template.description
+                    data["name"] = data.get("name") or template.name
 
         return super().to_internal_value(data)
 
@@ -332,7 +337,7 @@ class HogFunctionFilterSet(FilterSet):
 class HogFunctionViewSet(
     TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, ForbidDestroyModel, viewsets.ModelViewSet
 ):
-    scope_object = "INTERNAL"  # Keep internal until we are happy to release this GA
+    scope_object = "hog_function"
     queryset = HogFunction.objects.all()
     filter_backends = [DjangoFilterBackend]
     filterset_class = HogFunctionFilterSet
