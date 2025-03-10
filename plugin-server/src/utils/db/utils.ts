@@ -1,20 +1,10 @@
 import { Properties } from '@posthog/plugin-scaffold'
 import { Counter } from 'prom-client'
 
-import { TopicMessage } from '~/src/kafka/producer'
-
 import { defaultConfig } from '../../config/config'
-import {
-    BasePerson,
-    ClickHousePerson,
-    InternalPerson,
-    PluginLogEntryType,
-    PluginLogLevel,
-    RawPerson,
-    TimestampFormat,
-} from '../../types'
+import { BasePerson, InternalPerson, PluginLogEntryType, PluginLogLevel, RawPerson } from '../../types'
 import { status } from '../../utils/status'
-import { areMapsEqual, castTimestampOrNow } from '../../utils/utils'
+import { areMapsEqual } from '../../utils/utils'
 import { captureException } from '../posthog'
 
 export function unparsePersonPartial(person: Partial<InternalPerson>): Partial<RawPerson> {

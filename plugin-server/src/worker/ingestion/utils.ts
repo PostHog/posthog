@@ -1,6 +1,8 @@
 import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
+import { defaultConfig } from '~/src/config/config'
+
 import { KafkaProducerWrapper, TopicMessage } from '../../kafka/producer'
 import { PipelineEvent, PluginsServerConfig, TeamId, TimestampFormat } from '../../types'
 import { safeClickhouseString } from '../../utils/db/utils'
@@ -81,7 +83,8 @@ export async function captureIngestionWarning(
         // TODO: Either here or in follow up change this to an await as we do care.
         void kafkaProducer
             .queueMessages({
-                topic: KAFKA_INGESTION_WARNINGS,
+                // TODO: In the future this should be passed in as a parameter
+                topic: defaultConfig.KAFKA_INGESTION_WARNINGS,
                 messages: [
                     {
                         value: JSON.stringify({

@@ -21,12 +21,7 @@ import { captureIngestionWarning } from '../../../worker/ingestion/utils'
 import { runInstrumentedFunction } from '../../utils'
 import { addSentryBreadcrumbsEventListeners } from '../kafka-metrics'
 import { BatchConsumerFactory } from './batch-consumer-factory'
-import {
-    KAFKA_CONSUMER_GROUP_ID,
-    KAFKA_CONSUMER_GROUP_ID_OVERFLOW,
-    KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
-    KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
-} from './constants'
+import { KAFKA_CONSUMER_GROUP_ID, KAFKA_CONSUMER_GROUP_ID_OVERFLOW } from './constants'
 import { KafkaMessageParser } from './kafka/message-parser'
 import { KafkaOffsetManager } from './kafka/offset-manager'
 import { SessionRecordingIngesterMetrics } from './metrics'
@@ -72,8 +67,8 @@ export class SessionRecordingIngester {
         ingestionWarningProducer?: KafkaProducerWrapper
     ) {
         this.topic = consumeOverflow
-            ? KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW
-            : KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
+            ? this.config.KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW
+            : this.config.KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
         this.batchConsumerFactory = batchConsumerFactory
 
         this.isDebugLoggingEnabled = buildIntegerMatcher(config.SESSION_RECORDING_DEBUG_PARTITION, true)
@@ -113,7 +108,7 @@ export class SessionRecordingIngester {
         }
 
         const offsetManager = new KafkaOffsetManager(this.commitOffsets.bind(this), this.topic)
-        const metadataStore = new SessionMetadataStore(producer)
+        const metadataStore = new SessionMetadataStore(this.config, producer)
         this.fileStorage = s3Client
             ? new S3SessionBatchFileStorage(
                   s3Client,

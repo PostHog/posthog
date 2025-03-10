@@ -87,7 +87,7 @@ export class AppMetrics {
     queueSize: number
 
     constructor(
-        config: PluginsServerConfig,
+        private config: PluginsServerConfig,
         kafkaProducer: KafkaProducerWrapper,
         flushFrequencyMs: number,
         maxQueueSize: number

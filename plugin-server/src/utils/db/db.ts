@@ -856,7 +856,7 @@ export class DB {
         const { id, ...personDistinctIdCreated } = insertResult.rows[0] as PersonDistinctId
         const messages = [
             {
-                topic: KAFKA_PERSON_DISTINCT_ID,
+                topic: this.config.KAFKA_PERSON_DISTINCT_ID,
                 messages: [
                     {
                         value: JSON.stringify({
@@ -921,7 +921,7 @@ export class DB {
             const { id, version: versionStr, ...usefulColumns } = row as PersonDistinctId
             const version = Number(versionStr || 0)
             kafkaMessages.push({
-                topic: KAFKA_PERSON_DISTINCT_ID,
+                topic: this.config.KAFKA_PERSON_DISTINCT_ID,
                 messages: [
                     {
                         value: JSON.stringify({ ...usefulColumns, version, person_id: target.uuid, is_deleted: 0 }),
@@ -1087,7 +1087,7 @@ export class DB {
             // disk.
             void this.kafkaProducer
                 .queueMessages({
-                    topic: KAFKA_PLUGIN_LOG_ENTRIES,
+                    topic: this.config.KAFKA_PLUGIN_LOG_ENTRIES,
                     messages: [{ key: parsedEntry.id, value: JSON.stringify(parsedEntry) }],
                 })
                 .catch((error) => {
@@ -1376,7 +1376,7 @@ export class DB {
         version: number
     ): Promise<void> {
         await this.kafkaProducer.queueMessages({
-            topic: KAFKA_GROUPS,
+            topic: this.config.KAFKA_GROUPS,
             messages: [
                 {
                     value: JSON.stringify({

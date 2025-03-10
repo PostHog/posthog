@@ -9,6 +9,8 @@ import { castTimestampOrNow } from '../../../../../src/utils/utils'
 
 jest.mock('../../../../../src/utils/status')
 
+import { defaultConfig } from '~/src/config/config'
+
 import { getParsedQueuedMessages, mockProducer } from '../../../../helpers/mocks/producer.mock'
 
 const makeIncomingMessage = (
@@ -44,7 +46,7 @@ describe('replay events ingester', () => {
 
     beforeEach(() => {
         const mockedHighWaterMarker = { isBelowHighWaterMark: jest.fn() } as unknown as OffsetHighWaterMarker
-        ingester = new ReplayEventsIngester(mockProducer, mockedHighWaterMarker)
+        ingester = new ReplayEventsIngester(defaultConfig, mockProducer, mockedHighWaterMarker)
     })
 
     test('does not ingest messages from a month in the future', async () => {
