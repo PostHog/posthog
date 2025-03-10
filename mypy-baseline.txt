@@ -611,6 +611,7 @@ posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: note: def [_DataTyp
 posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: error: List comprehension has incompatible type List[str | None]; expected List[bool | None]  [misc]
 posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: error: "Array[Any]" has no attribute "as_py"  [attr-defined]
 posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: error: "Array[Any]" has no attribute "as_py"  [attr-defined]
+posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: error: Argument 3 to "set_column" of "Table" has incompatible type "ChunkedArray[Scalar[TimestampType[Literal['us'], None]]]"; expected "Array[Any] | list[Any]"  [arg-type]
 posthog/temporal/data_imports/pipelines/pipeline/utils.py:0: error: Argument 3 to "set_column" of "Table" has incompatible type "ChunkedArray[Scalar[Any | Decimal128Type[Any, Any] | Decimal256Type[Any, Any]]]"; expected "Array[Any] | list[Any]"  [arg-type]
 posthog/taxonomy/property_definition_api.py:0: error: Item "AnonymousUser" of "User | AnonymousUser" has no attribute "organization"  [union-attr]
 posthog/taxonomy/property_definition_api.py:0: error: Item "None" of "Organization | Any | None" has no attribute "is_feature_available"  [union-attr]
