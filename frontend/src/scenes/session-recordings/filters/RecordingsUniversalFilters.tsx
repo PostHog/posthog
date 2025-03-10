@@ -237,14 +237,22 @@ export const RecordingsUniversalFilters = ({
                         >
                             <RecordingsUniversalFilterGroup size="xsmall" />
                         </UniversalFilters>
-                        {resetFilters && (totalFiltersCount ?? 0) > 0 && (
-                            <LemonButton type="tertiary" size="xsmall" onClick={resetFilters} icon={<IconRevert />}>
-                                Reset
-                            </LemonButton>
-                        )}
                     </div>
                 </div>
             </div>
+            {resetFilters && (totalFiltersCount ?? 0) > 0 && (
+                <div className="flex justify-start mt-2">
+                    <LemonButton
+                        type="tertiary"
+                        size="xsmall"
+                        onClick={resetFilters}
+                        icon={<IconRevert />}
+                        tooltip="Reset any changes you've made to the filters"
+                    >
+                        Reset filters
+                    </LemonButton>
+                </div>
+            )}
             <div className="flex gap-2 mt-2 justify-between">
                 <HideRecordingsMenu />
                 <SettingsMenu
