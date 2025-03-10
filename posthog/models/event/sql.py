@@ -13,6 +13,7 @@ from posthog.clickhouse.kafka_engine import (
 from posthog.clickhouse.property_groups import property_groups
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import (
+    AggregatingMergeTree,
     Distributed,
     ReplacingMergeTree,
     ReplicationScheme,
@@ -559,7 +560,7 @@ SHARDED_TEAM_EVENT_NUMBER_TABLE = "sharded_event_number_mv"
 def SHARDED_TEAM_EVENT_NUMBER_MV_SQL(on_cluster=False):
     return f"""
 CREATE MATERIALIZED VIEW IF NOT EXISTS {SHARDED_TEAM_EVENT_NUMBER_TABLE} {ON_CLUSTER_CLAUSE(on_cluster)}
-ENGINE = AggregatingMergeTree()
+ENGINE = {AggregatingMergeTree(SHARDED_TEAM_EVENT_NUMBER_TABLE, replication_scheme=ReplicationScheme.SHARDED)}
 PARTITION BY toYYYYMMDD(date)
 ORDER BY (team_id, event, date)
 AS
