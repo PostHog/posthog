@@ -1,4 +1,5 @@
 from random import random
+from typing import Any, Union
 
 import structlog
 from django.conf import settings
@@ -77,7 +78,7 @@ def maybe_log_decide_data(request_body: Optional[dict] = None, response_body: Op
         logger.warn("Failed to log decide data", team_id=team_id_as_string)
 
 
-def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool = False) -> dict:
+def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool = False) -> dict[str, Any]:
     use_remote_config = False
 
     # Explicitly set via query param for testing otherwise rollout percentage
@@ -417,8 +418,8 @@ def get_feature_flags_response_or_body(
 
 
 def _format_feature_flags_response(
-    feature_flags: dict, feature_flag_payloads: dict, errors: bool, api_version: int
-) -> dict:
+    feature_flags: dict[str, Any], feature_flag_payloads: dict[str, Any], errors: bool, api_version: int
+) -> dict[str, Any]:
     """Format feature flags response according to API version."""
     active_flags = {key: value for key, value in feature_flags.items() if value}
 
@@ -436,10 +437,10 @@ def _format_feature_flags_response(
 
 def _record_feature_flag_metrics(
     team: Team,
-    feature_flags: dict,
+    feature_flags: dict[str, Any],
     errors: bool,
-    data: dict,
-):
+    data: dict[str, Any],
+) -> None:
     """Record metrics and handle billing for feature flag computations."""
     if not feature_flags:
         return
@@ -462,8 +463,8 @@ def _session_recording_domain_not_allowed(team: Team, request: HttpRequest) -> b
     return team.recording_domains and not on_permitted_recording_domain(team.recording_domains, request)
 
 
-def _session_recording_config_response(request: HttpRequest, team: Team) -> bool | dict:
-    session_recording_config_response: bool | dict = False
+def _session_recording_config_response(request: HttpRequest, team: Team) -> Union[bool, dict[str, Any]]:
+    session_recording_config_response: Union[bool, dict[str, Any]] = False
 
     try:
         if team.session_recording_opt_in and not _session_recording_domain_not_allowed(team, request):
