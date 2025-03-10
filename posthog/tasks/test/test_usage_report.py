@@ -78,6 +78,7 @@ def _setup_replay_data(team_id: int, include_mobile_replay: bool) -> None:
             distinct_id=str(uuid4()),
             first_timestamp=timestamp,
             last_timestamp=timestamp,
+            size=10,
         )
 
     if include_mobile_replay:
@@ -89,6 +90,7 @@ def _setup_replay_data(team_id: int, include_mobile_replay: bool) -> None:
             first_timestamp=timestamp,
             last_timestamp=timestamp,
             snapshot_source="mobile",
+            size=6,
         )
 
     # recordings out of period  - 11 sessions
@@ -101,6 +103,7 @@ def _setup_replay_data(team_id: int, include_mobile_replay: bool) -> None:
             distinct_id=str(uuid4()),
             first_timestamp=timestamp1,
             last_timestamp=timestamp1,
+            size=10,
         )
         # we maybe also include a single mobile recording out of period
         if i == 1 and include_mobile_replay:
@@ -111,6 +114,7 @@ def _setup_replay_data(team_id: int, include_mobile_replay: bool) -> None:
                 first_timestamp=timestamp1,
                 last_timestamp=timestamp1,
                 snapshot_source="mobile",
+                size=6,
             )
 
     # ensure there is a recording that starts before the period and ends during the period
@@ -124,6 +128,7 @@ def _setup_replay_data(team_id: int, include_mobile_replay: bool) -> None:
         distinct_id=str(uuid4()),
         first_timestamp=timestamp2,
         last_timestamp=timestamp2,
+        size=10,
     )
     produce_replay_summary(
         team_id=team_id,
@@ -131,6 +136,7 @@ def _setup_replay_data(team_id: int, include_mobile_replay: bool) -> None:
         distinct_id=str(uuid4()),
         first_timestamp=start_of_day,
         last_timestamp=start_of_day,
+        size=10,
     )
     timestamp3 = start_of_day + relativedelta(hours=1)
     produce_replay_summary(
@@ -139,6 +145,7 @@ def _setup_replay_data(team_id: int, include_mobile_replay: bool) -> None:
         distinct_id=str(uuid4()),
         first_timestamp=timestamp3,
         last_timestamp=timestamp3,
+        size=10,
     )
 
 
@@ -152,7 +159,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
 
         self.expected_properties: dict = {}
 
-    def _create_sample_usage_data(self) -> None:
+    def _create_sample_usage_data(self, include_mobile_replay: bool) -> None:
         """
         For this test, we create a lot of data around the current date 2022-01-01
         so that we can test the report overall
@@ -419,7 +426,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                 person_mode="full",
             )
 
-            _setup_replay_data(team_id=self.org_1_team_2.id, include_mobile_replay=False)
+            _setup_replay_data(team_id=self.org_1_team_2.id, include_mobile_replay=include_mobile_replay)
 
             _create_event(
                 distinct_id=distinct_id,
@@ -478,7 +485,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
 
     def _test_usage_report(self) -> list[dict]:
         with self.settings(SITE_URL="http://test.posthog.com"):
-            self._create_sample_usage_data()
+            self._create_sample_usage_data(include_mobile_replay=True)
             self._create_plugin("Installed but not enabled", False)
             self._create_plugin("Installed and enabled", True)
 
@@ -541,8 +548,10 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "python_events_count_in_period": 1,
                     "php_events_count_in_period": 1,
                     "dotnet_events_count_in_period": 0,
+                    "recording_bytes_in_period": 50,
                     "recording_count_in_period": 5,
-                    "mobile_recording_count_in_period": 0,
+                    "mobile_recording_bytes_in_period": 6,
+                    "mobile_recording_count_in_period": 1,
                     "mobile_billable_recording_count_in_period": 0,
                     "group_types_total": 2,
                     "dashboard_count": 2,
@@ -603,7 +612,9 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "python_events_count_in_period": 1,
                             "php_events_count_in_period": 1,
                             "dotnet_events_count_in_period": 0,
+                            "recording_bytes_in_period": 0,
                             "recording_count_in_period": 0,
+                            "mobile_recording_bytes_in_period": 0,
                             "mobile_recording_count_in_period": 0,
                             "mobile_billable_recording_count_in_period": 0,
                             "group_types_total": 2,
@@ -659,8 +670,10 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "python_events_count_in_period": 0,
                             "php_events_count_in_period": 0,
                             "dotnet_events_count_in_period": 0,
+                            "recording_bytes_in_period": 50,
                             "recording_count_in_period": 5,
-                            "mobile_recording_count_in_period": 0,
+                            "mobile_recording_bytes_in_period": 6,
+                            "mobile_recording_count_in_period": 1,
                             "mobile_billable_recording_count_in_period": 0,
                             "group_types_total": 0,
                             "dashboard_count": 0,
@@ -738,7 +751,9 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "python_events_count_in_period": 0,
                     "php_events_count_in_period": 0,
                     "dotnet_events_count_in_period": 0,
+                    "recording_bytes_in_period": 0,
                     "recording_count_in_period": 0,
+                    "mobile_recording_bytes_in_period": 0,
                     "mobile_recording_count_in_period": 0,
                     "mobile_billable_recording_count_in_period": 0,
                     "group_types_total": 0,
@@ -800,7 +815,9 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "python_events_count_in_period": 0,
                             "php_events_count_in_period": 0,
                             "dotnet_events_count_in_period": 0,
+                            "recording_bytes_in_period": 0,
                             "recording_count_in_period": 0,
+                            "mobile_recording_bytes_in_period": 0,
                             "mobile_recording_count_in_period": 0,
                             "mobile_billable_recording_count_in_period": 0,
                             "group_types_total": 0,
