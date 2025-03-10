@@ -340,7 +340,7 @@ class SyncVectorsWorkflow(PostHogWorkflow):
                 temporalio.workflow.execute_activity(
                     batch_summarize_actions,
                     BatchSummarizeActionsInputs(start_dt_str, i, inputs.batch_size),
-                    start_to_close_timeout=timedelta(minutes=5),
+                    start_to_close_timeout=timedelta(minutes=3),
                     retry_policy=temporalio.common.RetryPolicy(
                         initial_interval=timedelta(seconds=30), maximum_attempts=3
                     ),
@@ -361,7 +361,7 @@ class SyncVectorsWorkflow(PostHogWorkflow):
                 BatchEmbedAndSyncActionsInputs(
                     start_dt_str, inputs.insert_batch_size, inputs.batch_size, inputs.max_parallel_requests
                 ),
-                start_to_close_timeout=timedelta(minutes=1),
+                start_to_close_timeout=timedelta(minutes=5),
                 retry_policy=temporalio.common.RetryPolicy(initial_interval=timedelta(seconds=30), maximum_attempts=3),
             )
             if not res.has_more:
