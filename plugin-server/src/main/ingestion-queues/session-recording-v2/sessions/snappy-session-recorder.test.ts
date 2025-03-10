@@ -331,6 +331,46 @@ describe('SnappySessionRecorder', () => {
             expect(result.urls).toEqual(['https://example.com'])
         })
 
+        it('should limit URL length to 4KB', async () => {
+            // Create a URL that exceeds the 4KB limit
+            const longUrl = 'https://example.com/' + 'a'.repeat(5000)
+
+            const events = [
+                {
+                    type: RRWebEventType.Meta,
+                    timestamp: 1000,
+                    data: { href: longUrl },
+                },
+            ]
+            const message = createMessage('window1', events)
+
+            recorder.recordMessage(message)
+            const result = await recorder.end()
+
+            // URL should be truncated to 4KB (4096 characters)
+            expect(result.firstUrl?.length).toBe(4096)
+            expect(result.urls?.[0].length).toBe(4096)
+        })
+
+        it('should limit the number of URLs to 25', async () => {
+            // Create 30 different URLs
+            const events = Array.from({ length: 30 }, (_, i) => ({
+                type: RRWebEventType.Meta,
+                timestamp: 1000 + i * 100,
+                data: { href: `https://example${i}.com` },
+            }))
+
+            const message = createMessage('window1', events)
+
+            recorder.recordMessage(message)
+            const result = await recorder.end()
+
+            // Only the first 25 URLs should be stored
+            expect(result.urls?.length).toBe(25)
+            // First URL should be the first one in the events array
+            expect(result.firstUrl).toBe('https://example0.com')
+        })
+
         it('should accumulate URLs from multiple messages', async () => {
             const message1 = createMessage('window1', [
                 {
