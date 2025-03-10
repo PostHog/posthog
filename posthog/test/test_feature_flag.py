@@ -1,7 +1,6 @@
 import concurrent.futures
 from datetime import datetime
 from typing import cast
-from unittest.mock import patch
 
 from django.core.cache import cache
 from django.db import IntegrityError, connection
@@ -4643,7 +4642,6 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
         )
 
-    @patch("posthog.models.feature_flag.flag_matching.postgres_healthcheck")
     def test_invalid_filters_dont_set_db_down(self, mock_database_healthcheck):
         cohort = Cohort.objects.create(
             team=self.team,
@@ -4700,7 +4698,6 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         self.assertEqual(matcher.failed_to_fetch_conditions, False)
         mock_database_healthcheck.set_connection.assert_not_called()
 
-    @patch("posthog.models.feature_flag.flag_matching.postgres_healthcheck")
     def test_invalid_group_filters_dont_set_db_down(self, mock_database_healthcheck):
         flag: FeatureFlag = FeatureFlag.objects.create(
             team=self.team,
@@ -4742,7 +4739,6 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         self.assertEqual(matcher.failed_to_fetch_conditions, False)
         mock_database_healthcheck.set_connection.assert_not_called()
 
-    @patch("posthog.models.feature_flag.flag_matching.postgres_healthcheck")
     def test_data_errors_dont_set_db_down(self, mock_database_healthcheck):
         flag: FeatureFlag = FeatureFlag.objects.create(
             team=self.team,
@@ -6223,10 +6219,6 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
         self.assertEqual(payloads, {})
 
 
-@patch(
-    "posthog.models.feature_flag.flag_matching.postgres_healthcheck.is_connected",
-    return_value=True,
-)
 class TestHashKeyOverridesRaceConditions(TransactionTestCase, QueryMatchingTest):
     def setUp(self) -> None:
         return super().setUp()

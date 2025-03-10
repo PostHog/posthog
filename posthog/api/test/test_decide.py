@@ -21,7 +21,6 @@ from rest_framework.test import APIClient
 from posthog import redis
 from posthog.api.decide import get_decide, label_for_team_id_to_track
 from posthog.api.test.test_feature_flag import QueryTimeoutWrapper
-from posthog.database_healthcheck import postgres_healthcheck
 from posthog.exceptions import (
     RequestParsingError,
     UnspecifiedCompressionFallbackParsingError,
@@ -79,10 +78,6 @@ def make_session_recording_decide_response(overrides: Optional[dict] = None) -> 
 # TODO: Add a derived version of decide that covers the new RemoteConfig option
 
 
-@patch(
-    "posthog.models.feature_flag.flag_matching.postgres_healthcheck.is_connected",
-    return_value=True,
-)
 class TestDecide(BaseTest, QueryMatchingTest):
     """
     Tests the `/decide` endpoint.
@@ -3854,7 +3849,6 @@ class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
     def setUp(self, *args):
         cache.clear()
 
-        postgres_healthcheck.cache_clear()
         super().setUp(*args)
         # it is really important to know that /decide is CSRF exempt. Enforce checking in the client
         self.client = Client(enforce_csrf_checks=True)
@@ -3984,9 +3978,6 @@ class TestDatabaseCheckForDecide(BaseTest, QueryMatchingTest):
         )
         # populate redis caches
         self._post_decide(api_version=3, origin="https://random.example.com")
-
-        # remove database check cache values
-        postgres_healthcheck.cache_clear()
 
         with (
             connection.execute_wrapper(QueryTimeoutWrapper()),
@@ -4155,10 +4146,6 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual({}, response.json()["featureFlags"])
 
-    @patch(
-        "posthog.models.feature_flag.flag_matching.postgres_healthcheck.is_connected",
-        return_value=True,
-    )
     def test_decide_uses_read_replica(self, mock_is_connected):
         org, team, user = self.setup_user_and_team_in_db("default")
         self.organization, self.team, self.user = org, team, user
@@ -4229,10 +4216,6 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                 },
             )
 
-    @patch(
-        "posthog.models.feature_flag.flag_matching.postgres_healthcheck.is_connected",
-        return_value=True,
-    )
     def test_decide_uses_read_replica_for_cohorts_based_flags(self, mock_is_connected):
         org, team, user = self.setup_user_and_team_in_db("default")
         self.organization, self.team, self.user = org, team, user
@@ -4431,10 +4414,6 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                 },
             )
 
-    @patch(
-        "posthog.models.feature_flag.flag_matching.postgres_healthcheck.is_connected",
-        return_value=True,
-    )
     def test_feature_flags_v3_consistent_flags(self, mock_is_connected):
         org, team, user = self.setup_user_and_team_in_db("default")
         self.organization, self.team, self.user = org, team, user
@@ -4610,10 +4589,6 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             self.assertTrue(response.json()["featureFlags"]["default-no-prop-flag"])
             self.assertTrue(response.json()["errorsWhileComputingFlags"])
 
-    @patch(
-        "posthog.models.feature_flag.flag_matching.postgres_healthcheck.is_connected",
-        return_value=True,
-    )
     def test_feature_flags_v3_consistent_flags_with_write_on_hash_key_overrides(self, mock_is_connected):
         org, team, user = self.setup_user_and_team_in_db("default")
         self.organization, self.team, self.user = org, team, user
@@ -4737,10 +4712,6 @@ class TestDecideUsesReadReplica(TransactionTestCase):
                 "first-variant", response.json()["featureFlags"]["multivariate-flag"]
             )  # assigned by distinct_id hash
 
-    @patch(
-        "posthog.models.feature_flag.flag_matching.postgres_healthcheck.is_connected",
-        return_value=True,
-    )
     def test_feature_flags_v2_with_groups(self, mock_is_connected):
         org, team, user = self.setup_user_and_team_in_db("replica")
         self.organization, self.team, self.user = org, team, user
@@ -4838,10 +4809,6 @@ class TestDecideUsesReadReplica(TransactionTestCase):
             )
             self.assertFalse(response.json()["errorsWhileComputingFlags"])
 
-    @patch(
-        "posthog.models.feature_flag.flag_matching.postgres_healthcheck.is_connected",
-        return_value=True,
-    )
     def test_site_apps_in_decide_use_replica(self, mock_is_connected):
         org, team, user = self.setup_user_and_team_in_db("default")
         self.organization, self.team, self.user = org, team, user

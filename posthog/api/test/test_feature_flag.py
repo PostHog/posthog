@@ -6306,10 +6306,6 @@ def slow_query(execute, sql, *args, **kwargs):
     return execute(f"SELECT pg_sleep(1); {sql}", *args, **kwargs)
 
 
-@patch(
-    "posthog.models.feature_flag.flag_matching.postgres_healthcheck.is_connected",
-    return_value=True,
-)
 class TestResiliency(TransactionTestCase, QueryMatchingTest):
     def setUp(self) -> None:
         return super().setUp()
