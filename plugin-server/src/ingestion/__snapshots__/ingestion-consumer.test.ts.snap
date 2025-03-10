@@ -235,6 +235,22 @@ exports[`IngestionConsumer typical event processing bad uuid 1`] = `
 ]
 `;
 
+exports[`IngestionConsumer typical event processing client ingestion warning 1`] = `
+[
+  {
+    "key": null,
+    "topic": "clickhouse_ingestion_warnings_test",
+    "value": {
+      "details": "{"eventUuid":"<REPLACED-UUID-0>","event":"$$client_ingestion_warning","distinctId":"user-1","message":"test"}",
+      "source": "plugin-server",
+      "team_id": 2,
+      "timestamp": "2025-01-01 00:00:00.000",
+      "type": "client_ingestion_warning",
+    },
+  },
+]
+`;
+
 exports[`IngestionConsumer typical event processing event with common distinct_id that gets dropped 1`] = `
 [
   {

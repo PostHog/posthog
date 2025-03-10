@@ -8,7 +8,6 @@ import { KAFKA_INGESTION_WARNINGS } from '../../config/kafka-topics'
 import { eventDroppedCounter } from '../../main/ingestion-queues/metrics'
 import { runInstrumentedFunction } from '../../main/utils'
 import { Hub, Person, PersonMode, PipelineEvent, RawKafkaEvent, Team, TimestampFormat } from '../../types'
-import { processAiEvent } from '../../utils/ai-costs/process-ai-event'
 import { MessageSizeTooLarge } from '../../utils/db/error'
 import { safeClickhouseString, sanitizeEventName, sanitizeString } from '../../utils/db/utils'
 import { normalizeEvent, normalizeProcessPerson } from '../../utils/event'
@@ -20,6 +19,7 @@ import { upsertGroup } from '../../worker/ingestion/properties-updater'
 import { parseEventTimestamp } from '../../worker/ingestion/timestamps'
 import { captureIngestionWarning } from '../../worker/ingestion/utils'
 import { runProcessEvent } from '../../worker/plugins/run'
+import { processAiEvent } from '../ai-costs/process-ai-event'
 import { getElementsChain } from './utils/event-utils'
 import { extractHeatmapData } from './utils/heatmaps'
 
@@ -309,7 +309,7 @@ export class EventPipelineRunnerV2 {
         // NOTE: PersonState could derive so much of this stuff instead of it all being passed in
         const [person, kafkaAck] = await new PersonState(
             this.event,
-            this.event.team_id,
+            this.team!,
             String(this.event.distinct_id),
             this.timestamp!,
             this.shouldProcessPerson,
