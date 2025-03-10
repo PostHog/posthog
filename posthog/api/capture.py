@@ -379,20 +379,28 @@ def drop_events_over_quota(token: str, events: list[Any]) -> EventsOverQuotaResu
                 if settings.QUOTA_LIMITING_ENABLED:
                     recordings_were_limited = True
                     continue
-
         else:
+            # Regular events - check if they're free events (i.e. events that we don't quota-limit) first
+            event_name = event.get("event")
+            is_free_event = (
+                event_name in ("$exception", "survey sent", "survey shown", "survey dismissed", "$feature_flag_called")
+                or event_name.startswith("$ai_")  # AI events
+                or event_name.startswith("$error_")  # Error tracking events
+            )
+
             EVENTS_RECEIVED_COUNTER.labels(resource_type="events").inc()
             if token in limited_tokens_events:
-                EVENTS_DROPPED_OVER_QUOTA_COUNTER.labels(resource_type="events", token=token).inc()
-                if settings.QUOTA_LIMITING_ENABLED:
-                    events_were_limited = True
-                    continue
+                if not is_free_event:  # Only drop if it's not a free event
+                    EVENTS_DROPPED_OVER_QUOTA_COUNTER.labels(resource_type="events", token=token).inc()
+                    if settings.QUOTA_LIMITING_ENABLED:
+                        events_were_limited = True
+                        continue
+                # Still mark as limited even if we let free events through
+                events_were_limited = events_were_limited or settings.QUOTA_LIMITING_ENABLED
 
         results.append(event)
 
-    return EventsOverQuotaResult(
-        results, events_were_limited=events_were_limited, recordings_were_limited=recordings_were_limited
-    )
+    return EventsOverQuotaResult(results, events_were_limited, recordings_were_limited)
 
 
 def lib_version_from_query_params(request) -> str:
