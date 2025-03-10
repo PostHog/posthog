@@ -9,6 +9,7 @@ import { ConnectionOptions } from 'tls'
 
 import { getPluginServerCapabilities } from '../../capabilities'
 import { EncryptedFields } from '../../cdp/encryption-utils'
+import { LegacyOneventCompareService } from '../../cdp/services/legacy-onevent-compare.service'
 import { buildIntegerMatcher, defaultConfig } from '../../config/config'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from '../../config/constants'
 import { CookielessManager } from '../../ingestion/cookieless/cookieless-manager'
@@ -138,7 +139,7 @@ export async function createHub(
 
     const cookielessManager = new CookielessManager(serverConfig, redisPool, teamManager)
 
-    const hub: Hub = {
+    const hub: Omit<Hub, 'legacyOneventCompareService'> = {
         ...serverConfig,
         instanceId,
         capabilities,
@@ -181,7 +182,10 @@ export async function createHub(
         cookielessManager,
     }
 
-    return hub as Hub
+    return {
+        ...hub,
+        legacyOneventCompareService: new LegacyOneventCompareService(hub as Hub),
+    }
 }
 
 export const closeHub = async (hub: Hub): Promise<void> => {

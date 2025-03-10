@@ -19,6 +19,7 @@ from dlt.common.normalizers.naming.snake_case import NamingConvention
 from dlt.common.schema.typing import TSchemaTables
 from clickhouse_driver.errors import ServerException
 
+from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
 from posthog.warehouse.models.credential import get_or_create_datawarehouse_credential
 from posthog.warehouse.models.external_data_job import ExternalDataJob
@@ -153,7 +154,8 @@ def validate_schema_and_update_table_sync(
             hogql_type = table_schema_dict.get(column_name)
 
             if hogql_type is None:
-                raise Exception(f"HogQL type not found for column: {column_name}")
+                capture_exception(Exception(f"HogQL type not found for column: {column_name}"))
+                continue
 
             columns[column_name] = {
                 "clickhouse": db_column_type,
