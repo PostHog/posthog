@@ -53,7 +53,8 @@ pub struct EnvVarProvider;
 impl CredentialProvider for EnvVarProvider {
     fn get_credentials(&self) -> Result<Token, Error> {
         let token = std::env::var("POSTHOG_CLI_TOKEN").context("While trying to read env var")?;
-        Ok(Token { token })
+        let env_id = std::env::var("POSTHOG_CLI_ENV_ID").context("While trying to read env var")?;
+        Ok(Token { token, env_id })
     }
 
     fn store_credentials(&self, _token: Token) -> Result<(), Error> {
@@ -80,14 +81,48 @@ fn token_validator(token: &str) -> Result<Validation, CustomUserError> {
 }
 
 pub fn login() -> Result<(), Error> {
+    let env_id =
+        Text::new("Enter your project ID (the number in your posthog homepage url)").prompt()?;
+
     let token = Text::new(
         "Enter your personal API token (see posthog.com/docs/api#private-endpoint-authentication)",
     )
     .with_validator(token_validator)
     .prompt()?;
-    let token = Token { token };
+
+    let token = Token { token, env_id };
+
     let provider = HomeDirProvider;
     provider.store_credentials(token)?;
     info!("Token saved to: {}", provider.report_location());
     Ok(())
+}
+
+pub fn load_token() -> Result<Token, Error> {
+    let env = EnvVarProvider;
+    let env_err = match env.get_credentials() {
+        Ok(token) => {
+            info!("Using token from env var, for environment {}", token.env_id);
+            return Ok(token);
+        }
+        Err(e) => e,
+    };
+    let provider = HomeDirProvider;
+    let dir_err = match provider.get_credentials() {
+        Ok(token) => {
+            info!(
+                "Using token from: {}, for environment {}",
+                provider.report_location(),
+                token.env_id
+            );
+            return Ok(token);
+        }
+        Err(e) => e,
+    };
+
+    Err(
+        anyhow::anyhow!("Couldn't load credentials... Have you logged in recently?")
+            .context(env_err)
+            .context(dir_err),
+    )
 }
