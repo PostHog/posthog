@@ -297,7 +297,7 @@ def test_should_partition_table_non_incremental_schema():
     schema.is_incremental = False
     schema.partitioning_enabled = False
 
-    source = SourceResponse(name="source", items=iter([]), primary_keys=None, partition_bucket_size=1000)
+    source = SourceResponse(name="source", items=iter([]), primary_keys=None, partition_count=1000)
 
     res = should_partition_table(None, schema, source)
     assert res is False
@@ -310,7 +310,7 @@ def test_should_partition_table_paritioning_settingd():
     schema.partitioning_size = 100
     schema.partitioning_keys = ["id"]
 
-    source = SourceResponse(name="source", items=iter([]), primary_keys=None, partition_bucket_size=1000)
+    source = SourceResponse(name="source", items=iter([]), primary_keys=None, partition_count=1000)
 
     res = should_partition_table(None, schema, source)
     assert res is True
@@ -321,7 +321,7 @@ def test_should_partition_table_incremental_with_bucket_size():
     schema.is_incremental = True
     schema.partitioning_enabled = False
 
-    source = SourceResponse(name="source", items=iter([]), primary_keys=None, partition_bucket_size=1000)
+    source = SourceResponse(name="source", items=iter([]), primary_keys=None, partition_count=1000)
 
     res = should_partition_table(None, schema, source)
     assert res is True
@@ -332,7 +332,7 @@ def test_should_partition_table_no_table():
     schema.is_incremental = True
     schema.partitioning_enabled = False
 
-    source = SourceResponse(name="source", items=iter([]), primary_keys=None, partition_bucket_size=1000)
+    source = SourceResponse(name="source", items=iter([]), primary_keys=None, partition_count=1000)
 
     res = should_partition_table(None, schema, source)
     assert res is True
@@ -353,7 +353,7 @@ def test_should_partition_table_with_table_and_no_key():
 
     delta_table.schema = MagicMock(return_value=schema_mock)
 
-    source = SourceResponse(name="source", items=iter([]), primary_keys=None, partition_bucket_size=1000)
+    source = SourceResponse(name="source", items=iter([]), primary_keys=None, partition_count=1000)
 
     res = should_partition_table(delta_table, schema, source)
     assert res is False
@@ -374,7 +374,7 @@ def test_should_partition_table_with_table_and_key():
 
     delta_table.schema = MagicMock(return_value=schema_mock)
 
-    source = SourceResponse(name="source", items=iter([]), primary_keys=None, partition_bucket_size=1000)
+    source = SourceResponse(name="source", items=iter([]), primary_keys=None, partition_count=1000)
 
     res = should_partition_table(delta_table, schema, source)
     assert res is True
