@@ -15,13 +15,13 @@ import {
     IconTestTube,
     IconToggle,
 } from '@posthog/icons'
-import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
-import { LemonCollapse } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCollapse, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { SupportForm } from 'lib/components/Support/SupportForm'
 import { getPublicSupportSnippet, supportLogic } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import React from 'react'
 import { billingLogic } from 'scenes/billing/billingLogic'
@@ -37,6 +37,7 @@ import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
 import { sidePanelStateLogic } from '../sidePanelStateLogic'
 import { MaxChatInterface } from './sidePanelMaxChatInterface'
 import { sidePanelStatusLogic } from './sidePanelStatusLogic'
+
 const PRODUCTS = [
     {
         name: 'Product OS',
@@ -202,6 +203,7 @@ export const SidePanelSupport = (): JSX.Element => {
     const { currentOrganization } = useValues(organizationLogic)
     const { currentTeam } = useValues(teamLogic)
     const { status } = useValues(sidePanelStatusLogic)
+    const { billing } = useValues(billingLogic)
 
     const theLogic = supportLogic({ onClose: () => closeSidePanel(SidePanelTab.Support) })
     const { openEmailForm, closeEmailForm, openMaxChatInterface, closeMaxChatInterface } = useActions(theLogic)
@@ -209,11 +211,37 @@ export const SidePanelSupport = (): JSX.Element => {
 
     const region = preflight?.region
 
+    const isLocalDev = process.env.NODE_ENV === 'development'
+
+    // Check if user has a paid subscription or is on an active trial (either old-style or new-style)
+    const hasActiveTrial =
+        (!!billing?.free_trial_until && billing.free_trial_until.isAfter(dayjs())) ||
+        billing?.trial?.status === 'active'
+    const canEmailEngineer = billing?.subscription_level !== 'free' || hasActiveTrial
+    // In development, we always show the button regardless of cloud status
+    const showEmailSupport = isLocalDev ? canEmailEngineer : isCloud && canEmailEngineer
+
     return (
         <>
             <div className="overflow-y-auto" data-attr="side-panel-support-container">
                 <SidePanelPaneHeader title="Help" />
                 <div className="p-3 max-w-160 w-full mx-auto">
+                    {/* Simple debug information for development */}
+                    {isLocalDev && (
+                        <div className="mb-4 border p-2 rounded bg-bg-light">
+                            <p className="text-xs">
+                                This ensures that users on either type of trial can see the "Email our support
+                                engineers" button.
+                            </p>
+                            <div className="text-xs mt-2">
+                                <div>Old-style trial: {billing?.free_trial_until ? 'Yes' : 'No'}</div>
+                                <div>New-style trial: {billing?.trial?.status === 'active' ? 'Yes' : 'No'}</div>
+                                <div>Subscription: {billing?.subscription_level}</div>
+                                <div>Show email button: {showEmailSupport ? 'Yes' : 'No'}</div>
+                            </div>
+                        </div>
+                    )}
+
                     {isEmailFormOpen ? (
                         <SupportFormBlock onCancel={() => closeEmailForm()} />
                     ) : isMaxChatInterfaceOpen ? (
@@ -258,13 +286,15 @@ export const SidePanelSupport = (): JSX.Element => {
                                 </ul>
                             </Section>
 
-                            {status !== 'operational' ? (
+                            {status !== 'operational' && (
                                 <Section title="">
                                     <LemonBanner type={status.includes('outage') ? 'error' : 'warning'}>
                                         <div>
-                                            <span>
-                                                We are experiencing {status.includes('outage') ? 'major' : ''} issues.
-                                            </span>
+                                            {status.includes('outage') ? (
+                                                <span>We are experiencing major issues.</span>
+                                            ) : (
+                                                <span>We are experiencing issues.</span>
+                                            )}
                                             <LemonButton
                                                 type="secondary"
                                                 fullWidth
@@ -278,12 +308,12 @@ export const SidePanelSupport = (): JSX.Element => {
                                         </div>
                                     </LemonBanner>
                                 </Section>
-                            ) : null}
+                            )}
 
                             {isCloud ? (
                                 <FlaggedFeature flag={FEATURE_FLAGS.SUPPORT_SIDEBAR_MAX} match={true}>
                                     <Section title="Ask Max the Hedgehog">
-                                        <>
+                                        <div>
                                             <p>
                                                 Max is PostHog's support AI who can answer support questions, help you
                                                 with troubleshooting, find info in our documentation, write HogQL
@@ -301,12 +331,22 @@ export const SidePanelSupport = (): JSX.Element => {
                                             >
                                                 ✨ Chat with Max
                                             </LemonButton>
-                                        </>
+                                        </div>
                                     </Section>
                                 </FlaggedFeature>
                             ) : null}
 
-                            {isCloud ? (
+                            {!showEmailSupport && (
+                                <Section title="">
+                                    <h3>Can't find what you need in the docs?</h3>
+                                    <p>
+                                        With the totally free plan you can ask the community via the link below, or
+                                        explore your upgrade choices for the ability to email a support engineer.
+                                    </p>
+                                </Section>
+                            )}
+
+                            {showEmailSupport && (
                                 <Section title="Contact us">
                                     <p>Can't find what you need in the docs?</p>
                                     <LemonButton
@@ -320,7 +360,32 @@ export const SidePanelSupport = (): JSX.Element => {
                                         Email our support engineers
                                     </LemonButton>
                                 </Section>
-                            ) : null}
+                            )}
+
+                            {!showEmailSupport && (
+                                <div className="grid grid-cols-2 border rounded [&_>*]:px-2 [&_>*]:py-0.5 mb-6 bg-surface-primary">
+                                    <div className="col-span-full flex justify-between items-center px-2 py-2 border-b">
+                                        <strong>Avg support response times</strong>
+                                        <div>
+                                            <Link to={urls.organizationBilling([ProductKey.PLATFORM_AND_SUPPORT])}>
+                                                Explore options
+                                            </Link>
+                                        </div>
+                                    </div>
+                                    <div>Totally free</div>
+                                    <div>
+                                        <Link to="https://posthog.com/questions">Community support only</Link>
+                                    </div>
+                                    <div>Ridiculously cheap</div>
+                                    <div>24 hours</div>
+                                    <div>Teams add-on</div>
+                                    <div>12 hours</div>
+                                    <div>Enterprise add-on</div>
+                                    <div>12 hours</div>
+                                    <div>Enterprise</div>
+                                    <div>12 hours</div>
+                                </div>
+                            )}
 
                             <Section title="Ask the community">
                                 <p>
