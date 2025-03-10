@@ -1,6 +1,6 @@
 import { GroupsManagerService } from '../../../src/cdp/services/groups-manager.service'
 import { Hub } from '../../../src/types'
-import { createHogExecutionGlobals, insertHogFunction as _insertHogFunction } from '../fixtures'
+import { createHogExecutionGlobals } from '../_tests/fixtures'
 
 describe('Groups Manager', () => {
     jest.setTimeout(1000)

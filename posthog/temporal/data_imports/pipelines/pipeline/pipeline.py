@@ -6,6 +6,7 @@ import deltalake as deltalake
 import pyarrow as pa
 from dlt.sources import DltSource
 
+from posthog.settings import TEST
 from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.temporal.common.shutdown import ShutdownMonitor
 from posthog.temporal.data_imports.deltalake_compaction_job import trigger_compaction_job
@@ -186,6 +187,7 @@ class PipelineNonDLT:
         if (
             should_partition_table(delta_table, self._schema, self._resource)
             and not table_using_old_partitioning_system
+            and TEST
         ):
             partition_size = self._schema.partitioning_size or self._resource.partition_bucket_size
             partition_keys = self._schema.partitioning_keys or self._resource.primary_keys
