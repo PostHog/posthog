@@ -1984,8 +1984,12 @@
       properties VARCHAR CODEC(ZSTD(3)),
       timestamp DateTime64(6, 'UTC') DEFAULT NOW('UTC'),
       is_deleted UInt8,
-  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_pg_embeddings', sipHash64(domain, team_id))
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.pg_embeddings', '{replica}', timestamp, is_deleted)
   
+      -- id for uniqueness
+      ORDER BY (team_id, domain, id)
+      SETTINGS index_granularity=512
+      
   '''
 # ---
 # name: test_create_table_query[plugin_log_entries]
@@ -3800,6 +3804,27 @@
   Order By (team_id, cohort_id, person_id, id)
   SETTINGS storage_policy = 'hot_to_cold'
   
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[pg_embeddings]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS pg_embeddings ON CLUSTER 'posthog'
+  (
+      domain String,
+      team_id Int64,
+      id String,
+      vector Array(Float32),
+      text String,
+      properties VARCHAR CODEC(ZSTD(3)),
+      timestamp DateTime64(6, 'UTC') DEFAULT NOW('UTC'),
+      is_deleted UInt8,
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.pg_embeddings', '{replica}', timestamp, is_deleted)
+  
+      -- id for uniqueness
+      ORDER BY (team_id, domain, id)
+      SETTINGS index_granularity=512
+      
   '''
 # ---
 # name: test_create_table_query_replicated_and_storage[plugin_log_entries]
