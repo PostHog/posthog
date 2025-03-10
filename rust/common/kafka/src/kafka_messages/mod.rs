@@ -1,5 +1,6 @@
 pub mod app_metrics;
 pub mod app_metrics2;
+pub mod ingest_warning;
 pub mod internal_events;
 pub mod log_entries;
 pub mod plugin_logs;

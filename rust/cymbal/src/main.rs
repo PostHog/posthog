@@ -3,12 +3,11 @@ use std::{future::ready, sync::Arc};
 use axum::{routing::get, Router};
 use common_kafka::{kafka_consumer::RecvErr, kafka_producer::KafkaProduceError};
 use common_metrics::{serve, setup_metrics_routes};
-use common_types::ClickHouseEvent;
 use cymbal::{
     app_context::AppContext,
     config::Config,
-    handle_events,
     metric_consts::{DROPPED_EVENTS, ERRORS, EVENT_PROCESSED, EVENT_RECEIVED, MAIN_LOOP_TIME},
+    pipeline::{errors::handle_errors, handle_batch, IncomingEvent},
 };
 use rdkafka::types::RDKafkaErrorCode;
 use tokio::task::JoinHandle;
@@ -83,7 +82,7 @@ async fn main() {
         context.worker_liveness.report_healthy().await;
         // Just grab the event as a serde_json::Value and immediately drop it,
         // we can work out a real type for it later (once we're deployed etc)
-        let received: Vec<Result<(ClickHouseEvent, _), _>> = context
+        let received: Vec<Result<(IncomingEvent, _), _>> = context
             .kafka_consumer
             .json_recv_batch(batch_size, batch_wait_time)
             .await;
@@ -121,22 +120,25 @@ async fn main() {
             metrics::counter!(EVENT_RECEIVED).increment(1);
         }
 
-        let processed = match handle_events(context.clone(), to_process).await {
+        let processed = match handle_batch(to_process, context.clone()).await {
             Ok(events) => events,
-            Err((index, e)) => {
+            Err(failure) => {
+                let (index, err) = (failure.index, failure.error);
                 let offset = &offsets[index];
-                error!("Error handling event: {:?}; offset: {:?}", e, offset);
-                panic!("Unhandled error: {:?}; offset: {:?}", e, offset);
+                error!("Error handling event: {:?}; offset: {:?}", err, offset);
+                panic!("Unhandled error: {:?}; offset: {:?}", err, offset);
             }
         };
 
         metrics::counter!(EVENT_PROCESSED).increment(processed.len() as u64);
 
+        let to_emit = handle_errors(processed, context.clone()).await;
+
         let results = txn
             .send_keyed_iter_to_kafka(
                 &context.config.events_topic,
                 |ev| Some(ev.uuid.to_string()),
-                &processed,
+                to_emit,
             )
             .await;
 

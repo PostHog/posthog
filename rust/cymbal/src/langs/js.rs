@@ -46,6 +46,7 @@ impl RawJSFrame {
                 Ok(self.handle_resolution_error(e))
             }
             Err(Error::UnhandledError(e)) => Err(e),
+            Err(Error::EventError(_)) => unreachable!(),
         }
     }
 
