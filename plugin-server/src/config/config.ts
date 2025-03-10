@@ -11,8 +11,6 @@ import { KAFKAJS_LOG_LEVEL_MAPPING } from './constants'
 
 export const DEFAULT_HTTP_SERVER_PORT = 6738
 
-export const defaultConfig = overrideWithEnv(getDefaultConfig())
-
 const KAFKA_TOPIC_DEFAULTS: KAFKA_TOPICS = {
     KAFKA_EVENTS_JSON: `clickhouse_events_json`,
     KAFKA_PERSON: `clickhouse_person`,
@@ -373,3 +371,5 @@ export function buildStringMatcher(config: string | undefined, allowStar: boolea
         }
     }
 }
+
+export const defaultConfig = overrideWithEnv(getDefaultConfig())
