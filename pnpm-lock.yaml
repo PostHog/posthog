@@ -595,6 +595,9 @@ importers:
       '@radix-ui/react-context-menu':
         specifier: ^2.2.6
         version: 2.2.6(@types/react-dom@18.2.14)(@types/react@17.0.52)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@radix-ui/react-dropdown-menu':
+        specifier: ^2.1.6
+        version: 2.1.6(@types/react-dom@18.2.14)(@types/react@17.0.52)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@radix-ui/react-slot':
         specifier: ^1.1.2
         version: 1.1.2(@types/react@17.0.52)(react@18.2.0)
@@ -4368,6 +4371,19 @@ packages:
 
   '@radix-ui/react-dismissable-layer@1.1.5':
     resolution: {integrity: sha512-E4TywXY6UsXNRhFrECa5HAvE5/4BFcGyfTyK36gP+pAW1ed7UTK4vKwdr53gAJYwqbfCWC6ATvJa3J3R/9+Qrg==}
+    peerDependencies:
+      '@types/react': '*'
+      '@types/react-dom': '*'
+      react: ^16.8 || ^17.0 || ^18.0 || ^19.0 || ^19.0.0-rc
+      react-dom: ^16.8 || ^17.0 || ^18.0 || ^19.0 || ^19.0.0-rc
+    peerDependenciesMeta:
+      '@types/react':
+        optional: true
+      '@types/react-dom':
+        optional: true
+
+  '@radix-ui/react-dropdown-menu@2.1.6':
+    resolution: {integrity: sha512-no3X7V5fD487wab/ZYSHXq3H37u4NVeLDKI/Ks724X/eEFSSEFYZxWgsIlr1UBeEyDaM29HM5x9p1Nv8DuTYPA==}
     peerDependencies:
       '@types/react': '*'
       '@types/react-dom': '*'
@@ -19389,6 +19405,21 @@ snapshots:
       '@radix-ui/react-primitive': 2.0.2(@types/react-dom@18.2.14)(@types/react@17.0.52)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@radix-ui/react-use-callback-ref': 1.1.0(@types/react@17.0.52)(react@18.2.0)
       '@radix-ui/react-use-escape-keydown': 1.1.0(@types/react@17.0.52)(react@18.2.0)
+      react: 18.2.0
+      react-dom: 18.2.0(react@18.2.0)
+    optionalDependencies:
+      '@types/react': 17.0.52
+      '@types/react-dom': 18.2.14
+
+  '@radix-ui/react-dropdown-menu@2.1.6(@types/react-dom@18.2.14)(@types/react@17.0.52)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
+    dependencies:
+      '@radix-ui/primitive': 1.1.1
+      '@radix-ui/react-compose-refs': 1.1.1(@types/react@17.0.52)(react@18.2.0)
+      '@radix-ui/react-context': 1.1.1(@types/react@17.0.52)(react@18.2.0)
+      '@radix-ui/react-id': 1.1.0(@types/react@17.0.52)(react@18.2.0)
+      '@radix-ui/react-menu': 2.1.6(@types/react-dom@18.2.14)(@types/react@17.0.52)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@radix-ui/react-primitive': 2.0.2(@types/react-dom@18.2.14)(@types/react@17.0.52)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@radix-ui/react-use-controllable-state': 1.1.0(@types/react@17.0.52)(react@18.2.0)
       react: 18.2.0
       react-dom: 18.2.0(react@18.2.0)
     optionalDependencies:
