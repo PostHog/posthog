@@ -92,8 +92,8 @@ impl AppContext {
                             metrics::counter!(UPDATE_STORED, &[("result", "success")],);
                             tx.commit()
                                 .await
-                                .expect("Update transaction: commit failed")
-                                continue
+                                .expect("Update transaction: commit failed");
+                            break;
                         }
 
                         Err(sqlx::Error::Database(e))
