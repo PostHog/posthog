@@ -263,51 +263,51 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                             )}
                         </div>
 
-                        <div className="flex-1 min-w-[20rem]">
-                            <b>Stage</b>
-                            <div>
-                                {isNewEarlyAccessFeature ? (
-                                    <></>
-                                ) : isEditingFeature && earlyAccessFeature.stage !== 'draft' ? (
-                                    <LemonField name="stage">
-                                        <LemonSelect
-                                            options={[
-                                                {
-                                                    value: 'concept',
-                                                    label: 'Concept',
-                                                },
-                                                {
-                                                    value: 'alpha',
-                                                    label: 'Alpha',
-                                                },
-                                                {
-                                                    value: 'beta',
-                                                    label: 'Beta',
-                                                },
-                                                {
-                                                    value: 'general-availability',
-                                                    label: 'General availability',
-                                                },
-                                            ]}
-                                        />
-                                    </LemonField>
-                                ) : (
-                                    <LemonTag
-                                        type={
-                                            earlyAccessFeature.stage === EarlyAccessFeatureStage.Beta
-                                                ? 'warning'
-                                                : earlyAccessFeature.stage ===
-                                                  EarlyAccessFeatureStage.GeneralAvailability
-                                                ? 'success'
-                                                : 'default'
-                                        }
-                                        className="mt-2 uppercase"
-                                    >
-                                        {earlyAccessFeature.stage}
-                                    </LemonTag>
-                                )}
+                        {!isNewEarlyAccessFeature && earlyAccessFeature.stage !== 'draft' ? (
+                            <div className="flex-1 min-w-[20rem]">
+                                <b>Stage</b>
+                                <div>
+                                    {isEditingFeature ? (
+                                        <LemonField name="stage">
+                                            <LemonSelect
+                                                options={[
+                                                    {
+                                                        value: 'concept',
+                                                        label: 'Concept',
+                                                    },
+                                                    {
+                                                        value: 'alpha',
+                                                        label: 'Alpha',
+                                                    },
+                                                    {
+                                                        value: 'beta',
+                                                        label: 'Beta',
+                                                    },
+                                                    {
+                                                        value: 'general-availability',
+                                                        label: 'General availability',
+                                                    },
+                                                ]}
+                                            />
+                                        </LemonField>
+                                    ) : (
+                                        <LemonTag
+                                            type={
+                                                earlyAccessFeature.stage === EarlyAccessFeatureStage.Beta
+                                                    ? 'warning'
+                                                    : earlyAccessFeature.stage ===
+                                                      EarlyAccessFeatureStage.GeneralAvailability
+                                                    ? 'success'
+                                                    : 'default'
+                                            }
+                                            className="mt-2 uppercase"
+                                        >
+                                            {earlyAccessFeature.stage}
+                                        </LemonTag>
+                                    )}
+                                </div>
                             </div>
-                        </div>
+                        ) : null}
                     </div>
                     <div className="flex flex-wrap items-start gap-4">
                         <div className="flex-1 min-w-[20rem]">
