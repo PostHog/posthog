@@ -222,8 +222,8 @@ export function HogFunctionConfiguration({
                 ) : ['template-reddit-conversions-api', 'template-snapchat-ads'].includes(templateId ?? '') ? (
                     <div>
                         <LemonBanner type="warning">
-                            You are using a rate limited destination. If you send more than 10 events per second, some
-                            events might fail to be delivered.
+                            The receiving destination imposes a rate limit of 10 events per second. Exceeding this limit
+                            may result in some events failing to be delivered.
                         </LemonBanner>
                     </div>
                 ) : null}
