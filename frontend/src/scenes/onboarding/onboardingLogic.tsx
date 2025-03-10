@@ -102,9 +102,8 @@ export const onboardingLogic = kea<onboardingLogicType>([
     actions({
         setProduct: (product: OnboardingProduct | null) => ({ product }),
         setProductKey: (productKey: string | null) => ({ productKey }),
-        completeOnboarding: (nextProductKey?: string, redirectUrlOverride?: string) => ({
-            nextProductKey,
-            redirectUrlOverride,
+        completeOnboarding: (options?: { redirectUrlOverride?: string }) => ({
+            redirectUrlOverride: options?.redirectUrlOverride,
         }),
         setAllOnboardingSteps: (allOnboardingSteps: AllOnboardingSteps) => ({ allOnboardingSteps }),
         setStepKey: (stepKey: OnboardingStepKey) => ({ stepKey }),

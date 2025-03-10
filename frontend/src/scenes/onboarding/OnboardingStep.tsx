@@ -118,12 +118,11 @@ export const OnboardingStep = ({
                             onClick={() => {
                                 onSkip && onSkip()
                                 !hasNextStep
-                                    ? completeOnboarding(
-                                          undefined,
-                                          dashboardCreatedDuringOnboarding
+                                    ? completeOnboarding({
+                                          redirectUrlOverride: dashboardCreatedDuringOnboarding
                                               ? urls.dashboard(dashboardCreatedDuringOnboarding.id)
-                                              : undefined
-                                      )
+                                              : undefined,
+                                      })
                                     : goToNextStep()
                             }}
                             data-attr="onboarding-skip-button"
@@ -141,12 +140,11 @@ export const OnboardingStep = ({
                             onClick={() => {
                                 onContinue?.()
                                 !hasNextStep
-                                    ? completeOnboarding(
-                                          undefined,
-                                          dashboardCreatedDuringOnboarding
+                                    ? completeOnboarding({
+                                          redirectUrlOverride: dashboardCreatedDuringOnboarding
                                               ? urls.dashboard(dashboardCreatedDuringOnboarding.id)
-                                              : undefined
-                                      )
+                                              : undefined,
+                                      })
                                     : goToNextStep()
                             }}
                             sideIcon={hasNextStep ? <IconArrowRight /> : null}
