@@ -3,9 +3,11 @@ import { captureException } from '@sentry/node'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
+import { MessageSizeTooLarge } from '~/src/utils/db/error'
+import { captureIngestionWarning } from '~/src/worker/ingestion/utils'
+
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
 import { KAFKA_INGESTION_WARNINGS } from '../../config/kafka-topics'
-import { TopicMessage } from '../../kafka/producer'
 import { eventDroppedCounter } from '../../main/ingestion-queues/metrics'
 import { runInstrumentedFunction } from '../../main/utils'
 import { Hub, Person, PersonMode, PipelineEvent, RawKafkaEvent, Team, TimestampFormat } from '../../types'
@@ -54,7 +56,6 @@ export class EventPipelineRunnerV2 {
     private timestamp?: DateTime
     private person?: Person
     private groupTypeManager: GroupTypeManager
-    private messagesToProduce: TopicMessage[]
 
     constructor(
         private hub: Hub,
@@ -72,8 +73,6 @@ export class EventPipelineRunnerV2 {
         }
         // TODO: Move this up a level (or maybe even to the hub)
         this.groupTypeManager = new GroupTypeManager(hub.postgres, hub.teamManager, hub.SITE_URL)
-
-        this.messagesToProduce = []
     }
 
     public getPromises(): Promise<any>[] {
@@ -89,20 +88,22 @@ export class EventPipelineRunnerV2 {
             ..._details,
         }
 
-        this.messagesToProduce.push({
-            topic: KAFKA_INGESTION_WARNINGS,
-            messages: [
-                {
-                    value: JSON.stringify({
-                        team_id: this.team?.id,
-                        type: warning,
-                        source: 'plugin-server',
-                        details: JSON.stringify(details),
-                        timestamp: castTimestampOrNow(null, TimestampFormat.ClickHouse),
-                    }),
-                },
-            ],
-        })
+        this.promises.push(
+            this.hub.kafkaProducer!.queueMessages({
+                topic: KAFKA_INGESTION_WARNINGS,
+                messages: [
+                    {
+                        value: JSON.stringify({
+                            team_id: this.team?.id,
+                            type: warning,
+                            source: 'plugin-server',
+                            details: JSON.stringify(details),
+                            timestamp: castTimestampOrNow(null, TimestampFormat.ClickHouse),
+                        }),
+                    },
+                ],
+            })
+        )
     }
 
     private dropEvent(dropCause: string): void {
@@ -114,9 +115,9 @@ export class EventPipelineRunnerV2 {
             .inc()
     }
 
-    async run(): Promise<void> {
+    async run(): Promise<RawKafkaEvent | void> {
         try {
-            await this._run()
+            return await this._run()
         } catch (error) {
             // We capture ingestion warnings but allow the parent to decide on DLQ, retries etc.
             if (error instanceof EventDroppedError) {
@@ -127,7 +128,7 @@ export class EventPipelineRunnerV2 {
         }
     }
 
-    private async _run(): Promise<void> {
+    private async _run(): Promise<RawKafkaEvent | void> {
         // First of all lets get the team
         this.team = (await this.getTeam()) ?? undefined
 
@@ -194,6 +195,8 @@ export class EventPipelineRunnerV2 {
         }
 
         this.produceEventToKafka(kafkaEvent)
+
+        return kafkaEvent
     }
 
     async getTeam(): Promise<Team | null> {
@@ -304,6 +307,7 @@ export class EventPipelineRunnerV2 {
             return
         }
 
+        // TODO: In the future we should do this a level up at the batch level. We just need higher level team loading
         this.promises.push(this.hub.teamManager.setTeamIngestedEvent(this.team!, this.event.properties!))
     }
 
@@ -387,13 +391,15 @@ export class EventPipelineRunnerV2 {
             if (this.team?.heatmaps_opt_in !== false) {
                 const heatmapEvents = extractHeatmapData(this.event) ?? []
 
-                this.messagesToProduce.push({
-                    topic: this.hub.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
-                    messages: heatmapEvents.map((rawEvent) => ({
-                        key: this.event.uuid,
-                        value: Buffer.from(JSON.stringify(rawEvent)),
-                    })),
-                })
+                this.promises.push(
+                    this.hub.kafkaProducer!.queueMessages({
+                        topic: this.hub.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
+                        messages: heatmapEvents.map((rawEvent) => ({
+                            key: this.event.uuid,
+                            value: Buffer.from(JSON.stringify(rawEvent)),
+                        })),
+                    })
+                )
             }
         } catch (e) {
             this.captureIngestionWarning('invalid_heatmap_data', {
@@ -468,38 +474,39 @@ export class EventPipelineRunnerV2 {
     }
 
     private produceExceptionSymbolificationEventStep(event: RawKafkaEvent) {
-        this.messagesToProduce.push({
-            topic: this.hub.EXCEPTIONS_SYMBOLIFICATION_KAFKA_TOPIC,
-            messages: [
-                {
-                    key: event.uuid,
-                    value: Buffer.from(JSON.stringify(event)),
-                },
-            ],
-        })
+        this.promises.push(
+            this.hub.kafkaProducer!.queueMessages({
+                topic: this.hub.EXCEPTIONS_SYMBOLIFICATION_KAFKA_TOPIC,
+                messages: [
+                    {
+                        key: event.uuid,
+                        value: Buffer.from(JSON.stringify(event)),
+                    },
+                ],
+            })
+        )
     }
 
     private produceEventToKafka(event: RawKafkaEvent) {
-        this.messagesToProduce.push({
-            topic: this.hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
-            messages: [
-                {
+        this.promises.push(
+            this.hub
+                .kafkaProducer!.produce({
+                    topic: this.hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
                     key: event.uuid,
                     value: Buffer.from(JSON.stringify(event)),
-                },
-            ],
-        })
-        // .catch(async (error) => {
-        //     // Some messages end up significantly larger than the original
-        //     // after plugin processing, person & group enrichment, etc.
-        //     if (error instanceof MessageSizeTooLarge) {
-        //         await captureIngestionWarning(this.hub.kafkaProducer, event.team_id, 'message_size_too_large', {
-        //             eventUuid: event.uuid,
-        //             distinctId: event.distinct_id,
-        //         })
-        //     } else {
-        //         throw error
-        //     }
-        // })
+                })
+                .catch(async (error) => {
+                    // Some messages end up significantly larger than the original
+                    // after plugin processing, person & group enrichment, etc.
+                    if (error instanceof MessageSizeTooLarge) {
+                        await captureIngestionWarning(this.hub.kafkaProducer, event.team_id, 'message_size_too_large', {
+                            eventUuid: event.uuid,
+                            distinctId: event.distinct_id,
+                        })
+                    } else {
+                        throw error
+                    }
+                })
+        )
     }
 }

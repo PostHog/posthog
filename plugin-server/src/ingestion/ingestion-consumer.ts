@@ -204,6 +204,8 @@ export class IngestionConsumer {
                 setUsageInNonPersonEventsCounter.inc()
             }
 
+            let runner: EventPipelineRunnerV2 | undefined
+
             try {
                 status.debug('🔁', `Processing event`, {
                     event,
@@ -231,22 +233,22 @@ export class IngestionConsumer {
                     continue
                 }
 
-                const runner = this.getEventPipelineRunner(event)
-                try {
-                    await runner.run()
-                } catch (error) {
-                    await this.handleProcessingError(error, message, event)
-                }
+                runner = this.getEventPipelineRunner(event)
+                await runner.run()
 
                 // TRICKY: We want to later catch anything that goes wrong with flushing
                 // the promises so we can send the event to the DLQ
                 // TODO: This should be allSettled and account for individual errors
-                this.scheduleWork(Promise.all(runner.getPromises())).catch((error) => {
-                    return this.handleProcessingError(error, message, event)
-                })
+                // NOTE: Whether we catch an error or not we still want to schedule all the work to be completed
             } catch (error) {
                 await this.handleProcessingError(error, message, event)
             }
+
+            runner?.getPromises().forEach((promise) => {
+                this.scheduleWork(promise).catch((error) => {
+                    return this.handleProcessingError(error, message, event)
+                })
+            })
         }
     }
 
