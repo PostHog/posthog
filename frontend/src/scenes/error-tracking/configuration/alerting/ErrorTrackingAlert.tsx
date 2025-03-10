@@ -12,6 +12,8 @@ export type ErrorTrackingAlertSceneLogicProps = { id: string }
 const ERROR_TRACKING_TEMPLATE_IDS = [
     'template-slack-error-tracking-issue-created',
     'template-slack-error-tracking-issue-reopened',
+    'template-discord-error-tracking-issue-created',
+    'template-discord-error-tracking-issue-reopened',
     'template-microsoft-teams-error-tracking-issue-created',
     'template-microsoft-teams-error-tracking-issue-reopened',
 ]
