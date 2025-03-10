@@ -3,6 +3,7 @@ import { LemonButton, LemonCard, LemonInput, LemonModal, LemonTabs, SpinnerOverl
 import { useActions, useValues } from 'kea'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { useEffect, useState } from 'react'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { InviteMembersButton } from '~/layout/navigation/TopBar/AccountPopover'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -111,6 +112,7 @@ export function AlternativeSDKs({
     const { closeSidePanel } = useActions(sidePanelStateLogic)
     const { selectedTab, sidePanelOpen } = useValues(sidePanelStateLogic)
     const { openSupportForm } = useActions(supportLogic)
+    const { isCloudOrDev } = useValues(preflightLogic)
 
     const installationComplete = useInstallationComplete(teamPropertyToVerify)
 
@@ -148,18 +150,25 @@ export function AlternativeSDKs({
                                 fullWidth={false}
                                 text="Invite developer"
                             />
-                            <LemonButton
-                                size="small"
-                                type="primary"
-                                icon={<IconChatHelp />}
-                                onClick={() =>
-                                    selectedTab === SidePanelTab.Support && sidePanelOpen
-                                        ? closeSidePanel()
-                                        : openSupportForm({ kind: 'support', target_area: 'onboarding' })
-                                }
-                            >
-                                Get help
-                            </LemonButton>
+                            {isCloudOrDev && (
+                                <LemonButton
+                                    size="small"
+                                    type="primary"
+                                    icon={<IconChatHelp />}
+                                    onClick={() =>
+                                        selectedTab === SidePanelTab.Support && sidePanelOpen
+                                            ? closeSidePanel()
+                                            : openSupportForm({
+                                                  kind: 'support',
+                                                  target_area: 'onboarding',
+                                                  isEmailFormOpen: true,
+                                                  severity_level: 'low',
+                                              })
+                                    }
+                                >
+                                    Get help
+                                </LemonButton>
+                            )}
                             <NextButton size="small" installationComplete={installationComplete} />
                         </div>
                     </div>
