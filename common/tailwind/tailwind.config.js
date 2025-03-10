@@ -313,8 +313,6 @@ const config = {
         '../../ee/frontend/**/*.{ts,tsx}',
         '../../frontend/src/index.html',
         '../../products/**/frontend/**/*.{ts,tsx}',
-        '../../common/**/src/**/*.{ts,tsx}',
-        '../../common/**/frontend/**/*.{ts,tsx}',
         '!../../frontend/src/**/*Type.ts',
     ],
     darkMode: ['selector', '[theme="dark"]'],
@@ -773,6 +771,7 @@ const config = {
             },
             zIndex: {
                 'top': 'var(--z-top)',
+                'main-nav': 'var(--z-main-nav)',
             },
         },
     },

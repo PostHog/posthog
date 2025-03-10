@@ -1,23 +1,25 @@
-import { IconPlusSmall } from '@posthog/icons'
-import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+import { IconPlusSmall, IconSearch, IconSort, IconX } from '@posthog/icons'
+import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Resizer } from 'lib/components/Resizer/Resizer'
+import { dayjs } from 'lib/dayjs'
+import { IconChevronRight } from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonTree } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { LemonTree, LemonTreeRef, TreeTableData } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { ContextMenuGroup, ContextMenuItem } from 'lib/ui/ContextMenu/ContextMenu'
-import { useRef } from 'react'
+import { useMemo, useRef } from 'react'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 import { navigation3000Logic } from '../../navigationLogic'
 import { NavbarBottom } from '../NavbarBottom'
+import { ProjectDropdownMenu } from './ProjectDropdownMenu'
 import { projectTreeLogic } from './projectTreeLogic'
 import { joinPath, splitPath } from './utils'
 
 export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLElement> }): JSX.Element {
-    const { theme } = useValues(themeLogic)
     const { isNavShown, mobileLayout } = useValues(navigation3000Logic)
     const { toggleNavCollapsed, hideNavOnMobile } = useActions(navigation3000Logic)
     const {
@@ -26,9 +28,9 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
         expandedFolders,
         lastViewedId,
         viableItems,
-        helpNoticeVisible,
         pendingActionsCount,
         pendingLoaderLoading,
+        searchTerm,
     } = useValues(projectTreeLogic)
 
     const {
@@ -39,12 +41,16 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
         toggleFolderOpen,
         setLastViewedId,
         setExpandedFolders,
-        setHelpNoticeVisibility,
         applyPendingActions,
         cancelPendingActions,
         loadFolder,
+        setSearchTerm,
+        clearSearch,
     } = useActions(projectTreeLogic)
+    const treeRef = useRef<LemonTreeRef>(null)
     const containerRef = useRef<HTMLDivElement | null>(null)
+    const { projectTreeMode } = useValues(panelLayoutLogic)
+    const { setProjectTreeMode } = useActions(panelLayoutLogic)
 
     const handleCopyPath = (path?: string): void => {
         if (path) {
@@ -52,16 +58,98 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
         }
     }
 
+    // TODO: Add more columns
+    // TODO: add column widths
+    const getTableData = useMemo(
+        (): TreeTableData => ({
+            headers: [
+                {
+                    key: 'name',
+                    title: 'Name',
+                },
+                {
+                    key: 'record.created_at',
+                    title: 'Created',
+                    formatFunction: (value: string) => dayjs(value).format('MMM D, YYYY'),
+                },
+            ],
+            body: treeData,
+        }),
+        [treeData]
+    )
+
     return (
         <>
-            <nav className={clsx('Navbar3000', !isNavShown && 'Navbar3000--hidden')} ref={containerRef}>
+            <nav className={clsx('Navbar3000 relative', !isNavShown && 'Navbar3000--hidden')} ref={containerRef}>
+                <LemonButton
+                    size="small"
+                    type="tertiary"
+                    tooltip={projectTreeMode === 'tree' ? 'Switch to table view' : 'Switch to tree view'}
+                    onClick={() => setProjectTreeMode(projectTreeMode === 'tree' ? 'table' : 'tree')}
+                    icon={<IconChevronRight className="size-4" />}
+                    className="absolute top-1/2 translate-y-1/2 right-0 translate-x-1/2 z-top w-fit bg-surface-primary border border-primary"
+                />
+                <div className="flex justify-between p-1 bg-surface-tertiary">
+                    <ProjectDropdownMenu />
+
+                    <div className="flex gap-1 items-center justify-end">
+                        <LemonButton
+                            size="small"
+                            type="tertiary"
+                            tooltip="Sort by name"
+                            onClick={() => createFolder('')}
+                            className="shrink-0"
+                            icon={<IconSort />}
+                        />
+                        <LemonButton
+                            size="small"
+                            type="tertiary"
+                            tooltip="Create new root folder"
+                            onClick={() => createFolder('')}
+                            className="shrink-0"
+                            icon={<IconPlusSmall />}
+                        />
+                    </div>
+                </div>
+
+                <div className="border-b border-secondary h-px" />
                 <div
-                    className="Navbar3000__content w-80"
-                    // eslint-disable-next-line react/forbid-dom-props
-                    style={theme?.sidebarStyle}
+                    className={clsx(
+                        'z-main-nav flex flex-1 flex-col justify-between overflow-y-auto bg-surface-secondary',
+                        projectTreeMode === 'tree' ? 'w-80' : 'w-[calc(60vw)]'
+                    )}
                 >
                     <div className="flex gap-1 p-1 items-center justify-between">
-                        <h2 className="text-base font-bold m-0 pl-1">Files</h2>
+                        <LemonInput
+                            placeholder="Search..."
+                            className="w-full"
+                            prefix={<IconSearch className="size-4" />}
+                            size="small"
+                            value={searchTerm}
+                            onChange={(value) => setSearchTerm(value)}
+                            suffix={
+                                searchTerm ? (
+                                    <LemonButton
+                                        size="small"
+                                        type="tertiary"
+                                        onClick={() => clearSearch()}
+                                        icon={<IconX className="size-4" />}
+                                        className="bg-transparent [&_svg]:opacity-30 hover:[&_svg]:opacity-100"
+                                        tooltip="Clear search"
+                                    />
+                                ) : null
+                            }
+                            onKeyDown={(e) => {
+                                if (e.key === 'ArrowDown') {
+                                    e.preventDefault() // Prevent scrolling
+                                    const visibleItems = treeRef.current?.getVisibleItems()
+                                    if (visibleItems && visibleItems.length > 0) {
+                                        e.currentTarget.blur() // Remove focus from input
+                                        treeRef.current?.focusItem(visibleItems[0].id)
+                                    }
+                                }
+                            }}
+                        />
                         <div className="flex gap-1 items-center">
                             {pendingActionsCount > 0 ? (
                                 <span>
@@ -97,22 +185,18 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                             >
                                 Save
                             </LemonButton>
-                            <LemonButton
-                                size="small"
-                                type="secondary"
-                                tooltip="Create new root folder"
-                                onClick={() => createFolder('')}
-                                icon={<IconPlusSmall />}
-                            />
                         </div>
                     </div>
 
                     <div className="border-b border-primary h-px" />
 
                     <LemonTree
+                        ref={treeRef}
                         contentRef={contentRef}
                         className="px-0 py-1"
                         data={treeData}
+                        tableData={getTableData}
+                        mode={projectTreeMode}
                         expandedItemIds={expandedFolders}
                         isFinishedBuildingTreeData={Object.keys(loadingPaths).length === 0}
                         defaultSelectedFolderOrNodeId={lastViewedId || undefined}
@@ -290,27 +374,6 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                             }
                         }}
                     />
-                    {helpNoticeVisible ? (
-                        <>
-                            <div className="border-b border-primary h-px" />
-                            <div className="p-2">
-                                <LemonBanner
-                                    type="info"
-                                    dismissKey="project-tree-help-notice"
-                                    onClose={() => setHelpNoticeVisibility(false)}
-                                >
-                                    <p className="font-semibold mb-1">Behold, 🌲 navigation</p>
-                                    <ul className="mb-0 text-xs list-disc pl-4 py-0">
-                                        <li>
-                                            All your files are still here, open 'unfiled' to see them, and organize them
-                                            the way you'd like.
-                                        </li>
-                                        <li>Right click on tree item for more options.</li>
-                                    </ul>
-                                </LemonBanner>
-                            </div>
-                        </>
-                    ) : null}
                     <div className="border-b border-primary h-px" />
                     <NavbarBottom />
                 </div>
