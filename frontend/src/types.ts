@@ -29,7 +29,7 @@ import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/Cohort
 import { Holdout } from 'scenes/experiments/holdoutsLogic'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
-import { Scene } from 'scenes/sceneTypes'
+import { Params, Scene, SceneConfig } from 'scenes/sceneTypes'
 import { WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 
 import type {
@@ -4098,7 +4098,7 @@ export type CommentType = {
     created_at: string
     created_by: UserBasicType | null
     source_comment?: string | null
-    scope: ActivityScope
+    scope: ActivityScope | string
     item_id?: string
     item_context: Record<string, any> | null
 }
@@ -5058,4 +5058,12 @@ export type UserGroup = {
 export interface CoreMemory {
     id: string
     text: string
+}
+
+export interface ProductManifest {
+    name: string
+    scenes?: Record<string, SceneConfig>
+    routes?: Record<string, [string /** Scene */, string /** Scene Key (unique for layout tabs) */]>
+    redirects?: Record<string, string | ((params: Params, searchParams: Params, hashParams: Params) => string)>
+    urls?: Record<string, string | ((...args: any[]) => string)>
 }

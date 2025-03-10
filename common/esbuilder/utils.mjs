@@ -366,7 +366,7 @@ export async function buildOrWatch(config) {
                     path.resolve(absWorkingDir, 'src'),
                     path.resolve(absWorkingDir, '../ee/frontend'),
                     path.resolve(absWorkingDir, '../common'),
-                    path.resolve(absWorkingDir, '../products/*/manifest.json'),
+                    path.resolve(absWorkingDir, '../products/*/manifest.*'),
                     path.resolve(absWorkingDir, '../products/*/frontend/**/*'),
                 ],
                 {
@@ -380,7 +380,7 @@ export async function buildOrWatch(config) {
                 }
 
                 // Manifests have been updated, so we need to rebuild urls.
-                if (filePath.includes('manifest.json')) {
+                if (filePath.includes('manifest.')) {
                     gatherProductManifests()
                 }
 
@@ -500,8 +500,8 @@ export function gatherProductUrls(products, __dirname) {
     const sourceFiles = []
     for (const product of products) {
         try {
-            if (fse.readFileSync(path.resolve(__dirname, `../products/${product}/frontend/urls.ts`))) {
-                sourceFiles.push(path.resolve(__dirname, `../products/${product}/frontend/urls.ts`))
+            if (fse.readFileSync(path.resolve(__dirname, `../products/${product}/manifest.tsx`))) {
+                sourceFiles.push(path.resolve(__dirname, `../products/${product}/manifest.tsx`))
             }
         } catch (e) {
             // ignore
@@ -522,7 +522,7 @@ export function gatherProductUrls(products, __dirname) {
         }
         ts.forEachChild(sourceFile, function visit(node) {
             if (
-                ts.isVariableDeclaration(node) &&
+                ts.isPropertyAssignment(node) &&
                 node.name.text === 'urls' &&
                 ts.isObjectLiteralExpression(node.initializer)
             ) {
@@ -548,62 +548,99 @@ export function gatherProductUrls(products, __dirname) {
 
 export function gatherProductManifests(__dirname) {
     const products = fse.readdirSync(path.join(__dirname, '../products')).filter((p) => !['__pycache__', 'README.md'].includes(p))
-    const allScenes = {}
-    const allRoutes = {}
-    const allRedirects = {}
-    let productScenes = ''
+    let manifestImports = ''
+    let manifestScenes = ''
+    let manifestRoutes = ''
+    let manifestRedirects = ''
+    let manifestUrls = ''
 
     for (const product of products) {
+        let manifest
         try {
-            const manifest = JSON.parse(fse.readFileSync(path.join(__dirname, `../products/${product}/manifest.json`), 'utf-8'))
-            const scenes = Object.fromEntries(
-                Object.entries(manifest.scenes ?? {}).map(([key, value]) => [key, { name: manifest.name, ...value }])
-            )
-            Object.assign(allScenes, scenes)
-            Object.assign(allRoutes, manifest.routes ?? {})
-            Object.assign(allRedirects, manifest.redirects ?? {})
-
-            productScenes +=
-                Object.entries(scenes ?? {})
-                    .map(
-                        ([key, value]) =>
-                            `${JSON.stringify(key)}: (): any => import(${JSON.stringify(
-                                `../../products/${product}/${value.import}`
-                            )})`
-                    )
-                    .join(',\n') + ',\n'
+            manifest = fse.readFileSync(path.join(__dirname, `../products/${product}/manifest.tsx`), 'utf-8')
         } catch (e) {
-            console.error(`Could not read "products/${product}/manifest.json"`, e)
+            // no manifest, skipping this product
+            continue
         }
+        let used = false
+
+        if (manifest.includes('scenes: {')) {
+            manifestScenes += `...${product}Manifest.scenes,\n`
+            used = true
+        }
+        if (manifest.includes('routes: {')) {
+            manifestRoutes += `...${product}Manifest.routes,\n`
+            used = true
+        }
+        if (manifest.includes('redirects: {')) {
+            manifestRedirects += `...${product}Manifest.redirects,\n`
+            used = true
+        }
+        if (manifest.includes('urls: {')) {
+            manifestUrls += `...${product}Manifest.urls,\n`
+            used = true
+        }
+        if (used) {
+            manifestImports += `import { manifest as ${product}Manifest } from '../../products/${product}/manifest'\n`
+        }
+
+
+        // const scenes = Object.fromEntries(
+        //     Object.entries(manifest.scenes ?? {}).map(([key, value]) => [key, { name: manifest.name, ...value }])
+        // )
+        // Object.assign(allScenes, scenes)
+        // Object.assign(allRoutes, manifest.routes ?? {})
+        // Object.assign(allRedirects, manifest.redirects ?? {})
+
+        // const productScenesExtra =
+        //     Object.entries(scenes ?? {})
+        //         .filter(([key, value]) => !!value)
+        //         .map(
+        //             ([key, value]) =>
+        //                 `${JSON.stringify(key)}: (): any => import(${JSON.stringify(
+        //                     `../../products/${product}/${value.import}`
+        //                 )})`
+        //         )
+        //         .join(',\n')
+
+        // if (productScenesExtra) {
+        //     productScenes += productScenesExtra + ',\n'
+        // }
     }
 
-    const productRoutes = Object.entries(allRoutes)
-        .map(([key, value]) => `${JSON.stringify(key)}: ${JSON.stringify(value)}`)
-        .join(',\n    ')
-    const productRedirects = Object.entries(allRedirects)
-        .map(([key, value]) => `${JSON.stringify(key)}: ${JSON.stringify(value)}`)
-        .join(',\n    ')
-    const productConfiguration = Object.entries(allScenes)
-        .map(([key, value]) => {
-            const { import: _imp, ...rest } = value
-            return `${JSON.stringify(key)}: ${JSON.stringify(rest)}`
-        })
-        .join(',\n    ')
+    // const productRoutes = Object.entries(allRoutes)
+    //     .filter(([key, value]) => !!value)
+    //     .map(([key, value]) => `${JSON.stringify(key)}: ${JSON.stringify(value)}`)
+    //     .join(',\n    ')
+    // const productRedirects = Object.entries(allRedirects)
+    //     .filter(([key, value]) => !!value)
+    //     .map(([key, value]) => `${JSON.stringify(key)}: ${JSON.stringify(value)}`)
+    //     .join(',\n    ')
+    // const productConfiguration = Object.entries(allScenes)
+    //     .filter(([key, value]) => !!value)
+    //     .map(([key, value]) => {
+    //         const { import: _imp, ...rest } = value
+    //         return `${JSON.stringify(key)}: ${JSON.stringify(rest)}`
+    //     })
+    //     .join(',\n    ')
 
     const productUrls = gatherProductUrls(products, __dirname)
 
     let productsTsx = `
-        // Generated by utils.mjs, based on product folders\n
+        // Generated by @posthog/esbuilder/utils.mjs, based on product folder manifests under products/*/manifest.tsx\n
+
+        import { Params } from 'scenes/sceneTypes'
+        ${manifestImports}
         /** This const is auto-generated, as is the whole file */
-        export const productScenes: Record<string, any> = {${productScenes}}\n
+        export const productScenes: Record<string, any> = Object.fromEntries(Object.entries({${manifestScenes}}).map(([k,v]) => ([k, v.import])))\n
         /** This const is auto-generated, as is the whole file */
-        export const productRoutes: Record<string, [string, string]> = {${productRoutes}}\n
+        export const productRoutes: Record<string, [string, string]> = {${manifestRoutes}}\n
         /** This const is auto-generated, as is the whole file */
-        export const productRedirects: Record<string, string> = {${productRedirects}}\n
+        export const productRedirects: Record<string, string | ((params: Params, searchParams: Params, hashParams: Params) => string)> = {${manifestRedirects}}\n
         /** This const is auto-generated, as is the whole file */
-        export const productConfiguration: Record<string, any> = {${productConfiguration}}\n
+        export const productConfiguration: Record<string, any> = {${manifestScenes}}\n
         /** This const is auto-generated, as is the whole file */
-        export const productUrls = ${productUrls}
+        export const productUrls = ${productUrls}\n
     `
     fse.writeFileSync(path.join(__dirname, 'src/products.ts'), productsTsx)
 

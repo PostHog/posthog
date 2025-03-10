@@ -1,13 +1,13 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
+import { urls } from 'scenes/urls'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { isHogQLQuery } from '~/queries/utils'
 import { PropertyFilterType } from '~/types'
 
 import { llmObservabilityLogic } from './llmObservabilityLogic'
-import { urls } from './urls'
 
 const mapPerson = (person: any): { distinct_id: string; created_at: string; properties: Record<string, any> } => {
     return {

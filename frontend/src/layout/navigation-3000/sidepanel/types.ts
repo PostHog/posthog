@@ -6,7 +6,7 @@ import { ActivityScope, APIScopeObject } from '~/types'
 export type SidePanelSceneContext = {
     access_control_resource?: APIScopeObject
     access_control_resource_id?: string
-    activity_scope?: ActivityScope
+    activity_scope?: ActivityScope | string
     activity_item_id?: ActivityLogItem['item_id']
 }
 export const SIDE_PANEL_CONTEXT_KEY = 'sidePanelContext'

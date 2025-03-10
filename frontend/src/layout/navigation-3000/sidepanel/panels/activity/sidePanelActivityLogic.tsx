@@ -20,7 +20,7 @@ import type { sidePanelActivityLogicType } from './sidePanelActivityLogicType'
 const POLL_TIMEOUT = 5 * 60 * 1000
 
 export type ActivityFilters = {
-    scope?: ActivityScope
+    scope?: ActivityScope | string
     item_id?: ActivityLogItem['item_id']
     user?: UserBasicType['id']
 }

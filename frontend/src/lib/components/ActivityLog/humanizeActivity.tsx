@@ -38,7 +38,7 @@ export type ActivityLogItem = {
     user?: Pick<UserBasicType, 'email' | 'first_name' | 'last_name'>
     activity: string
     created_at: string
-    scope: ActivityScope
+    scope: ActivityScope | string
     item_id?: string
     detail: ActivityLogDetail
     /** Present if the log is used as a notification. Whether the notification is unread. */
@@ -130,10 +130,10 @@ const NO_PLURAL_SCOPES: ActivityScope[] = [
     ActivityScope.PROPERTY_DEFINITION,
 ]
 
-export function humanizeScope(scope: ActivityScope, singular = false): string {
+export function humanizeScope(scope: ActivityScope | string, singular = false): string {
     let output = scope.split(/(?=[A-Z])/).join(' ')
 
-    if (!singular && !NO_PLURAL_SCOPES.includes(scope)) {
+    if (!singular && !NO_PLURAL_SCOPES.includes(scope as ActivityScope)) {
         output += 's'
     }
 
