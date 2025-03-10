@@ -184,6 +184,16 @@ function getElementsChainElements(elementsChain: string): string[] {
 export function convertToHogFunctionFilterGlobal(globals: HogFunctionInvocationGlobals): HogFunctionFilterGlobals {
     const groups: Record<string, any> = {}
 
+    // We need to add default empty groups so that filtering works as it expects it to always exist
+    // TODO: Write tests and double check this matches the expectation of group filters
+    for (let i = 0; i < 5; i++) {
+        groups[`group_${i}`] = {
+            key: null,
+            index: i,
+            properties: {},
+        }
+    }
+
     for (const [_groupType, group] of Object.entries(globals.groups || {})) {
         groups[`group_${group.index}`] = {
             key: group.id,
