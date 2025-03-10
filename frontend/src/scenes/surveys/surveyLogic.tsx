@@ -33,7 +33,7 @@ import {
     SurveySchedule,
 } from '~/types'
 
-import { defaultSurveyAppearance, defaultSurveyFieldValues, NEW_SURVEY, NewSurvey } from './constants'
+import { defaultSurveyAppearance, defaultSurveyFieldValues, NEW_SURVEY, NewSurvey, SurveyTemplate } from './constants'
 import type { surveyLogicType } from './surveyLogicType'
 import { surveysLogic } from './surveysLogic'
 import {
@@ -263,7 +263,7 @@ export const surveyLogic = kea<surveyLogicType>([
         deleteBranchingLogic: true,
         archiveSurvey: true,
         setWritingHTMLDescription: (writingHTML: boolean) => ({ writingHTML }),
-        setSurveyTemplateValues: (template: any) => ({ template }),
+        setSurveyTemplateValues: (template: Omit<SurveyTemplate, 'templateType'>) => ({ template }),
         setSelectedPageIndex: (idx: number | null) => ({ idx }),
         setSelectedSection: (section: SurveyEditSection | null) => ({ section }),
         resetTargeting: true,
