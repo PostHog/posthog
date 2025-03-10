@@ -81,11 +81,18 @@ impl AppContext {
             for update in updates {
                 let mut tries: u64 = 1;
                 loop {
-                    let result = update.issue(&self.pool).await;
+                    let mut tx = self
+                        .pool
+                        .begin()
+                        .await
+                        .expect("Update transaction: create failed");
+                    let result = update.issue(&mut *tx).await;
                     match result {
                         Ok(_) => {
                             metrics::counter!(UPDATE_STORED, &[("result", "success")],);
-                            continue;
+                            tx.commit()
+                                .await
+                                .expect("Update transaction: commit failed")
                         }
 
                         Err(sqlx::Error::Database(e))
@@ -102,7 +109,9 @@ impl AppContext {
                             ];
                             metrics::counter!(UPDATE_STORED, &tags).increment(1);
                             warn!("Issue update failed on DB constraint: {:?}", e);
-                            continue;
+                            tx.rollback()
+                                .await
+                                .expect("Update transaction: rollback failed (DB constraint)");
                         }
 
                         Err(e) => {
@@ -113,6 +122,9 @@ impl AppContext {
                             ];
                             metrics::counter!(UPDATE_STORED, &tags).increment(1);
                             error!("Issue update failed on error: {:?}", e);
+                            tx.rollback()
+                                .await
+                                .expect("Update transaction rollback failed (general error)");
                         }
                     }
 
