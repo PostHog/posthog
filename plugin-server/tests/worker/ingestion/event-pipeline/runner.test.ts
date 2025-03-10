@@ -1,6 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
+import { defaultConfig } from '../../../../src/config/config'
 import { KafkaProducerWrapper, TopicMessage } from '../../../../src/kafka/producer'
 import {
     ClickHouseTimestamp,
@@ -144,6 +145,7 @@ describe('EventPipelineRunner', () => {
                 fetchPerson: jest.fn(),
             },
             eventsToDropByToken: createEventsToDropByToken('drop_token:drop_id,drop_token_all:*'),
+            ...defaultConfig,
         }
 
         runner = new TestEventPipelineRunner(hub, pluginEvent)
