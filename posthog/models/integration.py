@@ -13,6 +13,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from posthog.exceptions_capture import capture_exception
 from slack_sdk import WebClient
+from slack_sdk.errors import SlackApiError
 from google.oauth2 import service_account
 from google.auth.transport.requests import Request as GoogleRequest
 
@@ -56,6 +57,7 @@ class Integration(models.Model):
         GOOGLE_ADS = "google-ads"
         SNAPCHAT = "snapchat"
         LINKEDIN_ADS = "linkedin-ads"
+        INTERCOM = "intercom"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
@@ -122,7 +124,7 @@ class OauthConfig:
 
 
 class OauthIntegration:
-    supported_kinds = ["slack", "salesforce", "hubspot", "google-ads", "snapchat", "linkedin-ads"]
+    supported_kinds = ["slack", "salesforce", "hubspot", "google-ads", "snapchat", "linkedin-ads", "intercom"]
     integration: Integration
 
     def __str__(self) -> str:
@@ -232,6 +234,21 @@ class OauthIntegration:
                 client_secret=settings.LINKEDIN_APP_CLIENT_SECRET,
                 scope="r_ads rw_conversions openid profile email",
                 id_path="sub",
+                name_path="email",
+            )
+        elif kind == "intercom":
+            if not settings.INTERCOM_APP_CLIENT_ID or not settings.INTERCOM_APP_CLIENT_SECRET:
+                raise NotImplementedError("Intercom app not configured")
+
+            return OauthConfig(
+                authorize_url="https://app.intercom.com/oauth",
+                token_url="https://api.intercom.io/auth/eagle/token",
+                token_info_url="https://api.intercom.io/me",
+                token_info_config_fields=["id", "email", "app.region"],
+                client_id=settings.INTERCOM_APP_CLIENT_ID,
+                client_secret=settings.INTERCOM_APP_CLIENT_SECRET,
+                scope="",
+                id_path="id",
                 name_path="email",
             )
 
@@ -400,8 +417,24 @@ class SlackIntegration:
 
         return sorted(channels, key=lambda x: x["name"])
 
+    def get_channel_by_id(self, channel_id: str) -> Optional[dict]:
+        try:
+            response = self.client.conversations_info(channel=channel_id)
+            channel = response["channel"]
+            return {
+                "id": channel["id"],
+                "name": channel["name"],
+                "is_private": channel["is_private"],
+                "is_member": channel.get("is_member", True),
+                "is_ext_shared": channel["is_ext_shared"],
+            }
+        except SlackApiError as e:
+            if e.response["error"] == "channel_not_found":
+                return None
+            raise
+
     def _list_channels_by_type(self, type: Literal["public_channel", "private_channel"], authed_user) -> list[dict]:
-        max_page = 20
+        max_page = 50
         channels = []
         cursor = None
 
@@ -481,7 +514,7 @@ class GoogleAdsIntegration:
     def client(self) -> WebClient:
         return WebClient(self.integration.sensitive_config["access_token"])
 
-    def list_google_ads_conversion_actions(self, customer_id) -> list[dict]:
+    def list_google_ads_conversion_actions(self, customer_id, parent_id=None) -> list[dict]:
         response = requests.request(
             "POST",
             f"https://googleads.googleapis.com/v18/customers/{customer_id}/googleAds:searchStream",
@@ -490,6 +523,7 @@ class GoogleAdsIntegration:
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
                 "developer-token": settings.GOOGLE_ADS_DEVELOPER_TOKEN,
+                **({"login-customer-id": parent_id} if parent_id else {}),
             },
         )
 
@@ -501,6 +535,8 @@ class GoogleAdsIntegration:
 
         return response.json()
 
+    # Google Ads manager accounts can have access to other accounts (including other manager accounts).
+    # Filter out duplicates where a user has direct access and access through a manager account, while prioritizing direct access.
     def list_google_ads_accessible_accounts(self) -> list[dict[str, str]]:
         response = requests.request(
             "GET",
@@ -516,35 +552,65 @@ class GoogleAdsIntegration:
             capture_exception(Exception(f"GoogleAdsIntegration: Failed to list accessible accounts: {response.text}"))
             raise Exception(f"There was an internal error")
 
-        accounts = response.json()
-        accounts_with_name = []
+        accessible_accounts = response.json()
+        all_accounts: list[dict[str, str]] = []
 
-        for account in accounts["resourceNames"]:
+        def dfs(account_id, accounts=None, parent_id=None) -> list[dict]:
+            if accounts is None:
+                accounts = []
             response = requests.request(
                 "POST",
-                f"https://googleads.googleapis.com/v18/customers/{account.split('/')[1]}/googleAds:searchStream",
+                f"https://googleads.googleapis.com/v18/customers/{account_id}/googleAds:searchStream",
                 json={
-                    "query": "SELECT customer_client.descriptive_name, customer_client.client_customer FROM customer_client WHERE customer_client.level <= 1"
+                    "query": "SELECT customer_client.descriptive_name, customer_client.client_customer, customer_client.level, customer_client.manager, customer_client.status FROM customer_client WHERE customer_client.level <= 5"
                 },
                 headers={
                     "Content-Type": "application/json",
                     "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
                     "developer-token": settings.GOOGLE_ADS_DEVELOPER_TOKEN,
+                    **({"login-customer-id": parent_id} if parent_id else {}),
                 },
             )
 
             if response.status_code != 200:
-                continue
+                return []
 
             data = response.json()
-            accounts_with_name.append(
-                {
-                    "id": account.split("/")[1],
-                    "name": data[0]["results"][0]["customerClient"].get("descriptiveName", "Google Ads account"),
-                }
-            )
 
-        return accounts_with_name
+            for nested_account in data[0]["results"]:
+                if any(
+                    account["id"] == nested_account["customerClient"]["clientCustomer"].split("/")[1]
+                    and account["level"] > nested_account["customerClient"]["level"]
+                    for account in accounts
+                ):
+                    accounts = [
+                        account
+                        for account in accounts
+                        if account["id"] != nested_account["customerClient"]["clientCustomer"].split("/")[1]
+                    ]
+                elif any(
+                    account["id"] == nested_account["customerClient"]["clientCustomer"].split("/")[1]
+                    and account["level"] < nested_account["customerClient"]["level"]
+                    for account in accounts
+                ):
+                    continue
+                if nested_account["customerClient"].get("status") != "ENABLED":
+                    continue
+                accounts.append(
+                    {
+                        "parent_id": parent_id,
+                        "id": nested_account["customerClient"].get("clientCustomer").split("/")[1],
+                        "level": nested_account["customerClient"].get("level"),
+                        "name": nested_account["customerClient"].get("descriptiveName", "Google Ads account"),
+                    }
+                )
+
+            return accounts
+
+        for account in accessible_accounts["resourceNames"]:
+            all_accounts = dfs(account.split("/")[1], all_accounts, account.split("/")[1])
+
+        return all_accounts
 
 
 class GoogleCloudIntegration:

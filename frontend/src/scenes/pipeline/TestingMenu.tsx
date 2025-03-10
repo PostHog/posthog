@@ -123,7 +123,7 @@ export function TestingMenu({ id }: HogFunctionTestingProps): JSX.Element {
     }
 
     return (
-        <div className="space-y-3">
+        <div className="deprecated-space-y-3">
             <PageHeader
                 buttons={
                     <>
@@ -324,7 +324,7 @@ function RunsFilters({ id }: { id: string }): JSX.Element {
                         logic={hogFunctionConfigurationLogic}
                         props={{ id }}
                         formKey="configuration"
-                        className="space-y-3"
+                        className="deprecated-space-y-3"
                     >
                         <HogFunctionFilters embedded={true} />
                     </Form>

@@ -26,7 +26,7 @@ describe('LazyPluginVM', () => {
     const mockServer: any = {
         db,
         capabilities: {
-            ingestion: true,
+            ingestionV2: true,
             processAsyncHandlers: true,
         },
         celery: {

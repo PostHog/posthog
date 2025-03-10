@@ -73,7 +73,7 @@
         {
             "kind": "ExperimentMetric",
             "name": "Experiments created",
-            "metric_type": "count",
+            "metric_type": "mean",
             "metric_config": {
                 "kind": "ExperimentEventMetricConfig",
                 "math": "total",

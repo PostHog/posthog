@@ -24,6 +24,7 @@ from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.database.models import FunctionCallTable, SavedQuery, Table
 from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.query_log import RawQueryLogTable
+from posthog.hogql.database.schema.exchange_rate import ExchangeRateTable
 from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryError, ResolutionError
 from posthog.hogql.escape_sql import (
     escape_clickhouse_identifier,
@@ -46,6 +47,7 @@ from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_co
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 from posthog.hogql.transforms.property_types import PropertySwapper, build_property_swapper
 from posthog.hogql.visitor import Visitor, clone_expr
+from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.models.property import PropertyName, TableColumn
 from posthog.models.team import Team
 from posthog.models.team.team import WeekStartDay
@@ -57,6 +59,7 @@ from posthog.schema import (
     PersonsOnEventsMode,
     PropertyGroupsMode,
 )
+from posthog.settings import CLICKHOUSE_DATABASE
 
 
 def team_id_guard_for_table(table_type: Union[ast.TableType, ast.TableAliasType], context: HogQLContext) -> ast.Expr:
@@ -434,14 +437,17 @@ class _Printer(Visitor):
             else:
                 limit = ast.Constant(value=MAX_SELECT_RETURNED_ROWS)
 
+        if node.limit_by is not None:
+            clauses.append(
+                f"LIMIT {self.visit(node.limit_by.n)} {f'OFFSET {self.visit(node.limit_by.offset_value)}' if node.limit_by.offset_value else ''} BY {', '.join([self.visit(expr) for expr in node.limit_by.exprs])}"
+            )
+
         if limit is not None:
             clauses.append(f"LIMIT {self.visit(limit)}")
             if node.limit_with_ties:
                 clauses.append("WITH TIES")
             if node.offset is not None:
                 clauses.append(f"OFFSET {self.visit(node.offset)}")
-            if node.limit_by is not None:
-                clauses.append(f"BY {', '.join([self.visit(expr) for expr in node.limit_by])}")
 
         if self.context.output_format and self.dialect == "clickhouse" and is_top_level_query:
             clauses.append(f"FORMAT{space}{self.context.output_format}")
@@ -488,6 +494,7 @@ class _Printer(Visitor):
                 self.dialect == "clickhouse"
                 and not isinstance(table_type.table, FunctionCallTable)
                 and not isinstance(table_type.table, SavedQuery)
+                and not isinstance(table_type.table, ExchangeRateTable)
             ):
                 extra_where = team_id_guard_for_table(node.type, self.context)
 
@@ -1205,6 +1212,10 @@ class _Printer(Visitor):
                     return f"coalesce(dictGetOrNull('channel_definition_dict', 'type_if_organic', (coalesce({args[0]}, ''), 'source')), dictGetOrNull('channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
                 elif node.name == "hogql_lookupOrganicMediumType":
                     return f"dictGetOrNull('channel_definition_dict', 'type_if_organic', (coalesce({args[0]}, ''), 'medium'))"
+                elif node.name == "convertCurrency":  # convertCurrency(from_currency, to_currency, amount, timestamp)
+                    from_currency, to_currency, amount, *_rest = args
+                    date = args[3] if len(args) > 3 and args[3] else "today()"
+                    return f"if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64({amount}, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, 10))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {to_currency}, {date}, toDecimal64(0, 10))))"
             raise QueryError(f"Unexpected unresolved HogQL function '{node.name}(...)'")
         else:
             close_matches = get_close_matches(node.name, ALL_EXPOSED_FUNCTION_NAMES, 1)

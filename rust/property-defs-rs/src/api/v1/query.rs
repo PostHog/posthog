@@ -4,19 +4,14 @@ use crate::{
             extract_aliases, ENTERPRISE_PROP_DEFS_TABLE, ENTERPRISE_PROP_DEFS_TABLE_COLUMNS,
             EVENTS_HIDDEN_PROPERTY_DEFINITIONS, EVENT_PROPERTY_TABLE, EVENT_PROPERTY_TABLE_ALIAS,
             PROPERTY_DEFS_TABLE, PROPERTY_DEFS_TABLE_COLUMNS, SEARCH_SCREEN_WORD,
-            SEARCH_TRIGGER_WORD, USER_TABLE, USER_TABLE_COLUMNS, USER_TABLE_UPDATED_ALIAS,
-            USER_TABLE_VERIFIED_ALIAS,
         },
         routing::Params,
     },
     //metrics_consts::{},
-    config::Config,
     types::PropertyParentType,
 };
 
-use sqlx::{
-    postgres::PgArguments, postgres::PgPoolOptions, query::Query, PgPool, Postgres, QueryBuilder,
-};
+use sqlx::{postgres::PgArguments, query::Query, PgPool, Postgres, QueryBuilder};
 
 use std::collections::{HashMap, HashSet};
 
@@ -27,10 +22,7 @@ pub struct Manager {
 }
 
 impl Manager {
-    pub async fn new(cfg: &Config) -> Result<Self, sqlx::Error> {
-        let options = PgPoolOptions::new().max_connections(cfg.max_pg_connections);
-        let api_pool = options.connect(&cfg.database_url).await?;
-
+    pub async fn new(api_pool: PgPool) -> Result<Self, sqlx::Error> {
         Ok(Self {
             pool: api_pool,
             search_term_aliases: extract_aliases(),
@@ -94,7 +86,12 @@ impl Manager {
         self.conditionally_filter_properties(qb, &params.properties);
         self.conditionally_filter_numerical_properties(qb, params.is_numerical);
 
-        self.conditionally_apply_search_clause(qb, &params.search_terms, &params.search_fields);
+        self.conditionally_apply_search_clause(
+            qb,
+            &params.search_terms,
+            &params.search_fields,
+            params.filter_initial_props,
+        );
 
         self.conditionally_filter_feature_flags(qb, &params.is_feature_flag);
 
@@ -159,21 +156,6 @@ impl Manager {
             &params.event_names,
         );
 
-        // DIVERGES FROM DJANGO: we need to manually perform this JOIN when
-        // use_enterprise_taxonomy is set to optimistically attempt to pick
-        // up the posthog_user metadata associated with each enterprise prop
-        // defs row's "updated_by_id" and "verified_by_id"
-        if params.use_enterprise_taxonomy {
-            qb.push(format!(
-                " JOIN {0} AS {1} ON {1}.\"id\" = {2}.\"updated_by_id\" ",
-                USER_TABLE, USER_TABLE_UPDATED_ALIAS, ENTERPRISE_PROP_DEFS_TABLE,
-            ));
-            qb.push(format!(
-                " JOIN {0} AS {1} ON {1}.\"id\" = {2}.\"verified_by_id\" ",
-                USER_TABLE, USER_TABLE_VERIFIED_ALIAS, ENTERPRISE_PROP_DEFS_TABLE,
-            ));
-        }
-
         // begin the WHERE clause
         self.init_where_clause(qb, project_id);
         self.where_property_type(qb, params.parent_type);
@@ -192,7 +174,12 @@ impl Manager {
         self.conditionally_filter_properties(qb, &params.properties);
         self.conditionally_filter_numerical_properties(qb, params.is_numerical);
 
-        self.conditionally_apply_search_clause(qb, &params.search_terms, &params.search_fields);
+        self.conditionally_apply_search_clause(
+            qb,
+            &params.search_terms,
+            &params.search_fields,
+            params.filter_initial_props,
+        );
 
         self.conditionally_filter_feature_flags(qb, &params.is_feature_flag);
 
@@ -233,17 +220,6 @@ impl Manager {
         if use_enterprise_taxonomy {
             for col_name in ENTERPRISE_PROP_DEFS_TABLE_COLUMNS {
                 selections.push(format!("{}.\"{}\"", ENTERPRISE_PROP_DEFS_TABLE, col_name));
-            }
-
-            // also rope in posthog_user cols that we'll JOIN in due to availability of
-            // enterprise "updated_by_id" and "verified_by_id" cols. Since each must
-            // JOIN the row on a potentially different user, two User table name
-            // aliases must be applied to the fully-qualified selections
-            for col_name in USER_TABLE_COLUMNS {
-                selections.push(format!("{}.\"{}\"", USER_TABLE_UPDATED_ALIAS, col_name));
-            }
-            for col_name in USER_TABLE_COLUMNS {
-                selections.push(format!("{}.\"{}\"", USER_TABLE_VERIFIED_ALIAS, col_name));
             }
         }
 
@@ -383,6 +359,7 @@ impl Manager {
         qb: &mut QueryBuilder<'args, Postgres>,
         search_terms: &'args [String],
         search_fields: &'args HashSet<String>,
+        filter_initial_props: bool,
     ) {
         // conditionally apply search term matching; skip this if possible, it's not cheap!
         // logic: https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L493-L499
@@ -391,7 +368,7 @@ impl Manager {
             // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L309-L324
 
             // attempt to enrich basic search terms using a heuristic:
-            // if the long slug associated with any std PostHog event properties
+            // if the description associated with any std PostHog event properties
             // matches *every search term* in the incoming query, capture the
             // associated property name and add it to the search terms we'll
             // attempt to return from the prop defs query. This is expensive :(
@@ -423,7 +400,7 @@ impl Manager {
 
             // step 2: filter "initial" prop defs if the user wants "latest"
             // https://github.com/PostHog/posthog/blob/master/posthog/taxonomy/property_definition_api.py#L326-L339
-            let screening_clause = if term_aliases.iter().any(|ta| *ta == SEARCH_TRIGGER_WORD) {
+            let screening_clause = if filter_initial_props {
                 format!(" OR NOT name ILIKE '%{}%' ", SEARCH_SCREEN_WORD)
             } else {
                 "".to_string()
@@ -436,15 +413,6 @@ impl Manager {
             // Original Django monolith query construction step is here:
             // https://github.com/PostHog/posthog/blob/master/posthog/filters.py#L61-L84
             if !search_fields.is_empty() && !search_terms.is_empty() {
-                /* TODO: I don't think we need this cleansing step in the Rust service as Django does
-                let cleansed_terms: Vec<String> = search
-                    .as_ref()
-                    .unwrap()
-                    .iter()
-                    .map(|s| s.replace("\0", ""))
-                    .collect();
-                */
-
                 // outer loop: one AND clause for every search term supplied by caller.
                 // each of these clauses may be enriched with "search_extras" suffix
                 for (tndx, term) in search_terms.iter().enumerate() {
@@ -458,9 +426,12 @@ impl Manager {
                         if fndx == 0 {
                             qb.push("(");
                         }
-                        qb.push_bind(field.clone());
+                        qb.push(field.clone());
                         qb.push(" ILIKE ");
-                        qb.push_bind(format!("%{}%", term));
+                        // applying terms directly to ensure fuzzy matches are
+                        // in parity with original query. Terms are cleansed
+                        // upstream to ensure this is safe.
+                        qb.push(format!("'%{}%'", term));
                         if search_fields.len() > 1 && fndx < search_fields.len() - 1 {
                             qb.push(" OR ");
                         }

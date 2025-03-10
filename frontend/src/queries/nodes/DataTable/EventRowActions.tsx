@@ -1,6 +1,6 @@
 import { IconWarning } from '@posthog/icons'
 import { router } from 'kea-router'
-import ViewRecordingButton, { mightHaveRecording } from 'lib/components/ViewRecordingButton'
+import ViewRecordingButton, { mightHaveRecording } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'

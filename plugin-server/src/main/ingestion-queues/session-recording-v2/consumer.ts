@@ -33,6 +33,7 @@ import { SessionRecordingIngesterMetrics } from './metrics'
 import { PromiseScheduler } from './promise-scheduler'
 import { BlackholeSessionBatchFileStorage } from './sessions/blackhole-session-batch-writer'
 import { S3SessionBatchFileStorage } from './sessions/s3-session-batch-writer'
+import { SessionBatchFileStorage } from './sessions/session-batch-file-storage'
 import { SessionBatchManager } from './sessions/session-batch-manager'
 import { SessionBatchRecorder } from './sessions/session-batch-recorder'
 import { SessionMetadataStore } from './sessions/session-metadata-store'
@@ -60,6 +61,7 @@ export class SessionRecordingIngester {
     private readonly kafkaParser: KafkaMessageParser
     private readonly teamFilter: TeamFilter
     private readonly libVersionMonitor?: LibVersionMonitor
+    private readonly fileStorage: SessionBatchFileStorage
 
     constructor(
         private config: PluginsServerConfig,
@@ -112,11 +114,12 @@ export class SessionRecordingIngester {
 
         const offsetManager = new KafkaOffsetManager(this.commitOffsets.bind(this), this.topic)
         const metadataStore = new SessionMetadataStore(producer)
-        const fileStorage = s3Client
+        this.fileStorage = s3Client
             ? new S3SessionBatchFileStorage(
                   s3Client,
-                  this.config.SESSION_RECORDING_V2_S3_BUCKET!,
-                  this.config.SESSION_RECORDING_V2_S3_PREFIX!
+                  this.config.SESSION_RECORDING_V2_S3_BUCKET,
+                  this.config.SESSION_RECORDING_V2_S3_PREFIX,
+                  this.config.SESSION_RECORDING_V2_S3_TIMEOUT_MS
               )
             : new BlackholeSessionBatchFileStorage()
 
@@ -124,7 +127,7 @@ export class SessionRecordingIngester {
             maxBatchSizeBytes: this.config.SESSION_RECORDING_MAX_BATCH_SIZE_KB * 1024,
             maxBatchAgeMs: this.config.SESSION_RECORDING_MAX_BATCH_AGE_MS,
             offsetManager,
-            fileStorage,
+            fileStorage: this.fileStorage,
             metadataStore,
         })
 
@@ -241,6 +244,10 @@ export class SessionRecordingIngester {
             librdKafkaVersion: librdkafkaVersion,
             kafkaCapabilities: features,
         })
+
+        // Check that the storage backend is healthy before starting the consumer
+        // This is especially important in local dev with minio
+        await this.fileStorage.checkHealth()
 
         this.batchConsumer = await this.batchConsumerFactory.createBatchConsumer(
             this.consumerGroupId,

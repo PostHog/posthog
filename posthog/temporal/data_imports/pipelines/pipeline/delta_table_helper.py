@@ -12,6 +12,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.settings.base_variables import TEST
 from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.temporal.data_imports.pipelines.pipeline.utils import normalize_column_name
+from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from posthog.warehouse.models import ExternalDataJob
 from posthog.warehouse.s3 import get_s3_client
 
@@ -28,6 +29,11 @@ class DeltaTableHelper:
         self._logger = logger
 
     def _get_credentials(self):
+        if not settings.AIRBYTE_BUCKET_KEY or not settings.AIRBYTE_BUCKET_SECRET or not settings.AIRBYTE_BUCKET_REGION:
+            raise KeyError(
+                "Missing env vars for data warehouse. Required vars: AIRBYTE_BUCKET_KEY, AIRBYTE_BUCKET_SECRET, AIRBYTE_BUCKET_REGION"
+            )
+
         if TEST:
             return {
                 "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
@@ -113,6 +119,11 @@ class DeltaTableHelper:
 
         self._logger.debug(f"write_to_deltalake: _is_first_sync = {self._is_first_sync}")
 
+        use_partitioning = False
+        if PARTITION_KEY in data.column_names:
+            use_partitioning = True
+            self._logger.debug(f"Using partitioning on {PARTITION_KEY}")
+
         if is_incremental and delta_table is not None and not self._is_first_sync:
             if not primary_keys or len(primary_keys) == 0:
                 raise Exception("Primary key required for incremental syncs")
@@ -125,12 +136,17 @@ class DeltaTableHelper:
                 normalize_column_name(x) for x in primary_keys if normalize_column_name(x) in py_table_column_names
             ]
 
+            predicate_ops = [f"source.{c} = target.{c}" for c in normalized_primary_keys]
+            if use_partitioning:
+                predicate_ops.append(f"source.{PARTITION_KEY} = target.{PARTITION_KEY}")
+
             merge_stats = (
                 delta_table.merge(
                     source=data,
                     source_alias="source",
                     target_alias="target",
-                    predicate=" AND ".join([f"source.{c} = target.{c}" for c in normalized_primary_keys]),
+                    predicate=" AND ".join(predicate_ops),
+                    streamed_exec=False,
                 )
                 .when_matched_update_all()
                 .when_not_matched_insert_all()
@@ -150,13 +166,17 @@ class DeltaTableHelper:
             if delta_table is None:
                 storage_options = self._get_credentials()
                 delta_table = deltalake.DeltaTable.create(
-                    table_uri=self._get_delta_table_uri(), schema=data.schema, storage_options=storage_options
+                    table_uri=self._get_delta_table_uri(),
+                    schema=data.schema,
+                    storage_options=storage_options,
+                    partition_by=PARTITION_KEY if use_partitioning else None,
                 )
+
             try:
                 deltalake.write_deltalake(
                     table_or_uri=delta_table,
                     data=data,
-                    partition_by=None,
+                    partition_by=PARTITION_KEY if use_partitioning else None,
                     mode=mode,
                     schema_mode=schema_mode,
                     engine="rust",

@@ -9,11 +9,11 @@ import { ConnectionOptions } from 'tls'
 
 import { getPluginServerCapabilities } from '../../capabilities'
 import { EncryptedFields } from '../../cdp/encryption-utils'
+import { LegacyOneventCompareService } from '../../cdp/services/legacy-onevent-compare.service'
 import { buildIntegerMatcher, defaultConfig } from '../../config/config'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from '../../config/constants'
 import { CookielessManager } from '../../ingestion/cookieless/cookieless-manager'
 import { KafkaProducerWrapper } from '../../kafka/producer'
-import { getObjectStorage } from '../../main/services/object_storage'
 import { Hub, KafkaSecurityProtocol, PluginServerCapabilities, PluginsServerConfig } from '../../types'
 import { ActionManager } from '../../worker/ingestion/action-manager'
 import { ActionMatcher } from '../../worker/ingestion/action-matcher'
@@ -24,6 +24,7 @@ import { TeamManager } from '../../worker/ingestion/team-manager'
 import { RustyHook } from '../../worker/rusty-hook'
 import { isTestEnv } from '../env-utils'
 import { GeoIPService } from '../geoip'
+import { getObjectStorage } from '../object_storage'
 import { status } from '../status'
 import { UUIDT } from '../utils'
 import { PluginsApiKeyManager } from './../../worker/vm/extensions/helpers/api-key-manager'
@@ -138,7 +139,7 @@ export async function createHub(
 
     const cookielessManager = new CookielessManager(serverConfig, redisPool, teamManager)
 
-    const hub: Hub = {
+    const hub: Omit<Hub, 'legacyOneventCompareService'> = {
         ...serverConfig,
         instanceId,
         capabilities,
@@ -181,7 +182,10 @@ export async function createHub(
         cookielessManager,
     }
 
-    return hub as Hub
+    return {
+        ...hub,
+        legacyOneventCompareService: new LegacyOneventCompareService(hub as Hub),
+    }
 }
 
 export const closeHub = async (hub: Hub): Promise<void> => {

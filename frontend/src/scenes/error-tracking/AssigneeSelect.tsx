@@ -44,7 +44,7 @@ export const AssigneeSelect = ({
             matchWidth={false}
             onVisibilityChange={(visible) => setShowPopover(visible)}
             overlay={
-                <div className="max-w-100 space-y-2 overflow-hidden">
+                <div className="max-w-100 deprecated-space-y-2 overflow-hidden">
                     <LemonInput
                         type="search"
                         placeholder="Search"
@@ -53,7 +53,7 @@ export const AssigneeSelect = ({
                         onChange={setSearch}
                         fullWidth
                     />
-                    <ul className="space-y-2">
+                    <ul className="deprecated-space-y-2">
                         {assignee && (
                             <li>
                                 <LemonButton
@@ -145,7 +145,7 @@ const Section = ({
 }): JSX.Element => {
     return (
         <li>
-            <section className="space-y-px">
+            <section className="deprecated-space-y-px">
                 <h5 className="mx-2 my-0.5">{title}</h5>
                 {items.map((item) => (
                     <li key={item.id}>

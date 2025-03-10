@@ -61,7 +61,7 @@ export const ErrorTrackingListOptions = (): JSX.Element => {
                     )}
                 </div>
                 {selectedIssueIds.length < 1 && (
-                    <span className="flex space-x-2">
+                    <span className="flex deprecated-space-x-2">
                         <div className="flex items-center gap-1">
                             <span>Status:</span>
                             <LemonSelect

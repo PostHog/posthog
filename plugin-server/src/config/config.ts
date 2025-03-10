@@ -66,9 +66,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKA_FLUSH_FREQUENCY_MS: isTestEnv() ? 5 : 500,
         APP_METRICS_FLUSH_FREQUENCY_MS: isTestEnv() ? 5 : 20_000,
         APP_METRICS_FLUSH_MAX_QUEUE_SIZE: isTestEnv() ? 5 : 1000,
-        KAFKA_PRODUCER_LINGER_MS: 20, // rdkafka default is 5ms
-        KAFKA_PRODUCER_BATCH_SIZE: 8 * 1024 * 1024, // rdkafka default is 1MiB
-        KAFKA_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES: 100_000, // rdkafka default is 100_000
         REDIS_URL: 'redis://127.0.0.1',
         INGESTION_REDIS_HOST: '',
         INGESTION_REDIS_PORT: 6379,
@@ -95,7 +92,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         DISABLE_MMDB: isTestEnv(),
         MMDB_FILE_LOCATION:
             isDevEnv() || isTestEnv() ? '../share/GeoLite2-City.mmdb' : '/s3/ingestion-assets/mmdb/GeoLite2-City.mmdb',
-        MMDB_COMPARE_MODE: isTestEnv() || isDevEnv() ? false : true, // For now production is only testing it
         DISTINCT_ID_LRU_SIZE: 10000,
         EVENT_PROPERTY_LRU_SIZE: 10000,
         JOB_QUEUES: 'graphile',
@@ -232,6 +228,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_V2_S3_REGION: 'us-east-1',
         SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'object_storage_root_user',
         SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'object_storage_root_password',
+        SESSION_RECORDING_V2_S3_TIMEOUT_MS: 30000,
 
         // Cookieless
         COOKIELESS_FORCE_STATELESS_MODE: false,

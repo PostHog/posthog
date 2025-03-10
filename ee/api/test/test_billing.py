@@ -9,6 +9,7 @@ import jwt
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 from freezegun import freeze_time
+from requests import get, Response
 from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
@@ -767,21 +768,21 @@ class TestBillingAPI(APILicensedTest):
 
     @patch("ee.api.billing.requests.get")
     def test_organization_usage_count_with_demo_project(self, mock_request, *args):
-        def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
+        def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock | Response:
             mock = MagicMock()
-            mock.status_code = 404
-
             if "api/billing/portal" in url:
                 mock.status_code = 200
                 mock.json.return_value = {"url": "https://billing.stripe.com/p/session/test_1234"}
+                return mock
             elif "api/billing" in url:
                 mock.status_code = 200
                 mock.json.return_value = create_billing_response(
                     # Set usage to none so it is calculated from scratch
                     customer=create_billing_customer(has_active_subscription=False, usage=None)
                 )
-
-            return mock
+                return mock
+            else:
+                return get(url, headers=headers, params=params)
 
         mock_request.side_effect = mock_implementation
 

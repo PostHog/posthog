@@ -1,28 +1,34 @@
 import gc
 import time
 from typing import Any
+
+import deltalake as deltalake
 import pyarrow as pa
 from dlt.sources import DltSource
-import deltalake as deltalake
+
 from posthog.temporal.common.logger import FilteringBoundLogger
+from posthog.temporal.common.shutdown import ShutdownMonitor
 from posthog.temporal.data_imports.deltalake_compaction_job import trigger_compaction_job
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from posthog.temporal.data_imports.pipelines.pipeline.utils import (
-    _get_column_hints,
-    _handle_null_columns_with_definitions,
-    _update_incremental_state,
-    _get_primary_keys,
-    _evolve_pyarrow_schema,
-    _append_debug_column_to_pyarrows_table,
-    _update_job_row_count,
-    _update_last_synced_at_sync,
-    table_from_py_list,
-)
 from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
 from posthog.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
+from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from posthog.temporal.data_imports.pipelines.pipeline.utils import (
+    _append_debug_column_to_pyarrows_table,
+    _evolve_pyarrow_schema,
+    _get_column_hints,
+    _get_primary_keys,
+    _handle_null_columns_with_definitions,
+    _update_incremental_state,
+    _update_job_row_count,
+    _update_last_synced_at_sync,
+    append_partition_key_to_table,
+    normalize_table_column_names,
+    should_partition_table,
+    table_from_py_list,
+)
 from posthog.temporal.data_imports.pipelines.pipeline_sync import validate_schema_and_update_table_sync
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
-from posthog.warehouse.models import DataWarehouseTable, ExternalDataJob, ExternalDataSchema
+from posthog.warehouse.models import PARTITION_KEY, DataWarehouseTable, ExternalDataJob, ExternalDataSchema
 
 
 class PipelineNonDLT:
@@ -44,6 +50,7 @@ class PipelineNonDLT:
         job_id: str,
         is_incremental: bool,
         reset_pipeline: bool,
+        shutdown_monitor: ShutdownMonitor,
     ) -> None:
         if isinstance(source, DltSource):
             resources = list(source.resources.items())
@@ -56,6 +63,7 @@ class PipelineNonDLT:
                 primary_keys=_get_primary_keys(resource),
                 name=resource_name,
                 column_hints=_get_column_hints(resource),
+                partition_count=None,
             )
         else:
             self._resource = source
@@ -73,6 +81,7 @@ class PipelineNonDLT:
 
         self._delta_table_helper = DeltaTableHelper(self._resource_name, self._job, self._logger)
         self._internal_schema = HogQLSchema()
+        self._shutdown_monitor = shutdown_monitor
 
     def run(self):
         pa_memory_pool = pa.default_memory_pool()
@@ -92,10 +101,11 @@ class PipelineNonDLT:
             if self._reset_pipeline:
                 self._logger.debug("Deleting existing table due to reset_pipeline being set")
                 self._delta_table_helper.reset_table()
-
-                self._schema.sync_type_config.pop("reset_pipeline", None)
-                self._schema.sync_type_config.pop("incremental_field_last_value", None)
-                self._schema.save()
+                self._schema.update_sync_type_config_for_reset_pipeline()
+            elif self._schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH:
+                # Avoid schema mismatches from existing data about to be overwritten
+                self._logger.debug("Deleting existing table due to sync being full refresh")
+                self._delta_table_helper.reset_table()
 
             for item in self._resource.items:
                 py_table = None
@@ -137,6 +147,8 @@ class PipelineNonDLT:
                 pa_memory_pool.release_unused()
                 gc.collect()
 
+                self._shutdown_monitor.raise_if_is_worker_shutdown()
+
             if len(buffer) > 0:
                 py_table = table_from_py_list(buffer)
                 self._process_pa_table(pa_table=py_table, index=chunk_index)
@@ -165,6 +177,44 @@ class PipelineNonDLT:
         delta_table = self._delta_table_helper.get_delta_table()
 
         pa_table = _append_debug_column_to_pyarrows_table(pa_table, self._load_id)
+        pa_table = normalize_table_column_names(pa_table)
+
+        # Temp for legacy as we switch over to new partition system
+        table_using_old_partitioning_system = False
+        if delta_table:
+            delta_schema = delta_table.schema().to_pyarrow()
+            table_is_partitioned = PARTITION_KEY in delta_schema.names
+            table_has_new_partitioning_system = self._schema.partitioning_enabled
+            table_using_old_partitioning_system = table_is_partitioned and not table_has_new_partitioning_system
+
+        if (
+            should_partition_table(delta_table, self._schema, self._resource)
+            and not table_using_old_partitioning_system
+        ):
+            partition_count = self._schema.partition_count or self._resource.partition_count
+            partition_keys = self._schema.partitioning_keys or self._resource.primary_keys
+            if partition_count and partition_keys:
+                # This needs to happen before _evolve_pyarrow_schema
+                pa_table = append_partition_key_to_table(
+                    table=pa_table,
+                    partition_count=partition_count,
+                    primary_keys=partition_keys,
+                    logger=self._logger,
+                )
+
+                if not self._schema.partitioning_enabled:
+                    self._logger.debug(
+                        f"Setting partitioning_enabled on schema with: partition_keys={partition_keys}. partition_count={partition_count}"
+                    )
+                    self._schema.set_partitioning_enabled(partition_keys, partition_count)
+            else:
+                self._logger.debug("Skipping partitioning due to missing partition_count or partition_keys")
+        elif table_using_old_partitioning_system:
+            # Will be removed once all tables have been converted over
+            self._logger.debug("Table is using old partitioning system. Filling partition key with 2025-03")
+            col = pa.array(["2025-03"] * pa_table.num_rows, type=pa.string())
+            pa_table = pa_table.append_column(PARTITION_KEY, col)
+
         pa_table = _evolve_pyarrow_schema(pa_table, delta_table.schema() if delta_table is not None else None)
         pa_table = _handle_null_columns_with_definitions(pa_table, self._resource)
 
@@ -184,10 +234,8 @@ class PipelineNonDLT:
             self._logger.debug("No deltalake table, not continuing with post-run ops")
             return
 
-        self._logger.debug("SKIPPING deltatable compact and vacuuming")
-
         self._logger.debug("Triggering workflow to compact and vacuum")
-        compaction_job_id = trigger_compaction_job(self._job, self._schema)
+        compaction_job_id = trigger_compaction_job(self._job, self._schema, self._logger)
         self._logger.debug(f"Compaction workflow id: {compaction_job_id}")
 
         file_uris = delta_table.file_uris()

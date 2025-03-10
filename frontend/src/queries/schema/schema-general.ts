@@ -13,6 +13,7 @@ import {
     CountPerActorMathType,
     EventPropertyFilter,
     EventType,
+    ExperimentMetricMathType,
     FilterLogicalOperator,
     FilterType,
     FunnelMathType,
@@ -73,6 +74,7 @@ export enum NodeKind {
     SessionsTimelineQuery = 'SessionsTimelineQuery',
     RecordingsQuery = 'RecordingsQuery',
     SessionAttributionExplorerQuery = 'SessionAttributionExplorerQuery',
+    RevenueExampleEventsQuery = 'RevenueExampleEventsQuery',
     ErrorTrackingQuery = 'ErrorTrackingQuery',
 
     // Interface nodes
@@ -141,6 +143,7 @@ export type AnyDataNode =
     | WebVitalsQuery
     | WebVitalsPathBreakdownQuery
     | SessionAttributionExplorerQuery
+    | RevenueExampleEventsQuery
     | ErrorTrackingQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
@@ -166,6 +169,7 @@ export type QuerySchema =
     | HogQLMetadata
     | HogQLAutocomplete
     | SessionAttributionExplorerQuery
+    | RevenueExampleEventsQuery
     | ErrorTrackingQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
@@ -530,6 +534,7 @@ export type MathType =
     | CountPerActorMathType
     | GroupMathType
     | HogQLMathType
+    | ExperimentMetricMathType
 
 export interface EntityNode extends Node {
     name?: string
@@ -669,6 +674,7 @@ export interface DataTableNode
                     | WebVitalsQuery
                     | WebVitalsPathBreakdownQuery
                     | SessionAttributionExplorerQuery
+                    | RevenueExampleEventsQuery
                     | ErrorTrackingQuery
                     | ExperimentFunnelsQuery
                     | ExperimentTrendsQuery
@@ -692,6 +698,7 @@ export interface DataTableNode
         | WebVitalsQuery
         | WebVitalsPathBreakdownQuery
         | SessionAttributionExplorerQuery
+        | RevenueExampleEventsQuery
         | ErrorTrackingQuery
         | ExperimentFunnelsQuery
         | ExperimentTrendsQuery
@@ -1109,6 +1116,7 @@ export type RetentionFilter = {
 
     //frontend only
     showMean?: RetentionFilterLegacy['show_mean']
+    meanRetentionCalculation?: RetentionFilterLegacy['mean_retention_calculation']
     /** controls the display of the retention graph */
     display?: ChartDisplayType
     dashboardDisplay?: RetentionDashboardDisplayType
@@ -1695,6 +1703,22 @@ export interface SessionAttributionExplorerQueryResponse extends AnalyticsQueryR
 }
 export type CachedSessionAttributionExplorerQueryResponse = CachedQueryResponse<SessionAttributionExplorerQueryResponse>
 
+export interface RevenueExampleEventsQuery extends DataNode<RevenueExampleEventsQueryResponse> {
+    kind: NodeKind.RevenueExampleEventsQuery
+    revenueTrackingConfig: RevenueTrackingConfig
+    limit?: integer
+    offset?: integer
+}
+
+export interface RevenueExampleEventsQueryResponse extends AnalyticsQueryResponseBase<unknown> {
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+    types?: unknown[]
+    columns?: unknown[]
+}
+export type CachedRevenueExampleEventsQueryResponse = CachedQueryResponse<RevenueExampleEventsQueryResponse>
+
 export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
     kind: NodeKind.ErrorTrackingQuery
     issueId?: ErrorTrackingIssue['id']
@@ -1878,12 +1902,9 @@ export interface ExperimentEventExposureConfig {
 }
 
 export enum ExperimentMetricType {
-    COUNT = 'count',
-    CONTINUOUS = 'continuous',
-    BINOMIAL = 'binomial',
+    FUNNEL = 'funnel',
+    MEAN = 'mean',
 }
-
-export type ExperimentMetricMath = 'total' | 'sum' | 'avg' | 'median' | 'min' | 'max'
 
 export interface ExperimentMetric {
     kind: NodeKind.ExperimentMetric
@@ -1891,13 +1912,14 @@ export interface ExperimentMetric {
     metric_type: ExperimentMetricType
     inverse?: boolean
     metric_config: ExperimentEventMetricConfig | ExperimentActionMetricConfig | ExperimentDataWarehouseMetricConfig
+    time_window_hours?: number
 }
 
 export interface ExperimentEventMetricConfig {
     kind: NodeKind.ExperimentEventMetricConfig
     event: string
     name?: string
-    math?: ExperimentMetricMath
+    math?: ExperimentMetricMathType
     math_hogql?: string
     math_property?: string
     /** Properties configurable in the interface */
@@ -1908,7 +1930,7 @@ export interface ExperimentActionMetricConfig {
     kind: NodeKind.ExperimentActionMetricConfig
     action: number
     name?: string
-    math?: ExperimentMetricMath
+    math?: ExperimentMetricMathType
     math_hogql?: string
     math_property?: string
     /** Properties configurable in the interface */
@@ -1922,7 +1944,7 @@ export interface ExperimentDataWarehouseMetricConfig {
     timestamp_field: string
     events_join_key: string
     data_warehouse_join_key: string
-    math?: ExperimentMetricMath
+    math?: ExperimentMetricMathType
     math_hogql?: string
     math_property?: string
 }
@@ -2506,8 +2528,167 @@ export type CachedTracesQueryResponse = CachedQueryResponse<TracesQueryResponse>
 export interface RevenueTrackingEventItem {
     eventName: string
     revenueProperty: string
+    revenueCurrencyProperty: string | undefined
+}
+
+// NOTE: Keep in sync with posthog/models/exchange_rate/currencies.py
+// to provide proper type safety for the baseCurrency field
+export enum CurrencyCode {
+    AED = 'AED',
+    AFN = 'AFN',
+    ALL = 'ALL',
+    AMD = 'AMD',
+    ANG = 'ANG',
+    AOA = 'AOA',
+    ARS = 'ARS',
+    AUD = 'AUD',
+    AWG = 'AWG',
+    AZN = 'AZN',
+    BAM = 'BAM',
+    BBD = 'BBD',
+    BDT = 'BDT',
+    BGN = 'BGN',
+    BHD = 'BHD',
+    BIF = 'BIF',
+    BMD = 'BMD',
+    BND = 'BND',
+    BOB = 'BOB',
+    BRL = 'BRL',
+    BSD = 'BSD',
+    BTC = 'BTC',
+    BTN = 'BTN',
+    BWP = 'BWP',
+    BYN = 'BYN',
+    BZD = 'BZD',
+    CAD = 'CAD',
+    CDF = 'CDF',
+    CHF = 'CHF',
+    CLP = 'CLP',
+    CNY = 'CNY',
+    COP = 'COP',
+    CRC = 'CRC',
+    CVE = 'CVE',
+    CZK = 'CZK',
+    DJF = 'DJF',
+    DKK = 'DKK',
+    DOP = 'DOP',
+    DZD = 'DZD',
+    EGP = 'EGP',
+    ERN = 'ERN',
+    ETB = 'ETB',
+    EUR = 'EUR',
+    FJD = 'FJD',
+    GBP = 'GBP',
+    GEL = 'GEL',
+    GHS = 'GHS',
+    GIP = 'GIP',
+    GMD = 'GMD',
+    GNF = 'GNF',
+    GTQ = 'GTQ',
+    GYD = 'GYD',
+    HKD = 'HKD',
+    HNL = 'HNL',
+    HRK = 'HRK',
+    HTG = 'HTG',
+    HUF = 'HUF',
+    IDR = 'IDR',
+    ILS = 'ILS',
+    INR = 'INR',
+    IQD = 'IQD',
+    IRR = 'IRR',
+    ISK = 'ISK',
+    JMD = 'JMD',
+    JOD = 'JOD',
+    JPY = 'JPY',
+    KES = 'KES',
+    KGS = 'KGS',
+    KHR = 'KHR',
+    KMF = 'KMF',
+    KRW = 'KRW',
+    KWD = 'KWD',
+    KYD = 'KYD',
+    KZT = 'KZT',
+    LAK = 'LAK',
+    LBP = 'LBP',
+    LKR = 'LKR',
+    LRD = 'LRD',
+    LTL = 'LTL',
+    LVL = 'LVL',
+    LSL = 'LSL',
+    LYD = 'LYD',
+    MAD = 'MAD',
+    MDL = 'MDL',
+    MGA = 'MGA',
+    MKD = 'MKD',
+    MMK = 'MMK',
+    MNT = 'MNT',
+    MOP = 'MOP',
+    MRU = 'MRU',
+    MTL = 'MTL',
+    MUR = 'MUR',
+    MVR = 'MVR',
+    MWK = 'MWK',
+    MXN = 'MXN',
+    MYR = 'MYR',
+    MZN = 'MZN',
+    NAD = 'NAD',
+    NGN = 'NGN',
+    NIO = 'NIO',
+    NOK = 'NOK',
+    NPR = 'NPR',
+    NZD = 'NZD',
+    OMR = 'OMR',
+    PAB = 'PAB',
+    PEN = 'PEN',
+    PGK = 'PGK',
+    PHP = 'PHP',
+    PKR = 'PKR',
+    PLN = 'PLN',
+    PYG = 'PYG',
+    QAR = 'QAR',
+    RON = 'RON',
+    RSD = 'RSD',
+    RUB = 'RUB',
+    RWF = 'RWF',
+    SAR = 'SAR',
+    SBD = 'SBD',
+    SCR = 'SCR',
+    SDG = 'SDG',
+    SEK = 'SEK',
+    SGD = 'SGD',
+    SRD = 'SRD',
+    SSP = 'SSP',
+    STN = 'STN',
+    SYP = 'SYP',
+    SZL = 'SZL',
+    THB = 'THB',
+    TJS = 'TJS',
+    TMT = 'TMT',
+    TND = 'TND',
+    TOP = 'TOP',
+    TRY = 'TRY',
+    TTD = 'TTD',
+    TWD = 'TWD',
+    TZS = 'TZS',
+    UAH = 'UAH',
+    UGX = 'UGX',
+    USD = 'USD',
+    UYU = 'UYU',
+    UZS = 'UZS',
+    VES = 'VES',
+    VND = 'VND',
+    VUV = 'VUV',
+    WST = 'WST',
+    XAF = 'XAF',
+    XCD = 'XCD',
+    XOF = 'XOF',
+    XPF = 'XPF',
+    YER = 'YER',
+    ZAR = 'ZAR',
+    ZMW = 'ZMW',
 }
 
 export interface RevenueTrackingConfig {
+    baseCurrency?: CurrencyCode
     events: RevenueTrackingEventItem[]
 }
