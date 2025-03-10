@@ -3,6 +3,7 @@ from abc import ABC
 from datetime import timedelta
 from math import ceil
 from typing import Optional, Union
+import posthoganalytics
 
 from django.conf import settings
 from django.core.cache import cache
@@ -17,7 +18,7 @@ from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
-from posthog.hogql_queries.utils.revenue import revenue_sum_expression, revenue_events_exprs
+from posthog.hogql.database.schema.exchange_rate import revenue_sum_expression, revenue_events_where_expr
 
 from posthog.models import Action
 from posthog.models.filters.mixins.utils import cached_property
@@ -45,6 +46,16 @@ WebQueryNode = Union[
 class WebAnalyticsQueryRunner(QueryRunner, ABC):
     query: WebQueryNode
     query_type: type[WebQueryNode]
+    do_currency_conversion: bool = False
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.do_currency_conversion = posthoganalytics.feature_enabled(
+            "web-analytics-revenue-tracking-conversion",
+            str(self.team.organization_id),
+            groups={"organization": str(self.team.organization_id)},
+            group_properties={"organization": {"id": str(self.team.organization_id)}},
+        )
 
     @cached_property
     def query_date_range(self):
@@ -183,8 +194,10 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
             if self.team.revenue_tracking_config
             else None
         )
+
         if not config:
             return ast.Constant(value=None)
+
         if isinstance(self.query.conversionGoal, CustomEventConversionGoal):
             event_name = self.query.conversionGoal.customEventName
             revenue_property = next(
@@ -219,7 +232,7 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
 
     @cached_property
     def revenue_sum_expression(self) -> ast.Expr:
-        return revenue_sum_expression(self.team.revenue_tracking_config)
+        return revenue_sum_expression(self.team.revenue_tracking_config, self.do_currency_conversion)
 
     @cached_property
     def event_type_expr(self) -> ast.Expr:
@@ -237,7 +250,7 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
         elif self.query.includeRevenue:
             # Use elif here, we don't need to include revenue events if we already included conversion events, because
             # if there is a conversion goal set then we only show revenue from conversion events.
-            exprs.extend(revenue_events_exprs(self.team.revenue_tracking_config))
+            exprs.append(revenue_events_where_expr(self.team.revenue_tracking_config))
 
         return ast.Or(exprs=exprs)
 
