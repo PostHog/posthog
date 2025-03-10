@@ -1,8 +1,7 @@
 import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { defaultConfig } from '~/src/config/config'
-
+import { defaultConfig } from '../../config/config'
 import { KafkaProducerWrapper, TopicMessage } from '../../kafka/producer'
 import { PipelineEvent, PluginsServerConfig, TeamId, TimestampFormat } from '../../types'
 import { safeClickhouseString } from '../../utils/db/utils'
