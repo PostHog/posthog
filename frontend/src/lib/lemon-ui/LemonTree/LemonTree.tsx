@@ -3,14 +3,37 @@ import { IconUpload } from '@posthog/icons'
 import * as AccordionPrimitive from '@radix-ui/react-accordion'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { cn } from 'lib/utils/css-classes'
-import { forwardRef, HTMLAttributes, useCallback, useEffect, useRef, useState } from 'react'
+import {
+    ForwardedRef,
+    forwardRef,
+    HTMLAttributes,
+    useCallback,
+    useEffect,
+    useImperativeHandle,
+    useRef,
+    useState,
+} from 'react'
 
 import { findInProjectTreeByPath } from '~/layout/navigation-3000/components/ProjectTree/utils'
 
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '../../ui/ContextMenu/ContextMenu'
 import { LemonButton, SideAction } from '../LemonButton'
 import { Spinner } from '../Spinner/Spinner'
-import { getIcon, TreeNodeDraggable, TreeNodeDroppable } from './LemonTreeUtils'
+import { getIcon, LEMON_TREE_ICON_CLASSES, TreeNodeDraggable, TreeNodeDroppable } from './LemonTreeUtils'
+
+export type TreeTableData = {
+    /** The headers for the table view */
+    headers: Array<{
+        /** Unique key for the column */
+        key: string
+        /** Display title for the column */
+        title: string
+        /** Format function for the column */
+        formatFunction?: (value: any) => string
+    }>
+    /** The data rows for the table */
+    body: TreeDataItem[]
+}
 
 export type TreeDataItem = {
     /** The ID of the item. */
@@ -67,6 +90,11 @@ type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
     onSetExpandedItemIds?: (ids: string[]) => void
     /** Pass true if you need to wait for async events to populate the tree. If present and true will trigger: scrolling to focused item */
     isFinishedBuildingTreeData?: boolean
+    /** The mode to render in the tree. */
+    mode?: 'tree' | 'table'
+
+    /** The data to render in the table. */
+    tableData?: TreeTableData
 }
 
 export type LemonTreeProps = LemonTreeBaseProps & {
@@ -95,6 +123,11 @@ export type LemonTreeNodeProps = LemonTreeBaseProps & {
     onContextMenuOpen?: (open: boolean) => void
 }
 
+export interface LemonTreeRef {
+    getVisibleItems: () => TreeDataItem[]
+    focusItem: (id: string) => void
+}
+
 const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
     (
         {
@@ -115,11 +148,13 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
             enableDragAndDrop = false,
             onContextMenuOpen,
             itemContextMenu,
+            tableData,
+            mode = 'tree',
             ...props
         },
         ref
     ): JSX.Element => {
-        const DEPTH_OFFSET = 4 + 8 * depth // 4 is .25rem to match lemon button padding x axis
+        const DEPTH_OFFSET = depth === 0 ? 0 : 6 * depth
 
         const [isContextMenuOpenForItem, setIsContextMenuOpenForItem] = useState<string | undefined>(undefined)
 
@@ -216,24 +251,57 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                         : undefined
                                                 }
                                             >
-                                                <span
-                                                    className={cn('', {
-                                                        'font-bold': selectedId === item.id,
-                                                        'text-secondary': item.disabledReason,
-                                                    })}
-                                                >
-                                                    {renderItem ? (
-                                                        <>
-                                                            {renderItem(item, displayName)}
-                                                            {item.record?.loading && <Spinner className="ml-1" />}
-                                                            {item.record?.unapplied && (
-                                                                <IconUpload className="ml-1 text-warning" />
-                                                            )}
-                                                        </>
-                                                    ) : (
-                                                        displayName
-                                                    )}
-                                                </span>
+                                                {mode === 'table' ? (
+                                                    // eslint-disable-next-line react/forbid-dom-props
+                                                    <div
+                                                        className="grid gap-2"
+                                                        style={{
+                                                            gridTemplateColumns: `repeat(${tableData?.headers.length}, minmax(100px, 1fr))`,
+                                                        }}
+                                                    >
+                                                        {tableData?.headers.map((header) => {
+                                                            return (
+                                                                <div
+                                                                    key={`${item.id}-${header.key}`}
+                                                                    className="truncate"
+                                                                >
+                                                                    {(() => {
+                                                                        const value = header.key
+                                                                            .split('.')
+                                                                            .reduce(
+                                                                                (obj, key) => (obj as any)?.[key],
+                                                                                item
+                                                                            )
+                                                                        return header.formatFunction
+                                                                            ? header.formatFunction(value)
+                                                                            : value
+                                                                    })()}
+                                                                </div>
+                                                            )
+                                                        })}
+                                                    </div>
+                                                ) : (
+                                                    <>
+                                                        {renderItem ? (
+                                                            <>
+                                                                {renderItem(item, displayName)}
+                                                                {item.record?.loading && <Spinner className="ml-1" />}
+                                                                {item.record?.unapplied && (
+                                                                    <IconUpload className="ml-1 text-warning" />
+                                                                )}
+                                                            </>
+                                                        ) : (
+                                                            <span
+                                                                className={cn('', {
+                                                                    'font-bold': selectedId === item.id,
+                                                                    'text-secondary': item.disabledReason,
+                                                                })}
+                                                            >
+                                                                {displayName}
+                                                            </span>
+                                                        )}
+                                                    </>
+                                                )}
                                             </LemonButton>
                                         </ContextMenuTrigger>
 
@@ -263,6 +331,8 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                             enableDragAndDrop={enableDragAndDrop}
                                             onContextMenuOpen={onContextMenuOpen}
                                             itemContextMenu={itemContextMenu}
+                                            tableData={tableData}
+                                            mode={mode}
                                             {...props}
                                         />
                                     </AccordionPrimitive.Content>
@@ -291,7 +361,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
 )
 LemonTreeNode.displayName = 'LemonTreeNode'
 
-const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
+const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
     (
         {
             data,
@@ -312,11 +382,14 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
             enableDragAndDrop = false,
             itemContextMenu,
             isFinishedBuildingTreeData,
+            tableData,
+            mode = 'tree',
             ...props
         },
-        ref
+        ref: ForwardedRef<LemonTreeRef>
     ): JSX.Element => {
         const TYPE_AHEAD_TIMEOUT = 500
+
         // Scrollable container
         const containerRef = useRef<HTMLDivElement>(null)
 
@@ -488,6 +561,27 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
             ]
         )
 
+        // Helper function to find next/previous non-separator item
+        const findNextFocusableItem = (
+            items: TreeDataItem[],
+            currentIndex: number,
+            direction: 1 | -1
+        ): TreeDataItem | undefined => {
+            let index = currentIndex
+            while (true) {
+                index += direction
+                if (direction > 0 && index >= items.length) {
+                    return undefined
+                }
+                if (direction < 0 && index < 0) {
+                    return undefined
+                }
+                if (items[index].type !== 'separator') {
+                    return items[index]
+                }
+            }
+        }
+
         const handleClick = useCallback(
             (item: TreeDataItem | undefined, isKeyboardAction = false): void => {
                 // Update focusedId when clicking
@@ -633,13 +727,16 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                     case 'ArrowDown': {
                         e.preventDefault()
                         if (currentIndex === -1) {
-                            // If no item is focused, focus the first item
-                            if (visibleItems.length > 0) {
-                                setFocusedId(visibleItems[0].id)
+                            // If no item is focused, focus the first non-separator item
+                            const firstItem = visibleItems.find((item) => item.type !== 'separator')
+                            if (firstItem) {
+                                setFocusedId(firstItem.id)
                             }
-                        } else if (currentIndex < visibleItems.length - 1) {
-                            setFocusedId(visibleItems[currentIndex + 1].id)
-                            // setSelectedd(undefined)
+                        } else {
+                            const nextItem = findNextFocusableItem(visibleItems, currentIndex, 1)
+                            if (nextItem) {
+                                setFocusedId(nextItem.id)
+                            }
                         }
                         break
                     }
@@ -649,13 +746,16 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                     case 'ArrowUp': {
                         e.preventDefault()
                         if (currentIndex === -1) {
-                            // If no item is focused, focus the first item
-                            if (visibleItems.length > 0) {
-                                setFocusedId(visibleItems[0].id)
+                            // If no item is focused, focus the last non-separator item
+                            const lastItem = [...visibleItems].reverse().find((item) => item.type !== 'separator')
+                            if (lastItem) {
+                                setFocusedId(lastItem.id)
                             }
-                        } else if (currentIndex > 0) {
-                            // Otherwise move focus to previous item
-                            setFocusedId(visibleItems[currentIndex - 1].id)
+                        } else {
+                            const prevItem = findNextFocusableItem(visibleItems, currentIndex, -1)
+                            if (prevItem) {
+                                setFocusedId(prevItem.id)
+                            }
                         }
                         break
                     }
@@ -788,6 +888,16 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
             }
         }, [defaultSelectedFolderOrNodeId, hasFocusedContent])
 
+        useImperativeHandle(ref, () => ({
+            getVisibleItems,
+            focusItem: (id: string) => {
+                setFocusedId(id)
+                // Find and focus the actual DOM element
+                const element = containerRef.current?.querySelector(`[data-id="${id}"]`) as HTMLElement
+                element?.focus()
+            },
+        }))
+
         return (
             <DndContext
                 onDragStart={(dragEvent) => {
@@ -821,32 +931,83 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                     innerClassName="p-2"
                 >
                     <TreeNodeDroppable id="" isDroppable={enableDragAndDrop} className="h-full pb-32">
-                        <LemonTreeNode
-                            data={data}
-                            ref={ref}
-                            selectedId={selectedId}
-                            focusedId={focusedId}
-                            handleClick={handleClick}
-                            expandedItemIds={expandedItemIdsState}
-                            onSetExpandedItemIds={(ids) => {
-                                // Set local state
-                                setExpandedItemIdsState(ids)
-                                // Call prop callback if provided
-                                onSetExpandedItemIds?.(ids)
-                            }}
-                            defaultNodeIcon={defaultNodeIcon}
-                            showFolderActiveState={showFolderActiveState}
-                            itemSideAction={itemSideAction}
-                            className="deprecated-space-y-px"
-                            isItemDraggable={isItemDraggable}
-                            isItemDroppable={isItemDroppable}
-                            enableDragAndDrop={enableDragAndDrop}
-                            onContextMenuOpen={(open) => {
-                                setIsNodeTreeContextMenuOpen(open)
-                            }}
-                            itemContextMenu={itemContextMenu}
-                            {...props}
-                        />
+                        {mode === 'tree' && (
+                            <LemonTreeNode
+                                data={data}
+                                selectedId={selectedId}
+                                focusedId={focusedId}
+                                handleClick={handleClick}
+                                expandedItemIds={expandedItemIdsState}
+                                onSetExpandedItemIds={(ids) => {
+                                    // Set local state
+                                    setExpandedItemIdsState(ids)
+                                    // Call prop callback if provided
+                                    onSetExpandedItemIds?.(ids)
+                                }}
+                                defaultNodeIcon={defaultNodeIcon}
+                                showFolderActiveState={showFolderActiveState}
+                                itemSideAction={itemSideAction}
+                                className="deprecated-space-y-px"
+                                isItemDraggable={isItemDraggable}
+                                isItemDroppable={isItemDroppable}
+                                enableDragAndDrop={enableDragAndDrop}
+                                onContextMenuOpen={(open) => {
+                                    setIsNodeTreeContextMenuOpen(open)
+                                }}
+                                itemContextMenu={itemContextMenu}
+                                {...props}
+                            />
+                        )}
+                        {mode === 'table' && tableData && (
+                            <div className="flex flex-col">
+                                {/* eslint-disable-next-line react/forbid-dom-props */}
+                                <div
+                                    className="grid gap-2"
+                                    style={{
+                                        gridTemplateColumns: `repeat(${tableData.headers.length}, minmax(100px, 1fr))`,
+                                    }}
+                                >
+                                    {/* Headers */}
+                                    {tableData.headers.map((header, index) => (
+                                        <div key={header.key} className="font-semibold flex gap-2 px-3">
+                                            {index === 0 ? <div className={LEMON_TREE_ICON_CLASSES}>&nbsp;</div> : null}
+                                            <span>{header.title}</span>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                <LemonTreeNode
+                                    data={tableData.body}
+                                    selectedId={selectedId}
+                                    focusedId={focusedId}
+                                    handleClick={handleClick}
+                                    expandedItemIds={expandedItemIdsState}
+                                    onSetExpandedItemIds={(ids) => {
+                                        // Set local state
+                                        setExpandedItemIdsState(ids)
+                                        // Call prop callback if provided
+                                        onSetExpandedItemIds?.(ids)
+                                    }}
+                                    defaultNodeIcon={defaultNodeIcon}
+                                    showFolderActiveState={showFolderActiveState}
+                                    itemSideAction={itemSideAction}
+                                    className="grid gap-0"
+                                    style={{
+                                        gridTemplateColumns: `repeat(${tableData.headers.length}, minmax(100px, 1fr))`,
+                                    }}
+                                    isItemDraggable={isItemDraggable}
+                                    isItemDroppable={isItemDroppable}
+                                    enableDragAndDrop={enableDragAndDrop}
+                                    onContextMenuOpen={(open) => {
+                                        setIsNodeTreeContextMenuOpen(open)
+                                    }}
+                                    itemContextMenu={itemContextMenu}
+                                    mode={mode}
+                                    tableData={tableData}
+                                    {...props}
+                                />
+                            </div>
+                        )}
                     </TreeNodeDroppable>
                 </ScrollableShadows>
             </DndContext>

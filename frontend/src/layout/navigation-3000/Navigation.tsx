@@ -19,6 +19,7 @@ import { TopBar } from './components/TopBar'
 import { navigation3000Logic } from './navigationLogic'
 import { SidePanel } from './sidepanel/SidePanel'
 import { themeLogic } from './themeLogic'
+import { ProjectTreeNavbar } from './components/ProjectTree/ProjectTreeNavbar'
 
 export function Navigation({
     children,
@@ -55,7 +56,10 @@ export function Navigation({
             </a>
 
             <FlaggedFeature flag={FEATURE_FLAGS.TREE_VIEW} fallback={<Navbar />}>
-                <ProjectTree contentRef={mainRef} />
+                <div className="grid grid-cols-[250px_1fr] gap-0 w-fit">
+                    <ProjectTreeNavbar />
+                    <ProjectTree contentRef={mainRef} />
+                </div>
             </FlaggedFeature>
             <FlaggedFeature flag={FEATURE_FLAGS.POSTHOG_3000_NAV}>
                 {activeNavbarItem && <Sidebar key={activeNavbarItem.identifier} navbarItem={activeNavbarItem} />}
