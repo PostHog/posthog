@@ -5,8 +5,6 @@ import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableSh
 import { cn } from 'lib/utils/css-classes'
 import { forwardRef, HTMLAttributes, useCallback, useEffect, useRef, useState } from 'react'
 
-import { findInProjectTreeByPath } from '~/layout/navigation-3000/components/ProjectTree/utils'
-
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '../../ui/ContextMenu/ContextMenu'
 import { LemonButton, SideAction } from '../LemonButton'
 import { Spinner } from '../Spinner/Spinner'
@@ -804,11 +802,6 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
         return (
             <DndContext
                 sensors={sensors}
-                onDragStart={(dragEvent) => {
-                    const active = dragEvent.active?.id
-                    const item = findInProjectTreeByPath(String(active), Array.isArray(data) ? data : [data])
-                    handleClick(item)
-                }}
                 onDragEnd={(dragEvent) => {
                     const active = dragEvent.active?.id
                     const over = dragEvent.over?.id
