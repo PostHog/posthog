@@ -7,7 +7,7 @@ from typing import Literal, Optional, Union, cast
 
 from prometheus_client import Counter
 from django.conf import settings
-from django.db import DatabaseError, IntegrityError, DataError
+from django.db import DatabaseError, IntegrityError
 from django.db.models.expressions import ExpressionWrapper, RawSQL
 from django.db.models.fields import BooleanField
 from django.db.models import Q, Func, F, CharField
@@ -28,7 +28,6 @@ from posthog.models.team.team import Team
 from posthog.models.utils import execute_with_timeout
 from posthog.queries.base import match_property, properties_to_Q, sanitize_property_key
 from posthog.database_healthcheck import (
-    postgres_healthcheck,
     DATABASE_FOR_FLAG_MATCHING,
 )
 from posthog.utils import label_for_team_id_to_track
@@ -870,8 +869,7 @@ def get_all_feature_flags(
     )
 
     with start_span(op="without_experience_continuity"):
-        # check every 10 seconds whether the database is alive or not
-        is_database_alive = (not settings.DECIDE_SKIP_POSTGRES_FLAGS) and postgres_healthcheck.is_connected()
+        is_database_alive = not settings.DECIDE_SKIP_POSTGRES_FLAGS
         if not is_database_alive or not flags_have_experience_continuity_enabled:
             return _get_all_feature_flags(
                 all_feature_flags,
@@ -1081,11 +1079,6 @@ def handle_feature_flag_exception(err: Exception, log_message: str = "", set_hea
     FLAG_EVALUATION_ERROR_COUNTER.labels(reason=reason).inc()
     if reason == "unknown":
         capture_exception(err)
-
-    # DataErrors are generally not because the db is down, but because of bad data.
-    # We don't want to set the healthcheck down for bad data.
-    if not isinstance(err, DataError) and isinstance(err, DatabaseError) and set_healthcheck:
-        postgres_healthcheck.set_connection(False)
 
 
 def parse_exception_for_error_message(err: Exception):
