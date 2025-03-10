@@ -5,19 +5,19 @@ import { Counter } from 'prom-client'
 
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
 import { KAFKA_INGESTION_WARNINGS } from '../../config/kafka-topics'
+import { TopicMessage } from '../../kafka/producer'
 import { eventDroppedCounter } from '../../main/ingestion-queues/metrics'
 import { runInstrumentedFunction } from '../../main/utils'
 import { Hub, Person, PersonMode, PipelineEvent, RawKafkaEvent, Team, TimestampFormat } from '../../types'
-import { MessageSizeTooLarge } from '../../utils/db/error'
 import { safeClickhouseString, sanitizeEventName, sanitizeString } from '../../utils/db/utils'
 import { normalizeEvent, normalizeProcessPerson } from '../../utils/event'
 import { status } from '../../utils/status'
 import { castTimestampOrNow, UUID } from '../../utils/utils'
 import { GroupTypeManager, MAX_GROUP_TYPES_PER_TEAM } from '../../worker/ingestion/group-type-manager'
 import { PersonState } from '../../worker/ingestion/person-state'
+import { uuidFromDistinctId } from '../../worker/ingestion/person-uuid'
 import { upsertGroup } from '../../worker/ingestion/properties-updater'
 import { parseEventTimestamp } from '../../worker/ingestion/timestamps'
-import { captureIngestionWarning } from '../../worker/ingestion/utils'
 import { runProcessEvent } from '../../worker/plugins/run'
 import { processAiEvent } from '../ai-costs/process-ai-event'
 import { getElementsChain } from './utils/event-utils'
@@ -54,8 +54,15 @@ export class EventPipelineRunnerV2 {
     private timestamp?: DateTime
     private person?: Person
     private groupTypeManager: GroupTypeManager
+    private messagesToProduce: TopicMessage[]
 
-    constructor(private hub: Hub, private originalEvent: PipelineEvent, private hogTransformer: HogTransformerService) {
+    constructor(
+        private hub: Hub,
+        private originalEvent: PipelineEvent,
+        private hogTransformer: HogTransformerService,
+        private comparisonMode: boolean = false
+    ) {
+        this.comparisonMode = comparisonMode
         this.event = {
             ...this.originalEvent,
             properties: {
@@ -65,6 +72,8 @@ export class EventPipelineRunnerV2 {
         }
         // TODO: Move this up a level (or maybe even to the hub)
         this.groupTypeManager = new GroupTypeManager(hub.postgres, hub.teamManager, hub.SITE_URL)
+
+        this.messagesToProduce = []
     }
 
     public getPromises(): Promise<any>[] {
@@ -79,32 +88,21 @@ export class EventPipelineRunnerV2 {
             distinctId: this.event.distinct_id,
             ..._details,
         }
-        // TODO: Add back in ingestion warning limiter perhaps
-        this.promises.push(
-            this.hub.kafkaProducer
-                .queueMessages({
-                    topic: KAFKA_INGESTION_WARNINGS,
-                    messages: [
-                        {
-                            value: JSON.stringify({
-                                team_id: this.team?.id,
-                                type: warning,
-                                source: 'plugin-server',
-                                details: JSON.stringify(details),
-                                timestamp: castTimestampOrNow(null, TimestampFormat.ClickHouse),
-                            }),
-                        },
-                    ],
-                })
-                .catch((error) => {
-                    status.warn('⚠️', 'Failed to produce ingestion warning', {
-                        error,
+
+        this.messagesToProduce.push({
+            topic: KAFKA_INGESTION_WARNINGS,
+            messages: [
+                {
+                    value: JSON.stringify({
                         team_id: this.team?.id,
                         type: warning,
-                        details,
-                    })
-                })
-        )
+                        source: 'plugin-server',
+                        details: JSON.stringify(details),
+                        timestamp: castTimestampOrNow(null, TimestampFormat.ClickHouse),
+                    }),
+                },
+            ],
+        })
     }
 
     private dropEvent(dropCause: string): void {
@@ -302,10 +300,26 @@ export class EventPipelineRunnerV2 {
 
     private trackFirstEventIngestion() {
         // We always track 1st event ingestion
+        if (this.comparisonMode) {
+            return
+        }
+
         this.promises.push(this.hub.teamManager.setTeamIngestedEvent(this.team!, this.event.properties!))
     }
 
     private async processPerson() {
+        if (this.comparisonMode) {
+            // TRICKY: We don't want to refactor PersonState yet to be write optional so we need to just skip it
+            const fakePerson: Person = {
+                team_id: this.team!.id,
+                properties: {},
+                uuid: uuidFromDistinctId(this.team!.id, this.event.distinct_id),
+                created_at: this.timestamp!,
+            }
+            this.person = fakePerson
+            return
+        }
+
         // NOTE: PersonState could derive so much of this stuff instead of it all being passed in
         const [person, kafkaAck] = await new PersonState(
             this.event,
@@ -338,7 +352,7 @@ export class EventPipelineRunnerV2 {
             }
         }
 
-        if (this.event.event === '$groupidentify') {
+        if (this.event.event === '$groupidentify' && !this.comparisonMode) {
             if (!this.event.properties!['$group_type'] || !this.event.properties!['$group_key']) {
                 return
             }
@@ -373,15 +387,13 @@ export class EventPipelineRunnerV2 {
             if (this.team?.heatmaps_opt_in !== false) {
                 const heatmapEvents = extractHeatmapData(this.event) ?? []
 
-                this.promises.push(
-                    ...heatmapEvents.map((rawEvent) => {
-                        return this.hub.kafkaProducer.produce({
-                            topic: this.hub.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
-                            key: this.event.uuid,
-                            value: Buffer.from(JSON.stringify(rawEvent)),
-                        })
-                    })
-                )
+                this.messagesToProduce.push({
+                    topic: this.hub.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
+                    messages: heatmapEvents.map((rawEvent) => ({
+                        key: this.event.uuid,
+                        value: Buffer.from(JSON.stringify(rawEvent)),
+                    })),
+                })
             }
         } catch (e) {
             this.captureIngestionWarning('invalid_heatmap_data', {
@@ -456,44 +468,38 @@ export class EventPipelineRunnerV2 {
     }
 
     private produceExceptionSymbolificationEventStep(event: RawKafkaEvent) {
-        this.promises.push(
-            this.hub.kafkaProducer
-                .produce({
-                    topic: this.hub.EXCEPTIONS_SYMBOLIFICATION_KAFKA_TOPIC,
+        this.messagesToProduce.push({
+            topic: this.hub.EXCEPTIONS_SYMBOLIFICATION_KAFKA_TOPIC,
+            messages: [
+                {
                     key: event.uuid,
                     value: Buffer.from(JSON.stringify(event)),
-                })
-                .catch((error) => {
-                    status.warn('⚠️', 'Failed to produce exception event for symbolification', {
-                        team_id: event.team_id,
-                        uuid: event.uuid,
-                        error,
-                    })
-                    throw error
-                })
-        )
+                },
+            ],
+        })
     }
 
     private produceEventToKafka(event: RawKafkaEvent) {
-        this.promises.push(
-            this.hub.kafkaProducer
-                .produce({
-                    topic: this.hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
+        this.messagesToProduce.push({
+            topic: this.hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
+            messages: [
+                {
                     key: event.uuid,
                     value: Buffer.from(JSON.stringify(event)),
-                })
-                .catch(async (error) => {
-                    // Some messages end up significantly larger than the original
-                    // after plugin processing, person & group enrichment, etc.
-                    if (error instanceof MessageSizeTooLarge) {
-                        await captureIngestionWarning(this.hub.kafkaProducer, event.team_id, 'message_size_too_large', {
-                            eventUuid: event.uuid,
-                            distinctId: event.distinct_id,
-                        })
-                    } else {
-                        throw error
-                    }
-                })
-        )
+                },
+            ],
+        })
+        // .catch(async (error) => {
+        //     // Some messages end up significantly larger than the original
+        //     // after plugin processing, person & group enrichment, etc.
+        //     if (error instanceof MessageSizeTooLarge) {
+        //         await captureIngestionWarning(this.hub.kafkaProducer, event.team_id, 'message_size_too_large', {
+        //             eventUuid: event.uuid,
+        //             distinctId: event.distinct_id,
+        //         })
+        //     } else {
+        //         throw error
+        //     }
+        // })
     }
 }
