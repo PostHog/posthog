@@ -235,12 +235,8 @@ export class IngestionConsumer {
 
                 runner = this.getEventPipelineRunner(event)
                 await runner.run()
-
-                // TRICKY: We want to later catch anything that goes wrong with flushing
-                // the promises so we can send the event to the DLQ
-                // TODO: This should be allSettled and account for individual errors
-                // NOTE: Whether we catch an error or not we still want to schedule all the work to be completed
             } catch (error) {
+                // NOTE: If we error at this point we want to handle it gracefully and continue to process the scheduled promises
                 await this.handleProcessingError(error, message, event)
             }
 
