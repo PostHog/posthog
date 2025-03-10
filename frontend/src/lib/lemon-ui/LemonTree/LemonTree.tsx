@@ -1,4 +1,4 @@
-import { DndContext, DragEndEvent } from '@dnd-kit/core'
+import { DndContext, DragEndEvent, MouseSensor, TouchSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { IconUpload } from '@posthog/icons'
 import * as AccordionPrimitive from '@radix-ui/react-accordion'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
@@ -13,8 +13,6 @@ import {
     useRef,
     useState,
 } from 'react'
-
-import { findInProjectTreeByPath } from '~/layout/navigation-3000/components/ProjectTree/utils'
 
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '../../ui/ContextMenu/ContextMenu'
 import { LemonButton, SideAction } from '../LemonButton'
@@ -193,9 +191,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                         'border-l-[4px] border-l-accent-primary rounded-tl-sm rounded-bl-sm'
                                                 )}
                                                 onClick={() => {
-                                                    if (!enableDragAndDrop || !isItemDraggable?.(item)) {
-                                                        handleClick(item)
-                                                    }
+                                                    handleClick(item)
                                                 }}
                                                 onKeyDown={(e) => e.key === 'Enter' && handleClick(item, true)}
                                                 type="tertiary"
@@ -331,6 +327,20 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
         ref: ForwardedRef<LemonTreeRef>
     ): JSX.Element => {
         const TYPE_AHEAD_TIMEOUT = 500
+        const mouseSensor = useSensor(MouseSensor, {
+            // Require the mouse to move by 10 pixels before activating
+            activationConstraint: {
+                distance: 10,
+            },
+        })
+        const touchSensor = useSensor(TouchSensor, {
+            // Press delay of 250ms, with tolerance of 5px of movement
+            activationConstraint: {
+                delay: 250,
+                tolerance: 5,
+            },
+        })
+        const sensors = useSensors(mouseSensor, touchSensor)
 
         // Scrollable container
         const containerRef = useRef<HTMLDivElement>(null)
@@ -842,11 +852,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
 
         return (
             <DndContext
-                onDragStart={(dragEvent) => {
-                    const active = dragEvent.active?.id
-                    const item = findInProjectTreeByPath(String(active), Array.isArray(data) ? data : [data])
-                    handleClick(item)
-                }}
+                sensors={sensors}
                 onDragEnd={(dragEvent) => {
                     const active = dragEvent.active?.id
                     const over = dragEvent.over?.id
