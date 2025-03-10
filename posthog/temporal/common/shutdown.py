@@ -6,7 +6,7 @@ import typing
 import structlog
 from temporalio import activity
 
-logger = structlog.get_logger()
+LOGGER = structlog.get_logger()
 
 
 class WorkerShuttingDownError(Exception):
@@ -75,8 +75,8 @@ class ShutdownMonitor:
         try:
             activity_info = activity.info()
         except RuntimeError:
-            return logger
-        return logger.bind(
+            return LOGGER
+        return LOGGER.bind(
             activity_id=activity_info.activity_id,
             activity_type=activity_info.activity_type,
             attempt=activity_info.attempt,
