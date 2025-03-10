@@ -87,23 +87,43 @@ export function ConversationMessagesDisplay({
     )
 }
 
+export const ImageMessageDisplay = ({
+    message,
+}: {
+    message: { content: string | { type: string; image: string } }
+}): JSX.Element => {
+    const { content } = message
+    if (typeof content === 'string') {
+        return <span>{content}</span>
+    }
+    return <img src={content.image} alt="User sent image" />
+}
+
 export const LLMMessageDisplay = React.memo(
     ({ message, isOutput }: { message: CompatMessage; isOutput?: boolean }): JSX.Element => {
         const { role, content, ...additionalKwargs } = message
         const [isRenderingMarkdown, setIsRenderingMarkdown] = React.useState(true)
-        const [show, setShow] = React.useState(role !== 'system')
+        const [show, setShow] = React.useState(role !== 'system' && role !== 'tool')
 
         // Compute whether the content looks like Markdown.
         // (Heuristic: looks for code blocks, blockquotes, or headings)
-        const isMarkdownCandidate = content ? /(\n\s*```|^>\s|#{1,6}\s)/.test(content) : false
+        const isMarkdownCandidate =
+            content && typeof content === 'string' ? /(\n\s*```|^>\s|#{1,6}\s)/.test(content) : false
 
         // Render any additional keyword arguments as JSON.
         const additionalKwargsEntries = Array.isArray(additionalKwargs.tools)
             ? // Tools are a special case of input - and we want name and description to show first for them!
-              additionalKwargs.tools.map(({ function: { name, description, ...func }, ...tool }) => ({
-                  function: { name, description, ...func },
-                  ...tool,
-              }))
+              additionalKwargs.tools.map((tool) => {
+                  // Handle both formats: {function: {name, description, ...}} and {toolName, toolCallType, ...}
+                  if (tool.function) {
+                      const { function: { name, description, ...func } = {}, ...rest } = tool
+                      return {
+                          function: { name, description, ...func },
+                          ...rest,
+                      }
+                  }
+                  return tool
+              })
             : Object.fromEntries(Object.entries(additionalKwargs).filter(([, value]) => value !== undefined))
 
         const renderMessageContent = (content: string): JSX.Element | null => {
@@ -119,6 +139,10 @@ export const LLMMessageDisplay = React.memo(
             ) {
                 try {
                     const parsed = JSON.parse(content)
+                    //check if special type
+                    if (parsed.type === 'image') {
+                        return <ImageMessageDisplay message={parsed} />
+                    }
                     if (typeof parsed === 'object' && parsed !== null) {
                         return <JSONViewer src={parsed} name={null} collapsed={5} />
                     }
