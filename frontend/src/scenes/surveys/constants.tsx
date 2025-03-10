@@ -331,7 +331,7 @@ export const errorTrackingSurvey: SurveyTemplate = {
         },
     ],
     conditions: { url: '', actions: null, events: { values: [{ name: '$exception' }] } },
-    description: 'Ask users for context when the hit an exception.',
+    description: 'Ask users for context when they hit an exception.',
 }
 
 export const WEB_SAFE_FONTS = [
