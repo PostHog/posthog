@@ -25,6 +25,7 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
         reloadSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
         resyncSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
         setCanLoadMoreJobs: (canLoadMoreJobs: boolean) => ({ canLoadMoreJobs }),
+        setIsProjectTime: (isProjectTime: boolean) => ({ isProjectTime }),
     }),
     loaders(({ actions, values }) => ({
         source: [
@@ -33,14 +34,17 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                 loadSource: async () => {
                     return await api.externalDataSources.get(values.sourceId)
                 },
-                updateSchema: async (schema: ExternalDataSourceSchema) => {
+                updateSchema: async (schema: ExternalDataSourceSchema, breakpoint) => {
+                    await breakpoint(500)
                     // Optimistic UI updates before sending updates to the backend
                     const clonedSource = JSON.parse(JSON.stringify(values.source)) as ExternalDataSource
                     const schemaIndex = clonedSource.schemas.findIndex((n) => n.id === schema.id)
                     clonedSource.schemas[schemaIndex] = schema
                     actions.loadSourceSuccess(clonedSource)
 
-                    const updatedSchema = await api.externalDataSchemas.update(schema.id, schema)
+                    const updatedSchema = await api.externalDataSchemas.update(schema.id, {
+                        ...schema,
+                    })
 
                     const source = values.source
                     if (schemaIndex !== undefined) {
@@ -98,6 +102,12 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
             {
                 setCanLoadMoreJobs: (_, { canLoadMoreJobs }) => canLoadMoreJobs,
                 setSourceId: () => true,
+            },
+        ],
+        isProjectTime: [
+            false as boolean,
+            {
+                setIsProjectTime: (_, { isProjectTime }) => isProjectTime,
             },
         ],
     })),
