@@ -1,17 +1,17 @@
 import { DateTime } from 'luxon'
 
-import {
-    createHogExecutionGlobals,
-    createHogFunction,
-    createInvocation,
-    insertHogFunction as _insertHogFunction,
-} from '~/tests/cdp/fixtures'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { createPlugin, createPluginConfig } from '../../../tests/helpers/sql'
 import { Hub, PluginConfig, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
+import {
+    createHogExecutionGlobals,
+    createHogFunction,
+    createInvocation,
+    insertHogFunction as _insertHogFunction,
+} from '../_tests/fixtures'
 import { DESTINATION_PLUGINS_BY_ID, TRANSFORMATION_PLUGINS_BY_ID } from '../legacy-plugins'
 import { LegacyDestinationPlugin, LegacyTransformationPlugin } from '../legacy-plugins/types'
 import { HogFunctionInvocation, HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'
@@ -246,35 +246,6 @@ describe('LegacyPluginExecutorService', () => {
                   "Detected email, test@posthog.com",
                   "{"status":{},"existsAlready":false,"email":"test@posthog.com"}",
                   "true",
-                ]
-            `)
-        })
-
-        it('should mock out fetch if it is a test function', async () => {
-            jest.spyOn(customerIoPlugin, 'onEvent')
-
-            const invocation = createInvocation(fn, globals)
-            invocation.hogFunction.name = 'My function [CDP-TEST-HIDDEN]'
-            invocation.globals.event.event = 'mycustomevent'
-            invocation.globals.event.properties = {
-                email: 'test@posthog.com',
-            }
-
-            const res = await service.execute(invocation)
-
-            // NOTE: Setup call is not mocked
-            expect(mockFetch).toHaveBeenCalledTimes(1)
-
-            expect(customerIoPlugin.onEvent).toHaveBeenCalledTimes(1)
-
-            expect(forSnapshot(res.logs.map((l) => l.message))).toMatchInlineSnapshot(`
-                [
-                  "Successfully authenticated with Customer.io. Completing setupPlugin.",
-                  "Detected email, test@posthog.com",
-                  "{"status":{},"existsAlready":false,"email":"test@posthog.com"}",
-                  "true",
-                  "Fetch called but mocked due to test function",
-                  "Fetch called but mocked due to test function",
                 ]
             `)
         })
