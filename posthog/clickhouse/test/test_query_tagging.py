@@ -9,7 +9,7 @@ def test_tags_context():
     # Modify tags within context
     with tags_context(in_context="true"):
         tag_queries(test="test_value")
-        assert get_query_tags() == {"initial": "value", "test": "test_value"}
+        assert get_query_tags() == {"initial": "value", "test": "test_value", "in_context": "true"}
 
         # Modify more
         tag_queries(another="another_value", initial="not a value")
