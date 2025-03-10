@@ -74,6 +74,11 @@ DataTableHogQLQuery.args = {
     insight: require('../../../../mocks/fixtures/api/projects/team_id/insights/dataTableHogQL.json'),
 }
 
+export const DataVisualizationHogQLQuery = Template.bind({})
+DataVisualizationHogQLQuery.args = {
+    insight: require('../../../../mocks/fixtures/api/projects/team_id/insights/dataVisualizationHogQL.json'),
+}
+
 export const DataTableEventsQuery = Template.bind({})
 DataTableEventsQuery.args = {
     insight: require('../../../../mocks/fixtures/api/projects/team_id/insights/dataTableEvents.json'),
