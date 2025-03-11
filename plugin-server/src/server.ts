@@ -42,6 +42,7 @@ import { delay } from './utils/utils'
 import { teardownPlugins } from './worker/plugins/teardown'
 import { initPlugins as _initPlugins, reloadPlugins } from './worker/tasks'
 import { populatePluginCapabilities } from './worker/vm/lazy'
+import { PropertyDefsConsumer } from './property-defs/property-defs-consumer'
 
 CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
 CompressionCodecs[CompressionTypes.LZ4] = new LZ4().codec
@@ -230,6 +231,15 @@ export class PluginServer {
             if (capabilities.cdpProcessedEvents) {
                 serviceLoaders.push(async () => {
                     const consumer = new CdpProcessedEventsConsumer(hub)
+                    await consumer.start()
+                    return consumer.service
+                })
+            }
+
+            // TODO(eli): come back to this...
+            if (capabilities.propertyDefs) {
+                serviceLoaders.push(async () => {
+                    const consumer = new PropertyDefsConsumer(hub, this.config)
                     await consumer.start()
                     return consumer.service
                 })

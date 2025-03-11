@@ -1130,7 +1130,6 @@ export interface EventDefinitionType {
     query_usage_30_day: number | null
     team_id: number
     project_id: number | null
-    last_seen_at: string // DateTime
     created_at: string // DateTime
 }
 
@@ -1171,6 +1170,7 @@ export interface PropertyDefinitionType {
     project_id: number | null
     property_type: PropertyType | null
     type: PropertyDefinitionTypeEnum
+    group_type_name?: string,
     group_type_index?: number | null
     volume_30_day?: number | null
     query_usage_30_day?: number | null

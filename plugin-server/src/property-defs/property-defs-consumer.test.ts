@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
-import { insertHogFunction as _insertHogFunction } from '~/tests/cdp/fixtures'
+import { insertHogFunction as _insertHogFunction } from '../cdp/_tests/fixtures'
 import { mockProducer } from '~/tests/helpers/mocks/producer.mock'
 import { resetTestDatabase } from '~/tests/helpers/sql'
 
