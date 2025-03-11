@@ -9,6 +9,8 @@ on:
             - 'package.json'
             - '.github/workflows/storybook-chromatic.yml'
             - 'playwright.config.ts'
+            - 'products/**'
+            - 'common/**'
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}

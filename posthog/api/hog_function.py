@@ -2,9 +2,11 @@ import json
 from typing import Optional, cast
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
+from django_filters import BaseInFilter, CharFilter, FilterSet
 from django.db.models import QuerySet
 from loginas.utils import is_impersonated_session
 from django.db import transaction
+
 
 from rest_framework import serializers, viewsets, exceptions
 from rest_framework.serializers import BaseSerializer
@@ -159,6 +161,9 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         data["inputs_schema"] = data.get("inputs_schema", instance.inputs_schema if instance else [])
         data["inputs"] = data.get("inputs", instance.inputs if instance else {})
 
+        # Always ensure filters is initialized as an empty object if it's null
+        data["filters"] = data.get("filters", instance.filters if instance else {}) or {}
+
         # Set some context variables that are used in the sub validators
         self.context["function_type"] = data["type"]
         self.context["encrypted_inputs"] = instance.encrypted_inputs if instance else {}
@@ -194,7 +199,6 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             data["inputs_schema"] = template.inputs_schema
         if is_create:
             # Set defaults for new functions
-            data["filters"] = data.get("filters") or {}
             data["inputs_schema"] = data.get("inputs_schema") or []
             data["inputs"] = data.get("inputs") or {}
             data["mappings"] = data.get("mappings") or None
@@ -207,6 +211,9 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                     data["hog"] = data.get("hog") or template.hog
                     data["inputs_schema"] = data.get("inputs_schema") or template.inputs_schema
                     data["inputs"] = data.get("inputs") or {}
+                    data["icon_url"] = data.get("icon_url") or template.icon_url
+                    data["description"] = data.get("description") or template.description
+                    data["name"] = data.get("name") or template.name
 
         return super().to_internal_value(data)
 
@@ -315,14 +322,25 @@ class HogFunctionInvocationSerializer(serializers.Serializer):
     invocation_id = serializers.CharField(required=False, allow_null=True)
 
 
+class CommaSeparatedListFilter(BaseInFilter, CharFilter):
+    pass
+
+
+class HogFunctionFilterSet(FilterSet):
+    type = CommaSeparatedListFilter(field_name="type", lookup_expr="in")
+
+    class Meta:
+        model = HogFunction
+        fields = ["type", "enabled", "id", "created_by", "created_at", "updated_at"]
+
+
 class HogFunctionViewSet(
     TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, ForbidDestroyModel, viewsets.ModelViewSet
 ):
-    scope_object = "INTERNAL"  # Keep internal until we are happy to release this GA
+    scope_object = "hog_function"
     queryset = HogFunction.objects.all()
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ["id", "created_by", "enabled", "type"]
-
+    filterset_class = HogFunctionFilterSet
     log_source = "hog_function"
     app_source = "hog_function"
 

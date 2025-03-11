@@ -1,35 +1,30 @@
-import { IconPlusSmall } from '@posthog/icons'
-import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+import { IconPin, IconPinFilled, IconPlus, IconSearch, IconSort, IconX } from '@posthog/icons'
+import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { Resizer } from 'lib/components/Resizer/Resizer'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonTree } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { LemonTree, LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { ContextMenuGroup, ContextMenuItem } from 'lib/ui/ContextMenu/ContextMenu'
 import { useRef } from 'react'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
+import { ProjectDropdownMenu } from '../../../panel-layout/ProjectDropdownMenu'
 import { navigation3000Logic } from '../../navigationLogic'
-import { NavbarBottom } from '../NavbarBottom'
 import { projectTreeLogic } from './projectTreeLogic'
 import { joinPath, splitPath } from './utils'
 
 export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLElement> }): JSX.Element {
-    const { theme } = useValues(themeLogic)
-    const { isNavShown, mobileLayout } = useValues(navigation3000Logic)
-    const { toggleNavCollapsed, hideNavOnMobile } = useActions(navigation3000Logic)
     const {
         treeData,
         loadingPaths,
         expandedFolders,
         lastViewedId,
         viableItems,
-        helpNoticeVisible,
-        dragAndDropEnabled,
         pendingActionsCount,
         pendingLoaderLoading,
+        searchTerm,
     } = useValues(projectTreeLogic)
 
     const {
@@ -40,17 +35,18 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
         toggleFolderOpen,
         setLastViewedId,
         setExpandedFolders,
-        setHelpNoticeVisibility,
-        toggleDragAndDrop,
         applyPendingActions,
         cancelPendingActions,
+        loadFolder,
+        setSearchTerm,
+        clearSearch,
     } = useActions(projectTreeLogic)
-    const containerRef = useRef<HTMLDivElement | null>(null)
 
-    // Items that should not be draggable or droppable, or have a side action
-    // TODO: sync with projectTreeLogic
-    const notDraggableIds: string[] = ['project', 'project/Explore', 'project/Create new', 'project/Unfiled']
-    const notDroppableIds: string[] = ['project', 'project/Explore', 'project/Create new']
+    const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
+    const { showLayoutPanel, toggleLayoutPanelPinned } = useActions(panelLayoutLogic)
+    const { isLayoutPanelPinned } = useValues(panelLayoutLogic)
+    const treeRef = useRef<LemonTreeRef>(null)
+    const containerRef = useRef<HTMLDivElement | null>(null)
 
     const handleCopyPath = (path?: string): void => {
         if (path) {
@@ -60,33 +56,94 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
 
     return (
         <>
-            <nav className={clsx('Navbar3000', !isNavShown && 'Navbar3000--hidden')} ref={containerRef}>
-                <div
-                    className="Navbar3000__content w-80"
-                    // eslint-disable-next-line react/forbid-dom-props
-                    style={theme?.sidebarStyle}
-                >
+            <nav
+                className={clsx('flex flex-col max-h-screen min-h-screen relative w-[320px] border-r border-primary')}
+                ref={containerRef}
+            >
+                <div className="flex justify-between p-1 bg-surface-tertiary">
+                    <ProjectDropdownMenu />
+
+                    <div className="flex gap-1 items-center justify-end">
+                        <LemonButton
+                            size="small"
+                            type="tertiary"
+                            tooltip="Sort by name"
+                            onClick={() => alert('Sort by name')}
+                            className="hover:bg-fill-highlight-100 shrink-0"
+                            icon={<IconSort />}
+                        />
+                        {!isMobileLayout && (
+                            <LemonButton
+                                size="small"
+                                type="tertiary"
+                                tooltip={isLayoutPanelPinned ? 'Unpin panel' : 'Pin panel'}
+                                onClick={() => toggleLayoutPanelPinned(!isLayoutPanelPinned)}
+                                className="hover:bg-fill-highlight-100 shrink-0"
+                                icon={isLayoutPanelPinned ? <IconPinFilled /> : <IconPin />}
+                            />
+                        )}
+                        <LemonButton
+                            size="small"
+                            type="tertiary"
+                            tooltip="Create new root folder"
+                            onClick={() => createFolder('')}
+                            className="hover:bg-fill-highlight-100 shrink-0"
+                            icon={<IconPlus className="size-4" />}
+                        />
+                    </div>
+                </div>
+
+                <div className="border-b border-secondary h-px" />
+                <div className="z-main-nav flex flex-1 flex-col justify-between overflow-y-auto bg-surface-secondary">
                     <div className="flex gap-1 p-1 items-center justify-between">
-                        <h2 className="text-base font-bold m-0 pl-1">Files</h2>
+                        <LemonInput
+                            placeholder="Search..."
+                            className="w-full"
+                            prefix={<IconSearch className="size-4" />}
+                            size="small"
+                            value={searchTerm}
+                            onChange={(value) => setSearchTerm(value)}
+                            suffix={
+                                searchTerm ? (
+                                    <LemonButton
+                                        size="small"
+                                        type="tertiary"
+                                        onClick={() => clearSearch()}
+                                        icon={<IconX className="size-4" />}
+                                        className="bg-transparent [&_svg]:opacity-30 hover:[&_svg]:opacity-100"
+                                        tooltip="Clear search"
+                                    />
+                                ) : null
+                            }
+                            onKeyDown={(e) => {
+                                if (e.key === 'ArrowDown') {
+                                    e.preventDefault() // Prevent scrolling
+                                    const visibleItems = treeRef.current?.getVisibleItems()
+                                    if (visibleItems && visibleItems.length > 0) {
+                                        e.currentTarget.blur() // Remove focus from input
+                                        treeRef.current?.focusItem(visibleItems[0].id)
+                                    }
+                                }
+                            }}
+                        />
                         <div className="flex gap-1 items-center">
                             {pendingActionsCount > 0 ? (
                                 <span>
                                     {pendingActionsCount} <span>{pendingActionsCount > 1 ? 'changes' : 'change'}</span>
                                 </span>
                             ) : null}
-                            <LemonButton
-                                onClick={() => {
-                                    cancelPendingActions()
-                                    toggleDragAndDrop(!dragAndDropEnabled)
-                                }}
-                                type="secondary"
-                                size="small"
-                                tooltip={
-                                    pendingActionsCount > 0 ? 'Click to cancel changes' : 'Click to edit or move items'
-                                }
-                            >
-                                {pendingActionsCount > 0 || dragAndDropEnabled ? `Cancel` : 'Rearrange'}
-                            </LemonButton>
+                            {pendingActionsCount > 0 ? (
+                                <LemonButton
+                                    onClick={() => {
+                                        cancelPendingActions()
+                                    }}
+                                    type="secondary"
+                                    size="small"
+                                    tooltip="Click to cancel changes"
+                                >
+                                    Cancel
+                                </LemonButton>
+                            ) : null}
                             <LemonButton
                                 size="small"
                                 type={pendingActionsCount > 0 ? 'primary' : 'secondary'}
@@ -98,26 +155,19 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                                     !pendingLoaderLoading
                                         ? () => {
                                               applyPendingActions()
-                                              toggleDragAndDrop(false)
                                           }
                                         : undefined
                                 }
                             >
                                 Save
                             </LemonButton>
-                            <LemonButton
-                                size="small"
-                                type="secondary"
-                                tooltip="Create new root folder"
-                                onClick={() => createFolder('')}
-                                icon={<IconPlusSmall />}
-                            />
                         </div>
                     </div>
 
                     <div className="border-b border-primary h-px" />
 
                     <LemonTree
+                        ref={treeRef}
                         contentRef={contentRef}
                         className="px-0 py-1"
                         data={treeData}
@@ -127,6 +177,13 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                         onNodeClick={(node) => {
                             if (node?.record?.path) {
                                 setLastViewedId(node?.id || '')
+                                showLayoutPanel(false)
+                            }
+                            if (node?.id.startsWith('project-load-more/')) {
+                                const path = node.id.split('/').slice(1).join('/')
+                                if (path) {
+                                    loadFolder(path)
+                                }
                             }
                         }}
                         onFolderClick={(folder, isExpanded) => {
@@ -135,7 +192,7 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                             }
                         }}
                         onSetExpandedItemIds={setExpandedFolders}
-                        enableDragAndDrop={dragAndDropEnabled}
+                        enableDragAndDrop={true}
                         onDragEnd={(dragEvent) => {
                             const oldPath = dragEvent.active.id as string
                             const folder = dragEvent.over?.id
@@ -165,18 +222,13 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                             }
                         }}
                         isItemDraggable={(item) => {
-                            return (
-                                item.record?.type !== 'project' &&
-                                item.record?.path &&
-                                !notDraggableIds.includes(item.id || '') &&
-                                dragAndDropEnabled
-                            )
+                            return item.id.startsWith('project/') && item.record?.path
                         }}
                         isItemDroppable={(item) => {
                             const path = item.record?.path || ''
 
                             // disable dropping for these IDS
-                            if (notDroppableIds.includes(item.id || '') || notDroppableIds.includes(item.id || '')) {
+                            if (!item.id.startsWith('project/')) {
                                 return false
                             }
 
@@ -191,7 +243,7 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                             return false
                         }}
                         itemContextMenu={(item) => {
-                            if (notDraggableIds.includes(item.id || '')) {
+                            if (!item.id.startsWith('project/')) {
                                 return undefined
                             }
                             return (
@@ -234,7 +286,7 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                             )
                         }}
                         itemSideAction={(item) => {
-                            if (notDraggableIds.includes(item.id || '')) {
+                            if (!item.id.startsWith('project/')) {
                                 return undefined
                             }
                             return {
@@ -297,47 +349,8 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                             }
                         }}
                     />
-                    {helpNoticeVisible ? (
-                        <>
-                            <div className="border-b border-primary h-px" />
-                            <div className="p-2">
-                                <LemonBanner
-                                    type="info"
-                                    dismissKey="project-tree-help-notice"
-                                    onClose={() => setHelpNoticeVisibility(false)}
-                                >
-                                    <p className="font-semibold mb-1">Behold, 🌲 navigation</p>
-                                    <ul className="mb-0 text-xs list-disc pl-4 py-0">
-                                        <li>
-                                            All your files are still here, open 'unfiled' to see them, and organize them
-                                            the way you'd like.
-                                        </li>
-                                        <li>Right click on tree item for more options.</li>
-                                    </ul>
-                                </LemonBanner>
-                            </div>
-                        </>
-                    ) : null}
-                    <div className="border-b border-primary h-px" />
-                    <NavbarBottom />
                 </div>
-                {!mobileLayout && (
-                    <Resizer
-                        logicKey="navbar"
-                        placement="right"
-                        containerRef={containerRef}
-                        closeThreshold={100}
-                        onToggleClosed={(shouldBeClosed) => toggleNavCollapsed(shouldBeClosed)}
-                        onDoubleClick={() => toggleNavCollapsed()}
-                    />
-                )}
             </nav>
-            {mobileLayout && (
-                <div
-                    className={clsx('Navbar3000__overlay', !isNavShown && 'Navbar3000--hidden')}
-                    onClick={() => hideNavOnMobile()}
-                />
-            )}
         </>
     )
 }

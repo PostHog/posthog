@@ -62,6 +62,7 @@ export function ErrorTrackingScene(): JSX.Element {
             volume: { align: 'right', renderTitle: VolumeColumnHeader, render: VolumeColumn },
             assignee: { align: 'center', render: AssigneeColumn },
         },
+        refresh: 'blocking',
         showOpenEditorButton: false,
         insightProps: insightProps,
         emptyStateHeading: 'No issues found',
@@ -136,7 +137,7 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
     const checked = selectedIssueIds.includes(record.id)
 
     return (
-        <div className="flex items-start deprecated-space-x-1.5 group">
+        <div className="flex items-start gap-x-1.5 group">
             <LemonCheckbox
                 className="pt-1"
                 checked={checked}

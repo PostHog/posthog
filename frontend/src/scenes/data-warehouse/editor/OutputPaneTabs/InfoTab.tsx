@@ -71,6 +71,11 @@ export function InfoTab({ codeEditorKey }: InfoTabProps): JSX.Element {
                     <div className="flex flex-row items-center gap-2">
                         <h3 className="mb-0">Materialization</h3>
                         <LemonTag type="warning">BETA</LemonTag>
+                        {savedQuery?.latest_error && savedQuery.status === 'Failed' && (
+                            <Tooltip title={savedQuery.latest_error}>
+                                <LemonTag type="danger">Error</LemonTag>
+                            </Tooltip>
+                        )}
                     </div>
                     <div>
                         {savedQuery?.sync_frequency || savedQuery?.last_run_at ? (
