@@ -1373,6 +1373,7 @@ dependencies = [
  "serde",
  "serde_json",
  "siphasher 1.0.1",
+ "thiserror 1.0.69",
 ]
 
 [[package]]

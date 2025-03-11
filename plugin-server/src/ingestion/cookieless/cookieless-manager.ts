@@ -231,7 +231,7 @@ export class CookielessManager {
         n: number,
         hashExtra: string
     ): Buffer {
-        if (salt.length != 16) {
+        if (salt.length !== 16) {
             throw new Error('Salt must be 16 bytes')
         }
         const array = siphashDouble.hash(

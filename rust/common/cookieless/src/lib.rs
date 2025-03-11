@@ -1,5 +1,12 @@
 use siphasher::sip128::{Hasher128, SipHasher24};
 use std::hash::Hasher;
+use thiserror::Error;
+
+#[derive(Debug, Error, PartialEq)]
+pub enum CookielessError {
+    #[error("Salt must be exactly 16 bytes, but got {0} bytes.")]
+    InvalidSaltSize(usize),
+}
 
 pub fn do_hash(
     salt: &[u8],
@@ -9,10 +16,10 @@ pub fn do_hash(
     user_agent: &str,
     n: u64,
     hash_extra: &str,
-) -> Vec<u8> {
+) -> Result<Vec<u8>, CookielessError> {
     // Ensure the salt is 16 bytes, just like the TS function requires
     if salt.len() != 16 {
-        panic!("Salt must be 16 bytes");
+        return Err(CookielessError::InvalidSaltSize(salt.len()));
     }
 
     // Extract the two 64-bit keys from the salt
@@ -42,7 +49,7 @@ pub fn do_hash(
     rearranged.extend_from_slice(&h1[4..8]);
     rearranged.extend_from_slice(&h1[0..4]);
 
-    rearranged
+    Ok(rearranged)
 }
 
 #[cfg(test)]
@@ -75,8 +82,6 @@ mod do_hash_tests {
 
     #[test]
     fn test_do_hash_from_json() {
-        // Load the test cases from the json file. This file should be identical across this
-        // Rust implementation and the TypeScript implementation
         let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/test_cases.json");
         let data_str = fs::read_to_string(&path)
             .unwrap_or_else(|e| panic!("Failed to read file at {}: {}", path.display(), e));
@@ -84,12 +89,11 @@ mod do_hash_tests {
         let test_data: TestData =
             serde_json::from_str(&data_str).expect("Failed to parse JSON test data");
 
-        // For each test case, decode the salt and expected result from base64,
-        // run do_hash, and compare.
         for (i, tc) in test_data.test_cases.iter().enumerate() {
             let salt_bytes = general_purpose::STANDARD
                 .decode(&tc.salt)
                 .unwrap_or_else(|_| panic!("Test case {}: invalid base64 salt", i));
+
             let expected_bytes = general_purpose::STANDARD
                 .decode(&tc.expected)
                 .unwrap_or_else(|_| panic!("Test case {}: invalid base64 expected hash", i));
@@ -105,10 +109,31 @@ mod do_hash_tests {
             );
 
             assert_eq!(
-                actual, expected_bytes,
+                actual,
+                Ok(expected_bytes.clone()),
                 "Test case {} failed. Expected {:?}, got {:?}",
-                i, expected_bytes, actual
+                i,
+                expected_bytes,
+                actual
             );
         }
+    }
+
+    #[test]
+    fn test_invalid_salt_size() {
+        // Provide a salt that is too short (8 bytes instead of 16)
+        let short_salt = [0u8; 8];
+
+        let result = do_hash(
+            &short_salt,
+            42,
+            "127.0.0.1",
+            "example.com",
+            "Mozilla/5.0",
+            0,
+            "extra",
+        );
+
+        assert_eq!(result, Err(CookielessError::InvalidSaltSize(8)));
     }
 }
