@@ -571,7 +571,11 @@ class CustomPrometheusMetrics(Metrics):
 
 class PostHogTokenCookieMiddleware(SessionMiddleware):
     """
-    Adds two secure cookies to enable auto-filling the current project token on the docs.
+    Adds secure cookies for the current instance, project name/token and last login method.
+    These enable e.g.
+    - redirecting to the right login page from posthog.com
+    - auto-filling the current project token on the docs
+    - tracking the last used login method
     """
 
     def process_response(self, request, response):
@@ -589,28 +593,29 @@ class PostHogTokenCookieMiddleware(SessionMiddleware):
             # clears the cookies that were previously set, except for ph_current_instance as that is used for the website login button
             response.delete_cookie("ph_current_project_token", domain=default_cookie_options["domain"])
             response.delete_cookie("ph_current_project_name", domain=default_cookie_options["domain"])
-        if request.user and request.user.is_authenticated and request.user.team:
-            response.set_cookie(
-                key="ph_current_project_token",
-                value=request.user.team.api_token,
-                max_age=365 * 24 * 60 * 60,
-                expires=default_cookie_options["expires"],
-                path=default_cookie_options["path"],
-                domain=default_cookie_options["domain"],
-                secure=default_cookie_options["secure"],
-                samesite=default_cookie_options["samesite"],
-            )
+        if request.user and request.user.is_authenticated:
+            if request.user.team:
+                response.set_cookie(
+                    key="ph_current_project_token",
+                    value=request.user.team.api_token,
+                    max_age=365 * 24 * 60 * 60,
+                    expires=default_cookie_options["expires"],
+                    path=default_cookie_options["path"],
+                    domain=default_cookie_options["domain"],
+                    secure=default_cookie_options["secure"],
+                    samesite=default_cookie_options["samesite"],
+                )
 
-            response.set_cookie(
-                key="ph_current_project_name",  # clarify which project is active (orgs can have multiple projects)
-                value=request.user.team.name.encode("utf-8").decode("latin-1"),
-                max_age=365 * 24 * 60 * 60,
-                expires=default_cookie_options["expires"],
-                path=default_cookie_options["path"],
-                domain=default_cookie_options["domain"],
-                secure=default_cookie_options["secure"],
-                samesite=default_cookie_options["samesite"],
-            )
+                response.set_cookie(
+                    key="ph_current_project_name",  # clarify which project is active (orgs can have multiple projects)
+                    value=request.user.team.name.encode("utf-8").decode("latin-1"),
+                    max_age=365 * 24 * 60 * 60,
+                    expires=default_cookie_options["expires"],
+                    path=default_cookie_options["path"],
+                    domain=default_cookie_options["domain"],
+                    secure=default_cookie_options["secure"],
+                    samesite=default_cookie_options["samesite"],
+                )
 
             response.set_cookie(
                 key="ph_current_instance",
@@ -623,7 +628,38 @@ class PostHogTokenCookieMiddleware(SessionMiddleware):
                 samesite=default_cookie_options["samesite"],
             )
 
+            login_method = self._get_login_method(request)
+            if login_method:
+                response.set_cookie(
+                    key="ph_last_login_method",
+                    value=login_method,
+                    max_age=365 * 24 * 60 * 60,
+                    expires=default_cookie_options["expires"],
+                    path=default_cookie_options["path"],
+                    domain=default_cookie_options["domain"],
+                    secure=default_cookie_options["secure"],
+                    samesite=default_cookie_options["samesite"],
+                )
+
         return response
+
+    def _get_login_method(self, request):
+        """
+        Determine the login method using session data.
+        """
+        # Check for social auth backend in session
+        social_backend = request.session.get("backend")
+        if social_backend:
+            return social_backend  # 'github', 'gitlab', 'google-oauth2', 'saml'
+
+        # Check auth backend from Django's auth system
+        auth_backend = request.session.get("_auth_user_backend", "")
+
+        # Default to password login if using ModelBackend
+        if "ModelBackend" in auth_backend:
+            return "password"
+
+        return None
 
 
 def get_or_set_session_cookie_created_at(request: HttpRequest) -> float:
