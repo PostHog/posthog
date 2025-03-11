@@ -193,7 +193,7 @@ export class LegacyPluginExecutorService {
                         setupPromise = plugin.setupPlugin({
                             ...meta,
                             // Setup receives the real fetch always
-                            fetch: fetch,
+                            fetch: this.fetch,
                             storage: this.legacyStorage(invocation.hogFunction.team_id, legacyPluginConfigId),
                         })
                     }
