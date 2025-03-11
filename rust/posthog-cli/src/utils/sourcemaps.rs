@@ -50,7 +50,7 @@ impl Source {
     }
 
     pub fn append(&mut self, suffix: &str) {
-        self.content.push_str(&suffix);
+        self.content.push_str(suffix);
     }
 }
 
