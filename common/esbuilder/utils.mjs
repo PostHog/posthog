@@ -367,7 +367,7 @@ export async function buildOrWatch(config) {
                     path.resolve(absWorkingDir, 'src'),
                     path.resolve(absWorkingDir, '../ee/frontend'),
                     path.resolve(absWorkingDir, '../common'),
-                    path.resolve(absWorkingDir, '../products/*/manifest.*'),
+                    path.resolve(absWorkingDir, '../products/*/manifest.tsx'),
                     path.resolve(absWorkingDir, '../products/*/frontend/**/*'),
                 ],
                 {
@@ -381,8 +381,8 @@ export async function buildOrWatch(config) {
                 }
 
                 // Manifests have been updated, so we need to rebuild urls.
-                if (filePath.includes('manifest.')) {
-                    gatherProductManifests()
+                if (filePath.includes('manifest.tsx')) {
+                    gatherProductManifests(absWorkingDir)
                 }
 
                 if (inputFiles.has(filePath)) {
@@ -574,7 +574,7 @@ export function gatherProductManifests(__dirname) {
         noErrorTruncation: true,
     })
 
-    /** Convert a PropertyAssignment from {a: {import:b}} to {a:b} */
+    /** Helper: Convert a PropertyAssignment from {a: {import:b}} to {a:b} */
     function keepOnlyImport(property, manifestPath) {
         if (ts.isPropertyAssignment(property) && ts.isObjectLiteralExpression(property.initializer)) {
             const imp = property.initializer.properties.find(p => p.name.text === 'import')
@@ -596,7 +596,7 @@ export function gatherProductManifests(__dirname) {
         return null
     }
 
-    /** Remove the import key from a PropertyAssignment's ObjectLiteral */
+    /** Helper: Remove the import key from a PropertyAssignment's ObjectLiteral */
     function withoutImport(property) {
         if (ts.isPropertyAssignment(property) && ts.isObjectLiteralExpression(property.initializer)) {
             const clone = cloneNode(property)

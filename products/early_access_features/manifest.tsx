@@ -28,5 +28,5 @@ export const manifest: ProductManifest = {
         earlyAccessFeature:
             /** @param id A UUID or 'new'. ':id' for routing. */
             (id: string): string => `/early_access_features/${id}`,
-    }
+    },
 }

@@ -33,6 +33,7 @@ export const manifest: ProductManifest = {
         messagingBroadcastNew: (): string => '/messaging/broadcasts/new',
         messagingProviders: (): string => '/messaging/providers',
         messagingProvider: (id?: string): string => `/messaging/providers/${id}`,
-        messagingProviderNew: (template?: string): string => '/messaging/providers/new' + (template ? `/${template}` : ''),
-    }
+        messagingProviderNew: (template?: string): string =>
+            '/messaging/providers/new' + (template ? `/${template}` : ''),
+    },
 }

@@ -1,16 +1,29 @@
 import {
     IconAI,
     IconBook,
+    IconChevronRight,
     IconCursorClick,
+    IconDashboard,
     IconDatabase,
+    IconFeatures,
+    IconGraph,
     IconHandMoney,
     IconLive,
+    IconMegaphone,
+    IconMessage,
+    IconNotebook,
     IconNotification,
     IconPeople,
     IconPerson,
     IconPieChart,
+    IconPlug,
     IconRewindPlay,
     IconRocket,
+    IconServer,
+    IconSparkles,
+    IconTarget,
+    IconTestTube,
+    IconToggle,
     IconWarning,
 } from '@posthog/icons'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -19,11 +32,45 @@ import { urls } from 'scenes/urls'
 import { FileSystemType } from '~/queries/schema/schema-general'
 import { ActivityTab, InsightType, PipelineStage, ReplayTabs } from '~/types'
 
-import { fileSystemObjects } from './objects'
 import { FileSystemImport } from './types'
 
 export function iconForType(type?: FileSystemType): JSX.Element {
-    return (type && fileSystemObjects[type]?.icon) ?? <IconBook />
+    switch (type) {
+        case 'aichat':
+            return <IconSparkles />
+        case 'broadcast':
+            return <IconMegaphone />
+        case 'feature_flag':
+            return <IconToggle />
+        case 'feature':
+            return <IconFeatures />
+        case 'experiment':
+            return <IconTestTube />
+        case 'insight':
+            return <IconGraph />
+        case 'notebook':
+            return <IconNotebook />
+        case 'dashboard':
+            return <IconDashboard />
+        case 'repl':
+            return <IconTarget />
+        case 'survey':
+            return <IconMessage />
+        case 'sql':
+            return <IconServer />
+        case 'site_app':
+            return <IconPlug />
+        case 'destination':
+            return <IconPlug />
+        case 'transformation':
+            return <IconPlug />
+        case 'source':
+            return <IconPlug />
+        case 'folder':
+            return <IconChevronRight />
+        default:
+            return <IconBook />
+    }
 }
 
 export const getDefaultTree = (groupNodes: FileSystemImport[]): FileSystemImport[] =>

@@ -102,4 +102,6 @@ export const productUrls = {
     messagingProviders: (): string => '/messaging/providers',
     messagingProvider: (id?: string): string => `/messaging/providers/${id}`,
     messagingProviderNew: (template?: string): string => '/messaging/providers/new' + (template ? `/${template}` : ''),
+    notebooks: (): string => '/notebooks',
+    notebook: (shortId: string): string => `/notebooks/${shortId}`,
 }

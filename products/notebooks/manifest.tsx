@@ -1,5 +1,9 @@
 import { ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
-    name: "Notebooks"
+    name: 'Notebooks',
+    urls: {
+        notebooks: (): string => '/notebooks',
+        notebook: (shortId: string): string => `/notebooks/${shortId}`,
+    },
 }

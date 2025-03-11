@@ -53,5 +53,5 @@ export const manifest: ProductManifest = {
             return `/llm-observability/traces/${id}${stringifiedParams ? `?${stringifiedParams}` : ''}`
         },
         llmObservabilityUsers: (): string => '/llm-observability/users',
-    }
+    },
 }
