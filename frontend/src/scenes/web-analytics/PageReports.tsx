@@ -54,6 +54,10 @@ export const PageReports = (): JSX.Element => {
 
     // Get geography queries
     const countriesQuery = geographyTile?.tabs.find((tab) => tab.id === GeographyTab.COUNTRIES)?.query
+    const regionsQuery = geographyTile?.tabs.find((tab) => tab.id === GeographyTab.REGIONS)?.query
+    const citiesQuery = geographyTile?.tabs.find((tab) => tab.id === GeographyTab.CITIES)?.query
+    const timezonesQuery = geographyTile?.tabs.find((tab) => tab.id === GeographyTab.TIMEZONES)?.query
+    const languagesQuery = geographyTile?.tabs.find((tab) => tab.id === GeographyTab.LANGUAGES)?.query
 
     // Create insight props for the queries
     const createInsightProps = (tileId: TileId, tabId?: string): InsightLogicProps => ({
@@ -221,7 +225,7 @@ export const PageReports = (): JSX.Element => {
             <div className="space-y-4">
                 <h2 className="text-lg font-semibold">Visitor Information</h2>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {/* Device Type Table */}
                     <div className="border rounded p-4 bg-white">
                         <div className="flex justify-between items-center mb-2">
@@ -290,7 +294,16 @@ export const PageReports = (): JSX.Element => {
                             </div>
                         )}
                     </div>
+                </div>
+            </div>
 
+            <LemonDivider />
+
+            {/* Demography Section */}
+            <div className="space-y-4">
+                <h2 className="text-lg font-semibold">Demography</h2>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-5 gap-4">
                     {/* Countries Table */}
                     <div className="border rounded p-4 bg-white">
                         <div className="flex justify-between items-center mb-2">
@@ -301,7 +314,7 @@ export const PageReports = (): JSX.Element => {
                                 onClick={() => openModal(TileId.GEOGRAPHY, GeographyTab.COUNTRIES)}
                             />
                         </div>
-                        <p className="text-sm text-muted mb-2">Geographic distribution of visitors</p>
+                        <p className="text-sm text-muted mb-2">Countries where visitors are from</p>
                         {countriesQuery && (
                             <div className="overflow-x-auto">
                                 <WebQuery
@@ -309,6 +322,98 @@ export const PageReports = (): JSX.Element => {
                                     showIntervalSelect={false}
                                     tileId={TileId.GEOGRAPHY}
                                     insightProps={createInsightProps(TileId.GEOGRAPHY, GeographyTab.COUNTRIES)}
+                                />
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Regions Table */}
+                    <div className="border rounded p-4 bg-white hidden lg:block">
+                        <div className="flex justify-between items-center mb-2">
+                            <h3 className="font-semibold">Regions</h3>
+                            <LemonButton
+                                icon={<IconExpand45 />}
+                                size="small"
+                                onClick={() => openModal(TileId.GEOGRAPHY, GeographyTab.REGIONS)}
+                            />
+                        </div>
+                        <p className="text-sm text-muted mb-2">Regions where visitors are from</p>
+                        {regionsQuery && (
+                            <div className="overflow-x-auto">
+                                <WebQuery
+                                    query={regionsQuery}
+                                    showIntervalSelect={false}
+                                    tileId={TileId.GEOGRAPHY}
+                                    insightProps={createInsightProps(TileId.GEOGRAPHY, GeographyTab.REGIONS)}
+                                />
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Cities Table */}
+                    <div className="border rounded p-4 bg-white">
+                        <div className="flex justify-between items-center mb-2">
+                            <h3 className="font-semibold">Cities</h3>
+                            <LemonButton
+                                icon={<IconExpand45 />}
+                                size="small"
+                                onClick={() => openModal(TileId.GEOGRAPHY, GeographyTab.CITIES)}
+                            />
+                        </div>
+                        <p className="text-sm text-muted mb-2">Cities where visitors are from</p>
+                        {citiesQuery && (
+                            <div className="overflow-x-auto">
+                                <WebQuery
+                                    query={citiesQuery}
+                                    showIntervalSelect={false}
+                                    tileId={TileId.GEOGRAPHY}
+                                    insightProps={createInsightProps(TileId.GEOGRAPHY, GeographyTab.CITIES)}
+                                />
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Timezones Table */}
+                    <div className="border rounded p-4 bg-white">
+                        <div className="flex justify-between items-center mb-2">
+                            <h3 className="font-semibold">Timezones</h3>
+                            <LemonButton
+                                icon={<IconExpand45 />}
+                                size="small"
+                                onClick={() => openModal(TileId.GEOGRAPHY, GeographyTab.TIMEZONES)}
+                            />
+                        </div>
+                        <p className="text-sm text-muted mb-2">Timezones of visitors</p>
+                        {timezonesQuery && (
+                            <div className="overflow-x-auto">
+                                <WebQuery
+                                    query={timezonesQuery}
+                                    showIntervalSelect={false}
+                                    tileId={TileId.GEOGRAPHY}
+                                    insightProps={createInsightProps(TileId.GEOGRAPHY, GeographyTab.TIMEZONES)}
+                                />
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Languages Table */}
+                    <div className="border rounded p-4 bg-white">
+                        <div className="flex justify-between items-center mb-2">
+                            <h3 className="font-semibold">Languages</h3>
+                            <LemonButton
+                                icon={<IconExpand45 />}
+                                size="small"
+                                onClick={() => openModal(TileId.GEOGRAPHY, GeographyTab.LANGUAGES)}
+                            />
+                        </div>
+                        <p className="text-sm text-muted mb-2">Languages of visitors</p>
+                        {languagesQuery && (
+                            <div className="overflow-x-auto">
+                                <WebQuery
+                                    query={languagesQuery}
+                                    showIntervalSelect={false}
+                                    tileId={TileId.GEOGRAPHY}
+                                    insightProps={createInsightProps(TileId.GEOGRAPHY, GeographyTab.LANGUAGES)}
                                 />
                             </div>
                         )}
