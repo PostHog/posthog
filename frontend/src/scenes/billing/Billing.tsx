@@ -141,12 +141,17 @@ export function Billing(): JSX.Element {
             )}
 
             {billing?.trial ? (
-                <LemonBanner type="info" className="mb-2">
+                <LemonBanner type={billing.trial.type === 'autosubscribe' ? 'info' : 'warning'} className="mb-2">
                     You are currently on a free trial for <b>{toSentenceCase(billing.trial.target)} plan</b> until{' '}
-                    <b>{dayjs(billing.trial.expires_at).format('LL')}</b>. At the end of the trial{' '}
-                    {billing.trial.type === 'autosubscribe'
-                        ? 'you will be automatically subscribed to the plan.'
-                        : 'you will be asked to subscribe. If you choose not to, you will lose access to the paid features.'}
+                    <b>{dayjs(billing.trial.expires_at).format('LL')}</b>.{' '}
+                    {billing.trial.type === 'autosubscribe' ? (
+                        <>At the end of the trial you will be automatically subscribed to the plan.</>
+                    ) : (
+                        <p>
+                            At the end of the trial you will be asked to subscribe. If you choose not to, you will lose
+                            access to the paid features.
+                        </p>
+                    )}
                 </LemonBanner>
             ) : null}
 
