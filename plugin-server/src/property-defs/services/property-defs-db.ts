@@ -57,6 +57,8 @@ export class PropertyDefsDB {
                 PostgresUse.COMMON_WRITE,
                 `INSERT INTO posthog_eventdefinition (id, name, team_id, project_id, last_seen_at, created_at, volume_30_day, query_usage_30_day)
         VALUES ($1, $2, $3, $4, $5, $6, NULL, NULL)
+        ON CONFLICT (coalesce(project_id, team_id::bigint), name)
+        DO UPDATE SET last_seen_at=EXCLUDED.last_seen_at WHERE posthog_eventdefinition.last_seen_at < EXCLUDED.last_seen_at
         `,
                 [
                     new UUIDT().toString(),
