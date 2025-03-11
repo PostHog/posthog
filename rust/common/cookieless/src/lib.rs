@@ -48,10 +48,10 @@ pub fn do_hash(
 #[cfg(test)]
 mod do_hash_tests {
     use super::*;
+    use base64::{self, engine::general_purpose, Engine};
     use serde::Deserialize;
     use std::fs;
     use std::path::Path;
-    use base64::{self, Engine, engine::general_purpose};
 
     // Match the JSON structure.
     #[derive(Deserialize)]
@@ -79,16 +79,18 @@ mod do_hash_tests {
         // Rust implementation and the TypeScript implementation
         let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/test_cases.json");
         let data_str = fs::read_to_string(&path)
-        .expect(&format!("Failed to read file at: {}", &path.display()));
-        let test_data: TestData = serde_json::from_str(&data_str)
-            .expect("Failed to parse JSON test data");
+            .expect(&format!("Failed to read file at: {}", &path.display()));
+        let test_data: TestData =
+            serde_json::from_str(&data_str).expect("Failed to parse JSON test data");
 
         // For each test case, decode the salt and expected result from base64,
         // run do_hash, and compare.
         for (i, tc) in test_data.test_cases.iter().enumerate() {
-            let salt_bytes = general_purpose::STANDARD.decode(&tc.salt)                
+            let salt_bytes = general_purpose::STANDARD
+                .decode(&tc.salt)
                 .unwrap_or_else(|_| panic!("Test case {}: invalid base64 salt", i));
-            let expected_bytes = general_purpose::STANDARD.decode(&tc.expected)
+            let expected_bytes = general_purpose::STANDARD
+                .decode(&tc.expected)
                 .unwrap_or_else(|_| panic!("Test case {}: invalid base64 expected hash", i));
 
             let actual = do_hash(
