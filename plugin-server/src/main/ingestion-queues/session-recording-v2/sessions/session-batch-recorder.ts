@@ -134,7 +134,7 @@ export class SessionBatchRecorder {
      */
     public discardPartition(partition: number): void {
         const partitionSize = this.partitionSizes.get(partition)
-        if (partitionSize) {
+        if (partitionSize !== undefined) {
             status.info('🔁', 'session_batch_recorder_discarding_partition', {
                 partition,
                 partitionSize,
