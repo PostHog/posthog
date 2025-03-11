@@ -4,8 +4,9 @@ import { useActions, useValues } from 'kea'
 import { dashboardInsightColorsLogic } from './dashboardInsightColorsLogic'
 
 export function DashboardInsightColorsModal(): JSX.Element {
-    const { dashboardInsightColorsModalVisible } = useValues(dashboardInsightColorsLogic)
+    const { dashboardInsightColorsModalVisible, insightTiles } = useValues(dashboardInsightColorsLogic)
     const { hideDashboardInsightColorsModal } = useActions(dashboardInsightColorsLogic)
+
     return (
         <LemonModal
             title="Insight Colors"
@@ -13,6 +14,7 @@ export function DashboardInsightColorsModal(): JSX.Element {
             onClose={hideDashboardInsightColorsModal}
         >
             <span>DashboardInsightColorsModal</span>
+            <pre>{JSON.stringify(insightTiles, null, 2)}</pre>
         </LemonModal>
     )
 }
