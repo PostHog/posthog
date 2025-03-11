@@ -39,7 +39,7 @@ function SupportedPlatform(props: SupportedPlatformProps): JSX.Element {
             className={clsx(
                 props.supportedSinceVersion ? 'bg-fill-success-highlight' : 'bg-fill-error-highlight',
                 'px-1 py-0.5',
-                props.note && 'cursor-pointer'
+                props.note && props.supportedSinceVersion && 'cursor-pointer'
             )}
         >
             {props.note ? <IconInfo /> : props.supportedSinceVersion ? <IconCheck /> : <IconX />} {props.label}
