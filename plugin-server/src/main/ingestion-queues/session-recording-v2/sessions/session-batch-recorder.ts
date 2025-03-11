@@ -7,6 +7,7 @@ import { SessionBatchMetrics } from './metrics'
 import { SessionBatchFileStorage } from './session-batch-file-storage'
 import { SessionBlockMetadata } from './session-block-metadata'
 import { SessionConsoleLogRecorder } from './session-console-log-recorder'
+import { SessionConsoleLogStore } from './session-console-log-store'
 import { SessionMetadataStore } from './session-metadata-store'
 import { SnappySessionRecorder } from './snappy-session-recorder'
 
@@ -60,7 +61,8 @@ export class SessionBatchRecorder {
     constructor(
         private readonly offsetManager: KafkaOffsetManager,
         private readonly storage: SessionBatchFileStorage,
-        private readonly metadataStore: SessionMetadataStore
+        private readonly metadataStore: SessionMetadataStore,
+        private readonly consoleLogStore: SessionConsoleLogStore
     ) {
         this.batchId = uuidv7()
         status.debug('🔁', 'session_batch_recorder_created', { batchId: this.batchId })
@@ -72,7 +74,7 @@ export class SessionBatchRecorder {
      * @param message - The message to record, including team context
      * @returns Number of raw bytes written (without compression)
      */
-    public record(message: MessageWithTeam): number {
+    public async record(message: MessageWithTeam): Promise<number> {
         const { partition } = message.message.metadata
         const sessionId = message.message.session_id
         const teamId = message.team.teamId
@@ -99,13 +101,13 @@ export class SessionBatchRecorder {
         } else {
             sessions.set(sessionId, [
                 new SnappySessionRecorder(sessionId, teamId, this.batchId),
-                new SessionConsoleLogRecorder(sessionId, teamId, this.batchId),
+                new SessionConsoleLogRecorder(sessionId, teamId, this.batchId, this.consoleLogStore),
             ])
         }
 
         const [sessionBlockRecorder, consoleLogRecorder] = sessions.get(sessionId)!
         const bytesWritten = sessionBlockRecorder.recordMessage(message.message)
-        consoleLogRecorder.recordMessage(message.message)
+        await consoleLogRecorder.recordMessage(message.message)
 
         const currentPartitionSize = this.partitionSizes.get(partition)!
         this.partitionSizes.set(partition, currentPartitionSize + bytesWritten)
@@ -226,6 +228,7 @@ export class SessionBatchRecorder {
 
             await writer.finish()
             await this.metadataStore.storeSessionBlocks(blockMetadata)
+            // TODO: Should we make sure producers have flushed before committing?
             await this.offsetManager.commit()
 
             // Update metrics

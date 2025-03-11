@@ -3,12 +3,18 @@ import { DateTime } from 'luxon'
 import { ParsedMessageData } from '../kafka/types'
 import { ConsoleLogLevel, RRWebEventType } from '../rrweb-types'
 import { SessionConsoleLogRecorder } from './session-console-log-recorder'
+import { SessionConsoleLogStore } from './session-console-log-store'
 
 describe('SessionConsoleLogRecorder', () => {
     let recorder: SessionConsoleLogRecorder
+    let mockConsoleLogStore: jest.Mocked<SessionConsoleLogStore>
 
     beforeEach(() => {
-        recorder = new SessionConsoleLogRecorder('test_session_id', 1, 'test_batch_id')
+        mockConsoleLogStore = {
+            storeSessionConsoleLogs: jest.fn().mockResolvedValue(undefined),
+        } as unknown as jest.Mocked<SessionConsoleLogStore>
+
+        recorder = new SessionConsoleLogRecorder('test_session_id', 1, 'test_batch_id', mockConsoleLogStore)
     })
 
     const createMessage = (windowId: string, events: any[]): ParsedMessageData => ({
@@ -33,7 +39,7 @@ describe('SessionConsoleLogRecorder', () => {
     })
 
     describe('Console log counting', () => {
-        it('should count console log events', () => {
+        it('should count console log events', async () => {
             const events = [
                 {
                     type: RRWebEventType.Plugin,
@@ -49,7 +55,7 @@ describe('SessionConsoleLogRecorder', () => {
             ]
             const message = createMessage('window1', events)
 
-            recorder.recordMessage(message)
+            await recorder.recordMessage(message)
             const result = recorder.end()
 
             expect(result.consoleLogCount).toBe(1)
@@ -57,7 +63,7 @@ describe('SessionConsoleLogRecorder', () => {
             expect(result.consoleErrorCount).toBe(0)
         })
 
-        it('should count console warn events', () => {
+        it('should count console warn events', async () => {
             const events = [
                 {
                     type: RRWebEventType.Plugin,
@@ -73,7 +79,7 @@ describe('SessionConsoleLogRecorder', () => {
             ]
             const message = createMessage('window1', events)
 
-            recorder.recordMessage(message)
+            await recorder.recordMessage(message)
             const result = recorder.end()
 
             expect(result.consoleLogCount).toBe(0)
@@ -81,7 +87,7 @@ describe('SessionConsoleLogRecorder', () => {
             expect(result.consoleErrorCount).toBe(0)
         })
 
-        it('should count console error events', () => {
+        it('should count console error events', async () => {
             const events = [
                 {
                     type: RRWebEventType.Plugin,
@@ -97,7 +103,7 @@ describe('SessionConsoleLogRecorder', () => {
             ]
             const message = createMessage('window1', events)
 
-            recorder.recordMessage(message)
+            await recorder.recordMessage(message)
             const result = recorder.end()
 
             expect(result.consoleLogCount).toBe(0)
@@ -105,7 +111,7 @@ describe('SessionConsoleLogRecorder', () => {
             expect(result.consoleErrorCount).toBe(1)
         })
 
-        it('should count multiple console events of different types', () => {
+        it('should count multiple console events of different types', async () => {
             const events = [
                 {
                     type: RRWebEventType.Plugin,
@@ -154,7 +160,7 @@ describe('SessionConsoleLogRecorder', () => {
             ]
             const message = createMessage('window1', events)
 
-            recorder.recordMessage(message)
+            await recorder.recordMessage(message)
             const result = recorder.end()
 
             expect(result.consoleLogCount).toBe(2)
@@ -162,7 +168,7 @@ describe('SessionConsoleLogRecorder', () => {
             expect(result.consoleErrorCount).toBe(1)
         })
 
-        it('should not count non-console events', () => {
+        it('should not count non-console events', async () => {
             const events = [
                 {
                     type: RRWebEventType.Meta,
@@ -183,7 +189,7 @@ describe('SessionConsoleLogRecorder', () => {
             ]
             const message = createMessage('window1', events)
 
-            recorder.recordMessage(message)
+            await recorder.recordMessage(message)
             const result = recorder.end()
 
             expect(result.consoleLogCount).toBe(0)
@@ -193,7 +199,7 @@ describe('SessionConsoleLogRecorder', () => {
     })
 
     describe('Error handling', () => {
-        it('should throw error when recording after end', () => {
+        it('should throw error when recording after end', async () => {
             const message = createMessage('window1', [
                 {
                     type: RRWebEventType.Plugin,
@@ -208,13 +214,15 @@ describe('SessionConsoleLogRecorder', () => {
                 },
             ])
 
-            recorder.recordMessage(message)
+            await recorder.recordMessage(message)
             recorder.end()
 
-            expect(() => recorder.recordMessage(message)).toThrow('Cannot record message after end() has been called')
+            await expect(recorder.recordMessage(message)).rejects.toThrow(
+                'Cannot record message after end() has been called'
+            )
         })
 
-        it('should throw error when calling end multiple times', () => {
+        it('should throw error when calling end multiple times', async () => {
             const message = createMessage('window1', [
                 {
                     type: RRWebEventType.Plugin,
@@ -229,7 +237,7 @@ describe('SessionConsoleLogRecorder', () => {
                 },
             ])
 
-            recorder.recordMessage(message)
+            await recorder.recordMessage(message)
             recorder.end()
 
             expect(() => recorder.end()).toThrow('end() has already been called')
@@ -237,7 +245,7 @@ describe('SessionConsoleLogRecorder', () => {
     })
 
     describe('Multiple windows', () => {
-        it('should count console events from multiple windows', () => {
+        it('should count console events from multiple windows', async () => {
             const message1 = createMessage('window1', [
                 {
                     type: RRWebEventType.Plugin,
@@ -266,8 +274,8 @@ describe('SessionConsoleLogRecorder', () => {
                 },
             ])
 
-            recorder.recordMessage(message1)
-            recorder.recordMessage(message2)
+            await recorder.recordMessage(message1)
+            await recorder.recordMessage(message2)
             const result = recorder.end()
 
             expect(result.consoleLogCount).toBe(1)
