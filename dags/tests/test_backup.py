@@ -1,26 +1,23 @@
+from datetime import datetime
 from unittest.mock import MagicMock
-from dagster import build_op_context
-from dags.backup_database import get_latest_backup, BackupDetails
+from dags.backup_database import Backup, get_latest_backup
 
 
 def test_get_latest_backup():
-    # Mock S3 client and response
     mock_s3 = MagicMock()
     mock_s3.get_client().list_objects_v2.return_value = {
         "CommonPrefixes": [
-            {"Prefix": "posthog/2024-01-01/"},
-            {"Prefix": "posthog/2024-02-01/"},
-            {"Prefix": "posthog/2024-03-01/"},
+            {"Prefix": "posthog/2024-01-01T07:54:04.038496/"},
+            {"Prefix": "posthog/2024-02-01T07:54:04.038496/"},
+            {"Prefix": "posthog/2024-03-01T07:54:04.038496/"},
         ]
     }
 
-    # Execute the op
-    result = get_latest_backup(build_op_context(), MagicMock(), mock_s3)
+    result = get_latest_backup(mock_s3)
 
-    # Verify we got the latest backup
-    assert isinstance(result, BackupDetails)
-    assert result.path == "posthog/2024-03-01/"
-    assert result.incremental is False
+    assert isinstance(result, Backup)
+    assert result.database == "posthog"
+    assert result.date == datetime(2024, 3, 1, 7, 54, 4, 38496)
     assert result.base_backup is None
 
 
@@ -28,5 +25,5 @@ def test_get_latest_backup_no_backups():
     mock_s3 = MagicMock()
     mock_s3.get_client().list_objects_v2.return_value = {}
 
-    result = get_latest_backup(build_op_context(), MagicMock(), mock_s3)
+    result = get_latest_backup(mock_s3)
     assert result is None

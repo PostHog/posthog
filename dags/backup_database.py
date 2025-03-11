@@ -1,7 +1,7 @@
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, UTC
 from functools import partial
-from typing import Literal, Optional
+from typing import Optional
 from clickhouse_driver import Client
 import dagster
 from django.conf import settings
@@ -12,54 +12,34 @@ from dagster_aws.s3 import S3Resource
 
 
 @dataclass
-class BackupDetails:
-    path: str
-    incremental: bool
-    base_backup: str
-
-
-class BackupRunner:
-    def __init__(self, cluster: ClickhouseCluster, database: str, kind: Literal["full", "incremental"]):
-        self.cluster = cluster
-        self.database = database
-        self.kind = kind
-
-    def query(self, client: Client, shard: int):
-        # base_backup = "aa"
-        # if self.kind == "full":
-        #     base_backup = ""
-        # else:
-        #     base_backup = "TBD"
-
-        return """
-        BACKUP DATABASE %(database)s
-        TO S3('https://%(bucket)s.s3.amazonaws.com/%(path)s/%(shard)s')
-        FROM %(base_backup)s
-        """.format()
-
-    def execute(self, client: Client, shard: int):
-        client.execute(self.query(client, shard), settings={"async": True})
+class Backup:
+    # _id: str
+    database: str
+    date: datetime
+    base_backup: "Backup"
 
     @property
     def path(self):
-        return f"{self.database}/{datetime.now().isoformat()}-{self.kind}"
+        return f"{self.database}/{self.date.strftime('%Y-%m-%dT%H:%M:%SZ')}"
 
-    def run_backup(self):
-        self.cluster.map_any_host_in_shards(
-            {shard: partial(self.execute, shard=shard) for shard in self.cluster.shards}
-        ).result()
+    def create(self, client: Client, shard: int):
+        backup_settings = {
+            "async": True,
+        }
+        if self.base_backup:
+            backup_settings["base_backup"] = self.base_backup.path
 
+        query = """
+        BACKUP DATABASE {database}
+        TO S3('https://{bucket}.s3.amazonaws.com/{path}/{shard}')
+        """.format(
+            database=self.database,
+            bucket=settings.CLICKHOUSE_BACKUPS_BUCKET,
+            path=self.path,
+            shard=shard,
+        )
 
-class FullBackupRunner(BackupRunner):
-    def query(self, client: Client, shard: int):
-        return """
-        BACKUP DATABASE %(database)s
-        TO S3('https://%(bucket)s.s3.amazonaws.com/%(path)s/%(shard)s')
-        """.format()
-
-
-class IncrementalBackupRunner(BackupRunner):
-    base_backup: BackupDetails
+        client.execute(query, settings=backup_settings)
 
 
 class BackupDatabaseConfig(dagster.Config):
@@ -71,23 +51,22 @@ class BackupDatabaseConfig(dagster.Config):
 
 @dagster.op
 def get_latest_backup(
-    context: dagster.OpExecutionContext,
-    cluster: dagster.ResourceParam[ClickhouseCluster],
     s3: S3Resource,
-) -> Optional[BackupDetails]:
+) -> Optional[Backup]:
     backups = s3.get_client().list_objects_v2(
         Bucket=settings.CLICKHOUSE_BACKUPS_BUCKET, Prefix="posthog/", Delimiter="/"
     )
-    latest_backup = backups["CommonPrefixes"][-1] if "CommonPrefixes" in backups else None
 
-    return (
-        BackupDetails(
-            path=latest_backup["Prefix"],
-            incremental=False,
-            base_backup=None,
-        )
-        if latest_backup
-        else None
+    if "CommonPrefixes" not in backups:
+        return None
+
+    latest_backup = backups["CommonPrefixes"][-1]
+    (database, date, _) = latest_backup["Prefix"].split("/")
+
+    return Backup(
+        database=database,
+        date=datetime.strptime(date, "%Y-%m-%dT%H:%M:%SZ"),
+        base_backup=None,
     )
 
 
@@ -96,44 +75,29 @@ def run_backup(
     context: dagster.OpExecutionContext,
     config: BackupDatabaseConfig,
     cluster: dagster.ResourceParam[ClickhouseCluster],
-    s3: S3Resource,
-    latest_backup: Optional[BackupDetails],
+    latest_backup: Optional[Backup],
 ):
     """
     Backup ClickHouse database to S3 using ClickHouse's native backup functionality.
     """
-    backup_runner = (
-        IncrementalBackupRunner(cluster, settings.CLICKHOUSE_DATABASE)
-        if config.incremental
-        else FullBackupRunner(cluster, settings.CLICKHOUSE_DATABASE)
+    if config.incremental:
+        if not latest_backup:
+            raise ValueError("Latest backup not found and incremental backup requested")
+        context.log.info("Running an incremental backup using base backup %s", latest_backup.path)
+    else:
+        context.log.info("Running a full backup")
+        latest_backup = None
+
+    backup = Backup(
+        database=settings.CLICKHOUSE_DATABASE,
+        date=datetime.now(UTC),
+        base_backup=latest_backup,
     )
-    backup_runner.run_backup()
 
-
-# def run_incremental_backup(
-#     context: dagster.OpExecutionContext,
-#     s3_client: S3Client = s3.get_client()
-
-#     def get_latest_run_backup():
-#         objects = s3_client.list_objects_v2(
-#             Bucket=settings.CLICKHOUSE_BACKUPS_BUCKET,
-#             Prefix="posthog",
-#         )
-
-#         return objects
-
-#     latest_backup = get_latest_run_backup()
-
-#     # results = cluster.map_all_hosts(generate_export_query).result()
-
-#     # Log the results
-#     # for host, result in results.items():
-#     #     context.log.info(f"Export completed on host {host}: {result}")
-
-#     context.log.info(f"Query logs export completed successfully on all hosts")
+    cluster.map_any_host_in_shards({shard: partial(backup.create, shard=shard) for shard in cluster.shards}).result()
 
 
 @dagster.job
 def backup_database():
-    get_latest_backup()
-    # run_backup(latest_backup)
+    latest_backup = get_latest_backup()
+    run_backup(latest_backup)
