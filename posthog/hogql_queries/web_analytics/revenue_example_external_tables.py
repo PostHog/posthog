@@ -47,7 +47,7 @@ class RevenueExampleExternalTablesQueryRunner(QueryRunner):
 
     def calculate(self):
         response = self.paginator.execute_hogql_query(
-            query_type="revenue_example_events_query",
+            query_type="revenue_example_external_tables_query",
             query=self.to_query(),
             team=self.team,
             timings=self.timings,
