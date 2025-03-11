@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 
 def PG_EMBEDDINGS_DATA_TABLE_ENGINE():
     return ReplacingMergeTree(
-        "pg_embeddings", replication_scheme=ReplicationScheme.SHARDED, ver="timestamp, is_deleted"
+        "pg_embeddings", replication_scheme=ReplicationScheme.NOT_SHARDED, ver="timestamp, is_deleted"
     )
 
 
