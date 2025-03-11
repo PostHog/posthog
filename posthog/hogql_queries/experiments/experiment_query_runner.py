@@ -1,4 +1,6 @@
+import json
 from zoneinfo import ZoneInfo
+from posthog.constants import ExperimentNoResultsErrorKeys
 from posthog.hogql import ast
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
@@ -504,14 +506,11 @@ class ExperimentQueryRunner(QueryRunner):
     def calculate(self) -> ExperimentQueryResponse:
         variants = self._evaluate_experiment_query()
 
-        control_variant = next((variant for variant in variants if variant.key == CONTROL_VARIANT_KEY), None)
+        self._validate_event_variants(variants)
+
+        control_variants = [variant for variant in variants if variant.key == CONTROL_VARIANT_KEY]
+        control_variant = control_variants[0]
         test_variants = [variant for variant in variants if variant.key != CONTROL_VARIANT_KEY]
-
-        if not control_variant:
-            raise ValueError("Control variant not found in experiment results")
-
-        if not test_variants:
-            raise ValueError("Test variants not found in experiment results")
 
         match self.metric.metric_type:
             case ExperimentMetricType.MEAN:
@@ -574,6 +573,30 @@ class ExperimentQueryRunner(QueryRunner):
             p_value=p_value,
             credible_intervals=credible_intervals,
         )
+
+    def _validate_event_variants(
+        self, variants: list[ExperimentVariantTrendsBaseStats] | list[ExperimentVariantFunnelsBaseStats]
+    ):
+        errors = {
+            ExperimentNoResultsErrorKeys.NO_EXPOSURES: True,
+            ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
+            ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
+        }
+
+        if not variants:
+            raise ValidationError(code="no-results", detail=json.dumps(errors))
+
+        errors[ExperimentNoResultsErrorKeys.NO_EXPOSURES] = False
+
+        for variant in variants:
+            if variant.key == CONTROL_VARIANT_KEY:
+                errors[ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT] = False
+            else:
+                errors[ExperimentNoResultsErrorKeys.NO_TEST_VARIANT] = False
+
+        has_errors = any(errors.values())
+        if has_errors:
+            raise ValidationError(detail=json.dumps(errors))
 
     def to_query(self) -> ast.SelectQuery:
         raise ValueError(f"Cannot convert source query of type {self.query.metric.kind} to query")

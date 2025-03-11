@@ -70,7 +70,7 @@ pandas==2.2.0
 paramiko==3.4.0
 Pillow==10.2.0
 pdpyras==5.2.0
-posthoganalytics==3.16.0
+posthoganalytics==3.18.1
 psutil==6.0.0
 psycopg2-binary==2.9.7
 pymssql==2.3.1
@@ -125,3 +125,4 @@ grpcio~=1.63.2 # Version constrained so that `deepeval` can be installed in in d
 tenacity~=8.4.2  # Version constrained so that `deepeval` can be installed in in dev
 markdown-it-py~=3.0.0
 tzlocal~=5.1
+cohere==5.14.0

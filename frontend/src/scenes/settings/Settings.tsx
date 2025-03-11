@@ -141,7 +141,7 @@ export function Settings({
             )}
 
             <AuthenticationAreaComponent>
-                <div className="flex-1 w-full space-y-2 min-w-0">
+                <div className="flex-1 w-full deprecated-space-y-2 min-w-0">
                     {!hideSections && selectedLevel === 'project' && (
                         <LemonBanner type="info">
                             These settings only apply to the current project{' '}
@@ -170,7 +170,7 @@ function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean }
     const settings = settingsInSidebar ? [selectedSetting] : allSettings
 
     return (
-        <div className="space-y-8">
+        <div className="deprecated-space-y-8">
             {settings.length ? (
                 settings.map((x) => (
                     <div key={x.id} className="relative">
@@ -208,7 +208,7 @@ const depthMap: Record<number, string> = {
 
 const OptionGroup = ({ options, depth = 0 }: { options: SettingOption[]; depth?: number }): JSX.Element => {
     return (
-        <ul className="space-y-px">
+        <ul className="deprecated-space-y-px">
             {options.map((option) => (
                 <>
                     <li key={option.key} className={depthMap[depth]}>

@@ -26,7 +26,7 @@ export function ActionHogFunctions(): JSX.Element | null {
     }
 
     return (
-        <div className="my-4 space-y-2">
+        <div className="my-4 deprecated-space-y-2">
             <h2 className="flex-1 subtitle">Connected destinations</h2>
             <p>Actions can be used a filters for destinations such as Slack or Webhook delivery</p>
 
