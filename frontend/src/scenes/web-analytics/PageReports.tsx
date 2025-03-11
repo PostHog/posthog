@@ -3,11 +3,9 @@ import { useActions, useValues } from 'kea'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 
-import { NodeKind } from '~/queries/schema/schema-general'
-import { InsightLogicProps } from '~/types'
-import { BaseMathType } from '~/types'
+import { InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
+import { BaseMathType, ChartDisplayType, InsightLogicProps } from '~/types'
 
 import { WebQuery } from './tiles/WebAnalyticsTile'
 import {
@@ -22,7 +20,8 @@ import {
 } from './webAnalyticsLogic'
 
 export const PageReports = (): JSX.Element => {
-    const { webAnalyticsFilters, tiles, dateFilter, shouldFilterTestAccounts } = useValues(webAnalyticsLogic)
+    const { webAnalyticsFilters, tiles, dateFilter, shouldFilterTestAccounts, compareFilter } =
+        useValues(webAnalyticsLogic)
     const { openModal } = useActions(webAnalyticsLogic)
 
     // Check if a specific page is selected in the filters
@@ -70,14 +69,11 @@ export const PageReports = (): JSX.Element => {
     })
 
     // Create a combined query for all three metrics
-    const combinedMetricsQuery = {
+    const combinedMetricsQuery: InsightVizNode<TrendsQuery> = {
         kind: NodeKind.InsightVizNode,
-        embedded: true,
-        hidePersonsModal: true,
         source: {
             kind: NodeKind.TrendsQuery,
             series: [
-                // Unique visitors series
                 {
                     event: '$pageview',
                     kind: NodeKind.EventsNode,
@@ -85,7 +81,6 @@ export const PageReports = (): JSX.Element => {
                     name: '$pageview',
                     custom_name: 'Unique visitors',
                 },
-                // Page views series
                 {
                     event: '$pageview',
                     kind: NodeKind.EventsNode,
@@ -93,7 +88,6 @@ export const PageReports = (): JSX.Element => {
                     name: '$pageview',
                     custom_name: 'Page views',
                 },
-                // Sessions series
                 {
                     event: '$pageview',
                     kind: NodeKind.EventsNode,
@@ -105,12 +99,15 @@ export const PageReports = (): JSX.Element => {
             interval: dateFilter.interval,
             dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
             trendsFilter: {
-                display: 'ActionsLineGraph',
+                display: ChartDisplayType.ActionsLineGraph,
                 showLegend: true,
             },
+            compareFilter,
             filterTestAccounts: shouldFilterTestAccounts,
             properties: webAnalyticsFilters,
         },
+        hidePersonsModal: true,
+        embedded: true,
     }
 
     // Section component for consistent styling
@@ -175,26 +172,21 @@ export const PageReports = (): JSX.Element => {
             {hasPageFilter && (
                 <LemonBanner type="success" className="mb-4">
                     <h3 className="font-semibold">Page Report: {selectedPage}</h3>
-                    <p>
-                        Showing detailed analytics for the selected page. Use the filters above to change the date range
-                        or add additional filters.
-                    </p>
                 </LemonBanner>
             )}
 
-            {/* Performance Metrics Section */}
-            <Section title="Performance Metrics">
+            {/* Trends Section */}
+            <Section title="Page Performance">
                 <div className="border rounded bg-white">
                     <div className="flex justify-between items-center p-4 border-b">
-                        <h3 className="text-xl font-bold">Page Performance</h3>
-                        <LemonSegmentedButton
-                            options={[
-                                { value: 'table', label: '', icon: <span className="text-xl">⊞</span> },
-                                { value: 'chart', label: '', icon: <span className="text-xl">📈</span> },
-                            ]}
-                            value="chart"
-                            onChange={() => {}}
-                        />
+                        <h3 className="text-xl font-bold">Page Performance Trends</h3>
+                        <LemonButton
+                            icon={<IconExpand45 />}
+                            size="small"
+                            onClick={() => openModal(TileId.GRAPHS, 'combined')}
+                        >
+                            Show more
+                        </LemonButton>
                     </div>
                     <div className="p-4">
                         <div className="w-full min-h-[400px]">
@@ -204,15 +196,6 @@ export const PageReports = (): JSX.Element => {
                                 tileId={TileId.GRAPHS}
                                 insightProps={createInsightProps(TileId.GRAPHS, 'combined')}
                             />
-                        </div>
-                        <div className="flex justify-end mt-4">
-                            <LemonButton
-                                icon={<IconExpand45 />}
-                                size="small"
-                                onClick={() => openModal(TileId.GRAPHS, 'combined')}
-                            >
-                                Show more
-                            </LemonButton>
                         </div>
                     </div>
                 </div>
@@ -302,7 +285,7 @@ export const PageReports = (): JSX.Element => {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <Card
                         title="Countries"
-                        description="Countries of visitors"
+                        description="Countries where users access this page from"
                         query={countriesQuery}
                         tileId={TileId.GEOGRAPHY}
                         tabId={GeographyTab.COUNTRIES}
@@ -310,7 +293,7 @@ export const PageReports = (): JSX.Element => {
 
                     <Card
                         title="Regions"
-                        description="Regions of visitors"
+                        description="Regions where users access this page from"
                         query={regionsQuery}
                         tileId={TileId.GEOGRAPHY}
                         tabId={GeographyTab.REGIONS}
@@ -318,17 +301,16 @@ export const PageReports = (): JSX.Element => {
 
                     <Card
                         title="Cities"
-                        description="Cities of visitors"
+                        description="Cities where users access this page from"
                         query={citiesQuery}
                         tileId={TileId.GEOGRAPHY}
                         tabId={GeographyTab.CITIES}
                     />
                 </div>
-
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
                     <Card
                         title="Timezones"
-                        description="Timezones of visitors"
+                        description="Timezones where users access this page from"
                         query={timezonesQuery}
                         tileId={TileId.GEOGRAPHY}
                         tabId={GeographyTab.TIMEZONES}
@@ -336,7 +318,7 @@ export const PageReports = (): JSX.Element => {
 
                     <Card
                         title="Languages"
-                        description="Languages of visitors"
+                        description="Languages of users accessing this page"
                         query={languagesQuery}
                         tileId={TileId.GEOGRAPHY}
                         tabId={GeographyTab.LANGUAGES}
