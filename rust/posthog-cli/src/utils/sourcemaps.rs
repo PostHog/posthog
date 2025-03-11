@@ -27,8 +27,8 @@ impl Source {
     }
 
     pub fn add_chunk_id(&mut self, chunk_id: String) {
-        self.prepend(format!(r#"!function(){{try{{var e="undefined"!=typeof window?window:"undefined"!=typeof global?global:"undefined"!=typeof self?self:{{}},n=(new e.Error).stack;n&&(e._posthogChunkIds=e._posthogChunkIds||{{}},e._posthogChunkIds[n]="{}")}}catch(e){{}}}}();"#, chunk_id));
-        self.append(format!(r#"//# chunkId={}"#, chunk_id));
+        self.prepend(&format!(r#"!function(){{try{{var e="undefined"!=typeof window?window:"undefined"!=typeof global?global:"undefined"!=typeof self?self:{{}},n=(new e.Error).stack;n&&(e._posthogChunkIds=e._posthogChunkIds||{{}},e._posthogChunkIds[n]="{}")}}catch(e){{}}}}();"#, chunk_id));
+        self.append(&format!(r#"//# chunkId={}"#, chunk_id));
     }
 
     pub fn read(path: &PathBuf) -> Result<Source> {
@@ -45,12 +45,12 @@ impl Source {
         Ok(())
     }
 
-    pub fn prepend(&mut self, prefix: String) {
-        self.content = format!("{}{}", prefix, self.content);
+    pub fn prepend(&mut self, prefix: &str) {
+        self.content.insert_str(0, prefix);
     }
 
-    pub fn append(&mut self, suffix: String) {
-        self.content = format!("{}{}", self.content, suffix);
+    pub fn append(&mut self, suffix: &str) {
+        self.content.push_str(&suffix);
     }
 }
 

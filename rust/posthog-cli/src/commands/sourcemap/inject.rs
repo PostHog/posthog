@@ -22,8 +22,6 @@ pub fn inject(directory: &Path, _output: &Option<PathBuf>) -> Result<()> {
     for pair in &mut pairs {
         let chunk_id = uuid::Uuid::now_v7().to_string();
         pair.add_chunk_id(chunk_id)?;
-        // Sleep for one ms to avoid generating the same chunk ID
-        std::thread::sleep(std::time::Duration::from_micros(1));
     }
     // Write the source and sourcemaps back to disk
     for pair in &pairs {
