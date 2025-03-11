@@ -10,10 +10,7 @@ use tracing::{error, warn};
 
 use crate::{
     error::{ChunkIdError, Error, UnhandledError},
-    metric_consts::{
-        CHUNK_ID_FAILURE_FETCHED, CHUNK_ID_FAILURE_SAVED, CHUNK_ID_MISSING_STORAGE_PTR,
-        CHUNK_ID_NOT_FOUND,
-    },
+    metric_consts::{CHUNK_ID_FAILURE_FETCHED, CHUNK_ID_FAILURE_SAVED, CHUNK_ID_NOT_FOUND},
 };
 
 use super::{
@@ -77,8 +74,7 @@ where
             // TODO: I think we should just panic on this, actually - it's never valid for us to
             // have a symbol record for a chunk id with no storage pointer and no failure reason.
             error!("No storage pointer found for chunk id {}", id);
-            counter!(CHUNK_ID_MISSING_STORAGE_PTR).increment(1);
-            return Err(ChunkIdError::MissingStoragePtr(id.clone()));
+            panic!("No storage pointer found for chunk id {}", id);
         };
 
         let data = self.client.get(&self.bucket, &storage_ptr).await?;
