@@ -9,7 +9,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0682_datawarehousesavedquery_latest_error"),
+        ("posthog", "0683_externaldataschema_sync_time_of_day"),
     ]
 
     operations = [
