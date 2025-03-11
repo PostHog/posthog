@@ -307,14 +307,16 @@ async def batch_embed_and_sync_actions(inputs: BatchEmbedAndSyncActionsInputs) -
 class SyncVectorsInputs:
     start_dt: str | None = None
     """Start date for the sync if the workflow is not triggered by a schedule."""
-    summarize_batch_size: int = 32
+    summarize_batch_size: int = 96
     """How many elements to summarize in a single batch."""
     embed_batch_size: int = 96
     """How many elements to embed in a single batch."""
-    max_parallel_requests: int = 4
+    max_parallel_requests: int = 5
     """How many parallel requests to send to vendors."""
     insert_batch_size: int = 10000
     """How many rows to insert in a single query to ClickHouse."""
+    delay_between_batches: int = 60
+    """How many seconds to wait between batches."""
 
 
 @temporalio.workflow.defn(name="ai-sync-vectors")
@@ -344,7 +346,7 @@ class SyncVectorsWorkflow(PostHogWorkflow):
                     BatchSummarizeActionsInputs(
                         start_dt=start_dt_str, offset=i, batch_size=inputs.summarize_batch_size
                     ),
-                    start_to_close_timeout=timedelta(minutes=3),
+                    start_to_close_timeout=timedelta(seconds=90),
                     retry_policy=temporalio.common.RetryPolicy(
                         initial_interval=timedelta(seconds=30), maximum_attempts=3
                     ),
@@ -353,11 +355,11 @@ class SyncVectorsWorkflow(PostHogWorkflow):
 
             # Maximum allowed parallel request count to LLMs is 128 (32 * 4).
             if len(tasks) == inputs.max_parallel_requests:
-                await self._process_batch(tasks)
+                await self._process_summaries_batch(tasks, inputs.delay_between_batches)
                 tasks = []
 
         if tasks:
-            await self._process_batch(tasks)
+            await self._process_summaries_batch(tasks, inputs.delay_between_batches)
 
         while True:
             res = await temporalio.workflow.execute_activity(
@@ -374,8 +376,18 @@ class SyncVectorsWorkflow(PostHogWorkflow):
             if not res.has_more:
                 break
 
-    async def _process_batch(self, tasks: list[Coroutine[Any, Any, Any]]):
+    async def _process_summaries_batch(self, tasks: list[Coroutine[Any, Any, Any]], delay_between_batches: int):
+        start = temporalio.workflow.time()
         res = await asyncio.gather(*tasks, return_exceptions=True)
+        end = temporalio.workflow.time()
+        execution_time = end - start
+
+        # Throttle the rate of requests to LLMs.
+        if delay_between_batches > execution_time:
+            delay = delay_between_batches - execution_time
+            logger.info("Throttling requests to LLMs", delay=delay)
+            await asyncio.sleep(delay)
+
         for maybe_exc in res:
             if isinstance(maybe_exc, BaseException):
                 raise maybe_exc

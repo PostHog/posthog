@@ -647,7 +647,7 @@ async def test_actions_basic_workflow():
         ):
             await activity_environment.client.execute_workflow(
                 SyncVectorsWorkflow.run,
-                SyncVectorsInputs(start_dt=timezone.now().isoformat()),
+                SyncVectorsInputs(start_dt=timezone.now().isoformat(), delay_between_batches=0),
                 id=str(uuid.uuid4()),
                 task_queue=settings.TEMPORAL_TASK_QUEUE,
             )
@@ -661,6 +661,7 @@ async def test_actions_basic_workflow():
                     summarize_batch_size=1,
                     embed_batch_size=1,
                     insert_batch_size=1,
+                    delay_between_batches=0,
                 ),
                 id=str(uuid.uuid4()),
                 task_queue=settings.TEMPORAL_TASK_QUEUE,
@@ -708,7 +709,7 @@ async def test_actions_workflow_retries_on_errors():
         ):
             await activity_environment.client.execute_workflow(
                 SyncVectorsWorkflow.run,
-                SyncVectorsInputs(start_dt=timezone.now().isoformat()),
+                SyncVectorsInputs(start_dt=timezone.now().isoformat(), delay_between_batches=0),
                 id=str(uuid.uuid4()),
                 task_queue=settings.TEMPORAL_TASK_QUEUE,
             )
@@ -749,7 +750,7 @@ async def test_actions_workflow_cancels():
             with pytest.raises(WorkflowFailureError):
                 await activity_environment.client.execute_workflow(
                     SyncVectorsWorkflow.run,
-                    SyncVectorsInputs(start_dt=timezone.now().isoformat()),
+                    SyncVectorsInputs(start_dt=timezone.now().isoformat(), delay_between_batches=0),
                     id=str(uuid.uuid4()),
                     task_queue=settings.TEMPORAL_TASK_QUEUE,
                 )
