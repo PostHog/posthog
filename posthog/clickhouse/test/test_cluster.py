@@ -215,7 +215,8 @@ def test_alter_mutation_multiple_commands(cluster: ClickhouseCluster) -> None:
             all(mutation is not None for mutation in mutations.values()) for mutations in existing_mutations.values()
         )
 
-        # if we run the same mutation with a subset of commands, nothing new should be scheduled
+        # if we run the same mutation with a subset of commands, nothing new should be scheduled (this ensures after a
+        # code change that removes a command from the mutation, we won't error when we mutations from previous versions)
         runner_with_single_command = AlterTableMutationRunner(
             table,
             {f"MATERIALIZE COLUMN {column_a.name}"},
@@ -233,7 +234,7 @@ def test_alter_mutation_multiple_commands(cluster: ClickhouseCluster) -> None:
             )
         )
 
-        # if we run the same mutation with additional commands, only the additional command should be executed
+        # if we run the same mutation with additional commands, only the new command should be executed
         new_command = f"MATERIALIZE COLUMN {column_c.name}"
         runner_with_extra_command = AlterTableMutationRunner(
             table,
