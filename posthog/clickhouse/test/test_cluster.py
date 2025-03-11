@@ -196,6 +196,7 @@ def test_alter_mutation_multiple_commands(cluster: ClickhouseCluster) -> None:
     with (
         materialized("events", f"{sentinel_uuid}_a") as column_a,
         materialized("events", f"{sentinel_uuid}_b") as column_b,
+        materialized("events", f"{sentinel_uuid}_c") as column_c,
     ):
         runner = AlterTableMutationRunner(
             table,
@@ -205,7 +206,7 @@ def test_alter_mutation_multiple_commands(cluster: ClickhouseCluster) -> None:
         # nothing should be running yet
         existing_mutations = cluster.map_all_hosts(runner.find_existing_mutations).result()
         assert all(
-            all(mutation is None for mutation in mutations.values()) for mutations in existing_mutations.values()
+            mutations == {command: None for command in runner.commands} for mutations in existing_mutations.values()
         )
 
         # start all mutations
@@ -216,6 +217,68 @@ def test_alter_mutation_multiple_commands(cluster: ClickhouseCluster) -> None:
             assert host_info.shard_num is not None
 
             # wait for mutations to complete on shard
+            cluster.map_all_hosts_in_shard(host_info.shard_num, mutation.wait).result()
+
+            # check to make sure all mutations are marked as done
+            assert all(cluster.map_all_hosts_in_shard(host_info.shard_num, mutation.is_done).result().values())
+
+        # all commands should have an associated mutation id at this point
+        existing_mutations = cluster.map_all_hosts(runner.find_existing_mutations).result()
+        assert all(
+            all(mutation is not None for mutation in mutations.values()) for mutations in existing_mutations.values()
+        )
+
+        # if we run the same mutation with a subset of commands, nothing new should be scheduled
+        runner_with_single_command = AlterTableMutationRunner(
+            table,
+            {f"MATERIALIZE COLUMN {column_a.name}"},
+        )
+
+        # "start" all mutations (in actuality, this is a noop)
+        shard_mutations = cluster.map_one_host_per_shard(runner_with_single_command).result()
+        assert len(shard_mutations) > 0
+
+        for host_info, mutation in shard_mutations.items():
+            assert host_info.shard_num is not None
+
+            # wait for mutations to complete on shard
+            cluster.map_all_hosts_in_shard(host_info.shard_num, mutation.wait).result()
+
+            # check to make sure all mutations are marked as done
+            assert all(cluster.map_all_hosts_in_shard(host_info.shard_num, mutation.is_done).result().values())
+
+        # the command should still be the same from the previous run
+        existing_mutations_with_single_command = cluster.map_all_hosts(
+            runner_with_single_command.find_existing_mutations
+        ).result()
+        assert all(
+            mutations == {command: existing_mutations[host][command] for command in runner_with_single_command.commands}
+            for host, mutations in existing_mutations_with_single_command.items()
+        )
+
+        # if we run the same mutation with additional commands, only the additional command should be executed
+        new_command = f"MATERIALIZE COLUMN {column_c.name}"
+        runner_with_extra_command = AlterTableMutationRunner(
+            table,
+            {*runner.commands, new_command},
+        )
+
+        existing_mutations_with_extra_command = cluster.map_all_hosts(
+            runner_with_extra_command.find_existing_mutations
+        ).result()
+        assert all(
+            mutations == (existing_mutations[host] | {new_command: None})
+            for host, mutations in existing_mutations_with_extra_command.items()
+        )
+
+        # start all mutations
+        shard_mutations = cluster.map_one_host_per_shard(runner).result()
+        assert len(shard_mutations) > 0
+
+        for host_info, mutation in shard_mutations.items():
+            assert host_info.shard_num is not None
+
+            # wait for mutations (old and new) to complete on shard
             cluster.map_all_hosts_in_shard(host_info.shard_num, mutation.wait).result()
 
             # check to make sure all mutations are marked as done
