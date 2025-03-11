@@ -259,6 +259,7 @@ export class PropertyDefsConsumer {
 
             // Detect group identify events
             if (event.event === '$groupidentify') {
+                // bail if the team ID doesn't exist in posthog_team
                 if (!collected.resolvedTeamGroups[event.team_id]) {
                     propDefDroppedCounter.inc({ type: 'event', reason: 'team_groups_not_found' })
                     continue
@@ -266,7 +267,12 @@ export class PropertyDefsConsumer {
 
                 // bail on this event if there's no group type assigned or we couldn't resolve it's index
                 const groupType: string | undefined = event.properties['$group_type'] // e.g. "organization"
-                if (typeof groupType === 'undefined' || !collected.resolvedTeamGroups[event.team_id][groupType]) {
+                if (typeof groupType === 'undefined') {
+                    propDefDroppedCounter.inc({ type: 'group', reason: 'undefined_group' })
+                    continue
+                }
+                if (!collected.resolvedTeamGroups[event.team_id][groupType]) {
+                    propDefDroppedCounter.inc({ type: 'group', reason: 'group_index_not_found' })
                     continue
                 }
 
