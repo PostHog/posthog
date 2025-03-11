@@ -20,7 +20,7 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>({
         isLayoutNavbarVisibleForDesktop: [
             true,
             {
-                showLayoutNavBar: () => true,
+                showLayoutNavBar: (_, { visible }) => visible,
                 mobileLayout: () => true,
             },
         ],
