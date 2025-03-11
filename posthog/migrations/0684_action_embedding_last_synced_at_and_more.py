@@ -4,9 +4,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [
-        ("posthog", "0682_datawarehousesavedquery_latest_error"),
-    ]
+    dependencies = [("posthog", "0683_externaldataschema_sync_time_of_day")]
 
     operations = [
         migrations.AddField(
