@@ -568,15 +568,42 @@ importers:
       '@posthog/plugin-scaffold':
         specifier: ^1.4.4
         version: 1.4.4
+      '@posthog/products-dashboards':
+        specifier: workspace:*
+        version: link:../products/dashboards
       '@posthog/products-early-access-features':
         specifier: workspace:*
         version: link:../products/early_access_features
+      '@posthog/products-experiments':
+        specifier: workspace:*
+        version: link:../products/experiments
+      '@posthog/products-feature-flags':
+        specifier: workspace:*
+        version: link:../products/feature_flags
+      '@posthog/products-groups':
+        specifier: workspace:*
+        version: link:../products/groups
       '@posthog/products-llm-observability':
         specifier: workspace:*
         version: link:../products/llm_observability
       '@posthog/products-messaging':
         specifier: workspace:*
         version: link:../products/messaging
+      '@posthog/products-notebooks':
+        specifier: workspace:*
+        version: link:../products/notebooks
+      '@posthog/products-persons':
+        specifier: workspace:*
+        version: link:../products/persons
+      '@posthog/products-product-analytics':
+        specifier: workspace:*
+        version: link:../products/product_analytics
+      '@posthog/products-replay':
+        specifier: workspace:*
+        version: link:../products/replay
+      '@posthog/products-web-analytics':
+        specifier: workspace:*
+        version: link:../products/web_analytics
       '@posthog/rrweb':
         specifier: 0.0.8
         version: 0.0.8
@@ -1508,6 +1535,33 @@ importers:
         specifier: ^10.9.1
         version: 10.9.1(@swc/core@1.10.14(@swc/helpers@0.5.15))(@types/node@18.18.4)(typescript@4.9.5)
 
+  products/dashboards:
+    dependencies:
+      '@posthog/icons':
+        specifier: '*'
+        version: 0.11.2(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@types/react':
+        specifier: '*'
+        version: 17.0.52
+      clsx:
+        specifier: '*'
+        version: 1.2.1
+      fuse.js:
+        specifier: '*'
+        version: 6.6.2
+      kea:
+        specifier: '*'
+        version: 3.1.5(react@18.2.0)
+      kea-loaders:
+        specifier: '*'
+        version: 3.0.0(kea@3.1.5(react@18.2.0))
+      kea-router:
+        specifier: '*'
+        version: 3.2.1(kea@3.1.5(react@18.2.0))
+      react:
+        specifier: '*'
+        version: 18.2.0
+
   products/early_access_features:
     dependencies:
       '@posthog/icons':
@@ -1528,6 +1582,87 @@ importers:
       kea-forms:
         specifier: '*'
         version: 3.2.0(kea@3.1.5(react@18.2.0))
+      kea-loaders:
+        specifier: '*'
+        version: 3.0.0(kea@3.1.5(react@18.2.0))
+      kea-router:
+        specifier: '*'
+        version: 3.2.1(kea@3.1.5(react@18.2.0))
+      react:
+        specifier: '*'
+        version: 18.2.0
+
+  products/experiments:
+    dependencies:
+      '@posthog/icons':
+        specifier: '*'
+        version: 0.11.2(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@types/react':
+        specifier: '*'
+        version: 17.0.52
+      clsx:
+        specifier: '*'
+        version: 1.2.1
+      fuse.js:
+        specifier: '*'
+        version: 6.6.2
+      kea:
+        specifier: '*'
+        version: 3.1.5(react@18.2.0)
+      kea-loaders:
+        specifier: '*'
+        version: 3.0.0(kea@3.1.5(react@18.2.0))
+      kea-router:
+        specifier: '*'
+        version: 3.2.1(kea@3.1.5(react@18.2.0))
+      react:
+        specifier: '*'
+        version: 18.2.0
+
+  products/feature_flags:
+    dependencies:
+      '@posthog/icons':
+        specifier: '*'
+        version: 0.11.2(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@types/react':
+        specifier: '*'
+        version: 17.0.52
+      clsx:
+        specifier: '*'
+        version: 1.2.1
+      fuse.js:
+        specifier: '*'
+        version: 6.6.2
+      kea:
+        specifier: '*'
+        version: 3.1.5(react@18.2.0)
+      kea-loaders:
+        specifier: '*'
+        version: 3.0.0(kea@3.1.5(react@18.2.0))
+      kea-router:
+        specifier: '*'
+        version: 3.2.1(kea@3.1.5(react@18.2.0))
+      react:
+        specifier: '*'
+        version: 18.2.0
+
+  products/groups:
+    dependencies:
+      '@posthog/icons':
+        specifier: '*'
+        version: 0.11.2(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@types/react':
+        specifier: '*'
+        version: 17.0.52
+      clsx:
+        specifier: '*'
+        version: 1.2.1
+      fuse.js:
+        specifier: '*'
+        version: 6.6.2
+      kea:
+        specifier: '*'
+        version: 3.1.5(react@18.2.0)
       kea-loaders:
         specifier: '*'
         version: 3.0.0(kea@3.1.5(react@18.2.0))
@@ -1591,6 +1726,141 @@ importers:
       '@posthog/icons':
         specifier: '*'
         version: 0.11.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@types/react':
+        specifier: '*'
+        version: 17.0.52
+      clsx:
+        specifier: '*'
+        version: 1.2.1
+      fuse.js:
+        specifier: '*'
+        version: 6.6.2
+      kea:
+        specifier: '*'
+        version: 3.1.5(react@18.2.0)
+      kea-loaders:
+        specifier: '*'
+        version: 3.0.0(kea@3.1.5(react@18.2.0))
+      kea-router:
+        specifier: '*'
+        version: 3.2.1(kea@3.1.5(react@18.2.0))
+      react:
+        specifier: '*'
+        version: 18.2.0
+
+  products/notebooks:
+    dependencies:
+      '@posthog/icons':
+        specifier: '*'
+        version: 0.11.2(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@types/react':
+        specifier: '*'
+        version: 17.0.52
+      clsx:
+        specifier: '*'
+        version: 1.2.1
+      fuse.js:
+        specifier: '*'
+        version: 6.6.2
+      kea:
+        specifier: '*'
+        version: 3.1.5(react@18.2.0)
+      kea-loaders:
+        specifier: '*'
+        version: 3.0.0(kea@3.1.5(react@18.2.0))
+      kea-router:
+        specifier: '*'
+        version: 3.2.1(kea@3.1.5(react@18.2.0))
+      react:
+        specifier: '*'
+        version: 18.2.0
+
+  products/persons:
+    dependencies:
+      '@posthog/icons':
+        specifier: '*'
+        version: 0.11.2(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@types/react':
+        specifier: '*'
+        version: 17.0.52
+      clsx:
+        specifier: '*'
+        version: 1.2.1
+      fuse.js:
+        specifier: '*'
+        version: 6.6.2
+      kea:
+        specifier: '*'
+        version: 3.1.5(react@18.2.0)
+      kea-loaders:
+        specifier: '*'
+        version: 3.0.0(kea@3.1.5(react@18.2.0))
+      kea-router:
+        specifier: '*'
+        version: 3.2.1(kea@3.1.5(react@18.2.0))
+      react:
+        specifier: '*'
+        version: 18.2.0
+
+  products/product_analytics:
+    dependencies:
+      '@posthog/icons':
+        specifier: '*'
+        version: 0.11.2(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@types/react':
+        specifier: '*'
+        version: 17.0.52
+      clsx:
+        specifier: '*'
+        version: 1.2.1
+      fuse.js:
+        specifier: '*'
+        version: 6.6.2
+      kea:
+        specifier: '*'
+        version: 3.1.5(react@18.2.0)
+      kea-loaders:
+        specifier: '*'
+        version: 3.0.0(kea@3.1.5(react@18.2.0))
+      kea-router:
+        specifier: '*'
+        version: 3.2.1(kea@3.1.5(react@18.2.0))
+      react:
+        specifier: '*'
+        version: 18.2.0
+
+  products/replay:
+    dependencies:
+      '@posthog/icons':
+        specifier: '*'
+        version: 0.11.2(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@types/react':
+        specifier: '*'
+        version: 17.0.52
+      clsx:
+        specifier: '*'
+        version: 1.2.1
+      fuse.js:
+        specifier: '*'
+        version: 6.6.2
+      kea:
+        specifier: '*'
+        version: 3.1.5(react@18.2.0)
+      kea-loaders:
+        specifier: '*'
+        version: 3.0.0(kea@3.1.5(react@18.2.0))
+      kea-router:
+        specifier: '*'
+        version: 3.2.1(kea@3.1.5(react@18.2.0))
+      react:
+        specifier: '*'
+        version: 18.2.0
+
+  products/web_analytics:
+    dependencies:
+      '@posthog/icons':
+        specifier: '*'
+        version: 0.11.2(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
