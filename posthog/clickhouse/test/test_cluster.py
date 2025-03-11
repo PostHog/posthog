@@ -293,21 +293,12 @@ def test_lightweight_delete(cluster: ClickhouseCluster) -> None:
     table = EVENTS_DATA_TABLE()
     count = 100
 
-    def truncate_table(client: Client) -> None:
-        client.execute(f"TRUNCATE TABLE {table}")
-
-    cluster.map_one_host_per_shard(truncate_table).result()
+    cluster.map_one_host_per_shard(Query(f"TRUNCATE TABLE {table}")).result()
 
     # make sure there is some data to play with first
-    def populate_random_data(client: Client) -> None:
-        client.execute(f"INSERT INTO {table} SELECT * FROM generateRandom() LIMIT {count}")
+    cluster.map_one_host_per_shard(Query(f"INSERT INTO {table} SELECT * FROM generateRandom() LIMIT {count}")).result()
 
-    cluster.map_one_host_per_shard(populate_random_data).result()
-
-    def get_random_row(client: Client) -> list[tuple[uuid.UUID]]:
-        return client.execute(f"SELECT uuid FROM {table} ORDER BY rand() LIMIT 1")
-
-    [[[eid]]] = cluster.map_all_hosts(get_random_row).result().values()
+    [[[eid]]] = cluster.map_all_hosts(Query(f"SELECT uuid FROM {table} ORDER BY rand() LIMIT 1")).result().values()
 
     # construct the runner with a DELETE command
     runner = LightweightDeleteMutationRunner(
@@ -321,9 +312,8 @@ def test_lightweight_delete(cluster: ClickhouseCluster) -> None:
     wait_and_check_mutations_on_shards(cluster, shard_mutations)
 
     # check to ensure data is as expected to be after update (fewer rows visible than initially created)
-    def get_row_exists_count(client: Client) -> list[tuple[int]]:
-        return client.execute(f"SELECT count(1) FROM {table}")
-
     for host_info in shard_mutations.keys():
-        query_results = cluster.map_all_hosts_in_shard(host_info.shard_num, get_row_exists_count).result()
+        query_results = cluster.map_all_hosts_in_shard(
+            host_info.shard_num, Query(f"SELECT count(1) FROM {table}")
+        ).result()
         assert all(result[0][0] < count for result in query_results.values())
