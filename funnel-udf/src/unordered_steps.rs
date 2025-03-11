@@ -114,8 +114,8 @@ impl AggregateFunnelRowUnordered {
             let oldest_event = oldest_event.unwrap();
             let oldest_event_index = oldest_event_index.unwrap();
 
-            // Now we are in the conversion window so we need to process the new event
-            if oldest_event.timestamp + args.conversion_window_limit as f64 >= latest_timestamp {
+            // Break if we are in the conversion window and have not completed all the steps.
+            if vars.num_steps_completed < args.num_steps && oldest_event.timestamp + args.conversion_window_limit as f64 >= latest_timestamp {
                 break;
             }
 
