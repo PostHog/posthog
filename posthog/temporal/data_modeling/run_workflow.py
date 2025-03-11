@@ -273,6 +273,18 @@ async def handle_model_ready(model: ModelNode, team_id: int, queue: asyncio.Queu
         team_id: The ID of the team who owns this model.
         queue: The execution queue where we will report back results.
     """
+
+    async def handle_error(error: Exception, error_message: str):
+        await logger.aexception(error_message, model.label, str(error))
+
+        if "job_id" in locals():
+            job = await database_sync_to_async(DataModelingJob.objects.get)(id=job_id)
+            job.status = DataModelingJob.Status.FAILED
+            job.error = str(error)
+            await database_sync_to_async(job.save)()
+
+        await queue.put(QueueMessage(status=ModelStatus.FAILED, label=model.label, error=str(error)))
+
     try:
         if model.selected is True:
             team = await database_sync_to_async(Team.objects.get)(id=team_id)
@@ -284,21 +296,11 @@ async def handle_model_ready(model: ModelNode, team_id: int, queue: asyncio.Queu
 
             key, delta_table, job_id = await materialize_model(model.label, team, workflow_id, saved_query, job)
     except CHQueryErrorMemoryLimitExceeded as err:
-        await logger.aexception("Memory limit exceeded for model %s: %s", model.label, str(err))
-        await queue.put(QueueMessage(status=ModelStatus.FAILED, label=model.label, error=str(err)))
+        await handle_error(err, "Memory limit exceeded for model %s: %s")
     except CannotCoerceColumnException as err:
-        await logger.aexception("Type coercion error for model %s: %s", model.label, str(err))
-        await queue.put(QueueMessage(status=ModelStatus.FAILED, label=model.label, error=str(err)))
+        await handle_error(err, "Type coercion error for model %s: %s")
     except Exception as err:
-        await logger.aexception("Failed to materialize model %s due to error: %s", model.label, str(err))
-
-        if "job_id" in locals():
-            job = await database_sync_to_async(DataModelingJob.objects.get)(id=job_id)
-            job.status = DataModelingJob.Status.FAILED
-            job.error = str(err)
-            await database_sync_to_async(job.save)()
-
-        await queue.put(QueueMessage(status=ModelStatus.FAILED, label=model.label, error=str(err)))
+        await handle_error(err, "Failed to materialize model %s due to error: %s")
     else:
         await logger.ainfo("Materialized model %s", model.label)
         await queue.put(QueueMessage(status=ModelStatus.COMPLETED, label=model.label))
