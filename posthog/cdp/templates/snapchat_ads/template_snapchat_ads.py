@@ -155,7 +155,7 @@ if (res.status >= 400) {
             "description": "A map that contains customer information data. See this page for options: https://developers.snap.com/api/marketing-api/Conversions-API/Parameters#user-data-parameters",
             "default": {
                 "em": "{sha256Hex(lower(person.properties.email))}",
-                "ph": "{sha256Hex(person.properties.phone)",
+                "ph": "{sha256Hex(person.properties.phone)}",
                 "sc_click_id": "{person.properties.sccid ?? person.properties.$initial_sccid}",
                 "client_user_agent": "{event.properties.$raw_user_agent}",
                 "fn": "{sha256Hex(lower(person.properties.first_name))}",
