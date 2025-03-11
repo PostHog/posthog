@@ -4,6 +4,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { personsSceneLogic } from 'scenes/persons-management/tabs/personsSceneLogic'
 
 import { Query } from '~/queries/Query/Query'
+
 export function Persons(): JSX.Element {
     const { query } = useValues(personsSceneLogic)
     const { setQuery } = useActions(personsSceneLogic)
