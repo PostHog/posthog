@@ -77,12 +77,10 @@ async def actions(action_models, ateam):
 @pytest_asyncio.fixture
 async def summarized_actions(action_models, ateam):
     dt = timezone.now()
-    embeddings = [[0.12, 0.054], [0.1, 0.7], [0.8, 0.6663]]
     summaries = ["Test summary 1", "Test summary 2", "Test summary 3"]
-    for action, embedding, summary in zip(action_models, embeddings, summaries):
+    for action, summary in zip(action_models, summaries):
         action.last_summarized_at = dt
         action.summary = summary
-        action.embedding = embedding
 
     await Action.objects.abulk_create(action_models)
     yield action_models
@@ -176,7 +174,6 @@ async def test_basic_batch_summarization(mock_flag, actions):
             await action.arefresh_from_db()
             assert action.summary is None
             assert action.last_summarized_at is None
-            assert action.embedding is None
             assert action.embedding_last_synced_at is None
 
         summarize_mock.return_value = ["Test2", "Test3"]
