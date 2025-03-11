@@ -306,23 +306,6 @@ impl SymbolSetRecord {
 
         Ok(())
     }
-
-    pub async fn delete<'c, E>(&mut self, e: E) -> Result<(), UnhandledError>
-    where
-        E: sqlx::Executor<'c, Database = sqlx::Postgres>,
-    {
-        sqlx::query!(
-            r#"
-            DELETE FROM posthog_errortrackingsymbolset WHERE id = $1 AND team_id = $2
-            "#,
-            self.id,
-            self.team_id
-        )
-        .execute(e)
-        .await?;
-
-        Ok(())
-    }
 }
 
 #[cfg(test)]
