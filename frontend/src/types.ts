@@ -3959,6 +3959,7 @@ export type APIScopeObject =
     | 'dashboard'
     | 'dashboard_template'
     | 'early_access_feature'
+    | 'error_tracking'
     | 'event_definition'
     | 'experiment'
     | 'export'
@@ -3966,7 +3967,6 @@ export type APIScopeObject =
     | 'group'
     | 'hog_function'
     | 'insight'
-    | 'query'
     | 'notebook'
     | 'organization'
     | 'organization_member'
@@ -3974,6 +3974,7 @@ export type APIScopeObject =
     | 'plugin'
     | 'project'
     | 'property_definition'
+    | 'query'
     | 'session_recording'
     | 'session_recording_playlist'
     | 'sharing_configuration'
@@ -4269,6 +4270,7 @@ export interface ExternalDataSourceSyncSchema {
     table: string
     rows?: number | null
     should_sync: boolean
+    sync_time_of_day: string | null
     incremental_field: string | null
     incremental_field_type: string | null
     sync_type: 'full_refresh' | 'incremental' | null
@@ -4280,6 +4282,7 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     table?: SimpleDataWarehouseTable
     incremental: boolean
     sync_type: 'incremental' | 'full_refresh' | null
+    sync_time_of_day: string | null
     status?: string
     latest_error: string | null
     incremental_field: string | null

@@ -1,8 +1,9 @@
 from random import random
+from typing import Any, Union
 
 import structlog
 from django.conf import settings
-from django.http import HttpRequest, JsonResponse
+from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from prometheus_client import Counter
 from rest_framework import status
@@ -77,7 +78,7 @@ def maybe_log_decide_data(request_body: Optional[dict] = None, response_body: Op
         logger.warn("Failed to log decide data", team_id=team_id_as_string)
 
 
-def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool = False) -> dict:
+def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool = False) -> dict[str, Any]:
     use_remote_config = False
 
     # Explicitly set via query param for testing otherwise rollout percentage
@@ -188,7 +189,7 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
 
 @csrf_exempt
 @timed("posthog_cloud_decide_endpoint")
-def get_decide(request: HttpRequest):
+def get_decide(request: HttpRequest) -> HttpResponse:
     """Handle the /decide endpoint which provides configuration and feature flags to PostHog clients.
     The decide endpoint is a critical API that tells PostHog clients (like posthog-js) how they should behave,
     including which feature flags are enabled, whether to record sessions, etc.
@@ -299,7 +300,10 @@ def get_decide(request: HttpRequest):
         maybe_log_decide_data(request_body=data)
 
         # --- 5. Handle feature flags ---
-        flags_response = get_feature_flags_response(request, data, team, token, api_version)
+        flags_response = get_feature_flags_response_or_body(request, data, team, token, api_version)
+        if isinstance(flags_response, HttpResponse):
+            return flags_response
+
         response = get_base_config(token, team, request, skip_db=flags_response.get("errorsWhileComputingFlags", False))
 
         try:
@@ -339,8 +343,13 @@ def get_decide(request: HttpRequest):
     return cors_response(request, JsonResponse(response))
 
 
-def get_feature_flags_response(request: HttpRequest, data: dict, team: Team, token: str, api_version: int) -> dict:
-    """Determine feature flag response based on various conditions."""
+def get_feature_flags_response_or_body(
+    request: HttpRequest, data: dict, team: Team, token: str, api_version: int
+) -> dict | HttpResponse:
+    """
+    Determine feature flag response body based on various conditions.
+    If the distinct_id is not provided, return a 400 response.
+    """
 
     # Early exit if flags are disabled via request
     if process_bool(data.get("disable_flags")) is True:
@@ -409,8 +418,8 @@ def get_feature_flags_response(request: HttpRequest, data: dict, team: Team, tok
 
 
 def _format_feature_flags_response(
-    feature_flags: dict, feature_flag_payloads: dict, errors: bool, api_version: int
-) -> dict:
+    feature_flags: dict[str, Any], feature_flag_payloads: dict[str, Any], errors: bool, api_version: int
+) -> dict[str, Any]:
     """Format feature flags response according to API version."""
     active_flags = {key: value for key, value in feature_flags.items() if value}
 
@@ -428,10 +437,10 @@ def _format_feature_flags_response(
 
 def _record_feature_flag_metrics(
     team: Team,
-    feature_flags: dict,
+    feature_flags: dict[str, Any],
     errors: bool,
-    data: dict,
-):
+    data: dict[str, Any],
+) -> None:
     """Record metrics and handle billing for feature flag computations."""
     if not feature_flags:
         return
@@ -454,8 +463,8 @@ def _session_recording_domain_not_allowed(team: Team, request: HttpRequest) -> b
     return team.recording_domains and not on_permitted_recording_domain(team.recording_domains, request)
 
 
-def _session_recording_config_response(request: HttpRequest, team: Team) -> bool | dict:
-    session_recording_config_response: bool | dict = False
+def _session_recording_config_response(request: HttpRequest, team: Team) -> Union[bool, dict[str, Any]]:
+    session_recording_config_response: Union[bool, dict[str, Any]] = False
 
     try:
         if team.session_recording_opt_in and not _session_recording_domain_not_allowed(team, request):

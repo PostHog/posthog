@@ -1,6 +1,5 @@
 // Global components
 @import 'vars';
-@import '../../node_modules/react-toastify/dist/ReactToastify';
 @import 'functions';
 @import 'mixins';
 @import 'utilities-legacy'; // TODO: Remove all legacy utilities
@@ -978,6 +977,10 @@
 }
 
 @layer base {
+    /* stylelint-disable-next-line no-invalid-position-at-import-rule */ // allowing @import to be inside layer
+    @import '../../node_modules/react-toastify/dist/ReactToastify'; // Toastify is in base so that we can override
+
+    /* stylelint-disable-next-line order/order */ // allowing @import to be first
     *,
     ::after,
     ::before,
