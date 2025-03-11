@@ -56,13 +56,13 @@ export function SurveyTemplates(): JSX.Element {
                                 onClick={() => {
                                     setSurveyTemplateValues({
                                         name: template.templateType,
-                                        questions: template.questions,
+                                        questions: template.questions ?? [],
                                         appearance: {
                                             ...defaultSurveyAppearance,
                                             ...template.appearance,
                                             ...surveyAppearance,
                                         },
-                                        conditions: template.conditions,
+                                        conditions: template.conditions ?? null,
                                     })
                                     reportSurveyTemplateClicked(template.templateType)
                                 }}

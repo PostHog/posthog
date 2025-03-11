@@ -200,7 +200,7 @@ export enum SurveyTemplateType {
     ErrorTracking = 'Capture exceptions',
 }
 
-export type SurveyTemplate = Partial<Survey> & {
+type SurveyTemplate = Partial<Survey> & {
     templateType: SurveyTemplateType
 }
 
