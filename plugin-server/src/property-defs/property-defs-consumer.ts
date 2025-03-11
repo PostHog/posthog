@@ -136,9 +136,11 @@ export class PropertyDefsConsumer {
             Promise.resolve(this.extractPropertyDefinitions(parsedMessages))
         )
 
+        console.log('🔁', `Property definitions collected`, JSON.stringify(collected, null, 2))
+
         for (const eventDef of Object.values(collected.eventDefinitionsById)) {
             eventDefTypesCounter.inc()
-            status.debug('🔁', `Writing event definition`, { eventDef })
+            status.info('🔁', `Writing event definition`, { eventDef })
 
             // TODO: Batch all these DB writes
             void this.scheduleWork(this.propertyDefsDB.writeEventDefinition(eventDef))
@@ -146,7 +148,7 @@ export class PropertyDefsConsumer {
 
         for (const propDef of Object.values(collected.propertyDefinitionsById)) {
             propertyDefTypesCounter.inc({ type: propDef.property_type ?? 'null' })
-            status.debug('🔁', `Writing property definition`, { propDef })
+            status.info('🔁', `Writing property definition`, { propDef })
 
             // TODO: Batch all these DB writes
             void this.scheduleWork(this.propertyDefsDB.writePropertyDefinition(propDef))
@@ -154,7 +156,7 @@ export class PropertyDefsConsumer {
 
         for (const eventProp of Object.values(collected.eventPropertiesById)) {
             eventPropTypesCounter.inc()
-            status.debug('🔁', `Writing event property`, { eventProp })
+            status.info('🔁', `Writing event property`, { eventProp })
 
             // TODO: Batch all these DB writes
             void this.scheduleWork(this.propertyDefsDB.writeEventProperty(eventProp))

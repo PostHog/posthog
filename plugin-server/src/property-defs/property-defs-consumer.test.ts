@@ -2,13 +2,15 @@ import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
 import { mockProducer } from '~/tests/helpers/mocks/producer.mock'
-import { resetTestDatabase } from '~/tests/helpers/sql'
+import { forSnapshot } from '~/tests/helpers/snapshots'
+import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { insertHogFunction as _insertHogFunction } from '../cdp/_tests/fixtures'
-import { ClickHouseEvent, Hub, RawClickHouseEvent, TimestampFormat } from '../types'
+import { ClickHouseEvent, Hub, RawClickHouseEvent, Team, TimestampFormat } from '../types'
 import { closeHub, createHub } from '../utils/db/hub'
 import { castTimestampOrNow } from '../utils/utils'
 import { PropertyDefsConsumer } from './property-defs-consumer'
+import { PropertyDefsDB } from './services/property-defs-db'
 
 const DEFAULT_TEST_TIMEOUT = 5000
 jest.setTimeout(DEFAULT_TEST_TIMEOUT)
@@ -110,6 +112,8 @@ describe('PropertyDefsConsumer', () => {
     let ingester: PropertyDefsConsumer
     let hub: Hub
     let fixedTime: DateTime
+    let team: Team
+    let propertyDefsDB: PropertyDefsDB
 
     beforeEach(async () => {
         fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
@@ -118,15 +122,19 @@ describe('PropertyDefsConsumer', () => {
         offsetIncrementer = 0
         await resetTestDatabase()
         hub = await createHub()
+        team = await getFirstTeam(hub)
+        ingester = new PropertyDefsConsumer(hub)
 
         hub.kafkaProducer = mockProducer
+        propertyDefsDB = ingester['propertyDefsDB']
+
+        jest.spyOn(propertyDefsDB, 'writeEventDefinition')
+        jest.spyOn(propertyDefsDB, 'writePropertyDefinition')
+        jest.spyOn(propertyDefsDB, 'writeEventProperty')
     })
 
     afterEach(async () => {
         jest.restoreAllMocks()
-        if (ingester) {
-            await ingester.stop()
-        }
         await closeHub(hub)
     })
 
@@ -135,17 +143,70 @@ describe('PropertyDefsConsumer', () => {
     })
 
     describe('property updates', () => {
-        beforeEach(async () => {
-            ingester = new PropertyDefsConsumer(hub)
-            await ingester.start()
-        })
-
         it('should write property defs to the DB', async () => {
-            const events = await ingester.handleKafkaBatch(createKafkaMessages([createClickHouseEvent({})]))
+            await ingester.handleKafkaBatch(
+                createKafkaMessages([
+                    createClickHouseEvent({
+                        team_id: team.id,
+                        properties: {
+                            url: 'http://example.com',
+                        },
+                    }),
+                ])
+            )
 
-            // NOTE: Currently we just process without doing anything
+            expect(propertyDefsDB.writeEventDefinition).toHaveBeenCalledTimes(1)
+            expect(propertyDefsDB.writePropertyDefinition).toHaveBeenCalledTimes(1)
+            expect(propertyDefsDB.writeEventProperty).toHaveBeenCalledTimes(1)
 
-            expect(events).toEqual(undefined)
+            expect(forSnapshot(await propertyDefsDB.listEventDefinitions(team.id))).toMatchInlineSnapshot(`
+                [
+                  {
+                    "created_at": "2025-01-01T00:00:00.000Z",
+                    "id": "<REPLACED-UUID-0>",
+                    "last_seen_at": "2025-01-01T00:00:00.000Z",
+                    "name": "$pageview",
+                    "project_id": "2",
+                    "query_usage_30_day": null,
+                    "team_id": 2,
+                    "volume_30_day": null,
+                  },
+                ]
+            `)
+
+            expect(
+                forSnapshot(await propertyDefsDB.listEventProperties(team.id), {
+                    overrides: { id: '<REPLACED_NUMBER>' },
+                })
+            ).toMatchInlineSnapshot(`
+                [
+                  {
+                    "event": "$pageview",
+                    "id": "<REPLACED_NUMBER>",
+                    "project_id": "2",
+                    "property": "url",
+                    "team_id": 2,
+                  },
+                ]
+            `)
+
+            expect(forSnapshot(await propertyDefsDB.listPropertyDefinitions(team.id))).toMatchInlineSnapshot(`
+                [
+                  {
+                    "group_type_index": null,
+                    "id": "<REPLACED-UUID-0>",
+                    "is_numerical": false,
+                    "name": "url",
+                    "project_id": "2",
+                    "property_type": "String",
+                    "property_type_format": null,
+                    "query_usage_30_day": null,
+                    "team_id": 2,
+                    "type": 1,
+                    "volume_30_day": null,
+                  },
+                ]
+            `)
         })
     })
 })
