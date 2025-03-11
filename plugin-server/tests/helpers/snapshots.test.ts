@@ -35,4 +35,31 @@ describe('forSnapshot', () => {
             }
         `)
     })
+
+    it('should allow overriding keys', () => {
+        const result = forSnapshot(
+            {
+                id: '123e4567-e89b-12d3-a456-426614174000',
+                num: 1,
+                timestamp: new Date(),
+                leaveMeAlone: 'leave me alone',
+            },
+            {
+                overrides: {
+                    id: 'REPLACE_ME',
+                    num: 'REPLACED_NUM',
+                    timestamp: 'REPLACED_TIMESTAMP',
+                },
+            }
+        )
+
+        expect(result).toMatchInlineSnapshot(`
+            {
+              "id": "REPLACE_ME",
+              "leaveMeAlone": "leave me alone",
+              "num": "REPLACED_NUM",
+              "timestamp": "REPLACED_TIMESTAMP",
+            }
+        `)
+    })
 })
