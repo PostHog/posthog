@@ -10,7 +10,7 @@ from django.conf import settings
 from django.db import DatabaseError, IntegrityError
 from django.db.models.expressions import ExpressionWrapper, RawSQL
 from django.db.models.fields import BooleanField
-from django.db.models import Q, Func, F, CharField
+from django.db.models import Q, Func, F, CharField, Expression
 from django.db.models.query import QuerySet
 from sentry_sdk.api import start_span
 from posthog.metrics import LABEL_TEAM_ID
@@ -77,21 +77,22 @@ class FeatureFlagMatchReason(StrEnum):
     OUT_OF_ROLLOUT_BOUND = "out_of_rollout_bound"
     NO_GROUP_TYPE = "no_group_type"
 
-    def score(self):
-        if self == FeatureFlagMatchReason.SUPER_CONDITION_VALUE:
-            return 4
-        if self == FeatureFlagMatchReason.HOLDOUT_CONDITION_VALUE:
-            return 3.5
-        if self == FeatureFlagMatchReason.CONDITION_MATCH:
-            return 3
-        if self == FeatureFlagMatchReason.NO_GROUP_TYPE:
-            return 2
-        if self == FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND:
-            return 1
-        if self == FeatureFlagMatchReason.NO_CONDITION_MATCH:
-            return 0
-
-        return -1
+    def score(self) -> float:
+        match self:
+            case FeatureFlagMatchReason.SUPER_CONDITION_VALUE:
+                return 4
+            case FeatureFlagMatchReason.HOLDOUT_CONDITION_VALUE:
+                return 3.5
+            case FeatureFlagMatchReason.CONDITION_MATCH:
+                return 3
+            case FeatureFlagMatchReason.NO_GROUP_TYPE:
+                return 2
+            case FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND:
+                return 1
+            case FeatureFlagMatchReason.NO_CONDITION_MATCH:
+                return 0
+            case _:
+                raise AssertionError("Unreachable - all enum cases are handled")
 
     def __lt__(self, other):
         if self.__class__ is other.__class__:
@@ -123,7 +124,7 @@ class FlagsMatcherCache:
                 group_type_mapping_rows = GroupTypeMapping.objects.db_manager(DATABASE_FOR_FLAG_MATCHING).filter(
                     project_id=self.project_id
                 )
-                return {row.group_type: row.group_type_index for row in group_type_mapping_rows}
+                return {row.group_type: cast(GroupTypeIndex, row.group_type_index) for row in group_type_mapping_rows}
         except DatabaseError:
             self.failed_to_fetch_flags = True
             raise
@@ -577,7 +578,7 @@ class FeatureFlagMatcher:
                                     **type_property_annotations,
                                     **{
                                         key: ExpressionWrapper(
-                                            expr if expr else RawSQL("true", []),
+                                            cast(Expression, expr if expr else RawSQL("true", [])),
                                             output_field=BooleanField(),
                                         ),
                                     },
@@ -598,9 +599,9 @@ class FeatureFlagMatcher:
                                     **type_property_annotations,
                                     **{
                                         key: ExpressionWrapper(
-                                            expr if expr else RawSQL("true", []),
+                                            cast(Expression, expr if expr else RawSQL("true", [])),
                                             output_field=BooleanField(),
-                                        )
+                                        ),
                                     },
                                 )
                                 group_fields.append(key)
@@ -694,6 +695,8 @@ class FeatureFlagMatcher:
             # TODO: Don't use the cache if self.groups is empty, since that means no groups provided anyway
             # :TRICKY: If aggregating by groups
             group_type_name = self.cache.group_type_index_to_name.get(feature_flag.aggregation_group_type_index)
+            if group_type_name is None:
+                return None
             group_key = self.groups.get(group_type_name)
             return group_key
 
@@ -1194,7 +1197,7 @@ def check_flag_evaluation_query_is_ok(feature_flag: FeatureFlag, project_id: int
             **type_property_annotations,
             **{
                 key: ExpressionWrapper(
-                    expr if expr else RawSQL("true", []),
+                    cast(Expression, expr if expr else RawSQL("true", [])),
                     output_field=BooleanField(),
                 ),
             },
