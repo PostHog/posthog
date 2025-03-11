@@ -35,3 +35,7 @@ pub const ISSUE_CREATED: &str = "cymbal_issue_created";
 pub const ISSUE_REOPENED: &str = "cymbal_issue_reopened";
 pub const FRAME_RESOLUTION_RESULTS_DELETED: &str = "cymbal_frame_resolution_results_deleted";
 pub const DROPPED_EVENTS: &str = "cymbal_dropped_events";
+pub const CHUNK_ID_NOT_FOUND: &str = "cymbal_chunk_id_not_found";
+pub const CHUNK_ID_PARSE_ERROR: &str = "cymbal_chunk_id_parse_error";
+pub const CHUNK_ID_FAILURE_FETCHED: &str = "cymbal_chunk_id_failure_fetched";
+pub const CHUNK_ID_FAILURE_SAVED: &str = "cymbal_chunk_id_failure_saved";

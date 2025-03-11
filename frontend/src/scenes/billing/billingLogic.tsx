@@ -668,6 +668,8 @@ export const billingLogic = kea<billingLogicType>([
                         or ${
                             productOverLimit.name === 'Data warehouse'
                                 ? 'data will not be synced'
+                                : productOverLimit.name === 'Feature flags & Experiments'
+                                ? 'feature flags will not evaluate'
                                 : 'data loss may occur'
                         }.`,
                     dismissKey: 'usage-limit-exceeded',
