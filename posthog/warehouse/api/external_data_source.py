@@ -442,6 +442,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             is_incremental = sync_type == "incremental"
             incremental_field = schema.get("incremental_field")
             incremental_field_type = schema.get("incremental_field_type")
+            sync_time_of_day = schema.get("sync_time_of_day")
 
             if is_incremental and incremental_field is None:
                 new_source_model.delete()
@@ -463,6 +464,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 source=new_source_model,
                 should_sync=schema.get("should_sync"),
                 sync_type=sync_type,
+                sync_time_of_day=sync_time_of_day,
                 sync_type_config=(
                     {
                         "incremental_field": incremental_field,

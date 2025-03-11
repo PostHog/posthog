@@ -6,7 +6,6 @@ import deltalake as deltalake
 import pyarrow as pa
 from dlt.sources import DltSource
 
-from posthog.settings import TEST
 from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.temporal.common.shutdown import ShutdownMonitor
 from posthog.temporal.data_imports.deltalake_compaction_job import trigger_compaction_job
@@ -64,7 +63,7 @@ class PipelineNonDLT:
                 primary_keys=_get_primary_keys(resource),
                 name=resource_name,
                 column_hints=_get_column_hints(resource),
-                partition_bucket_size=None,
+                partition_count=None,
             )
         else:
             self._resource = source
@@ -103,6 +102,10 @@ class PipelineNonDLT:
                 self._logger.debug("Deleting existing table due to reset_pipeline being set")
                 self._delta_table_helper.reset_table()
                 self._schema.update_sync_type_config_for_reset_pipeline()
+            elif self._schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH:
+                # Avoid schema mismatches from existing data about to be overwritten
+                self._logger.debug("Deleting existing table due to sync being full refresh")
+                self._delta_table_helper.reset_table()
 
             for item in self._resource.items:
                 py_table = None
@@ -187,26 +190,25 @@ class PipelineNonDLT:
         if (
             should_partition_table(delta_table, self._schema, self._resource)
             and not table_using_old_partitioning_system
-            and TEST
         ):
-            partition_size = self._schema.partitioning_size or self._resource.partition_bucket_size
+            partition_count = self._schema.partition_count or self._resource.partition_count
             partition_keys = self._schema.partitioning_keys or self._resource.primary_keys
-            if partition_size and partition_keys:
+            if partition_count and partition_keys:
                 # This needs to happen before _evolve_pyarrow_schema
                 pa_table = append_partition_key_to_table(
                     table=pa_table,
-                    partition_size=partition_size,
+                    partition_count=partition_count,
                     primary_keys=partition_keys,
                     logger=self._logger,
                 )
 
                 if not self._schema.partitioning_enabled:
                     self._logger.debug(
-                        f"Setting partitioning_enabled on schema with: partition_keys={partition_keys}. partition_size={partition_size}"
+                        f"Setting partitioning_enabled on schema with: partition_keys={partition_keys}. partition_count={partition_count}"
                     )
-                    self._schema.set_partitioning_enabled(partition_keys, partition_size)
+                    self._schema.set_partitioning_enabled(partition_keys, partition_count)
             else:
-                self._logger.debug("Skipping partitioning due to missing partition_size or partition_keys")
+                self._logger.debug("Skipping partitioning due to missing partition_count or partition_keys")
         elif table_using_old_partitioning_system:
             # Will be removed once all tables have been converted over
             self._logger.debug("Table is using old partitioning system. Filling partition key with 2025-03")

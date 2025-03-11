@@ -1,17 +1,17 @@
-import { IconCorrelationAnalysis, IconInfo } from '@posthog/icons'
-import { LemonTable, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { IconCorrelationAnalysis, IconInfo, IconPencil } from '@posthog/icons'
+import { LemonButton, LemonTable, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { Chart, ChartConfiguration } from 'chart.js/auto'
 import clsx from 'clsx'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { humanFriendlyNumber } from 'lib/utils'
 import { useEffect, useRef } from 'react'
 
 import { experimentLogic } from '../experimentLogic'
 import { VariantTag } from './components'
-import { ExposureCriteriaButton } from './ExposureCriteria'
 
 export function Exposures(): JSX.Element {
     const { experimentId, exposures, exposuresLoading, exposureCriteriaLabel } = useValues(experimentLogic)
+    const { openExposureCriteriaModal } = useActions(experimentLogic)
 
     const chartRef = useRef<Chart | null>(null)
 
@@ -115,7 +115,15 @@ export function Exposures(): JSX.Element {
                             Exposures will appear here once the first participant has been exposed.
                         </p>
                         <div className="flex justify-center">
-                            <ExposureCriteriaButton />
+                            <LemonButton
+                                icon={<IconPencil fontSize="12" />}
+                                size="xsmall"
+                                className="flex items-center gap-2"
+                                type="secondary"
+                                onClick={() => openExposureCriteriaModal()}
+                            >
+                                Edit exposure criteria
+                            </LemonButton>
                         </div>
                     </div>
                 </div>
@@ -124,14 +132,20 @@ export function Exposures(): JSX.Element {
                     <div className={clsx(chartWrapperClasses, 'w-full md:w-2/3')}>
                         <canvas id="exposuresChart" />
                     </div>
-                    <div className="md:w-1/3 border rounded bg-surface-primary p-4">
+                    <div className="h-[250px] md:w-1/3 border rounded bg-surface-primary p-4 overflow-y-auto">
                         <div className="flex justify-between mb-4">
                             <div>
                                 <h3 className="card-secondary">Exposure criteria</h3>
-                                <div className="text-sm font-semibold">{exposureCriteriaLabel}</div>
-                            </div>
-                            <div>
-                                <ExposureCriteriaButton />
+                                <div className="flex items-center gap-2">
+                                    <div className="text-sm font-semibold">{exposureCriteriaLabel}</div>
+                                    <LemonButton
+                                        icon={<IconPencil fontSize="12" />}
+                                        size="xsmall"
+                                        className="flex items-center gap-2"
+                                        type="secondary"
+                                        onClick={() => openExposureCriteriaModal()}
+                                    />
+                                </div>
                             </div>
                         </div>
                         {exposures?.timeseries.length > 0 && (
@@ -163,15 +177,28 @@ export function Exposures(): JSX.Element {
                                             title: '%',
                                             key: 'percentage',
                                             render: function Percentage(_, series) {
-                                                const total =
-                                                    exposures?.total_exposures.test + exposures?.total_exposures.control
+                                                let total = 0
+                                                if (exposures?.total_exposures) {
+                                                    for (const [_, value] of Object.entries(
+                                                        exposures.total_exposures
+                                                    )) {
+                                                        total += Number(value)
+                                                    }
+                                                }
                                                 return (
                                                     <span className="font-semibold">
-                                                        {(
-                                                            (exposures?.total_exposures[series.variant] / total) *
-                                                            100
-                                                        ).toFixed(1)}
-                                                        %
+                                                        {total ? (
+                                                            <>
+                                                                {(
+                                                                    (exposures?.total_exposures[series.variant] /
+                                                                        total) *
+                                                                    100
+                                                                ).toFixed(1)}
+                                                                %
+                                                            </>
+                                                        ) : (
+                                                            <>-%</>
+                                                        )}
                                                     </span>
                                                 )
                                             },

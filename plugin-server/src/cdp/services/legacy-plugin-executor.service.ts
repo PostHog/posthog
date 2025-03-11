@@ -18,7 +18,7 @@ import {
 } from '../legacy-plugins/types'
 import { sanitizeLogMessage } from '../services/hog-executor.service'
 import { HogFunctionInvocation, HogFunctionInvocationResult } from '../types'
-import { CDP_TEST_ID, isLegacyPluginHogFunction } from '../utils'
+import { isLegacyPluginHogFunction } from '../utils'
 
 const pluginExecutionDuration = new Histogram({
     name: 'cdp_plugin_execution_duration_ms',
@@ -38,6 +38,10 @@ export type PluginState = {
  */
 
 const pluginConfigCheckCache: Record<string, boolean> = {}
+
+export type LegacyPluginExecutorOptions = {
+    fetch?: (...args: Parameters<typeof trackedFetch>) => Promise<Response>
+}
 
 export class LegacyPluginExecutorService {
     constructor(private hub: Hub) {}
@@ -108,15 +112,18 @@ export class LegacyPluginExecutorService {
         }
     }
 
-    public async execute(invocation: HogFunctionInvocation): Promise<HogFunctionInvocationResult> {
+    public async execute(
+        invocation: HogFunctionInvocation,
+        options?: LegacyPluginExecutorOptions
+    ): Promise<HogFunctionInvocationResult> {
+        const fetch = options?.fetch || this.fetch
+
         const result: HogFunctionInvocationResult = {
             invocation,
             finished: true,
             capturedPostHogEvents: [],
             logs: [],
         }
-
-        const isTestFunction = invocation.hogFunction.name.includes(CDP_TEST_ID)
 
         const addLog = (level: 'debug' | 'warn' | 'error' | 'info', ...args: any[]) => {
             result.logs.push({
@@ -131,24 +138,6 @@ export class LegacyPluginExecutorService {
             warn: (...args: any[]) => addLog('warn', ...args),
             log: (...args: any[]) => addLog('info', ...args),
             error: (...args: any[]) => addLog('error', ...args),
-        }
-
-        const fetch = (...args: Parameters<typeof trackedFetch>): Promise<Response> => {
-            const method = args[1] && typeof args[1].method === 'string' ? args[1].method : 'GET'
-
-            if (isTestFunction && method.toUpperCase() !== 'GET') {
-                // For testing we mock out all non-GET requests
-                addLog('info', 'Fetch called but mocked due to test function')
-                return Promise.resolve({
-                    status: 200,
-                    json: () =>
-                        Promise.resolve({
-                            status: 'OK',
-                            message: 'Test function',
-                        }),
-                } as Response)
-            }
-            return this.fetch(...args)
         }
 
         const pluginId = isLegacyPluginHogFunction(invocation.hogFunction) ? invocation.hogFunction.template_id : null
@@ -225,11 +214,6 @@ export class LegacyPluginExecutorService {
 
             const start = performance.now()
 
-            status.info('⚡️', 'Executing plugin', {
-                pluginId,
-                invocationId: invocation.id,
-            })
-
             const person: ProcessedPluginEvent['person'] = invocation.globals.person
                 ? {
                       uuid: invocation.globals.person.id,
@@ -295,7 +279,7 @@ export class LegacyPluginExecutorService {
             }
 
             status.error('💩', 'Plugin errored', {
-                error: e,
+                error: e.message,
                 pluginId,
                 invocationId: invocation.id,
             })

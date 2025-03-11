@@ -1,11 +1,15 @@
+use super::homedir::{ensure_homedir_exists, posthog_home_dir};
 use anyhow::{Context, Error};
-use inquire::{validator::Validation, CustomUserError, Text};
+use inquire::{validator::Validation, CustomUserError};
 use tracing::info;
 
-use crate::{
-    types::Token,
-    utils::{ensure_homedir_exists, posthog_home_dir},
-};
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Token {
+    pub token: String,
+    pub env_id: String,
+}
 
 pub trait CredentialProvider {
     fn get_credentials(&self) -> Result<Token, Error>;
@@ -66,7 +70,7 @@ impl CredentialProvider for EnvVarProvider {
     }
 }
 
-fn token_validator(token: &str) -> Result<Validation, CustomUserError> {
+pub fn token_validator(token: &str) -> Result<Validation, CustomUserError> {
     if token.is_empty() {
         return Ok(Validation::Invalid("Token cannot be empty".into()));
     };
@@ -78,24 +82,6 @@ fn token_validator(token: &str) -> Result<Validation, CustomUserError> {
     }
 
     Ok(Validation::Valid)
-}
-
-pub fn login() -> Result<(), Error> {
-    let env_id =
-        Text::new("Enter your project ID (the number in your posthog homepage url)").prompt()?;
-
-    let token = Text::new(
-        "Enter your personal API token (see posthog.com/docs/api#private-endpoint-authentication)",
-    )
-    .with_validator(token_validator)
-    .prompt()?;
-
-    let token = Token { token, env_id };
-
-    let provider = HomeDirProvider;
-    provider.store_credentials(token)?;
-    info!("Token saved to: {}", provider.report_location());
-    Ok(())
 }
 
 pub fn load_token() -> Result<Token, Error> {
