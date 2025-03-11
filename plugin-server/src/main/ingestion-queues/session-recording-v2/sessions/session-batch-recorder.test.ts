@@ -8,6 +8,7 @@ import { MessageWithTeam } from '../teams/types'
 import { SessionBatchMetrics } from './metrics'
 import { SessionBatchFileStorage, SessionBatchFileWriter } from './session-batch-file-storage'
 import { SessionBatchRecorder } from './session-batch-recorder'
+import { SessionConsoleLogRecorder } from './session-console-log-recorder'
 import { SessionMetadataStore } from './session-metadata-store'
 import { EndResult, SnappySessionRecorder } from './snappy-session-recorder'
 
@@ -91,9 +92,6 @@ export class SnappySessionRecorderMock {
             keypressCount: 0,
             mouseActivityCount: 0,
             activeMilliseconds: 0,
-            consoleLogCount: 0,
-            consoleWarnCount: 0,
-            consoleErrorCount: 0,
             size: buffer.length,
             messageCount: 0,
             snapshotSource: null,
@@ -102,6 +100,29 @@ export class SnappySessionRecorderMock {
         }
     }
 }
+
+export class SessionConsoleLogRecorderMock {
+    constructor(public readonly sessionId: string, public readonly teamId: number, private readonly batchId: string) {}
+
+    public recordMessage(_message: ParsedMessageData): void {}
+
+    public end() {
+        return {
+            consoleLogCount: 3,
+            consoleWarnCount: 2,
+            consoleErrorCount: 1,
+        }
+    }
+}
+
+jest.mock('./session-console-log-recorder', () => ({
+    SessionConsoleLogRecorder: jest
+        .fn()
+        .mockImplementation(
+            (sessionId: string, teamId: number, batchId: string) =>
+                new SessionConsoleLogRecorderMock(sessionId, teamId, batchId)
+        ),
+}))
 
 jest.setTimeout(1000)
 
@@ -527,9 +548,9 @@ describe('SessionBatchRecorder', () => {
                     keypressCount: 0,
                     mouseActivityCount: 0,
                     activeMilliseconds: 0,
-                    consoleLogCount: 0,
-                    consoleWarnCount: 0,
-                    consoleErrorCount: 0,
+                    consoleLogCount: 3,
+                    consoleWarnCount: 2,
+                    consoleErrorCount: 1,
                     size: expect.any(Number),
                     messageCount: 0,
                     snapshotSource: null,
@@ -601,9 +622,9 @@ describe('SessionBatchRecorder', () => {
                         keypressCount: 0,
                         mouseActivityCount: 0,
                         activeMilliseconds: 0,
-                        consoleLogCount: 0,
-                        consoleWarnCount: 0,
-                        consoleErrorCount: 0,
+                        consoleLogCount: 3,
+                        consoleWarnCount: 2,
+                        consoleErrorCount: 1,
                         size: expect.any(Number),
                         messageCount: 0,
                         snapshotSource: null,
@@ -623,9 +644,9 @@ describe('SessionBatchRecorder', () => {
                         keypressCount: 0,
                         mouseActivityCount: 0,
                         activeMilliseconds: 0,
-                        consoleLogCount: 0,
-                        consoleWarnCount: 0,
-                        consoleErrorCount: 0,
+                        consoleLogCount: 3,
+                        consoleWarnCount: 2,
+                        consoleErrorCount: 1,
                         size: expect.any(Number),
                         messageCount: 0,
                         snapshotSource: null,
@@ -920,19 +941,25 @@ describe('SessionBatchRecorder', () => {
                 keypressCount: 25,
                 mouseActivityCount: 50,
                 activeMilliseconds: 8000,
-                consoleLogCount: 3,
-                consoleWarnCount: 2,
-                consoleErrorCount: 1,
                 size: 1024,
                 messageCount: 15,
                 snapshotSource: 'web',
                 snapshotLibrary: 'rrweb@1.0.0',
             })
 
-            // Mock the SnappySessionRecorder constructor to return our custom recorder
+            // Create a custom mock implementation of SessionConsoleLogRecorderMock
+            const customConsoleRecorder = new SessionConsoleLogRecorderMock('session_custom', 3, 'test_batch_id')
+            customConsoleRecorder.end = jest.fn().mockReturnValue({
+                consoleLogCount: 5,
+                consoleWarnCount: 3,
+                consoleErrorCount: 2,
+            })
+
+            // Mock both recorders
             jest.mocked(SnappySessionRecorder).mockImplementationOnce(
                 () => customRecorder as unknown as SnappySessionRecorder
             )
+            jest.mocked(SessionConsoleLogRecorder).mockImplementationOnce(() => customConsoleRecorder as any)
 
             // Create a message and record it
             const message = createMessage('session_custom', [
@@ -947,7 +974,7 @@ describe('SessionBatchRecorder', () => {
             recorder.record(message)
             await recorder.flush()
 
-            // Verify that the metadata store received the non-default values
+            // Verify that the metadata store received both the non-default values and console log counts
             expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalledWith([
                 expect.objectContaining({
                     sessionId: 'session_custom',
@@ -963,9 +990,9 @@ describe('SessionBatchRecorder', () => {
                     keypressCount: 25,
                     mouseActivityCount: 50,
                     activeMilliseconds: 8000,
-                    consoleLogCount: 3,
-                    consoleWarnCount: 2,
-                    consoleErrorCount: 1,
+                    consoleLogCount: 5,
+                    consoleWarnCount: 3,
+                    consoleErrorCount: 2,
                     size: 1024,
                     messageCount: 15,
                     snapshotSource: 'web',
