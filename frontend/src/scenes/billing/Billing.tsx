@@ -146,7 +146,7 @@ export function Billing(): JSX.Element {
                     <b>{dayjs(billing.trial.expires_at).format('LL')}</b>. At the end of the trial{' '}
                     {billing.trial.type === 'autosubscribe'
                         ? 'you will be automatically subscribed to the plan.'
-                        : 'you will be asked to subscribe. If you choose not to, you will lose access to the features.'}
+                        : 'you will be asked to subscribe. If you choose not to, you will lose access to the paid features.'}
                 </LemonBanner>
             ) : null}
 
