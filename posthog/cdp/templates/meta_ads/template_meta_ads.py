@@ -14,6 +14,7 @@ let body := {
     'data': [
         {
             'event_name': inputs.eventName,
+            'event_id': inputs.eventId,
             'event_time': inputs.eventTime,
             'action_source': inputs.actionSource,
             'user_data': {},
@@ -73,6 +74,15 @@ if (res.status >= 400) {
             "label": "Event name",
             "description": "A standard event or custom event name.",
             "default": "{event.event}",
+            "secret": False,
+            "required": True,
+        },
+        {
+            "key": "eventId",
+            "type": "string",
+            "label": "Event ID",
+            "description": "The ID of the event.",
+            "default": "{event.uuid}",
             "secret": False,
             "required": True,
         },
