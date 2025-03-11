@@ -364,6 +364,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 loadData: () => true,
                 loadDataSuccess: () => false,
                 loadDataFailure: () => false,
+                cancelQuery: () => false,
             },
         ],
         queryId: [
@@ -378,6 +379,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 loadNewData: () => true,
                 loadNewDataSuccess: () => false,
                 loadNewDataFailure: () => false,
+                cancelQuery: () => false,
             },
         ],
         nextDataLoading: [
@@ -386,6 +388,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 loadNextData: () => true,
                 loadNextDataSuccess: () => false,
                 loadNextDataFailure: () => false,
+                cancelQuery: () => false,
             },
         ],
         queryCancelled: [
@@ -432,6 +435,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 loadData: () => performance.now(),
                 loadNewData: () => performance.now(),
                 loadNextData: () => performance.now(),
+                cancelQuery: () => null,
             },
         ],
         _response: {
@@ -494,6 +498,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 loadData: () => null,
                 loadNewData: () => null,
                 loadNextData: () => null,
+                cancelQuery: () => null,
             },
         ],
         loadingTimeSeconds: [
@@ -503,6 +508,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 loadDataSuccess: () => 0,
                 loadDataFailure: () => 0,
                 setLoadingTime: (_, { seconds }) => seconds,
+                cancelQuery: () => 0,
             },
         ],
     })),
@@ -743,6 +749,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         },
         cancelQuery: () => {
             actions.abortAnyRunningQuery()
+            actions.resetLoadingTimer()
         },
         loadData: () => {
             actions.collectionNodeLoadData(props.key)

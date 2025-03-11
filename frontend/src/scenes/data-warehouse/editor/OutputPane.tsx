@@ -322,7 +322,7 @@ export function OutputPane(): JSX.Element {
                 </BindLogic>
             </div>
             <div className="flex justify-between px-2 border-t">
-                <div>{response ? <LoadPreviewText /> : <></>}</div>
+                <div>{response && !responseError ? <LoadPreviewText /> : <></>}</div>
                 <ElapsedTime />
             </div>
             <RowDetailsModal
@@ -388,7 +388,7 @@ function InternalDataTableVisualization(
 
 const ErrorState = ({ responseError, sourceQuery, queryCancelled, response }: any): JSX.Element | null => {
     return (
-        <div className={clsx('flex-1 absolute top-0 left-0 right-0 bottom-0 overflow-scroll')}>
+        <div className={clsx('flex-1 absolute top-0 left-0 right-0 bottom-0')}>
             <InsightErrorState
                 query={sourceQuery}
                 excludeDetail
