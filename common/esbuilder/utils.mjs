@@ -675,7 +675,7 @@ export function gatherProductManifests(__dirname) {
         /** This const is auto-generated, as is the whole file */
         export const productUrls = ${manifestUrls}\n
     `
-    fse.writeFileSync(path.join(__dirname, 'src/products.ts'), productsTsx)
+    fse.writeFileSync(path.join(__dirname, 'src/products.tsx'), productsTsx)
 
-    ps.execSync('prettier --write src/products.ts')
+    ps.execSync('prettier --write src/products.tsx')
 }
