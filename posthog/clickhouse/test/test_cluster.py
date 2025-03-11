@@ -1,9 +1,8 @@
 import json
 import re
-from collections.abc import Mapping
 import uuid
 from collections import defaultdict
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from unittest.mock import Mock, patch, sentinel
 
 import pytest
@@ -11,15 +10,15 @@ from clickhouse_driver import Client
 
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.cluster import (
+    AlterTableMutationRunner,
     ClickhouseCluster,
     HostInfo,
-    MutationNotFound,
-    AlterTableMutationRunner,
     LightweightDeleteMutationRunner,
-    T,
+    MutationNotFound,
     MutationWaiter,
     Query,
     RetryPolicy,
+    T,
     get_cluster,
 )
 from posthog.models.event.sql import EVENTS_DATA_TABLE
