@@ -71,7 +71,7 @@ impl AggregateFunnelRowUnordered {
             // Call update_max_step if this is the last event
             // Here we have to iterate through the whole loop like we did
             if i == all_events.len() - 1 {
-                self.oldest_event_loop(args, &mut vars, event, false);
+                self.oldest_event_loop(args, &mut vars, event, true);
             }
         }
 
