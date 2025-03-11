@@ -12,6 +12,18 @@ from temporalio.worker import (
     WorkflowInterceptorClassInput,
 )
 
+SAFE_INPUTS = (
+    "team_id",
+    "batch_export_id",
+    "interval",
+    "data_interval_start",
+    "data_interval_end",
+    "exclude_events",
+    "include_events",
+    "backfill_details",
+    "batch_export_model",
+)
+
 
 class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
     async def execute_activity(self, input: ExecuteActivityInput) -> Any:
@@ -32,9 +44,8 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
                 "temporal.workflow.type": activity_info.workflow_type,
             }
             if len(input.args) == 1 and is_dataclass(input.args[0]):
-                team_id = getattr(input.args[0], "team_id", None)
-                if team_id:
-                    properties["team_id"] = team_id
+                safe_inputs = {k: getattr(input.args[0], k) for k in SAFE_INPUTS if hasattr(input.args[0], k)}
+                properties.update(safe_inputs)
 
             if api_key:
                 capture_exception(e, properties=properties)
@@ -57,9 +68,8 @@ class _PostHogClientWorkflowInterceptor(WorkflowInboundInterceptor):
                 "temporal.workflow.id": workflow_info.workflow_id,
             }
             if len(input.args) == 1 and is_dataclass(input.args[0]):
-                team_id = getattr(input.args[0], "team_id", None)
-                if team_id:
-                    properties["team_id"] = team_id
+                safe_inputs = {k: getattr(input.args[0], k) for k in SAFE_INPUTS if hasattr(input.args[0], k)}
+                properties.update(safe_inputs)
 
             if api_key and not workflow.unsafe.is_replaying():
                 with workflow.unsafe.sandbox_unrestricted():
