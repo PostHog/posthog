@@ -52,6 +52,8 @@ import type {
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
+import { FileSystemImport } from './layout/navigation-3000/components/ProjectTree/types'
+
 // Type alias for number to be reflected as integer in json-schema.
 /** @asType integer */
 type integer = number
@@ -5062,10 +5064,17 @@ export interface CoreMemory {
     text: string
 }
 
+export interface ProductFileType {
+    icon?: JSX.Element
+    href?: (ref: string) => string
+}
+
 export interface ProductManifest {
     name: string
     scenes?: Record<string, SceneConfig>
     routes?: Record<string, [string /** Scene */, string /** Scene Key (unique for layout tabs) */]>
     redirects?: Record<string, string | ((params: Params, searchParams: Params, hashParams: Params) => string)>
     urls?: Record<string, string | ((...args: any[]) => string)>
+    fileTypes?: Record<string, ProductFileType>
+    treeItems?: FileSystemImport[]
 }

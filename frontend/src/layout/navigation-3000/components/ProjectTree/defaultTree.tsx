@@ -3,7 +3,6 @@ import {
     IconBook,
     IconChevronRight,
     IconCursorClick,
-    IconDashboard,
     IconDatabase,
     IconFeatures,
     IconGraph,
@@ -23,7 +22,6 @@ import {
     IconSparkles,
     IconTarget,
     IconTestTube,
-    IconToggle,
     IconWarning,
 } from '@posthog/icons'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -40,8 +38,6 @@ export function iconForType(type?: FileSystemType): JSX.Element {
             return <IconSparkles />
         case 'broadcast':
             return <IconMegaphone />
-        case 'feature_flag':
-            return <IconToggle />
         case 'feature':
             return <IconFeatures />
         case 'experiment':
@@ -50,8 +46,6 @@ export function iconForType(type?: FileSystemType): JSX.Element {
             return <IconGraph />
         case 'notebook':
             return <IconNotebook />
-        case 'dashboard':
-            return <IconDashboard />
         case 'repl':
             return <IconTarget />
         case 'survey':
@@ -82,19 +76,9 @@ export const getDefaultTree = (groupNodes: FileSystemImport[]): FileSystemImport
             flag: FEATURE_FLAGS.ARTIFICIAL_HOG,
         },
         {
-            path: `Create new/Dashboard`,
-            type: 'dashboard' as const,
-            href: urls.dashboards() + '#newDashboard=modal',
-        },
-        {
             path: `Create new/Experiment`,
             type: 'experiment' as const,
             href: urls.experiment('new'),
-        },
-        {
-            path: `Create new/Feature flag`,
-            type: 'feature_flag' as const,
-            href: urls.featureFlag('new'),
         },
         {
             path: `Create new/Feature`,
