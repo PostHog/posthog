@@ -1,4 +1,4 @@
-import { actions, kea, path, reducers } from 'kea'
+import { actions, kea, path, reducers, selectors } from 'kea'
 
 import type { dashboardInsightColorsLogicType } from './dashboardInsightColorsLogicType'
 
@@ -9,12 +9,15 @@ export const dashboardInsightColorsLogic = kea<dashboardInsightColorsLogicType>(
         hideDashboardInsightColorsModal: true,
     }),
     reducers({
-        dashboardInsightColorsModalVisible: [
-            false,
+        dashboardId: [
+            null as number | null,
             {
-                showDashboardInsightColorsModal: () => true,
-                hideDashboardInsightColorsModal: () => false,
+                showDashboardInsightColorsModal: (_, { id }) => id,
+                hideDashboardInsightColorsModal: () => null,
             },
         ],
+    }),
+    selectors({
+        dashboardInsightColorsModalVisible: [(s) => [s.dashboardId], (dashboardId) => dashboardId != null],
     }),
 ])
