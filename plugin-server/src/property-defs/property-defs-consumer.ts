@@ -26,20 +26,26 @@ require('@sentry/tracing')
 
 // TODO(eli): wire up LOTS more metrics ASAP!
 
-export const propertyDefTypesCounter = new Counter({
+const propertyDefTypesCounter = new Counter({
     name: 'property_defs_types_total',
     help: 'Count of derived property types.',
     labelNames: ['type'],
 })
 
-export const eventDefTypesCounter = new Counter({
+const eventDefTypesCounter = new Counter({
     name: 'event_defs_types_total',
     help: 'Count of new event definitions.',
 })
 
-export const eventPropTypesCounter = new Counter({
+const eventPropTypesCounter = new Counter({
     name: 'event_props_types_total',
     help: 'Count of derived event properties.',
+})
+
+const propDefDroppedCounter = new Counter({
+    name: 'prop_defs_dropped_total',
+    help: 'Count of property definitions dropped.',
+    labelNames: ['type', 'reason'],
 })
 
 export type CollectedPropertyDefinitions = {
@@ -267,6 +273,7 @@ export class PropertyDefsConsumer {
             event.event = sanitizeEventName(event.event)
 
             if (!willFitInPostgres(event.event)) {
+                propDefDroppedCounter.inc({ type: 'event', reason: 'key_too_long' })
                 continue
             }
 
@@ -299,6 +306,7 @@ export class PropertyDefsConsumer {
                 const groupProperties: Record<string, any> | undefined = event.properties['$group_set'] // { name: 'value', id: 'id', foo: "bar" }
                 for (const [property, value] of Object.entries(groupProperties ?? {})) {
                     if (!willFitInPostgres(property)) {
+                        propDefDroppedCounter.inc({ type: 'group', reason: 'key_too_long' })
                         continue
                     }
 
@@ -317,7 +325,7 @@ export class PropertyDefsConsumer {
                             team_id: event.team_id,
                             project_id: event.team_id, // TODO: Add project_id
                             property_type: propType,
-                            type: PropertyDefinitionTypeEnum.Event,
+                            type: PropertyDefinitionTypeEnum.Group,
                             group_type_name: groupType,
                             group_type_index: 0, // TODO(eli): resolve these w/DB query on team_id using "groupType"
                         }
@@ -330,6 +338,7 @@ export class PropertyDefsConsumer {
             // Detect person properties
             for (const [property, value] of Object.entries(event.person_properties ?? {})) {
                 if (!willFitInPostgres(property)) {
+                    propDefDroppedCounter.inc({ type: 'person', reason: 'key_too_long' })
                     continue
                 }
 
@@ -353,7 +362,13 @@ export class PropertyDefsConsumer {
 
             // Detect event properties
             for (const [property, value] of Object.entries(event.properties)) {
-                if (!willFitInPostgres(property) || SKIP_PROPERTIES.includes(property)) {
+                if (!willFitInPostgres(property)) {
+                    propDefDroppedCounter.inc({ type: 'event', reason: 'key_too_long' })
+                    continue
+                }
+
+                if (SKIP_PROPERTIES.includes(property)) {
+                    // We don't need to count these as it is expected that they will be dropped
                     continue
                 }
 
