@@ -16,61 +16,96 @@ from dagster_aws.s3 import S3Resource
 class Backup:
     database: str
     date: datetime
+    table: Optional[str] = None
     id: Optional[str] = None
     base_backup: Optional["Backup"] = None
 
     @property
     def path(self):
-        return f"{self.database}/{self.date.strftime('%Y-%m-%dT%H:%M:%SZ')}"
+        base_path = f"{self.database}/{self.date.strftime('%Y-%m-%dT%H:%M:%SZ')}"
+        if self.table:
+            base_path = f"{base_path}/{self.table}"
+
+        return base_path
 
     def create(self, client: Client, shard: int):
         backup_settings = {
-            "async": True,
+            "async": "1",
         }
         if self.base_backup:
-            backup_settings["base_backup"] = self.base_backup.path
+            backup_settings["base_backup"] = "S3('https://{bucket}.s3.amazonaws.com/{path}/{shard}')".format(
+                bucket=settings.CLICKHOUSE_BACKUPS_BUCKET,
+                path=self.base_backup.path,
+                shard=shard,
+            )
 
         query = """
-        BACKUP TABLE groups
+        BACKUP {object} {name}
         TO S3('https://{bucket}.s3.amazonaws.com/{path}/{shard}')
+        SETTINGS {settings}
         """.format(
             bucket=settings.CLICKHOUSE_BACKUPS_BUCKET,
             path=self.path,
             shard=shard,
+            object="TABLE" if self.table else "DATABASE",
+            name=self.table if self.table else self.database,
+            settings=", ".join([f"{k} = {v}" for k, v in backup_settings.items()]),
         )
 
-        client.execute(query, settings=backup_settings, query_id=f"{self.id}-{shard}")
+        client.execute(query, query_id=f"{self.id}-{shard}")
 
-    def is_done(self, client: Client) -> bool:
+    def throw_on_error(self, client: Client) -> bool:
         rows = client.execute(
             f"""
-            SELECT hostname(), argMax(status, event_time_microseconds)
+            SELECT hostname(), argMax(status, event_time_microseconds), argMax(left(error, 100), event_time_microseconds)
             FROM clusterAllReplicas(posthog, system.backup_log)
-            WHERE (start_time >= (now() - toIntervalDay(7))) AND query_id LIKE '{self.id}%'
+            WHERE (start_time >= (now() - toIntervalDay(7))) AND name LIKE '%{self.path}%'
             GROUP BY hostname()
             """
         )
 
         if len(rows) > 0:
-            statuses = [status for _, status in rows]
-            if any(status == "CREATING_BACKUP" for status in statuses):
+            statuses = [status for _, status, _ in rows]
+            if any(status != "BACKUP_CREATED" for status in statuses):
+                raise ValueError(f"The backup {self.path} finished with unexpected statuses in different nodes: {rows}")
+
+    def is_done(self, client: Client) -> bool:
+        # We query the processes table to check if the backup is in progress,
+        # because the backup_log table could not be updated (for example, if the server is restarted)
+        rows = client.execute(
+            f"""
+            SELECT count()
+            FROM clusterAllReplicas(posthog, system.processes)
+            WHERE query_kind = 'Backup' AND query like '%{self.path}%'
+            """
+        )
+
+        if len(rows) > 0:
+            [[count]] = rows
+            if count > 0:
                 return False
-            elif all(status == "BACKUP_CREATED" for status in statuses):
-                return True
             else:
-                raise ValueError(f"The backup {self.id} finished with unexpected statuses in different nodes: {rows}")
+                self.throw_on_error(client)
         else:
             raise ValueError(f"could not find backup matching {self!r}")
 
     def wait(self, client: Client) -> None:
         while not self.is_done(client):
-            time.sleep(60.0 * 5)
+            time.sleep(60.0 * 2)
 
 
-class BackupDatabaseConfig(dagster.Config):
+class BackupConfig(dagster.Config):
     incremental: bool = pydantic.Field(
         default=False,
         description="If true, the backup will be incremental. If false, the backup will be full.",
+    )
+    database: str = pydantic.Field(
+        default=settings.CLICKHOUSE_DATABASE,
+        description="The database to backup",
+    )
+    table: str = pydantic.Field(
+        default="",
+        description="The table to backup. If not specified, the entire database will be backed up.",
     )
 
 
@@ -98,26 +133,23 @@ def get_latest_backup(
 @dagster.op
 def run_backup(
     context: dagster.OpExecutionContext,
-    config: BackupDatabaseConfig,
+    config: BackupConfig,
     cluster: dagster.ResourceParam[ClickhouseCluster],
     latest_backup: Optional[Backup],
 ):
     """
-    Backup ClickHouse database to S3 using ClickHouse's native backup functionality.
+    Backup ClickHouse database / table to S3 using ClickHouse's native backup functionality.
     """
     if config.incremental:
         if not latest_backup:
             raise ValueError("Latest backup not found and incremental backup requested")
-        context.log.info("Running an incremental backup using base backup %s", latest_backup.path)
-    else:
-        context.log.info("Running a full backup")
-        latest_backup = None
 
     backup = Backup(
         id=context.run_id,
-        database=settings.CLICKHOUSE_DATABASE,
+        database=config.database,
+        table=config.table,
         date=datetime.now(UTC),
-        base_backup=latest_backup,
+        base_backup=latest_backup if config.incremental else None,
     )
 
     cluster.map_any_host_in_shards({shard: partial(backup.create, shard=shard) for shard in cluster.shards}).result()
