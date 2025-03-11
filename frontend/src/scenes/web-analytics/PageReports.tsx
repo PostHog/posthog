@@ -1,15 +1,15 @@
 import { IconExpand45, IconInfo, IconX } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+import { XRayHog2 } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { addProductIntentForCrossSell, ProductIntentContext } from 'lib/utils/product-intents'
 import { useEffect, useState } from 'react'
-import { urls } from 'scenes/urls'
 
 import { InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import {
@@ -83,10 +83,41 @@ const LearnMorePopover = ({ url, title, description }: LearnMorePopoverProps): J
 
 // URL Search Header component
 function PageUrlSearchHeader(): JSX.Element {
-    const { pageUrlSearchOptions, pageUrl } = useValues(pageReportsLogic)
-    const { setPageUrl, setPageUrlSearchTerm } = useActions(pageReportsLogic)
+    const { pageUrlSearchOptionsWithCount, pageUrl, isPathCleaningEnabled, isLoading } = useValues(pageReportsLogic)
+    const { setPageUrl, setPageUrlSearchTerm, loadPages } = useActions(pageReportsLogic)
 
-    const placeholderUrl = pageUrlSearchOptions?.[0] ?? '/pricing'
+    const placeholderUrl = pageUrlSearchOptionsWithCount?.[0]?.url ?? '/pricing'
+
+    // Add this useEffect to ensure pages are loaded when the component mounts
+    useEffect(() => {
+        // Force load pages when component mounts to ensure data is available
+        loadPages('')
+    }, [])
+
+    // Create properly formatted options for the dropdown
+    const dropdownOptions = isLoading
+        ? Array(5)
+              .fill(0)
+              .map((_, i) => ({
+                  label: 'Loading...',
+                  key: `loading-${i}`,
+                  labelComponent: (
+                      <div className="flex justify-between items-center w-full gap-4 py-1">
+                          <LemonSkeleton className="w-32 h-4" />
+                          <LemonSkeleton className="w-16 h-4" />
+                      </div>
+                  ),
+              }))
+        : pageUrlSearchOptionsWithCount?.map((page) => ({
+              label: page.url,
+              key: page.url,
+              labelComponent: (
+                  <div className="flex justify-between items-center w-full gap-4 py-1">
+                      <span className="truncate">{page.url}</span>
+                      <span className="text-muted whitespace-nowrap">{page.count.toLocaleString()} views</span>
+                  </div>
+              ),
+          })) ?? []
 
     return (
         <div className="bg-bg-light p-4 rounded flex items-center gap-2 mb-4">
@@ -95,33 +126,37 @@ function PageUrlSearchHeader(): JSX.Element {
                 <p className="text-muted mb-2">
                     Page Reports provide detailed analytics for a specific page on your website. Select a page to see
                     visitor behavior, traffic sources, and more.
+                    {isPathCleaningEnabled && <span className="ml-1 text-success">Path cleaning is enabled.</span>}
                 </p>
-                <div className="flex gap-2">
-                    <div className="flex-1">
-                        <LemonInputSelect
-                            mode="single"
-                            allowCustomValues
-                            placeholder={`e.g. ${placeholderUrl}`}
-                            onInputChange={(e) => setPageUrlSearchTerm(e)}
-                            value={pageUrl ? [pageUrl] : undefined}
-                            onChange={(v) => setPageUrl(v[0] ?? null)}
-                            options={
-                                pageUrlSearchOptions?.map((page: string) => ({
-                                    label: page,
-                                    key: page,
-                                })) ?? []
-                            }
-                        />
+                <div className="flex gap-2 flex-col">
+                    <div className="flex gap-2">
+                        <div className="flex-1 flex items-center gap-2">
+                            <LemonInputSelect
+                                mode="single"
+                                placeholder={`e.g. ${placeholderUrl}`}
+                                onInputChange={(e) => setPageUrlSearchTerm(e)}
+                                value={pageUrl ? [pageUrl] : undefined}
+                                onChange={(v) => {
+                                    setPageUrl(v[0] ?? null)
+                                }}
+                                loading={isLoading}
+                                title="Top pages by views"
+                                options={dropdownOptions}
+                            />
+                            {pageUrl && (
+                                <LemonButton
+                                    size="small"
+                                    icon={<IconX />}
+                                    onClick={() => setPageUrl(null)}
+                                    tooltip="Clear selection"
+                                />
+                            )}
+                        </div>
                     </div>
-                    <LemonButton
-                        type="secondary"
-                        sideIcon={<IconOpenInNew />}
-                        to={pageUrl ? urls.insightNew() : undefined}
-                        targetBlank
-                        disabledReason={!pageUrl ? 'Select a URL first' : undefined}
-                    >
-                        Open as insight
-                    </LemonButton>
+                    {!pageUrl && !isLoading && (
+                        <div className="text-muted text-xs">Click to see top pages by pageviews or type to search</div>
+                    )}
+                    {!pageUrl && isLoading && <div className="text-muted text-xs">Loading top pages...</div>}
                 </div>
             </div>
         </div>
@@ -167,13 +202,6 @@ export const PageReports = (): JSX.Element => {
         loadPriority: 0,
         dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
     })
-
-    // Apply the page URL filter when it changes
-    useEffect(() => {
-        if (pageUrl) {
-            togglePropertyFilter(PropertyFilterType.Event, '$pathname', pageUrl)
-        }
-    }, [pageUrl, togglePropertyFilter])
 
     // Create a combined query for all three metrics
     const combinedMetricsQuery: InsightVizNode<TrendsQuery> = {
@@ -223,6 +251,12 @@ export const PageReports = (): JSX.Element => {
         hidePersonsModal: true,
         embedded: true,
     }
+
+    // Apply the page URL filter when it changes
+    useEffect(() => {
+        // Apply or remove the filter when pageUrl changes
+        togglePropertyFilter(PropertyFilterType.Event, '$pathname', pageUrl || '')
+    }, [pageUrl, togglePropertyFilter])
 
     // Section component for consistent styling
     const Section = ({ title, children }: { title: string; children: React.ReactNode }): JSX.Element => (
@@ -289,6 +323,7 @@ export const PageReports = (): JSX.Element => {
                             showIntervalSelect={false}
                             tileId={tileId}
                             insightProps={createInsightProps(tileId, tabId)}
+                            key={`${tileId}-${tabId}-${pageUrl}`}
                         />
                     )}
                 </div>
@@ -306,16 +341,10 @@ export const PageReports = (): JSX.Element => {
                     thingName="page report"
                     description="Page Reports provide in-depth analytics for individual pages on your website. Use the search bar above to select a specific page and see detailed metrics."
                     isEmpty={true}
-                    customHog={() => (
-                        <img src="/static/assets/hedgehog/x-ray-hogs-02.png" alt="X-ray hedgehog" className="w-60" />
-                    )}
+                    customHog={() => <XRayHog2 alt="X-ray hedgehog" className="w-60" />}
                 />
             ) : (
                 <>
-                    <LemonBanner type="success" className="mb-2">
-                        <h3 className="font-semibold">Page Report: {pageUrl}</h3>
-                    </LemonBanner>
-
                     {/* Trends Section */}
                     <Section title="Trends over time">
                         <div>
@@ -345,6 +374,7 @@ export const PageReports = (): JSX.Element => {
                                         showIntervalSelect={true}
                                         tileId={TileId.GRAPHS}
                                         insightProps={createInsightProps(TileId.GRAPHS, 'combined')}
+                                        key={`combined-metrics-${pageUrl}`}
                                     />
                                 </div>
                             </div>

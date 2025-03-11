@@ -20,14 +20,13 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
     props: {} as PageReportsLogicProps,
 
     connect: {
-        values: [webAnalyticsLogic, ['dateFilter']],
+        values: [webAnalyticsLogic, ['dateFilter', 'isPathCleaningEnabled']],
     },
 
     actions: {
         setPageUrl: (url: string | null) => ({ url }),
         setPageUrlSearchTerm: (searchTerm: string) => ({ searchTerm }),
-        loadTopPages: true,
-        maybeLoadTopPages: true,
+        loadPages: (searchTerm: string = '') => ({ searchTerm }),
     },
 
     reducers: {
@@ -35,90 +34,172 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
             null as string | null,
             { persist: true },
             {
-                setPageUrl: (_, { url }) => url,
+                setPageUrl: (_state, { url }) => url,
             },
         ],
         pageUrlSearchTerm: [
             '',
             {
-                setPageUrlSearchTerm: (_, { searchTerm }) => searchTerm,
+                setPageUrlSearchTerm: (_state, { searchTerm }) => searchTerm,
+            },
+        ],
+        isInitialLoad: [
+            true,
+            {
+                loadPagesSuccess: () => false,
             },
         ],
     },
 
     loaders: ({ values }) => ({
-        topPages: [
+        pages: [
             [] as PageURL[],
             {
-                loadTopPages: async () => {
-                    const query = {
-                        kind: NodeKind.HogQLQuery,
-                        query: hogql`
-                            SELECT properties.$pathname AS url, count() as count
-                            FROM events
-                            WHERE event = '$pageview'
-                              AND timestamp >= ${values.dateFilter.dateFrom}
-                              AND timestamp <= ${values.dateFilter.dateTo}
-                            GROUP BY url
-                            ORDER BY count DESC
-                            LIMIT 100
-                        `,
+                loadPages: async ({ searchTerm }: { searchTerm: string }) => {
+                    // Use path cleaning if enabled
+                    const pathCleaningEnabled = values.isPathCleaningEnabled
+
+                    // Create the search pattern
+                    const searchPattern = searchTerm ? `%${searchTerm}%` : ''
+
+                    let query
+
+                    if (pathCleaningEnabled) {
+                        // Path cleaning enabled query
+                        if (searchTerm) {
+                            // With search term
+                            query = {
+                                kind: NodeKind.HogQLQuery,
+                                query: hogql`
+                                    WITH clean_url AS (
+                                        replaceRegexpAll(properties.$pathname, '(\\d+)|([a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12})', '[val]')
+                                    )
+                                    SELECT clean_url AS url, count() as count
+                                    FROM events
+                                    WHERE event = '$pageview'
+                                      AND timestamp >= ${values.dateFilter.dateFrom}
+                                      AND timestamp <= ${values.dateFilter.dateTo}
+                                      AND clean_url LIKE ${searchPattern}
+                                    GROUP BY url
+                                    ORDER BY count DESC
+                                    LIMIT 100
+                                `,
+                            }
+                        } else {
+                            // Without search term
+                            query = {
+                                kind: NodeKind.HogQLQuery,
+                                query: hogql`
+                                    WITH clean_url AS (
+                                        replaceRegexpAll(properties.$pathname, '(\\d+)|([a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12})', '[val]')
+                                    )
+                                    SELECT clean_url AS url, count() as count
+                                    FROM events
+                                    WHERE event = '$pageview'
+                                      AND timestamp >= ${values.dateFilter.dateFrom}
+                                      AND timestamp <= ${values.dateFilter.dateTo}
+                                    GROUP BY url
+                                    ORDER BY count DESC
+                                    LIMIT 100
+                                `,
+                            }
+                        }
+                    } else {
+                        // No path cleaning
+                        if (searchTerm) {
+                            // With search term
+                            query = {
+                                kind: NodeKind.HogQLQuery,
+                                query: hogql`
+                                    SELECT properties.$pathname AS url, count() as count
+                                    FROM events
+                                    WHERE event = '$pageview'
+                                      AND timestamp >= ${values.dateFilter.dateFrom}
+                                      AND timestamp <= ${values.dateFilter.dateTo}
+                                      AND properties.$pathname LIKE ${searchPattern}
+                                    GROUP BY url
+                                    ORDER BY count DESC
+                                    LIMIT 100
+                                `,
+                            }
+                        } else {
+                            // Without search term
+                            query = {
+                                kind: NodeKind.HogQLQuery,
+                                query: hogql`
+                                    SELECT properties.$pathname AS url, count() as count
+                                    FROM events
+                                    WHERE event = '$pageview'
+                                      AND timestamp >= ${values.dateFilter.dateFrom}
+                                      AND timestamp <= ${values.dateFilter.dateTo}
+                                    GROUP BY url
+                                    ORDER BY count DESC
+                                    LIMIT 100
+                                `,
+                            }
+                        }
                     }
 
-                    const res = await api.query(query)
-                    return res.results?.map((x: any) => ({ url: x[0], count: x[1] })) as PageURL[]
-                },
-            },
-        ],
-        pageUrlSearchResults: [
-            [] as string[],
-            {
-                setPageUrlSearchTerm: async ({ searchTerm }) => {
-                    if (!searchTerm) {
-                        return []
-                    }
-
-                    const query = {
-                        kind: NodeKind.HogQLQuery,
-                        query: hogql`
-                            SELECT distinct properties.$pathname AS urls
-                            FROM events
-                            WHERE event = '$pageview'
-                              AND timestamp >= ${values.dateFilter.dateFrom}
-                              AND timestamp <= ${values.dateFilter.dateTo}
-                              AND properties.$pathname like '%${hogql.identifier(searchTerm)}%'
-                            ORDER BY timestamp DESC
-                            LIMIT 100
-                        `,
-                    }
-
-                    const res = await api.query(query)
-                    return res.results?.map((x: any) => x[0]) as string[]
+                    const response = await api.query(query)
+                    const res = response as { results: [string, number][] }
+                    return res.results?.map((x) => ({ url: x[0], count: x[1] })) as PageURL[]
                 },
             },
         ],
     }),
 
     selectors: {
-        pageUrlSearchOptions: [
-            (s) => [s.pageUrlSearchResults, s.topPages, s.pageUrlSearchTerm],
-            (pageUrlSearchResults, topPages, pageUrlSearchTerm) => {
-                return pageUrlSearchTerm ? pageUrlSearchResults : topPages?.map((x) => x.url) ?? []
+        topPages: [
+            (selectors) => [selectors.pages, selectors.pageUrlSearchTerm],
+            (pages: PageURL[], searchTerm: string): PageURL[] => {
+                return searchTerm ? [] : pages
             },
         ],
-        hasPageUrl: [(s) => [s.pageUrl], (pageUrl) => !!pageUrl],
+        pageUrlSearchResults: [
+            (selectors) => [selectors.pages, selectors.pageUrlSearchTerm],
+            (pages: PageURL[], searchTerm: string): PageURL[] => {
+                return searchTerm ? pages : []
+            },
+        ],
+        pageUrlSearchOptions: [
+            (selectors) => [selectors.pageUrlSearchResults, selectors.topPages],
+            (pageUrlSearchResults: PageURL[], topPages: PageURL[]): string[] => {
+                return (pageUrlSearchResults.length > 0 ? pageUrlSearchResults : topPages)?.map((x) => x.url) ?? []
+            },
+        ],
+        pageUrlSearchOptionsWithCount: [
+            (selectors) => [selectors.pageUrlSearchResults, selectors.topPages],
+            (pageUrlSearchResults: PageURL[], topPages: PageURL[]): PageURL[] => {
+                return pageUrlSearchResults.length > 0 ? pageUrlSearchResults : topPages ?? []
+            },
+        ],
+        hasPageUrl: [(selectors) => [selectors.pageUrl], (pageUrl: string | null) => !!pageUrl],
+        isLoading: [
+            (selectors) => [selectors.pagesLoading, selectors.isInitialLoad],
+            (pagesLoading: boolean, isInitialLoad: boolean) => {
+                // Make sure we're showing loading state when either pages are loading or it's the initial load
+                return pagesLoading || isInitialLoad
+            },
+        ],
     },
 
     listeners: ({ actions, values }) => ({
-        maybeLoadTopPages: () => {
-            if (!values.topPages.length) {
-                actions.loadTopPages()
-            }
+        setPageUrlSearchTerm: ({ searchTerm }) => {
+            actions.loadPages(searchTerm)
+        },
+        setPageUrl: ({ url }) => {
+            // When URL changes, make sure we update the URL in the browser
+            // This will trigger the actionToUrl handler
+            router.actions.replace('/web/page-reports', url ? { pageURL: url } : {}, router.values.hashParams)
+        },
+        [webAnalyticsLogic.actionTypes.setDates]: () => {
+            actions.loadPages(values.pageUrlSearchTerm)
         },
     }),
 
-    afterMount: ({ actions }) => {
-        actions.maybeLoadTopPages()
+    afterMount: ({ actions }: { actions: pageReportsLogicType['actions'] }) => {
+        // Load pages immediately when component mounts
+        actions.loadPages()
     },
 
     urlToAction: ({ actions, values }) => ({
@@ -131,14 +212,17 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
 
     actionToUrl: ({ values }) => ({
         setPageUrl: () => {
+            // Create a copy of the current search params
             const searchParams = { ...router.values.searchParams }
 
+            // Update the pageURL parameter
             if (values.pageUrl) {
                 searchParams.pageURL = values.pageUrl
             } else {
                 delete searchParams.pageURL
             }
 
+            // Return the updated URL
             return ['/web/page-reports', searchParams, router.values.hashParams, { replace: true }]
         },
     }),

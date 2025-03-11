@@ -369,7 +369,7 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
                             ]}
                         />
 
-                        <WebAnalyticsFilters />
+                        {productTab !== ProductTab.PAGE_REPORTS ? <WebAnalyticsFilters /> : null}
                     </div>
 
                     <WebAnalyticsHealthCheck />
