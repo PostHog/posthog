@@ -175,9 +175,9 @@ pub fn get_chunk_id(sourcemap: &SourceFile) -> Option<String> {
         .ok()
 }
 
-pub fn guess_sourcemap_path(path: &PathBuf) -> PathBuf {
+pub fn guess_sourcemap_path(path: &Path) -> PathBuf {
     // Try to resolve the sourcemap by adding .map to the path
-    let mut sourcemap_path = path.clone();
+    let mut sourcemap_path = path.to_path_buf();
     match path.extension() {
         Some(ext) => sourcemap_path.set_extension(format!("{}.map", ext.to_string_lossy())),
         None => sourcemap_path.set_extension("map"),
