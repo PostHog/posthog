@@ -26,5 +26,9 @@ export const dashboardInsightColorsLogic = kea<dashboardInsightColorsLogicType>(
             (s) => [(state) => dashboardLogic.findMounted({ id: s.dashboardId(state) })?.values.insightTiles || null],
             (insightTiles): DashboardTile<QueryBasedInsightModel>[] | null => insightTiles,
         ],
+        insightTilesLoading: [
+            (s) => [(state) => dashboardLogic.findMounted({ id: s.dashboardId(state) })?.values.itemsLoading || null],
+            (itemsLoading): boolean => itemsLoading,
+        ],
     }),
 ])
