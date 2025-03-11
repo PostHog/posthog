@@ -665,7 +665,7 @@ export function gatherProductManifests(__dirname) {
         import { Params } from 'scenes/sceneTypes'
 
         /** This const is auto-generated, as is the whole file */
-        export const productScenes: Record<string, any> = ${manifestScenes}\n
+        export const productScenes: Record<string, () => Promise<any>> = ${manifestScenes}\n
         /** This const is auto-generated, as is the whole file */
         export const productRoutes: Record<string, [string, string]> = ${manifestRoutes}\n
         /** This const is auto-generated, as is the whole file */

@@ -45,7 +45,7 @@ export const manifest: ProductManifest = {
             id: string,
             params?: {
                 event?: string
-                timestamp: string
+                timestamp?: string
             }
         ): string => {
             const queryParams = new URLSearchParams(params)

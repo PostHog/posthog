@@ -3,7 +3,7 @@
 import { Params } from 'scenes/sceneTypes'
 
 /** This const is auto-generated, as is the whole file */
-export const productScenes: Record<string, any> = {
+export const productScenes: Record<string, () => Promise<any>> = {
     EarlyAccessFeatures: () => import('../../products/early_access_features/frontend/EarlyAccessFeatures'),
     EarlyAccessFeature: () => import('../../products/early_access_features/frontend/EarlyAccessFeature'),
     LLMObservability: () => import('../../products/llm_observability/frontend/LLMObservabilityScene'),
@@ -88,7 +88,7 @@ export const productUrls = {
         id: string,
         params?: {
             event?: string
-            timestamp: string
+            timestamp?: string
         }
     ): string => {
         const queryParams = new URLSearchParams(params)
