@@ -12,16 +12,14 @@ import {
     EventPropertyType,
     Hub,
     PluginServerService,
-    PluginsServerConfig,
     PropertyDefinitionType,
     PropertyDefinitionTypeEnum,
     PropertyType,
     RawClickHouseEvent,
 } from '../types'
-import { PostgresRouter } from '../utils/db/postgres'
 import { parseRawClickHouseEvent } from '../utils/event'
 import { status } from '../utils/status'
-import { castTimestampToClickhouseFormat } from '../utils/utils'
+import { PropertyDefsDB } from './services/property-defs-db'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
@@ -70,43 +68,6 @@ const SKIP_PROPERTIES: string[] = [
 ]
 
 const DATE_PROP_KEYWORDS: string[] = ['time', 'timestamp', 'date', '_at', '-at', 'createdat', 'updatedat']
-
-//
-// SQL queries
-//
-
-const WRITE_EVENT_PROPERTY = `
-    INSERT INTO posthog_eventproperty (event, property, team_id, project_id)
-        VALUES ($1, $2, $3, $4)
-        ON CONFLICT DO NOTHING
-`
-
-const WRITE_PROPERTY_DEFINITION = `
-    INSERT INTO posthog_propertydefinition (id, name, type, group_type_index, is_numerical, volume_30_day, query_usage_30_day, team_id, project_id, property_type)
-        VALUES ($1, $2, $3, $4, $5, NULL, NULL, $6, $7, $8)
-        ON CONFLICT (coalesce(project_id, team_id::bigint), name, type, coalesce(group_type_index, -1))
-        DO UPDATE SET property_type=EXCLUDED.property_type WHERE posthog_propertydefinition.property_type IS NULL
-`
-
-const WRITE_EVENT_DEFINITION = `
-    INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id, project_id, last_seen_at, created_at)
-        VALUES ($1, $2, NULL, NULL, $3, $4, $5, NOW())
-        ON CONFLICT (coalesce(project_id, team_id::bigint), name)
-        DO UPDATE SET last_seen_at = $5
-`
-
-// TODO(eli): TBD - replace VALUES with array of integer team IDs, maybe something like this?
-// https://github.com/PostHog/posthog/blob/master/plugin-server/src/utils/db/postgres.ts#L90-L110
-const FETCH_TEAM_IDS = `
-    SELECT id AS team_id FROM posthog_team WHERE id = ANY (ARRAY[{VALUES}])
-`
-
-// TODO(eli): same here...
-const FETCH_GROUP_TYPES_BY_TEAM_IDS = `
-    SELECT pt.id AS team_id, pgtm.group_type, pgtm.group_type_index FROM posthog_team AS pt
-    JOIN posthog_grouptypemapping AS pgtm ON pt.id = pgtm.team_id
-    WHERE pt.id = ANY (ARRAY[{VALUES}])
-`
 
 export const getPropertyType = (rawKey: string, value: any): PropertyType | null => {
     const key = rawKey.trim().toLowerCase()
@@ -195,22 +156,21 @@ function sixMonthsAgoUnixSeconds() {
  * NOTE: This is currently experimental and only used to do some testing on performance and comparisons.
  */
 export class PropertyDefsConsumer {
-    protected name = 'property-defs-consumer'
     protected groupId: string
     protected topic: string
+    protected name = 'property-defs-consumer'
 
-    batchConsumer?: BatchConsumer
-    db: PostgresRouter
-    config: PluginsServerConfig
-    isStopping = false
+    private batchConsumer?: BatchConsumer
+    private propertyDefsDB: PropertyDefsDB
+    private isStopping = false
     protected heartbeat = () => {}
     protected promises: Set<Promise<any>> = new Set()
 
-    constructor(private hub: Hub, config: PluginsServerConfig) {
+    constructor(private hub: Hub) {
         // The group and topic are configurable allowing for multiple ingestion consumers to be run in parallel
         this.groupId = hub.PROPERTY_DEFS_CONSUMER_GROUP_ID
         this.topic = hub.PROPERTY_DEFS_CONSUMER_CONSUME_TOPIC
-        ;(this.config = config), (this.db = hub?.postgres ?? new PostgresRouter(this.config))
+        this.propertyDefsDB = new PropertyDefsDB(hub)
     }
 
     public get service(): PluginServerService {
