@@ -26,6 +26,7 @@ class TestTemplateSnapchatAds(BaseHogFunctionTemplateTest):
                 "price": "1500",
                 "event_id": "49ff3d7c-359d-4f45-960e-6cda29f1beea",
             },
+            "testEventMode": False,
         }
         inputs.update(kwargs)
         return inputs
@@ -70,4 +71,22 @@ class TestTemplateSnapchatAds(BaseHogFunctionTemplateTest):
                     },
                 },
             )
+        )
+
+    def test_test_event_mode(self):
+        self.run_function(
+            self._inputs(testEventMode=True),
+            globals={
+                "event": {
+                    "uuid": "49ff3d7c-359d-4f45-960e-6cda29f1beea",
+                    "properties": {
+                        "$current_url": "https://posthog.com/cdp",
+                    },
+                    "event": "$pageview",
+                },
+            },
+        )
+
+        assert self.get_mock_fetch_calls()[0][0] == snapshot(
+            "https://tr.snapchat.com/v3/pixel12345/events/validate?access_token=oauth-1234"
         )
