@@ -4,12 +4,15 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 
+import { NodeKind } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
+import { BaseMathType } from '~/types'
 
 import { WebQuery } from './tiles/WebAnalyticsTile'
 import {
     DeviceTab,
     GeographyTab,
+    GraphsTab,
     PathTab,
     SourceTab,
     TabsTile,
@@ -19,7 +22,7 @@ import {
 } from './webAnalyticsLogic'
 
 export const PageReports = (): JSX.Element => {
-    const { webAnalyticsFilters, tiles } = useValues(webAnalyticsLogic)
+    const { webAnalyticsFilters, tiles, dateFilter, shouldFilterTestAccounts } = useValues(webAnalyticsLogic)
     const { openModal } = useActions(webAnalyticsLogic)
 
     // Check if a specific page is selected in the filters
@@ -66,6 +69,50 @@ export const PageReports = (): JSX.Element => {
         dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
     })
 
+    // Create a combined query for all three metrics
+    const combinedMetricsQuery = {
+        kind: NodeKind.InsightVizNode,
+        embedded: true,
+        hidePersonsModal: true,
+        source: {
+            kind: NodeKind.TrendsQuery,
+            series: [
+                // Unique visitors series
+                {
+                    event: '$pageview',
+                    kind: NodeKind.EventsNode,
+                    math: BaseMathType.UniqueUsers,
+                    name: '$pageview',
+                    custom_name: 'Unique visitors',
+                },
+                // Page views series
+                {
+                    event: '$pageview',
+                    kind: NodeKind.EventsNode,
+                    math: BaseMathType.TotalCount,
+                    name: '$pageview',
+                    custom_name: 'Page views',
+                },
+                // Sessions series
+                {
+                    event: '$pageview',
+                    kind: NodeKind.EventsNode,
+                    math: BaseMathType.UniqueSessions,
+                    name: '$pageview',
+                    custom_name: 'Sessions',
+                },
+            ],
+            interval: dateFilter.interval,
+            dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
+            trendsFilter: {
+                display: 'ActionsLineGraph',
+                showLegend: true,
+            },
+            filterTestAccounts: shouldFilterTestAccounts,
+            properties: webAnalyticsFilters,
+        },
+    }
+
     return (
         <div className="space-y-6 mt-4">
             {!hasPageFilter && (
@@ -87,6 +134,37 @@ export const PageReports = (): JSX.Element => {
                     </p>
                 </LemonBanner>
             )}
+
+            {/* Trends Section */}
+            <div className="space-y-4">
+                <h2 className="text-lg font-semibold">Trends</h2>
+
+                <div className="grid grid-cols-1 gap-4">
+                    {/* Combined Metrics Graph */}
+                    <div className="border rounded p-4 bg-white">
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="font-semibold">Page Performance</h3>
+                            <div className="flex gap-2">
+                                <LemonButton
+                                    icon={<IconExpand45 />}
+                                    size="small"
+                                    onClick={() => openModal(TileId.GRAPHS, GraphsTab.UNIQUE_USERS)}
+                                />
+                            </div>
+                        </div>
+                        <div className="w-full min-h-[400px]">
+                            <WebQuery
+                                query={combinedMetricsQuery}
+                                showIntervalSelect={true}
+                                tileId={TileId.GRAPHS}
+                                insightProps={createInsightProps(TileId.GRAPHS, 'combined')}
+                            />
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <LemonDivider />
 
             {/* Page Paths Analysis Section */}
             <div className="space-y-4">
@@ -221,11 +299,11 @@ export const PageReports = (): JSX.Element => {
 
             <LemonDivider />
 
-            {/* Device & Geography Section */}
+            {/* Device Section */}
             <div className="space-y-4">
-                <h2 className="text-lg font-semibold">Visitor Information</h2>
+                <h2 className="text-lg font-semibold">Device Information</h2>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     {/* Device Type Table */}
                     <div className="border rounded p-4 bg-white">
                         <div className="flex justify-between items-center mb-2">
@@ -303,7 +381,7 @@ export const PageReports = (): JSX.Element => {
             <div className="space-y-4">
                 <h2 className="text-lg font-semibold">Demography</h2>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {/* Countries Table */}
                     <div className="border rounded p-4 bg-white">
                         <div className="flex justify-between items-center mb-2">
@@ -328,7 +406,7 @@ export const PageReports = (): JSX.Element => {
                     </div>
 
                     {/* Regions Table */}
-                    <div className="border rounded p-4 bg-white hidden lg:block">
+                    <div className="border rounded p-4 bg-white">
                         <div className="flex justify-between items-center mb-2">
                             <h3 className="font-semibold">Regions</h3>
                             <LemonButton
