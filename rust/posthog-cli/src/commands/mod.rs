@@ -1,9 +1,8 @@
-pub mod auth;
-pub mod inject;
-use std::path::PathBuf;
-pub mod sourcemap_upload;
+pub mod login;
+pub mod sourcemap;
+
 use clap::{Parser, Subcommand};
-use tracing::info;
+use std::path::PathBuf;
 
 use crate::error::CapturedError;
 
@@ -40,7 +39,7 @@ pub enum SourcemapCommand {
 
         /// Where to write the injected chunks. If not provided, the original files will be overwritten
         #[arg(short, long)]
-        output: Option<String>,
+        output: Option<PathBuf>,
     },
     /// Upload the bundled chunks to PostHog
     Upload {
@@ -60,19 +59,14 @@ impl Cli {
 
         match &command.command {
             Commands::Login => {
-                auth::login()?;
+                login::login()?;
             }
             Commands::Sourcemap { cmd } => match cmd {
-                SourcemapCommand::Inject {
-                    directory: dir,
-                    output: _,
-                } => {
-                    inject::process_directory(dir)
-                        .map_err(|e| e.context("Failed to inject sourcemaps"))?;
-                    info!("Successfully injected sourcemaps");
+                SourcemapCommand::Inject { directory, output } => {
+                    sourcemap::inject::inject(directory, output)?;
                 }
                 SourcemapCommand::Upload { directory, build } => {
-                    sourcemap_upload::upload(&command.host, directory, build)?;
+                    sourcemap::upload::upload(&command.host, directory, build)?;
                 }
             },
         }
