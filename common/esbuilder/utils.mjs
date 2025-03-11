@@ -15,6 +15,7 @@ import * as path from 'path'
 import postcss from 'postcss'
 import postcssPresetEnv from 'postcss-preset-env'
 import ts from 'typescript'
+import { cloneNode } from "ts-clone-node";
 
 const defaultHost = process.argv.includes('--host') && process.argv.includes('0.0.0.0') ? '0.0.0.0' : 'localhost'
 const defaultPort = 8234
@@ -507,6 +508,7 @@ export function gatherProductUrls(products, __dirname) {
             // ignore
         }
     }
+
     const program = ts.createProgram(sourceFiles, {
         target: 1, // ts.ScriptTarget.ES5
         module: 1, // ts.ModuleKind.CommonJS
@@ -548,99 +550,130 @@ export function gatherProductUrls(products, __dirname) {
 
 export function gatherProductManifests(__dirname) {
     const products = fse.readdirSync(path.join(__dirname, '../products')).filter((p) => !['__pycache__', 'README.md'].includes(p))
-    let manifestImports = ''
-    let manifestScenes = ''
-    let manifestRoutes = ''
-    let manifestRedirects = ''
-    let manifestUrls = ''
+    const urls = []
+    const scenes = []
+    const sceneConfigs = []
+    const routes = []
+    const redirects = []
 
+    const sourceFiles = []
     for (const product of products) {
-        let manifest
         try {
-            manifest = fse.readFileSync(path.join(__dirname, `../products/${product}/manifest.tsx`), 'utf-8')
+            if (fse.readFileSync(path.resolve(__dirname, `../products/${product}/manifest.tsx`))) {
+                sourceFiles.push(path.resolve(__dirname, `../products/${product}/manifest.tsx`))
+            }
         } catch (e) {
-            // no manifest, skipping this product
-            continue
+            // ignore
         }
-        let used = false
-
-        if (manifest.includes('scenes: {')) {
-            manifestScenes += `...${product}Manifest.scenes,\n`
-            used = true
-        }
-        if (manifest.includes('routes: {')) {
-            manifestRoutes += `...${product}Manifest.routes,\n`
-            used = true
-        }
-        if (manifest.includes('redirects: {')) {
-            manifestRedirects += `...${product}Manifest.redirects,\n`
-            used = true
-        }
-        if (manifest.includes('urls: {')) {
-            manifestUrls += `...${product}Manifest.urls,\n`
-            used = true
-        }
-        if (used) {
-            manifestImports += `import { manifest as ${product}Manifest } from '../../products/${product}/manifest'\n`
-        }
-
-
-        // const scenes = Object.fromEntries(
-        //     Object.entries(manifest.scenes ?? {}).map(([key, value]) => [key, { name: manifest.name, ...value }])
-        // )
-        // Object.assign(allScenes, scenes)
-        // Object.assign(allRoutes, manifest.routes ?? {})
-        // Object.assign(allRedirects, manifest.redirects ?? {})
-
-        // const productScenesExtra =
-        //     Object.entries(scenes ?? {})
-        //         .filter(([key, value]) => !!value)
-        //         .map(
-        //             ([key, value]) =>
-        //                 `${JSON.stringify(key)}: (): any => import(${JSON.stringify(
-        //                     `../../products/${product}/${value.import}`
-        //                 )})`
-        //         )
-        //         .join(',\n')
-
-        // if (productScenesExtra) {
-        //     productScenes += productScenesExtra + ',\n'
-        // }
     }
 
-    // const productRoutes = Object.entries(allRoutes)
-    //     .filter(([key, value]) => !!value)
-    //     .map(([key, value]) => `${JSON.stringify(key)}: ${JSON.stringify(value)}`)
-    //     .join(',\n    ')
-    // const productRedirects = Object.entries(allRedirects)
-    //     .filter(([key, value]) => !!value)
-    //     .map(([key, value]) => `${JSON.stringify(key)}: ${JSON.stringify(value)}`)
-    //     .join(',\n    ')
-    // const productConfiguration = Object.entries(allScenes)
-    //     .filter(([key, value]) => !!value)
-    //     .map(([key, value]) => {
-    //         const { import: _imp, ...rest } = value
-    //         return `${JSON.stringify(key)}: ${JSON.stringify(rest)}`
-    //     })
-    //     .join(',\n    ')
+    const program = ts.createProgram(sourceFiles, {
+        target: 1, // ts.ScriptTarget.ES5
+        module: 1, // ts.ModuleKind.CommonJS
+        noEmit: true,
+        noErrorTruncation: true,
+    })
 
-    const productUrls = gatherProductUrls(products, __dirname)
+    /** Convert a PropertyAssignment from {a: {import:b}} to {a:b} */
+    function keepOnlyImport(property, manifestPath) {
+        if (ts.isPropertyAssignment(property) && ts.isObjectLiteralExpression(property.initializer)) {
+            const imp = property.initializer.properties.find(p => p.name.text === 'import')
+            if (imp) {
+                const importFunction = cloneNode(imp.initializer)
+                if (ts.isFunctionLike(importFunction) && ts.isCallExpression(importFunction.body) && importFunction.body.arguments.length === 1) {
+                    const [imported] = importFunction.body.arguments
+                    if (ts.isStringLiteralLike(imported)) {
+                        const importText = imported.text
+                        if (importText.startsWith('./')) {
+                            const newPath = path.relative('./src/', path.join(path.dirname(manifestPath), importText))
+                            importFunction.body.arguments[0] = ts.factory.createStringLiteral(newPath)
+                        }
+                    }
+                    return ts.factory.createPropertyAssignment(property.name, importFunction)
+                }
+            }
+        }
+        return null
+    }
+
+    /** Remove the import key from a PropertyAssignment's ObjectLiteral */
+    function withoutImport(property) {
+        if (ts.isPropertyAssignment(property) && ts.isObjectLiteralExpression(property.initializer)) {
+            const clone = cloneNode(property)
+            clone.initializer.properties = clone.initializer.properties.filter((p) => p.name.text !== 'import')
+            return clone
+        }
+        return null
+    }
+
+    for (const sourceFile of program.getSourceFiles()) {
+        if (!sourceFiles.includes(sourceFile.fileName)) {
+            continue
+        }
+        ts.forEachChild(sourceFile, function visit(node) {
+            if (
+                ts.isPropertyAssignment(node) &&
+                ts.isObjectLiteralExpression(node.initializer)
+            ) {
+                if (node.name.text === 'urls') {
+                    for (const property of node.initializer.properties) {
+                        urls.push(property)
+                    }
+                } else if (node.name.text === 'routes') {
+                    for (const property of node.initializer.properties) {
+                        routes.push(property)
+                    }
+                } else if (node.name.text === 'scenes') {
+                    for (const property of node.initializer.properties) {
+                        const imp = keepOnlyImport(property, sourceFile.fileName)
+                        if (imp) {
+                            scenes.push(imp)
+                        }
+                        const config = withoutImport(property)
+                        if (config) {
+                            sceneConfigs.push(config)
+                        }
+                    }
+                } else if (node.name.text === 'redirects') {
+                    for (const property of node.initializer.properties) {
+                        redirects.push(property)
+                    }
+                } else {
+                    ts.forEachChild(node, visit)
+                }
+            } else {
+                ts.forEachChild(node, visit)
+            }
+        })
+    }
+
+    const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed })
+    const sourceFile = ts.factory.createSourceFile(
+        [],
+        ts.factory.createToken(ts.SyntaxKind.EndOfFileToken),
+        ts.NodeFlags.None
+    )
+    const manifestUrls = printer.printNode(ts.EmitHint.Unspecified, ts.factory.createObjectLiteralExpression(urls), sourceFile)
+    const manifestScenes = printer.printNode(ts.EmitHint.Unspecified, ts.factory.createObjectLiteralExpression(scenes), sourceFile)
+    const manifestSceneConfig = printer.printNode(ts.EmitHint.Unspecified, ts.factory.createObjectLiteralExpression(sceneConfigs), sourceFile)
+    const manifestRedirects = printer.printNode(ts.EmitHint.Unspecified, ts.factory.createObjectLiteralExpression(redirects), sourceFile)
+    const manifestRoutes = printer.printNode(ts.EmitHint.Unspecified, ts.factory.createObjectLiteralExpression(routes), sourceFile)
 
     let productsTsx = `
         // Generated by @posthog/esbuilder/utils.mjs, based on product folder manifests under products/*/manifest.tsx\n
 
         import { Params } from 'scenes/sceneTypes'
-        ${manifestImports}
+
         /** This const is auto-generated, as is the whole file */
-        export const productScenes: Record<string, any> = Object.fromEntries(Object.entries({${manifestScenes}}).map(([k,v]) => ([k, v.import])))\n
+        export const productScenes: Record<string, any> = ${manifestScenes}\n
         /** This const is auto-generated, as is the whole file */
-        export const productRoutes: Record<string, [string, string]> = {${manifestRoutes}}\n
+        export const productRoutes: Record<string, [string, string]> = ${manifestRoutes}\n
         /** This const is auto-generated, as is the whole file */
-        export const productRedirects: Record<string, string | ((params: Params, searchParams: Params, hashParams: Params) => string)> = {${manifestRedirects}}\n
+        export const productRedirects: Record<string, string | ((params: Params, searchParams: Params, hashParams: Params) => string)> = ${manifestRedirects}\n
         /** This const is auto-generated, as is the whole file */
-        export const productConfiguration: Record<string, any> = {${manifestScenes}}\n
+        export const productConfiguration: Record<string, any> = ${manifestSceneConfig}\n
         /** This const is auto-generated, as is the whole file */
-        export const productUrls = ${productUrls}\n
+        export const productUrls = ${manifestUrls}\n
     `
     fse.writeFileSync(path.join(__dirname, 'src/products.ts'), productsTsx)
 
