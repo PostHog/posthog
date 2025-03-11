@@ -48,9 +48,9 @@ function SupportedPlatform(props: SupportedPlatformProps): JSX.Element {
     let tooltip = null
     if (props.supportedSinceVersion || props.note) {
         tooltip = (
-            <div>
-                {props.supportedSinceVersion && <>Since version {props.supportedSinceVersion}</>}
-                {props.note && props.note}
+            <div className="flex flex-col gap-1">
+                {props.supportedSinceVersion && <div>Since version {props.supportedSinceVersion}</div>}
+                {props.note && <div>{props.note}</div>}
             </div>
         )
     }
