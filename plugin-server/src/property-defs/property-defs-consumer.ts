@@ -16,6 +16,7 @@ import {
     PropertyDefinitionTypeEnum,
     PropertyType,
     RawClickHouseEvent,
+    ResolvedGroups,
 } from '../types'
 import { parseRawClickHouseEvent } from '../utils/event'
 import { status } from '../utils/status'
@@ -55,8 +56,8 @@ const propDefDroppedCounter = new Counter({
 })
 
 export type CollectedPropertyDefinitions = {
-    teamIdsInBatch: Set<number>
-    teamIdsWithGroupUpdatesInBatch: Set<number>
+    knownTeamIds: Set<number>
+    resolvedTeamGroups: Record<number, ResolvedGroups>
     eventDefinitionsById: Record<string, EventDefinitionType>
     propertyDefinitionsById: Record<string, PropertyDefinitionType>
     eventPropertiesById: Record<string, EventPropertyType>
@@ -129,12 +130,35 @@ export class PropertyDefsConsumer {
     public async handleKafkaBatch(messages: Message[]) {
         const parsedMessages = await this.runInstrumented('parseKafkaMessages', () => this.parseKafkaBatch(messages))
 
-        // TODO: Pre-load all teams and groups related to the events in the batch.
-        // We have some managers for this but perhaps it makes sense to do this in a more optimized way here.
+        const collected: CollectedPropertyDefinitions = {
+            // resolved prior to prop extraction; used to filter events/props w/o parent team
+            knownTeamIds: new Set<number>(),
+            // resolved prior to prop extraction; used to filter group updates w/o team or registered groups
+            resolvedTeamGroups: {},
+            // deduped from batch, written to posthog_eventdefinition
+            eventDefinitionsById: {},
+            // deduped from batch, written to posthog_propertydefinition
+            propertyDefinitionsById: {},
+            // deduped from batch, written to posthog_eventproperty
+            eventPropertiesById: {},
+        }
 
-        const collected = await this.runInstrumented('derivePropDefs', () =>
-            Promise.resolve(this.extractPropertyDefinitions(parsedMessages))
+        const teamsInBatch = this.extractTeamIds(parsedMessages)
+        collected.knownTeamIds = await this.runInstrumented('resolveTeams', () =>
+            Promise.resolve(this.resolveTeams(this.propertyDefsDB, teamsInBatch))
         )
+
+        const groupTeamsInBatch = this.extractGroupTeamIds(parsedMessages, collected.knownTeamIds)
+        collected.resolvedTeamGroups = await this.runInstrumented('resolveGroupsForTeams', () =>
+            Promise.resolve(this.resolveGroupsForTeams(this.propertyDefsDB, groupTeamsInBatch))
+        )
+
+        console.log('🔁', `Event batch teams and group indices resolved`)
+
+        // extract and dedup event and property definitions
+        void (await this.runInstrumented('derivePropDefs', () =>
+            Promise.resolve(this.extractPropertyDefinitions(parsedMessages, collected))
+        ))
 
         console.log('🔁', `Property definitions collected`, JSON.stringify(collected, null, 2))
 
@@ -167,26 +191,51 @@ export class PropertyDefsConsumer {
         status.debug('🔁', `Processed batch`)
     }
 
-    private extractPropertyDefinitions(events: ClickHouseEvent[]): CollectedPropertyDefinitions {
-        const collected: CollectedPropertyDefinitions = {
-            // TODO(eli): look these up in batches as pre-write step
-            teamIdsInBatch: new Set<number>(),
-            // TODO(eli): look these up in batches to resolve group types as pre-write step
-            teamIdsWithGroupUpdatesInBatch: new Set<number>(),
-            // deduped from batch, written to posthog_eventdefinition
-            eventDefinitionsById: {},
-            // deduped from batch, written to posthog_propertydefinition
-            propertyDefinitionsById: {},
-            // deduped from batch, written to posthog_eventproperty
-            eventPropertiesById: {},
-        }
+    private async resolveTeams(db: PropertyDefsDB, teamIdsInBatch: Set<number>): Promise<Set<number>> {
+        const teamsFound = await db.findTeamIds(Array.from(teamIdsInBatch))
+        return new Set(teamsFound.filter((row) => !teamIdsInBatch.has(row.teamId)).map((row) => row.teamId))
+    }
 
-        for (const event of events) {
-            // these will be looked up later to trim write batches if team doesn't exist
-            if (!collected.teamIdsInBatch.has(event.team_id)) {
-                collected.teamIdsInBatch.add(event.team_id)
+    private async resolveGroupsForTeams(
+        db: PropertyDefsDB,
+        knownTeamIdsWithGroup: Set<number>
+    ): Promise<Record<number, ResolvedGroups>> {
+        const result = await db.resolveGroupsForTeams(Array.from(knownTeamIdsWithGroup))
+
+        const out: Record<number, ResolvedGroups> = {}
+        result.forEach((row) => {
+            let resolved: ResolvedGroups
+            if (out[row.teamId]) {
+                resolved = out[row.teamId]
+            } else {
+                resolved = {}
             }
 
+            resolved[row.groupName] = row.groupIndex
+            out[row.teamId] = resolved
+        })
+
+        return out
+    }
+
+    private extractTeamIds(events: ClickHouseEvent[]): Set<number> {
+        return new Set(events.map((event) => event.team_id))
+    }
+
+    private extractGroupTeamIds(events: ClickHouseEvent[], knownTeamIds: Set<number>): Set<number> {
+        return new Set(
+            events
+                .filter((event) => event.event == '$groupidentify' && knownTeamIds.has(event.team_id))
+                .map((event) => event.team_id)
+        )
+    }
+
+    private extractPropertyDefinitions(events: ClickHouseEvent[], collected: CollectedPropertyDefinitions) {
+        for (const event of events) {
+            if (!collected.knownTeamIds.has(event.team_id)) {
+                propDefDroppedCounter.inc({ type: 'event', reason: 'team_id_not_found' })
+                continue
+            }
             event.event = sanitizeEventName(event.event)
 
             if (!willFitInPostgres(event.event)) {
@@ -210,13 +259,14 @@ export class PropertyDefsConsumer {
 
             // Detect group identify events
             if (event.event === '$groupidentify') {
-                if (!collected.teamIdsWithGroupUpdatesInBatch.has(event.team_id)) {
-                    collected.teamIdsWithGroupUpdatesInBatch.add(event.team_id)
+                if (!collected.resolvedTeamGroups[event.team_id]) {
+                    propDefDroppedCounter.inc({ type: 'event', reason: 'team_groups_not_found' })
+                    continue
                 }
 
-                // bail on this event if there's no group type assigned
+                // bail on this event if there's no group type assigned or we couldn't resolve it's index
                 const groupType: string | undefined = event.properties['$group_type'] // e.g. "organization"
-                if (typeof groupType === 'undefined') {
+                if (typeof groupType === 'undefined' || !collected.resolvedTeamGroups[event.team_id][groupType]) {
                     continue
                 }
 
@@ -317,8 +367,6 @@ export class PropertyDefsConsumer {
                 }
             }
         }
-
-        return collected
     }
 
     private parseKafkaBatch(messages: Message[]): Promise<ClickHouseEvent[]> {

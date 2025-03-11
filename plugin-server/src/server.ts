@@ -236,7 +236,6 @@ export class PluginServer {
                 })
             }
 
-            // TODO(eli): come back to this...
             if (capabilities.propertyDefs) {
                 serviceLoaders.push(async () => {
                     const consumer = new PropertyDefsConsumer(hub)

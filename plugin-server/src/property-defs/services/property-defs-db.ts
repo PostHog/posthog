@@ -5,6 +5,16 @@ import { PostgresUse } from '../../utils/db/postgres'
 import { status } from '../../utils/status'
 import { UUIDT } from '../../utils/utils'
 
+export interface TeamIdRow {
+    teamId: number
+}
+
+export interface TeamGroupRow {
+    teamId: number
+    groupName: string
+    groupIndex: number
+}
+
 export class PropertyDefsDB {
     constructor(private hub: Hub) {}
 
@@ -13,8 +23,8 @@ export class PropertyDefsDB {
             .query(
                 PostgresUse.COMMON_WRITE,
                 `INSERT INTO posthog_eventproperty (event, property, team_id, project_id)
-                VALUES ($1, $2, $3, $4)
-                ON CONFLICT DO NOTHING
+                    VALUES ($1, $2, $3, $4)
+                    ON CONFLICT DO NOTHING
             `,
                 [eventProperty.event, eventProperty.property, eventProperty.team_id, eventProperty.project_id],
                 'upsertEventProperty'
@@ -30,9 +40,10 @@ export class PropertyDefsDB {
             .query(
                 PostgresUse.COMMON_WRITE,
                 `INSERT INTO posthog_propertydefinition (id, name, type, group_type_index, is_numerical, team_id, project_id, property_type, volume_30_day, query_usage_30_day)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULL, NULL)
-        ON CONFLICT (coalesce(project_id, team_id::bigint), name, type, coalesce(group_type_index, -1))
-        DO UPDATE SET property_type=EXCLUDED.property_type WHERE posthog_propertydefinition.property_type IS NULL`,
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULL, NULL)
+                    ON CONFLICT (coalesce(project_id, team_id::bigint), name, type, coalesce(group_type_index, -1))
+                    DO UPDATE SET property_type=EXCLUDED.property_type
+                    WHERE posthog_propertydefinition.property_type IS NULL`,
                 [
                     new UUIDT().toString(),
                     propertyDefinition.name,
@@ -56,10 +67,10 @@ export class PropertyDefsDB {
             .query(
                 PostgresUse.COMMON_WRITE,
                 `INSERT INTO posthog_eventdefinition (id, name, team_id, project_id, last_seen_at, created_at, volume_30_day, query_usage_30_day)
-        VALUES ($1, $2, $3, $4, $5, $6, NULL, NULL)
-        ON CONFLICT (coalesce(project_id, team_id::bigint), name)
-        DO UPDATE SET last_seen_at=EXCLUDED.last_seen_at WHERE posthog_eventdefinition.last_seen_at < EXCLUDED.last_seen_at
-        `,
+                    VALUES ($1, $2, $3, $4, $5, $6, NULL, NULL)
+                    ON CONFLICT (coalesce(project_id, team_id::bigint), name)
+                    DO UPDATE SET last_seen_at=EXCLUDED.last_seen_at WHERE posthog_eventdefinition.last_seen_at < EXCLUDED.last_seen_at
+                `,
                 [
                     new UUIDT().toString(),
                     eventDefinition.name,
@@ -74,6 +85,30 @@ export class PropertyDefsDB {
                 status.error('🔁', `Error writing event definition`, { eventDefinition, error: e.message })
                 throw e
             })
+    }
+
+    async findTeamIds(teamIds: number[]): Promise<TeamIdRow[]> {
+        const result = await this.hub.postgres.query<TeamIdRow>(
+            PostgresUse.COMMON_READ,
+            `SELECT id AS team_id FROM posthog_team WHERE id = ANY ($1)`,
+            [teamIds],
+            'findTeamIds'
+        )
+
+        return result.rows
+    }
+
+    async resolveGroupsForTeams(teamIds: number[]): Promise<TeamGroupRow[]> {
+        const result = await this.hub.postgres.query<TeamGroupRow>(
+            PostgresUse.COMMON_READ,
+            `SELECT pt.id AS team_id, pgtm.group_type AS group_name, pgtm.group_type_index AS group_index FROM posthog_team
+                INNER JOIN posthog.grouptypemapping AS pgtm ON pt.id = pgtm.team_id
+                WHERE id = ANY ($1)`,
+            [teamIds],
+            'findTeamIds'
+        )
+
+        return result.rows
     }
 
     async listPropertyDefinitions(teamId: number): Promise<PropertyDefinitionType[]> {

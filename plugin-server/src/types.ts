@@ -1162,6 +1162,8 @@ export enum PropertyDefinitionTypeEnum {
     Session = 4,
 }
 
+export type ResolvedGroups = Record<string, number>
+
 export interface PropertyDefinitionType {
     id: string
     name: string
