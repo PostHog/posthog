@@ -12,9 +12,11 @@ import {
     bufferToSessionState,
     COOKIELESS_MODE_FLAG_PROPERTY,
     COOKIELESS_SENTINEL_VALUE,
+    CookielessManager,
     sessionStateToBuffer,
     toYYYYMMDDInTimezoneSafe,
 } from './cookieless-manager'
+import doHashTestCases from './test_cases.json'
 
 function deepFreeze<T extends object>(t: T): T {
     function deepFreezeInner(obj: any) {
@@ -483,5 +485,17 @@ describe('CookielessManager', () => {
                 expect(actual1).toBe(nonCookielessEvent)
             })
         })
+    })
+
+    describe('doHash', () => {
+        it.each(doHashTestCases.test_cases)(
+            'should hash',
+            ({ salt, team_id, ip, expected, root_domain, user_agent, n, hash_extra }) => {
+                const saltBuf = Buffer.from(salt, 'base64')
+                const resultBuf = CookielessManager.doHash(saltBuf, team_id, ip, root_domain, user_agent, n, hash_extra)
+                const result = resultBuf.toString('base64')
+                expect(result).toEqual(expected)
+            }
+        )
     })
 })

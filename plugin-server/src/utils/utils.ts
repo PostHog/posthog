@@ -48,6 +48,10 @@ export function bufferToStream(binary: Buffer): Readable {
 
 export function base64StringToUint32ArrayLE(base64: string): Uint32Array {
     const buffer = Buffer.from(base64, 'base64')
+    return bufferToUint32ArrayLE(buffer)
+}
+
+export function bufferToUint32ArrayLE(buffer: Buffer): Uint32Array {
     const dataView = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength)
     const length = buffer.byteLength / 4
     const result = new Uint32Array(length)
@@ -61,6 +65,10 @@ export function base64StringToUint32ArrayLE(base64: string): Uint32Array {
 }
 
 export function uint32ArrayLEToBase64String(uint32Array: Uint32Array): string {
+    return uint32ArrayToBuffer(uint32Array).toString('base64')
+}
+
+export function uint32ArrayLEToBuffer(uint32Array: Uint32Array): Buffer {
     const buffer = new ArrayBuffer(uint32Array.length * 4)
     const dataView = new DataView(buffer)
 
@@ -68,8 +76,7 @@ export function uint32ArrayLEToBase64String(uint32Array: Uint32Array): string {
         // explicitly set little-endian
         dataView.setUint32(i * 4, uint32Array[i], true)
     }
-
-    return Buffer.from(buffer).toString('base64')
+    return Buffer.from(buffer)
 }
 
 export function createRandomUint32x4(): Uint32Array {
