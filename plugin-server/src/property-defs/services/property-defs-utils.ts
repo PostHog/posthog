@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
 
-import { PropertyType } from '~/src/types'
+import { PropertyType } from '../../types'
 
 // lifted from here:
 // https://github.com/PostHog/posthog/blob/021aaab04b4acd96cf8121c033ac3b0042492598/rust/property-defs-rs/src/types.rs#L457-L461

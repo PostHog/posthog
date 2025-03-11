@@ -1,7 +1,6 @@
 import { DateTime } from 'luxon'
 
-import { EventDefinitionType, EventPropertyType, Hub, PropertyDefinitionType } from '~/src/types'
-
+import { EventDefinitionType, EventPropertyType, Hub, PropertyDefinitionType } from '../../types'
 import { PostgresUse } from '../../utils/db/postgres'
 import { status } from '../../utils/status'
 import { UUIDT } from '../../utils/utils'
