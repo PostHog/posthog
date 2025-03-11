@@ -455,7 +455,7 @@ class MutationRunner(abc.ABC):
         that can be used to check the status of the mutation and wait for its completion.
         """
         expected_commands = self.get_commands()
-        mutations = self.__find(client, expected_commands)
+        mutations = self.find_existing_mutations(client, expected_commands)
 
         commands_to_enqueue = {command for command, mutation in mutations.items() if mutation is None}
         if commands_to_enqueue:
@@ -467,7 +467,7 @@ class MutationRunner(abc.ABC):
         for _ in range(5):
             mutations_running = {
                 command: mutation_id
-                for command, mutation_id in self.__find(client, expected_commands).items()
+                for command, mutation_id in self.find_existing_mutations(client, expected_commands).items()
                 if mutation_id is not None
             }
             if mutations_running.keys() == expected_commands:
@@ -475,12 +475,19 @@ class MutationRunner(abc.ABC):
 
         raise Exception(f"unable to find mutation after {time.time() - start:0.2f}s!")
 
-    def __find(self, client: Client, commands: Set[str]) -> Mapping[str, str | None]:
+    def find_existing_mutations(self, client: Client, commands: Set[str] | None = None) -> Mapping[str, str | None]:
         """
-        Find the mutation ID (if it exists) associated with each command provided.
+        Find the mutation ID (if it exists) associated with each command provided (or all commands if no commands are
+        specified.)
         """
+        if commands is None:
+            commands = self.get_commands()
+
+        if unexpected_commands := (commands - self.get_commands()):
+            raise ValueError(f"unexpected commands: {unexpected_commands!r}")
+
         # we match commands by position, so require a stable ordering - this is because this class is provided the
-        # parameterized generic command, while the record we match in the mutation log will have the parameters inlined
+        # command template without parameter values, while the record in the mutation log will have the values inlined
         command_list = [*commands]
         mutations = client.execute(
             f"""
