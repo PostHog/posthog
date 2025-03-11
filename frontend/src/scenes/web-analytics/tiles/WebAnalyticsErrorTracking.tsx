@@ -15,7 +15,7 @@ export const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
     const record = props.record as ErrorTrackingIssue
 
     return (
-        <div className="flex items-start deprecated-space-x-1.5 group">
+        <div className="flex items-start gap-x-1.5 group">
             <LemonTableLink
                 title={record.name || 'Unknown Type'}
                 description={

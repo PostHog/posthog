@@ -90,8 +90,8 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
             ref={ref}
             data-attr={`billing-product-${product.type}`}
         >
-            <div className="border border-border rounded w-full bg-surface-primary" ref={productRef}>
-                <div className="border-b border-border rounded-t p-4">
+            <div className="border border-primary rounded w-full bg-surface-primary" ref={productRef}>
+                <div className="border-b border-primary rounded-t p-4">
                     <div className="flex gap-4 items-center justify-between">
                         {getProductIcon(product.name, product.icon_key, 'text-2xl')}
                         <div>
@@ -195,7 +195,6 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                         <div className="grow">
                                             <div className="grow">
                                                 <BillingGauge items={billingGaugeItems} product={product} />
-                                                <FeatureFlagUsageNotice product={product} />
                                             </div>
                                             {/* TODO: rms: remove this notice after August 8 2024 */}
                                             {product.type == ProductKey.DATA_WAREHOUSE &&
@@ -229,9 +228,6 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                 )}
                                                 <div className="grow">
                                                     <BillingGauge items={billingGaugeItems} product={product} />
-                                                    {!product.subscribed && (
-                                                        <FeatureFlagUsageNotice product={product} />
-                                                    )}
                                                 </div>
                                             </div>
                                             {product.subscribed ? (
@@ -380,6 +376,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     )}
                 </div>
                 {!isTemporaryFreeProduct && <BillingLimit product={product} />}
+                <FeatureFlagUsageNotice product={product} />
             </div>
             <ProductPricingModal
                 modalOpen={isPricingModalOpen}
@@ -393,13 +390,15 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
 
 export const FeatureFlagUsageNotice = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
     return product.type === 'feature_flags' ? (
-        <p className="mt-4 ml-0 text-sm text-secondary italic">
-            <IconInfo className="mr-1" />
-            Questions? Here's{' '}
-            <Link to="https://posthog.com/docs/feature-flags/common-questions#billing--usage" className="italic">
-                how we calculate usage
-            </Link>{' '}
-            for feature flags.
-        </p>
+        <div className="p-4 px-8 pb-8 sm:pb-0 border-t border-border">
+            <p className="mt-0 ml-0 text-sm text-secondary italic">
+                <IconInfo className="mr-1" />
+                Questions? Here's{' '}
+                <Link to="https://posthog.com/docs/feature-flags/common-questions#billing--usage" className="italic">
+                    how we calculate usage
+                </Link>{' '}
+                for feature flags.
+            </p>
+        </div>
     ) : null
 }

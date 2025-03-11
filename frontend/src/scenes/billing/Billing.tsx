@@ -7,13 +7,12 @@ import { Field, Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { supportLogic } from 'lib/components/Support/supportLogic'
-import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyCurrency, toSentenceCase } from 'lib/utils'
 import { useEffect } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -37,8 +36,6 @@ export function Billing(): JSX.Element {
     const { reportBillingShown } = useActions(billingLogic)
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
-
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const restrictionReason = useRestrictedArea({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
@@ -192,8 +189,7 @@ export function Billing(): JSX.Element {
                                                               humanFriendlyCurrency(billing.current_total_amount_usd)}
                                                     </div>
                                                 </div>
-                                                {featureFlags[FEATURE_FLAGS.PROJECTED_TOTAL_AMOUNT] &&
-                                                    billing?.projected_total_amount_usd &&
+                                                {billing?.projected_total_amount_usd &&
                                                     parseFloat(billing?.projected_total_amount_usd) > 0 && (
                                                         <div>
                                                             <LemonLabel
