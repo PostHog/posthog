@@ -210,10 +210,9 @@ function RunButton(): JSX.Element {
     const { metadata } = useValues(multitabEditorLogic)
 
     const isUsingIndices = metadata?.isUsingIndices === 'yes'
-    const tooltipContent =
-        !isUsingIndices && metadata?.isUsingIndices
-            ? 'This query is not using indices optimally, which may result in slower performance.'
-            : undefined
+    const tooltipContent = !isUsingIndices
+        ? 'This query is not using indices optimally, which may result in slower performance.'
+        : undefined
 
     return (
         <LemonButton
