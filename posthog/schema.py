@@ -1304,7 +1304,7 @@ class NodeKind(StrEnum):
     EVENT_TAXONOMY_QUERY = "EventTaxonomyQuery"
     ACTORS_PROPERTY_TAXONOMY_QUERY = "ActorsPropertyTaxonomyQuery"
     TRACES_QUERY = "TracesQuery"
-    PG_EMBEDDINGS_QUERY = "PgEmbeddingsQuery"
+    VECTOR_SEARCH_QUERY = "VectorSearchQuery"
 
 
 class PathCleaningFilter(BaseModel):
@@ -1364,14 +1364,6 @@ class PersonType(BaseModel):
     name: Optional[str] = None
     properties: dict[str, Any]
     uuid: Optional[str] = None
-
-
-class PgEmbeddingsResponseItem(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    distance: float
-    id: str
 
 
 class PropertyFilterType(StrEnum):
@@ -1704,6 +1696,14 @@ class TrendsFilterLegacy(BaseModel):
     show_values_on_series: Optional[bool] = None
     smoothing_intervals: Optional[float] = None
     y_axis_scale_type: Optional[YAxisScaleType] = YAxisScaleType.LINEAR
+
+
+class VectorSearchResponseItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    distance: float
+    id: str
 
 
 class ActionsPie(BaseModel):
@@ -3940,36 +3940,6 @@ class CachedPathsQueryResponse(BaseModel):
     )
 
 
-class CachedPgEmbeddingsQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    cache_key: str
-    cache_target_age: Optional[AwareDatetime] = None
-    calculation_trigger: Optional[str] = Field(
-        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
-    )
-    error: Optional[str] = Field(
-        default=None,
-        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-    )
-    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
-    is_cached: bool
-    last_refresh: AwareDatetime
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    next_allowed_client_refresh: AwareDatetime
-    query_status: Optional[QueryStatus] = Field(
-        default=None, description="Query status indicates whether next to the provided data, a query is still running."
-    )
-    results: list[PgEmbeddingsResponseItem]
-    timezone: str
-    timings: Optional[list[QueryTiming]] = Field(
-        default=None, description="Measured timings for different parts of the query generation process"
-    )
-
-
 class CachedRevenueExampleEventsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4209,6 +4179,36 @@ class CachedTrendsQueryResponse(BaseModel):
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
     results: list[dict[str, Any]]
+    timezone: str
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class CachedVectorSearchQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[AwareDatetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: AwareDatetime
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    next_allowed_client_refresh: AwareDatetime
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list[VectorSearchResponseItem]
     timezone: str
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -5434,27 +5434,6 @@ class PersonsNode(BaseModel):
     search: Optional[str] = None
 
 
-class PgEmbeddingsQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    error: Optional[str] = Field(
-        default=None,
-        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-    )
-    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    query_status: Optional[QueryStatus] = Field(
-        default=None, description="Query status indicates whether next to the provided data, a query is still running."
-    )
-    results: list[PgEmbeddingsResponseItem]
-    timings: Optional[list[QueryTiming]] = Field(
-        default=None, description="Measured timings for different parts of the query generation process"
-    )
-
-
 class PropertyGroupFilterValue(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6185,7 +6164,7 @@ class QueryResponseAlternative48(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: list[PgEmbeddingsResponseItem]
+    results: list[VectorSearchResponseItem]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -6379,6 +6358,27 @@ class TracesQuery(BaseModel):
     ] = Field(default=None, description="Properties configurable in the interface")
     response: Optional[TracesQueryResponse] = None
     traceId: Optional[str] = None
+
+
+class VectorSearchQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list[VectorSearchResponseItem]
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
 
 
 class WebExternalClicksTableQuery(BaseModel):
@@ -7073,18 +7073,6 @@ class InsightFilter(
     root: Union[TrendsFilter, FunnelsFilter, RetentionFilter, PathsFilter, StickinessFilter, LifecycleFilter]
 
 
-class PgEmbeddingsQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    embedding: list[float]
-    kind: Literal["PgEmbeddingsQuery"] = "PgEmbeddingsQuery"
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    response: Optional[PgEmbeddingsQueryResponse] = None
-
-
 class PropertyGroupFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -7312,6 +7300,18 @@ class TrendsQuery(BaseModel):
         ..., description="Events and actions to include"
     )
     trendsFilter: Optional[TrendsFilter] = Field(default=None, description="Properties specific to the trends insight")
+
+
+class VectorSearchQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    embedding: list[float]
+    kind: Literal["VectorSearchQuery"] = "VectorSearchQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    response: Optional[VectorSearchQueryResponse] = None
 
 
 class VisualizationMessage(BaseModel):
@@ -8590,7 +8590,7 @@ class HogQLAutocomplete(BaseModel):
             ExperimentTrendsQuery,
             RecordingsQuery,
             TracesQuery,
-            PgEmbeddingsQuery,
+            VectorSearchQuery,
         ]
     ] = Field(default=None, description="Query in whose context to validate.")
     startPosition: int = Field(..., description="Start position of the editor word")
@@ -8639,7 +8639,7 @@ class HogQLMetadata(BaseModel):
             ExperimentTrendsQuery,
             RecordingsQuery,
             TracesQuery,
-            PgEmbeddingsQuery,
+            VectorSearchQuery,
         ]
     ] = Field(
         default=None,
@@ -8703,7 +8703,7 @@ class QueryRequest(BaseModel):
         EventTaxonomyQuery,
         ActorsPropertyTaxonomyQuery,
         TracesQuery,
-        PgEmbeddingsQuery,
+        VectorSearchQuery,
     ] = Field(
         ...,
         description=(
@@ -8777,7 +8777,7 @@ class QuerySchemaRoot(
             EventTaxonomyQuery,
             ActorsPropertyTaxonomyQuery,
             TracesQuery,
-            PgEmbeddingsQuery,
+            VectorSearchQuery,
         ]
     ]
 ):
@@ -8825,7 +8825,7 @@ class QuerySchemaRoot(
         EventTaxonomyQuery,
         ActorsPropertyTaxonomyQuery,
         TracesQuery,
-        PgEmbeddingsQuery,
+        VectorSearchQuery,
     ] = Field(..., discriminator="kind")
 
 

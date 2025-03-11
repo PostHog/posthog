@@ -121,7 +121,7 @@ export enum NodeKind {
     EventTaxonomyQuery = 'EventTaxonomyQuery',
     ActorsPropertyTaxonomyQuery = 'ActorsPropertyTaxonomyQuery',
     TracesQuery = 'TracesQuery',
-    PgEmbeddingsQuery = 'PgEmbeddingsQuery',
+    VectorSearchQuery = 'VectorSearchQuery',
 }
 
 export type AnyDataNode =
@@ -150,7 +150,7 @@ export type AnyDataNode =
     | ExperimentTrendsQuery
     | RecordingsQuery
     | TracesQuery
-    | PgEmbeddingsQuery
+    | VectorSearchQuery
 
 /**
  * @discriminator kind
@@ -210,7 +210,7 @@ export type QuerySchema =
     | EventTaxonomyQuery
     | ActorsPropertyTaxonomyQuery
     | TracesQuery
-    | PgEmbeddingsQuery
+    | VectorSearchQuery
 
 // Keep this, because QuerySchema itself will be collapsed as it is used in other models
 export type QuerySchemaRoot = QuerySchema
@@ -2422,21 +2422,21 @@ export type ActorsPropertyTaxonomyQueryResponse = AnalyticsQueryResponseBase<Act
 
 export type CachedActorsPropertyTaxonomyQueryResponse = CachedQueryResponse<ActorsPropertyTaxonomyQueryResponse>
 
-export interface PgEmbeddingsResponseItem {
+export interface VectorSearchResponseItem {
     id: string
     distance: number
 }
 
-export type PgEmbeddingsResponse = PgEmbeddingsResponseItem[]
+export type VectorSearchResponse = VectorSearchResponseItem[]
 
-export interface PgEmbeddingsQuery extends DataNode<PgEmbeddingsQueryResponse> {
-    kind: NodeKind.PgEmbeddingsQuery
+export interface VectorSearchQuery extends DataNode<VectorSearchQueryResponse> {
+    kind: NodeKind.VectorSearchQuery
     embedding: number[]
 }
 
-export type PgEmbeddingsQueryResponse = AnalyticsQueryResponseBase<PgEmbeddingsResponse>
+export type VectorSearchQueryResponse = AnalyticsQueryResponseBase<VectorSearchResponse>
 
-export type CachedPgEmbeddingsQueryResponse = CachedQueryResponse<PgEmbeddingsQueryResponse>
+export type CachedVectorSearchQueryResponse = CachedQueryResponse<VectorSearchQueryResponse>
 
 export enum CustomChannelField {
     UTMSource = 'utm_source',

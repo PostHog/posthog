@@ -5,24 +5,24 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.ai.utils import TaxonomyCacheMixin
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.schema import (
-    CachedPgEmbeddingsQueryResponse,
-    PgEmbeddingsQuery,
-    PgEmbeddingsQueryResponse,
-    PgEmbeddingsResponseItem,
+    CachedVectorSearchQueryResponse,
+    VectorSearchQuery,
+    VectorSearchQueryResponse,
+    VectorSearchResponseItem,
 )
 
 
-class PgEmbeddingsQueryRunner(TaxonomyCacheMixin, QueryRunner):
-    query: PgEmbeddingsQuery
-    response: PgEmbeddingsQueryResponse
-    cached_response: CachedPgEmbeddingsQueryResponse
+class VectorSearchQueryRunner(TaxonomyCacheMixin, QueryRunner):
+    query: VectorSearchQuery
+    response: VectorSearchQueryResponse
+    cached_response: CachedVectorSearchQueryResponse
 
     def calculate(self):
         query = self.to_query()
         hogql = to_printed_hogql(query, self.team)
 
         response = execute_hogql_query(
-            query_type="PgEmbeddingsQuery",
+            query_type="VectorSearchQuery",
             query=query,
             team=self.team,
             timings=self.timings,
@@ -30,11 +30,11 @@ class PgEmbeddingsQueryRunner(TaxonomyCacheMixin, QueryRunner):
             limit_context=self.limit_context,
         )
 
-        results: list[PgEmbeddingsResponseItem] = []
+        results: list[VectorSearchResponseItem] = []
         for id, distance in response.results:
-            results.append(PgEmbeddingsResponseItem(id=id, distance=distance))
+            results.append(VectorSearchResponseItem(id=id, distance=distance))
 
-        return PgEmbeddingsQueryResponse(
+        return VectorSearchQueryResponse(
             results=results,
             timings=response.timings,
             hogql=hogql,
@@ -46,11 +46,13 @@ class PgEmbeddingsQueryRunner(TaxonomyCacheMixin, QueryRunner):
             """
             SELECT
                 id,
-                cosineDistance(vector, {embedding}) as distance
+                cosineDistance(argMax(vector, timestamp), {embedding}) as distance
             FROM
                 pg_embeddings
             WHERE
-                domain = 'action'
+                domain = 'action' and is_deleted = 0
+            GROUP BY
+                id
             ORDER BY
                 distance ASC
             LIMIT 20

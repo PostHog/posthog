@@ -6,10 +6,10 @@ from langchain_core.runnables import RunnableConfig
 
 from ee.hogai.utils.nodes import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from posthog.hogql_queries.ai.pg_embeddings_query_runner import PgEmbeddingsQueryRunner
+from posthog.hogql_queries.ai.vector_search_query_runner import VectorSearchQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Action
-from posthog.schema import PgEmbeddingsQuery
+from posthog.schema import VectorSearchQuery
 
 from .utils import get_cohere_client
 
@@ -34,9 +34,9 @@ class ProductAnalyticsRetriever(AssistantNode):
         return state.root_tool_insight_type or "end"
 
     def _retrieve_actions(self, embedding: list[float]) -> str:
-        runner = PgEmbeddingsQueryRunner(
+        runner = VectorSearchQueryRunner(
             team=self._team,
-            query=PgEmbeddingsQuery(embedding=embedding),
+            query=VectorSearchQuery(embedding=embedding),
         )
         response = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
         actions = Action.objects.filter(team=self._team, id__in=[row.id for row in response.results])

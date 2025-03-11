@@ -46,7 +46,6 @@ from posthog.schema import (
     InsightActorsQueryOptions,
     LifecycleQuery,
     PathsQuery,
-    PgEmbeddingsQuery,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
     QueryStatus,
@@ -61,6 +60,7 @@ from posthog.schema import (
     TeamTaxonomyQuery,
     TracesQuery,
     TrendsQuery,
+    VectorSearchQuery,
     WebGoalsQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
@@ -479,11 +479,11 @@ def get_query_runner(
             limit_context=limit_context,
             modifiers=modifiers,
         )
-    if kind == "PgEmbeddingsQuery":
-        from .ai.pg_embeddings_query_runner import PgEmbeddingsQueryRunner
+    if kind == "VectorSearchQuery":
+        from .ai.vector_search_query_runner import VectorSearchQueryRunner
 
-        return PgEmbeddingsQueryRunner(
-            query=cast(PgEmbeddingsQuery | dict[str, Any], query),
+        return VectorSearchQueryRunner(
+            query=cast(VectorSearchQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
