@@ -11,19 +11,19 @@ import { useRef } from 'react'
 import { urls } from 'scenes/urls'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { projectPanelLayoutLogic } from '~/layout/project-panel-layout/projectPanelLayoutLogic'
+import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
 import { OrganizationDropdownMenu } from './OrganizationDropdownMenu'
 
 const panelStyles = cva('z-[var(--z-project-panel-layout)] h-screen left-0', {
     variants: {
-        isPanelVisible: {
+        isLayoutPanelVisible: {
             true: 'block',
             false: 'hidden',
         },
     },
     defaultVariants: {
-        isPanelVisible: false,
+        isLayoutPanelVisible: false,
     },
 })
 
@@ -31,8 +31,8 @@ export function ProjectTreeNavbar({ children }: { children: React.ReactNode }): 
     const { theme } = useValues(themeLogic)
     const { toggleSearchBar } = useActions(commandBarLogic)
     const containerRef = useRef<HTMLDivElement | null>(null)
-    const { togglePanelVisible, setActiveNavBarItem } = useActions(projectPanelLayoutLogic)
-    const { isPanelVisible, activeNavBarItem } = useValues(projectPanelLayoutLogic)
+    const { showLayoutPanel, setActiveLayoutNavBarItem } = useActions(panelLayoutLogic)
+    const { isLayoutPanelVisible, activeLayoutNavBarItem } = useValues(panelLayoutLogic)
 
     return (
         <>
@@ -67,13 +67,13 @@ export function ProjectTreeNavbar({ children }: { children: React.ReactNode }): 
                             <LemonButton
                                 className={cn(
                                     'hover:bg-fill-highlight-100',
-                                    activeNavBarItem === 'project' && 'bg-fill-highlight-50'
+                                    activeLayoutNavBarItem === 'project' && 'bg-fill-highlight-50'
                                 )}
                                 icon={<IconFolderOpen className="size-5 stroke-[1.2]" />}
                                 onClick={() => {
-                                    togglePanelVisible(!isPanelVisible)
-                                    if (activeNavBarItem !== 'project') {
-                                        setActiveNavBarItem('project')
+                                    showLayoutPanel(!isLayoutPanelVisible)
+                                    if (activeLayoutNavBarItem !== 'project') {
+                                        setActiveLayoutNavBarItem('project')
                                     }
                                 }}
                                 fullWidth
@@ -126,17 +126,17 @@ export function ProjectTreeNavbar({ children }: { children: React.ReactNode }): 
                             <LemonButton
                                 className={cn(
                                     'hover:bg-fill-highlight-100',
-                                    activeNavBarItem === 'activity' && 'bg-fill-highlight-50'
+                                    activeLayoutNavBarItem === 'activity' && 'bg-fill-highlight-50'
                                 )}
                                 fullWidth
                                 icon={<IconClock className="size-5" />}
                                 size="small"
                                 to={urls.activity()}
                                 onClick={() => {
-                                    if (isPanelVisible) {
-                                        togglePanelVisible(false)
+                                    if (isLayoutPanelVisible) {
+                                        showLayoutPanel(false)
                                     }
-                                    setActiveNavBarItem('activity')
+                                    setActiveLayoutNavBarItem('activity')
                                 }}
                             >
                                 <span>Activity</span>
@@ -187,7 +187,7 @@ export function ProjectTreeNavbar({ children }: { children: React.ReactNode }): 
                 <div
                     className={cn(
                         panelStyles({
-                            isPanelVisible,
+                            isLayoutPanelVisible,
                         })
                     )}
                 >

@@ -9,6 +9,8 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { ReactNode, useRef } from 'react'
 import { SceneConfig } from 'scenes/sceneTypes'
 
+import { PanelLayout } from '~/layout/panel-layout/PanelLayout'
+
 import { navigationLogic } from '../navigation/navigationLogic'
 import { ProjectNotice } from '../navigation/ProjectNotice'
 import { MinimalNavigation } from './components/MinimalNavigation'
@@ -18,7 +20,6 @@ import { TopBar } from './components/TopBar'
 import { navigation3000Logic } from './navigationLogic'
 import { SidePanel } from './sidepanel/SidePanel'
 import { themeLogic } from './themeLogic'
-import { ProjectPanelLayout } from '~/layout/project-panel-layout/ProjectPanelLayout'
 
 export function Navigation({
     children,
@@ -55,7 +56,7 @@ export function Navigation({
             </a>
 
             <FlaggedFeature flag={FEATURE_FLAGS.TREE_VIEW} fallback={<Navbar />}>
-                <ProjectPanelLayout mainRef={mainRef} />
+                <PanelLayout mainRef={mainRef} />
             </FlaggedFeature>
             <FlaggedFeature flag={FEATURE_FLAGS.POSTHOG_3000_NAV}>
                 {activeNavbarItem && <Sidebar key={activeNavbarItem.identifier} navbarItem={activeNavbarItem} />}

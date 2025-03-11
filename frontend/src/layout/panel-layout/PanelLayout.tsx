@@ -6,23 +6,23 @@ import { ProjectTree } from '~/layout/navigation-3000/components/ProjectTree/Pro
 import { ProjectTreeNavbar } from '~/layout/navigation-3000/components/ProjectTree/ProjectTreeNavbar'
 
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
-import { projectPanelLayoutLogic } from './projectPanelLayoutLogic'
+import { panelLayoutLogic } from './panelLayoutLogic'
 
 const panelLayoutStyles = cva('gap-0 w-fit relative h-screen z-[var(--z-project-panel-layout)]', {
     variants: {
-        isNavbarVisibleMobile: {
+        isLayoutNavbarVisibleForMobile: {
             true: 'translate-x-0',
             false: '',
         },
-        isNavbarVisibleDesktop: {
+        isLayoutNavbarVisibleForDesktop: {
             true: 'w-[var(--project-navbar-width)]',
             false: '',
         },
-        isPanelVisible: {
+        isLayoutPanelVisible: {
             true: '',
             false: 'w-[var(--project-navbar-width)]',
         },
-        isPanelPinned: {
+        isLayoutPanelPinned: {
             true: '',
             false: '',
         },
@@ -34,35 +34,39 @@ const panelLayoutStyles = cva('gap-0 w-fit relative h-screen z-[var(--z-project-
     compoundVariants: [
         {
             isMobileLayout: true,
-            isNavbarVisibleMobile: true,
+            isLayoutNavbarVisibleForMobile: true,
             className: 'translate-x-0',
         },
         {
             isMobileLayout: true,
-            isNavbarVisibleMobile: false,
+            isLayoutNavbarVisibleForMobile: false,
             className: 'translate-x-[calc(var(--project-navbar-width)*-1)]',
         },
         {
             isMobileLayout: false,
-            isPanelVisible: true,
-            isPanelPinned: true,
+            isLayoutPanelVisible: true,
+            isLayoutPanelPinned: true,
             className: 'w-[calc(var(--project-navbar-width)+var(--project-panel-width))]',
         },
     ],
     defaultVariants: {
-        isPanelPinned: false,
-        isPanelVisible: false,
+        isLayoutPanelPinned: false,
+        isLayoutPanelVisible: false,
     },
 })
 
-export function ProjectPanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement> }): JSX.Element {
-    const { isPanelPinned, isPanelVisible, isNavbarVisibleMobile, isNavbarVisibleDesktop } =
-        useValues(projectPanelLayoutLogic)
+export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement> }): JSX.Element {
+    const {
+        isLayoutPanelPinned,
+        isLayoutPanelVisible,
+        isLayoutNavbarVisibleForMobile,
+        isLayoutNavbarVisibleForDesktop,
+    } = useValues(panelLayoutLogic)
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
-    const { togglePanelVisible, showNavBar } = useActions(projectPanelLayoutLogic)
+    const { showLayoutPanel, showLayoutNavBar } = useActions(panelLayoutLogic)
 
-    const showMobileNavbarOverlay = isNavbarVisibleMobile
-    const showDesktopNavbarOverlay = isNavbarVisibleDesktop && !isPanelPinned && isPanelVisible
+    const showMobileNavbarOverlay = isLayoutNavbarVisibleForMobile
+    const showDesktopNavbarOverlay = isLayoutNavbarVisibleForDesktop && !isLayoutPanelPinned && isLayoutPanelVisible
 
     return (
         <div className="relative">
@@ -70,10 +74,10 @@ export function ProjectPanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLE
                 id="project-panel-layout"
                 className={cn(
                     panelLayoutStyles({
-                        isNavbarVisibleMobile,
-                        isNavbarVisibleDesktop,
-                        isPanelPinned,
-                        isPanelVisible,
+                        isLayoutNavbarVisibleForMobile,
+                        isLayoutNavbarVisibleForDesktop,
+                        isLayoutPanelPinned,
+                        isLayoutPanelVisible,
                         isMobileLayout,
                     })
                 )}
@@ -86,8 +90,8 @@ export function ProjectPanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLE
             {isMobileLayout && showMobileNavbarOverlay && (
                 <div
                     onClick={() => {
-                        showNavBar(false)
-                        togglePanelVisible(false)
+                        showLayoutNavBar(false)
+                        showLayoutPanel(false)
                     }}
                     className="z-[var(--z-project-panel-overlay)] fixed inset-0 w-screen h-screen"
                 />
@@ -95,7 +99,7 @@ export function ProjectPanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLE
             {!isMobileLayout && showDesktopNavbarOverlay && (
                 <div
                     onClick={() => {
-                        togglePanelVisible(false)
+                        showLayoutPanel(false)
                     }}
                     className="z-[var(--z-project-panel-overlay)] fixed inset-0 w-screen h-screen"
                 />

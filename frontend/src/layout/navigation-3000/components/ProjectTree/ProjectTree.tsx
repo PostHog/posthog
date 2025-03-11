@@ -7,7 +7,7 @@ import { LemonTree, LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { ContextMenuGroup, ContextMenuItem } from 'lib/ui/ContextMenu/ContextMenu'
 import { useRef } from 'react'
 
-import { projectPanelLayoutLogic } from '~/layout/project-panel-layout/projectPanelLayoutLogic'
+import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 import { navigation3000Logic } from '../../navigationLogic'
@@ -43,8 +43,8 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
     } = useActions(projectTreeLogic)
 
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
-    const { togglePanelVisible, togglePanelPinned } = useActions(projectPanelLayoutLogic)
-    const { isPanelPinned } = useValues(projectPanelLayoutLogic)
+    const { showLayoutPanel, toggleLayoutPanelPinned } = useActions(panelLayoutLogic)
+    const { isLayoutPanelPinned } = useValues(panelLayoutLogic)
     const treeRef = useRef<LemonTreeRef>(null)
     const containerRef = useRef<HTMLDivElement | null>(null)
 
@@ -76,10 +76,10 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                             <LemonButton
                                 size="small"
                                 type="tertiary"
-                                tooltip={isPanelPinned ? 'Unpin panel' : 'Pin panel'}
-                                onClick={() => togglePanelPinned(!isPanelPinned)}
+                                tooltip={isLayoutPanelPinned ? 'Unpin panel' : 'Pin panel'}
+                                onClick={() => toggleLayoutPanelPinned(!isLayoutPanelPinned)}
                                 className="hover:bg-fill-highlight-100 shrink-0"
-                                icon={isPanelPinned ? <IconPinFilled /> : <IconPin />}
+                                icon={isLayoutPanelPinned ? <IconPinFilled /> : <IconPin />}
                             />
                         )}
                         <LemonButton
@@ -177,7 +177,7 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                         onNodeClick={(node) => {
                             if (node?.record?.path) {
                                 setLastViewedId(node?.id || '')
-                                togglePanelVisible(false)
+                                showLayoutPanel(false)
                             }
                             if (node?.id.startsWith('project-load-more/')) {
                                 const path = node.id.split('/').slice(1).join('/')

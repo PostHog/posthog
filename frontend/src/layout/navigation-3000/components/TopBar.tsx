@@ -16,7 +16,7 @@ import React, { useLayoutEffect, useState } from 'react'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
-import { projectPanelLayoutLogic } from '~/layout/project-panel-layout/projectPanelLayoutLogic'
+import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { Breadcrumb as IBreadcrumb } from '~/types'
 
 import { navigation3000Logic } from '../navigationLogic'
@@ -29,8 +29,8 @@ export function TopBar(): JSX.Element | null {
     const { showNavOnMobile } = useActions(navigation3000Logic)
     const { breadcrumbs, renameState } = useValues(breadcrumbsLogic)
     const { setActionsContainer } = useActions(breadcrumbsLogic)
-    const { showNavBar } = useActions(projectPanelLayoutLogic)
-    const { isNavbarVisibleMobile } = useValues(projectPanelLayoutLogic)
+    const { showLayoutNavBar } = useActions(panelLayoutLogic)
+    const { isLayoutNavbarVisibleForMobile } = useValues(panelLayoutLogic)
     const [compactionRate, setCompactionRate] = useState(0)
 
     // Always show in full on mobile, as there we are very constrained in width, but not so much height
@@ -94,8 +94,8 @@ export function TopBar(): JSX.Element | null {
                     >
                         <LemonButton
                             size="small"
-                            onClick={() => showNavBar(!isNavbarVisibleMobile)}
-                            icon={isNavbarVisibleMobile ? <IconX /> : <IconMenu />}
+                            onClick={() => showLayoutNavBar(!isLayoutNavbarVisibleForMobile)}
+                            icon={isLayoutNavbarVisibleForMobile ? <IconX /> : <IconMenu />}
                             className="TopBar3000__hamburger"
                         />
                     </FlaggedFeature>
