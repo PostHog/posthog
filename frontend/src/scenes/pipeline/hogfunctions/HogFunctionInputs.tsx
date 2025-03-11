@@ -18,8 +18,8 @@ import { useValues } from 'kea'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorInline, CodeEditorInlineProps } from 'lib/monaco/CodeEditorInline'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
-import { capitalizeFirstLetter } from 'lib/utils'
-import { useEffect, useState } from 'react'
+import { capitalizeFirstLetter, objectsEqual } from 'lib/utils'
+import { useEffect, useRef, useState } from 'react'
 
 import {
     HogFunctionConfigurationType,
@@ -123,46 +123,26 @@ function DictionaryField({
     templating: boolean
 }): JSX.Element {
     const [entries, setEntries] = useState<[string, string][]>(Object.entries(value ?? {}))
-
-    const arraysEqual = (a: any[], b: any[]): boolean => {
-        if (a === b) {
-            return true
-        }
-        if (a == null || b == null) {
-            return false
-        }
-        if (a.length !== b.length) {
-            return false
-        }
-
-        // If you don't care about the order of the elements inside
-        // the array, you should sort both arrays here.
-        // Please note that calling sort on an array will modify that array.
-        // you might want to clone your array first.
-
-        for (let i = 0; i < a.length; ++i) {
-            if (a[i] !== b[i]) {
-                return false
-            }
-        }
-        return true
-    }
+    const prevFilteredEntriesRef = useRef<[string, string][]>(entries)
 
     useEffect(() => {
         // NOTE: Filter out all empty entries as fetch will throw if passed in
         const filteredEntries = entries.filter(([key, val]) => key.trim() !== '' || val.trim() !== '')
 
-        // avoid changing configuration if nothing has changed
-        if (arraysEqual(filteredEntries, entries)) {
+        // Compare with previous filtered entries to avoid unnecessary updates
+        if (objectsEqual(filteredEntries, prevFilteredEntriesRef.current)) {
             return
         }
 
+        // Update the ref with current filtered entries
+        prevFilteredEntriesRef.current = filteredEntries
+
         const val = Object.fromEntries(filteredEntries)
         onChange?.(val)
-    }, [entries])
+    }, [entries, onChange])
 
     return (
-        <div className="space-y-2">
+        <div className="deprecated-space-y-2">
             {entries.map(([key, val], index) => (
                 <div className="flex items-center gap-2" key={index}>
                     <LemonInput
@@ -520,7 +500,7 @@ export function HogFunctionInputWithSchema({
                     }}
                 </LemonField>
             ) : (
-                <div className="p-2 space-y-4 border border-dashed rounded">
+                <div className="p-2 deprecated-space-y-4 border border-dashed rounded">
                     <HogFunctionInputSchemaControls
                         value={schema}
                         onChange={onSchemaChange}

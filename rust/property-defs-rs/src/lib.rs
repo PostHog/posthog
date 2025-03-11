@@ -7,8 +7,9 @@ use config::{Config, TeamFilterMode, TeamList};
 use metrics_consts::{
     BATCH_ACQUIRE_TIME, CACHE_CONSUMED, CHUNK_SIZE, COMPACTED_UPDATES, DUPLICATES_IN_BATCH,
     EMPTY_EVENTS, EVENTS_RECEIVED, EVENT_PARSE_ERROR, FORCED_SMALL_BATCH, ISSUE_FAILED,
-    RECV_DEQUEUED, SKIPPED_DUE_TO_TEAM_FILTER, UPDATES_FILTERED_BY_CACHE, UPDATES_PER_EVENT,
-    UPDATES_SEEN, UPDATE_ISSUE_TIME, WORKER_BLOCKED,
+    RECV_DEQUEUED, SKIPPED_DUE_TO_TEAM_FILTER, UPDATES_CACHE, UPDATES_DROPPED,
+    UPDATES_FILTERED_BY_CACHE, UPDATES_PER_EVENT, UPDATES_SEEN, UPDATE_ISSUE_TIME,
+    UPDATE_PRODUCER_OFFSET, WORKER_BLOCKED,
 };
 use quick_cache::sync::Cache;
 use tokio::sync::mpsc::{self, error::TrySendError};
@@ -20,6 +21,9 @@ pub mod app_context;
 pub mod config;
 pub mod metrics_consts;
 pub mod types;
+
+const BATCH_UPDATE_MAX_ATTEMPTS: u64 = 5;
+const UPDATE_RETRY_DELAY_MS: u64 = 150;
 
 pub async fn update_consumer_loop(
     config: Config,
@@ -90,26 +94,41 @@ pub async fn update_consumer_loop(
             let m_context = context.clone();
             let m_cache = cache.clone();
             let handle = tokio::spawn(async move {
-                let mut tries = 0;
-                // We occasionally enocounter deadlocks while issuing updates, so we retry a few times, and
+                let mut tries: u64 = 0;
+                // We occasionally encounter deadlocks while issuing updates, so we retry a few times, and
                 // if we still fail, we drop the batch and clear it's content from the cached update set, because
                 // we assume everything in it will be seen again.
                 while let Err(e) = m_context.issue(&mut chunk, cache_utilization).await {
                     tries += 1;
-                    if tries > 3 {
-                        metrics::counter!(ISSUE_FAILED).increment(1);
-                        error!("Too many tries, dropping batch");
+                    if tries > BATCH_UPDATE_MAX_ATTEMPTS {
+                        let chunk_len = chunk.len() as u64;
+                        metrics::counter!(ISSUE_FAILED, &[("reason", "failed")]).increment(1);
+                        metrics::counter!(UPDATES_DROPPED, &[("reason", "batch_write_fail")])
+                            .increment(chunk_len);
+                        error!(
+                            "Issue failed: retries exhausted, dropping batch of size {} with error: {:?}",
+                            chunk_len, e,
+                        );
                         // We clear any updates that were in this batch from the cache, so that
                         // if we see them again we'll try again to issue them.
                         chunk.iter().for_each(|u| {
-                            m_cache.remove(u);
+                            if m_cache.remove(u).is_some() {
+                                metrics::counter!(UPDATES_CACHE, &[("action", "removed")])
+                                    .increment(1);
+                            } else {
+                                metrics::counter!(UPDATES_CACHE, &[("action", "not_cached")])
+                                    .increment(1);
+                            }
                         });
                         return;
                     }
 
                     let jitter = rand::random::<u64>() % 50;
-                    warn!("Issue failed: {:?}, sleeping for {}ms", e, jitter);
-                    tokio::time::sleep(Duration::from_millis(jitter)).await;
+                    let delay: u64 = tries * UPDATE_RETRY_DELAY_MS + jitter;
+                    metrics::counter!(ISSUE_FAILED, &[("attempt", format!("retry_{}", tries))])
+                        .increment(1);
+                    warn!("Issue failed: {:?}, sleeping for {}ms", e, delay);
+                    tokio::time::sleep(Duration::from_millis(delay)).await;
                 }
             });
             handles.push(handle);
@@ -151,8 +170,21 @@ pub async fn update_producer_loop(
             }
         };
 
-        // Panicking on offset store failure, same reasoning as the panic above - if kafka's down, we're down
-        offset.store().expect("Failed to store offset");
+        // TODO(eli): librdkafka auto_commit is probably making this a no-op anyway. we may want to
+        // extend the autocommit time interval either way to ensure we replay consumed messages that
+        // could be part of a lost batch or chunk during a redeploy. stay tuned...
+        let curr_offset = offset.get_value();
+        match offset.store() {
+            Ok(_) => (),
+            Err(e) => {
+                metrics::counter!(UPDATE_PRODUCER_OFFSET, &[("op", "store_fail")]).increment(1);
+                // TODO: consumer json_recv() should expose the source partition ID too
+                error!(
+                    "update_producer_loop: failed to store offset {}, got: {}",
+                    curr_offset, e
+                );
+            }
+        }
 
         if !team_filter_mode.should_process(&team_list.teams, event.team_id) {
             metrics::counter!(SKIPPED_DUE_TO_TEAM_FILTER).increment(1);
@@ -183,9 +215,12 @@ pub async fn update_producer_loop(
             last_send = tokio::time::Instant::now();
             for update in batch.drain() {
                 if shared_cache.get(&update).is_some() {
+                    metrics::counter!(UPDATES_CACHE, &[("action", "hit")]).increment(1);
+                    // the above can replace this metric when we have new hit/miss stats both flowing
                     metrics::counter!(UPDATES_FILTERED_BY_CACHE).increment(1);
                     continue;
                 }
+                metrics::counter!(UPDATES_CACHE, &[("action", "miss")]).increment(1);
                 shared_cache.insert(update.clone(), ());
                 match channel.try_send(update) {
                     Ok(_) => {}

@@ -144,6 +144,12 @@ class AssistantMessageType(StrEnum):
     AI_FAILURE = "ai/failure"
 
 
+class MeanRetentionCalculation(StrEnum):
+    SIMPLE = "simple"
+    WEIGHTED = "weighted"
+    NONE = "none"
+
+
 class RetentionReference(StrEnum):
     TOTAL = "total"
     PREVIOUS = "previous"
@@ -458,6 +464,161 @@ class CountPerActorMathType(StrEnum):
     P99_COUNT_PER_ACTOR = "p99_count_per_actor"
 
 
+class CurrencyCode(StrEnum):
+    AED = "AED"
+    AFN = "AFN"
+    ALL = "ALL"
+    AMD = "AMD"
+    ANG = "ANG"
+    AOA = "AOA"
+    ARS = "ARS"
+    AUD = "AUD"
+    AWG = "AWG"
+    AZN = "AZN"
+    BAM = "BAM"
+    BBD = "BBD"
+    BDT = "BDT"
+    BGN = "BGN"
+    BHD = "BHD"
+    BIF = "BIF"
+    BMD = "BMD"
+    BND = "BND"
+    BOB = "BOB"
+    BRL = "BRL"
+    BSD = "BSD"
+    BTC = "BTC"
+    BTN = "BTN"
+    BWP = "BWP"
+    BYN = "BYN"
+    BZD = "BZD"
+    CAD = "CAD"
+    CDF = "CDF"
+    CHF = "CHF"
+    CLP = "CLP"
+    CNY = "CNY"
+    COP = "COP"
+    CRC = "CRC"
+    CVE = "CVE"
+    CZK = "CZK"
+    DJF = "DJF"
+    DKK = "DKK"
+    DOP = "DOP"
+    DZD = "DZD"
+    EGP = "EGP"
+    ERN = "ERN"
+    ETB = "ETB"
+    EUR = "EUR"
+    FJD = "FJD"
+    GBP = "GBP"
+    GEL = "GEL"
+    GHS = "GHS"
+    GIP = "GIP"
+    GMD = "GMD"
+    GNF = "GNF"
+    GTQ = "GTQ"
+    GYD = "GYD"
+    HKD = "HKD"
+    HNL = "HNL"
+    HRK = "HRK"
+    HTG = "HTG"
+    HUF = "HUF"
+    IDR = "IDR"
+    ILS = "ILS"
+    INR = "INR"
+    IQD = "IQD"
+    IRR = "IRR"
+    ISK = "ISK"
+    JMD = "JMD"
+    JOD = "JOD"
+    JPY = "JPY"
+    KES = "KES"
+    KGS = "KGS"
+    KHR = "KHR"
+    KMF = "KMF"
+    KRW = "KRW"
+    KWD = "KWD"
+    KYD = "KYD"
+    KZT = "KZT"
+    LAK = "LAK"
+    LBP = "LBP"
+    LKR = "LKR"
+    LRD = "LRD"
+    LTL = "LTL"
+    LVL = "LVL"
+    LSL = "LSL"
+    LYD = "LYD"
+    MAD = "MAD"
+    MDL = "MDL"
+    MGA = "MGA"
+    MKD = "MKD"
+    MMK = "MMK"
+    MNT = "MNT"
+    MOP = "MOP"
+    MRU = "MRU"
+    MTL = "MTL"
+    MUR = "MUR"
+    MVR = "MVR"
+    MWK = "MWK"
+    MXN = "MXN"
+    MYR = "MYR"
+    MZN = "MZN"
+    NAD = "NAD"
+    NGN = "NGN"
+    NIO = "NIO"
+    NOK = "NOK"
+    NPR = "NPR"
+    NZD = "NZD"
+    OMR = "OMR"
+    PAB = "PAB"
+    PEN = "PEN"
+    PGK = "PGK"
+    PHP = "PHP"
+    PKR = "PKR"
+    PLN = "PLN"
+    PYG = "PYG"
+    QAR = "QAR"
+    RON = "RON"
+    RSD = "RSD"
+    RUB = "RUB"
+    RWF = "RWF"
+    SAR = "SAR"
+    SBD = "SBD"
+    SCR = "SCR"
+    SDG = "SDG"
+    SEK = "SEK"
+    SGD = "SGD"
+    SRD = "SRD"
+    SSP = "SSP"
+    STN = "STN"
+    SYP = "SYP"
+    SZL = "SZL"
+    THB = "THB"
+    TJS = "TJS"
+    TMT = "TMT"
+    TND = "TND"
+    TOP = "TOP"
+    TRY_ = "TRY"
+    TTD = "TTD"
+    TWD = "TWD"
+    TZS = "TZS"
+    UAH = "UAH"
+    UGX = "UGX"
+    USD = "USD"
+    UYU = "UYU"
+    UZS = "UZS"
+    VES = "VES"
+    VND = "VND"
+    VUV = "VUV"
+    WST = "WST"
+    XAF = "XAF"
+    XCD = "XCD"
+    XOF = "XOF"
+    XPF = "XPF"
+    YER = "YER"
+    ZAR = "ZAR"
+    ZMW = "ZMW"
+
+
 class CustomChannelField(StrEnum):
     UTM_SOURCE = "utm_source"
     UTM_MEDIUM = "utm_medium"
@@ -764,19 +925,14 @@ class ExperimentExposureTimeSeries(BaseModel):
     variant: str
 
 
-class ExperimentMetricMath(StrEnum):
+class ExperimentMetricMathType(StrEnum):
     TOTAL = "total"
     SUM = "sum"
-    AVG = "avg"
-    MEDIAN = "median"
-    MIN = "min"
-    MAX = "max"
 
 
 class ExperimentMetricType(StrEnum):
-    COUNT = "count"
-    CONTINUOUS = "continuous"
     FUNNEL = "funnel"
+    MEAN = "mean"
 
 
 class ExperimentSignificanceCode(StrEnum):
@@ -1394,6 +1550,7 @@ class RevenueTrackingEventItem(BaseModel):
         extra="forbid",
     )
     eventName: str
+    revenueCurrencyProperty: Optional[str] = None
     revenueProperty: str
 
 
@@ -2285,7 +2442,7 @@ class ExperimentDataWarehouseMetricConfig(BaseModel):
     data_warehouse_join_key: str
     events_join_key: str
     kind: Literal["ExperimentDataWarehouseMetricConfig"] = "ExperimentDataWarehouseMetricConfig"
-    math: Optional[ExperimentMetricMath] = None
+    math: Optional[ExperimentMetricMathType] = None
     math_hogql: Optional[str] = None
     math_property: Optional[str] = None
     name: Optional[str] = None
@@ -2657,6 +2814,7 @@ class RevenueTrackingConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    baseCurrency: Optional[CurrencyCode] = None
     events: list[RevenueTrackingEventItem]
 
 
@@ -3362,6 +3520,7 @@ class AssistantTrendsEventsNode(BaseModel):
             FunnelMathType,
             PropertyMathType,
             CountPerActorMathType,
+            ExperimentMetricMathType,
             Literal["unique_group"],
             Literal["hogql"],
         ]
@@ -4388,6 +4547,7 @@ class DataWarehouseNode(BaseModel):
             FunnelMathType,
             PropertyMathType,
             CountPerActorMathType,
+            ExperimentMetricMathType,
             Literal["unique_group"],
             Literal["hogql"],
         ]
@@ -4479,6 +4639,7 @@ class EntityNode(BaseModel):
             FunnelMathType,
             PropertyMathType,
             CountPerActorMathType,
+            ExperimentMetricMathType,
             Literal["unique_group"],
             Literal["hogql"],
         ]
@@ -4607,6 +4768,7 @@ class EventsNode(BaseModel):
             FunnelMathType,
             PropertyMathType,
             CountPerActorMathType,
+            ExperimentMetricMathType,
             Literal["unique_group"],
             Literal["hogql"],
         ]
@@ -4671,7 +4833,7 @@ class ExperimentActionMetricConfig(BaseModel):
     )
     action: float
     kind: Literal["ExperimentActionMetricConfig"] = "ExperimentActionMetricConfig"
-    math: Optional[ExperimentMetricMath] = None
+    math: Optional[ExperimentMetricMathType] = None
     math_hogql: Optional[str] = None
     math_property: Optional[str] = None
     name: Optional[str] = None
@@ -4727,7 +4889,7 @@ class ExperimentEventMetricConfig(BaseModel):
     )
     event: str
     kind: Literal["ExperimentEventMetricConfig"] = "ExperimentEventMetricConfig"
-    math: Optional[ExperimentMetricMath] = None
+    math: Optional[ExperimentMetricMathType] = None
     math_hogql: Optional[str] = None
     math_property: Optional[str] = None
     name: Optional[str] = None
@@ -4781,6 +4943,7 @@ class ExperimentMetric(BaseModel):
     metric_config: Union[ExperimentEventMetricConfig, ExperimentActionMetricConfig, ExperimentDataWarehouseMetricConfig]
     metric_type: ExperimentMetricType
     name: Optional[str] = None
+    time_window_hours: Optional[float] = None
 
 
 class ExperimentQueryResponse(BaseModel):
@@ -4862,6 +5025,7 @@ class FunnelExclusionActionsNode(BaseModel):
             FunnelMathType,
             PropertyMathType,
             CountPerActorMathType,
+            ExperimentMetricMathType,
             Literal["unique_group"],
             Literal["hogql"],
         ]
@@ -4931,6 +5095,7 @@ class FunnelExclusionEventsNode(BaseModel):
             FunnelMathType,
             PropertyMathType,
             CountPerActorMathType,
+            ExperimentMetricMathType,
             Literal["unique_group"],
             Literal["hogql"],
         ]
@@ -5951,6 +6116,7 @@ class RetentionFilter(BaseModel):
     cumulative: Optional[bool] = None
     dashboardDisplay: Optional[RetentionDashboardDisplayType] = None
     display: Optional[ChartDisplayType] = Field(default=None, description="controls the display of the retention graph")
+    meanRetentionCalculation: Optional[MeanRetentionCalculation] = None
     period: Optional[RetentionPeriod] = RetentionPeriod.DAY
     retentionReference: Optional[RetentionReference] = Field(
         default=None,
@@ -5968,6 +6134,7 @@ class RetentionFilterLegacy(BaseModel):
         extra="forbid",
     )
     cumulative: Optional[bool] = None
+    mean_retention_calculation: Optional[MeanRetentionCalculation] = None
     period: Optional[RetentionPeriod] = None
     retention_reference: Optional[RetentionReference] = Field(
         default=None,
@@ -6269,6 +6436,7 @@ class ActionsNode(BaseModel):
             FunnelMathType,
             PropertyMathType,
             CountPerActorMathType,
+            ExperimentMetricMathType,
             Literal["unique_group"],
             Literal["hogql"],
         ]
@@ -6351,6 +6519,12 @@ class AssistantRetentionFilter(BaseModel):
             " coming back in period 5 makes them count towards all the previous periods."
         ),
     )
+    meanRetentionCalculation: Optional[MeanRetentionCalculation] = Field(
+        default=None,
+        description=(
+            "Whether an additional series should be shown, showing the mean conversion for each period across cohorts."
+        ),
+    )
     period: Optional[RetentionPeriod] = Field(
         default=RetentionPeriod.DAY, description="Retention period, the interval to track cohorts by."
     )
@@ -6373,7 +6547,8 @@ class AssistantRetentionFilter(BaseModel):
     showMean: Optional[bool] = Field(
         default=None,
         description=(
-            "Whether an additional series should be shown, showing the mean conversion for each period across cohorts."
+            "DEPRECATED: Whether an additional series should be shown, showing the mean conversion for each period"
+            " across cohorts."
         ),
     )
     targetEntity: Optional[RetentionEntity] = Field(

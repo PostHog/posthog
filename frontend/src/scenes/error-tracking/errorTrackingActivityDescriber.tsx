@@ -32,7 +32,7 @@ function AssigneeRenderer({ assignee }: { assignee: ErrorTrackingIssueAssignee }
     return (
         <AssigneeDisplay assignee={assignee}>
             {({ displayAssignee }) => (
-                <span className="space-x-0.5">
+                <span className="flex gap-x-0.5">
                     {displayAssignee.icon}
                     <span>{displayAssignee.displayName}</span>
                 </span>

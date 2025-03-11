@@ -159,7 +159,7 @@ function QuestionResponseBasedBranchingInput({
     }
 
     return (
-        <div className="mt-2 space-y-2">
+        <div className="mt-2 deprecated-space-y-2">
             {config.map(({ value, label }, i) => (
                 <div key={i} className="flex">
                     <div className="w-2/3 flex items-center">

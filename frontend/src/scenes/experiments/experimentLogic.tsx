@@ -16,6 +16,7 @@ import {
     validateFeatureFlagKey,
     variantKeyToIndexFeatureFlagPayloads,
 } from 'scenes/feature-flags/featureFlagLogic'
+import { featureFlagLogic as sceneFeatureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -64,7 +65,7 @@ import {
     TrendResult,
 } from '~/types'
 
-import { MetricInsightId } from './constants'
+import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS, MetricInsightId } from './constants'
 import type { experimentLogicType } from './experimentLogicType'
 import { experimentsLogic } from './experimentsLogic'
 import { holdoutsLogic } from './holdoutsLogic'
@@ -1342,6 +1343,15 @@ export const experimentLogic = kea<experimentLogicType>([
 
             actions.setSecondaryMetricResultsLoading(false)
         },
+        openReleaseConditionsModal: () => {
+            const numericFlagId = values.experiment.feature_flag?.id
+            if (numericFlagId) {
+                const logic = sceneFeatureFlagLogic.findMounted() || sceneFeatureFlagLogic({ id: numericFlagId })
+                if (logic) {
+                    logic.actions.loadFeatureFlag() // Access the loader through actions
+                }
+            }
+        },
     })),
     loaders(({ actions, props, values }) => ({
         experiment: {
@@ -1430,8 +1440,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 ): InsightType => {
                     return metric &&
                         ((metric?.kind === NodeKind.ExperimentMetric &&
-                            (metric.metric_type === ExperimentMetricType.COUNT ||
-                                metric.metric_type === ExperimentMetricType.CONTINUOUS)) ||
+                            metric.metric_type === ExperimentMetricType.MEAN) ||
                             metric?.kind === NodeKind.ExperimentTrendsQuery)
                         ? InsightType.TRENDS
                         : InsightType.FUNNELS
@@ -1441,7 +1450,7 @@ export const experimentLogic = kea<experimentLogicType>([
             () => [],
             () =>
                 (metric: ExperimentMetric | undefined): ExperimentMetricType => {
-                    return metric?.metric_type || ExperimentMetricType.COUNT
+                    return metric?.metric_type || ExperimentMetricType.MEAN
                 },
         ],
         isExperimentRunning: [
@@ -2161,6 +2170,31 @@ export const experimentLogic = kea<experimentLogicType>([
                     return false
                 }
                 return featureFlags[FEATURE_FLAGS.EXPERIMENTS_NEW_QUERY_RUNNER]
+            },
+        ],
+        hasMinimumExposureForResults: [
+            (s) => [s.exposures, s.shouldUseExperimentMetrics],
+            (exposures, shouldUseExperimentMetrics): boolean => {
+                // Not relevant for old metrics
+                if (!shouldUseExperimentMetrics) {
+                    return true
+                }
+
+                if (!exposures || !exposures.total_exposures) {
+                    return false
+                }
+
+                const exposureValues = Object.values(exposures.total_exposures)
+
+                const smallestExposure = Math.min(...(exposureValues as number[]))
+                return smallestExposure >= EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS
+            },
+        ],
+        exposureCriteriaLabel: [
+            () => [],
+            (): string => {
+                // TODO: Implement exposure criteria label
+                return 'Default ($feature_flag_called)'
             },
         ],
     }),

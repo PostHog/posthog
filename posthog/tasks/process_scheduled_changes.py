@@ -24,7 +24,7 @@ def process_scheduled_changes() -> None:
                     # Execute the change on the model instance
                     model = models[scheduled_change.model_name]
                     instance = model.objects.get(id=scheduled_change.record_id)
-                    instance.scheduled_changes_dispatcher(scheduled_change.payload)
+                    instance.scheduled_changes_dispatcher(scheduled_change.payload, scheduled_change.created_by)
 
                     # Mark scheduled change completed
                     scheduled_change.executed_at = timezone.now()

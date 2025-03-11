@@ -8,19 +8,25 @@ import { addSentryBreadcrumbsEventListeners } from '../main/ingestion-queues/kaf
 import { runInstrumentedFunction } from '../main/utils'
 import {
     ClickHouseEvent,
+    EventDefinitionType,
     EventPropertyType,
     Hub,
     PluginServerService,
+    PluginsServerConfig,
     PropertyDefinitionType,
     PropertyDefinitionTypeEnum,
     PropertyType,
     RawClickHouseEvent,
 } from '../types'
+import { PostgresRouter } from '../utils/db/postgres'
 import { parseRawClickHouseEvent } from '../utils/event'
 import { status } from '../utils/status'
+import { castTimestampToClickhouseFormat } from '../utils/utils'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
+
+// TODO(eli): wire up LOTS more metrics ASAP!
 
 export const propertyDefTypesCounter = new Counter({
     name: 'property_defs_types_total',
@@ -28,10 +34,27 @@ export const propertyDefTypesCounter = new Counter({
     labelNames: ['type'],
 })
 
+export const eventDefTypesCounter = new Counter({
+    name: 'event_defs_types_total',
+    help: 'Count of new event definitions.',
+})
+
+export const eventPropTypesCounter = new Counter({
+    name: 'event_props_types_total',
+    help: 'Count of derived event properties.',
+})
+
 export type CollectedPropertyDefinitions = {
+    teamIdsInBatch: Set<number>
+    teamIdsWithGroupUpdatesInBatch: Set<number>
+    eventDefinitionsById: Record<string, EventDefinitionType>
     propertyDefinitionsById: Record<string, PropertyDefinitionType>
-    eventPropertiesByEventById: Record<string, EventPropertyType>
+    eventPropertiesById: Record<string, EventPropertyType>
 }
+
+// lifted from here:
+// https://github.com/PostHog/posthog/blob/021aaab04b4acd96cf8121c033ac3b0042492598/rust/property-defs-rs/src/types.rs#L457-L461
+const DJANGO_MAX_CHARFIELD_LENGTH = 200
 
 // These properties have special meaning, and are ignored
 const SKIP_PROPERTIES: string[] = [
@@ -46,7 +69,48 @@ const SKIP_PROPERTIES: string[] = [
     '$groups',
 ]
 
-export const getPropertyType = (key: string, value: any): PropertyType | null => {
+const DATE_PROP_KEYWORDS: string[] = ['time', 'timestamp', 'date', '_at', '-at', 'createdat', 'updatedat']
+
+//
+// SQL queries
+//
+
+const WRITE_EVENT_PROPERTY = `
+    INSERT INTO posthog_eventproperty (event, property, team_id, project_id)
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT DO NOTHING
+`
+
+const WRITE_PROPERTY_DEFINITION = `
+    INSERT INTO posthog_propertydefinition (id, name, type, group_type_index, is_numerical, volume_30_day, query_usage_30_day, team_id, project_id, property_type)
+        VALUES ($1, $2, $3, $4, $5, NULL, NULL, $6, $7, $8)
+        ON CONFLICT (coalesce(project_id, team_id::bigint), name, type, coalesce(group_type_index, -1))
+        DO UPDATE SET property_type=EXCLUDED.property_type WHERE posthog_propertydefinition.property_type IS NULL
+`
+
+const WRITE_EVENT_DEFINITION = `
+    INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id, project_id, last_seen_at, created_at)
+        VALUES ($1, $2, NULL, NULL, $3, $4, $5, NOW())
+        ON CONFLICT (coalesce(project_id, team_id::bigint), name)
+        DO UPDATE SET last_seen_at = $5
+`
+
+// TODO(eli): TBD - replace VALUES with array of integer team IDs, maybe something like this?
+// https://github.com/PostHog/posthog/blob/master/plugin-server/src/utils/db/postgres.ts#L90-L110
+const FETCH_TEAM_IDS = `
+    SELECT id AS team_id FROM posthog_team WHERE id = ANY (ARRAY[{VALUES}])
+`
+
+// TODO(eli): same here...
+const FETCH_GROUP_TYPES_BY_TEAM_IDS = `
+    SELECT pt.id AS team_id, pgtm.group_type, pgtm.group_type_index FROM posthog_team AS pt
+    JOIN posthog_grouptypemapping AS pgtm ON pt.id = pgtm.team_id
+    WHERE pt.id = ANY (ARRAY[{VALUES}])
+`
+
+export const getPropertyType = (rawKey: string, value: any): PropertyType | null => {
+    const key = rawKey.trim().toLowerCase()
+
     // Special cases for certain property prefixes
     if (key.startsWith('utm_')) {
         // utm_ prefixed properties should always be detected as strings.
@@ -80,34 +144,51 @@ export const getPropertyType = (key: string, value: any): PropertyType | null =>
 
     if (typeof value === 'string') {
         const s = value.trim()
-        if (s === 'true' || s === 'false' || s === 'TRUE' || s === 'FALSE') {
+        if (s === 'true' || s === 'false') {
             return PropertyType.Boolean
         }
         // Try to parse this as an ISO 8601 date
         try {
+            if (DATE_PROP_KEYWORDS.some((kw) => key.includes(kw))) {
+                return PropertyType.DateTime
+            }
             const date = DateTime.fromISO(s)
             if (date.isValid) {
                 return PropertyType.DateTime
             }
+            // TODO(eli): add speculative date string matching?
         } catch {
             // Not a valid date, continue to string type
         }
         return PropertyType.String
     }
 
+    if (typeof value === 'boolean') {
+        return PropertyType.Boolean
+    }
+
     if (typeof value === 'number') {
-        // Check if the key contains timestamp-related keywords
-        if (key.includes('timestamp') || key.includes('TIMESTAMP') || key.includes('time') || key.includes('TIME')) {
+        if (value >= sixMonthsAgoUnixSeconds()) {
             return PropertyType.DateTime
         }
         return PropertyType.Numeric
     }
 
-    if (typeof value === 'boolean') {
-        return PropertyType.Boolean
-    }
-
     return null
+}
+
+function willFitInPostgres(s: string) {
+    return s.length < DJANGO_MAX_CHARFIELD_LENGTH
+}
+
+function sanitizeEventName(eventName: string) {
+    return eventName.replace('\u0000', '\uFFFD')
+}
+
+function sixMonthsAgoUnixSeconds() {
+    const now = new Date()
+    now.setMonth(now.getMonth() - 6)
+    return Math.floor(now.getTime() / 1000)
 }
 
 /**
@@ -119,14 +200,17 @@ export class PropertyDefsConsumer {
     protected topic: string
 
     batchConsumer?: BatchConsumer
+    db: PostgresRouter
+    config: PluginsServerConfig
     isStopping = false
     protected heartbeat = () => {}
     protected promises: Set<Promise<any>> = new Set()
 
-    constructor(private hub: Hub) {
+    constructor(private hub: Hub, config: PluginsServerConfig) {
         // The group and topic are configurable allowing for multiple ingestion consumers to be run in parallel
         this.groupId = hub.PROPERTY_DEFS_CONSUMER_GROUP_ID
         this.topic = hub.PROPERTY_DEFS_CONSUMER_CONSUME_TOPIC
+        ;(this.config = config), (this.db = hub?.postgres ?? new PostgresRouter(this.config))
     }
 
     public get service(): PluginServerService {
@@ -175,34 +259,89 @@ export class PropertyDefsConsumer {
     public async handleKafkaBatch(messages: Message[]) {
         const parsedMessages = await this.runInstrumented('parseKafkaMessages', () => this.parseKafkaBatch(messages))
         const collected = await this.runInstrumented('derivePropDefs', () =>
-            Promise.resolve(this.derivePropDefs(parsedMessages))
+            Promise.resolve(this.extractPropertyDefinitions(parsedMessages))
         )
+
+        for (const eventDef of Object.values(collected.eventDefinitionsById)) {
+            eventDefTypesCounter.inc()
+            console.log(eventDef) // TODO(eli): temp: make linter happy
+            // TODO(eli): write it!
+        }
 
         for (const propDef of Object.values(collected.propertyDefinitionsById)) {
             propertyDefTypesCounter.inc({ type: propDef.property_type ?? 'null' })
+            // TODO(eli): write it!
         }
 
-        // TODO: Get all the related property defs from the DB and compare what we would have written for all those that don't exist
-        // TODO: Write prop defs to DB
+        for (const eventProp of Object.values(collected.eventPropertiesById)) {
+            eventPropTypesCounter.inc()
+            console.log(eventProp) // TODO(eli): temp: make linter happy
+            // TODO(eli): write it!
+        }
 
         status.debug('🔁', `Waiting for promises`, { promises: this.promises.size })
         await this.runInstrumented('awaitScheduledWork', () => Promise.all(this.promises))
         status.debug('🔁', `Processed batch`)
     }
 
-    private derivePropDefs(events: ClickHouseEvent[]): CollectedPropertyDefinitions {
+    private extractPropertyDefinitions(events: ClickHouseEvent[]): CollectedPropertyDefinitions {
         const collected: CollectedPropertyDefinitions = {
+            // TODO(eli): look these up in batches as pre-write step
+            teamIdsInBatch: new Set<number>(),
+            // TODO(eli): look these up in batches to resolve group types as pre-write step
+            teamIdsWithGroupUpdatesInBatch: new Set<number>(),
+            // deduped from batch, written to posthog_eventdefinition
+            eventDefinitionsById: {},
+            // deduped from batch, written to posthog_propertydefinition
             propertyDefinitionsById: {},
-            eventPropertiesByEventById: {},
+            // deduped from batch, written to posthog_eventproperty
+            eventPropertiesById: {},
         }
 
         for (const event of events) {
+            // these will be looked up later to trim write batches if team doesn't exist
+            if (!collected.teamIdsInBatch.has(event.team_id)) {
+                collected.teamIdsInBatch.add(event.team_id)
+            }
+
+            event.event = sanitizeEventName(event.event)
+
+            if (!willFitInPostgres(event.event)) {
+                continue
+            }
+
+            const eventDefIdKey: string = `${event.team_id}:${event.event}`
+
+            if (!collected.eventDefinitionsById[eventDefIdKey]) {
+                collected.eventDefinitionsById[eventDefIdKey] = {
+                    id: eventDefIdKey,
+                    name: event.event,
+                    team_id: event.team_id,
+                    project_id: event.team_id, // TODO: add project_id
+                    created_at: event.created_at.toISO() || DateTime.now().toString(),
+                    volume_30_day: 0, // deprecated
+                    query_usage_30_day: 0, // deprecated
+                }
+            }
+
             // Detect group identify events
             if (event.event === '$groupidentify') {
-                const groupType: string | undefined = event.properties['$group_type'] // e.g. "organization"
-                const groupProperties: Record<string, any> | undefined = event.properties['$group_set'] // { name: 'value', id: 'id', foo: "bar" }
+                if (!collected.teamIdsWithGroupUpdatesInBatch.has(event.team_id)) {
+                    collected.teamIdsWithGroupUpdatesInBatch.add(event.team_id)
+                }
 
+                // bail on this event if there's no group type assigned
+                const groupType: string | undefined = event.properties['$group_type'] // e.g. "organization"
+                if (typeof groupType === 'undefined') {
+                    continue
+                }
+
+                const groupProperties: Record<string, any> | undefined = event.properties['$group_set'] // { name: 'value', id: 'id', foo: "bar" }
                 for (const [property, value] of Object.entries(groupProperties ?? {})) {
+                    if (!willFitInPostgres(property)) {
+                        continue
+                    }
+
                     const propDefId = `${event.team_id}:${groupType}:${property}`
 
                     if (collected.propertyDefinitionsById[propDefId]) {
@@ -219,7 +358,8 @@ export class PropertyDefsConsumer {
                             project_id: event.team_id, // TODO: Add project_id
                             property_type: propType,
                             type: PropertyDefinitionTypeEnum.Event,
-                            group_type_index: 0, // TODO: This!
+                            group_type_name: groupType,
+                            group_type_index: 0, // TODO(eli): resolve these w/DB query on team_id using "groupType"
                         }
                     }
                 }
@@ -229,6 +369,10 @@ export class PropertyDefsConsumer {
 
             // Detect person properties
             for (const [property, value] of Object.entries(event.person_properties ?? {})) {
+                if (!willFitInPostgres(property)) {
+                    continue
+                }
+
                 const propDefPersonId = `${event.team_id}:person:${property}`
 
                 if (!collected.propertyDefinitionsById[propDefPersonId]) {
@@ -249,7 +393,7 @@ export class PropertyDefsConsumer {
 
             // Detect event properties
             for (const [property, value] of Object.entries(event.properties)) {
-                if (SKIP_PROPERTIES.includes(property)) {
+                if (!willFitInPostgres(property) || SKIP_PROPERTIES.includes(property)) {
                     continue
                 }
 
@@ -270,11 +414,11 @@ export class PropertyDefsConsumer {
                     }
                 }
 
-                const eventDefId = `${event.team_id}:${event.event}:${property}`
+                const eventPropId = `${event.team_id}:${event.event}:${property}`
 
-                if (!collected.eventPropertiesByEventById[eventDefId]) {
-                    collected.eventPropertiesByEventById[eventDefId] = {
-                        id: eventDefId,
+                if (!collected.eventPropertiesById[eventPropId]) {
+                    collected.eventPropertiesById[eventPropId] = {
+                        id: eventPropId,
                         event: event.event,
                         property,
                         team_id: event.team_id,
