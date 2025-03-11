@@ -38,6 +38,8 @@ import {
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DASHBOARD_RESTRICTION_OPTIONS } from './DashboardCollaborators'
 import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
+import { dashboardInsightColorsLogic } from './dashboardInsightColorsLogic'
+import { DashboardInsightColorsModal } from './DashboardInsightColorsModal'
 import { dashboardLogic } from './dashboardLogic'
 import { DashboardTemplateEditor } from './DashboardTemplateEditor'
 import { dashboardTemplateEditorLogic } from './dashboardTemplateEditorLogic'
@@ -63,6 +65,7 @@ export function DashboardHeader(): JSX.Element | null {
     const { createNotebookFromDashboard } = useActions(notebooksModel)
     const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
     const { setDashboardTemplate, openDashboardTemplateEditor } = useActions(dashboardTemplateEditorLogic)
+    const { showDashboardInsightColorsModal } = useActions(dashboardInsightColorsLogic)
 
     const { user } = useValues(userLogic)
 
@@ -122,6 +125,7 @@ export function DashboardHeader(): JSX.Element | null {
                     )}
                     {canEditDashboard && <DeleteDashboardModal />}
                     {canEditDashboard && <DuplicateDashboardModal />}
+                    {canEditDashboard && <DashboardInsightColorsModal />}
                 </>
             )}
 
@@ -173,6 +177,16 @@ export function DashboardHeader(): JSX.Element | null {
                                 overlay={
                                     dashboard ? (
                                         <>
+                                            {canEditDashboard && (
+                                                <LemonButton
+                                                    onClick={() => {
+                                                        showDashboardInsightColorsModal(dashboard.id)
+                                                    }}
+                                                    fullWidth
+                                                >
+                                                    Customize Colors
+                                                </LemonButton>
+                                            )}
                                             {dashboard.created_by && (
                                                 <>
                                                     <div className="flex p-2 text-secondary">
