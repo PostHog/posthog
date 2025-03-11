@@ -21,7 +21,7 @@ class RevenueExampleExternalTablesQueryRunner(QueryRunner):
             limit_context=LimitContext.QUERY, limit=self.query.limit if self.query.limit else None
         )
 
-    def to_query(self) -> ast.SelectQuery:
+    def to_query(self) -> ast.SelectSetQuery:
         tracking_config = self.query.revenueTrackingConfig
 
         # TODO: Once https://github.com/PostHog/posthog/pull/29680 is merged

@@ -4,18 +4,20 @@
   SELECT 'database_with_revenue_column_a' AS table_name,
          database_with_revenue_column_a.revenue_a AS revenue
   FROM s3('test://localhost', 'test-key', 'test-secret', 'Parquet', '`id` String, `revenue_a` Float64, `timestamp` DateTime') AS database_with_revenue_column_a
-  LIMIT 100
+  LIMIT 101
+  OFFSET 0
   UNION ALL
   SELECT 'database_with_revenue_column_b' AS table_name,
          database_with_revenue_column_b.revenue_b AS revenue
   FROM s3('test://localhost', 'test-key', 'test-secret', 'Parquet', '`id` String, `revenue_b` Float64, `timestamp` DateTime') AS database_with_revenue_column_b
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
 # name: TestRevenueExampleExternalTablesQueryRunner.test_no_crash_when_no_data
@@ -37,12 +39,13 @@
   SELECT 'database_with_revenue_column' AS table_name,
          database_with_revenue_column.revenue AS revenue
   FROM s3('test://localhost', 'test-key', 'test-secret', 'Parquet', '`id` String, `revenue` Float64, `timestamp` DateTime') AS database_with_revenue_column
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0
   '''
 # ---
