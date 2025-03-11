@@ -1,5 +1,6 @@
 import { IconExpand45, IconInfo, IconX } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -11,8 +12,16 @@ import { useEffect, useState } from 'react'
 import { urls } from 'scenes/urls'
 
 import { InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
-import { BaseMathType, ChartDisplayType, InsightLogicProps, ProductKey } from '~/types'
+import {
+    BaseMathType,
+    ChartDisplayType,
+    InsightLogicProps,
+    ProductKey,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 
+import { pageReportsLogic } from './pageReportsLogic'
 import { WebQuery } from './tiles/WebAnalyticsTile'
 import {
     DeviceTab,
@@ -24,7 +33,6 @@ import {
     WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
     webAnalyticsLogic,
 } from './webAnalyticsLogic'
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 
 // LearnMorePopover component
 interface LearnMorePopoverProps {
@@ -75,92 +83,42 @@ const LearnMorePopover = ({ url, title, description }: LearnMorePopoverProps): J
 
 // URL Search Header component
 function PageUrlSearchHeader(): JSX.Element {
-    const { webAnalyticsFilters, dateFilter } = useValues(webAnalyticsLogic)
-    const { togglePropertyFilter } = useActions(webAnalyticsLogic)
-    
-    const [searchTerm, setSearchTerm] = useState('')
-    const [topPages, setTopPages] = useState<string[]>([])
-    
-    // Get the selected page path from filters
-    const selectedPage = webAnalyticsFilters.find(
-        (filter) => filter.key === '$pathname'
-    )?.value as string | undefined
-    
-    // Check if a specific page is selected in the filters
-    const hasPageFilter = webAnalyticsFilters.some(
-        (filter) => filter.key === '$pathname'
-    )
-    
-    // Load top pages on component mount
-    useEffect(() => {
-        // This would normally be an API call to get top pages
-        // For now, we'll just use some example pages
-        setTopPages([
-            '/pricing',
-            '/features',
-            '/about',
-            '/contact',
-            '/blog',
-            '/docs',
-            '/login',
-            '/signup',
-        ])
-    }, [dateFilter])
-    
-    // Filter pages based on search term
-    const filteredPages = searchTerm 
-        ? topPages.filter(page => page.toLowerCase().includes(searchTerm.toLowerCase()))
-        : topPages
-    
-    // Handle page selection
-    const handlePageSelect = (page: string | null) => {
-        if (page) {
-            togglePropertyFilter({
-                key: '$pathname',
-                value: page,
-                operator: 'exact',
-                type: 'event',
-            })
-        } else if (hasPageFilter) {
-            // Remove the filter if it exists
-            const existingFilter = webAnalyticsFilters.find(f => f.key === '$pathname')
-            if (existingFilter) {
-                togglePropertyFilter(existingFilter)
-            }
-        }
-    }
+    const { pageUrlSearchOptions, pageUrl } = useValues(pageReportsLogic)
+    const { setPageUrl, setPageUrlSearchTerm } = useActions(pageReportsLogic)
+
+    const placeholderUrl = pageUrlSearchOptions?.[0] ?? '/pricing'
 
     return (
         <div className="bg-bg-light p-4 rounded flex items-center gap-2 mb-4">
             <div className="flex-1">
                 <h3 className="mb-2">Select a page to analyze</h3>
                 <p className="text-muted mb-2">
-                    Page Reports provide detailed analytics for a specific page on your website.
-                    Select a page to see visitor behavior, traffic sources, and more.
+                    Page Reports provide detailed analytics for a specific page on your website. Select a page to see
+                    visitor behavior, traffic sources, and more.
                 </p>
                 <div className="flex gap-2">
                     <div className="flex-1">
                         <LemonInputSelect
                             mode="single"
                             allowCustomValues
-                            placeholder="e.g. /pricing"
-                            onInputChange={setSearchTerm}
-                            value={selectedPage ? [selectedPage] : undefined}
-                            onChange={(v) => handlePageSelect(v[0] ?? null)}
+                            placeholder={`e.g. ${placeholderUrl}`}
+                            onInputChange={(e) => setPageUrlSearchTerm(e)}
+                            value={pageUrl ? [pageUrl] : undefined}
+                            onChange={(v) => setPageUrl(v[0] ?? null)}
                             options={
-                                filteredPages.map((page) => ({
+                                pageUrlSearchOptions?.map((page: string) => ({
                                     label: page,
                                     key: page,
-                                }))
+                                })) ?? []
                             }
                         />
                     </div>
                     <LemonButton
                         type="secondary"
                         sideIcon={<IconOpenInNew />}
-                        to={selectedPage ? urls.insightNew() : undefined}
+                        to={pageUrl ? urls.insightNew() : undefined}
                         targetBlank
-                        disabledReason={!selectedPage ? 'Select a URL first' : undefined}
+                        disabledReason={!pageUrl ? 'Select a URL first' : undefined}
                     >
                         Open as insight
                     </LemonButton>
@@ -170,33 +128,11 @@ function PageUrlSearchHeader(): JSX.Element {
     )
 }
 
-// Empty state component
-const EmptyState = (): JSX.Element => {
-    return (
-        <ProductIntroduction
-            productName="PAGE REPORTS"
-            thingName="page report"
-            description="Page Reports provide in-depth analytics for individual pages on your website. Use the search bar above to select a specific page and see detailed metrics."
-            isEmpty={true}
-            customHog={() => <img src="/static/assets/hedgehog/x-ray-hogs-02.png" alt="X-ray hedgehog" className="w-60" />}
-        />
-    )
-}
-
 export const PageReports = (): JSX.Element => {
-    const { webAnalyticsFilters, tiles, dateFilter, shouldFilterTestAccounts, compareFilter, getNewInsightUrl } =
+    const { tiles, dateFilter, shouldFilterTestAccounts, compareFilter, getNewInsightUrl } =
         useValues(webAnalyticsLogic)
-    const { openModal } = useActions(webAnalyticsLogic)
-
-    // Check if a specific page is selected in the filters
-    const hasPageFilter = webAnalyticsFilters.some(
-        (filter) => filter.key === '$pathname'
-    )
-
-    // Get the selected page path from filters
-    const selectedPage = webAnalyticsFilters.find(
-        (filter) => filter.key === '$pathname'
-    )?.value as string | undefined
+    const { openModal, togglePropertyFilter } = useActions(webAnalyticsLogic)
+    const { pageUrl, hasPageUrl } = useValues(pageReportsLogic)
 
     // Find the tiles
     const pathsTile = tiles.find((tile) => tile.tileId === TileId.PATHS) as TabsTile | undefined
@@ -231,6 +167,13 @@ export const PageReports = (): JSX.Element => {
         loadPriority: 0,
         dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
     })
+
+    // Apply the page URL filter when it changes
+    useEffect(() => {
+        if (pageUrl) {
+            togglePropertyFilter(PropertyFilterType.Event, '$pathname', pageUrl)
+        }
+    }, [pageUrl, togglePropertyFilter])
 
     // Create a combined query for all three metrics
     const combinedMetricsQuery: InsightVizNode<TrendsQuery> = {
@@ -268,7 +211,14 @@ export const PageReports = (): JSX.Element => {
             },
             compareFilter,
             filterTestAccounts: shouldFilterTestAccounts,
-            properties: webAnalyticsFilters,
+            properties: [
+                {
+                    key: '$pathname',
+                    value: pageUrl,
+                    operator: PropertyOperator.Exact,
+                    type: PropertyFilterType.Event,
+                },
+            ],
         },
         hidePersonsModal: true,
         embedded: true,
@@ -350,12 +300,20 @@ export const PageReports = (): JSX.Element => {
         <div className="space-y-2 mt-2">
             <PageUrlSearchHeader />
 
-            {!hasPageFilter ? (
-                <EmptyState />
+            {!hasPageUrl ? (
+                <ProductIntroduction
+                    productName="PAGE REPORTS"
+                    thingName="page report"
+                    description="Page Reports provide in-depth analytics for individual pages on your website. Use the search bar above to select a specific page and see detailed metrics."
+                    isEmpty={true}
+                    customHog={() => (
+                        <img src="/static/assets/hedgehog/x-ray-hogs-02.png" alt="X-ray hedgehog" className="w-60" />
+                    )}
+                />
             ) : (
                 <>
                     <LemonBanner type="success" className="mb-2">
-                        <h3 className="font-semibold">Page Report: {selectedPage}</h3>
+                        <h3 className="font-semibold">Page Report: {pageUrl}</h3>
                     </LemonBanner>
 
                     {/* Trends Section */}
