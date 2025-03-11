@@ -254,7 +254,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         breakpoint()
                         actions.setElapsedTime(response.duration)
                         if ('query' in query) {
-                            actions.setCachedQuery(query.query)
+                            actions.setCachedQuery(query.query as string)
                             actions.setCachedResponse(response.data)
                         }
                         return response.data
@@ -487,8 +487,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
                     return error ?? 'Error loading data'
                 },
-                loadDataSuccess: (_, { response }) => response?.error ?? null,
-                loadNewDataSuccess: (_, { response }) => response?.error ?? null,
+                loadDataSuccess: (_, { _response }) => _response?.error ?? null,
+                loadNewDataSuccess: (_, { _response }) => _response?.error ?? null,
             },
         ],
         elapsedTime: [
@@ -755,21 +755,21 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             actions.collectionNodeLoadData(props.key)
             actions.resetLoadingTimer()
         },
-        loadDataSuccess: ({ response }) => {
-            props.onData?.(response)
+        loadDataSuccess: ({ _response }) => {
+            props.onData?.(_response)
             actions.collectionNodeLoadDataSuccess(props.key)
             if ('query' in props.query) {
-                cache.localResults[JSON.stringify(props.query.query)] = response
+                cache.localResults[JSON.stringify(props.query.query)] = _response
             }
         },
         loadDataFailure: () => {
             actions.collectionNodeLoadDataFailure(props.key)
         },
-        loadNewDataSuccess: ({ response }) => {
-            props.onData?.(response)
+        loadNewDataSuccess: ({ _response }) => {
+            props.onData?.(_response)
         },
-        loadNextDataSuccess: ({ response }) => {
-            props.onData?.(response)
+        loadNextDataSuccess: ({ _response }) => {
+            props.onData?.(_response)
         },
         resetLoadingTimer: () => {
             if (cache.loadingTimer) {
