@@ -150,7 +150,7 @@ export function Billing(): JSX.Element {
                 </LemonBanner>
             ) : null}
 
-            {!billing?.has_active_subscription && platformAndSupportProduct && (
+            {!billing?.has_active_subscription && !billing?.trial && platformAndSupportProduct && (
                 <div className="mb-4">
                     <BillingCTAHero product={platformAndSupportProduct} />
                 </div>
