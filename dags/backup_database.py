@@ -13,10 +13,10 @@ from dagster_aws.s3 import S3Resource
 
 @dataclass
 class Backup:
-    # _id: str
     database: str
     date: datetime
-    base_backup: "Backup"
+    id: Optional[str] = None
+    base_backup: Optional["Backup"] = None
 
     @property
     def path(self):
@@ -30,16 +30,15 @@ class Backup:
             backup_settings["base_backup"] = self.base_backup.path
 
         query = """
-        BACKUP DATABASE {database}
+        BACKUP TABLE groups
         TO S3('https://{bucket}.s3.amazonaws.com/{path}/{shard}')
         """.format(
-            database=self.database,
             bucket=settings.CLICKHOUSE_BACKUPS_BUCKET,
             path=self.path,
             shard=shard,
         )
 
-        client.execute(query, settings=backup_settings)
+        client.execute(query, settings=backup_settings, query_id=f"{self.id}-{shard}")
 
 
 class BackupDatabaseConfig(dagster.Config):
@@ -89,6 +88,7 @@ def run_backup(
         latest_backup = None
 
     backup = Backup(
+        id=context.run_id,
         database=settings.CLICKHOUSE_DATABASE,
         date=datetime.now(UTC),
         base_backup=latest_backup,
