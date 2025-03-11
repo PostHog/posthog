@@ -91,7 +91,7 @@ class ShutdownMonitor:
         """Start an `asyncio.Task` to monitor for worker shutdown."""
 
         async def monitor() -> None:
-            await self.logger.info("Starting shutdown monitoring task.")
+            await self.logger.ainfo("Starting shutdown monitoring task.")
 
             try:
                 await activity.wait_for_worker_shutdown()
