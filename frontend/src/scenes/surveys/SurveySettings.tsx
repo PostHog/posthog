@@ -34,7 +34,7 @@ function SurveyPopupToggle(): JSX.Element {
                 }}
                 fullWidth
                 bordered={false}
-                label="Enable surveys popup"
+                label="Enable surveys"
                 labelClassName="text-base font-semibold"
                 checked={!!currentTeam?.surveys_opt_in}
                 className="p-0"
