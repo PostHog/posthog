@@ -28,6 +28,8 @@ tracing-subscriber.workspace = true
 uuid.workspace = true
 common-symbol-data = { path = "../common/symbol_data" }
 walkdir = "2.5.0"
+ratatui = "0.29.0"
+crossterm = "0.28.1"
 
 [dev-dependencies]
 tempfile = "3.18.0"
