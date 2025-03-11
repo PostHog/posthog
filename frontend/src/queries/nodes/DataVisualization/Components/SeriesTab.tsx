@@ -13,7 +13,7 @@ import {
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { getSeriesColor, getSeriesColorPalette } from 'lib/colors'
-import { ColorGlyph } from 'lib/components/SeriesGlyph'
+import { LemonColorGlyph } from 'lib/lemon-ui/LemonColorGlyph/LemonColorGlyph'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { AxisSeries, dataVisualizationLogic } from '../dataVisualizationLogic'
@@ -131,7 +131,7 @@ const YSeries = ({ series, index }: { series: AxisSeries<number>; index: number 
         value: name,
         label: (
             <div className="items-center flex flex-1">
-                {showSeriesColor && <ColorGlyph className="mr-2" color={seriesColor} />}
+                {showSeriesColor && <LemonColorGlyph className="mr-2" color={seriesColor} />}
                 {series.settings?.display?.label && series.column.name === name ? series.settings.display.label : name}
                 <LemonTag className="ml-2" type="default">
                     {type.name}
@@ -387,7 +387,7 @@ const BreakdownSeries = ({ series, index }: { series: AxisBreakdownSeries<number
     return (
         <div className="flex gap-1 mb-2">
             <div className="flex gap-2">
-                <ColorGlyph color={seriesColor} className="mr-2" />
+                <LemonColorGlyph color={seriesColor} className="mr-2" />
                 <span>{series.name ? series.name : '[No value]'}</span>
             </div>
             {/* For now let's keep things simple and not allow too much configuration */}

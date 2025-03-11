@@ -1,6 +1,6 @@
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { ColorGlyph } from 'lib/components/SeriesGlyph'
+import { LemonColorGlyph } from 'lib/lemon-ui/LemonColorGlyph/LemonColorGlyph'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { IndexedTrendResult } from 'scenes/trends/types'
@@ -14,7 +14,7 @@ type CustomizationIconProps = {
 export const CustomizationIcon = ({ color }: CustomizationIconProps): JSX.Element | null => {
     return (
         <div className="w-4 h-4 flex">
-            <ColorGlyph color={color} className="w-4 h-4" />
+            <LemonColorGlyph color={color} className="w-4 h-4" />
         </div>
     )
 }

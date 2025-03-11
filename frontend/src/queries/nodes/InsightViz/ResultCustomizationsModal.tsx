@@ -4,7 +4,7 @@ import { LemonButton, LemonButtonProps, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { DataColorToken } from 'lib/colors'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
-import { ColorGlyph } from 'lib/components/SeriesGlyph'
+import { LemonColorGlyph } from 'lib/lemon-ui/LemonColorGlyph/LemonColorGlyph'
 import { hexToRGB } from 'lib/utils'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -181,7 +181,7 @@ function ColorGlyphButton({ colorToken, selected, onClick }: ColorGlyphButtonPro
             onClick={onClick}
             tooltip={colorDescription(color)}
         >
-            <ColorGlyph color={color} />
+            <LemonColorGlyph color={color} />
         </LemonButton>
     )
 }

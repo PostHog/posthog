@@ -3,7 +3,7 @@ import './ConditionalFormattingTab.scss'
 import { IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCollapse, LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { ColorGlyph } from 'lib/components/SeriesGlyph'
+import { LemonColorGlyph } from 'lib/lemon-ui/LemonColorGlyph/LemonColorGlyph'
 
 import { ColorPickerButton } from '~/queries/nodes/DataVisualization/Components/ColorPickerButton'
 import { ConditionalFormattingRule } from '~/queries/schema/schema-general'
@@ -50,7 +50,7 @@ export const ConditionalFormattingTab = (): JSX.Element => {
                         key: rule.id,
                         header: (
                             <>
-                                <ColorGlyph color={rule.color} />
+                                <LemonColorGlyph color={rule.color} />
                                 <span className="ml-2">{getRuleHeader(rule)}</span>
                             </>
                         ),
