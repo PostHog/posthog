@@ -177,7 +177,7 @@ function CanvasCaptureSettings(): JSX.Element | null {
                     version: '4.7.0',
                     note: (
                         <>
-                            If you're using the `canvaskit` renderer on Flutter Web, you must also enable canvas capture
+                            If you're using the <code>canvaskit</code> renderer on Flutter Web, you must also enable canvas capture
                         </>
                     ),
                 }}
