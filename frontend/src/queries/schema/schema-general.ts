@@ -2516,12 +2516,6 @@ export interface TracesQuery extends DataNode<TracesQueryResponse> {
 
 export type CachedTracesQueryResponse = CachedQueryResponse<TracesQueryResponse>
 
-export interface RevenueTrackingEventItem {
-    eventName: string
-    revenueProperty: string
-    revenueCurrencyProperty: string | undefined
-}
-
 // NOTE: Keep in sync with posthog/models/exchange_rate/currencies.py
 // to provide proper type safety for the baseCurrency field
 export enum CurrencyCode {
@@ -2679,7 +2673,20 @@ export enum CurrencyCode {
     ZMW = 'ZMW',
 }
 
+export interface RevenueTrackingEventItem {
+    eventName: string
+    revenueProperty: string
+    revenueCurrencyProperty: string | undefined
+}
+
+export interface RevenueTrackingExternalDataSchema {
+    name: string
+    revenueColumn: string
+    revenueCurrencyColumn: string | undefined
+}
+
 export interface RevenueTrackingConfig {
     baseCurrency?: CurrencyCode
     events: RevenueTrackingEventItem[]
+    externalDataSchemas: RevenueTrackingExternalDataSchema[]
 }

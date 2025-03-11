@@ -1,7 +1,6 @@
 import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { beforeUnload } from 'kea-router'
-import { TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { objectsEqual } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -16,7 +15,11 @@ import {
 
 import type { revenueEventsSettingsLogicType } from './revenueEventsSettingsLogicType'
 
-const createEmptyConfig = (): RevenueTrackingConfig => ({ events: [], baseCurrency: undefined })
+const createEmptyConfig = (): RevenueTrackingConfig => ({
+    events: [],
+    externalDataSchemas: [],
+    baseCurrency: undefined,
+})
 
 export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
     path(['scenes', 'data-management', 'revenue', 'revenueEventsSettingsLogic']),
@@ -25,20 +28,43 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
         actions: [teamLogic, ['updateCurrentTeam']],
     }),
     actions({
-        addEvent: (eventName: TaxonomicFilterValue) => ({ eventName }),
+        updateBaseCurrency: (baseCurrency: CurrencyCode) => ({ baseCurrency }),
+
+        addEvent: (eventName: string) => ({ eventName }),
         deleteEvent: (eventName: string) => ({ eventName }),
-        resetEvents: true,
-        updatePropertyName: (eventName: string, revenueProperty: string) => ({ eventName, revenueProperty }),
-        updateCurrencyPropertyName: (eventName: string, revenueCurrencyProperty: string) => ({
+        updateEventRevenueProperty: (eventName: string, revenueProperty: string) => ({ eventName, revenueProperty }),
+        updateEventRevenueCurrencyProperty: (eventName: string, revenueCurrencyProperty: string) => ({
             eventName,
             revenueCurrencyProperty,
         }),
-        updateBaseCurrency: (baseCurrency: CurrencyCode) => ({ baseCurrency }),
+
+        addExternalDataSchema: (externalDataSchemaName: string) => ({ externalDataSchemaName }),
+        deleteExternalDataSchema: (externalDataSchemaName: string) => ({ externalDataSchemaName }),
+        updateExternalDataSchemaRevenueColumn: (externalDataSchemaName: string, revenueColumn: string) => ({
+            externalDataSchemaName,
+            revenueColumn,
+        }),
+        updateExternalDataSchemaRevenueCurrencyColumn: (
+            externalDataSchemaName: string,
+            revenueCurrencyColumn: string
+        ) => ({
+            externalDataSchemaName,
+            revenueCurrencyColumn,
+        }),
+
+        resetConfig: true,
     }),
     reducers(({ values }) => ({
         revenueTrackingConfig: [
             null as RevenueTrackingConfig | null,
             {
+                updateBaseCurrency: (state, { baseCurrency }) => {
+                    if (!state) {
+                        return state
+                    }
+
+                    return { ...state, baseCurrency }
+                },
                 addEvent: (state, { eventName }) => {
                     if (
                         !state ||
@@ -102,14 +128,66 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
                         }),
                     }
                 },
-                updateBaseCurrency: (state, { baseCurrency }) => {
+                addExternalDataSchema: (state, { externalDataSchemaName }) => {
                     if (!state) {
                         return state
                     }
 
-                    return { ...state, baseCurrency }
+                    return {
+                        ...state,
+                        externalDataSchemas: [
+                            ...state.externalDataSchemas,
+                            {
+                                name: externalDataSchemaName,
+                                revenueColumn: 'revenue',
+                                revenueCurrencyColumn: undefined,
+                            },
+                        ],
+                    }
                 },
-                resetEvents: () => {
+                deleteExternalDataSchema: (state, { externalDataSchemaName }) => {
+                    if (!state) {
+                        return state
+                    }
+                    return {
+                        ...state,
+                        externalDataSchemas: state.externalDataSchemas.filter(
+                            (item) => item.name !== externalDataSchemaName
+                        ),
+                    }
+                },
+                updateExternalDataSchemaRevenueColumn: (state, { externalDataSchemaName, revenueColumn }) => {
+                    if (!state) {
+                        return state
+                    }
+                    return {
+                        ...state,
+                        externalDataSchemas: state.externalDataSchemas.map((item) => {
+                            if (item.name === externalDataSchemaName) {
+                                return { ...item, revenueColumn }
+                            }
+                            return item
+                        }),
+                    }
+                },
+                updateExternalDataSchemaRevenueCurrencyColumn: (
+                    state,
+                    { externalDataSchemaName, revenueCurrencyColumn }
+                ) => {
+                    if (!state) {
+                        return state
+                    }
+                    return {
+                        ...state,
+                        externalDataSchemas: state.externalDataSchemas.map((item) => {
+                            if (item.name === externalDataSchemaName) {
+                                return { ...item, revenueCurrencyColumn }
+                            }
+                            return item
+                        }),
+                    }
+                },
+                resetConfig: () => {
                     return values.savedRevenueTrackingConfig
                 },
             },
@@ -125,6 +203,10 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
         events: [
             (s) => [s.revenueTrackingConfig],
             (revenueTrackingConfig: RevenueTrackingConfig | null) => revenueTrackingConfig?.events || [],
+        ],
+        externalDataSchemas: [
+            (s) => [s.revenueTrackingConfig],
+            (revenueTrackingConfig: RevenueTrackingConfig | null) => revenueTrackingConfig?.externalDataSchemas || [],
         ],
         baseCurrency: [
             (s) => [s.revenueTrackingConfig],
@@ -149,6 +231,8 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
                 return !!config && !objectsEqual(config, savedConfig)
             },
         ],
+
+        // TODO: Add external data schemas query
         eventsQuery: [
             (s) => [s.revenueTrackingConfig],
             (revenueTrackingConfig: RevenueTrackingConfig | null) => {
@@ -167,6 +251,7 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
                     showPropertyFilter: false,
                     source,
                 }
+
                 return query
             },
         ],
@@ -193,7 +278,7 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
         enabled: () => values.changesMade,
         message: 'Changes you made will be discarded. Make sure you save your changes before leaving this page.',
         onConfirm: () => {
-            actions.resetEvents()
+            actions.resetConfig()
         },
     })),
     afterMount(({ actions }) => {
