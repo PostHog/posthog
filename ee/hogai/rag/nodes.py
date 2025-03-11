@@ -1,22 +1,31 @@
 import xml.etree.ElementTree as ET
-from typing import Literal
+from typing import Literal, cast
 
 from cohere.core.api_error import ApiError as BaseCohereApiError
 from langchain_core.runnables import RunnableConfig
 
 from ee.hogai.utils.nodes import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.ai.vector_search_query_runner import VectorSearchQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Action
-from posthog.schema import VectorSearchQuery
+from posthog.schema import TeamTaxonomyQuery, VectorSearchQuery
 
 from .utils import get_cohere_client
+
+NextRagNode = Literal["trends", "funnel", "retention", "end"]
 
 
 class ProductAnalyticsRetriever(AssistantNode):
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         plan = state.root_tool_insight_plan
+        if not plan:
+            return None
+
+        # Kick off retrieval of the event taxonomy.
+        self._prewarm_queries()
+
         try:
             response = get_cohere_client().embed(
                 texts=[plan],
@@ -30,8 +39,9 @@ class ProductAnalyticsRetriever(AssistantNode):
             return None
         return PartialAssistantState(rag_context=self._retrieve_actions(response.embeddings.float_[0]))
 
-    def router(self, state: AssistantState) -> Literal["trends", "funnel", "retention", "end"]:
-        return state.root_tool_insight_type or "end"
+    def router(self, state: AssistantState) -> NextRagNode:
+        next_node = cast(NextRagNode, state.root_tool_insight_type or "end")
+        return next_node
 
     def _retrieve_actions(self, embedding: list[float]) -> str:
         runner = VectorSearchQueryRunner(
@@ -54,3 +64,12 @@ class ProductAnalyticsRetriever(AssistantNode):
                 desc_tag.text = description
 
         return ET.tostring(root, encoding="unicode")
+
+    def _prewarm_queries(self):
+        """
+        Since this node is already blocking, we can pre-warm the taxonomy queries to avoid further delays.
+        This will slightly reduce latency.
+        """
+        TeamTaxonomyQueryRunner(TeamTaxonomyQuery(), self._team).run(
+            ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE
+        )
