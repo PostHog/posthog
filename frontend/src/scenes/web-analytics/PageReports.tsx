@@ -1,8 +1,9 @@
-import { IconExpand45 } from '@posthog/icons'
+import { IconExpand45, IconInfo } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
@@ -20,49 +21,9 @@ import {
     webAnalyticsLogic,
 } from './webAnalyticsLogic'
 
-// Reusable tile component
-interface AnalyticsTileProps {
-    title: string
-    description?: string
-    query: any
-    tileId: TileId
-    tabId: string
-    className?: string
-}
-
-const AnalyticsTile: React.FC<AnalyticsTileProps> = ({ title, description, query, tileId, tabId, className = '' }) => {
-    const { openModal } = useActions(webAnalyticsLogic)
-
-    // Create insight props for the query
-    const createInsightProps = (tileId: TileId, tabId?: string): InsightLogicProps => ({
-        dashboardItemId: `new-${tileId}${tabId ? `-${tabId}` : ''}`,
-        loadPriority: 0,
-        dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
-    })
-
-    return (
-        <div className={`border rounded p-4 bg-white ${className}`}>
-            <div className="flex justify-between items-center mb-2">
-                <h3 className="font-semibold">{title}</h3>
-                <LemonButton icon={<IconExpand45 />} size="small" onClick={() => openModal(tileId, tabId)} />
-            </div>
-            {description && <p className="text-sm text-muted mb-2">{description}</p>}
-            {query && (
-                <div className="overflow-x-auto">
-                    <WebQuery
-                        query={query}
-                        showIntervalSelect={false}
-                        tileId={tileId}
-                        insightProps={createInsightProps(tileId, tabId)}
-                    />
-                </div>
-            )}
-        </div>
-    )
-}
-
 export const PageReports = (): JSX.Element => {
     const { webAnalyticsFilters, tiles, dateFilter, shouldFilterTestAccounts } = useValues(webAnalyticsLogic)
+    const { openModal } = useActions(webAnalyticsLogic)
 
     // Check if a specific page is selected in the filters
     const hasPageFilter = webAnalyticsFilters.some(
@@ -152,10 +113,57 @@ export const PageReports = (): JSX.Element => {
         },
     }
 
+    // Section component for consistent styling
+    const Section = ({ title, children }: { title: string; children: React.ReactNode }): JSX.Element => (
+        <>
+            <div className="flex items-center gap-2 mb-2">
+                <h2 className="text-2xl font-bold">{title}</h2>
+                <IconInfo className="text-muted text-xl" />
+            </div>
+            {children}
+            <LemonDivider className="my-6" />
+        </>
+    )
+
+    // Card component for consistent styling
+    const Card = ({
+        title,
+        description,
+        query,
+        tileId,
+        tabId,
+    }: {
+        title: string
+        description: string
+        query: any
+        tileId: TileId
+        tabId: string
+    }): JSX.Element => (
+        <div className="border rounded bg-white">
+            <div className="flex justify-between items-center p-4 border-b">
+                <h3 className="text-xl font-bold">{title}</h3>
+                <LemonButton icon={<IconExpand45 />} size="small" onClick={() => openModal(tileId, tabId)} />
+            </div>
+            <div className="p-4">
+                <p className="text-sm text-muted mb-4">{description}</p>
+                {query && (
+                    <div className="overflow-x-auto">
+                        <WebQuery
+                            query={query}
+                            showIntervalSelect={false}
+                            tileId={tileId}
+                            insightProps={createInsightProps(tileId, tabId)}
+                        />
+                    </div>
+                )}
+            </div>
+        </div>
+    )
+
     return (
-        <div className="space-y-6 mt-4">
+        <div className="space-y-4 mt-4">
             {!hasPageFilter && (
-                <LemonBanner type="info">
+                <LemonBanner type="info" className="mb-4">
                     <h3 className="font-semibold">No specific page selected</h3>
                     <p>
                         Select a specific page using the filters above to see detailed analytics for that page.
@@ -165,7 +173,7 @@ export const PageReports = (): JSX.Element => {
             )}
 
             {hasPageFilter && (
-                <LemonBanner type="success">
+                <LemonBanner type="success" className="mb-4">
                     <h3 className="font-semibold">Page Report: {selectedPage}</h3>
                     <p>
                         Showing detailed analytics for the selected page. Use the filters above to change the date range
@@ -175,26 +183,45 @@ export const PageReports = (): JSX.Element => {
             )}
 
             {/* Performance Metrics Section */}
-            <div>
-                <h2 className="text-lg font-semibold mb-4">Performance Metrics</h2>
-                <div className="w-full min-h-[400px]">
-                    <WebQuery
-                        query={combinedMetricsQuery}
-                        showIntervalSelect={true}
-                        tileId={TileId.GRAPHS}
-                        insightProps={createInsightProps(TileId.GRAPHS, 'combined')}
-                    />
+            <Section title="Performance Metrics">
+                <div className="border rounded bg-white">
+                    <div className="flex justify-between items-center p-4 border-b">
+                        <h3 className="text-xl font-bold">Page Performance</h3>
+                        <LemonSegmentedButton
+                            options={[
+                                { value: 'table', label: '', icon: <span className="text-xl">⊞</span> },
+                                { value: 'chart', label: '', icon: <span className="text-xl">📈</span> },
+                            ]}
+                            value="chart"
+                            onChange={() => {}}
+                        />
+                    </div>
+                    <div className="p-4">
+                        <div className="w-full min-h-[400px]">
+                            <WebQuery
+                                query={combinedMetricsQuery}
+                                showIntervalSelect={true}
+                                tileId={TileId.GRAPHS}
+                                insightProps={createInsightProps(TileId.GRAPHS, 'combined')}
+                            />
+                        </div>
+                        <div className="flex justify-end mt-4">
+                            <LemonButton
+                                icon={<IconExpand45 />}
+                                size="small"
+                                onClick={() => openModal(TileId.GRAPHS, 'combined')}
+                            >
+                                Show more
+                            </LemonButton>
+                        </div>
+                    </div>
                 </div>
-            </div>
-
-            <LemonDivider />
+            </Section>
 
             {/* Page Paths Analysis Section */}
-            <div>
-                <h2 className="text-lg font-semibold mb-4">Page Paths Analysis</h2>
-
+            <Section title="Page Paths Analysis">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <AnalyticsTile
+                    <Card
                         title="Entry Paths"
                         description="How users arrive at this page"
                         query={entryPathsQuery}
@@ -202,7 +229,7 @@ export const PageReports = (): JSX.Element => {
                         tabId={PathTab.INITIAL_PATH}
                     />
 
-                    <AnalyticsTile
+                    <Card
                         title="Exit Paths"
                         description="Where users go after viewing this page"
                         query={exitPathsQuery}
@@ -210,7 +237,7 @@ export const PageReports = (): JSX.Element => {
                         tabId={PathTab.END_PATH}
                     />
 
-                    <AnalyticsTile
+                    <Card
                         title="Outbound Clicks"
                         description="External links users click on this page"
                         query={outboundClicksQuery}
@@ -218,16 +245,12 @@ export const PageReports = (): JSX.Element => {
                         tabId={PathTab.EXIT_CLICK}
                     />
                 </div>
-            </div>
-
-            <LemonDivider />
+            </Section>
 
             {/* Traffic Sources Section */}
-            <div>
-                <h2 className="text-lg font-semibold mb-4">Traffic Sources</h2>
-
+            <Section title="Traffic Sources">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <AnalyticsTile
+                    <Card
                         title="Channels"
                         description="Marketing channels bringing users to this page"
                         query={channelsQuery}
@@ -235,7 +258,7 @@ export const PageReports = (): JSX.Element => {
                         tabId={SourceTab.CHANNEL}
                     />
 
-                    <AnalyticsTile
+                    <Card
                         title="Referrers"
                         description="Websites referring traffic to this page"
                         query={referrersQuery}
@@ -243,16 +266,12 @@ export const PageReports = (): JSX.Element => {
                         tabId={SourceTab.REFERRING_DOMAIN}
                     />
                 </div>
-            </div>
-
-            <LemonDivider />
+            </Section>
 
             {/* Device Information Section */}
-            <div>
-                <h2 className="text-lg font-semibold mb-4">Device Information</h2>
-
+            <Section title="Device Information">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <AnalyticsTile
+                    <Card
                         title="Device Types"
                         description="Types of devices used to access this page"
                         query={deviceTypeQuery}
@@ -260,7 +279,7 @@ export const PageReports = (): JSX.Element => {
                         tabId={DeviceTab.DEVICE_TYPE}
                     />
 
-                    <AnalyticsTile
+                    <Card
                         title="Browsers"
                         description="Browsers used to access this page"
                         query={browserQuery}
@@ -268,7 +287,7 @@ export const PageReports = (): JSX.Element => {
                         tabId={DeviceTab.BROWSER}
                     />
 
-                    <AnalyticsTile
+                    <Card
                         title="Operating Systems"
                         description="Operating systems used to access this page"
                         query={osQuery}
@@ -276,16 +295,12 @@ export const PageReports = (): JSX.Element => {
                         tabId={DeviceTab.OS}
                     />
                 </div>
-            </div>
-
-            <LemonDivider />
+            </Section>
 
             {/* Geography Section */}
-            <div>
-                <h2 className="text-lg font-semibold mb-4">Geography</h2>
-
+            <Section title="Geography">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <AnalyticsTile
+                    <Card
                         title="Countries"
                         description="Countries of visitors"
                         query={countriesQuery}
@@ -293,7 +308,7 @@ export const PageReports = (): JSX.Element => {
                         tabId={GeographyTab.COUNTRIES}
                     />
 
-                    <AnalyticsTile
+                    <Card
                         title="Regions"
                         description="Regions of visitors"
                         query={regionsQuery}
@@ -301,7 +316,7 @@ export const PageReports = (): JSX.Element => {
                         tabId={GeographyTab.REGIONS}
                     />
 
-                    <AnalyticsTile
+                    <Card
                         title="Cities"
                         description="Cities of visitors"
                         query={citiesQuery}
@@ -311,7 +326,7 @@ export const PageReports = (): JSX.Element => {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-                    <AnalyticsTile
+                    <Card
                         title="Timezones"
                         description="Timezones of visitors"
                         query={timezonesQuery}
@@ -319,7 +334,7 @@ export const PageReports = (): JSX.Element => {
                         tabId={GeographyTab.TIMEZONES}
                     />
 
-                    <AnalyticsTile
+                    <Card
                         title="Languages"
                         description="Languages of visitors"
                         query={languagesQuery}
@@ -327,7 +342,7 @@ export const PageReports = (): JSX.Element => {
                         tabId={GeographyTab.LANGUAGES}
                     />
                 </div>
-            </div>
+            </Section>
         </div>
     )
 }
