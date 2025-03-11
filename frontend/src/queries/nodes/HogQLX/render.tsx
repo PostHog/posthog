@@ -1,7 +1,7 @@
 import { Link } from '@posthog/lemon-ui'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { Sparkline } from 'lib/components/Sparkline'
-import ViewRecordingButton from 'lib/components/ViewRecordingButton'
+import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 

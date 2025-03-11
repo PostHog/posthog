@@ -50,6 +50,13 @@ class FloatDatabaseField(DatabaseField):
         return FloatType(nullable=self.is_nullable())
 
 
+class DecimalDatabaseField(DatabaseField):
+    def get_constant_type(self) -> "ConstantType":
+        from posthog.hogql.ast import DecimalType
+
+        return DecimalType(nullable=self.is_nullable())
+
+
 class StringDatabaseField(DatabaseField):
     def get_constant_type(self) -> "ConstantType":
         from posthog.hogql.ast import StringType

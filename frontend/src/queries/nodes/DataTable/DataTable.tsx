@@ -116,7 +116,7 @@ export function DataTable({
         key: vizKey,
         cachedResults: cachedResults,
         dataNodeCollectionId: context?.insightProps?.dataNodeCollectionId || dataKey,
-        alwaysRefresh: context?.alwaysRefresh,
+        refresh: context?.refresh,
     }
     const builtDataNodeLogic = dataNodeLogic(dataNodeLogicProps)
 
