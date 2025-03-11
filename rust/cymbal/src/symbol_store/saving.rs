@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use axum::async_trait;
 use chrono::{DateTime, Utc};
 
@@ -22,7 +24,7 @@ use super::{Fetcher, Parser, S3Client};
 // source bytes into s3, and the storage pointer into a postgres database.
 pub struct Saving<F> {
     inner: F,
-    s3_client: S3Client,
+    s3_client: Arc<S3Client>,
     pool: PgPool,
     bucket: String,
     prefix: String,
@@ -56,7 +58,7 @@ impl<F> Saving<F> {
     pub fn new(
         inner: F,
         pool: sqlx::PgPool,
-        s3_client: S3Client,
+        s3_client: Arc<S3Client>,
         bucket: String,
         prefix: String,
     ) -> Self {
@@ -148,13 +150,14 @@ impl<F> Saving<F> {
 #[async_trait]
 impl<F> Fetcher for Saving<F>
 where
-    F: Fetcher<Fetched = Vec<u8>>,
+    F: Fetcher<Fetched = Vec<u8>, Err = Error>,
     F::Ref: ToString + Send,
 {
     type Ref = F::Ref;
     type Fetched = Saveable;
+    type Err = F::Err;
 
-    async fn fetch(&self, team_id: i32, r: Self::Ref) -> Result<Self::Fetched, Error> {
+    async fn fetch(&self, team_id: i32, r: Self::Ref) -> Result<Self::Fetched, Self::Err> {
         let set_ref = r.to_string();
         info!("Fetching symbol set data for {}", set_ref);
         metrics::counter!(SYMBOL_SET_DB_FETCHES).increment(1);
@@ -221,12 +224,14 @@ where
 #[async_trait]
 impl<F> Parser for Saving<F>
 where
-    F: Parser<Source = Vec<u8>>,
+    F: Parser<Source = Vec<u8>, Err = Error>,
     F::Set: Send,
 {
     type Source = Saveable;
     type Set = F::Set;
-    async fn parse(&self, data: Saveable) -> Result<Self::Set, Error> {
+    type Err = F::Err;
+
+    async fn parse(&self, data: Saveable) -> Result<Self::Set, Self::Err> {
         match self.inner.parse(data.data.clone()).await {
             Ok(s) => {
                 info!("Parsed symbol set data for {}", data.set_ref);
@@ -301,10 +306,29 @@ impl SymbolSetRecord {
 
         Ok(())
     }
+
+    pub async fn delete<'c, E>(&mut self, e: E) -> Result<(), UnhandledError>
+    where
+        E: sqlx::Executor<'c, Database = sqlx::Postgres>,
+    {
+        sqlx::query!(
+            r#"
+            DELETE FROM posthog_errortrackingsymbolset WHERE id = $1 AND team_id = $2
+            "#,
+            self.id,
+            self.team_id
+        )
+        .execute(e)
+        .await?;
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod test {
+    use std::sync::Arc;
+
     use common_symbol_data::write_symbol_data;
     use httpmock::MockServer;
     use mockall::predicate;
@@ -376,7 +400,7 @@ mod test {
         let saving_smp = Saving::new(
             smp,
             db.clone(),
-            client,
+            Arc::new(client),
             config.object_storage_bucket.clone(),
             config.ss_prefix.clone(),
         );
@@ -415,7 +439,7 @@ mod test {
         let saving_smp = Saving::new(
             smp,
             db.clone(),
-            client,
+            Arc::new(client),
             config.object_storage_bucket.clone(),
             config.ss_prefix.clone(),
         );
@@ -465,7 +489,7 @@ mod test {
         let saving_smp = Saving::new(
             smp,
             db.clone(),
-            client,
+            Arc::new(client),
             config.object_storage_bucket.clone(),
             config.ss_prefix.clone(),
         );
