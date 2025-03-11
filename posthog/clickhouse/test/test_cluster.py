@@ -239,9 +239,9 @@ def test_alter_mutation_multiple_commands(cluster: ClickhouseCluster) -> None:
         # the command should still be the same from the previous run
         assert all(
             mutations == {command: existing_mutations[host][command] for command in runner_with_single_command.commands}
-            for host, mutations in cluster.map_all_hosts(runner_with_single_command.find_existing_mutations)
-            .result()
-            .items()
+            for host, mutations in (
+                cluster.map_all_hosts(runner_with_single_command.find_existing_mutations).result().items()
+            )
         )
 
         # if we run the same mutation with additional commands, only the additional command should be executed
@@ -253,9 +253,9 @@ def test_alter_mutation_multiple_commands(cluster: ClickhouseCluster) -> None:
 
         assert all(
             mutations == (existing_mutations[host] | {new_command: None})
-            for host, mutations in cluster.map_all_hosts(runner_with_extra_command.find_existing_mutations)
-            .result()
-            .items()
+            for host, mutations in (
+                cluster.map_all_hosts(runner_with_extra_command.find_existing_mutations).result().items()
+            )
         )
 
         # start all mutations
