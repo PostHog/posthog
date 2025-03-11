@@ -6,7 +6,7 @@ import { Response } from '../../utils/fetch'
 import { getHttpCallRecorder, HttpCallRecorder, RecordedHttpCall, recordFetchRequest } from '../../utils/recorded-fetch'
 import { status } from '../../utils/status'
 import { DESTINATION_PLUGINS } from '../legacy-plugins'
-import { HogFunctionInvocation, HogFunctionType } from '../types'
+import { HogFunctionInvocation, HogFunctionInvocationResult, HogFunctionType } from '../types'
 import { createInvocation } from '../utils'
 import { LegacyPluginExecutorService } from './legacy-plugin-executor.service'
 
@@ -118,15 +118,22 @@ export class LegacyOneventCompareService {
             const recordedCalls = getHttpCallRecorder().getCalls()
             const hogFunctionResult = await this.runHogFunctionOnEvent(pluginConfig, event, recordedCalls)
             const comparer = new HttpCallRecorder()
-
             const comparison = comparer.compareCalls(recordedCalls, hogFunctionResult.recordedCalls)
 
+            const errorDiff =
+                (pluginConfigError && !hogFunctionResult.result.error) ||
+                (!pluginConfigError && hogFunctionResult.result.error)
+
             comparisonCounter
-                .labels(pluginConfig.plugin?.id.toString() ?? '?', comparison.matches ? 'true' : 'false')
+                .labels(pluginConfig.plugin?.id.toString() ?? '?', comparison.matches || errorDiff ? 'true' : 'false')
                 .inc()
 
-            if (!comparison.matches) {
-                status.info('🔎', `COMPARING ${pluginConfig.plugin?.id}`, comparison)
+            if (!comparison.matches || errorDiff) {
+                status.info('🔎', `COMPARING ${pluginConfig.plugin?.id}`, {
+                    ...comparison,
+                    pluginConfigError: String(pluginConfigError),
+                    hogFunctionResultError: String(hogFunctionResult.result.error),
+                })
             }
         } catch (e) {
             status.error('', 'Failed to compare HTTP calls', e)
@@ -143,7 +150,7 @@ export class LegacyOneventCompareService {
         event: PostIngestionEvent,
         recordedCalls: RecordedHttpCall[]
     ): Promise<{
-        error?: any
+        result: HogFunctionInvocationResult
         recordedCalls: RecordedHttpCall[]
     }> {
         // Try to execute the same thing but polyfilling the fetch calls with the recorded ones
@@ -191,59 +198,51 @@ export class LegacyOneventCompareService {
         const copiedCalls = [...recordedCalls]
         const recorder = new HttpCallRecorder()
 
-        let error: any = undefined
+        const result = await this.legacyPluginExecutorService.execute(invocation, {
+            fetch: (url, init) => {
+                // For each call take the first one out of the stack
 
-        await this.legacyPluginExecutorService
-            .execute(invocation, {
-                fetch: (url, init) => {
-                    // For each call take the first one out of the stack
+                const call = copiedCalls.shift()
 
-                    const call = copiedCalls.shift()
+                if (!call) {
+                    throw new Error('No call found')
+                }
 
-                    if (!call) {
-                        throw new Error('No call found')
-                    }
+                if (call?.request.url !== url) {
+                    throw new Error(`Call URL ${url} did not match expected URL ${call?.request.url}`)
+                }
 
-                    if (call?.request.url !== url) {
-                        throw new Error(`Call URL ${url} did not match expected URL ${call?.request.url}`)
-                    }
+                const request = recordFetchRequest(url, init)
 
-                    const request = recordFetchRequest(url, init)
+                recorder.addCall({
+                    id: call.id,
+                    request,
+                    response: call.response,
+                })
 
-                    recorder.addCall({
-                        id: call.id,
-                        request,
-                        response: call.response,
-                    })
+                const res: Partial<Response> = {
+                    headers: call.response.headers as any,
+                    status: call.response.status,
+                    statusText: call.response.statusText,
+                    ok: call.response.status >= 200 && call.response.status < 300,
+                    json: () => {
+                        return new Promise((res, rej) => {
+                            if (!call.response.body) {
+                                return rej(new Error('No response body'))
+                            }
+                            try {
+                                return res(JSON.parse(call.response.body))
+                            } catch (e) {
+                                return rej(e)
+                            }
+                        })
+                    },
+                }
 
-                    const res: Partial<Response> = {
-                        headers: call.response.headers as any,
-                        status: call.response.status,
-                        statusText: call.response.statusText,
-                        ok: call.response.status >= 200 && call.response.status < 300,
-                        json: () => {
-                            return new Promise((res, rej) => {
-                                if (!call.response.body) {
-                                    return rej(new Error('No response body'))
-                                }
-                                try {
-                                    return res(JSON.parse(call.response.body))
-                                } catch (e) {
-                                    return rej(e)
-                                }
-                            })
-                        },
-                    }
+                return Promise.resolve(res as Response)
+            },
+        })
 
-                    return Promise.resolve(res as Response)
-                },
-            })
-            .catch((e) => {
-                error = e
-            })
-
-        // Do comparison of calls!
-
-        return { error, recordedCalls: recorder.getCalls() }
+        return { result, recordedCalls: recorder.getCalls() }
     }
 }
