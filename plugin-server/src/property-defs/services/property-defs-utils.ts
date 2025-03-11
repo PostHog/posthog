@@ -43,6 +43,8 @@ export function sixMonthsAgoUnixSeconds() {
     return Math.floor(now.getTime() / 1000)
 }
 
+const BOOLEAN_VALUES = ['true', 'false', 'TRUE', 'FALSE']
+
 export const getPropertyType = (rawKey: string, value: any): PropertyType | null => {
     const key = rawKey.trim().toLowerCase()
 
@@ -79,7 +81,7 @@ export const getPropertyType = (rawKey: string, value: any): PropertyType | null
 
     if (typeof value === 'string') {
         const s = value.trim()
-        if (s === 'true' || s === 'false') {
+        if (BOOLEAN_VALUES.includes(s)) {
             return PropertyType.Boolean
         }
         // Try to parse this as an ISO 8601 date
