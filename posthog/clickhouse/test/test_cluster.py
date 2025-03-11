@@ -1,5 +1,6 @@
 import json
 import re
+from collections.abc import Mapping
 import uuid
 from collections import defaultdict
 from collections.abc import Callable, Iterator
@@ -116,6 +117,21 @@ def test_retry_policy_exception_test():
     assert non_retryable_callable.call_count == 1
 
 
+def wait_and_check_mutations_on_shards(
+    cluster: ClickhouseCluster, shard_mutations: Mapping[HostInfo, MutationWaiter]
+) -> None:
+    assert len(shard_mutations) > 0
+
+    for host_info, mutation in shard_mutations.items():
+        assert host_info.shard_num is not None
+
+        # wait for mutations to complete on shard
+        cluster.map_all_hosts_in_shard(host_info.shard_num, mutation.wait).result()
+
+        # check to make sure all mutations are marked as done
+        assert all(cluster.map_all_hosts_in_shard(host_info.shard_num, mutation.is_done).result().values())
+
+
 def test_alter_mutation_single_command(cluster: ClickhouseCluster) -> None:
     table = EVENTS_DATA_TABLE()
     count = 100
@@ -146,22 +162,13 @@ def test_alter_mutation_single_command(cluster: ClickhouseCluster) -> None:
 
     # start all mutations
     shard_mutations = cluster.map_one_host_per_shard(runner).result()
-    assert len(shard_mutations) > 0
+    wait_and_check_mutations_on_shards(cluster, shard_mutations)
 
-    # check results
+    # check to ensure data is as expected to be after update
     def get_person_ids(client: Client) -> list[tuple[uuid.UUID, int]]:
         return client.execute(f"SELECT person_id, count() FROM {table} GROUP BY ALL ORDER BY ALL")
 
-    for host_info, mutation in shard_mutations.items():
-        assert host_info.shard_num is not None
-
-        # wait for mutations to complete on shard
-        cluster.map_all_hosts_in_shard(host_info.shard_num, mutation.wait).result()
-
-        # check to make sure all mutations are marked as done
-        assert all(cluster.map_all_hosts_in_shard(host_info.shard_num, mutation.is_done).result().values())
-
-        # check to ensure data is as expected to be after update
+    for host_info in shard_mutations.keys():
         query_results = cluster.map_all_hosts_in_shard(host_info.shard_num, get_person_ids).result()
         assert all(result == [(sentinel_uuid, count)] for result in query_results.values())
 
@@ -211,16 +218,7 @@ def test_alter_mutation_multiple_commands(cluster: ClickhouseCluster) -> None:
 
         # start all mutations
         shard_mutations = cluster.map_one_host_per_shard(runner).result()
-        assert len(shard_mutations) > 0
-
-        for host_info, mutation in shard_mutations.items():
-            assert host_info.shard_num is not None
-
-            # wait for mutations to complete on shard
-            cluster.map_all_hosts_in_shard(host_info.shard_num, mutation.wait).result()
-
-            # check to make sure all mutations are marked as done
-            assert all(cluster.map_all_hosts_in_shard(host_info.shard_num, mutation.is_done).result().values())
+        wait_and_check_mutations_on_shards(cluster, shard_mutations)
 
         # all commands should have an associated mutation id at this point
         existing_mutations = cluster.map_all_hosts(runner.find_existing_mutations).result()
@@ -236,24 +234,14 @@ def test_alter_mutation_multiple_commands(cluster: ClickhouseCluster) -> None:
 
         # "start" all mutations (in actuality, this is a noop)
         shard_mutations = cluster.map_one_host_per_shard(runner_with_single_command).result()
-        assert len(shard_mutations) > 0
-
-        for host_info, mutation in shard_mutations.items():
-            assert host_info.shard_num is not None
-
-            # wait for mutations to complete on shard
-            cluster.map_all_hosts_in_shard(host_info.shard_num, mutation.wait).result()
-
-            # check to make sure all mutations are marked as done
-            assert all(cluster.map_all_hosts_in_shard(host_info.shard_num, mutation.is_done).result().values())
+        wait_and_check_mutations_on_shards(cluster, shard_mutations)
 
         # the command should still be the same from the previous run
-        existing_mutations_with_single_command = cluster.map_all_hosts(
-            runner_with_single_command.find_existing_mutations
-        ).result()
         assert all(
             mutations == {command: existing_mutations[host][command] for command in runner_with_single_command.commands}
-            for host, mutations in existing_mutations_with_single_command.items()
+            for host, mutations in cluster.map_all_hosts(runner_with_single_command.find_existing_mutations)
+            .result()
+            .items()
         )
 
         # if we run the same mutation with additional commands, only the additional command should be executed
@@ -263,26 +251,16 @@ def test_alter_mutation_multiple_commands(cluster: ClickhouseCluster) -> None:
             {*runner.commands, new_command},
         )
 
-        existing_mutations_with_extra_command = cluster.map_all_hosts(
-            runner_with_extra_command.find_existing_mutations
-        ).result()
         assert all(
             mutations == (existing_mutations[host] | {new_command: None})
-            for host, mutations in existing_mutations_with_extra_command.items()
+            for host, mutations in cluster.map_all_hosts(runner_with_extra_command.find_existing_mutations)
+            .result()
+            .items()
         )
 
         # start all mutations
         shard_mutations = cluster.map_one_host_per_shard(runner).result()
-        assert len(shard_mutations) > 0
-
-        for host_info, mutation in shard_mutations.items():
-            assert host_info.shard_num is not None
-
-            # wait for mutations (old and new) to complete on shard
-            cluster.map_all_hosts_in_shard(host_info.shard_num, mutation.wait).result()
-
-            # check to make sure all mutations are marked as done
-            assert all(cluster.map_all_hosts_in_shard(host_info.shard_num, mutation.is_done).result().values())
+        wait_and_check_mutations_on_shards(cluster, shard_mutations)
 
 
 def test_map_hosts_by_role() -> None:
