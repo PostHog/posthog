@@ -20,7 +20,7 @@ from drf_spectacular.views import (
     SpectacularRedocView,
     SpectacularSwaggerView,
 )
-from revproxy.views import ProxyView
+
 from sentry_sdk import last_event_id
 from two_factor.urls import urlpatterns as tf_urls
 
@@ -41,7 +41,7 @@ from posthog.api import (
 )
 from .api.web_experiment import web_experiments
 from .api.utils import hostname_in_allowed_url_list
-from posthog.api.early_access_feature import early_access_features
+from products.early_access_features.backend.api import early_access_features
 from posthog.api.survey import surveys
 from posthog.constants import PERMITTED_FORUM_DOMAINS
 from posthog.demo.legacy import demo_route
@@ -58,6 +58,9 @@ from .views import (
     stats,
 )
 from .year_in_posthog import year_in_posthog
+from posthog.api.query import query_awaited
+
+from posthog.api.slack import slack_interactivity_callback
 
 logger = structlog.get_logger(__name__)
 
@@ -171,6 +174,7 @@ urlpatterns = [
     # ee
     *ee_urlpatterns,
     # api
+    path("api/environments/<int:team_id>/query_awaited/", query_awaited),
     path("api/unsubscribe", unsubscribe.unsubscribe),
     path("api/", include(router.urls)),
     path("", include(tf_urls)),
@@ -239,6 +243,7 @@ urlpatterns = [
     path("year_in_posthog/2023/<str:user_uuid>/", year_in_posthog.render_2023),
     path("year_in_posthog/2024/<str:user_uuid>", year_in_posthog.render_2024),
     path("year_in_posthog/2024/<str:user_uuid>/", year_in_posthog.render_2024),
+    opt_slash_path("slack/interactivity-callback", slack_interactivity_callback),
 ]
 
 if settings.DEBUG:
@@ -248,15 +253,12 @@ if settings.DEBUG:
     # what we do.
     urlpatterns.append(path("_metrics", ExportToDjangoView))
 
-    # Reverse-proxy all of /i/* to capture-rs on port 3000 when running the local devenv
-    urlpatterns.append(re_path(r"(?P<path>^i/.*)", ProxyView.as_view(upstream="http://localhost:3000")))
-
 
 if settings.TEST:
     # Used in posthog-js e2e tests
     @csrf_exempt
     def delete_events(request):
-        from posthog.client import sync_execute
+        from posthog.clickhouse.client import sync_execute
         from posthog.models.event.sql import TRUNCATE_EVENTS_TABLE_SQL
 
         sync_execute(TRUNCATE_EVENTS_TABLE_SQL())

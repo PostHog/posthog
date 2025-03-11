@@ -21,7 +21,7 @@ import {
     InsightActorsQueryOptionsResponse,
     insightActorsQueryOptionsResponseKeys,
     NodeKind,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import {
     ActorType,
     BreakdownType,
@@ -361,7 +361,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
                     source,
                     full: true,
                 }
-                return urls.insightNew(undefined, undefined, query)
+                return urls.insightNew({ query })
             },
         ],
     }),

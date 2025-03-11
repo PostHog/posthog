@@ -21,7 +21,6 @@ from django.utils.cache import add_never_cache_headers
 from django_prometheus.middleware import (
     Metrics,
     PrometheusAfterMiddleware,
-    PrometheusBeforeMiddleware,
 )
 from rest_framework import status
 from statshog.defaults.django import statsd
@@ -33,7 +32,6 @@ from posthog.clickhouse.client.execute import clickhouse_query_counter
 from posthog.clickhouse.query_tagging import QueryCounter, reset_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.exceptions import generate_exception_response
-from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Notebook, User, Team
 from posthog.rate_limit import DecideRateThrottle
 from posthog.settings import SITE_URL, DEBUG, PROJECT_SWITCHING_TOKEN_ALLOWLIST
@@ -51,6 +49,7 @@ ALWAYS_ALLOWED_ENDPOINTS = [
     "s",
     "static",
     "_health",
+    "flags",
 ]
 
 if DEBUG:
@@ -66,7 +65,7 @@ default_cookie_options = {
     "samesite": "Strict",
 }
 
-cookie_api_paths_to_ignore = {"e", "s", "capture", "batch", "decide", "api", "track"}
+cookie_api_paths_to_ignore = {"e", "s", "capture", "batch", "decide", "api", "track", "flags"}
 
 
 class AllowIPMiddleware:
@@ -278,13 +277,10 @@ class AutoProjectMiddleware:
 
         # :KLUDGE: This is more inefficient than needed, doing several expensive lookups
         #   However this should be a rare operation!
-        if not user_access_control.check_access_level_for_object(new_team, "member"):
-            # Do something to indicate that they don't have access to the team...
-            return False
-
-        # :KLUDGE: This is more inefficient than needed, doing several expensive lookups
-        #   However this should be a rare operation!
-        if user_permissions.team(new_team).effective_membership_level is None:
+        if (
+            not user_access_control.check_access_level_for_object(new_team, "member")
+            and user_permissions.team(new_team).effective_membership_level is None
+        ):
             if user.is_staff:
                 # Staff users get a popup with suggested users to log in as, facilating support
                 request.suggested_users_with_access = UserBasicSerializer(  # type: ignore
@@ -444,7 +440,7 @@ class CaptureMiddleware:
         # reconciles the old style middleware with the new style middleware.
         for middleware_class in (
             CorsMiddleware,
-            PrometheusAfterMiddlewareWithTeamIds,
+            PrometheusAfterMiddleware,
         ):
             try:
                 # Some middlewares raise MiddlewareNotUsed if they are not
@@ -570,34 +566,7 @@ PROMETHEUS_EXTENDED_METRICS = [
 
 class CustomPrometheusMetrics(Metrics):
     def register_metric(self, metric_cls, name, documentation, labelnames=(), **kwargs):
-        if name in PROMETHEUS_EXTENDED_METRICS:
-            labelnames.extend([LABEL_TEAM_ID])
         return super().register_metric(metric_cls, name, documentation, labelnames=labelnames, **kwargs)
-
-
-class PrometheusBeforeMiddlewareWithTeamIds(PrometheusBeforeMiddleware):
-    metrics_cls = CustomPrometheusMetrics
-
-
-class PrometheusAfterMiddlewareWithTeamIds(PrometheusAfterMiddleware):
-    metrics_cls = CustomPrometheusMetrics
-
-    def label_metric(self, metric, request, response=None, **labels):
-        new_labels = labels
-        if metric._name in PROMETHEUS_EXTENDED_METRICS:
-            team_id = None
-            if request and getattr(request, "user", None) and request.user.is_authenticated:
-                if request.resolver_match.kwargs.get("parent_lookup_team_id"):
-                    team_id = request.resolver_match.kwargs["parent_lookup_team_id"]
-                    if team_id == "@current":
-                        if hasattr(request.user, "current_team_id"):
-                            team_id = request.user.current_team_id
-                        else:
-                            team_id = None
-
-            new_labels = {LABEL_TEAM_ID: team_id}
-            new_labels.update(labels)
-        return super().label_metric(metric, request, response=response, **new_labels)
 
 
 class PostHogTokenCookieMiddleware(SessionMiddleware):
@@ -677,7 +646,19 @@ def get_impersonated_session_expires_at(request: HttpRequest) -> Optional[dateti
 
     init_time = get_or_set_session_cookie_created_at(request=request)
 
-    return datetime.fromtimestamp(init_time) + timedelta(seconds=settings.IMPERSONATION_TIMEOUT_SECONDS)
+    last_activity_time = request.session.get(settings.IMPERSONATION_COOKIE_LAST_ACTIVITY_KEY, init_time)
+
+    # If the last activity time is less than the idle timeout, we extend the session
+    if time.time() - last_activity_time < settings.IMPERSONATION_IDLE_TIMEOUT_SECONDS:
+        last_activity_time = request.session[settings.IMPERSONATION_COOKIE_LAST_ACTIVITY_KEY] = time.time()
+        request.session.modified = True
+
+    idle_expiry_time = datetime.fromtimestamp(last_activity_time) + timedelta(
+        seconds=settings.IMPERSONATION_IDLE_TIMEOUT_SECONDS
+    )
+    total_expiry_time = datetime.fromtimestamp(init_time) + timedelta(seconds=settings.IMPERSONATION_TIMEOUT_SECONDS)
+
+    return min(idle_expiry_time, total_expiry_time)
 
 
 class AutoLogoutImpersonateMiddleware:

@@ -7,26 +7,43 @@ import typing
 import uuid
 
 import pyarrow as pa
-import structlog
 import temporalio.common
 from django.conf import settings
 
-from posthog.temporal.batch_exports.heartbeat import BatchExportRangeHeartbeatDetails
-from posthog.temporal.batch_exports.metrics import get_bytes_exported_metric, get_rows_exported_metric
+from posthog.batch_exports.service import (
+    BackfillDetails,
+    BatchExportModel,
+    BatchExportSchema,
+)
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import create_hogql_database
+from posthog.hogql.hogql import ast
+from posthog.hogql.parser import parse_expr
+from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
+from posthog.hogql.property import property_to_expr
+from posthog.models import Team
+from posthog.schema import EventPropertyFilter, HogQLQueryModifiers, MaterializationMode
+from posthog.temporal.batch_exports import sql
+from posthog.temporal.batch_exports.heartbeat import (
+    BatchExportRangeHeartbeatDetails,
+    DateRange,
+)
+from posthog.temporal.batch_exports.metrics import (
+    get_bytes_exported_metric,
+    get_rows_exported_metric,
+)
 from posthog.temporal.batch_exports.sql import (
+    SELECT_FROM_DISTRIBUTED_EVENTS_RECENT,
     SELECT_FROM_EVENTS_VIEW,
     SELECT_FROM_EVENTS_VIEW_BACKFILL,
     SELECT_FROM_EVENTS_VIEW_RECENT,
     SELECT_FROM_EVENTS_VIEW_UNBOUNDED,
-    SELECT_FROM_PERSONS_VIEW,
-    SELECT_FROM_PERSONS_VIEW_BACKFILL,
-    SELECT_FROM_PERSONS_VIEW_BACKFILL_NEW,
-    SELECT_FROM_PERSONS_VIEW_NEW,
+    SELECT_FROM_PERSONS,
+    SELECT_FROM_PERSONS_BACKFILL,
 )
 from posthog.temporal.batch_exports.temporary_file import (
     BatchExportTemporaryFile,
     BytesSinceLastFlush,
-    DateRange,
     FlushCounter,
     IsLast,
     RecordsSinceLastFlush,
@@ -37,10 +54,10 @@ from posthog.temporal.batch_exports.utils import (
     cast_record_batch_json_columns,
     cast_record_batch_schema_json_columns,
 )
-from posthog.temporal.common.clickhouse import ClickHouseClient
+from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
-
-logger = structlog.get_logger()
+from posthog.temporal.common.logger import get_internal_logger
+from posthog.warehouse.util import database_sync_to_async
 
 
 class RecordBatchQueue(asyncio.Queue):
@@ -120,6 +137,7 @@ async def raise_on_task_failure(task: asyncio.Task) -> None:
         return
 
     exc = task.exception()
+    logger = get_internal_logger()
     await logger.aexception("%s task failed", task.get_name(), exc_info=exc)
     raise RecordBatchTaskError() from exc
 
@@ -175,14 +193,16 @@ class Consumer:
         heartbeater: Heartbeater,
         heartbeat_details: BatchExportRangeHeartbeatDetails,
         data_interval_start: dt.datetime | str | None,
+        data_interval_end: dt.datetime | str,
         writer_format: WriterFormat,
     ):
         self.flush_start_event = asyncio.Event()
         self.heartbeater = heartbeater
         self.heartbeat_details = heartbeat_details
         self.data_interval_start = data_interval_start
+        self.data_interval_end = data_interval_end
         self.writer_format = writer_format
-        self.logger = logger
+        self.logger = get_internal_logger()
 
     @property
     def rows_exported_counter(self) -> temporalio.common.MetricCounter:
@@ -193,6 +213,37 @@ class Consumer:
     def bytes_exported_counter(self) -> temporalio.common.MetricCounter:
         """Access the bytes exported metric counter."""
         return get_bytes_exported_metric()
+
+    def create_consumer_task(
+        self,
+        queue: RecordBatchQueue,
+        producer_task: asyncio.Task,
+        max_bytes: int,
+        schema: pa.Schema,
+        json_columns: collections.abc.Sequence[str],
+        multiple_files: bool = False,
+        include_inserted_at: bool = False,
+        task_name: str = "record_batch_consumer",
+        max_file_size_bytes: int = 0,
+        **kwargs,
+    ) -> asyncio.Task:
+        """Create a record batch consumer task."""
+        consumer_task = asyncio.create_task(
+            self.start(
+                queue=queue,
+                producer_task=producer_task,
+                max_bytes=max_bytes,
+                schema=schema,
+                json_columns=json_columns,
+                multiple_files=multiple_files,
+                include_inserted_at=include_inserted_at,
+                max_file_size_bytes=max_file_size_bytes,
+                **kwargs,
+            ),
+            name=task_name,
+        )
+
+        return consumer_task
 
     @abc.abstractmethod
     async def flush(
@@ -229,6 +280,8 @@ class Consumer:
         schema: pa.Schema,
         json_columns: collections.abc.Sequence[str],
         multiple_files: bool = False,
+        include_inserted_at: bool = False,
+        max_file_size_bytes: int = 0,
         **kwargs,
     ) -> int:
         """Start consuming record batches from queue.
@@ -245,30 +298,40 @@ class Consumer:
         Returns:
             Total number of records in all consumed record batches.
         """
-        await logger.adebug("Starting record batch consumer")
-
         schema = cast_record_batch_schema_json_columns(schema, json_columns=json_columns)
-        writer = get_batch_export_writer(self.writer_format, self.flush, schema=schema, max_bytes=max_bytes, **kwargs)
+        writer = get_batch_export_writer(
+            self.writer_format,
+            self.flush,
+            schema=schema,
+            max_bytes=max_bytes,
+            max_file_size_bytes=max_file_size_bytes,
+            **kwargs,
+        )
 
         record_batches_count = 0
+        record_batches_count_total = 0
         records_count = 0
 
-        await self.logger.adebug("Starting record batch writing loop")
+        await self.logger.adebug("Consuming record batches from producer %s", producer_task.get_name())
 
         writer._batch_export_file = await asyncio.to_thread(writer.create_temporary_file)
 
         async for record_batch in self.generate_record_batches_from_queue(queue, producer_task):
             record_batches_count += 1
+            record_batches_count_total += 1
             record_batch = cast_record_batch_json_columns(record_batch, json_columns=json_columns)
 
-            await writer.write_record_batch(record_batch, flush=False)
+            await writer.write_record_batch(record_batch, flush=False, include_inserted_at=include_inserted_at)
 
-            if writer.should_flush():
+            if writer.should_flush() or writer.should_hard_flush():
+                await self.logger.adebug(
+                    "Flushing %s records from %s record batches", writer.records_since_last_flush, record_batches_count
+                )
+
                 records_count += writer.records_since_last_flush
 
-                if multiple_files:
-                    await writer.close_temporary_file()
-                    writer._batch_export_file = await asyncio.to_thread(writer.create_temporary_file)
+                if multiple_files or writer.should_hard_flush():
+                    await writer.hard_flush()
                 else:
                     await writer.flush()
 
@@ -276,12 +339,25 @@ class Consumer:
                     queue.task_done()
                 record_batches_count = 0
 
-        records_count += writer.records_since_last_flush
-        await writer.close_temporary_file()
+            self.heartbeater.set_from_heartbeat_details(self.heartbeat_details)
 
-        await self.logger.adebug("Consumed %s records", records_count)
+        records_count += writer.records_since_last_flush
+
+        await self.logger.adebug(
+            "Finished consuming %s records from %s record batches, will flush any pending data",
+            records_count,
+            record_batches_count_total,
+        )
+
+        await writer.close_temporary_file()
+        await self.close()
+
         self.heartbeater.set_from_heartbeat_details(self.heartbeat_details)
         return records_count
+
+    async def close(self):
+        """This method can be overridden by subclasses to perform any additional cleanup."""
+        pass
 
     async def generate_record_batches_from_queue(
         self,
@@ -304,6 +380,11 @@ class Consumer:
 
             yield record_batch
 
+    def complete_heartbeat(self):
+        """Complete this consumer's heartbeats."""
+        self.heartbeat_details.complete_done_ranges(self.data_interval_end)
+        self.heartbeater.set_from_heartbeat_details(self.heartbeat_details)
+
 
 class RecordBatchConsumerRetryableExceptionGroup(ExceptionGroup):
     """ExceptionGroup raised when at least one task fails with a retryable exception."""
@@ -319,27 +400,28 @@ class RecordBatchConsumerNonRetryableExceptionGroup(ExceptionGroup):
         return RecordBatchConsumerNonRetryableExceptionGroup(self.message, excs)
 
 
-async def run_consumer_loop(
+async def run_consumer(
     queue: RecordBatchQueue,
-    consumer_cls: type[Consumer],
+    consumer: Consumer,
     producer_task: asyncio.Task,
-    heartbeater: Heartbeater,
-    heartbeat_details: BatchExportRangeHeartbeatDetails,
-    data_interval_end: dt.datetime | str,
-    data_interval_start: dt.datetime | str | None,
-    schema: pa.Schema,
-    writer_format: WriterFormat,
     max_bytes: int,
+    schema: pa.Schema,
     json_columns: collections.abc.Sequence[str] = ("properties", "person_properties", "set", "set_once"),
-    writer_file_kwargs: collections.abc.Mapping[str, typing.Any] | None = None,
     multiple_files: bool = False,
+    writer_file_kwargs: collections.abc.Mapping[str, typing.Any] | None = None,
+    include_inserted_at: bool = False,
+    max_file_size_bytes: int = 0,
     **kwargs,
 ) -> int:
-    """Run record batch consumers in a loop.
+    """Run one record batch consumer.
 
     When a consumer starts flushing, a new consumer will be started, and so on in
     a loop. Once there is nothing left to consumer from the `RecordBatchQueue`, no
     more consumers will be started, and any pending consumers are awaited.
+
+    NOTE: We're starting to include the `_inserted_at` column in the record
+    batches, one destination at a time, so once we've added it to all
+    destinations, we can remove the `include_inserted_at` argument.
 
     Returns:
         Number of records exported. Not the number of record batches, but the
@@ -353,7 +435,6 @@ async def run_consumer_loop(
     """
     consumer_tasks_pending: set[asyncio.Task] = set()
     consumer_tasks_done = set()
-    consumer_number = 0
     records_completed = 0
 
     def consumer_done_callback(task: asyncio.Task):
@@ -369,26 +450,23 @@ async def run_consumer_loop(
         consumer_tasks_pending.remove(task)
         consumer_tasks_done.add(task)
 
-    await logger.adebug("Starting record batch consumer loop")
+    await consumer.logger.adebug("Starting record batch consumer")
 
-    consumer = consumer_cls(heartbeater, heartbeat_details, data_interval_start, writer_format, **kwargs)
-    consumer_task = asyncio.create_task(
-        consumer.start(
-            queue=queue,
-            producer_task=producer_task,
-            max_bytes=max_bytes,
-            schema=schema,
-            json_columns=json_columns,
-            multiple_files=multiple_files,
-            **writer_file_kwargs or {},
-        ),
-        name=f"record_batch_consumer_{consumer_number}",
+    consumer_task = consumer.create_consumer_task(
+        queue=queue,
+        producer_task=producer_task,
+        max_bytes=max_bytes,
+        schema=schema,
+        json_columns=json_columns,
+        multiple_files=multiple_files,
+        include_inserted_at=include_inserted_at,
+        max_file_size_bytes=max_file_size_bytes,
+        **writer_file_kwargs or {},
     )
     consumer_tasks_pending.add(consumer_task)
     consumer_task.add_done_callback(consumer_done_callback)
-    consumer_number += 1
 
-    await asyncio.wait([consumer_task])
+    await asyncio.wait(consumer_tasks_pending)
 
     if consumer_task.done():
         consumer_task_exception = consumer_task.exception()
@@ -396,15 +474,160 @@ async def run_consumer_loop(
         if consumer_task_exception is not None:
             raise consumer_task_exception
 
-    await logger.adebug("Finished consuming record batches")
-
     await raise_on_task_failure(producer_task)
-    await logger.adebug("Successfully consumed all record batches")
+    await consumer.logger.adebug("Successfully finished record batch consumer")
 
-    heartbeat_details.complete_done_ranges(data_interval_end)
-    heartbeater.set_from_heartbeat_details(heartbeat_details)
+    consumer.complete_heartbeat()
 
     return records_completed
+
+
+Query = str
+QueryParameters = dict[str, typing.Any]
+BatchExportDateRange = tuple[dt.datetime | None, dt.datetime]
+
+
+class RecordBatchModel(abc.ABC):
+    """Base class for models that can be produced as record batches."""
+
+    def __init__(self, team_id: int):
+        self.team_id = team_id
+
+    async def get_hogql_context(self, team_id: int) -> HogQLContext:
+        """Return a HogQLContext to generate a ClickHouse query."""
+        team = await Team.objects.aget(id=team_id)
+        context = HogQLContext(
+            team=team,
+            team_id=team.id,
+            enable_select_queries=True,
+            limit_top_select=False,
+        )
+        context.database = await database_sync_to_async(create_hogql_database)(team.id, context.modifiers)
+
+        return context
+
+    @abc.abstractmethod
+    async def as_query_with_parameters(
+        self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime
+    ) -> tuple[Query, QueryParameters]:
+        """Produce a printed query and any necessary ClickHouse query parameters."""
+        raise NotImplementedError
+
+
+class SessionsRecordBatchModel(RecordBatchModel):
+    """A model to produce record batches from the sessions table.
+
+    Attributes:
+       team_id: The ID of the team we are producing records for.
+    """
+
+    def __init__(self, team_id: int):
+        super().__init__(team_id)
+
+    def get_hogql_query(
+        self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime
+    ) -> ast.SelectQuery:
+        """Return the HogQLQuery used for the sessions model."""
+        hogql_query = sql.SELECT_FROM_SESSIONS_HOGQL
+
+        where_and = ast.And(
+            exprs=[
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["sessions", "team_id"]),
+                    right=ast.Constant(value=self.team_id),
+                ),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Lt,
+                    left=ast.Field(chain=["_inserted_at"]),
+                    right=ast.Constant(value=data_interval_end),
+                ),
+                # include $end_timestamp because hogql uses this to add a where clause to the inner query
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Lt,
+                    left=ast.Field(chain=["$end_timestamp"]),
+                    right=ast.Constant(value=data_interval_end),
+                ),
+            ]
+        )
+        if data_interval_start is not None:
+            where_and.exprs.extend(
+                [
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.GtEq,
+                        left=ast.Field(chain=["_inserted_at"]),
+                        right=ast.Constant(value=data_interval_start),
+                    ),
+                    # include $end_timestamp because hogql uses this to add a where clause to the inner query
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.GtEq,
+                        left=ast.Field(chain=["$end_timestamp"]),
+                        right=ast.Constant(value=data_interval_start),
+                    ),
+                ]
+            )
+
+        hogql_query.where = where_and
+
+        return hogql_query
+
+    async def as_query_with_parameters(
+        self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime
+    ) -> tuple[Query, QueryParameters]:
+        """Produce a printed query and any necessary ClickHouse query parameters."""
+        hogql_query = self.get_hogql_query(data_interval_start, data_interval_end)
+        context = await self.get_hogql_context(self.team_id)
+
+        prepared_hogql_query = await database_sync_to_async(prepare_ast_for_printing)(
+            hogql_query, context=context, dialect="clickhouse", stack=[]
+        )
+        context.output_format = "ArrowStream"
+        printed = print_prepared_ast(
+            prepared_hogql_query,
+            context=context,
+            dialect="clickhouse",
+            stack=[],
+        )
+        return printed, context.values
+
+
+def resolve_batch_exports_model(
+    team_id: int,
+    is_backfill: bool,
+    batch_export_model: BatchExportModel | None = None,
+    batch_export_schema: BatchExportSchema | None = None,
+):
+    """Resolve which model and model parameters to use for a batch export.
+
+    This function exists to isolate a lot of repetitive checks that deal with deprecated
+    and new parameters. Eventually, once everything is a `RecordBatchModel`, this could
+    be removed.
+    """
+    model: BatchExportModel | BatchExportSchema | None = None
+    record_batch_model = None
+    if batch_export_schema is None:
+        model = batch_export_model
+        if model is not None:
+            model_name = model.name
+            extra_query_parameters = model.schema["values"] if model.schema is not None else None
+            fields = model.schema["fields"] if model.schema is not None else None
+            filters = model.filters
+
+            if model_name == "sessions":
+                record_batch_model = SessionsRecordBatchModel(team_id)
+        else:
+            model_name = "events"
+            extra_query_parameters = None
+            fields = None
+            filters = None
+    else:
+        model = batch_export_schema
+        model_name = "custom"
+        extra_query_parameters = model["values"] if model is not None else {}
+        fields = model["fields"] if model is not None else None
+        filters = None
+
+    return model, record_batch_model, model_name, fields, filters, extra_query_parameters
 
 
 class BatchExportField(typing.TypedDict):
@@ -438,6 +661,42 @@ def default_fields() -> list[BatchExportField]:
     ]
 
 
+def is_5_min_batch_export(full_range: tuple[dt.datetime | None, dt.datetime]) -> bool:
+    start_at, end_at = full_range
+    if start_at:
+        return (end_at - start_at) == dt.timedelta(seconds=300)
+    return False
+
+
+def use_distributed_events_recent_table(
+    is_backfill: bool, backfill_details: BackfillDetails | None, data_interval_start: dt.datetime | None
+) -> bool:
+    """We should use the distributed_events_recent table if it's not a backfill (backfill_details is None) or the
+    backfill is within the last 6 days.
+
+    We also check the data_interval_start to make sure it's also within the last 6 days (should always be the case for
+    realtime batch exports but for tests it may not be the case)
+
+    The events_recent table, and by extension, the distributed_events_recent table, only have event data from the last 7
+    days (we use 6 days to give some buffer).
+    """
+
+    if (
+        not is_backfill
+        and data_interval_start
+        and data_interval_start > (dt.datetime.now(tz=dt.UTC) - dt.timedelta(days=6))
+    ):
+        return True
+
+    backfill_start_at = None
+    if backfill_details and backfill_details.start_at:
+        backfill_start_at = dt.datetime.fromisoformat(backfill_details.start_at)
+    if backfill_start_at and backfill_start_at > (dt.datetime.now(tz=dt.UTC) - dt.timedelta(days=6)):
+        return True
+
+    return False
+
+
 class Producer:
     """Async producer for batch exports.
 
@@ -446,8 +705,9 @@ class Producer:
         _task: Used to keep track of producer background task.
     """
 
-    def __init__(self, clickhouse_client: ClickHouseClient):
-        self.clickhouse_client = clickhouse_client
+    def __init__(self, model: RecordBatchModel | None = None):
+        self.model = model
+        self.logger = get_internal_logger()
         self._task: asyncio.Task | None = None
 
     @property
@@ -456,17 +716,78 @@ class Producer:
             raise ValueError("Producer task is not initialized, have you called `Producer.start()`?")
         return self._task
 
-    def start(
+    async def start(
+        self,
+        queue: RecordBatchQueue,
+        full_range: tuple[dt.datetime | None, dt.datetime],
+        done_ranges: list[tuple[dt.datetime, dt.datetime]],
+        is_backfill: bool,
+        backfill_details: BackfillDetails | None,
+        max_record_batch_size_bytes: int = 0,
+        min_records_per_batch: int = 100,
+        **kwargs,
+    ) -> asyncio.Task:
+        """Dispatch to one of two implementations, depending on `self.model`."""
+        if self.model is not None:
+            return await self.start_with_model(
+                queue=queue,
+                max_record_batch_size_bytes=max_record_batch_size_bytes,
+                min_records_per_batch=min_records_per_batch,
+                full_range=full_range,
+                done_ranges=done_ranges,
+            )
+        else:
+            return await self.start_without_model(
+                queue=queue,
+                max_record_batch_size_bytes=max_record_batch_size_bytes,
+                min_records_per_batch=min_records_per_batch,
+                full_range=full_range,
+                done_ranges=done_ranges,
+                is_backfill=is_backfill,
+                backfill_details=backfill_details,
+                **kwargs,
+            )
+
+    async def start_with_model(
+        self,
+        queue: RecordBatchQueue,
+        full_range: tuple[dt.datetime | None, dt.datetime],
+        done_ranges: list[tuple[dt.datetime, dt.datetime]],
+        max_record_batch_size_bytes: int = 0,
+        min_records_per_batch: int = 100,
+    ):
+        assert self.model is not None
+
+        self._task = asyncio.create_task(
+            self.produce_batch_export_record_batches_from_range(
+                query_or_model=self.model,
+                full_range=full_range,
+                done_ranges=done_ranges,
+                queue=queue,
+                query_parameters={},
+                max_record_batch_size_bytes=max_record_batch_size_bytes,
+                min_records_per_batch=min_records_per_batch,
+                team_id=self.model.team_id,
+            ),
+            name="record_batch_producer",
+        )
+        return self._task
+
+    async def start_without_model(
         self,
         queue: RecordBatchQueue,
         model_name: str,
+        # TODO: remove once all backfill inputs are migrated
         is_backfill: bool,
+        backfill_details: BackfillDetails | None,
         team_id: int,
         full_range: tuple[dt.datetime | None, dt.datetime],
         done_ranges: list[tuple[dt.datetime, dt.datetime]],
         fields: list[BatchExportField] | None = None,
         destination_default_fields: list[BatchExportField] | None = None,
-        use_latest_schema: bool = False,
+        max_record_batch_size_bytes: int = 0,
+        min_records_per_batch: int = 100,
+        filters: list[dict[str, str | list[str]]] | None = None,
         **parameters,
     ) -> asyncio.Task:
         if fields is None:
@@ -475,17 +796,23 @@ class Producer:
             else:
                 fields = destination_default_fields
 
+        extra_query_parameters = parameters.pop("extra_query_parameters", {}) or {}
+
+        if filters is not None and len(filters) > 0:
+            filters_str, extra_query_parameters = await database_sync_to_async(compose_filters_clause)(
+                filters, team_id=team_id, values=extra_query_parameters
+            )
+        else:
+            filters_str, extra_query_parameters = "", extra_query_parameters
+
+        # TODO: this can be simplified once all backfill inputs are migrated
+        is_backfill = (backfill_details is not None) or is_backfill
+
         if model_name == "persons":
             if is_backfill and full_range[0] is None:
-                if use_latest_schema:
-                    query = SELECT_FROM_PERSONS_VIEW_BACKFILL_NEW
-                else:
-                    query = SELECT_FROM_PERSONS_VIEW_BACKFILL
+                query = SELECT_FROM_PERSONS_BACKFILL
             else:
-                if use_latest_schema:
-                    query = SELECT_FROM_PERSONS_VIEW_NEW
-                else:
-                    query = SELECT_FROM_PERSONS_VIEW
+                query = SELECT_FROM_PERSONS
         else:
             if parameters.get("exclude_events", None):
                 parameters["exclude_events"] = list(parameters["exclude_events"])
@@ -497,20 +824,26 @@ class Producer:
             else:
                 parameters["include_events"] = []
 
-            start_at, end_at = full_range
-
-            if start_at:
-                is_5_min_batch_export = (end_at - start_at) == dt.timedelta(seconds=300)
-            else:
-                is_5_min_batch_export = False
-
-            if is_5_min_batch_export and not is_backfill:
+            # for 5 min batch exports we query the events_recent table, which is known to have zero replication lag, but
+            # may not be able to handle the load from all batch exports
+            if is_5_min_batch_export(full_range=full_range) and not is_backfill:
+                self.logger.info("Using events_recent table for 5 min batch export")
                 query_template = SELECT_FROM_EVENTS_VIEW_RECENT
+            # for other batch exports that should use `events_recent` we use the `distributed_events_recent` table
+            # which is a distributed table that sits in front of the `events_recent` table
+            elif use_distributed_events_recent_table(
+                is_backfill=is_backfill, backfill_details=backfill_details, data_interval_start=full_range[0]
+            ):
+                self.logger.info("Using distributed_events_recent table for batch export")
+                query_template = SELECT_FROM_DISTRIBUTED_EVENTS_RECENT
             elif str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
+                self.logger.info("Using events_batch_export_unbounded view for batch export")
                 query_template = SELECT_FROM_EVENTS_VIEW_UNBOUNDED
             elif is_backfill:
+                self.logger.info("Using events_batch_export_backfill view for batch export")
                 query_template = SELECT_FROM_EVENTS_VIEW_BACKFILL
             else:
+                self.logger.info("Using events_batch_export view for batch export")
                 query_template = SELECT_FROM_EVENTS_VIEW
                 lookback_days = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(
                     team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS
@@ -524,16 +857,24 @@ class Producer:
 
             query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in fields + control_fields)
 
-            query = query_template.substitute(fields=query_fields)
+            if filters_str:
+                filters_str = f"AND {filters_str}"
+
+            query = query_template.safe_substitute(fields=query_fields, filters=filters_str)
 
         parameters["team_id"] = team_id
-
-        extra_query_parameters = parameters.pop("extra_query_parameters", {}) or {}
         parameters = {**parameters, **extra_query_parameters}
 
         self._task = asyncio.create_task(
             self.produce_batch_export_record_batches_from_range(
-                query=query, full_range=full_range, done_ranges=done_ranges, queue=queue, query_parameters=parameters
+                query_or_model=query,
+                full_range=full_range,
+                done_ranges=done_ranges,
+                queue=queue,
+                query_parameters=parameters,
+                max_record_batch_size_bytes=max_record_batch_size_bytes,
+                min_records_per_batch=min_records_per_batch,
+                team_id=team_id,
             ),
             name="record_batch_producer",
         )
@@ -542,21 +883,117 @@ class Producer:
 
     async def produce_batch_export_record_batches_from_range(
         self,
-        query: str,
+        query_or_model: str | RecordBatchModel,
         full_range: tuple[dt.datetime | None, dt.datetime],
         done_ranges: collections.abc.Sequence[tuple[dt.datetime, dt.datetime]],
         queue: RecordBatchQueue,
         query_parameters: dict[str, typing.Any],
+        team_id: int,
+        max_record_batch_size_bytes: int = 0,
+        min_records_per_batch: int = 100,
     ):
-        for interval_start, interval_end in generate_query_ranges(full_range, done_ranges):
-            if interval_start is not None:
-                query_parameters["interval_start"] = interval_start.strftime("%Y-%m-%d %H:%M:%S.%f")
-            query_parameters["interval_end"] = interval_end.strftime("%Y-%m-%d %H:%M:%S.%f")
-            query_id = uuid.uuid4()
+        """Produce Arrow record batches for a given date range into `queue`.
 
-            await self.clickhouse_client.aproduce_query_as_arrow_record_batches(
-                query, queue=queue, query_parameters=query_parameters, query_id=str(query_id)
-            )
+        Arguments:
+            query: The ClickHouse query used to obtain record batches. The query should be have a
+                `FORMAT ArrowStream` clause, although we do not enforce this.
+            full_range: The full date range of record batches to produce.
+            done_ranges: Date ranges of record batches that have already been exported, and thus
+                should be skipped.
+            queue: The queue where to produce record batches.
+            query_parameters: Additional query parameters.
+            team_id: The team ID of the batch export.
+            max_record_batch_size_bytes: The max size in bytes of a record batch to insert in `queue`.
+                If a record batch is larger than this, `slice_record_batch` will be used to slice it
+                into smaller record batches.
+            min_records_batch_per_batch: If slicing a record batch, each slice should contain at least
+                this number of records.
+        """
+        clickhouse_url = None
+        # 5 min batch exports should query a single node, which is known to have zero replication lag
+        if is_5_min_batch_export(full_range=full_range):
+            clickhouse_url = settings.CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST
+
+        # Data can sometimes take a while to settle, so for 5 min batch exports we wait several seconds just to be safe.
+        # For all other batch exports we wait for 1 minute since we're querying the events_recent table using a
+        # distributed table and setting `max_replica_delay_for_distributed_queries` to 1 minute
+        if is_5_min_batch_export(full_range):
+            delta = dt.timedelta(seconds=30)
+        else:
+            delta = dt.timedelta(minutes=1)
+        end_at = full_range[1]
+        await wait_for_delta_past_data_interval_end(end_at, delta)
+
+        async with get_client(team_id=team_id, clickhouse_url=clickhouse_url) as client:
+            if not await client.is_alive():
+                raise ConnectionError("Cannot establish connection to ClickHouse")
+
+            for interval_start, interval_end in generate_query_ranges(full_range, done_ranges):
+                if interval_start is not None:
+                    query_parameters["interval_start"] = interval_start.strftime("%Y-%m-%d %H:%M:%S.%f")
+                query_parameters["interval_end"] = interval_end.strftime("%Y-%m-%d %H:%M:%S.%f")
+                query_id = uuid.uuid4()
+
+                if isinstance(query_or_model, RecordBatchModel):
+                    query, query_parameters = await query_or_model.as_query_with_parameters(
+                        interval_start, interval_end
+                    )
+                else:
+                    query = query_or_model
+
+                try:
+                    async for record_batch in client.astream_query_as_arrow(
+                        query, query_parameters=query_parameters, query_id=str(query_id)
+                    ):
+                        for record_batch_slice in slice_record_batch(
+                            record_batch, max_record_batch_size_bytes, min_records_per_batch
+                        ):
+                            await queue.put(record_batch_slice)
+
+                except Exception as e:
+                    await self.logger.aexception("Unexpected error occurred while producing record batches", exc_info=e)
+                    raise
+
+
+def slice_record_batch(
+    record_batch: pa.RecordBatch, max_record_batch_size_bytes: int = 0, min_records_per_batch: int = 100
+) -> typing.Iterator[pa.RecordBatch]:
+    """Slice a large Arrow record batch into one or more record batches.
+
+    The underlying call to `pa.RecordBatch.slice` is a zero-copy operation, so the
+    memory footprint of slicing is very low, beyond some additional metadata
+    required for the slice.
+
+    Arguments:
+        record_batch: The record batch to slice.
+        max_record_batch_size_bytes: The max size in bytes of a record batch to
+            yield. If the provided `record_batch` is larger than this, then it
+            will be sliced into multiple record batches.
+        min_records_batch_per_batch: Each slice yielded should contain at least
+            this number of records.
+    """
+    total_rows = record_batch.num_rows
+    yielded_rows = 0
+    offset = 0
+    length = total_rows
+
+    if max_record_batch_size_bytes <= 0 or max_record_batch_size_bytes > record_batch.nbytes:
+        yield record_batch
+        return
+
+    while yielded_rows < total_rows:
+        sliced_record_batch = record_batch.slice(offset=offset, length=length)
+        current_rows = sliced_record_batch.num_rows
+
+        if max_record_batch_size_bytes < sliced_record_batch.nbytes and min_records_per_batch < current_rows:
+            length -= 1
+            continue
+
+        yield sliced_record_batch
+
+        yielded_rows += current_rows
+        offset = offset + length
+        length = total_rows - yielded_rows
 
 
 def generate_query_ranges(
@@ -620,3 +1057,77 @@ def generate_query_ranges(
             continue
 
         yield (candidate_start_at, candidate_end_at)
+
+
+def compose_filters_clause(
+    filters: list[dict[str, str | list[str]]],
+    team_id: int,
+    values: dict[str, str] | None = None,
+) -> tuple[str, dict[str, str]]:
+    """Compose a clause of matching filters for a batch exports query.
+
+    `values` must be set if already replacing other values as otherwise there will
+    be collisions with the values returned by this function.
+
+    Arguments:
+        filters: A list of serialized HogQL filters.
+        team_id: Team we are running for.
+        values: HogQL placeholder values already in use.
+
+    Returns:
+        A printed string with the ClickHouse SQL clause, and a dictionary
+        of placeholder to values to be used as query parameters.
+    """
+    team = Team.objects.get(id=team_id)
+    context = HogQLContext(
+        team=team,
+        team_id=team.id,
+        enable_select_queries=True,
+        limit_top_select=False,
+        within_non_hogql_query=True,
+        values=values or {},
+        modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.DISABLED),
+    )
+    context.database = create_hogql_database(team.id, context.modifiers)
+
+    exprs = [property_to_expr(EventPropertyFilter(**filter), team=team) for filter in filters]
+    and_expr = ast.And(exprs=exprs)
+    # This query only supports events at the moment.
+    # TODO: Extend for other models that also wish to implement property filtering.
+    select_query = ast.SelectQuery(
+        select=[parse_expr("properties as properties")],
+        select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+        where=and_expr,
+    )
+    prepared_select_query: ast.SelectQuery = typing.cast(
+        ast.SelectQuery, prepare_ast_for_printing(select_query, context=context, dialect="hogql", stack=[select_query])
+    )
+    prepared_and_expr = prepare_ast_for_printing(
+        and_expr, context=context, dialect="clickhouse", stack=[prepared_select_query]
+    )
+
+    printed = print_prepared_ast(
+        prepared_and_expr,  # type: ignore
+        context=context,
+        dialect="clickhouse",
+        stack=[prepared_select_query],
+    )
+
+    return printed, context.values
+
+
+async def wait_for_delta_past_data_interval_end(
+    data_interval_end: dt.datetime, delta: dt.timedelta = dt.timedelta(seconds=30)
+) -> None:
+    """Wait for some time after `data_interval_end` before querying ClickHouse."""
+    if settings.TEST:
+        return
+
+    target = data_interval_end.astimezone(dt.UTC)
+    now = dt.datetime.now(dt.UTC)
+
+    while target + delta > now:
+        now = dt.datetime.now(dt.UTC)
+        remaining = (target + delta) - now
+        # Sleep between 1-10 seconds, there shouldn't ever be the need to wait too long.
+        await asyncio.sleep(min(max(remaining.total_seconds(), 1), 10))

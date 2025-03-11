@@ -1,10 +1,12 @@
 import './PersonDisplay.scss'
 
+import { IconCopy } from '@posthog/icons'
 import clsx from 'clsx'
 import { router } from 'kea-router'
 import { Link } from 'lib/lemon-ui/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { ProfilePicture, ProfilePictureProps } from 'lib/lemon-ui/ProfilePicture'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import React, { useMemo, useState } from 'react'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 
@@ -24,6 +26,8 @@ export interface PersonDisplayProps {
     noPopover?: boolean
     isCentered?: boolean
     children?: React.ReactChild
+    withCopyButton?: boolean
+    placement?: 'top' | 'bottom' | 'left' | 'right'
 }
 
 export function PersonIcon({
@@ -60,6 +64,8 @@ export function PersonDisplay({
     isCentered,
     href = asLink(person),
     children,
+    withCopyButton,
+    placement,
 }: PersonDisplayProps): JSX.Element {
     const display = asDisplay(person)
     const [visible, setVisible] = useState(false)
@@ -121,11 +127,18 @@ export function PersonDisplay({
                 }
                 visible={visible}
                 onClickOutside={() => setVisible(false)}
-                placement="top"
+                placement={placement || 'top'}
                 fallbackPlacements={['bottom', 'right']}
                 showArrow
             >
-                {content}
+                {withCopyButton ? (
+                    <div className="flex flex-row items-center justify-between">
+                        {content}
+                        <IconCopy className="text-lg cursor-pointer" onClick={() => void copyToClipboard(display)} />
+                    </div>
+                ) : (
+                    <span>{content}</span>
+                )}
             </Popover>
         )
 

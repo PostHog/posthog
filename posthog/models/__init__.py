@@ -21,12 +21,13 @@ from .alert import AlertConfiguration
 from .annotation import Annotation
 from .async_deletion import AsyncDeletion, DeletionType
 from .async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
+from .batch_imports import BatchImport
 from .cohort import Cohort, CohortPeople
 from .comment import Comment
 from .dashboard import Dashboard
 from .dashboard_templates import DashboardTemplate
+from .data_color_theme import DataColorTheme
 from .dashboard_tile import DashboardTile, Text
-from .early_access_feature import EarlyAccessFeature
 from .element import Element
 from .element_group import ElementGroup
 from .entity import Entity
@@ -35,6 +36,7 @@ from .error_tracking import (
     ErrorTrackingIssueFingerprintV2,
     ErrorTrackingStackFrame,
     ErrorTrackingSymbolSet,
+    ErrorTrackingIssueAssignment,
 )
 from .event.event import Event
 from .event_buffer import EventBuffer
@@ -43,10 +45,12 @@ from .event_property import EventProperty
 from .experiment import Experiment
 from .exported_asset import ExportedAsset
 from .feature_flag import FeatureFlag
-from .feedback.survey import Survey
+from .surveys.survey import Survey
+from .file_system import FileSystem
 from .filters import Filter, RetentionFilter
 from .group import Group
 from .group_type_mapping import GroupTypeMapping
+from .host_definition import HostDefinition
 from .hog_functions import HogFunction
 from .insight import Insight, InsightViewed
 from .insight_caching_state import InsightCachingState
@@ -81,8 +85,10 @@ from .tagged_item import TaggedItem
 from .team import Team
 from .uploaded_media import UploadedMedia
 from .user import User, UserManager
+from .user_group import UserGroup, UserGroupMembership
 from .user_scene_personalisation import UserScenePersonalisation
 from .web_experiment import WebExperiment
+from products.early_access_features.backend.models import EarlyAccessFeature
 
 __all__ = [
     "AlertConfiguration",
@@ -97,11 +103,13 @@ __all__ = [
     "BatchExportBackfill",
     "BatchExportDestination",
     "BatchExportRun",
+    "BatchImport",
     "Cohort",
     "CohortPeople",
     "Dashboard",
     "DashboardTile",
     "DashboardTemplate",
+    "DataColorTheme",
     "DeletionType",
     "EarlyAccessFeature",
     "Element",
@@ -111,6 +119,7 @@ __all__ = [
     "ErrorTrackingIssueFingerprintV2",
     "ErrorTrackingStackFrame",
     "ErrorTrackingSymbolSet",
+    "ErrorTrackingIssueAssignment",
     "Event",
     "EventBuffer",
     "EventDefinition",
@@ -118,10 +127,12 @@ __all__ = [
     "Experiment",
     "ExportedAsset",
     "FeatureFlag",
+    "FileSystem",
     "Filter",
     "Group",
     "GroupTypeMapping",
     "HogFunction",
+    "HostDefinition",
     "Insight",
     "InsightCachingState",
     "InsightVariable",
@@ -168,6 +179,8 @@ __all__ = [
     "User",
     "UserScenePersonalisation",
     "UserManager",
+    "UserGroup",
+    "UserGroupMembership",
     "DataWarehouseTable",
     "ScheduledChange",
     "WebExperiment",

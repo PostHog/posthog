@@ -384,8 +384,10 @@
                       "$num_uniq_urls",
                       "$entry_current_url",
                       "$entry_pathname",
+                      "$entry_hostname",
                       "$end_current_url",
                       "$end_pathname",
+                      "$end_hostname",
                       "$entry_utm_source",
                       "$entry_utm_campaign",
                       "$entry_utm_medium",
@@ -393,7 +395,10 @@
                       "$entry_utm_content",
                       "$entry_referring_domain",
                       "$entry_gclid",
+                      "$entry_fbclid",
                       "$entry_gad_source",
+                      "$entry__kx",
+                      "$entry_irclid",
                       "$pageview_count",
                       "$autocapture_count",
                       "$screen_count",
@@ -980,8 +985,10 @@
                       "$num_uniq_urls",
                       "$entry_current_url",
                       "$entry_pathname",
+                      "$entry_hostname",
                       "$end_current_url",
                       "$end_pathname",
+                      "$end_hostname",
                       "$entry_utm_source",
                       "$entry_utm_campaign",
                       "$entry_utm_medium",
@@ -989,7 +996,10 @@
                       "$entry_utm_content",
                       "$entry_referring_domain",
                       "$entry_gclid",
+                      "$entry_fbclid",
                       "$entry_gad_source",
+                      "$entry__kx",
+                      "$entry_irclid",
                       "$pageview_count",
                       "$autocapture_count",
                       "$screen_count",
@@ -1373,6 +1383,16 @@
                   "table": null,
                   "type": "string"
               },
+              "$entry_hostname": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$entry_hostname`",
+                  "id": null,
+                  "name": "$entry_hostname",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
               "$end_current_url": {
                   "chain": null,
                   "fields": null,
@@ -1389,6 +1409,16 @@
                   "hogql_value": "`$end_pathname`",
                   "id": null,
                   "name": "$end_pathname",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$end_hostname": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$end_hostname`",
+                  "id": null,
+                  "name": "$end_hostname",
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
@@ -1463,12 +1493,42 @@
                   "table": null,
                   "type": "string"
               },
+              "$entry_fbclid": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$entry_fbclid`",
+                  "id": null,
+                  "name": "$entry_fbclid",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
               "$entry_gad_source": {
                   "chain": null,
                   "fields": null,
                   "hogql_value": "`$entry_gad_source`",
                   "id": null,
                   "name": "$entry_gad_source",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$entry__kx": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$entry__kx`",
+                  "id": null,
+                  "name": "$entry__kx",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$entry_irclid": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$entry_irclid`",
+                  "id": null,
+                  "name": "$entry_irclid",
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
@@ -1717,6 +1777,16 @@
                   "table": null,
                   "type": "string"
               },
+              "endpoint": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "endpoint",
+                  "id": null,
+                  "name": "endpoint",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
               "query": {
                   "chain": null,
                   "fields": null,
@@ -1746,6 +1816,16 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "float"
+              },
+              "hogql_name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "hogql_name",
+                  "id": null,
+                  "name": "hogql_name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
               },
               "created_by": {
                   "chain": null,
@@ -1817,26 +1897,6 @@
                   "table": null,
                   "type": "string"
               },
-              "kind": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "kind",
-                  "id": null,
-                  "name": "kind",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "string"
-              },
-              "query_type": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "query_type",
-                  "id": null,
-                  "name": "query_type",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "string"
-              },
               "is_personal_api_key_request": {
                   "chain": null,
                   "fields": null,
@@ -1850,6 +1910,33 @@
           },
           "id": "query_log",
           "name": "query_log",
+          "type": "posthog"
+      },
+      "exchange_rate": {
+          "fields": {
+              "currency": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "currency",
+                  "id": null,
+                  "name": "currency",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "date": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "date",
+                  "id": null,
+                  "name": "date",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "date"
+              }
+          },
+          "id": "exchange_rate",
+          "name": "exchange_rate",
           "type": "posthog"
       }
   }
@@ -2220,8 +2307,10 @@
                       "$num_uniq_urls",
                       "$entry_current_url",
                       "$entry_pathname",
+                      "$entry_hostname",
                       "$end_current_url",
                       "$end_pathname",
+                      "$end_hostname",
                       "$entry_utm_source",
                       "$entry_utm_campaign",
                       "$entry_utm_medium",
@@ -2229,7 +2318,10 @@
                       "$entry_utm_content",
                       "$entry_referring_domain",
                       "$entry_gclid",
+                      "$entry_fbclid",
                       "$entry_gad_source",
+                      "$entry__kx",
+                      "$entry_irclid",
                       "$pageview_count",
                       "$autocapture_count",
                       "$screen_count",
@@ -2789,8 +2881,10 @@
                       "$num_uniq_urls",
                       "$entry_current_url",
                       "$entry_pathname",
+                      "$entry_hostname",
                       "$end_current_url",
                       "$end_pathname",
+                      "$end_hostname",
                       "$entry_utm_source",
                       "$entry_utm_campaign",
                       "$entry_utm_medium",
@@ -2798,7 +2892,10 @@
                       "$entry_utm_content",
                       "$entry_referring_domain",
                       "$entry_gclid",
+                      "$entry_fbclid",
                       "$entry_gad_source",
+                      "$entry__kx",
+                      "$entry_irclid",
                       "$pageview_count",
                       "$autocapture_count",
                       "$screen_count",
@@ -3182,6 +3279,16 @@
                   "table": null,
                   "type": "string"
               },
+              "$entry_hostname": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$entry_hostname`",
+                  "id": null,
+                  "name": "$entry_hostname",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
               "$end_current_url": {
                   "chain": null,
                   "fields": null,
@@ -3198,6 +3305,16 @@
                   "hogql_value": "`$end_pathname`",
                   "id": null,
                   "name": "$end_pathname",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$end_hostname": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$end_hostname`",
+                  "id": null,
+                  "name": "$end_hostname",
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
@@ -3272,12 +3389,42 @@
                   "table": null,
                   "type": "string"
               },
+              "$entry_fbclid": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$entry_fbclid`",
+                  "id": null,
+                  "name": "$entry_fbclid",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
               "$entry_gad_source": {
                   "chain": null,
                   "fields": null,
                   "hogql_value": "`$entry_gad_source`",
                   "id": null,
                   "name": "$entry_gad_source",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$entry__kx": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$entry__kx`",
+                  "id": null,
+                  "name": "$entry__kx",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$entry_irclid": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$entry_irclid`",
+                  "id": null,
+                  "name": "$entry_irclid",
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
@@ -3526,6 +3673,16 @@
                   "table": null,
                   "type": "string"
               },
+              "endpoint": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "endpoint",
+                  "id": null,
+                  "name": "endpoint",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
               "query": {
                   "chain": null,
                   "fields": null,
@@ -3555,6 +3712,16 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "float"
+              },
+              "hogql_name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "hogql_name",
+                  "id": null,
+                  "name": "hogql_name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
               },
               "created_by": {
                   "chain": null,
@@ -3626,26 +3793,6 @@
                   "table": null,
                   "type": "string"
               },
-              "kind": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "kind",
-                  "id": null,
-                  "name": "kind",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "string"
-              },
-              "query_type": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "query_type",
-                  "id": null,
-                  "name": "query_type",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "string"
-              },
               "is_personal_api_key_request": {
                   "chain": null,
                   "fields": null,
@@ -3659,6 +3806,33 @@
           },
           "id": "query_log",
           "name": "query_log",
+          "type": "posthog"
+      },
+      "exchange_rate": {
+          "fields": {
+              "currency": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "currency",
+                  "id": null,
+                  "name": "currency",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "date": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "date",
+                  "id": null,
+                  "name": "date",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "date"
+              }
+          },
+          "id": "exchange_rate",
+          "name": "exchange_rate",
           "type": "posthog"
       }
   }

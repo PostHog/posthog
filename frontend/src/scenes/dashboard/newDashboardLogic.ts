@@ -12,7 +12,7 @@ import { urls } from 'scenes/urls'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { legacyEntityToNode, sanitizeRetentionEntity } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
-import { NodeKind } from '~/queries/schema'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { isInsightVizNode } from '~/queries/utils'
 import { DashboardTemplateType, DashboardTemplateVariableType, DashboardTile, DashboardType, JsonType } from '~/types'
 
@@ -102,7 +102,10 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
     props({} as NewDashboardLogicProps),
     key(({ featureFlagId }) => featureFlagId ?? 'new'),
     path(['scenes', 'dashboard', 'newDashboardLogic']),
-    connect({ logic: [dashboardsModel], values: [featureFlagLogic, ['featureFlags']] }),
+    connect({
+        logic: [dashboardsModel],
+        values: [featureFlagLogic, ['featureFlags']],
+    }),
     actions({
         setIsLoading: (isLoading: boolean) => ({ isLoading }),
         showNewDashboardModal: true,
@@ -233,6 +236,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                     `api/environments/${teamLogic.values.currentTeamId}/dashboards/create_from_template_json`,
                     { template: dashboardJSON, creation_context: creationContext }
                 )
+
                 actions.hideNewDashboardModal()
                 actions.resetNewDashboard()
                 const queryBasedDashboard = getQueryBasedDashboard(result)

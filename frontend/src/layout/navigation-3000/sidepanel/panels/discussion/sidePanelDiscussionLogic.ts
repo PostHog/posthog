@@ -6,7 +6,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { CommentsLogicProps } from 'scenes/comments/commentsLogic'
 
-import { activityForSceneLogic } from '../activity/activityForSceneLogic'
+import { sidePanelContextLogic } from '../sidePanelContextLogic'
 import type { sidePanelDiscussionLogicType } from './sidePanelDiscussionLogicType'
 
 export const sidePanelDiscussionLogic = kea<sidePanelDiscussionLogicType>([
@@ -16,7 +16,7 @@ export const sidePanelDiscussionLogic = kea<sidePanelDiscussionLogicType>([
         resetCommentCount: true,
     }),
     connect({
-        values: [featureFlagLogic, ['featureFlags'], activityForSceneLogic, ['sceneActivityFilters']],
+        values: [featureFlagLogic, ['featureFlags'], sidePanelContextLogic, ['sceneSidePanelContext']],
     }),
     loaders(({ values }) => ({
         commentCount: [
@@ -45,12 +45,12 @@ export const sidePanelDiscussionLogic = kea<sidePanelDiscussionLogicType>([
 
     selectors({
         commentsLogicProps: [
-            (s) => [s.sceneActivityFilters],
-            (activityFilters): CommentsLogicProps | null => {
-                return activityFilters?.scope
+            (s) => [s.sceneSidePanelContext],
+            (sceneSidePanelContext): CommentsLogicProps | null => {
+                return sceneSidePanelContext.activity_scope
                     ? {
-                          scope: activityFilters.scope,
-                          item_id: activityFilters.item_id,
+                          scope: sceneSidePanelContext.activity_scope,
+                          item_id: sceneSidePanelContext.activity_item_id,
                       }
                     : null
             },

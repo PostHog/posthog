@@ -20,8 +20,9 @@ def get_transpiled_function(hog_function: HogFunction) -> str:
 
     compiler = JavaScriptCompiler()
 
-    # TODO: reorder inputs to make dependencies work
-    for key, input in (hog_function.inputs or {}).items():
+    all_inputs = hog_function.inputs or {}
+    all_inputs = sorted(all_inputs.items(), key=lambda x: x[1].get("order", -1))
+    for key, input in all_inputs:
         value = input.get("value")
         key_string = json.dumps(str(key) or "<empty>")
         if (isinstance(value, str) and "{" in value) or isinstance(value, dict) or isinstance(value, list):
@@ -58,7 +59,12 @@ def get_transpiled_function(hog_function: HogFunction) -> str:
 
     # Convert the mappings to code
     mapping_code = ""
+
     for mapping in hog_function.mappings or []:
+        mapping_disabled = mapping.get("disabled", False)
+        if mapping_disabled:
+            continue
+
         mapping_inputs = mapping.get("inputs", {})
         mapping_inputs_schema = mapping.get("inputs_schema", [])
         mapping_filters_expr = hog_function_filters_to_expr(mapping.get("filters", {}) or {}, hog_function.team, {})
@@ -92,7 +98,7 @@ def get_transpiled_function(hog_function: HogFunction) -> str:
         """
     let processEvent = undefined;
     if ('onEvent' in source) {
-        processEvent = function processEvent(globals) {
+        processEvent = function processEvent(globals, posthog) {
             if (!('onEvent' in source)) { return; };
             const inputs = buildInputs(globals);
             const filterGlobals = { ...globals.groups, ...globals.event, person: globals.person, inputs, pdi: { distinct_id: globals.event.distinct_id, person: globals.person } };
@@ -122,9 +128,13 @@ def get_transpiled_function(hog_function: HogFunction) -> str:
             callback(true);
         }
 
-        return {
-            processEvent: processEvent
+        const response = {}
+
+        if (processEvent) {
+            response.processEvent = (globals) => processEvent(globals, posthog)
         }
+
+        return response
     }
 
     return { init: init };"""

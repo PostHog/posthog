@@ -1,8 +1,14 @@
 import { ComponentType, HTMLProps } from 'react'
 
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
-import { DataTableNode, DataVisualizationNode, InsightVizNode } from '~/queries/schema'
-import { ChartDisplayType, GraphPointPayload, InsightLogicProps, TrendResult } from '~/types'
+import {
+    DataTableNode,
+    DataVisualizationNode,
+    InsightActorsQuery,
+    InsightVizNode,
+    RefreshType,
+} from '~/queries/schema/schema-general'
+import { InsightLogicProps, TrendResult } from '~/types'
 
 /** Pass custom metadata to queries. Used for e.g. custom columns in the DataTable. */
 export interface QueryContext<T = InsightVizNode> {
@@ -16,23 +22,19 @@ export interface QueryContext<T = InsightVizNode> {
     insightProps?: InsightLogicProps<T>
     emptyStateHeading?: string
     emptyStateDetail?: string
+    renderEmptyStateAsSkeleton?: boolean
     rowProps?: (record: unknown) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>
-    /** chart-specific rendering context **/
-    chartRenderingMetadata?: ChartRenderingMetadata
-    /** Whether queries should always be refreshed. */
-    alwaysRefresh?: boolean
+    /**
+     * Displayed in insight tooltip's "Click to view {groupTypeLabel}".
+     * Inferred from the query by default, e.g. `people` or `organizations`.
+     */
+    groupTypeLabel?: string
+    /** NOTE: Custom data point click handling is currently only supported for Trends insights. */
+    onDataPointClick?: (series: Pick<InsightActorsQuery, 'day' | 'breakdown' | 'compare'>, data: TrendResult) => void
+    /** Refresh behaviour for queries. */
+    refresh?: RefreshType
     /** Extra source feature for Data Tables */
     extraDataTableQueryFeatures?: QueryFeature[]
-}
-
-/** Pass custom rendering metadata to specific kinds of charts **/
-export interface ChartRenderingMetadata {
-    [ChartDisplayType.WorldMap]?: {
-        countryProps?: (countryCode: string, countryData: TrendResult | undefined) => Omit<HTMLProps<SVGElement>, 'key'>
-    }
-    [ChartDisplayType.ActionsPie]?: {
-        onSegmentClick?: (payload: GraphPointPayload) => void
-    }
 }
 
 export type QueryContextColumnTitleComponent = ComponentType<{

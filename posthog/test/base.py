@@ -6,7 +6,7 @@ import threading
 import time
 import uuid
 import unittest
-from collections.abc import Callable, Generator
+from collections.abc import Callable, Generator, Iterator
 from contextlib import contextmanager
 from functools import wraps
 from typing import Any, Optional, Union
@@ -29,7 +29,8 @@ from rest_framework.test import APITestCase as DRFTestCase
 
 from posthog import rate_limit, redis
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.connection import ch_pool
+from posthog.clickhouse.client.connection import get_client_from_pool
+from posthog.clickhouse.materialized_columns import MaterializedColumn
 from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.models import Dashboard, DashboardTile, Insight, Organization, Team, User
@@ -71,13 +72,20 @@ from posthog.models.sessions.sql import (
     SESSIONS_TABLE_SQL,
     SESSIONS_VIEW_SQL,
 )
+from posthog.models.exchange_rate.sql import (
+    EXCHANGE_RATE_DICTIONARY_SQL,
+    EXCHANGE_RATE_TABLE_SQL,
+    DROP_EXCHANGE_RATE_TABLE_SQL,
+    DROP_EXCHANGE_RATE_DICTIONARY_SQL,
+    EXCHANGE_RATE_DATA_BACKFILL_SQL,
+)
 from posthog.models.raw_sessions.sql import (
     DISTRIBUTED_RAW_SESSIONS_TABLE_SQL,
     DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL,
     DROP_RAW_SESSION_TABLE_SQL,
     DROP_RAW_SESSION_VIEW_SQL,
     RAW_SESSIONS_TABLE_MV_SQL,
-    RAW_SESSIONS_VIEW_SQL,
+    RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL,
     RAW_SESSIONS_TABLE_SQL,
 )
 from posthog.session_recordings.sql.session_recording_event_sql import (
@@ -89,6 +97,11 @@ from posthog.session_recordings.sql.session_replay_event_sql import (
     DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL,
     DROP_SESSION_REPLAY_EVENTS_TABLE_SQL,
     SESSION_REPLAY_EVENTS_TABLE_SQL,
+)
+from posthog.session_recordings.sql.session_replay_event_v2_test_sql import (
+    SESSION_REPLAY_EVENTS_V2_TEST_DISTRIBUTED_TABLE_SQL,
+    DROP_SESSION_REPLAY_EVENTS_V2_TEST_TABLE_SQL,
+    SESSION_REPLAY_EVENTS_V2_TEST_DATA_TABLE_SQL,
 )
 from posthog.test.assert_faster_than import assert_faster_than
 
@@ -119,10 +132,14 @@ def clean_varying_query_parts(query, replace_all_numbers):
         )
 
     else:
-        query = re.sub(r"(team|cohort)_id(\"?) = \d+", r"\1_id\2 = 99999", query)
-        query = re.sub(r"(team|cohort)_id(\"?) IN \(\d+(, ?\d+)*\)", r"\1_id\2 IN (1, 2, 3, 4, 5 /* ... */)", query)
-        query = re.sub(r"(team|cohort)_id(\"?) IN \[\d+(, ?\d+)*\]", r"\1_id\2 IN [1, 2, 3, 4, 5 /* ... */]", query)
-        query = re.sub(r"\d+ as (team|cohort)_id(\"?)", r"99999 as \1_id\2", query)
+        query = re.sub(r"(team|project|cohort)_id(\"?) = \d+", r"\1_id\2 = 99999", query)
+        query = re.sub(
+            r"(team|project|cohort)_id(\"?) IN \(\d+(, ?\d+)*\)", r"\1_id\2 IN (1, 2, 3, 4, 5 /* ... */)", query
+        )
+        query = re.sub(
+            r"(team|project|cohort)_id(\"?) IN \[\d+(, ?\d+)*\]", r"\1_id\2 IN [1, 2, 3, 4, 5 /* ... */]", query
+        )
+        query = re.sub(r"\d+ as (team|project|cohort)_id(\"?)", r"99999 as \1_id\2", query)
     # feature flag conditions use primary keys as columns in queries, so replace those always
     query = re.sub(r"flag_\d+_condition", r"flag_X_condition", query)
     query = re.sub(r"flag_\d+_super_condition", r"flag_X_super_condition", query)
@@ -130,7 +147,7 @@ def clean_varying_query_parts(query, replace_all_numbers):
     query = re.sub(r"_django_curs_[0-9sync_]*\"", r'_django_curs_X"', query)
     # hog ql checks some ids differently
     query = re.sub(
-        r"equals\(([^.]+\.)?(team_id|cohort_id)?, \d+\)",
+        r"equals\(([^.]+\.)?((team|project|cohort)_id)?, \d+\)",
         r"equals(\1\2, 99999)",
         query,
     )
@@ -157,12 +174,23 @@ def clean_varying_query_parts(query, replace_all_numbers):
     #### Cohort replacements
     # replace cohort id lists in queries too
     query = re.sub(
-        r"in\(([^,]+\.?cohort_id), \[(\d+(, ?\d+)*)]\)",
+        r"in\(([^,]*cohort_id),\s*\[(\d+(?:,\s*\d+)*)]\)",
         r"in(\1, [1, 2, 3, 4, 5 /* ... */])",
         query,
     )
     # replace explicit timestamps in cohort queries
-    query = re.sub(r"timestamp > '20\d\d-\d\d-\d\d \d\d:\d\d:\d\d'", r"timestamp > 'explicit_timestamp'", query)
+    query = re.sub(
+        r"timestamp > '20\d\d-\d\d-\d\d \d\d:\d\d:\d\d'", r"timestamp > 'explicit_redacted_timestamp'", query
+    )
+    # and where the HogQL doesn't match the above
+    # KLUDGE we tend not to replace dates in tests so trying to avoid replacing every date here
+    if "equals(argMax(person_distinct_id_overrides.is_deleted" in query or "INSERT INTO cohortpeople" in query:
+        # those tests have multiple varying dates like toDateTime64('2025-01-08 00:00:00.000000', 6, 'UTC')
+        query = re.sub(
+            r"toDateTime64\('20\d\d-\d\d-\d\d \d\d:\d\d:\d\d(.\d+)', 6, 'UTC'\)",
+            r"toDateTime64('explicit_redacted_timestamp\1', 6, 'UTC')",
+            query,
+        )
     # replace cohort generated conditions
     query = re.sub(
         r"_condition_\d+_level",
@@ -594,6 +622,8 @@ def cleanup_materialized_columns():
         )
         if drops:
             sync_execute(f"ALTER TABLE {table} {drops} SETTINGS mutations_sync = 2")
+            if table == "events":
+                sync_execute(f"ALTER TABLE sharded_events {drops} SETTINGS mutations_sync = 2")
 
     default_column_names = {
         get_materialized_columns("events")[(prop, "properties")].name
@@ -603,6 +633,20 @@ def cleanup_materialized_columns():
     optionally_drop("events", lambda name: name not in default_column_names)
     optionally_drop("person")
     optionally_drop("groups")
+
+
+@contextmanager
+def materialized(table, property) -> Iterator[MaterializedColumn]:
+    """Materialize a property within the managed block, removing it on exit."""
+    try:
+        from ee.clickhouse.materialized_columns.analyze import materialize
+    except ModuleNotFoundError as e:
+        pytest.xfail(str(e))
+
+    try:
+        yield materialize(table, property)
+    finally:
+        cleanup_materialized_columns()
 
 
 def also_test_with_materialized_columns(
@@ -792,6 +836,14 @@ class BaseTestMigrations(QueryMatchingTest):
     def setUpBeforeMigration(self, apps):
         pass
 
+    @classmethod
+    def tearDownClass(cls):
+        super().tearDownClass()  # type: ignore
+        executor = MigrationExecutor(connection)  # Reset Django's migration state
+        targets = executor.loader.graph.leaf_nodes()
+        executor.migrate(targets)  # Migrate to the latest migration
+        executor.loader.build_graph()  # Reload.
+
 
 class TestMigrations(BaseTestMigrations, BaseTest):
     """
@@ -922,14 +974,13 @@ class ClickhouseTestMixin(QueryMatchingTest):
     @contextmanager
     def capture_queries(self, query_filter: Callable[[str], bool]):
         queries = []
-        original_get_client = ch_pool.get_client
 
         # Spy on the `clichhouse_driver.Client.execute` method. This is a bit of
         # a roundabout way to handle this, but it seems tricky to spy on the
         # unbound class method `Client.execute` directly easily
         @contextmanager
-        def get_client():
-            with original_get_client() as client:
+        def get_client(orig_fn, *args, **kwargs):
+            with orig_fn(*args, **kwargs) as client:
                 original_client_execute = client.execute
 
                 def execute_wrapper(query, *args, **kwargs):
@@ -940,7 +991,7 @@ class ClickhouseTestMixin(QueryMatchingTest):
                 with patch.object(client, "execute", wraps=execute_wrapper) as _:
                     yield client
 
-        with patch("posthog.clickhouse.client.connection.ch_pool.get_client", wraps=get_client) as _:
+        with get_client_from_pool._temp_patch(get_client) as _:
             yield queries
 
 
@@ -979,6 +1030,75 @@ def run_clickhouse_statement_in_parallel(statements: list[str]):
             j.join()
 
 
+def reset_clickhouse_database() -> None:
+    run_clickhouse_statement_in_parallel(
+        [
+            DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL(),
+            DROP_RAW_SESSION_VIEW_SQL(),
+            DROP_SESSION_MATERIALIZED_VIEW_SQL(),
+            DROP_SESSION_VIEW_SQL(),
+            DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
+            DROP_EXCHANGE_RATE_DICTIONARY_SQL(),
+        ]
+    )
+    run_clickhouse_statement_in_parallel(
+        [
+            DROP_CHANNEL_DEFINITION_TABLE_SQL,
+            DROP_EXCHANGE_RATE_TABLE_SQL(),
+            DROP_DISTRIBUTED_EVENTS_TABLE_SQL,
+            DROP_EVENTS_TABLE_SQL(),
+            DROP_PERSON_TABLE_SQL,
+            DROP_RAW_SESSION_TABLE_SQL(),
+            DROP_SESSION_RECORDING_EVENTS_TABLE_SQL(),
+            DROP_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+            DROP_SESSION_REPLAY_EVENTS_V2_TEST_TABLE_SQL(),
+            DROP_SESSION_TABLE_SQL(),
+            TRUNCATE_COHORTPEOPLE_TABLE_SQL,
+            TRUNCATE_GROUPS_TABLE_SQL,
+            TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL,
+            TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL,
+            TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
+            TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
+            TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
+        ]
+    )
+    run_clickhouse_statement_in_parallel(
+        [
+            CHANNEL_DEFINITION_TABLE_SQL(),
+            EXCHANGE_RATE_TABLE_SQL(),
+            EVENTS_TABLE_SQL(),
+            PERSONS_TABLE_SQL(),
+            RAW_SESSIONS_TABLE_SQL(),
+            SESSIONS_TABLE_SQL(),
+            SESSION_RECORDING_EVENTS_TABLE_SQL(),
+            SESSION_REPLAY_EVENTS_TABLE_SQL(),
+            SESSION_REPLAY_EVENTS_V2_TEST_DATA_TABLE_SQL(),
+        ]
+    )
+    run_clickhouse_statement_in_parallel(
+        [
+            CHANNEL_DEFINITION_DICTIONARY_SQL(),
+            EXCHANGE_RATE_DICTIONARY_SQL(),
+            DISTRIBUTED_EVENTS_TABLE_SQL(),
+            DISTRIBUTED_RAW_SESSIONS_TABLE_SQL(),
+            DISTRIBUTED_SESSIONS_TABLE_SQL(),
+            DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL(),
+            DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+            SESSION_REPLAY_EVENTS_V2_TEST_DISTRIBUTED_TABLE_SQL(),
+        ]
+    )
+    run_clickhouse_statement_in_parallel(
+        [
+            CHANNEL_DEFINITION_DATA_SQL(),
+            EXCHANGE_RATE_DATA_BACKFILL_SQL(),
+            RAW_SESSIONS_TABLE_MV_SQL(),
+            RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL(),
+            SESSIONS_TABLE_MV_SQL(),
+            SESSIONS_VIEW_SQL(),
+        ]
+    )
+
+
 class ClickhouseDestroyTablesMixin(BaseTest):
     """
     To speed up tests we normally don't destroy the tables between tests, so clickhouse tables will have data from previous tests.
@@ -987,124 +1107,14 @@ class ClickhouseDestroyTablesMixin(BaseTest):
 
     def setUp(self):
         super().setUp()
-        run_clickhouse_statement_in_parallel(
-            [
-                DROP_SESSION_MATERIALIZED_VIEW_SQL(),
-                DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL(),
-                DROP_SESSION_VIEW_SQL(),
-                DROP_RAW_SESSION_VIEW_SQL(),
-            ]
-        )
-        run_clickhouse_statement_in_parallel(
-            [
-                DROP_DISTRIBUTED_EVENTS_TABLE_SQL,
-                DROP_EVENTS_TABLE_SQL(),
-                DROP_PERSON_TABLE_SQL,
-                TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
-                TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL,
-                TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL,
-                DROP_SESSION_RECORDING_EVENTS_TABLE_SQL(),
-                DROP_SESSION_REPLAY_EVENTS_TABLE_SQL(),
-                TRUNCATE_GROUPS_TABLE_SQL,
-                TRUNCATE_COHORTPEOPLE_TABLE_SQL,
-                TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
-                TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
-                DROP_CHANNEL_DEFINITION_TABLE_SQL,
-                DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
-                DROP_SESSION_TABLE_SQL(),
-                DROP_RAW_SESSION_TABLE_SQL(),
-            ]
-        )
-        run_clickhouse_statement_in_parallel(
-            [
-                EVENTS_TABLE_SQL(),
-                PERSONS_TABLE_SQL(),
-                SESSION_RECORDING_EVENTS_TABLE_SQL(),
-                SESSION_REPLAY_EVENTS_TABLE_SQL(),
-                CHANNEL_DEFINITION_TABLE_SQL(),
-                CHANNEL_DEFINITION_DICTIONARY_SQL,
-                SESSIONS_TABLE_SQL(),
-                RAW_SESSIONS_TABLE_SQL(),
-            ]
-        )
-        run_clickhouse_statement_in_parallel(
-            [
-                DISTRIBUTED_EVENTS_TABLE_SQL(),
-                DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL(),
-                DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
-                DISTRIBUTED_SESSIONS_TABLE_SQL(),
-                DISTRIBUTED_RAW_SESSIONS_TABLE_SQL(),
-            ]
-        )
-        run_clickhouse_statement_in_parallel(
-            [
-                CHANNEL_DEFINITION_DATA_SQL(),
-                SESSIONS_TABLE_MV_SQL(),
-                RAW_SESSIONS_TABLE_MV_SQL(),
-                SESSIONS_VIEW_SQL(),
-                RAW_SESSIONS_VIEW_SQL(),
-            ]
-        )
+        reset_clickhouse_database()
 
     def tearDown(self):
         super().tearDown()
-
-        run_clickhouse_statement_in_parallel(
-            [
-                DROP_SESSION_MATERIALIZED_VIEW_SQL(),
-                DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL(),
-                DROP_SESSION_VIEW_SQL(),
-                DROP_RAW_SESSION_VIEW_SQL(),
-            ]
-        )
-        run_clickhouse_statement_in_parallel(
-            [
-                DROP_DISTRIBUTED_EVENTS_TABLE_SQL,
-                DROP_EVENTS_TABLE_SQL(),
-                DROP_PERSON_TABLE_SQL,
-                TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
-                TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL,
-                DROP_SESSION_RECORDING_EVENTS_TABLE_SQL(),
-                DROP_SESSION_REPLAY_EVENTS_TABLE_SQL(),
-                DROP_CHANNEL_DEFINITION_TABLE_SQL,
-                DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
-                DROP_SESSION_TABLE_SQL(),
-                DROP_RAW_SESSION_TABLE_SQL(),
-            ]
-        )
-        run_clickhouse_statement_in_parallel(
-            [
-                EVENTS_TABLE_SQL(),
-                PERSONS_TABLE_SQL(),
-                SESSION_RECORDING_EVENTS_TABLE_SQL(),
-                SESSION_REPLAY_EVENTS_TABLE_SQL(),
-                CHANNEL_DEFINITION_TABLE_SQL(),
-                CHANNEL_DEFINITION_DICTIONARY_SQL,
-                SESSIONS_TABLE_SQL(),
-                RAW_SESSIONS_TABLE_SQL(),
-            ]
-        )
-        run_clickhouse_statement_in_parallel(
-            [
-                DISTRIBUTED_EVENTS_TABLE_SQL(),
-                DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL(),
-                DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
-                DISTRIBUTED_SESSIONS_TABLE_SQL(),
-                DISTRIBUTED_RAW_SESSIONS_TABLE_SQL(),
-            ]
-        )
-        run_clickhouse_statement_in_parallel(
-            [
-                SESSIONS_TABLE_MV_SQL(),
-                RAW_SESSIONS_TABLE_MV_SQL(),
-                SESSIONS_VIEW_SQL(),
-                RAW_SESSIONS_VIEW_SQL(),
-                CHANNEL_DEFINITION_DATA_SQL(),
-            ]
-        )
+        reset_clickhouse_database()
 
 
-def snapshot_clickhouse_queries(fn):
+def snapshot_clickhouse_queries(fn_or_class):
     """
     Captures and snapshots SELECT queries from test using `syrupy` library.
 
@@ -1114,10 +1124,18 @@ def snapshot_clickhouse_queries(fn):
     Update snapshots via --snapshot-update.
     """
 
-    @wraps(fn)
+    # check if fn_or_class is a class
+    if inspect.isclass(fn_or_class):
+        # wrap every class method that starts with test_ with this decorator
+        for attr in dir(fn_or_class):
+            if callable(getattr(fn_or_class, attr)) and attr.startswith("test_"):
+                setattr(fn_or_class, attr, snapshot_clickhouse_queries(getattr(fn_or_class, attr)))
+        return fn_or_class
+
+    @wraps(fn_or_class)
     def wrapped(self, *args, **kwargs):
         with self.capture_select_queries() as queries:
-            fn(self, *args, **kwargs)
+            fn_or_class(self, *args, **kwargs)
 
         for query in queries:
             if "FROM system.columns" not in query:

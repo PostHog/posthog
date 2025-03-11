@@ -1,8 +1,8 @@
 from datetime import datetime
-from typing import Optional, TypeAlias
+from typing import TYPE_CHECKING, Optional, TypeAlias
 from django.db import models
 
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.errors import wrap_query_error
 from posthog.hogql import ast
 from posthog.hogql.database.models import (
@@ -18,16 +18,20 @@ from posthog.models.utils import (
     sane_repr,
 )
 from posthog.schema import DatabaseSerializedFieldType, HogQLQueryModifiers
+from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from posthog.warehouse.models.util import remove_named_tuples
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from django.db.models import Q
 from .credential import DataWarehouseCredential
 from uuid import UUID
-from sentry_sdk import capture_exception
+from posthog.exceptions_capture import capture_exception
 from posthog.warehouse.util import database_sync_to_async
 from posthog.warehouse.models.util import CLICKHOUSE_HOGQL_MAPPING, clean_type, STR_TO_HOGQL_MAPPING
 from .external_table_definitions import external_tables
 from posthog.hogql.context import HogQLContext
+
+if TYPE_CHECKING:
+    pass
 
 SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING: dict[DatabaseSerializedFieldType, str] = {
     DatabaseSerializedFieldType.INTEGER: "Int64",
@@ -138,7 +142,10 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
         except:
             return False
 
-    def get_columns(self, safe_expose_ch_error=True) -> DataWarehouseTableColumns:
+    def get_columns(
+        self,
+        safe_expose_ch_error: bool = True,
+    ) -> DataWarehouseTableColumns:
         try:
             placeholder_context = HogQLContext(team_id=self.team.pk)
             s3_table_func = build_function_call(
@@ -254,6 +261,12 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
             if fields.get("_dlt_id") and fields.get("_dlt_load_id"):
                 del fields["_dlt_id"]
                 del fields["_dlt_load_id"]
+                fields = {**fields, **default_fields}
+            if fields.get("_ph_debug"):
+                del fields["_ph_debug"]
+                fields = {**fields, **default_fields}
+            if fields.get(PARTITION_KEY):
+                del fields[PARTITION_KEY]
                 fields = {**fields, **default_fields}
 
         return S3Table(

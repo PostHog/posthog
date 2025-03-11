@@ -1,4 +1,4 @@
-import { LemonButton, LemonSelect, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect, lemonToast, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
@@ -12,7 +12,7 @@ import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 
-import { DatabaseSchemaTable, DatabaseSerializedFieldType } from '~/queries/schema'
+import { DatabaseSchemaTable, DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
 
 interface DatabaseTableProps {
     table: string
@@ -77,6 +77,8 @@ const JoinsMoreMenu = ({ tableName, fieldName }: { tableName: string; fieldName:
                                     loadDatabase()
                                     loadJoins()
                                 },
+                            }).catch((e) => {
+                                lemonToast.error(`Failed to delete warehouse view link: ${e.detail}`)
                             })
                         }}
                     >

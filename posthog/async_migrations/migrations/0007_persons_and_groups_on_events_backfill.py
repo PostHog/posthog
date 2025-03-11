@@ -1,3 +1,4 @@
+from datetime import datetime
 from functools import cached_property
 from typing import Union
 
@@ -15,7 +16,7 @@ from posthog.async_migrations.utils import (
     run_optimize_table,
     sleep_until_finished,
 )
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.utils import str_to_bool
 
@@ -104,7 +105,7 @@ class Migration(AsyncMigrationDefinition):
             str,
         ),
         "TIMESTAMP_UPPER_BOUND": (
-            "2025-01-01",
+            f"{datetime.now().year + 1}-01-01",
             "Timestamp upper bound for events to backfill",
             str,
         ),

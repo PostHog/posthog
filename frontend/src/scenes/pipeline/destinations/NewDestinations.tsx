@@ -4,6 +4,7 @@ import { useActions, useValues } from 'kea'
 import { PayGateButton } from 'lib/components/PayGateMini/PayGateButton'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, HogFunctionTypeType, PipelineStage } from '~/types'
 
@@ -19,7 +20,7 @@ export interface NewDestinationsProps {
 
 export function NewDestinations({ types }: NewDestinationsProps): JSX.Element {
     return (
-        <div className="space-y-2">
+        <div className="deprecated-space-y-2">
             {types.includes('destination') ? <PayGateMini feature={AvailableFeature.DATA_PIPELINES} /> : null}
             <DestinationsFilters types={types} hideShowPaused />
             <DestinationOptionsTable types={types} />
@@ -31,6 +32,7 @@ export function DestinationOptionsTable({ types }: NewDestinationsProps): JSX.El
     const { loading, filteredDestinations, hiddenDestinations } = useValues(newDestinationsLogic({ types }))
     const { canEnableDestination } = useValues(pipelineAccessLogic)
     const { resetFilters } = useActions(destinationsFiltersLogic({ types }))
+    const { user } = useValues(userLogic)
 
     return (
         <>
@@ -75,15 +77,22 @@ export function DestinationOptionsTable({ types }: NewDestinationsProps): JSX.El
                                     type="primary"
                                     data-attr={`new-${PipelineStage.Destination}`}
                                     icon={<IconPlusSmall />}
-                                    // Preserve hash params to pass config in
                                     to={target.url}
-                                    fullWidth
                                 >
                                     Create
                                 </LemonButton>
                             ) : (
-                                <span className="whitespace-nowrap">
+                                <span className="flex items-center gap-2 whitespace-nowrap">
                                     <PayGateButton feature={AvailableFeature.DATA_PIPELINES} type="secondary" />
+                                    {/* Allow staff users to create destinations */}
+                                    {user?.is_impersonated && (
+                                        <LemonButton
+                                            type="primary"
+                                            icon={<IconPlusSmall />}
+                                            tooltip="Staff users can create destinations as an override"
+                                            to={target.url}
+                                        />
+                                    )}
                                 </span>
                             )
                         },
@@ -91,7 +100,7 @@ export function DestinationOptionsTable({ types }: NewDestinationsProps): JSX.El
                 ]}
             />
             {hiddenDestinations.length > 0 && (
-                <div className="text-muted-alt">
+                <div className="text-secondary">
                     {hiddenDestinations.length} hidden. <Link onClick={() => resetFilters()}>Show all</Link>
                 </div>
             )}

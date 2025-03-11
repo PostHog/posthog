@@ -1,10 +1,10 @@
-import { decideResponse } from '../fixtures/api/decide'
+import { setupFeatureFlags } from '../support/decide'
 
 describe('Feature Flags', () => {
     let name
 
     beforeEach(() => {
-        cy.intercept('**/decide/*', (req) => req.reply(decideResponse({})))
+        setupFeatureFlags({})
 
         cy.intercept('/api/projects/*/property_definitions?type=person*', {
             fixture: 'api/feature-flags/property_definition',
@@ -326,6 +326,15 @@ describe('Feature Flags', () => {
             .type(`{backspace}{backspace}`)
             .should('have.value', 0)
         cy.get('[data-attr=feature-flag-variant-rollout-percentage-input]').click().type(`4.5`).should('have.value', 4)
+    })
+
+    it('Allows creating remote config flag without setting release conditions', () => {
+        cy.get('[data-attr=top-bar-name]').should('contain', 'Feature flags')
+        // Start creating a remote config flag
+        cy.get('[data-attr=new-feature-flag]').click()
+        cy.get('[data-attr=feature-flag-key]').click().type(`{moveToEnd}${name}`).should('have.value', name)
+        cy.get('[data-attr=feature-flag-served-value-segmented-button]').contains('Remote config').click()
+        cy.get('[data-attr=save-feature-flag]').first().click()
     })
 
     it('Sets URL properly when switching between tabs', () => {

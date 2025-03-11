@@ -1,6 +1,6 @@
 from inline_snapshot import snapshot
 import pytest
-from hogvm.python.utils import UncaughtHogVMException
+from common.hogvm.python.utils import UncaughtHogVMException
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.cdp.templates.klaviyo.template_klaviyo import (
     template_user as klaviyo_user,

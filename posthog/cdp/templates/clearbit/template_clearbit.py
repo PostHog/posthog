@@ -4,7 +4,8 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 # See https://dashboard.clearbit.com/docs#enrichment-api-combined-api
 
 template: HogFunctionTemplate = HogFunctionTemplate(
-    status="alpha",
+    status="beta",
+    free=False,
     type="destination",
     id="template-clearbit",
     name="Clearbit",

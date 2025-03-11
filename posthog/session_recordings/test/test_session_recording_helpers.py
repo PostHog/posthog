@@ -27,13 +27,17 @@ def create_activity_data(timestamp: datetime, is_active: bool):
     )
 
 
-def mock_capture_flow(events: list[dict], max_size_bytes=512 * 1024) -> tuple[list[dict], list[dict]]:
+def mock_capture_flow(
+    events: list[dict], max_size_bytes=512 * 1024, user_agent: str | None = None
+) -> tuple[list[dict], list[dict]]:
     """
     Returns the legacy events and the new flow ones
     """
     replay_events, other_events = split_replay_events(events)
 
-    new_replay_events = preprocess_replay_events_for_blob_ingestion(replay_events, max_size_bytes=max_size_bytes)
+    new_replay_events = preprocess_replay_events_for_blob_ingestion(
+        replay_events, max_size_bytes=max_size_bytes, user_agent=user_agent
+    )
 
     # TODO this should only be returning the second part of the tuple, it used to return legacy snapshot data too
     return other_events, new_replay_events + other_events
@@ -178,6 +182,7 @@ def test_new_ingestion(raw_snapshot_events, mocker: MockerFixture):
                     },
                 ],
                 "$snapshot_source": "web",
+                "$lib": None,
             },
         }
     ]
@@ -208,6 +213,7 @@ def test_absent_window_id_is_added(raw_snapshot_events, mocker: MockerFixture):
                     {"type": 3, "timestamp": 1546300800000},
                 ],
                 "$snapshot_source": "web",
+                "$lib": None,
             },
         }
     ]
@@ -225,6 +231,7 @@ def test_received_snapshot_source_is_respected_for_first_event(raw_snapshot_even
                 "$snapshot_data": {"type": 3, "timestamp": MILLISECOND_TIMESTAMP},
                 "distinct_id": "abc123",
                 "$snapshot_source": "mobile",
+                "$lib": "posthog-ios",
             },
         },
         {
@@ -251,6 +258,7 @@ def test_received_snapshot_source_is_respected_for_first_event(raw_snapshot_even
                     {"type": 3, "timestamp": 1546300800000},
                 ],
                 "$snapshot_source": "mobile",
+                "$lib": "posthog-ios",
             },
         }
     ]
@@ -309,6 +317,7 @@ def test_new_ingestion_large_full_snapshot_is_separated(raw_snapshot_events, moc
                     }
                 ],
                 "$snapshot_source": "web",
+                "$lib": None,
             },
         },
         {
@@ -322,6 +331,7 @@ def test_new_ingestion_large_full_snapshot_is_separated(raw_snapshot_events, moc
                     {"type": 3, "timestamp": 1546300800000},
                 ],
                 "$snapshot_source": "web",
+                "$lib": None,
             },
         },
     ]
@@ -382,6 +392,7 @@ def test_new_ingestion_large_non_full_snapshots_are_separated(raw_snapshot_event
                 ],
                 "distinct_id": "abc123",
                 "$snapshot_source": "web",
+                "$lib": None,
             },
         },
         {
@@ -398,6 +409,7 @@ def test_new_ingestion_large_non_full_snapshots_are_separated(raw_snapshot_event
                 ],
                 "distinct_id": "abc123",
                 "$snapshot_source": "web",
+                "$lib": None,
             },
         },
     ]
@@ -556,6 +568,7 @@ def test_new_ingestion_groups_using_snapshot_bytes_if_possible(raw_snapshot_even
                     almost_too_big_event,
                 ],
                 "$snapshot_source": "web",
+                "$lib": None,
             },
         },
         {
@@ -566,6 +579,150 @@ def test_new_ingestion_groups_using_snapshot_bytes_if_possible(raw_snapshot_even
                 "$window_id": "1",
                 "$snapshot_items": [small_event, small_event, small_event],
                 "$snapshot_source": "web",
+                "$lib": None,
+            },
+        },
+    ]
+
+
+def test_snapshot_library(raw_snapshot_events, mocker: MockerFixture):
+    mocker.patch(
+        "posthog.models.utils.UUIDT",
+        return_value="0178495e-8521-0000-8e1c-2652fa57099b",
+    )
+    mocker.patch("time.time", return_value=0)
+
+    small_event = {
+        "type": 7,
+        "timestamp": 234,
+        "something": "small",
+    }
+
+    events: list[Any] = [
+        {
+            "event": "$snapshot",
+            "properties": {
+                "$session_id": "1234",
+                "$window_id": "1",
+                "$snapshot_bytes": len(json.dumps([small_event, small_event])),
+                "$snapshot_data": [small_event, small_event],
+                "distinct_id": "abc123",
+                "$snapshot_source": "mobile",
+                "$lib": "posthog-android" + "a" * 1000,
+            },
+        }
+    ]
+
+    space_with_headroom = math.ceil((106 + 1072 + 50) * 1.10)
+    assert list(mock_capture_flow(events, max_size_bytes=space_with_headroom)[1]) == [
+        {
+            "event": "$snapshot_items",
+            "properties": {
+                "distinct_id": "abc123",
+                "$session_id": "1234",
+                "$window_id": "1",
+                "$snapshot_items": [
+                    small_event,
+                    small_event,
+                ],
+                "$snapshot_source": "mobile",
+                "$lib": "posthog-android" + "a" * (1000 - len("posthog-android") - 3) + "...",
+            },
+        },
+    ]
+
+
+def test_snapshot_library_from_user_agent_defaults_to_web(raw_snapshot_events, mocker: MockerFixture):
+    mocker.patch(
+        "posthog.models.utils.UUIDT",
+        return_value="0178495e-8521-0000-8e1c-2652fa57099b",
+    )
+    mocker.patch("time.time", return_value=0)
+
+    small_event = {
+        "type": 7,
+        "timestamp": 234,
+        "something": "small",
+    }
+
+    events: list[Any] = [
+        {
+            "event": "$snapshot",
+            "properties": {
+                "$session_id": "1234",
+                "$window_id": "1",
+                "$snapshot_bytes": len(json.dumps([small_event, small_event])),
+                "$snapshot_data": [small_event, small_event],
+                "distinct_id": "abc123",
+                "$snapshot_source": "web",
+                # event has no $lib so will fall back to user agent
+            },
+        }
+    ]
+
+    space_with_headroom = math.ceil((106 + 1072 + 50) * 1.10)
+    assert list(mock_capture_flow(events, max_size_bytes=space_with_headroom, user_agent="chrome user agent")[1]) == [
+        {
+            "event": "$snapshot_items",
+            "properties": {
+                "distinct_id": "abc123",
+                "$session_id": "1234",
+                "$window_id": "1",
+                "$snapshot_items": [
+                    small_event,
+                    small_event,
+                ],
+                "$snapshot_source": "web",
+                "$lib": "web",
+            },
+        },
+    ]
+
+
+def test_snapshot_library_from_user_agent_splits_version_from_value(raw_snapshot_events, mocker: MockerFixture):
+    mocker.patch(
+        "posthog.models.utils.UUIDT",
+        return_value="0178495e-8521-0000-8e1c-2652fa57099b",
+    )
+    mocker.patch("time.time", return_value=0)
+
+    small_event = {
+        "type": 7,
+        "timestamp": 234,
+        "something": "small",
+    }
+
+    events: list[Any] = [
+        {
+            "event": "$snapshot",
+            "properties": {
+                "$session_id": "1234",
+                "$window_id": "1",
+                "$snapshot_bytes": len(json.dumps([small_event, small_event])),
+                "$snapshot_data": [small_event, small_event],
+                "distinct_id": "abc123",
+                "$snapshot_source": "web",
+                # event has no $lib so will fall back to user agent
+            },
+        }
+    ]
+
+    space_with_headroom = math.ceil((106 + 1072 + 50) * 1.10)
+    assert list(
+        mock_capture_flow(events, max_size_bytes=space_with_headroom, user_agent="posthog-react-native/2.2.1")[1]
+    ) == [
+        {
+            "event": "$snapshot_items",
+            "properties": {
+                "distinct_id": "abc123",
+                "$session_id": "1234",
+                "$window_id": "1",
+                "$snapshot_items": [
+                    small_event,
+                    small_event,
+                ],
+                "$snapshot_source": "web",
+                "$lib": "posthog-react-native",
             },
         },
     ]

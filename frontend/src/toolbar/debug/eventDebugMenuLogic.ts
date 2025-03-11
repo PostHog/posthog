@@ -1,5 +1,5 @@
 import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
-import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
+import { CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS, CORE_FILTER_DEFINITIONS_BY_GROUP, PROPERTY_KEYS } from 'lib/taxonomy'
 import { uuid } from 'lib/utils'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
@@ -17,17 +17,24 @@ export const eventDebugMenuLogic = kea<eventDebugMenuLogicType>([
         addEvent: (event: EventType) => ({ event }),
         markExpanded: (id: string | null | undefined) => ({ id }),
         setSearchText: (searchText: string) => ({ searchText }),
-        setSearchVisible: (visible: boolean) => ({ visible }),
         setSelectedEventType: (eventType: 'posthog' | 'custom' | 'snapshot', enabled: boolean) => ({
             eventType,
             enabled,
         }),
+        setHidePostHogProperties: (hide: boolean) => ({ hide }),
+        setHidePostHogFlags: (hide: boolean) => ({ hide }),
     }),
     reducers({
-        searchVisible: [
+        hidePostHogProperties: [
             false,
             {
-                setSearchVisible: (_, { visible }) => visible,
+                setHidePostHogProperties: (_, { hide }) => hide,
+            },
+        ],
+        hidePostHogFlags: [
+            false,
+            {
+                setHidePostHogFlags: (_, { hide }) => hide,
             },
         ],
         searchText: [
@@ -121,6 +128,45 @@ export const eventDebugMenuLogic = kea<eventDebugMenuLogicType>([
 
                     return !!selectedEventTypes.includes('custom')
                 })
+            },
+        ],
+
+        expandedProperties: [
+            (s) => [s.expandedEvent, s.events, s.hidePostHogProperties, s.hidePostHogFlags],
+            (expandedEvent, events, hidePostHogProperties, hidePostHogFlags) => {
+                if (!expandedEvent) {
+                    return []
+                }
+                const allProperties = events.find((e) => e.uuid === expandedEvent)?.properties
+                if (!allProperties) {
+                    return []
+                }
+
+                const posthogPropertiesFiltered = hidePostHogProperties
+                    ? Object.fromEntries(
+                          Object.entries(allProperties).filter(([key]) => {
+                              const isPostHogProperty = key.startsWith('$') && PROPERTY_KEYS.includes(key)
+                              const isNonDollarPostHogProperty = CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS.includes(key)
+                              return !isPostHogProperty && !isNonDollarPostHogProperty
+                          })
+                      )
+                    : allProperties
+
+                const posthogFlagsFiltered = hidePostHogFlags
+                    ? Object.fromEntries(
+                          Object.entries(posthogPropertiesFiltered).filter(([key]) => {
+                              if (key === '$active_feature_flags') {
+                                  return false
+                              } else if (key.startsWith('$feature/')) {
+                                  return false
+                              }
+
+                              return true
+                          })
+                      )
+                    : posthogPropertiesFiltered
+
+                return posthogFlagsFiltered
             },
         ],
     }),

@@ -22,7 +22,7 @@ from posthog.hogql.database.schema.channel_type import (
     ChannelTypeExprs,
     DEFAULT_CHANNEL_TYPES,
 )
-from posthog.hogql.database.schema.sessions_v1 import null_if_empty
+from posthog.hogql.database.schema.sessions_v1 import null_if_empty, DEFAULT_BOUNCE_RATE_DURATION_SECONDS
 from posthog.hogql.database.schema.util.where_clause_extractor import SessionMinTimestampWhereClauseExtractorV2
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
@@ -38,30 +38,33 @@ if TYPE_CHECKING:
     from posthog.models.team import Team
 
 RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
-    "session_id_v7": IntegerDatabaseField(name="session_id_v7"),
-    "team_id": IntegerDatabaseField(name="team_id"),
-    "distinct_id": StringDatabaseField(name="distinct_id"),
-    "min_timestamp": DateTimeDatabaseField(name="min_timestamp"),
-    "max_timestamp": DateTimeDatabaseField(name="max_timestamp"),
-    "urls": StringArrayDatabaseField(name="urls"),
+    "session_id_v7": IntegerDatabaseField(name="session_id_v7", nullable=False),
+    "team_id": IntegerDatabaseField(name="team_id", nullable=False),
+    "distinct_id": StringDatabaseField(name="distinct_id", nullable=False),
+    "min_timestamp": DateTimeDatabaseField(name="min_timestamp", nullable=False),
+    "max_timestamp": DateTimeDatabaseField(name="max_timestamp", nullable=False),
+    "urls": StringArrayDatabaseField(name="urls", nullable=False),
     # many of the fields in the raw tables are AggregateFunction state, rather than simple types
-    "entry_url": DatabaseField(name="entry_url"),
-    "end_url": DatabaseField(name="end_url"),
-    "initial_utm_source": DatabaseField(name="initial_utm_source"),
-    "initial_utm_campaign": DatabaseField(name="initial_utm_campaign"),
-    "initial_utm_medium": DatabaseField(name="initial_utm_medium"),
-    "initial_utm_term": DatabaseField(name="initial_utm_term"),
-    "initial_utm_content": DatabaseField(name="initial_utm_content"),
-    "initial_referring_domain": DatabaseField(name="initial_referring_domain"),
-    "initial_gclid": DatabaseField(name="initial_gclid"),
-    "initial_gad_source": DatabaseField(name="initial_gad_source"),
+    "entry_url": DatabaseField(name="entry_url", nullable=False),
+    "end_url": DatabaseField(name="end_url", nullable=False),
+    "initial_utm_source": DatabaseField(name="initial_utm_source", nullable=False),
+    "initial_utm_campaign": DatabaseField(name="initial_utm_campaign", nullable=False),
+    "initial_utm_medium": DatabaseField(name="initial_utm_medium", nullable=False),
+    "initial_utm_term": DatabaseField(name="initial_utm_term", nullable=False),
+    "initial_utm_content": DatabaseField(name="initial_utm_content", nullable=False),
+    "initial_referring_domain": DatabaseField(name="initial_referring_domain", nullable=False),
+    "initial_gclid": DatabaseField(name="initial_gclid", nullable=False),
+    "initial_fbclid": DatabaseField(name="initial_fbclid", nullable=False),
+    "initial_gad_source": DatabaseField(name="initial_gad_source", nullable=False),
+    "initial__kx": DatabaseField(name="initial__kx", nullable=False),
+    "initial_irclid": DatabaseField(name="initial_irclid", nullable=False),
     # do not expose the count fields, as we can't rely on them being accurate due to double-counting events
-    "pageview_uniq": DatabaseField(name="pageview_uniq"),
-    "autocapture_uniq": DatabaseField(name="autocapture_uniq"),
-    "screen_uniq": DatabaseField(name="screen_uniq"),
-    "last_external_click_url": StringDatabaseField(name="last_external_click_url"),
-    "page_screen_autocapture_uniq_up_to": DatabaseField(name="page_screen_autocapture_uniq_up_to"),
-    "vitals_lcp": DatabaseField(name="vitals_lcp"),
+    "pageview_uniq": DatabaseField(name="pageview_uniq", nullable=True),
+    "autocapture_uniq": DatabaseField(name="autocapture_uniq", nullable=True),
+    "screen_uniq": DatabaseField(name="screen_uniq", nullable=True),
+    "last_external_click_url": StringDatabaseField(name="last_external_click_url", nullable=False),
+    "page_screen_autocapture_uniq_up_to": DatabaseField(name="page_screen_autocapture_uniq_up_to", nullable=True),
+    "vitals_lcp": DatabaseField(name="vitals_lcp", nullable=True),
 }
 
 LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
@@ -77,8 +80,10 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "$num_uniq_urls": IntegerDatabaseField(name="$num_uniq_urls"),
     "$entry_current_url": StringDatabaseField(name="$entry_current_url"),
     "$entry_pathname": StringDatabaseField(name="$entry_pathname"),
+    "$entry_hostname": StringDatabaseField(name="$entry_host"),
     "$end_current_url": StringDatabaseField(name="$end_current_url"),
     "$end_pathname": StringDatabaseField(name="$end_pathname"),
+    "$end_hostname": StringDatabaseField(name="$end_hostname"),
     "$entry_utm_source": StringDatabaseField(name="$entry_utm_source"),
     "$entry_utm_campaign": StringDatabaseField(name="$entry_utm_campaign"),
     "$entry_utm_medium": StringDatabaseField(name="$entry_utm_medium"),
@@ -86,7 +91,10 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "$entry_utm_content": StringDatabaseField(name="$entry_utm_content"),
     "$entry_referring_domain": StringDatabaseField(name="$entry_referring_domain"),
     "$entry_gclid": StringDatabaseField(name="$entry_gclid"),
+    "$entry_fbclid": StringDatabaseField(name="$entry_fbclid"),
     "$entry_gad_source": StringDatabaseField(name="$entry_gad_source"),
+    "$entry__kx": StringDatabaseField(name="$entry__kx"),
+    "$entry_irclid": StringDatabaseField(name="$entry_irclid"),
     # we expose "count" fields here, though they are actually the aggregates of the uniq columns in the raw tables
     "$pageview_count": IntegerDatabaseField(name="$pageview_count"),
     "$autocapture_count": IntegerDatabaseField(name="$autocapture_count"),
@@ -129,7 +137,10 @@ class RawSessionsTableV2(Table):
             "initial_utm_content",
             "initial_referring_domain",
             "initial_gclid",
+            "initial_fbclid",
             "initial_gad_source",
+            "initial__kx",
+            "initial_irclid",
             "pageview_uniq",
             "autocapture_uniq",
             "screen_uniq",
@@ -213,7 +224,10 @@ def select_from_sessions_table_v2(
         "$entry_utm_content": null_if_empty(arg_min_merge_field("initial_utm_content")),
         "$entry_referring_domain": null_if_empty(arg_min_merge_field("initial_referring_domain")),
         "$entry_gclid": null_if_empty(arg_min_merge_field("initial_gclid")),
+        "$entry_fbclid": null_if_empty(arg_min_merge_field("initial_fbclid")),
         "$entry_gad_source": null_if_empty(arg_min_merge_field("initial_gad_source")),
+        "$entry__kx": null_if_empty(arg_min_merge_field("initial__kx")),
+        "$entry_irclid": null_if_empty(arg_min_merge_field("initial_irclid")),
         # the count columns here do not come from the "count" columns in the raw table, instead aggregate the uniq columns
         "$pageview_count": ast.Call(name="uniqMerge", args=[ast.Field(chain=[table_name, "pageview_uniq"])]),
         "$screen_count": ast.Call(name="uniqMerge", args=[ast.Field(chain=[table_name, "screen_uniq"])]),
@@ -234,8 +248,16 @@ def select_from_sessions_table_v2(
         name="path",
         args=[aggregate_fields["$entry_current_url"]],
     )
+    aggregate_fields["$entry_hostname"] = ast.Call(
+        name="domain",
+        args=[aggregate_fields["$entry_current_url"]],
+    )
     aggregate_fields["$end_pathname"] = ast.Call(
         name="path",
+        args=[aggregate_fields["$end_current_url"]],
+    )
+    aggregate_fields["$end_hostname"] = ast.Call(
+        name="domain",
         args=[aggregate_fields["$end_current_url"]],
     )
     aggregate_fields["$session_duration"] = ast.Call(
@@ -252,6 +274,11 @@ def select_from_sessions_table_v2(
         args=[aggregate_fields["$urls"]],
     )
 
+    bounce_rate_duration_seconds = (
+        context.modifiers.bounceRateDurationSeconds
+        if context.modifiers.bounceRateDurationSeconds is not None
+        else DEFAULT_BOUNCE_RATE_DURATION_SECONDS
+    )
     if context.modifiers.bounceRatePageViewMode == BounceRatePageViewMode.UNIQ_PAGE_SCREEN_AUTOCAPTURES:
         bounce_event_count = aggregate_fields["$page_screen_autocapture_count_up_to"]
         aggregate_fields["$is_bounce"] = ast.Call(
@@ -268,10 +295,13 @@ def select_from_sessions_table_v2(
                             args=[
                                 # if pageviews + autocaptures > 1, not a bounce
                                 ast.Call(name="greater", args=[bounce_event_count, ast.Constant(value=1)]),
-                                # if session duration >= 10 seconds, not a bounce
+                                # if session duration >= bounce_rate_duration_seconds, not a bounce
                                 ast.Call(
                                     name="greaterOrEquals",
-                                    args=[aggregate_fields["$session_duration"], ast.Constant(value=10)],
+                                    args=[
+                                        aggregate_fields["$session_duration"],
+                                        ast.Constant(value=bounce_rate_duration_seconds),
+                                    ],
                                 ),
                             ],
                         )
@@ -299,10 +329,13 @@ def select_from_sessions_table_v2(
                                 ast.Call(
                                     name="greater", args=[aggregate_fields["$autocapture_count"], ast.Constant(value=0)]
                                 ),
-                                # if session duration >= 10 seconds, not a bounce
+                                # if session duration >= bounce_rate_duration_seconds, not a bounce
                                 ast.Call(
                                     name="greaterOrEquals",
-                                    args=[aggregate_fields["$session_duration"], ast.Constant(value=10)],
+                                    args=[
+                                        aggregate_fields["$session_duration"],
+                                        ast.Constant(value=bounce_rate_duration_seconds),
+                                    ],
                                 ),
                             ],
                         )
@@ -316,10 +349,21 @@ def select_from_sessions_table_v2(
             campaign=aggregate_fields["$entry_utm_campaign"],
             medium=aggregate_fields["$entry_utm_medium"],
             source=aggregate_fields["$entry_utm_source"],
+            url=aggregate_fields["$entry_current_url"],
+            hostname=aggregate_fields["$entry_hostname"],
+            pathname=aggregate_fields["$entry_pathname"],
             referring_domain=aggregate_fields["$entry_referring_domain"],
-            gclid=aggregate_fields["$entry_gclid"],
+            has_gclid=ast.Call(
+                name="isNotNull",
+                args=[aggregate_fields["$entry_gclid"]],
+            ),
+            has_fbclid=ast.Call(
+                name="isNotNull",
+                args=[aggregate_fields["$entry_fbclid"]],
+            ),
             gad_source=aggregate_fields["$entry_gad_source"],
         ),
+        timings=context.timings,
     )
     # some aliases for people upgrading from v1 to v2
     aggregate_fields["$exit_current_url"] = aggregate_fields["$end_current_url"]
@@ -483,6 +527,8 @@ SESSION_PROPERTY_TO_RAW_SESSIONS_EXPR_MAP = {
     "$entry_mc_cid": "finalizeAggregation(initial_mc_cid)",
     "$entry_igshid": "finalizeAggregation(initial_igshid)",
     "$entry_ttclid": "finalizeAggregation(initial_ttclid)",
+    "$entry__kx": "finalizeAggregation(initial__kx)",
+    "$entry_irclid": "finalizeAggregation(initial_irclid)",
     "$entry_current_url": "finalizeAggregation(entry_url)",
     "$entry_pathname": "path(finalizeAggregation(entry_url))",
     "$end_current_url": "finalizeAggregation(end_url)",

@@ -16,8 +16,8 @@ export function SignupPanel2(): JSX.Element | null {
     const { isSignupPanel2Submitting } = useValues(signupLogic)
 
     return (
-        <div className="space-y-4 Signup__panel__2">
-            <Form logic={signupLogic} formKey="signupPanel2" className="space-y-4" enableFormOnSubmit>
+        <div className="deprecated-space-y-4 Signup__panel__2">
+            <Form logic={signupLogic} formKey="signupPanel2" className="deprecated-space-y-4" enableFormOnSubmit>
                 <LemonField name="name" label="Your name">
                     <LemonInput
                         className="ph-ignore-input"
@@ -58,7 +58,7 @@ export function SignupPanel2(): JSX.Element | null {
                 </LemonButton>
             </Form>
 
-            <div className="text-center text-muted-alt">
+            <div className="text-center text-secondary">
                 By {!preflight?.demo ? 'creating an account' : 'entering the demo environment'}, you agree to our{' '}
                 <Link to={`https://posthog.com/terms?${UTM_TAGS}`} target="_blank">
                     Terms of Service

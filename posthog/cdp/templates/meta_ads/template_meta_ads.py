@@ -1,7 +1,8 @@
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 
 template: HogFunctionTemplate = HogFunctionTemplate(
-    status="alpha",
+    status="beta",
+    free=False,
     type="destination",
     id="template-meta-ads",
     name="Meta Ads Conversions",
@@ -13,6 +14,7 @@ let body := {
     'data': [
         {
             'event_name': inputs.eventName,
+            'event_id': inputs.eventId,
             'event_time': inputs.eventTime,
             'action_source': inputs.actionSource,
             'user_data': {},
@@ -20,6 +22,10 @@ let body := {
         }
     ],
     'access_token': inputs.accessToken
+}
+
+if (not empty(inputs.testEventCode)) {
+    body.test_event_code := inputs.testEventCode
 }
 
 for (let key, value in inputs.userData) {
@@ -68,6 +74,15 @@ if (res.status >= 400) {
             "label": "Event name",
             "description": "A standard event or custom event name.",
             "default": "{event.event}",
+            "secret": False,
+            "required": True,
+        },
+        {
+            "key": "eventId",
+            "type": "string",
+            "label": "Event ID",
+            "description": "The ID of the event.",
+            "default": "{event.uuid}",
             "secret": False,
             "required": True,
         },
@@ -133,9 +148,10 @@ if (res.status >= 400) {
             "label": "User data",
             "description": "A map that contains customer information data. See this page for options: https://developers.facebook.com/docs/marketing-api/conversions-api/parameters/customer-information-parameters",
             "default": {
-                "em": "{sha256Hex(person.properties.email)}",
-                "fn": "{sha256Hex(person.properties.first_name)}",
-                "ln": "{sha256Hex(person.properties.last_name)}",
+                "em": "{sha256Hex(lower(person.properties.email))}",
+                "fn": "{sha256Hex(lower(person.properties.first_name))}",
+                "ln": "{sha256Hex(lower(person.properties.last_name))}",
+                "fbc": "{not empty(person.properties.fbclid ?? person.properties.$initial_fbclid) ? f'fb.1.{toUnixTimestampMilli(now())}.{person.properties.fbclid ?? person.properties.$initial_fbclid}' : ''}",
             },
             "secret": False,
             "required": True,
@@ -148,6 +164,15 @@ if (res.status >= 400) {
             "default": {"currency": "USD", "price": "{event.properties.price}"},
             "secret": False,
             "required": True,
+        },
+        {
+            "key": "testEventCode",
+            "type": "string",
+            "label": "Test Event Code",
+            "description": "Use this field to specify that events should be test events rather than actual traffic. You'll want to remove your Test Event Code when sending real traffic through this integration.",
+            "default": "",
+            "secret": False,
+            "required": False,
         },
     ],
     filters={

@@ -9,7 +9,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { legacyEntityToNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
-import { ActionsNode, EventsNode } from '~/queries/schema'
+import { ActionsNode, EventsNode } from '~/queries/schema/schema-general'
 import { ActionFilter as ActionFilterType, EntityTypes, FilterType } from '~/types'
 
 import { ExclusionRow } from './ExclusionRow'

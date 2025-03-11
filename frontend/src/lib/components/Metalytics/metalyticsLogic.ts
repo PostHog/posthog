@@ -4,8 +4,9 @@ import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { membersLogic } from 'scenes/organization/membersLogic'
 
-import { activityForSceneLogic } from '~/layout/navigation-3000/sidepanel/panels/activity/activityForSceneLogic'
-import { HogQLQuery, NodeKind } from '~/queries/schema'
+import { sidePanelContextLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelContextLogic'
+import { SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 
 import type { metalyticsLogicType } from './metalyticsLogicType'
@@ -13,7 +14,7 @@ import type { metalyticsLogicType } from './metalyticsLogicType'
 export const metalyticsLogic = kea<metalyticsLogicType>([
     path(['lib', 'components', 'metalytics', 'metalyticsLogic']),
     connect({
-        values: [activityForSceneLogic, ['sceneActivityFilters'], membersLogic, ['members']],
+        values: [sidePanelContextLogic, ['sceneSidePanelContext'], membersLogic, ['members']],
     }),
 
     loaders(({ values }) => ({
@@ -62,11 +63,16 @@ export const metalyticsLogic = kea<metalyticsLogicType>([
 
     selectors({
         instanceId: [
-            (s) => [s.sceneActivityFilters],
-            (sceneActivityFilters) =>
-                sceneActivityFilters?.item_id ? `${sceneActivityFilters.scope}:${sceneActivityFilters.item_id}` : null,
+            (s) => [s.sceneSidePanelContext],
+            (sidePanelContext: SidePanelSceneContext) =>
+                sidePanelContext?.activity_item_id
+                    ? `${sidePanelContext.activity_scope}:${sidePanelContext.activity_item_id}`
+                    : null,
         ],
-        scope: [(s) => [s.sceneActivityFilters], (sceneActivityFilters) => sceneActivityFilters?.scope],
+        scope: [
+            (s) => [s.sceneSidePanelContext],
+            (sidePanelContext: SidePanelSceneContext) => sidePanelContext?.activity_scope,
+        ],
 
         recentUserMembers: [
             (s) => [s.recentUsers, s.members],

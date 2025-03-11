@@ -1,16 +1,21 @@
 use aws_config::{BehaviorVersion, Region};
+use common_kafka::{
+    kafka_consumer::SingleTopicConsumer,
+    kafka_producer::{create_kafka_producer, KafkaContext},
+    transaction::TransactionalProducer,
+};
 use health::{HealthHandle, HealthRegistry};
 use rdkafka::producer::FutureProducer;
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use std::{sync::Arc, time::Duration};
 use tokio::sync::Mutex;
 use tracing::info;
+use uuid::Uuid;
 
 use crate::{
     config::{init_global_state, Config},
     error::UnhandledError,
     frames::resolver::Resolver,
-    hack::kafka::{create_kafka_producer, KafkaContext, SingleTopicConsumer},
     symbol_store::{
         caching::{Caching, SymbolSetCache},
         concurrency,
@@ -24,7 +29,8 @@ pub struct AppContext {
     pub health_registry: HealthRegistry,
     pub worker_liveness: HealthHandle,
     pub kafka_consumer: SingleTopicConsumer,
-    pub kafka_producer: FutureProducer<KafkaContext>,
+    pub transactional_producer: Mutex<TransactionalProducer<KafkaContext>>,
+    pub immediate_producer: FutureProducer<KafkaContext>,
     pub pool: PgPool,
     pub catalog: Catalog,
     pub resolver: Resolver,
@@ -38,15 +44,25 @@ impl AppContext {
         let worker_liveness = health_registry
             .register("worker".to_string(), Duration::from_secs(60))
             .await;
-        let kafka_liveness = health_registry
-            .register("rdkafka".to_string(), Duration::from_secs(30))
-            .await;
 
         let kafka_consumer =
             SingleTopicConsumer::new(config.kafka.clone(), config.consumer.clone())?;
-        let kafka_producer = create_kafka_producer(&config.kafka, kafka_liveness)
-            .await
-            .expect("failed to create kafka producer");
+
+        let kafka_transactional_liveness = health_registry
+            .register("transactional_kafka".to_string(), Duration::from_secs(30))
+            .await;
+        let transactional_producer = TransactionalProducer::with_context(
+            &config.kafka,
+            &Uuid::now_v7().to_string(),
+            Duration::from_secs(30),
+            KafkaContext::from(kafka_transactional_liveness),
+        )?;
+
+        let kafka_immediate_liveness = health_registry
+            .register("immediate_kafka".to_string(), Duration::from_secs(30))
+            .await;
+        let immediate_producer =
+            create_kafka_producer(&config.kafka, kafka_immediate_liveness).await?;
 
         let options = PgPoolOptions::new().max_connections(config.max_pg_connections);
         let pool = options.connect(&config.database_url).await?;
@@ -98,7 +114,8 @@ impl AppContext {
             health_registry,
             worker_liveness,
             kafka_consumer,
-            kafka_producer,
+            transactional_producer: Mutex::new(transactional_producer),
+            immediate_producer,
             pool,
             catalog,
             resolver,

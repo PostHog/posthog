@@ -27,7 +27,10 @@ struct KafkaContext {
 impl rdkafka::ClientContext for KafkaContext {
     fn stats(&self, stats: rdkafka::Statistics) {
         // Signal liveness, as the main rdkafka loop is running and calling us
-        self.liveness.report_healthy_blocking();
+        let brokers_up = stats.brokers.values().any(|broker| broker.state == "UP");
+        if brokers_up {
+            self.liveness.report_healthy_blocking();
+        }
 
         // Update exported metrics
         gauge!("capture_kafka_callback_queue_depth",).set(stats.replyq as f64);
@@ -121,7 +124,7 @@ pub struct KafkaSink {
 }
 
 impl KafkaSink {
-    pub fn new(
+    pub async fn new(
         config: KafkaConfig,
         liveness: HealthHandle,
         partition: Option<OverflowLimiter>,
@@ -155,7 +158,8 @@ impl KafkaSink {
             .set(
                 "queue.buffering.max.kbytes",
                 (config.kafka_producer_queue_mib * 1024).to_string(),
-            );
+            )
+            .set("acks", config.kafka_producer_acks.to_string());
 
         if !&config.kafka_client_id.is_empty() {
             client_config.set("client.id", &config.kafka_client_id);
@@ -169,14 +173,23 @@ impl KafkaSink {
 
         debug!("rdkafka configuration: {:?}", client_config);
         let producer: FutureProducer<KafkaContext> =
-            client_config.create_with_context(KafkaContext { liveness })?;
+            client_config.create_with_context(KafkaContext {
+                liveness: liveness.clone(),
+            })?;
 
         // Ping the cluster to make sure we can reach brokers, fail after 10 seconds
-        drop(producer.client().fetch_metadata(
-            Some("__consumer_offsets"),
-            Timeout::After(Duration::new(10, 0)),
-        )?);
-        info!("connected to Kafka brokers");
+        // Note: we don't error if we fail to connect as there may be other sinks that report healthy
+        if producer
+            .client()
+            .fetch_metadata(
+                Some("__consumer_offsets"),
+                Timeout::After(Duration::new(10, 0)),
+            )
+            .is_ok()
+        {
+            liveness.report_healthy().await;
+            info!("connected to Kafka brokers");
+        };
 
         Ok(KafkaSink {
             producer,
@@ -208,6 +221,7 @@ impl KafkaSink {
         let data_type = metadata.data_type;
         let event_key = event.key();
         let session_id = metadata.session_id.clone();
+        let distinct_id = event.distinct_id.clone();
 
         drop(event); // Events can be EXTREMELY memory hungry
 
@@ -254,10 +268,17 @@ impl KafkaSink {
             partition: None,
             key: partition_key,
             timestamp: None,
-            headers: Some(OwnedHeaders::new().insert(Header {
-                key: "token",
-                value: Some(&token),
-            })),
+            headers: Some(
+                OwnedHeaders::new()
+                    .insert(Header {
+                        key: "token",
+                        value: Some(&token),
+                    })
+                    .insert(Header {
+                        key: "distinct_id",
+                        value: Some(&distinct_id),
+                    }),
+            ),
         }) {
             Ok(ack) => Ok(ack),
             Err((e, _)) => match e.rdkafka_error_code() {
@@ -400,8 +421,11 @@ mod tests {
             kafka_client_id: "".to_string(),
             kafka_metadata_max_age_ms: 60000,
             kafka_producer_max_retries: 2,
+            kafka_producer_acks: "all".to_string(),
         };
-        let sink = KafkaSink::new(config, handle, limiter, None).expect("failed to create sink");
+        let sink = KafkaSink::new(config, handle, limiter, None)
+            .await
+            .expect("failed to create sink");
         (cluster, sink)
     }
 
@@ -411,14 +435,16 @@ mod tests {
         // We test different cases in a single test to amortize the startup cost of the producer.
 
         let (cluster, sink) = start_on_mocked_sink(Some(3000000)).await;
+        let distinct_id = "test_distinct_id_123".to_string();
         let event: CapturedEvent = CapturedEvent {
             uuid: uuid_v7(),
-            distinct_id: "id1".to_string(),
+            distinct_id: distinct_id.clone(),
             ip: "".to_string(),
             data: "".to_string(),
             now: "".to_string(),
             sent_at: None,
             token: "token1".to_string(),
+            is_cookieless_mode: false,
         };
 
         let metadata = ProcessedEventMetadata {
@@ -460,6 +486,7 @@ mod tests {
             now: "".to_string(),
             sent_at: None,
             token: "token1".to_string(),
+            is_cookieless_mode: false,
         };
 
         let big_event = ProcessedEvent {
@@ -487,6 +514,7 @@ mod tests {
                 now: "".to_string(),
                 sent_at: None,
                 token: "token1".to_string(),
+                is_cookieless_mode: false,
             },
             metadata: metadata.clone(),
         };

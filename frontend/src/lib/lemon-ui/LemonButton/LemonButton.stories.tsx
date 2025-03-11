@@ -55,7 +55,7 @@ const StatusesTemplate = ({
 
 const TypesAndStatusesTemplate: StoryFn<typeof LemonButton> = (props) => {
     return (
-        <div className="space-y-2">
+        <div className="deprecated-space-y-2">
             {types.map((type) => (
                 <>
                     <h5>type={capitalizeFirstLetter(type || '')}</h5>
@@ -68,11 +68,11 @@ const TypesAndStatusesTemplate: StoryFn<typeof LemonButton> = (props) => {
 
 export const TypesAndStatuses: Story = () => {
     return (
-        <div className="space-y-12">
+        <div className="deprecated-space-y-12">
             <div className="p-2 rounded-lg border">
                 <TypesAndStatusesTemplate />
             </div>
-            <div className="p-2 bg-bg-light rounded-lg border">
+            <div className="p-2 bg-surface-primary rounded-lg border">
                 <TypesAndStatusesTemplate />
             </div>
         </div>
@@ -98,7 +98,7 @@ export const Sizes = (): JSX.Element => {
     const sizes: LemonButtonProps['size'][] = ['xsmall', 'small', 'medium', 'large']
 
     return (
-        <div className="space-y-2">
+        <div className="deprecated-space-y-2">
             {sizes.map((size) => (
                 <>
                     <h5>size={size}</h5>
@@ -113,7 +113,7 @@ export const SizesIconOnly = (): JSX.Element => {
     const sizes: LemonButtonProps['size'][] = ['xsmall', 'small', 'medium', 'large']
 
     return (
-        <div className="space-y-2">
+        <div className="deprecated-space-y-2">
             {sizes.map((size) => (
                 <>
                     <h5>size={size}</h5>
@@ -142,7 +142,7 @@ export const LoadingViaOnClick = (): JSX.Element => {
     const { loading, onEvent } = useAsyncHandler(async () => await delay(1000))
 
     return (
-        <div className="space-y-2">
+        <div className="deprecated-space-y-2">
             <p>
                 For simple use-cases, you may want to use a button click to trigger something async and show a loading
                 state. Generally speaking this should exist in a <code>kea logic</code> but for simple cases you can use
@@ -159,7 +159,7 @@ export const LoadingViaOnClick = (): JSX.Element => {
 
 export const Active = (): JSX.Element => {
     return (
-        <div className="space-y-2">
+        <div className="deprecated-space-y-2">
             <p>
                 Sometimes you may need to keep the LemonButton in it's active state e.g. the hover state. This can be
                 done by setting the <code>active</code> property
@@ -202,7 +202,7 @@ export const Active = (): JSX.Element => {
 
 export const PseudoStates = (): JSX.Element => {
     return (
-        <div className="space-y-8">
+        <div className="deprecated-space-y-8">
             <div>
                 <div>
                     <h5>TYPE=3D STATE=DEFAULT</h5>
@@ -257,8 +257,8 @@ PseudoStates.parameters = {
 
 export const MenuButtons = (): JSX.Element => {
     return (
-        <div className="space-y-2">
-            <div className="border rounded-lg flex flex-col p-2 space-y-1">
+        <div className="deprecated-space-y-2">
+            <div className="border rounded-lg flex flex-col p-2 deprecated-space-y-1">
                 <LemonButton active>Active item</LemonButton>
                 <LemonButton>Item 1</LemonButton>
                 <LemonButton>Item 2</LemonButton>
@@ -273,7 +273,7 @@ export const WithSideIcon = (): JSX.Element => {
 
 export const FullWidth = (): JSX.Element => {
     return (
-        <div className="space-y-2">
+        <div className="deprecated-space-y-2">
             <LemonButton fullWidth>Full Width</LemonButton>
             <LemonButton type="primary" fullWidth>
                 Full Width
@@ -301,7 +301,7 @@ export const FullWidth = (): JSX.Element => {
 
 export const WithSideAction = (): JSX.Element => {
     return (
-        <div className="space-y-2">
+        <div className="deprecated-space-y-2">
             {types.map((type) => (
                 <>
                     <h5>type={capitalizeFirstLetter(type || '')}</h5>
@@ -327,9 +327,39 @@ export const WithSideAction = (): JSX.Element => {
     )
 }
 
+export const WithButtonWrapper = (): JSX.Element => {
+    return (
+        <div className="flex flex-col gap-2">
+            <div className="border rounded-lg flex flex-col p-2 space-y-1">
+                <LemonButton
+                    buttonWrapper={(button) => <div className="opacity-50">{button}</div>}
+                    sideAction={{
+                        icon: <IconPlus />,
+                        tooltip: 'No wrapper around side action',
+                        onClick: () => alert('Side action!'),
+                    }}
+                    active
+                >
+                    wrapped with opacity 50
+                </LemonButton>
+                <LemonButton
+                    buttonWrapper={(button) => <div className="opacity-20">{button}</div>}
+                    sideAction={{
+                        icon: <IconPlus />,
+                        tooltip: 'No wrapper around side action',
+                        onClick: () => alert('Side action!'),
+                    }}
+                >
+                    wrapped with opacity 20
+                </LemonButton>
+            </div>
+        </div>
+    )
+}
+
 export const AsLinks = (): JSX.Element => {
     return (
-        <div className="space-y-2">
+        <div className="deprecated-space-y-2">
             <LemonBanner type="info">
                 <b>Reminder</b> - if you just want a link, use the{' '}
                 <Link to="/?path=/docs/lemon-ui-link" disableClientSideRouting>

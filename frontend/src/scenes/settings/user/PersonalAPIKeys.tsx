@@ -55,7 +55,7 @@ export function ApiScopesList({
 
                                 {info ? (
                                     <Tooltip title={info}>
-                                        <IconInfo className="text-muted text-base" />
+                                        <IconInfo className="text-base text-muted" />
                                     </Tooltip>
                                 ) : null}
                             </div>
@@ -95,7 +95,7 @@ export function ApiScopesList({
                             />
                         </div>
                         {warnings?.[scopeValues[key]] && (
-                            <div className="flex items-start gap-2 text-xs italic pb-2">
+                            <div className="flex items-start gap-2 pb-2 text-xs italic">
                                 <IconWarning className="text-base text-muted mt-0.5" />
                                 <span>{warnings[scopeValues[key]]}</span>
                             </div>
@@ -254,7 +254,7 @@ function EditKeyModal(): JSX.Element {
                                                                         )?.name
                                                                     }
                                                                 </span>
-                                                                <span className="text-muted mx-1">/</span>
+                                                                <span className="mx-1 text-secondary">/</span>
                                                                 <span className="flex-1 font-semibold">
                                                                     {team.name}
                                                                 </span>
@@ -300,7 +300,7 @@ function EditKeyModal(): JSX.Element {
                                 </p>
 
                                 {error && (
-                                    <div className="text-danger flex items-center gap-1 text-sm">
+                                    <div className="flex items-center gap-1 text-sm text-danger">
                                         <IconErrorOutline className="text-xl" /> {error}
                                     </div>
                                 )}
@@ -348,7 +348,7 @@ function EditKeyModal(): JSX.Element {
 
                                                                     {info ? (
                                                                         <Tooltip title={info}>
-                                                                            <IconInfo className="text-muted text-base" />
+                                                                            <IconInfo className="text-base text-secondary" />
                                                                         </Tooltip>
                                                                     ) : null}
                                                                 </div>
@@ -384,8 +384,8 @@ function EditKeyModal(): JSX.Element {
                                                                 />
                                                             </div>
                                                             {warnings?.[formScopeRadioValues[key]] && (
-                                                                <div className="flex items-start gap-2 text-xs italic pb-2">
-                                                                    <IconWarning className="text-base text-muted mt-0.5" />
+                                                                <div className="flex items-start gap-2 pb-2 text-xs italic">
+                                                                    <IconWarning className="text-base text-secondary mt-0.5" />
                                                                     <span>{warnings[formScopeRadioValues[key]]}</span>
                                                                 </div>
                                                             )}
@@ -446,7 +446,7 @@ function PersonalAPIKeysTable(): JSX.Element {
                         return (
                             <Link
                                 subtle
-                                className="text-left font-semibold truncate"
+                                className="font-semibold text-left truncate"
                                 onClick={() => setEditingKeyId(key.id)}
                             >
                                 {String(label)}

@@ -11,13 +11,12 @@ from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 from freezegun import freeze_time
 from parameterized import parameterized
+import pytest
 from rest_framework import status
 
 from posthog.api.test.test_team import create_team
-from posthog.constants import SESSION_RECORDINGS_FILTER_IDS
-from posthog.models import Organization, Person, SessionRecording
-from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
-from posthog.models.property import Property
+from posthog.clickhouse.client import sync_execute
+from posthog.models import Organization, Person, SessionRecording, User
 from posthog.models.team import Team
 from posthog.schema import RecordingsQuery, LogEntryPropertyFilter
 from posthog.session_recordings.models.session_recording_event import (
@@ -42,9 +41,12 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     def setUp(self):
         super().setUp()
 
-        # Create a new team each time to ensure no clashing between tests
-        # TODO this is pretty slow, we should change assertions so that we don't need it
-        self.team = Team.objects.create(organization=self.organization, name="New Team")
+        sync_execute("TRUNCATE TABLE sharded_events")
+        sync_execute("TRUNCATE TABLE person")
+        sync_execute("TRUNCATE TABLE sharded_session_replay_events")
+        SessionRecordingViewed.objects.all().delete()
+        SessionRecording.objects.all().delete()
+        Person.objects.all().delete()
 
     def produce_replay_summary(
         self,
@@ -90,7 +92,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         session_id_two = f"test_get_session_recordings-2"
         self.produce_replay_summary("user2", session_id_two, base_time + relativedelta(seconds=20))
 
-        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
+        # include `as_query` since we don't want to break while deploying the code that no longer needs it
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings?as_query=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
 
@@ -171,46 +174,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert results_[1]["distinct_id"] in twelve_distinct_ids
 
     @patch("posthoganalytics.capture")
-    @patch("posthog.session_recordings.session_recording_api.SessionRecordingListFromFilters")
     @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
-    def test_console_log_filters_are_correctly_passed_to_listing_when_filters_are_used(
-        self, mock_query_lister, mock_summary_lister, mock_capture
-    ):
-        mock_summary_lister.return_value.run.return_value = ([], False)
-        mock_query_lister.return_value.run.return_value = ([], False)
-
-        params_string = urlencode(
-            {
-                "console_log_filters": '[{"key": "console_log_level", "value": ["warn", "error"], "operator": "exact", "type": "log_entry"}]',
-                "user_modified_filters": '{"my_filter": "something"}',
-                "as_query": False,
-            }
-        )
-        self.client.get(f"/api/projects/{self.team.id}/session_recordings?{params_string}")
-
-        assert len(mock_summary_lister.call_args_list) == 1
-        assert len(mock_query_lister.call_args_list) == 0
-        filter_passed_to_mock: SessionRecordingsFilter = mock_summary_lister.call_args_list[0].kwargs["filter"]
-        console_filter = cast(Property, filter_passed_to_mock.console_log_filters.values[0])
-        assert console_filter.value == ["warn", "error"]
-        assert mock_capture.call_args_list[0] == call(
-            self.user.distinct_id,
-            "recording list filters changed",
-            properties={
-                "$current_url": ANY,
-                "$session_id": ANY,
-                "partial_filter_chosen_my_filter": "something",
-            },
-            groups=ANY,
-        )
-
-    @patch("posthoganalytics.capture")
-    @patch("posthog.session_recordings.session_recording_api.SessionRecordingListFromFilters")
-    @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
-    def test_console_log_filters_are_correctly_passed_to_listing_when_query_is_used(
-        self, mock_query_lister, mock_summary_lister, mock_capture
-    ):
-        mock_summary_lister.return_value.run.return_value = ([], False)
+    def test_console_log_filters_are_correctly_passed_to_listing(self, mock_query_lister, mock_capture):
         mock_query_lister.return_value = ([], False)
 
         params_string = urlencode(
@@ -222,7 +187,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         )
         self.client.get(f"/api/projects/{self.team.id}/session_recordings?{params_string}")
 
-        assert len(mock_summary_lister.call_args_list) == 0
         assert len(mock_query_lister.call_args_list) == 1
         query_passed_to_mock: RecordingsQuery = mock_query_lister.call_args_list[0][0][0]
         maybe_the_filter = (
@@ -285,8 +249,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         )
 
         base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
-        self.produce_replay_summary("user", "1", base_time, team_id=another_team.pk)
-        self.produce_replay_summary("user", "2", base_time)
+        self.produce_replay_summary("user", "other_team", base_time, team_id=another_team.pk)
+        self.produce_replay_summary("user", "current_team", base_time)
 
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -301,7 +265,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "console_warn_count": 0,
                 "distinct_id": "user",
                 "end_time": ANY,
-                "id": "2",
+                "id": "current_team",
                 "inactive_seconds": ANY,
                 "keypress_count": 0,
                 "mouse_activity_count": 0,
@@ -322,8 +286,9 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "start_url": "https://not-provided-by-test.com",
                 "storage": "object_storage",
                 "viewed": False,
+                "viewers": [],
                 "ongoing": True,
-                "activity_score": None,
+                "activity_score": ANY,
             },
         ]
 
@@ -521,6 +486,13 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 distinct_id="d1",
             )
 
+            other_user = User.objects.create(email="paul@not-first-user.com")
+            SessionRecordingViewed.objects.create(
+                team=self.team,
+                user=other_user,
+                session_id=session_recording_id,
+            )
+
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_recording_id}")
         response_data = response.json()
 
@@ -528,6 +500,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "id": "session_1",
             "distinct_id": "d1",
             "viewed": False,
+            "viewers": [other_user.email],
             "recording_duration": 30,
             "start_time": base_time.replace(tzinfo=UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "end_time": (base_time + relativedelta(seconds=30)).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -552,6 +525,67 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "snapshot_source": "web",
             "ongoing": None,
             "activity_score": None,
+        }
+
+    def test_get_single_session_recording_viewed_stats_someone_else_viewed(self):
+        with freeze_time("2023-01-01T12:00:00.000Z"):
+            session_recording_id = "session_1"
+            base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+            produce_replay_summary(
+                session_id=session_recording_id,
+                team_id=self.team.pk,
+                first_timestamp=base_time.isoformat(),
+                last_timestamp=(base_time + relativedelta(seconds=30)).isoformat(),
+                distinct_id="d1",
+            )
+
+            other_user = User.objects.create(email="paul@not-first-user.com")
+            SessionRecordingViewed.objects.create(
+                team=self.team,
+                user=other_user,
+                session_id=session_recording_id,
+            )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_recording_id}/viewed")
+        response_data = response.json()
+
+        assert response_data == {
+            "viewed": False,
+            "other_viewers": 1,
+        }
+
+    def test_get_single_session_recording_viewed_stats_current_user_viewed(self):
+        with freeze_time("2023-01-01T12:00:00.000Z"):
+            session_recording_id = "session_1"
+            base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+            produce_replay_summary(
+                session_id=session_recording_id,
+                team_id=self.team.pk,
+                first_timestamp=base_time.isoformat(),
+                last_timestamp=(base_time + relativedelta(seconds=30)).isoformat(),
+                distinct_id="d1",
+            )
+
+            SessionRecordingViewed.objects.create(
+                team=self.team,
+                user=self.user,
+                session_id=session_recording_id,
+            )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_recording_id}/viewed")
+        response_data = response.json()
+
+        assert response_data == {
+            "viewed": True,
+            "other_viewers": 0,
+        }
+
+    def test_get_single_session_recording_viewed_stats_can_404(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/12345/viewed")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {
+            "viewed": False,
+            "other_viewers": 0,
         }
 
     def test_single_session_recording_doesnt_leak_teams(self):
@@ -1104,7 +1138,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     def test_get_matching_events_for_must_not_send_multiple_session_ids(self) -> None:
         query_params = [
-            f'{SESSION_RECORDINGS_FILTER_IDS}=["{str(uuid.uuid4())}", "{str(uuid.uuid4())}"]',
+            f'session_ids=["{str(uuid.uuid4())}", "{str(uuid.uuid4())}"]',
         ]
         response = self.client.get(
             f"/api/projects/{self.team.id}/session_recordings/matching_events?{'&'.join(query_params)}"
@@ -1129,7 +1163,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
     def test_get_matching_events_for_must_send_at_least_an_event_filter(self) -> None:
         query_params = [
-            f'{SESSION_RECORDINGS_FILTER_IDS}=["{str(uuid.uuid4())}"]',
+            f'session_ids=["{str(uuid.uuid4())}"]',
         ]
 
         response = self.client.get(
@@ -1146,7 +1180,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
     def test_get_matching_events_for_unknown_session(self) -> None:
         session_id = str(uuid.uuid4())
         query_params = [
-            f'{SESSION_RECORDINGS_FILTER_IDS}=["{session_id}"]',
+            f'session_ids=["{session_id}"]',
             'events=[{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}]',
         ]
         response = self.client.get(
@@ -1154,6 +1188,45 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         )
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"results": []}
+
+    def test_get_matching_events_with_query(self) -> None:
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+
+        # the matching session
+        session_id = f"test_get_matching_events-1-{uuid.uuid4()}"
+        self.produce_replay_summary("user", session_id, base_time)
+        event_id = _create_event(
+            event="$pageview",
+            properties={"$session_id": session_id},
+            team=self.team,
+            distinct_id=uuid.uuid4(),
+        )
+
+        # a non-matching session
+        non_matching_session_id = f"test_get_matching_events-2-{uuid.uuid4()}"
+        self.produce_replay_summary("user", non_matching_session_id, base_time)
+        _create_event(
+            event="$pageview",
+            properties={"$session_id": non_matching_session_id},
+            team=self.team,
+            distinct_id=uuid.uuid4(),
+        )
+
+        flush_persons_and_events()
+        # data needs time to settle :'(
+        time.sleep(1)
+
+        query_params = [
+            f'session_ids=["{session_id}"]',
+            'events=[{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}]',
+        ]
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings/matching_events?{'&'.join(query_params)}&as_query=true"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"results": [event_id]}
 
     def test_get_matching_events(self) -> None:
         base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
@@ -1183,12 +1256,13 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         time.sleep(1)
 
         query_params = [
-            f'{SESSION_RECORDINGS_FILTER_IDS}=["{session_id}"]',
+            f'session_ids=["{session_id}"]',
             'events=[{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}]',
         ]
 
         response = self.client.get(
-            f"/api/projects/{self.team.id}/session_recordings/matching_events?{'&'.join(query_params)}"
+            # include `as_query` since we don't want to break while deploying the code that no longer needs it
+            f"/api/projects/{self.team.id}/session_recordings/matching_events?{'&'.join(query_params)}&as_query=true"
         )
 
         assert response.status_code == status.HTTP_200_OK
@@ -1201,3 +1275,23 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             f"/api/projects/{self.team.id}/session_recordings/1/snapshots?",
         )
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_400_when_invalid_list_query(self) -> None:
+        query_params = "&".join(
+            [
+                f'session_ids="invalid"',
+                "hogql_filtering=1",
+                "tomato=potato",
+                "version=2",
+            ]
+        )
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings?{query_params}",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert (
+            '{"type": "extra_forbidden", "loc": ["tomato"], "msg": "Extra inputs are not permitted", "input": "potato", "url": "https://errors.pydantic.dev/2.9/v/extra_forbidden"}'
+            in response.json()["detail"]
+        )
+        assert response.json() == self.snapshot

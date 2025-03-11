@@ -7,6 +7,7 @@ import { HogFunctionList } from './HogFunctionsList'
 import { HogFunctionTemplateList } from './HogFunctionTemplateList'
 
 export type LinkedHogFunctionsProps = {
+    logicKey?: string
     type: HogFunctionTypeType
     filters: HogFunctionFiltersType
     subTemplateId?: HogFunctionSubTemplateIdType
@@ -14,6 +15,7 @@ export type LinkedHogFunctionsProps = {
 }
 
 export function LinkedHogFunctions({
+    logicKey,
     type,
     filters,
     subTemplateId,
@@ -25,7 +27,8 @@ export function LinkedHogFunctions({
         <HogFunctionTemplateList
             defaultFilters={{}}
             type={type}
-            forceFilters={{ filters, subTemplateId }}
+            subTemplateId={subTemplateId}
+            forceFilters={{ filters }}
             extraControls={
                 <>
                     <LemonButton type="secondary" size="small" onClick={() => setShowNewDestination(false)}>
@@ -36,6 +39,7 @@ export function LinkedHogFunctions({
         />
     ) : (
         <HogFunctionList
+            logicKey={logicKey}
             forceFilters={{ filters }}
             type={type}
             extraControls={

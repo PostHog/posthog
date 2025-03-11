@@ -7,6 +7,7 @@ import {
     BREAKDOWN_NULL_STRING_LABEL,
     BREAKDOWN_OTHER_NUMERIC_LABEL,
     BREAKDOWN_OTHER_STRING_LABEL,
+    getTrendResultCustomizationColorToken,
 } from 'scenes/insights/utils'
 
 import {
@@ -17,7 +18,7 @@ import {
     MathType,
     TrendsFilter,
     TrendsQuery,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import { isValidBreakdown } from '~/queries/utils'
 import {
     ChartDisplayType,
@@ -55,6 +56,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 'series',
                 'formula',
                 'display',
+                'goalLines',
                 'compareFilter',
                 'interval',
                 'enabledIntervals',
@@ -77,6 +79,9 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 'showLegend',
                 'vizSpecificOptions',
                 'yAxisScaleType',
+                'showMultipleYAxes',
+                'resultCustomizationBy',
+                'theme',
             ],
         ],
         actions: [
@@ -178,8 +183,6 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
 
                 /** Unique series in the results, determined by `item.label` and `item.action.order`. */
                 const uniqSeries = Array.from(
-                    // :TRICKY: Stickiness insights don't have an `action` object, despite
-                    // types here not reflecting that.
                     new Set(
                         indexedResults.map((item) => `${item.label}_${item.action?.order}_${item?.breakdown_value}`)
                     )
@@ -258,6 +261,35 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
             (s) => [s.trendsFilter, s.stickinessFilter],
             (trendsFilter, stickinessFilter): number[] => {
                 return trendsFilter?.hiddenLegendIndexes || stickinessFilter?.hiddenLegendIndexes || []
+            },
+        ],
+        resultCustomizations: [(s) => [s.trendsFilter], (trendsFilter) => trendsFilter?.resultCustomizations],
+        getTrendsColorToken: [
+            (s) => [s.resultCustomizationBy, s.resultCustomizations, s.theme],
+            (resultCustomizationBy, resultCustomizations, theme) => {
+                return (dataset) => {
+                    if (theme == null) {
+                        return null
+                    }
+                    return getTrendResultCustomizationColorToken(
+                        resultCustomizationBy,
+                        resultCustomizations,
+                        theme,
+                        dataset
+                    )
+                }
+            },
+        ],
+        getTrendsColor: [
+            (s) => [s.theme, s.getTrendsColorToken],
+            (theme, getTrendsColorToken) => {
+                return (dataset) => {
+                    if (theme == null) {
+                        return '#000000' // fallback while loading
+                    }
+
+                    return theme[getTrendsColorToken(dataset)!]
+                }
             },
         ],
     })),

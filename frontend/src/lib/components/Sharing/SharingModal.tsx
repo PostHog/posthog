@@ -2,23 +2,27 @@ import './SharingModal.scss'
 
 import { IconCollapse, IconExpand, IconInfo, IconLock } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonModal, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
-import { captureException } from '@sentry/react'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { router } from 'kea-router'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { useEffect, useState } from 'react'
+import posthog from 'posthog-js'
+import { ReactNode, useEffect, useState } from 'react'
 import { DashboardCollaboration } from 'scenes/dashboard/DashboardCollaborators'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { urls } from 'scenes/urls'
 
+import { AccessControlPopoutCTA } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlPopoutCTA'
 import { isInsightVizNode } from '~/queries/utils'
-import { AvailableFeature, InsightShortId, QueryBasedInsightModel } from '~/types'
+import { AccessControlResourceType, AvailableFeature, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import { upgradeModalLogic } from '../UpgradeModal/upgradeModalLogic'
 import { sharingLogic } from './sharingLogic'
@@ -34,6 +38,10 @@ export interface SharingModalBaseProps {
     title?: string
     previewIframe?: boolean
     additionalParams?: Record<string, any>
+    /**
+     * When generating a link to a recording, this form can be used to allow the user to specify a timestamp
+     */
+    recordingLinkTimeForm?: ReactNode
 }
 
 export interface SharingModalProps extends SharingModalBaseProps {
@@ -49,6 +57,7 @@ export function SharingModalContent({
     recordingId,
     additionalParams,
     previewIframe = false,
+    recordingLinkTimeForm = undefined,
 }: SharingModalBaseProps): JSX.Element {
     const logicProps = {
         dashboardId,
@@ -65,8 +74,12 @@ export function SharingModalContent({
         iframeProperties,
         shareLink,
     } = useValues(sharingLogic(logicProps))
-    const { setIsEnabled, togglePreview } = useActions(sharingLogic(logicProps))
+    const { setIsEnabled, togglePreview, setEmbedConfigValue } = useActions(sharingLogic(logicProps))
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
+
+    const { push } = useActions(router)
+
+    const newAccessControl = useFeatureFlag('ROLE_BASED_ACCESS_CONTROL')
 
     const [iframeLoaded, setIframeLoaded] = useState(false)
 
@@ -77,7 +90,7 @@ export function SharingModalContent({
     }, [iframeProperties.src, sharingConfiguration?.enabled, showPreview])
 
     return (
-        <div className="space-y-4">
+        <div className="deprecated-space-y-4">
             {dashboardId ? (
                 <>
                     <DashboardCollaboration dashboardId={dashboardId} />
@@ -85,13 +98,26 @@ export function SharingModalContent({
                 </>
             ) : undefined}
 
-            <div className="space-y-2">
+            {insightShortId && newAccessControl ? (
+                <>
+                    <AccessControlPopoutCTA
+                        resourceType={AccessControlResourceType.Insight}
+                        callback={() => {
+                            push(urls.insightView(insightShortId))
+                        }}
+                    />
+                    <LemonDivider />
+                </>
+            ) : undefined}
+
+            <div className="deprecated-space-y-2">
                 {!sharingConfiguration && sharingConfigurationLoading ? (
                     <LemonSkeleton.Row repeat={3} />
                 ) : !sharingConfiguration ? (
                     <p>Something went wrong...</p>
                 ) : (
                     <>
+                        <h3>Sharing</h3>
                         <LemonSwitch
                             id="sharing-switch"
                             label={`Share ${resource} publicly`}
@@ -104,7 +130,7 @@ export function SharingModalContent({
 
                         {sharingConfiguration.enabled && sharingConfiguration.access_token ? (
                             <>
-                                <div className="space-y-2">
+                                <div className="deprecated-space-y-2">
                                     <LemonButton
                                         data-attr="sharing-link-button"
                                         type="secondary"
@@ -112,8 +138,8 @@ export function SharingModalContent({
                                             // TRICKY: there's a chance this was sending useless errors to Sentry
                                             // even when it succeeded, so we're explicitly ignoring the promise success
                                             // and naming the error when reported to Sentry - @pauldambra
-                                            copyToClipboard(shareLink, 'link').catch((e) =>
-                                                captureException(
+                                            copyToClipboard(shareLink, shareLink).catch((e) =>
+                                                posthog.captureException(
                                                     new Error('unexpected sharing modal clipboard error: ' + e.message)
                                                 )
                                             )
@@ -124,6 +150,7 @@ export function SharingModalContent({
                                     >
                                         Copy public link
                                     </LemonButton>
+                                    {recordingLinkTimeForm}
                                     <TitleWithIcon
                                         icon={
                                             <Tooltip
@@ -141,9 +168,9 @@ export function SharingModalContent({
                                     logic={sharingLogic}
                                     props={logicProps}
                                     formKey="embedConfig"
-                                    className="space-y-2"
+                                    className="deprecated-space-y-2"
                                 >
-                                    <div className="grid grid-cols-2 gap-2 grid-flow odd:last:*:col-span-2">
+                                    <div className="grid grid-cols-2 gap-2 grid-flow *:odd:last:col-span-2">
                                         {insight && (
                                             <LemonField name="noHeader">
                                                 {({ value, onChange }) => (
@@ -158,7 +185,7 @@ export function SharingModalContent({
                                             </LemonField>
                                         )}
                                         <LemonField name="whitelabel">
-                                            {({ value, onChange }) => (
+                                            {({ value }) => (
                                                 <LemonSwitch
                                                     fullWidth
                                                     bordered
@@ -167,15 +194,16 @@ export function SharingModalContent({
                                                             <span>Show PostHog branding</span>
                                                             {!whitelabelAvailable && (
                                                                 <Tooltip title="This is a premium feature, click to learn more.">
-                                                                    <IconLock className="ml-1.5 text-muted text-lg" />
+                                                                    <IconLock className="ml-1.5 text-secondary text-lg" />
                                                                 </Tooltip>
                                                             )}
                                                         </div>
                                                     }
                                                     onChange={() =>
-                                                        guardAvailableFeature(AvailableFeature.WHITE_LABELLING, () =>
-                                                            onChange(!value)
-                                                        )
+                                                        guardAvailableFeature(AvailableFeature.WHITE_LABELLING, () => {
+                                                            // setEmbedConfigValue is used to update the form state and report the event
+                                                            setEmbedConfigValue('whitelabel', !value)
+                                                        })
                                                     }
                                                     checked={!value}
                                                 />

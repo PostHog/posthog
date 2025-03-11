@@ -55,7 +55,6 @@ impl FeatureFlagList {
         client: Arc<dyn RedisClient + Send + Sync>,
         team_id: i32,
     ) -> Result<FeatureFlagList, FlagError> {
-        // TODO: Instead of failing here, i.e. if not in redis, fallback to pg
         let serialized_flags = client
             .get(format!("{TEAM_FLAGS_CACHE_PREFIX}{}", team_id))
             .await?;
@@ -82,7 +81,7 @@ impl FeatureFlagList {
             FlagError::DatabaseUnavailable
         })?;
 
-        let query = "SELECT id, team_id, name, key, filters, deleted, active, ensure_experience_continuity FROM posthog_featureflag WHERE team_id = $1";
+        let query = "SELECT id, team_id, name, key, filters, deleted, active, ensure_experience_continuity FROM posthog_featureflag WHERE team_id = $1 AND deleted = false";
         let flags_row = sqlx::query_as::<_, FeatureFlagRow>(query)
             .bind(team_id)
             .fetch_all(&mut *conn)
@@ -970,10 +969,7 @@ mod tests {
             .expect("Failed to fetch flags from Redis");
 
         assert_eq!(redis_flags.flags.len(), 2);
-        assert!(redis_flags
-            .flags
-            .iter()
-            .any(|f| f.key == "deleted_flag" && f.deleted));
+        assert!(redis_flags.flags.iter().any(|f| f.deleted));
         assert!(redis_flags
             .flags
             .iter()
@@ -984,15 +980,12 @@ mod tests {
             .await
             .expect("Failed to fetch flags from Postgres");
 
-        assert_eq!(pg_flags.flags.len(), 2);
+        assert_eq!(pg_flags.flags.len(), 1);
+        assert!(!pg_flags.flags.iter().any(|f| f.deleted)); // no deleted flags
         assert!(pg_flags
             .flags
             .iter()
-            .any(|f| f.key == "deleted_flag" && f.deleted));
-        assert!(pg_flags
-            .flags
-            .iter()
-            .any(|f| f.key == "inactive_flag" && !f.active));
+            .any(|f| f.key == "inactive_flag" && !f.active)); // only inactive flag is left
     }
 
     #[tokio::test]

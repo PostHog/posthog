@@ -26,7 +26,7 @@ import { urls } from 'scenes/urls'
 
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { Query } from '~/queries/Query/Query'
-import { NodeKind } from '~/queries/schema'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { ActivityScope, NotebookNodeType, PersonsTabType, PersonType, PropertyDefinitionType } from '~/types'
 
 import { MergeSplitPerson } from './MergeSplitPerson'
@@ -48,9 +48,9 @@ export const scene: SceneExport = {
 function PersonCaption({ person }: { person: PersonType }): JSX.Element {
     return (
         <div className="flex flex-wrap items-center gap-2">
-            <div className="flex space-x-1">
+            <div className="flex deprecated-space-x-1">
                 <div>
-                    <span className="text-muted">IDs:</span>{' '}
+                    <span className="text-secondary">IDs:</span>{' '}
                     <CopyToClipboardInline
                         tooltipMessage={null}
                         description="person distinct ID"
@@ -75,11 +75,11 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
                 )}
             </div>
             <div>
-                <span className="text-muted">First seen:</span>{' '}
+                <span className="text-secondary">First seen:</span>{' '}
                 {person.created_at ? <TZLabel time={person.created_at} /> : 'unknown'}
             </div>
             <div>
-                <span className="text-muted">Merge restrictions:</span> {person.is_identified ? 'applied' : 'none'}
+                <span className="text-secondary">Merge restrictions:</span> {person.is_identified ? 'applied' : 'none'}
                 <Link to="https://posthog.com/docs/data/identify#alias-assigning-multiple-distinct-ids-to-the-same-user">
                     <Tooltip
                         title={
@@ -239,7 +239,11 @@ export function PersonScene(): JSX.Element | null {
                                     </div>
                                 ) : null}
                                 <div className="SessionRecordingPlaylistHeightWrapper">
-                                    <SessionRecordingsPlaylist personUUID={person.uuid} updateSearchParams />
+                                    <SessionRecordingsPlaylist
+                                        logicKey={`person-scene-${person.uuid}`}
+                                        personUUID={person.uuid}
+                                        updateSearchParams
+                                    />
                                 </div>
                             </>
                         ),
@@ -270,12 +274,12 @@ export function PersonScene(): JSX.Element | null {
                               label: <span data-attr="persons-related-flags-tab">Feature flags</span>,
                               content: (
                                   <>
-                                      <div className="flex space-x-2 items-center mb-2">
+                                      <div className="flex deprecated-space-x-2 items-center mb-2">
                                           <div className="flex items-center">
                                               Choose ID:
                                               <Tooltip
                                                   title={
-                                                      <div className="space-y-2">
+                                                      <div className="deprecated-space-y-2">
                                                           <div>
                                                               Feature flags values can depend on a person's distinct ID.
                                                           </div>
@@ -308,7 +312,7 @@ export function PersonScene(): JSX.Element | null {
                                           />
                                       </div>
                                       <LemonDivider className="mb-4" />
-                                      <RelatedFeatureFlags distinctId={distinctId || person.distinct_ids[0]} />
+                                      <RelatedFeatureFlags distinctId={distinctId || primaryDistinctId} />
                                   </>
                               ),
                           }

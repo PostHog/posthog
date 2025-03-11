@@ -15,7 +15,7 @@ import {
     DatabaseSerializedFieldType,
     HogQLQuery,
     NodeKind,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import type { dataWarehouseSceneLogicType } from './dataWarehouseSceneLogicType'

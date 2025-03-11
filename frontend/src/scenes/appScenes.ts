@@ -1,14 +1,18 @@
 import { preloadedScenes } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 
-export const appScenes: Record<Scene, () => any> = {
+import { productScenes } from '~/products'
+
+export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Error404]: () => ({ default: preloadedScenes[Scene.Error404].component }),
     [Scene.ErrorNetwork]: () => ({ default: preloadedScenes[Scene.ErrorNetwork].component }),
     [Scene.ErrorProjectUnavailable]: () => ({ default: preloadedScenes[Scene.ErrorProjectUnavailable].component }),
+    ...productScenes,
     [Scene.Dashboards]: () => import('./dashboard/dashboards/Dashboards'),
     [Scene.Dashboard]: () => import('./dashboard/Dashboard'),
     [Scene.Insight]: () => import('./insights/InsightScene'),
     [Scene.WebAnalytics]: () => import('./web-analytics/WebAnalyticsScene'),
+    [Scene.WebAnalyticsWebVitals]: () => import('./web-analytics/WebAnalyticsScene'),
     [Scene.Cohort]: () => import('./cohorts/Cohort'),
     [Scene.DataManagement]: () => import('./data-management/DataManagementScene'),
     [Scene.Activity]: () => import('./activity/ActivityScene'),
@@ -28,20 +32,20 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.Group]: () => import('./groups/Group'),
     [Scene.Action]: () => import('./actions/Action'),
     [Scene.Experiments]: () => import('./experiments/Experiments'),
+    [Scene.ExperimentsSharedMetrics]: () => import('./experiments/SharedMetrics/SharedMetrics'),
+    [Scene.ExperimentsSharedMetric]: () => import('./experiments/SharedMetrics/SharedMetric'),
     [Scene.Experiment]: () => import('./experiments/Experiment'),
     [Scene.FeatureFlags]: () => import('./feature-flags/FeatureFlags'),
     [Scene.FeatureManagement]: () => import('./feature-flags/FeatureManagement'),
     [Scene.FeatureFlag]: () => import('./feature-flags/FeatureFlag'),
-    [Scene.EarlyAccessFeatures]: () => import('./early-access-features/EarlyAccessFeatures'),
-    [Scene.EarlyAccessFeature]: () => import('./early-access-features/EarlyAccessFeature'),
     [Scene.ErrorTracking]: () => import('./error-tracking/ErrorTrackingScene'),
-    [Scene.ErrorTrackingConfiguration]: () => import('./error-tracking/ErrorTrackingConfigurationScene'),
+    [Scene.ErrorTrackingConfiguration]: () => import('./error-tracking/configuration/ErrorTrackingConfigurationScene'),
+    [Scene.ErrorTrackingAlert]: () => import('./error-tracking/configuration/alerting/ErrorTrackingAlert'),
     [Scene.ErrorTrackingIssue]: () => import('./error-tracking/ErrorTrackingIssueScene'),
     [Scene.Surveys]: () => import('./surveys/Surveys'),
     [Scene.Survey]: () => import('./surveys/Survey'),
     [Scene.CustomCss]: () => import('./themes/CustomCssScene'),
     [Scene.SurveyTemplates]: () => import('./surveys/SurveyTemplates'),
-    [Scene.DataModel]: () => import('./data-model/DataModelScene'),
     [Scene.DataWarehouse]: () => import('./data-warehouse/external/DataWarehouseExternalScene'),
     [Scene.SQLEditor]: () => import('./data-warehouse/editor/EditorScene'),
     [Scene.DataWarehouseTable]: () => import('./data-warehouse/new/NewSourceWizard'),
@@ -61,6 +65,7 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.Signup]: () => import('./authentication/signup/SignupContainer'),
     [Scene.InviteSignup]: () => import('./authentication/InviteSignup'),
     [Scene.Billing]: () => import('./billing/Billing'),
+    [Scene.BillingSection]: () => import('./billing/BillingSection'),
     [Scene.BillingAuthorizationStatus]: () => import('./billing/AuthorizationStatus'),
     [Scene.Login]: () => import('./authentication/Login'),
     [Scene.Login2FA]: () => import('./authentication/Login2FA'),
@@ -83,6 +88,5 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.ClientAuthorization]: () => import('./authorization/ClientAuthorizationScene'),
     [Scene.SessionAttributionExplorer]: () =>
         import('scenes/web-analytics/SessionAttributionExplorer/SessionAttributionExplorerScene'),
-    [Scene.MessagingProviders]: () => import('./messaging/Providers'),
-    [Scene.MessagingBroadcasts]: () => import('./messaging/Broadcasts'),
+    [Scene.Wizard]: () => import('./wizard/Wizard'),
 }

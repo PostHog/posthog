@@ -20,7 +20,6 @@ import { CohortType, EventDefinition } from '~/types'
 
 import { teamLogic } from '../../../scenes/teamLogic'
 import { captureTimeToSeeData } from '../../internalMetrics'
-import { filterOutBehavioralCohorts } from './cohortFilterUtils'
 import type { infiniteListLogicType } from './infiniteListLogicType'
 
 /*
@@ -95,7 +94,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         expand: true,
         abortAnyRunningQuery: true,
     }),
-    loaders(({ actions, values, cache }) => ({
+    loaders(({ actions, values, cache, props }) => ({
         remoteItems: [
             createEmptyListStorage('', true),
             {
@@ -130,6 +129,9 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                         offset,
                         excluded_properties: JSON.stringify(excludedProperties),
                         properties: propertyAllowList ? propertyAllowList.join(',') : undefined,
+                        // TODO: remove this filter once we can support behavioral cohorts for feature flags, it's only
+                        // used in the feature flag property filter UI
+                        ...(props.hideBehavioralCohorts ? { hide_behavioral_cohorts: 'true' } : {}),
                     }
 
                     const start = performance.now()
@@ -184,9 +186,13 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     // On updating item, invalidate cache
                     apiCache = {}
                     apiCacheTimers = {}
+                    const popFromResults = 'hidden' in item && item.hidden
+                    const results: TaxonomicDefinitionTypes[] = values.remoteItems.results
+                        .map((i) => (i.name === item.name ? (popFromResults ? null : item) : i))
+                        .filter((i): i is TaxonomicDefinitionTypes => i !== null)
                     return {
                         ...values.remoteItems,
-                        results: values.remoteItems.results.map((i) => (i.name === item.name ? item : i)),
+                        results,
                     }
                 },
             },
@@ -247,16 +253,10 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
 
                     if (group?.logic && group?.value) {
                         let items = group.logic.selectors[group.value]?.(state)
-                        if (group?.value === 'featureFlags' && items.results) {
+
+                        // Handle paginated responses for cohorts, which return a CountedPaginatedResponse
+                        if (items?.results) {
                             items = items.results
-                        }
-                        // TRICKY: Feature flags don't support dynamic behavioral cohorts,
-                        // so we don't want to show them as selectable options in the taxonomic filter
-                        // in the feature flag UI.
-                        // TODO: Once we support dynamic behavioral cohorts, we should show them in the taxonomic filter,
-                        // and remove this kludge.
-                        if (Array.isArray(items) && items.every((item) => 'filters' in item)) {
-                            return filterOutBehavioralCohorts(items, props.hideBehavioralCohorts)
                         }
 
                         return items
@@ -326,7 +326,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     }
 
                     if ('property_type' in n) {
-                        const property_type = n.property_type as string // Data warehouse props dont conformt to PropertyType for some reason
+                        const property_type = n.property_type as string // Data warehouse props dont conform to PropertyType for some reason
                         return property_type === 'Integer' || property_type === 'Float'
                     }
 

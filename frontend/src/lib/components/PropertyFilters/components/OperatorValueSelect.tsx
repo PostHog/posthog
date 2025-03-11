@@ -20,7 +20,7 @@ export interface OperatorValueSelectProps {
     type?: PropertyFilterType
     propertyKey?: string
     operator?: PropertyOperator | null
-    value?: string | number | Array<string | number> | null
+    value?: string | number | bigint | Array<string | number | bigint> | null
     placeholder?: string
     endpoint?: string
     onChange: (operator: PropertyOperator, value: PropertyFilterValue) => void

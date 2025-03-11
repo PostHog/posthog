@@ -142,16 +142,10 @@ class UserAccessControl:
 
     @property
     def access_controls_supported(self) -> bool:
-        # NOTE: This is a proxy feature. We may want to consider making it explicit later
-        # ADVANCED_PERMISSIONS was only for dashboard collaborators, PROJECT_BASED_PERMISSIONING for project permissions
-        # both now apply to this generic access control
-
         if not self._organization:
             return False
 
-        return self._organization.is_feature_available(
-            AvailableFeature.PROJECT_BASED_PERMISSIONING
-        ) or self._organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS)
+        return self._organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS)
 
     def _filter_options(self, filters: dict[str, Any]) -> Q:
         """
@@ -180,6 +174,14 @@ class UserAccessControl:
         """
         Used when checking an individual object - gets all access controls for the object and its type
         """
+        # Plugins are a special case because they don't belong to a team, instead they belong to an organization
+        if resource == "plugin":
+            return {
+                "team__organization_id": str(self._organization_id),
+                "resource": resource,
+                "resource_id": resource_id,
+            }
+
         return {"team_id": self._team.id, "resource": resource, "resource_id": resource_id}  # type: ignore
 
     def _access_controls_filters_for_resource(self, resource: APIScopeObject) -> dict:
@@ -459,14 +461,15 @@ class UserAccessControlSerializerMixin(serializers.Serializer):
 
     @property
     def user_access_control(self) -> Optional[UserAccessControl]:
-        # NOTE: The user_access_control is typically on the view but in specific cases such as the posthog_app_context it is set at the context level
+        # NOTE: The user_access_control is typically on the view but in specific cases,
+        # such as rendering HTML (`render_template()`), it is set at the context level
         if "user_access_control" in self.context:
             # Get it directly from the context
             return self.context["user_access_control"]
         elif hasattr(self.context.get("view", None), "user_access_control"):
             # Otherwise from the view (the default case)
             return self.context["view"].user_access_control
-        else:
+        elif "request" in self.context:
             user = cast(User | AnonymousUser, self.context["request"].user)
             # The user could be anonymous - if so there is no access control to be used
 
@@ -476,6 +479,8 @@ class UserAccessControlSerializerMixin(serializers.Serializer):
             user = cast(User, user)
 
             return UserAccessControl(user, organization_id=str(user.current_organization_id))
+
+        return None
 
     def get_user_access_level(self, obj: Model) -> Optional[str]:
         if not self.user_access_control:

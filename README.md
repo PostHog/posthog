@@ -71,13 +71,13 @@ PostHog brings all the tools and data you need to build better products.
 
 - **Event-based analytics:** Capture your product's usage [automatically](https://posthog.com/docs/libraries/js#autocapture), or [customize](https://posthog.com/docs/getting-started/install) it to your needs
 - **User and group tracking:** Understand the [people](https://posthog.com/manual/persons) and [groups](https://posthog.com/manual/group-analytics) behind the events and track properties about them when needed
-- **Data visualizations:** Create and share [graphs](https://posthog.com/docs/features/trends), [funnels](https://posthog.com/docs/features/funnels), [paths](https://posthog.com/docs/features/paths), [retention](https://posthog.com/docs/features/retention), and [dashboards](https://posthog.com/docs/features/dashboards)
+- **Data visualizations:** Create and share [graphs](https://posthog.com/docs/product-analytics/trends/charts), [funnels](https://posthog.com/docs/product-analytics/funnels), [paths](https://posthog.com/docs/product-analytics/paths), [retention](https://posthog.com/docs/product-analytics/retention), and [dashboards](https://posthog.com/docs/product-analytics/dashboards)
 - **SQL access:** Use [SQL](https://posthog.com/docs/product-analytics/sql) to get a deeper understanding of your users, breakdown information and create completely tailored visualizations
-- **Session replays:** [Watch videos](https://posthog.com/docs/features/session-recording) of your users' behavior, with fine-grained filters and privacy controls, as well as network monitoring and captured console logs
+- **Session replays:** [Watch videos](https://posthog.com/docs/session-replay) of your users' behavior, with fine-grained filters and privacy controls, as well as network monitoring and captured console logs
 - **Heatmaps:** See where users click and get a visual representation of their behaviour with the [PostHog Toolbar](https://posthog.com/docs/features/toolbar)
 - **Feature flags:** Test and manage the rollout of [new features](https://posthog.com/docs/feature-flags/installation) to specific users and groups, or deploy flags as kill-switches
-- **Experiments:** run simple or complex changes as [experiments](https://posthog.com/manual/experimentation) and get automatic significance calculations
-- **Correlation analysis:** Discover what events and properties [correlate](https://posthog.com/manual/correlation) with success and failure
+- **Experiments:** run simple or complex changes as [experiments](https://posthog.com/docs/experiments) and get automatic significance calculations
+- **Correlation analysis:** Discover what events and properties [correlate](https://posthog.com/docs/product-analytics/correlation) with success and failure
 - **Surveys:** Collect qualitative feedback from your users using fully customizable [surveys](https://posthog.com/docs/surveys/installation)
 
 ### Data and infrastructure tools

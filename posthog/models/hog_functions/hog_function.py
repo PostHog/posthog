@@ -1,6 +1,7 @@
 import enum
 from typing import Optional
 
+from django.conf import settings
 from django.db import models
 from django.db.models.signals import post_save, post_delete
 from django.dispatch.dispatcher import receiver
@@ -36,17 +37,17 @@ class HogFunctionState(enum.Enum):
 class HogFunctionType(models.TextChoices):
     DESTINATION = "destination"
     SITE_DESTINATION = "site_destination"
+    INTERNAL_DESTINATION = "internal_destination"
     SITE_APP = "site_app"
-    EMAIL = "email"
-    SMS = "sms"
-    PUSH = "push"
-    ACTIVITY = "activity"
-    ALERT = "alert"
-    BROADCAST = "broadcast"
+    TRANSFORMATION = "transformation"
 
 
-TYPES_THAT_RELOAD_PLUGIN_SERVER = (HogFunctionType.DESTINATION, HogFunctionType.EMAIL)
-TYPES_WITH_COMPILED_FILTERS = (HogFunctionType.DESTINATION,)
+TYPES_THAT_RELOAD_PLUGIN_SERVER = (
+    HogFunctionType.DESTINATION,
+    HogFunctionType.TRANSFORMATION,
+    HogFunctionType.INTERNAL_DESTINATION,
+)
+TYPES_WITH_COMPILED_FILTERS = (HogFunctionType.DESTINATION, HogFunctionType.INTERNAL_DESTINATION)
 TYPES_WITH_TRANSPILED_FILTERS = (HogFunctionType.SITE_DESTINATION, HogFunctionType.SITE_APP)
 TYPES_WITH_JAVASCRIPT_SOURCE = (HogFunctionType.SITE_DESTINATION, HogFunctionType.SITE_APP)
 
@@ -65,7 +66,7 @@ class HogFunction(UUIDModel):
     deleted = models.BooleanField(default=False)
     updated_at = models.DateTimeField(auto_now=True)
     enabled = models.BooleanField(default=False)
-    type = models.CharField(max_length=24, choices=HogFunctionType.choices, null=True, blank=True)
+    type = models.CharField(max_length=24, null=True, blank=True)
 
     icon_url = models.TextField(null=True, blank=True)
 
@@ -84,12 +85,21 @@ class HogFunction(UUIDModel):
     mappings = models.JSONField(null=True, blank=True)
     masking = models.JSONField(null=True, blank=True)
     template_id = models.CharField(max_length=400, null=True, blank=True)
+    execution_order = models.PositiveSmallIntegerField(null=True, blank=True)
 
     @property
     def template(self) -> Optional[HogFunctionTemplate]:
-        from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES_BY_ID
+        from posthog.api.hog_function_template import HogFunctionTemplates
 
-        return HOG_FUNCTION_TEMPLATES_BY_ID.get(self.template_id, None)
+        if not self.template_id:
+            return None
+
+        template = HogFunctionTemplates.template(self.template_id)
+
+        if template:
+            return template
+
+        return None
 
     @property
     def filter_action_ids(self) -> list[int]:
@@ -204,3 +214,27 @@ def team_inject_web_apps_changd(sender, instance, created=None, **kwargs):
     if team is not None:
         # This controls whether /decide makes extra queries to get the site apps or not
         sync_team_inject_web_apps(instance.team)
+
+
+@receiver(models.signals.post_save, sender=Team)
+def enabled_default_hog_functions_for_new_team(sender, instance: Team, created: bool, **kwargs):
+    if settings.DISABLE_MMDB or not created:
+        return
+
+    # New way: Create GeoIP transformation
+    from posthog.models.hog_functions.hog_function import HogFunction
+
+    # NOTE: This is hardcoded to simplify the creation
+    HogFunction.objects.create(
+        team=instance,
+        created_by=kwargs.get("initiating_user"),
+        template_id="plugin-posthog-plugin-geoip",
+        type="transformation",
+        name="GeoIP",
+        description="Enrich events with GeoIP data",
+        icon_url="/static/transformations/geoip.png",
+        hog="return event",
+        inputs_schema=[],
+        enabled=True,
+        execution_order=1,
+    )

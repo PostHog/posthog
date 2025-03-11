@@ -1,6 +1,6 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import FuseClass from 'fuse.js'
-import { actions, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -20,6 +20,8 @@ import {
     PluginType,
 } from '~/types'
 
+import { shouldShowHogFunction } from '../hogfunctions/list/hogFunctionListLogic'
+import { hogFunctionTypeToPipelineStage } from '../hogfunctions/urls'
 import { pipelineAccessLogic } from '../pipelineAccessLogic'
 import {
     BatchExportDestination,
@@ -28,6 +30,7 @@ import {
     FunctionDestination,
     PipelineBackend,
     SiteApp,
+    Transformation,
     WebhookDestination,
 } from '../types'
 import { captureBatchExportEvent, capturePluginEvent, loadPluginsFromUrl } from '../utils'
@@ -35,7 +38,7 @@ import { destinationsFiltersLogic } from './destinationsFiltersLogic'
 import type { pipelineDestinationsLogicType } from './destinationsLogicType'
 
 // Helping kea-typegen navigate the exported default class for Fuse
-export interface Fuse extends FuseClass<Destination | SiteApp> {}
+export interface Fuse extends FuseClass<Destination | Transformation | SiteApp> {}
 
 export interface PipelineDestinationsLogicProps {
     types: HogFunctionTypeType[]
@@ -60,15 +63,24 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
         ],
     })),
     actions({
-        toggleNode: (destination: Destination | SiteApp, enabled: boolean) => ({ destination, enabled }),
+        toggleNode: (destination: Destination | SiteApp | Transformation, enabled: boolean) => ({
+            destination,
+            enabled,
+        }),
         toggleNodeHogFunction: (destination: FunctionDestination, enabled: boolean) => ({ destination, enabled }),
-        deleteNode: (destination: Destination | SiteApp) => ({ destination }),
+        deleteNode: (destination: Destination | SiteApp | Transformation) => ({ destination }),
         deleteNodeBatchExport: (destination: BatchExportDestination) => ({ destination }),
         deleteNodeHogFunction: (destination: FunctionDestination) => ({ destination }),
         deleteNodeWebhook: (destination: WebhookDestination) => ({ destination }),
 
         updatePluginConfig: (pluginConfig: PluginConfigTypeNew) => ({ pluginConfig }),
         updateBatchExportConfig: (batchExportConfig: BatchExportConfiguration) => ({ batchExportConfig }),
+        openReorderTransformationsModal: true,
+        closeReorderTransformationsModal: true,
+        setTemporaryTransformationOrder: (tempOrder: Record<string, number>) => ({
+            tempOrder,
+        }),
+        saveTransformationsOrder: (newOrders: Record<number, number>) => ({ newOrders }),
     }),
     loaders(({ values, actions, props }) => ({
         plugins: [
@@ -178,9 +190,14 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                     const destinationTypes = siteDesinationsEnabled
                         ? props.types
                         : props.types.filter((type) => type !== 'site_destination')
-                    return (await api.hogFunctions.list(undefined, destinationTypes)).results
+                    return (await api.hogFunctions.list({ types: destinationTypes })).results
                 },
-
+                saveTransformationsOrder: async ({ newOrders }) => {
+                    const response = await api.update(`api/projects/@current/hog_functions/rearrange`, {
+                        orders: newOrders,
+                    })
+                    return response
+                },
                 deleteNodeHogFunction: async ({ destination }) => {
                     if (destination.backend !== PipelineBackend.HogFunction) {
                         return values.hogFunctions
@@ -215,15 +232,30 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                 },
             },
         ],
+        temporaryTransformationOrder: [
+            {} as Record<string, number>,
+            {
+                setTemporaryTransformationOrder: async ({ tempOrder }) => tempOrder,
+                closeReorderTransformationsModal: async () => ({}),
+            },
+        ],
     })),
+    reducers({
+        reorderTransformationsModalOpen: [
+            false as boolean,
+            {
+                openReorderTransformationsModal: () => true,
+                closeReorderTransformationsModal: () => false,
+                saveTransformationsOrder: () => false,
+            },
+        ],
+    }),
     selectors({
         paidHogFunctions: [
             (s) => [s.hogFunctions],
             (hogFunctions) => {
                 // Hide disabled functions and free functions. Shown in the "unsubscribe from data pipelines" modal.
-                return hogFunctions.filter(
-                    (hogFunction) => hogFunction.enabled && hogFunction.template?.status !== 'free'
-                )
+                return hogFunctions.filter((hogFunction) => hogFunction.enabled && !hogFunction.template?.free)
             },
         ],
         loading: [
@@ -240,7 +272,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                 hogFunctions,
                 user,
                 featureFlags
-            ): (Destination | SiteApp)[] => {
+            ): (Destination | Transformation | SiteApp)[] => {
                 // Migrations are shown only in impersonation mode, for us to be able to trigger them.
                 const httpEnabled =
                     featureFlags[FEATURE_FLAGS.BATCH_EXPORTS_POSTHOG_HTTP] || user?.is_impersonated || user?.is_staff
@@ -249,9 +281,16 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                     httpEnabled ? true : config.destination.type !== ('HTTP' as const)
                 )
 
+                const filteredHogFunctions = hogFunctions.filter((hogFunction) => {
+                    if (!shouldShowHogFunction(hogFunction, user)) {
+                        return false
+                    }
+                    return true
+                })
+
                 const rawDestinations: (PluginConfigWithPluginInfoNew | BatchExportConfiguration | HogFunctionType)[] =
                     ([] as (PluginConfigWithPluginInfoNew | BatchExportConfiguration | HogFunctionType)[])
-                        .concat(hogFunctions)
+                        .concat(filteredHogFunctions)
                         .concat(
                             Object.values(pluginConfigs).map((pluginConfig) => ({
                                 ...pluginConfig,
@@ -262,7 +301,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                 const convertedDestinations = rawDestinations.map((d) =>
                     convertToPipelineNode(
                         d,
-                        'type' in d && d.type === 'site_app' ? PipelineStage.SiteApp : PipelineStage.Destination
+                        'type' in d ? hogFunctionTypeToPipelineStage(d.type) : PipelineStage.Destination
                     )
                 )
                 const enabledFirst = convertedDestinations.sort((a, b) => Number(b.enabled) - Number(a.enabled))
@@ -281,7 +320,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
 
         filteredDestinations: [
             (s) => [s.filters, s.destinations, s.destinationsFuse],
-            (filters, destinations, destinationsFuse): (Destination | SiteApp)[] => {
+            (filters, destinations, destinationsFuse): (Destination | Transformation | SiteApp)[] => {
                 const { search, showPaused, kind } = filters
 
                 return (search ? destinationsFuse.search(search).map((x) => x.item) : destinations).filter((dest) => {
@@ -298,7 +337,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
 
         hiddenDestinations: [
             (s) => [s.destinations, s.filteredDestinations],
-            (destinations, filteredDestinations): (Destination | SiteApp)[] => {
+            (destinations, filteredDestinations): (Destination | Transformation | SiteApp)[] => {
                 return destinations.filter((dest) => !filteredDestinations.includes(dest))
             },
         ],
@@ -331,12 +370,21 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                     break
             }
         },
+        saveTransformationsOrderSuccess: () => {
+            actions.closeReorderTransformationsModal()
+            lemonToast.success('Transformation order updated successfully')
+        },
+        saveTransformationsOrderFailure: () => {
+            lemonToast.error('Failed to update transformation order')
+        },
     })),
 
-    afterMount(({ actions }) => {
-        actions.loadPlugins()
-        actions.loadPluginConfigs()
-        actions.loadBatchExports()
+    afterMount(({ actions, props }) => {
+        if (props.types.includes('destination')) {
+            actions.loadPlugins()
+            actions.loadPluginConfigs()
+            actions.loadBatchExports()
+        }
         actions.loadHogFunctions()
     }),
 ])

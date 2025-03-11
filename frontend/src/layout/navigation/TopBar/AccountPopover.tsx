@@ -15,9 +15,11 @@ import {
 import { LemonButtonPropsBase } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { ThemeSwitcher } from 'scenes/settings/user/ThemeSwitcher'
@@ -71,7 +73,7 @@ function AccountInfo(): JSX.Element {
                 <ProfilePicture user={user} size="xl" />
                 <div className="AccountInfo__identification AccountPopover__main-info font-sans font-normal">
                     <div className="font-semibold mb-1">{user?.first_name}</div>
-                    <div className="overflow-hidden text-muted-alt truncate text-[0.8125rem]" title={user?.email}>
+                    <div className="overflow-hidden text-secondary truncate text-[0.8125rem]" title={user?.email}>
                         {user?.email}
                     </div>
                 </div>
@@ -109,12 +111,11 @@ function CurrentOrganization({ organization }: { organization: OrganizationBasic
 }
 
 export function InviteMembersButton({
+    text = 'Invite members',
     center = false,
     type = 'tertiary',
-}: {
-    center?: boolean
-    type?: LemonButtonPropsBase['type']
-}): JSX.Element {
+    ...props
+}: LemonButtonPropsBase & { text?: string }): JSX.Element {
     const { closeAccountPopover } = useActions(navigationLogic)
     const { showInviteModal } = useActions(inviteLogic)
     const { reportInviteMembersButtonClicked } = useActions(eventUsageLogic)
@@ -131,8 +132,9 @@ export function InviteMembersButton({
             type={type}
             fullWidth
             data-attr="top-menu-invite-team-members"
+            {...props}
         >
-            Invite members
+            {text}
         </LemonButton>
     )
 }
@@ -212,6 +214,7 @@ export function AccountPopoverOverlay(): JSX.Element {
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { preflight, isCloudOrDev, isCloud } = useValues(preflightLogic)
     const { closeAccountPopover } = useActions(navigationLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <>
@@ -223,12 +226,16 @@ export function AccountPopoverOverlay(): JSX.Element {
                 {isCloudOrDev ? (
                     <LemonButton
                         onClick={closeAccountPopover}
-                        to={urls.organizationBilling()}
+                        to={
+                            featureFlags[FEATURE_FLAGS.BILLING_USAGE_DASHBOARD]
+                                ? urls.organizationBillingSection('overview')
+                                : urls.organizationBilling()
+                        }
                         icon={<IconReceipt />}
                         fullWidth
                         data-attr="top-menu-item-billing"
                     >
-                        Billing
+                        {featureFlags[FEATURE_FLAGS.BILLING_USAGE_DASHBOARD] ? 'Billing & Usage' : 'Billing'}
                     </LemonButton>
                 ) : null}
                 <InviteMembersButton />

@@ -1,0 +1,9 @@
+{
+    "distinct_id": "1234",
+    "event": "my-event",
+    "properties": {
+        "$ip": "127.0.0.1",
+        "foo": "bar"
+    },
+    "token": "phc_1234"
+}

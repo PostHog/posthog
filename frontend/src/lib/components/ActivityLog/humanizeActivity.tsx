@@ -38,7 +38,7 @@ export type ActivityLogItem = {
     user?: Pick<UserBasicType, 'email' | 'first_name' | 'last_name'>
     activity: string
     created_at: string
-    scope: ActivityScope
+    scope: ActivityScope | string
     item_id?: string
     detail: ActivityLogDetail
     /** Present if the log is used as a notification. Whether the notification is unread. */
@@ -68,6 +68,8 @@ export type HumanizedActivityLogItem = {
     extendedDescription?: ExtendedDescription // e.g. an insight's filters summary
     created_at: dayjs.Dayjs
     unread?: boolean
+    // used when showing e.g. diff of changes
+    unprocessed?: ActivityLogItem
 }
 
 export type Describer = (logItem: ActivityLogItem, asNotification?: boolean) => HumanizedChange
@@ -108,6 +110,7 @@ export function humanize(
                 extendedDescription,
                 created_at: dayjs(logItem.created_at),
                 unread: logItem.unread,
+                unprocessed: logItem,
             })
         }
     }
@@ -127,10 +130,10 @@ const NO_PLURAL_SCOPES: ActivityScope[] = [
     ActivityScope.PROPERTY_DEFINITION,
 ]
 
-export function humanizeScope(scope: ActivityScope, singular = false): string {
+export function humanizeScope(scope: ActivityScope | string, singular = false): string {
     let output = scope.split(/(?=[A-Z])/).join(' ')
 
-    if (!singular && !NO_PLURAL_SCOPES.includes(scope)) {
+    if (!singular && !NO_PLURAL_SCOPES.includes(scope as ActivityScope)) {
         output += 's'
     }
 
@@ -176,7 +179,7 @@ export function defaultDescriber(
         return {
             description,
             extendedDescription: commentContent ? (
-                <div className="border rounded bg-bg-light p-4">
+                <div className="border rounded bg-surface-primary p-4">
                     <LemonMarkdown lowKeyHeadings>{commentContent}</LemonMarkdown>
                 </div>
             ) : undefined,

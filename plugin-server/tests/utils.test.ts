@@ -4,15 +4,19 @@ import { DateTime } from 'luxon'
 import { ClickHouseTimestamp } from '../src/types'
 import { safeClickhouseString } from '../src/utils/db/utils'
 import {
+    base64StringToUint32ArrayLE,
     bufferToStream,
     clickHouseTimestampToDateTime,
     cloneObject,
+    createRandomUint32x4,
     escapeClickHouseString,
     getPropertyValueByPath,
     groupBy,
     sanitizeSqlIdentifier,
     stringify,
+    uint32ArrayLEToBase64String,
     UUID,
+    UUID7,
     UUIDT,
 } from '../src/utils/utils'
 
@@ -25,6 +29,21 @@ describe('utils', () => {
         const buffer = Buffer.from(zip, 'base64')
         const stream = bufferToStream(buffer)
         expect(stream.read()).toEqual(buffer)
+    })
+
+    describe('uint32ArrayToBase64String and base64StringToUint32Array', () => {
+        it('should be reversible with the empty array and empty string', () => {
+            expect(base64StringToUint32ArrayLE(uint32ArrayLEToBase64String(new Uint32Array(0)))).toEqual(
+                new Uint32Array(0)
+            )
+            expect(uint32ArrayLEToBase64String(base64StringToUint32ArrayLE(''))).toEqual('')
+        })
+        it('should be reversible with a random uint32x4', () => {
+            const input = createRandomUint32x4()
+            const base64 = uint32ArrayLEToBase64String(input)
+            const output = base64StringToUint32ArrayLE(base64)
+            expect(output).toEqual(input)
+        })
     })
 
     test('cloneObject', () => {
@@ -96,7 +115,6 @@ describe('utils', () => {
         describe('#valueOf', () => {
             it('returns the right big integer', () => {
                 const uuid = new UUID('99aBcDeF-1234-4321-0000-dcba87654321')
-
                 expect(uuid.valueOf()).toStrictEqual(0x99abcdef123443210000dcba87654321n)
             })
         })
@@ -121,6 +139,33 @@ describe('utils', () => {
             expect(uuidtString.slice(0, 8)).toEqual(Date.now().toString(16).padStart(12, '0').slice(0, 8))
             // series matching
             expect(uuidtString.slice(14, 18)).toEqual('0000')
+        })
+    })
+
+    describe('UUIDv7', () => {
+        it('is well-formed', () => {
+            const uuid7 = new UUID7()
+            const uuid7String = uuid7.toString()
+            // UTC timestamp matching (roughly, only comparing the beginning as the timestamp's end inevitably drifts away)
+            expect(uuid7String.slice(0, 8)).toEqual(Date.now().toString(16).padStart(12, '0').slice(0, 8))
+            // version digit matching
+            expect(uuid7String[14]).toEqual('7')
+            // var matching
+            const variant = parseInt(uuid7String[19], 16) >>> 2
+            expect(variant).toEqual(2)
+        })
+        it('has the correct value when given a timestamp and random bytes', () => {
+            const timestamp = new Date('Wed, 30 Oct 2024 21:46:23 GMT').getTime()
+            const randomBytes = Buffer.from(
+                new Uint8Array([0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0x01, 0x23])
+            )
+            const uuid7 = new UUID7(timestamp, randomBytes)
+            expect(uuid7.toString()).toEqual('0192df64-df98-7123-8567-89abcdef0123')
+        })
+        it('can be loaded from a buffer', () => {
+            const str = '0192df64df987123856789abcdef0123'
+            const uuid = new UUID7(new Buffer(str, 'hex'))
+            expect(uuid.toString().replace(/-/g, '')).toEqual(str)
         })
     })
 

@@ -1,18 +1,20 @@
 from datetime import datetime
+from io import BytesIO
 from typing import Any, Optional
 from unittest import mock
-from unittest.mock import MagicMock, Mock, patch, ANY
-from dateutil.relativedelta import relativedelta
+from unittest.mock import ANY, MagicMock, Mock, patch
 
-from openpyxl import load_workbook
-from io import BytesIO
 import pytest
 from boto3 import resource
 from botocore.client import Config
+from dateutil.relativedelta import relativedelta
 from django.test import override_settings
 from django.utils.timezone import now
+from freezegun import freeze_time
+from openpyxl import load_workbook
 from requests.exceptions import HTTPError
 
+from posthog.hogql.constants import CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL
 from posthog.models import ExportedAsset
 from posthog.models.utils import UUIDT
 from posthog.settings import (
@@ -26,11 +28,10 @@ from posthog.storage.object_storage import ObjectStorageError
 from posthog.tasks.exports import csv_exporter
 from posthog.tasks.exports.csv_exporter import (
     UnexpectedEmptyJsonResponse,
-    add_query_params,
     _convert_response_to_csv_data,
+    add_query_params,
 )
-from posthog.hogql.constants import CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL
-from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events, _create_person
+from posthog.test.base import APIBaseTest, _create_event, _create_person, flush_persons_and_events
 from posthog.test.test_journeys import journeys_for
 from posthog.utils import absolute_uri
 
@@ -329,7 +330,7 @@ class TestCSVExporter(APIBaseTest):
     def test_failing_export_api_is_reported_query_size_exceeded(self, _mock_logger: MagicMock) -> None:
         with patch("posthog.tasks.exports.csv_exporter.make_api_call") as patched_make_api_call:
             exported_asset = self._create_asset()
-            mock_error = HTTPError("Query size exceeded")
+            mock_error = HTTPError("Query size exceeded")  # type: ignore[call-arg]
             mock_error.response = Mock()
             mock_error.response.text = "Query size exceeded"
             patched_make_api_call.side_effect = mock_error
@@ -817,3 +818,71 @@ class TestCSVExporter(APIBaseTest):
             ]
 
             self.assertEqual(lines, expected_lines)
+
+    def test_csv_exporter_trends_actors(
+        self,
+    ) -> None:
+        with freeze_time("2022-06-01T12:00:00.000Z"):
+            _create_person(distinct_ids=[f"user_1"], team=self.team, uuid="4beb316f-23aa-2584-66d3-4a1b8ab458f2")
+
+        events_by_person = {
+            "user_1": [
+                {
+                    "event": "$pageview",
+                    "timestamp": datetime(2020, 3, 22, 13, 46),
+                },
+                {
+                    "event": "$pageview",
+                    "timestamp": datetime(2020, 3, 22, 13, 47),
+                },
+            ],
+        }
+        journeys_for(events_by_person, self.team)
+        _create_event(
+            event="$pageview",
+            distinct_id="user_2",  # personless user
+            person_id="d0780d6b-ccd0-44fa-a227-47efe4f3f30d",
+            timestamp=datetime(2020, 3, 22, 13, 48),
+            team=self.team,
+        )
+        flush_persons_and_events()
+
+        exported_asset = ExportedAsset(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={
+                "source": {
+                    "kind": "ActorsQuery",
+                    "search": "",
+                    "select": ["actor", "event_count"],
+                    "source": {
+                        "day": "2020-03-22T00:00:00Z",
+                        "kind": "InsightActorsQuery",
+                        "series": 0,
+                        "source": {
+                            "kind": "TrendsQuery",
+                            "series": [
+                                {"kind": "EventsNode", "math": "total", "name": "$pageview", "event": "$pageview"}
+                            ],
+                            "trendsFilter": {},
+                        },
+                        "includeRecordings": False,
+                    },
+                    "orderBy": ["event_count DESC, actor_id DESC"],
+                }
+            },
+        )
+        exported_asset.save()
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+            csv_exporter.export_tabular(exported_asset)
+            content = object_storage.read(exported_asset.content_location)  # type: ignore
+            lines = (content or "").strip().split("\r\n")
+            self.assertEqual(
+                lines,
+                [
+                    "actor.id,actor.is_identified,actor.created_at,actor.distinct_ids.0,event_count,event_distinct_ids.0",
+                    "4beb316f-23aa-2584-66d3-4a1b8ab458f2,False,2022-06-01 12:00:00+00:00,user_1,2,user_1",
+                    "d0780d6b-ccd0-44fa-a227-47efe4f3f30d,,,user_2,1,user_2",
+                ],
+            )

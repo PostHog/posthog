@@ -1,5 +1,3 @@
-import '../Experiment.scss'
-
 import { IconFlag } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonModal, LemonTable, LemonTableColumns, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
@@ -42,7 +40,7 @@ export function ReleaseConditionsModal({ experimentId }: { experimentId: Experim
                 </div>
             }
         >
-            <div className="space-y-4">
+            <div className="deprecated-space-y-4">
                 <LemonBanner type="info">
                     Adjusting user targeting may impact the validity of your results. Adjust only if you're aware of how
                     changes will affect your experiment.

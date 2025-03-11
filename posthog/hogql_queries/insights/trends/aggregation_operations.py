@@ -73,6 +73,8 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                 return self._math_func("max", None)
             elif self.series.math == "median":
                 return self._math_quantile(0.5, None)
+            elif self.series.math == "p75":
+                return self._math_quantile(0.75, None)
             elif self.series.math == "p90":
                 return self._math_quantile(0.9, None)
             elif self.series.math == "p95":
@@ -106,6 +108,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             "min_count_per_actor",
             "max_count_per_actor",
             "median_count_per_actor",
+            "p75_count_per_actor",
             "p90_count_per_actor",
             "p95_count_per_actor",
             "p99_count_per_actor",
@@ -115,7 +118,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
         return self.series.math in ["weekly_active", "monthly_active"]
 
     def is_first_time_ever_math(self):
-        return self.series.math == "first_time_for_user"
+        return self.series.math in {"first_time_for_user", "first_matching_event_for_user"}
 
     def is_first_matching_event(self):
         return self.series.math == "first_matching_event_for_user"
@@ -145,7 +148,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             chain = ["properties", self.series.math_property]
 
         return ast.Call(
-            # Two caveats here:
+            # Two caveats here - similar to the math_quantile, but not quite:
             # 1. We always parse/convert the value to a Float64, to make sure it's a number. This truncates precision
             # of very large integers, but it's a tradeoff preventing queries failing with "Illegal type String"
             # 2. We fall back to 0 when there's no data, which is not quite kosher for math functions other than sum
@@ -164,9 +167,20 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             chain = ["properties", self.series.math_property]
 
         return ast.Call(
-            name="quantile",
-            params=[ast.Constant(value=percentile)],
-            args=[ast.Field(chain=override_chain or chain)],
+            # Two caveats here - similar to the math_func, but not quite:
+            # 1. We always parse/convert the value to a Float64, to make sure it's a number. This truncates precision
+            # of very large integers, but it's a tradeoff preventing queries failing with "Illegal type String"
+            # 2. We fall back to 0 when there's no data, which makes some kind of sense for percentile,
+            # (null would actually be more meaningful for e.g. min or max), but formulas aren't equipped to handle nulls
+            name="ifNull",
+            args=[
+                ast.Call(
+                    name="quantile",
+                    params=[ast.Constant(value=percentile)],
+                    args=[ast.Call(name="toFloat", args=[ast.Field(chain=override_chain or chain)])],
+                ),
+                ast.Constant(value=0),
+            ],
         )
 
     def _interval_placeholders(self):
@@ -247,6 +261,8 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                 math_func = self._math_func("max", ["total"])
             elif self.series.math == "median_count_per_actor":
                 math_func = self._math_quantile(0.5, ["total"])
+            elif self.series.math == "p75_count_per_actor":
+                math_func = self._math_quantile(0.75, ["total"])
             elif self.series.math == "p90_count_per_actor":
                 math_func = self._math_quantile(0.9, ["total"])
             elif self.series.math == "p95_count_per_actor":
@@ -283,13 +299,13 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                 SELECT
                     d.timestamp,
                     COUNT(DISTINCT actor_id) AS counts
-                FROM (
+                FROM {cross_join_select_query} e
+                CROSS JOIN (
                     SELECT
                         {date_to_start_of_interval} - {number_interval_period} AS timestamp
                     FROM
                         numbers(dateDiff({interval}, {date_from_start_of_interval} - {inclusive_lookback}, {date_to}))
                 ) d
-                CROSS JOIN {cross_join_select_query} e
                 WHERE
                     e.timestamp <= d.timestamp + INTERVAL 1 DAY AND
                     e.timestamp > d.timestamp - {exclusive_lookback}
@@ -460,7 +476,6 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
         events_where_clause: ast.Expr,
         sample_value: ast.RatioExpr,
         event_name_filter: ast.Expr | None = None,
-        is_first_matching_event: bool = False,
     ):
         date_placeholders = self.query_date_range.to_placeholders()
         date_from = parse_expr(
@@ -474,6 +489,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
 
         events_query = ast.SelectQuery(select=[])
         parent_select = self._first_time_parent_query(events_query)
+        is_first_matching_event = self.is_first_matching_event()
 
         class QueryOrchestrator:
             events_query_builder: FirstTimeForUserEventsQueryAlternator

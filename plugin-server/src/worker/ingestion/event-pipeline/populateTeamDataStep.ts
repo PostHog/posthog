@@ -1,7 +1,8 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
-import { PipelineEvent } from '../../../types'
+import { PipelineEvent, Team } from '../../../types'
+import { sanitizeString } from '../../../utils/db/utils'
 import { UUID } from '../../../utils/utils'
 import { captureIngestionWarning } from '../utils'
 import { tokenOrTeamPresentCounter } from './metrics'
@@ -10,7 +11,7 @@ import { EventPipelineRunner } from './runner'
 export async function populateTeamDataStep(
     runner: EventPipelineRunner,
     event: PipelineEvent
-): Promise<PluginEvent | null> {
+): Promise<{ eventWithTeam: PluginEvent; team: Team } | null> {
     /**
      * Implements team_id resolution and applies the team's ingestion settings (dropping event.ip if requested).
      * Resolution can fail if PG is unavailable, leading to the consumer taking lag until retries succeed.
@@ -42,6 +43,9 @@ export async function populateTeamDataStep(
     } else if (event.team_id) {
         team = await runner.hub.teamManager.fetchTeam(event.team_id)
     } else if (event.token) {
+        // HACK: we've had null bytes end up in the token in the ingest pipeline before, for some reason. We should try to
+        // prevent this generally, but if it happens, we should at least simply fail to lookup the team, rather than crashing
+        event.token = sanitizeString(event.token)
         team = await runner.hub.teamManager.getTeamByToken(event.token)
     }
 
@@ -64,11 +68,16 @@ export async function populateTeamDataStep(
         throw new Error(`Not a valid UUID: "${event.uuid}"`)
     }
 
+    const skipPersonsProcessingForDistinctIds = runner.hub.eventsToSkipPersonsProcessingByToken.get(event.token!)
+
+    const forceOptOutPersonProfiles =
+        team.person_processing_opt_out || skipPersonsProcessingForDistinctIds?.includes(event.distinct_id)
+
     // We allow teams to set the person processing mode on a per-event basis, but override
     // it with the team-level setting, if it's set to opt-out (since this is billing related,
     // we go with preferring not to do the processing even if the event says to do it, if the
     // setting says not to).
-    if (team.person_processing_opt_out) {
+    if (forceOptOutPersonProfiles) {
         if (event.properties) {
             event.properties.$process_person_profile = false
         } else {
@@ -76,10 +85,10 @@ export async function populateTeamDataStep(
         }
     }
 
-    event = {
+    const eventWithTeam: PluginEvent = {
         ...event,
         team_id: team.id,
     }
 
-    return event as PluginEvent
+    return { eventWithTeam, team }
 }

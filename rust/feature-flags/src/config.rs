@@ -116,7 +116,7 @@ impl Config {
             read_database_url: "postgres://posthog:posthog@localhost:5432/test_posthog".to_string(),
             max_concurrency: 1000,
             max_pg_connections: 10,
-            acquire_timeout_secs: 1,
+            acquire_timeout_secs: 5,
             maxmind_db_path: "".to_string(),
             enable_metrics: false,
             team_ids_to_track: TeamIdsToTrack::All,

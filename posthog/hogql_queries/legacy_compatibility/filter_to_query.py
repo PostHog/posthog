@@ -22,7 +22,7 @@ from posthog.schema import (
     FunnelsFilter,
     FunnelsQuery,
     FunnelVizType,
-    InsightDateRange,
+    DateRange,
     LifecycleFilter,
     LifecycleQuery,
     PathsFilter,
@@ -277,7 +277,7 @@ INSIGHT_TYPE = Literal["TRENDS", "FUNNELS", "RETENTION", "PATHS", "LIFECYCLE", "
 
 
 def _date_range(filter: dict):
-    date_range = InsightDateRange(
+    date_range = DateRange(
         date_from=filter.get("date_from"),
         date_to=filter.get("date_to"),
         explicitDate=str_to_bool(filter.get("explicit_date")) if filter.get("explicit_date") else None,
@@ -492,6 +492,7 @@ def _insight_filter(filter: dict, allow_variables: bool = False):
                 showPercentStackView=filter.get("show_percent_stack_view"),
                 showLabelsOnSeries=filter.get("show_label_on_series"),
                 yAxisScaleType=filter.get("y_axis_scale_type"),
+                showMultipleYAxes=filter.get("show_multiple_y_axes"),
             )
         }
     elif _insight_type(filter) == "FUNNELS":
@@ -538,6 +539,8 @@ def _insight_filter(filter: dict, allow_variables: bool = False):
                 ),
                 period=filter.get("period"),
                 showMean=filter.get("show_mean"),
+                meanRetentionCalculation=filter.get("mean_retention_calculation")
+                or ("simple" if filter.get("show_mean") else "none" if filter.get("show_mean") is False else "simple"),
                 cumulative=filter.get("cumulative"),
             )
         }
@@ -602,7 +605,9 @@ def filters_to_funnel_paths_query(filter: dict[str, Any]) -> FunnelPathsFilter |
 
 
 def _insight_type(filter: dict) -> INSIGHT_TYPE:
-    if filter.get("insight") == "SESSIONS":
+    if filter.get("shown_as") == "Stickiness":
+        return "STICKINESS"
+    elif filter.get("insight") == "SESSIONS":
         return "TRENDS"
     return filter.get("insight", "TRENDS")
 

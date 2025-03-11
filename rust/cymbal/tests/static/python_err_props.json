@@ -722,8 +722,6 @@
             }
         }
     ],
-    "$exception_message": "[Errno 111] Connection refused",
-    "$exception_type": "ConnectionRefusedError",
     "$plugins_failed": [],
     "$geoip_disable": true,
     "$lib_version__patch": 6,

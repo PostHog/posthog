@@ -14,27 +14,27 @@ from posthog.hogql.database.models import (
 )
 
 QUERY_LOG_FIELDS: dict[str, FieldOrTable] = {
-    "query_id": StringDatabaseField(name="query_id"),
-    "query": StringDatabaseField(name="query"),  #
-    "query_start_time": DateTimeDatabaseField(name="event_time"),  #
-    "query_duration_ms": FloatDatabaseField(name="query_duration_ms"),  #
-    "created_by": IntegerDatabaseField(name="created_by"),
-    "read_rows": IntegerDatabaseField(name="read_rows"),
-    "read_bytes": IntegerDatabaseField(name="read_bytes"),
-    "result_rows": IntegerDatabaseField(name="result_rows"),
-    "result_bytes": IntegerDatabaseField(name="result_bytes"),
-    "memory_usage": IntegerDatabaseField(name="memory_usage"),
-    "status": StringDatabaseField(name="type"),
-    "kind": StringDatabaseField(name="kind"),
-    "query_type": StringDatabaseField(name="query_type"),
-    "is_personal_api_key_request": BooleanDatabaseField(name="is_personal_api_key_request"),
+    "query_id": StringDatabaseField(name="query_id", nullable=False),
+    "endpoint": StringDatabaseField(name="endpoint", nullable=False),
+    "query": StringDatabaseField(name="query", nullable=False),  #
+    "query_start_time": DateTimeDatabaseField(name="event_time", nullable=False),  #
+    "query_duration_ms": FloatDatabaseField(name="query_duration_ms", nullable=False),  #
+    "hogql_name": StringDatabaseField(name="hogql_name", nullable=False),
+    "created_by": IntegerDatabaseField(name="created_by", nullable=False),
+    "read_rows": IntegerDatabaseField(name="read_rows", nullable=False),
+    "read_bytes": IntegerDatabaseField(name="read_bytes", nullable=False),
+    "result_rows": IntegerDatabaseField(name="result_rows", nullable=False),
+    "result_bytes": IntegerDatabaseField(name="result_bytes", nullable=False),
+    "memory_usage": IntegerDatabaseField(name="memory_usage", nullable=False),
+    "status": StringDatabaseField(name="type", nullable=False),
+    "is_personal_api_key_request": BooleanDatabaseField(name="is_personal_api_key_request", nullable=False),
 }
 
 RAW_QUERY_LOG_FIELDS: dict[str, FieldOrTable] = QUERY_LOG_FIELDS | {
     # below fields are necessary to compute some of the resulting fields
-    "type": StringDatabaseField(name="type"),
-    "is_initial_query": BooleanDatabaseField(name="is_initial_query"),
-    "log_comment": StringDatabaseField(name="log_comment"),
+    "type": StringDatabaseField(name="type", nullable=False),
+    "is_initial_query": BooleanDatabaseField(name="is_initial_query", nullable=False),
+    "log_comment": StringDatabaseField(name="log_comment", nullable=False),
 }
 
 STRING_FIELDS = {
@@ -42,6 +42,7 @@ STRING_FIELDS = {
     "query_id": ["client_query_id"],
     "query": ["query", "query"],
     "kind": ["query", "kind"],
+    "hogql_name": ["query", "name"],
 }
 INT_FIELDS = {"created_by": ["user_id"]}
 
@@ -81,10 +82,31 @@ class QueryLogTable(LazyTable):
                     left=ast.Constant(value="personal_api_key"),
                     right=ast.Call(
                         name="JSONExtractString",
-                        args=[ast.Field(chain=["log_comment"]), ast.Constant(value="access_method")],
+                        args=[ast.Field(chain=[raw_table_name, "log_comment"]), ast.Constant(value="access_method")],
                     ),
                 )
                 return ast.Alias(alias=name, expr=cmp_expr)
+            if name == "endpoint":
+                if_expr = ast.Call(
+                    name="if",
+                    args=[
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.Eq,
+                            left=ast.Call(
+                                name="JSONExtractString",
+                                args=[ast.Field(chain=[raw_table_name, "log_comment"]), ast.Constant(value="kind")],
+                            ),
+                            right=ast.Constant(value="request"),
+                        ),
+                        ast.Call(
+                            name="JSONExtractString",
+                            args=[ast.Field(chain=[raw_table_name, "log_comment"]), ast.Constant(value="id")],
+                        ),
+                        ast.Constant(value=""),
+                    ],
+                )
+                return ast.Alias(alias=name, expr=if_expr)
+
             return ast.Alias(alias=name, expr=ast.Field(chain=[raw_table_name, *chain]))
 
         fields: list[ast.Expr] = [get_alias(name, chain) for name, chain in requested_fields.items()]
@@ -96,10 +118,22 @@ class QueryLogTable(LazyTable):
                 exprs=[
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.Eq,
-                        left=ast.Constant(value=context.project_id),
+                        left=ast.Constant(value=context.team_id),
                         right=ast.Call(
                             name="JSONExtractInt",
-                            args=[ast.Field(chain=["log_comment"]), ast.Constant(value="user_id")],
+                            args=[ast.Field(chain=["log_comment"]), ast.Constant(value="team_id")],
+                        ),
+                    ),
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Constant(value="HogQLQuery"),
+                        right=ast.Call(
+                            name="JSONExtractString",
+                            args=[
+                                ast.Field(chain=["log_comment"]),
+                                ast.Constant(value="query"),
+                                ast.Constant(value="kind"),
+                            ],
                         ),
                     ),
                     ast.CompareOperation(

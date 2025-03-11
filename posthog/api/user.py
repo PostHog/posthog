@@ -21,27 +21,27 @@ from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 from django_filters.rest_framework import DjangoFilterBackend
 from django_otp import login as otp_login
+from django_otp.plugins.otp_static.models import StaticDevice, StaticToken
+from django_otp.plugins.otp_totp.models import TOTPDevice
 from django_otp.util import random_hex
 from loginas.utils import is_impersonated_session
 from prometheus_client import Counter
 from rest_framework import exceptions, mixins, serializers, viewsets
-from posthog.api.utils import action
 from rest_framework.exceptions import NotFound
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from two_factor.forms import TOTPDeviceForm
 from two_factor.utils import default_device
-from django_otp.plugins.otp_static.models import StaticDevice, StaticToken
-from django_otp.plugins.otp_totp.models import TOTPDevice
 
 from posthog.api.client_auth import confirm_client_auth_flow, start_client_auth_flow
 from posthog.api.email_verification import EmailVerifier
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
 from posthog.api.utils import (
-    PublicIPOnlyHttpAdapter,
-    raise_if_user_provided_url_unsafe,
     ClassicBehaviorBooleanFieldSerializer,
+    PublicIPOnlyHttpAdapter,
+    action,
+    raise_if_user_provided_url_unsafe,
     unparsed_hostname_in_allowed_url_list,
 )
 from posthog.auth import (
@@ -60,11 +60,15 @@ from posthog.event_usage import (
 from posthog.middleware import get_impersonated_session_expires_at
 from posthog.models import Dashboard, Team, User, UserScenePersonalisation
 from posthog.models.organization import Organization
-from posthog.models.user import NOTIFICATION_DEFAULTS, Notifications
+from posthog.models.user import NOTIFICATION_DEFAULTS, Notifications, ROLE_CHOICES
 from posthog.permissions import APIScopePermission
 from posthog.rate_limit import UserAuthenticationThrottle, UserEmailVerificationThrottle
 from posthog.tasks import user_identify
-from posthog.tasks.email import send_email_change_emails
+from posthog.tasks.email import (
+    send_email_change_emails,
+    send_two_factor_auth_disabled_email,
+    send_two_factor_auth_enabled_email,
+)
 from posthog.user_permissions import UserPermissions
 
 REDIRECT_TO_SITE_COUNTER = Counter("posthog_redirect_to_site", "Redirect to site")
@@ -95,6 +99,7 @@ class UserSerializer(serializers.ModelSerializer):
     notification_settings = serializers.DictField(required=False)
     scene_personalisation = ScenePersonalisationBasicSerializer(many=True, read_only=True)
     anonymize_data = ClassicBehaviorBooleanFieldSerializer()
+    role_at_organization = serializers.ChoiceField(choices=ROLE_CHOICES, required=False)
 
     class Meta:
         model = User
@@ -129,6 +134,7 @@ class UserSerializer(serializers.ModelSerializer):
             "scene_personalisation",
             "theme_mode",
             "hedgehog_config",
+            "role_at_organization",
         ]
 
         read_only_fields = [
@@ -211,15 +217,42 @@ class UserSerializer(serializers.ModelSerializer):
         raise serializers.ValidationError(f"Object with id={value} does not exist.", code="does_not_exist")
 
     def validate_notification_settings(self, notification_settings: Notifications) -> Notifications:
+        instance = cast(User, self.instance)
+        current_settings = {**NOTIFICATION_DEFAULTS, **(instance.partial_notification_settings or {})}
+
         for key, value in notification_settings.items():
             if key not in Notifications.__annotations__:
-                raise serializers.ValidationError(f"Key {key} is not valid as a key for notification settings")
-
-            if not isinstance(value, Notifications.__annotations__[key]):
                 raise serializers.ValidationError(
-                    f"{value} is not a valid type for notification settings, should be {Notifications.__annotations__[key]}"
+                    f"Key {key} is not valid as a key for notification settings", code="invalid_input"
                 )
-        return {**NOTIFICATION_DEFAULTS, **notification_settings}
+
+            expected_type = Notifications.__annotations__[key]
+
+            if key == "project_weekly_digest_disabled":
+                if not isinstance(value, dict):
+                    raise serializers.ValidationError(
+                        f"project_weekly_digest_disabled must be a dictionary mapping project IDs to boolean values",
+                        code="invalid_input",
+                    )
+                # Validate each project setting is a boolean
+                for _, disabled in value.items():
+                    if not isinstance(disabled, bool):
+                        raise serializers.ValidationError(
+                            f"Project notification setting values must be boolean, got {type(disabled)} instead",
+                            code="invalid_input",
+                        )
+                # Merge with existing settings
+                current_settings[key] = {**current_settings.get("project_weekly_digest_disabled", {}), **value}
+            else:
+                # For non-dict settings, validate type directly
+                if not isinstance(value, expected_type):
+                    raise serializers.ValidationError(
+                        f"{value} is not a valid type for notification settings, should be {expected_type}",
+                        code="invalid_input",
+                    )
+                current_settings[key] = value
+
+        return cast(Notifications, current_settings)
 
     def validate_password_change(
         self, instance: User, current_password: Optional[str], password: Optional[str]
@@ -249,6 +282,11 @@ class UserSerializer(serializers.ModelSerializer):
     def validate_is_staff(self, value: bool) -> bool:
         if not self.context["request"].user.is_staff:
             raise exceptions.PermissionDenied("You are not a staff user, contact your instance admin.")
+        return value
+
+    def validate_role_at_organization(self, value):
+        if value and value not in dict(ROLE_CHOICES):
+            raise serializers.ValidationError("Invalid role selected")
         return value
 
     def update(self, instance: "User", validated_data: Any) -> Any:
@@ -384,10 +422,11 @@ class UserViewSet(
             "user_permissions": UserPermissions(cast(User, self.request.user)),
         }
 
-    @action(methods=["POST"], detail=True, permission_classes=[AllowAny])
+    @action(methods=["POST"], detail=False, permission_classes=[AllowAny])
     def verify_email(self, request, **kwargs):
         token = request.data["token"] if "token" in request.data else None
         user_uuid = request.data["uuid"]
+
         if not token:
             raise serializers.ValidationError({"token": ["This field is required."]}, code="required")
 
@@ -423,7 +462,7 @@ class UserViewSet(
 
     @action(
         methods=["POST"],
-        detail=True,
+        detail=False,
         permission_classes=[AllowAny],
         throttle_classes=[UserEmailVerificationThrottle],
     )
@@ -500,6 +539,9 @@ class UserViewSet(
             raise serializers.ValidationError("Token is not valid", code="token_invalid")
         form.save()
         otp_login(request, default_device(request.user))
+
+        send_two_factor_auth_enabled_email.delay(request.user.id)
+
         return Response({"success": True})
 
     @action(methods=["GET"], detail=True)
@@ -555,6 +597,8 @@ class UserViewSet(
         TOTPDevice.objects.filter(user=user).delete()
         StaticDevice.objects.filter(user=user).delete()
 
+        send_two_factor_auth_disabled_email.delay(user.id)
+
         return Response({"success": True})
 
 
@@ -599,7 +643,10 @@ def redirect_to_site(request):
     # see https://github.com/PostHog/posthog/issues/9671
     state = urllib.parse.quote(json.dumps(params), safe="")
 
-    return redirect("{}#__posthog={}".format(app_url, state))
+    if str(request.GET.get("generateOnly")) in ["1", "yes", "true"]:
+        return JsonResponse({"toolbarParams": state})
+    else:
+        return redirect("{}#__posthog={}".format(app_url, state))
 
 
 @authenticate_secondarily

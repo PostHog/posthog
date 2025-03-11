@@ -2,26 +2,33 @@
 
 import { CyclotronJob, CyclotronJobUpdate } from '@posthog/cyclotron'
 import { Bytecodes } from '@posthog/hogvm'
-import { captureException } from '@sentry/node'
 import { DateTime } from 'luxon'
 import RE2 from 're2'
 import { gunzip, gzip } from 'zlib'
 
 import { RawClickHouseEvent, Team, TimestampFormat } from '../types'
 import { safeClickhouseString } from '../utils/db/utils'
+import { captureException } from '../utils/posthog'
 import { status } from '../utils/status'
 import { castTimestampOrNow, clickHouseTimestampToISO, UUIDT } from '../utils/utils'
+import { MAX_GROUP_TYPES_PER_TEAM } from '../worker/ingestion/group-type-manager'
+import { CdpInternalEvent } from './schema'
 import {
     HogFunctionCapturedEvent,
     HogFunctionFilterGlobals,
     HogFunctionInvocation,
     HogFunctionInvocationGlobals,
+    HogFunctionInvocationGlobalsWithInputs,
+    HogFunctionInvocationLogEntry,
     HogFunctionInvocationQueueParameters,
-    HogFunctionInvocationResult,
     HogFunctionInvocationSerialized,
     HogFunctionLogEntrySerialized,
     HogFunctionType,
 } from './types'
+
+// ID of functions that are hidden from normal users and used by us for special testing
+// For example, transformations use this to only run if in comparison mode
+export const CDP_TEST_ID = '[CDP-TEST-HIDDEN]'
 
 export const PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
     'email',
@@ -67,7 +74,11 @@ export function convertToHogFunctionInvocationGlobals(
         }
     }
 
-    const eventTimestamp = clickHouseTimestampToISO(event.timestamp)
+    // TRICKY: the timsestamp can sometimes be an ISO for example if coming from the test api
+    // so we need to handle that case
+    const eventTimestamp = DateTime.fromISO(event.timestamp).isValid
+        ? event.timestamp
+        : clickHouseTimestampToISO(event.timestamp)
 
     const context: HogFunctionInvocationGlobals = {
         project: {
@@ -83,6 +94,47 @@ export function convertToHogFunctionInvocationGlobals(
             properties,
             timestamp: eventTimestamp,
             url: `${projectUrl}/events/${encodeURIComponent(event.uuid)}/${encodeURIComponent(eventTimestamp)}`,
+        },
+        person,
+    }
+
+    return context
+}
+
+export function convertInternalEventToHogFunctionInvocationGlobals(
+    data: CdpInternalEvent,
+    team: Team,
+    siteUrl: string
+): HogFunctionInvocationGlobals {
+    const projectUrl = `${siteUrl}/project/${team.id}`
+
+    let person: HogFunctionInvocationGlobals['person']
+
+    if (data.person) {
+        const personDisplayName = getPersonDisplayName(team, data.event.distinct_id, data.person.properties)
+
+        person = {
+            id: data.person.id,
+            properties: data.person.properties,
+            name: personDisplayName,
+            url: data.person.url ?? '',
+        }
+    }
+
+    const context: HogFunctionInvocationGlobals = {
+        project: {
+            id: team.id,
+            name: team.name,
+            url: projectUrl,
+        },
+        event: {
+            uuid: data.event.uuid,
+            event: data.event.event,
+            elements_chain: '', // Not applicable but left here for compatibility
+            distinct_id: data.event.distinct_id,
+            properties: data.event.properties,
+            timestamp: data.event.timestamp,
+            url: data.event.url ?? '',
         },
         person,
     }
@@ -132,6 +184,15 @@ function getElementsChainElements(elementsChain: string): string[] {
 
 export function convertToHogFunctionFilterGlobal(globals: HogFunctionInvocationGlobals): HogFunctionFilterGlobals {
     const groups: Record<string, any> = {}
+
+    // We need to add default empty groups so that filtering works as it expects it to always exist
+    for (let i = 0; i < MAX_GROUP_TYPES_PER_TEAM; i++) {
+        groups[`group_${i}`] = {
+            key: null,
+            index: i,
+            properties: {},
+        }
+    }
 
     for (const [_groupType, group] of Object.entries(globals.groups || {})) {
         groups[`group_${group.index}`] = {
@@ -236,13 +297,8 @@ export const unGzipObject = async <T extends object>(data: string): Promise<T> =
     return JSON.parse(res.toString())
 }
 
-export const prepareLogEntriesForClickhouse = (
-    result: HogFunctionInvocationResult
-): HogFunctionLogEntrySerialized[] => {
+export const fixLogDeduplication = (logs: HogFunctionInvocationLogEntry[]): HogFunctionLogEntrySerialized[] => {
     const preparedLogs: HogFunctionLogEntrySerialized[] = []
-    const logs = result.logs
-    result.logs = [] // Clear it to ensure it isn't passed on anywhere else
-
     const sortedLogs = logs.sort((a, b) => a.timestamp.toMillis() - b.timestamp.toMillis())
 
     if (sortedLogs.length === 0) {
@@ -263,10 +319,6 @@ export const prepareLogEntriesForClickhouse = (
 
         const sanitized: HogFunctionLogEntrySerialized = {
             ...logEntry,
-            team_id: result.invocation.teamId,
-            log_source: 'hog_function',
-            log_source_id: result.invocation.hogFunction.id,
-            instance_id: result.invocation.id,
             timestamp: castTimestampOrNow(logEntry.timestamp, TimestampFormat.ClickHouse),
         }
         preparedLogs.push(sanitized)
@@ -276,22 +328,13 @@ export const prepareLogEntriesForClickhouse = (
 }
 
 export function createInvocation(
-    globals: HogFunctionInvocationGlobals,
+    globals: HogFunctionInvocationGlobalsWithInputs,
     hogFunction: HogFunctionType,
     functionToExecute?: [string, any[]]
 ): HogFunctionInvocation {
-    // Add the source of the trigger to the globals
-    const modifiedGlobals: HogFunctionInvocationGlobals = {
-        ...globals,
-        source: {
-            name: hogFunction.name ?? `Hog function: ${hogFunction.id}`,
-            url: `${globals.project.url}/pipeline/destinations/hog-${hogFunction.id}/configuration/`,
-        },
-    }
-
     return {
         id: new UUIDT().toString(),
-        globals: modifiedGlobals,
+        globals,
         teamId: hogFunction.team_id,
         hogFunction,
         queue: 'hog',
@@ -412,4 +455,8 @@ export function buildExportedFunctionInvoker(
             root: { bytecode, globals: { __args: args } },
         },
     }
+}
+
+export function isLegacyPluginHogFunction(hogFunction: HogFunctionType): boolean {
+    return hogFunction.template_id?.startsWith('plugin-') ?? false
 }

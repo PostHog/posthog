@@ -1,20 +1,20 @@
 import './EditSurvey.scss'
 
-import { DraggableSyntheticListeners } from '@dnd-kit/core'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonDialog, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Group } from 'kea-forms'
-import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { getSurveyStatus } from 'scenes/surveys/surveysLogic'
 
-import { Survey, SurveyQuestionType, SurveyType } from '~/types'
+import { ProgressStatus, Survey, SurveyQuestionType, SurveyType } from '~/types'
 
 import { defaultSurveyFieldValues, NewSurvey, SurveyQuestionLabel } from './constants'
 import { QuestionBranchingInput } from './QuestionBranchingInput'
 import { HTMLEditor } from './SurveyAppearanceUtils'
+import { SurveyDragHandle } from './SurveyDragHandle'
 import { surveyLogic } from './surveyLogic'
 
 type SurveyQuestionHeaderProps = {
@@ -24,11 +24,7 @@ type SurveyQuestionHeaderProps = {
     setSurveyValue: (key: string, value: any) => void
 }
 
-const DragHandle = ({ listeners }: { listeners: DraggableSyntheticListeners | undefined }): JSX.Element => (
-    <span className="SurveyQuestionDragHandle" {...listeners}>
-        <SortableDragIcon />
-    </span>
-)
+const MAX_NUMBER_OF_OPTIONS = 15
 
 export function SurveyEditQuestionHeader({
     index,
@@ -41,10 +37,6 @@ export function SurveyEditQuestionHeader({
     const { setNodeRef, attributes, transform, transition, listeners, isDragging } = useSortable({
         id: index.toString(),
     })
-
-    const questionsStartElements = [
-        survey.questions.length > 1 ? <DragHandle key={index} listeners={listeners} /> : null,
-    ].filter(Boolean)
 
     return (
         <div
@@ -59,7 +51,11 @@ export function SurveyEditQuestionHeader({
             }}
         >
             <div className="flex flex-row gap-2 items-center">
-                {questionsStartElements.length ? <div className="flex">{questionsStartElements}</div> : null}
+                <SurveyDragHandle
+                    listeners={listeners}
+                    isDraftSurvey={getSurveyStatus(survey) === ProgressStatus.Draft}
+                    hasMultipleQuestions={survey.questions.length > 1}
+                />
 
                 <b>
                     Question {index + 1}. {survey.questions[index].question}
@@ -211,7 +207,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                     </LemonField>
                 )}
                 {question.type === SurveyQuestionType.Link && (
-                    <LemonField name="link" label="Link" info="Make sure to include https:// in the url.">
+                    <LemonField name="link" label="Link" info="Only https:// or mailto: links are supported.">
                         <LemonInput value={question.link || ''} placeholder="https://posthog.com" />
                     </LemonField>
                 )}
@@ -315,7 +311,8 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                                 )
                                             })}
                                             <div className="w-fit flex flex-row flex-wrap gap-2">
-                                                {((value || []).length < 6 || survey.type != SurveyType.Popover) && (
+                                                {((value || []).length < MAX_NUMBER_OF_OPTIONS ||
+                                                    survey.type != SurveyType.Popover) && (
                                                     <>
                                                         <LemonButton
                                                             icon={<IconPlusSmall />}

@@ -8,6 +8,7 @@ from typing import (
 from collections.abc import AsyncGenerator, Iterator
 from collections.abc import Callable
 import graphlib  # type: ignore[import,unused-ignore]
+from dateutil import parser
 
 import dlt
 from dlt.common.validation import validate_dict
@@ -29,6 +30,8 @@ from .typing import (
     Endpoint,
     EndpointResource,
     RESTAPIConfig,
+    TAnySchemaColumns,
+    TTableHintTemplate,
 )
 from .config_setup import (
     IncrementalParam,
@@ -42,10 +45,32 @@ from .config_setup import (
 from .utils import exclude_keys  # noqa: F401
 
 
+def convert_types(
+    data: Iterator[Any] | list[Any], types: Optional[dict[str, dict[str, Any]]]
+) -> Iterator[dict[str, Any]]:
+    if types is None:
+        yield from data
+        return
+
+    for item in data:
+        for key, column in types.items():
+            data_type = column.get("data_type")
+
+            if key in item:
+                current_value = item.get(key)
+                if data_type == "timestamp" and isinstance(current_value, str):
+                    item[key] = parser.parse(current_value)
+                elif data_type == "date" and isinstance(current_value, str):
+                    item[key] = parser.parse(current_value).date()
+
+        yield item
+
+
 def rest_api_source(
     config: RESTAPIConfig,
     team_id: int,
     job_id: str,
+    db_incremental_field_last_value: Optional[Any] = None,
     name: Optional[str] = None,
     section: Optional[str] = None,
     max_table_nesting: Optional[int] = None,
@@ -108,10 +133,12 @@ def rest_api_source(
         spec,
     )
 
-    return decorated(config, team_id, job_id)
+    return decorated(config, team_id, job_id, db_incremental_field_last_value)
 
 
-def rest_api_resources(config: RESTAPIConfig, team_id: int, job_id: str) -> list[DltResource]:
+def rest_api_resources(
+    config: RESTAPIConfig, team_id: int, job_id: str, db_incremental_field_last_value: Optional[Any]
+) -> list[DltResource]:
     """Creates a list of resources from a REST API configuration.
 
     Args:
@@ -193,6 +220,7 @@ def rest_api_resources(config: RESTAPIConfig, team_id: int, job_id: str) -> list
         resolved_param_map,
         team_id=team_id,
         job_id=job_id,
+        db_incremental_field_last_value=db_incremental_field_last_value,
     )
 
     return list(resources.values())
@@ -205,6 +233,7 @@ def create_resources(
     resolved_param_map: dict[str, Optional[ResolvedParam]],
     team_id: int,
     job_id: str,
+    db_incremental_field_last_value: Optional[Any] = None,
 ) -> dict[str, DltResource]:
     resources = {}
 
@@ -221,7 +250,7 @@ def create_resources(
         include_from_parent: list[str] = endpoint_resource.get("include_from_parent", [])
         if not resolved_param and include_from_parent:
             raise ValueError(
-                f"Resource {resource_name} has include_from_parent but is not " "dependent on another resource"
+                f"Resource {resource_name} has include_from_parent but is not dependent on another resource"
             )
 
         (
@@ -241,6 +270,8 @@ def create_resources(
 
         resource_kwargs = exclude_keys(endpoint_resource, {"endpoint", "include_from_parent"})
 
+        columns_config = endpoint_resource.get("columns")
+
         if resolved_param is None:
 
             async def paginate_resource(
@@ -252,6 +283,7 @@ def create_resources(
                 data_selector: Optional[jsonpath.TJsonPath],
                 hooks: Optional[dict[str, Any]],
                 client: RESTClient = client,
+                columns_config: Optional[TTableHintTemplate[TAnySchemaColumns]] = None,
                 incremental_object: Optional[Incremental[Any]] = incremental_object,
                 incremental_param: Optional[IncrementalParam] = incremental_param,
                 incremental_cursor_transform: Optional[Callable[..., Any]] = incremental_cursor_transform,
@@ -264,16 +296,20 @@ def create_resources(
                         incremental_object,
                         incremental_param,
                         incremental_cursor_transform,
+                        db_incremental_field_last_value,
                     )
 
-                yield client.paginate(
-                    method=method,
-                    path=path,
-                    params=params,
-                    json=json,
-                    paginator=paginator,
-                    data_selector=data_selector,
-                    hooks=hooks,
+                yield convert_types(
+                    client.paginate(
+                        method=method,
+                        path=path,
+                        params=params,
+                        json=json,
+                        paginator=paginator,
+                        data_selector=data_selector,
+                        hooks=hooks,
+                    ),
+                    columns_config,
                 )
 
             resources[resource_name] = dlt.resource(
@@ -287,6 +323,7 @@ def create_resources(
                 paginator=paginator,
                 data_selector=endpoint_config.get("data_selector"),
                 hooks=hooks,
+                columns_config=columns_config,
             )
 
         else:
@@ -305,6 +342,7 @@ def create_resources(
                 client: RESTClient = client,
                 resolved_param: ResolvedParam = resolved_param,
                 include_from_parent: list[str] = include_from_parent,
+                columns_config: Optional[TTableHintTemplate[TAnySchemaColumns]] = None,
                 incremental_object: Optional[Incremental[Any]] = incremental_object,
                 incremental_param: Optional[IncrementalParam] = incremental_param,
                 incremental_cursor_transform: Optional[Callable[..., Any]] = incremental_cursor_transform,
@@ -317,6 +355,7 @@ def create_resources(
                         incremental_object,
                         incremental_param,
                         incremental_cursor_transform,
+                        db_incremental_field_last_value,
                     )
 
                 for item in items:
@@ -335,7 +374,8 @@ def create_resources(
                         if parent_record:
                             for child_record in child_page:
                                 child_record.update(parent_record)
-                        yield child_page
+
+                        yield convert_types(child_page, columns_config)
 
             resources[resource_name] = dlt.resource(  # type: ignore[call-overload]
                 paginate_dependent_resource,
@@ -348,6 +388,7 @@ def create_resources(
                 paginator=paginator,
                 data_selector=endpoint_config.get("data_selector"),
                 hooks=hooks,
+                columns_config=columns_config,
             )
 
     return resources
@@ -358,6 +399,7 @@ def _set_incremental_params(
     incremental_object: Incremental[Any],
     incremental_param: Optional[IncrementalParam],
     transform: Optional[Callable[..., Any]],
+    db_incremental_field_last_value: Optional[Any] = None,
 ) -> dict[str, Any]:
     def identity_func(x: Any) -> Any:
         return x
@@ -368,7 +410,13 @@ def _set_incremental_params(
     if incremental_param is None:
         return params
 
-    params[incremental_param.start] = transform(incremental_object.last_value)
+    last_value = (
+        db_incremental_field_last_value
+        if db_incremental_field_last_value is not None
+        else incremental_object.last_value
+    )
+
+    params[incremental_param.start] = transform(last_value)
     if incremental_param.end:
         params[incremental_param.end] = transform(incremental_object.end_value)
     return params

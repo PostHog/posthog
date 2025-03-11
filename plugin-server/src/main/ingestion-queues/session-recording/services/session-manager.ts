@@ -1,5 +1,4 @@
 import { Upload } from '@aws-sdk/lib-storage'
-import { captureException, captureMessage } from '@sentry/node'
 import { randomUUID } from 'crypto'
 import { createReadStream, createWriteStream } from 'fs'
 import { stat, unlink } from 'fs/promises'
@@ -13,9 +12,10 @@ import * as zlib from 'zlib'
 
 import { PluginsServerConfig } from '../../../../types'
 import { timeoutGuard } from '../../../../utils/db/utils'
+import { ObjectStorage } from '../../../../utils/object_storage'
+import { captureException } from '../../../../utils/posthog'
 import { status } from '../../../../utils/status'
 import { asyncTimeoutGuard } from '../../../../utils/timing'
-import { ObjectStorage } from '../../../services/object_storage'
 import { IncomingRecordingMessage } from '../types'
 import { bufferFileDir, convertForPersistence, getLagMultiplier, maxDefined, minDefined, now } from '../utils'
 import { OffsetHighWaterMarker } from './offset-high-water-marker'
@@ -162,7 +162,7 @@ export class SessionManager {
 
     private captureMessage(message: string, extra: Record<string, any> = {}): void {
         const context = this.logContext()
-        captureMessage(message, {
+        captureException(message, {
             extra: { ...context, ...extra },
             tags: { teamId: context.teamId, sessionId: context.sessionId, partition: context.partition },
         })
@@ -306,7 +306,7 @@ export class SessionManager {
     private async _flush(
         reason: 'buffer_size' | 'buffer_age' | 'buffer_age_realtime' | 'partition_shutdown'
     ): Promise<void> {
-        // NOTE: The below checks don't need to throw really but we do so to help debug what might be blocking things
+        // NOTE: The below checks don't need to throw really, but we do so to help debug what might be blocking things
         if (this.flushBuffer) {
             this.debugLog('🚽', '[session-manager] flush called but we already have a flush buffer', {
                 ...this.logContext(),
@@ -337,7 +337,7 @@ export class SessionManager {
             this.flushBuffer = this.buffer
             this.buffer = this.createBuffer()
             this.stopRealtime()
-            // We don't want to keep writing unecessarily...
+            // We don't want to keep writing unnecessarily...
             const { fileStream, file, count, eventsRange, sizeEstimate } = this.flushBuffer
 
             if (count === 0) {

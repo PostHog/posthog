@@ -9,9 +9,11 @@ use uuid::Uuid;
 use crate::{
     error::{Error, FrameError, UnhandledError},
     metric_consts::{
-        SAVED_SYMBOL_SET_ERROR_RETURNED, SAVED_SYMBOL_SET_LOADED, SAVE_SYMBOL_SET,
+        FRAME_RESOLUTION_RESULTS_DELETED, SAVED_SYMBOL_SET_ERROR_RETURNED, SAVED_SYMBOL_SET_LOADED,
+        SAVE_SYMBOL_SET, SYMBOL_SET_DB_FETCHES, SYMBOL_SET_DB_HITS, SYMBOL_SET_DB_MISSES,
         SYMBOL_SET_FETCH_RETRY, SYMBOL_SET_SAVED,
     },
+    posthog_utils::capture_symbol_set_saved,
 };
 
 use super::{Fetcher, Parser, S3Client};
@@ -75,12 +77,12 @@ impl<F> Saving<F> {
     ) -> Result<String, UnhandledError> {
         info!("Saving symbol set data for {}", set_ref);
         let start = common_metrics::timing_guard(SAVE_SYMBOL_SET, &[]).label("data", "true");
-        // Generate a new opaque key, appending our prefix.
+        // Generate a new opaque key, prepending our prefix.
         let key = self.add_prefix(Uuid::now_v7().to_string());
         let mut content_hasher = Sha512::new();
         content_hasher.update(&data);
 
-        let record = SymbolSetRecord {
+        let mut record = SymbolSetRecord {
             id: Uuid::now_v7(),
             team_id,
             set_ref,
@@ -92,6 +94,25 @@ impl<F> Saving<F> {
 
         self.s3_client.put(&self.bucket, &key, data).await?;
         record.save(&self.pool).await?;
+        // We just saved new data for this symbol set, which invalidates all our previous stack frame resolution results,
+        // so delete them
+        let deleted: u64 = sqlx::query_scalar!(
+            r#"WITH deleted AS (DELETE FROM posthog_errortrackingstackframe WHERE symbol_set_id = $1 RETURNING *) SELECT count(*) from deleted"#,
+            record.id // The call to save() above ensures that this id is correct
+        )
+        .fetch_one(&self.pool)
+        .await?.map_or(0, |v| {
+            v.max(0) as u64
+        });
+
+        info!(
+            "Deleted {} stack frames for symbol set {}",
+            deleted, record.id
+        );
+        metrics::counter!(FRAME_RESOLUTION_RESULTS_DELETED).increment(deleted);
+
+        capture_symbol_set_saved(team_id, &record.set_ref, &key, deleted > 0);
+
         start.label("outcome", "success").fin();
         Ok(key)
     }
@@ -136,7 +157,10 @@ where
     async fn fetch(&self, team_id: i32, r: Self::Ref) -> Result<Self::Fetched, Error> {
         let set_ref = r.to_string();
         info!("Fetching symbol set data for {}", set_ref);
+        metrics::counter!(SYMBOL_SET_DB_FETCHES).increment(1);
+
         if let Some(record) = SymbolSetRecord::load(&self.pool, team_id, &set_ref).await? {
+            metrics::counter!(SYMBOL_SET_DB_HITS).increment(1);
             if let Some(storage_ptr) = record.storage_ptr {
                 info!("Found s3 saved symbol set data for {}", set_ref);
                 let data = self.s3_client.get(&self.bucket, &storage_ptr).await?;
@@ -170,6 +194,8 @@ where
             // We last tried to get the symbol set more than a day ago, so we should try again
             metrics::counter!(SYMBOL_SET_FETCH_RETRY).increment(1);
         }
+
+        metrics::counter!(SYMBOL_SET_DB_MISSES).increment(1);
 
         match self.inner.fetch(team_id, r).await {
             // NOTE: We don't save the data here, because we want to save it only after parsing
@@ -245,14 +271,21 @@ impl SymbolSetRecord {
         Ok(record)
     }
 
-    pub async fn save<'c, E>(&self, e: E) -> Result<(), UnhandledError>
+    // Save the current record to the database. If the record already exists, it will be updated
+    // with the new storage pointer, content hash and failure reason. If it doesn't exist, a new
+    // record will be created. Takes a mutable reference to self because it will update the found
+    // id if a conflict occurs.
+    pub async fn save<'c, E>(&mut self, e: E) -> Result<(), UnhandledError>
     where
         E: sqlx::Executor<'c, Database = sqlx::Postgres>,
     {
-        sqlx::query!(
-            r#"INSERT INTO posthog_errortrackingsymbolset (id, team_id, ref, storage_ptr, failure_reason, created_at, content_hash)
+        self.id = sqlx::query_scalar!(
+            r#"
+            INSERT INTO posthog_errortrackingsymbolset (id, team_id, ref, storage_ptr, failure_reason, created_at, content_hash)
             VALUES ($1, $2, $3, $4, $5, $6, $7)
-            ON CONFLICT (team_id, ref) DO UPDATE SET storage_ptr = $4, content_hash = $7"#,
+            ON CONFLICT (team_id, ref) DO UPDATE SET storage_ptr = $4, content_hash = $7, failure_reason = $5
+            RETURNING id
+            "#,
             self.id,
             self.team_id,
             self.set_ref,
@@ -261,7 +294,7 @@ impl SymbolSetRecord {
             self.created_at,
             self.content_hash
         )
-        .execute(e)
+        .fetch_one(e)
         .await?;
 
         metrics::counter!(SYMBOL_SET_SAVED).increment(1);
@@ -272,11 +305,11 @@ impl SymbolSetRecord {
 
 #[cfg(test)]
 mod test {
+    use common_symbol_data::write_symbol_data;
     use httpmock::MockServer;
     use mockall::predicate;
     use reqwest::Url;
     use sqlx::PgPool;
-    use symbolic::sourcemapcache::SourceMapCacheWriter;
 
     use crate::{
         config::Config,
@@ -291,16 +324,12 @@ mod test {
     const MINIFIED: &[u8] = include_bytes!("../../tests/static/chunk-PGUQKT6S.js");
     const MAP: &[u8] = include_bytes!("../../tests/static/chunk-PGUQKT6S.js.map");
 
-    fn get_sourcemapcache_bytes() -> Vec<u8> {
-        let mut result = Vec::new();
-        let writer = SourceMapCacheWriter::new(
-            core::str::from_utf8(MINIFIED).unwrap(),
-            core::str::from_utf8(MAP).unwrap(),
-        )
-        .unwrap();
-
-        writer.serialize(&mut result).unwrap();
-        result
+    fn get_symbol_data_bytes() -> Vec<u8> {
+        write_symbol_data(common_symbol_data::SourceAndMap {
+            minified_source: String::from_utf8(MINIFIED.to_vec()).unwrap(),
+            sourcemap: String::from_utf8(MAP.to_vec()).unwrap(),
+        })
+        .unwrap()
     }
 
     #[sqlx::test(migrations = "./tests/test_migrations")]
@@ -330,7 +359,7 @@ mod test {
             .with(
                 predicate::eq(config.object_storage_bucket.clone()),
                 predicate::str::starts_with(config.ss_prefix.clone()),
-                predicate::always(), // We won't assert on the contents written
+                predicate::eq(get_symbol_data_bytes()), // We won't assert on the contents written
             )
             .returning(|_, _, _| Ok(()))
             .once();
@@ -341,7 +370,7 @@ mod test {
                 predicate::eq(config.object_storage_bucket.clone()),
                 predicate::str::starts_with(config.ss_prefix.clone()),
             )
-            .returning(|_, _| Ok(get_sourcemapcache_bytes()));
+            .returning(|_, _| Ok(get_symbol_data_bytes()));
 
         let smp = SourcemapProvider::new(&config);
         let saving_smp = Saving::new(

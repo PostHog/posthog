@@ -19,6 +19,7 @@ from posthog.temporal.batch_exports.http_batch_export import (
 )
 from posthog.temporal.batch_exports.monitoring import (
     BatchExportMonitoringWorkflow,
+    check_for_missing_batch_export_runs,
     get_batch_export,
     get_event_counts,
     update_batch_export_runs,
@@ -86,4 +87,5 @@ ACTIVITIES = [
     get_batch_export,
     get_event_counts,
     update_batch_export_runs,
+    check_for_missing_batch_export_runs,
 ]

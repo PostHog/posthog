@@ -1,6 +1,9 @@
 import { IconCheckCircle, IconInfo, IconLock, IconTrash, IconWarning } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { RestrictionScope } from 'lib/components/RestrictedArea'
+import { useRestrictedArea } from 'lib/components/RestrictedArea'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { IconExclamation, IconOffline } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -27,6 +30,11 @@ export function VerifiedDomains(): JSX.Element {
     const { verifiedDomainsLoading, updatingDomainLoading } = useValues(verifiedDomainsLogic)
     const { setAddModalShown } = useActions(verifiedDomainsLogic)
 
+    const restrictionReason = useRestrictedArea({
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+        scope: RestrictionScope.Organization,
+    })
+
     return (
         <PayGateMini feature={AvailableFeature.AUTOMATIC_PROVISIONING}>
             <p>
@@ -39,7 +47,7 @@ export function VerifiedDomains(): JSX.Element {
                 type="primary"
                 onClick={() => setAddModalShown(true)}
                 className="mt-4"
-                disabledReason={verifiedDomainsLoading || updatingDomainLoading ? 'loading...' : null}
+                disabledReason={verifiedDomainsLoading || updatingDomainLoading ? 'loading...' : restrictionReason}
             >
                 Add domain
             </LemonButton>
@@ -60,6 +68,11 @@ function VerifiedDomainsTable(): JSX.Element {
         useActions(verifiedDomainsLogic)
     const { preflight } = useValues(preflightLogic)
 
+    const restrictionReason = useRestrictedArea({
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+        scope: RestrictionScope.Organization,
+    })
+
     const columns: LemonTableColumns<OrganizationDomainType> = [
         {
             key: 'domain',
@@ -74,7 +87,7 @@ function VerifiedDomainsTable(): JSX.Element {
                   {
                       key: 'is_verified',
                       title: (
-                          <div className="flex items-center space-x-1">
+                          <div className="flex items-center deprecated-space-x-1">
                               <span>Verification</span>
                               <Tooltip title="Verification (through DNS) is required to use domains for authentication (e.g. SAML or enforce SSO).">
                                   <IconInfo />
@@ -102,7 +115,7 @@ function VerifiedDomainsTable(): JSX.Element {
         {
             key: 'jit_provisioning_enabled',
             title: (
-                <div className="flex items-center space-x-1">
+                <div className="flex items-center deprecated-space-x-1">
                     <span>Automatic provisioning</span>
                     <Tooltip
                         title={`Enables just-in-time provisioning. If a user logs in with SSO with an email address on this domain an account will be created in ${
@@ -119,6 +132,7 @@ function VerifiedDomainsTable(): JSX.Element {
                         <LemonSwitch
                             checked={jit_provisioning_enabled}
                             disabled={updatingDomainLoading || !is_verified}
+                            disabledReason={restrictionReason}
                             onChange={(checked) => updateDomain({ id, jit_provisioning_enabled: checked })}
                             label={
                                 <span className="font-normal">{jit_provisioning_enabled ? 'Enabled' : 'Disabled'}</span>
@@ -126,14 +140,14 @@ function VerifiedDomainsTable(): JSX.Element {
                         />
                     </div>
                 ) : (
-                    <i className="text-muted-alt">Verify domain to enable automatic provisioning</i>
+                    <i className="text-secondary">Verify domain to enable automatic provisioning</i>
                 )
             },
         },
         {
             key: 'sso_enforcement',
             title: (
-                <div className="flex items-center space-x-1">
+                <div className="flex items-center deprecated-space-x-1">
                     <span>Enforce SSO</span>
                     <Tooltip title="Require users with email addresses on this domain to always log in using a specific SSO provider.">
                         <IconInfo />
@@ -157,9 +171,10 @@ function VerifiedDomainsTable(): JSX.Element {
                         loading={updatingDomainLoading}
                         onChange={(val) => updateDomain({ id, sso_enforcement: val })}
                         samlAvailable={has_saml}
+                        disabledReason={restrictionReason}
                     />
                 ) : (
-                    <i className="text-muted-alt">Verify domain to enable</i>
+                    <i className="text-secondary">Verify domain to enable</i>
                 )
             },
         },
@@ -193,7 +208,7 @@ function VerifiedDomainsTable(): JSX.Element {
                         )}
                     </>
                 ) : (
-                    <i className="text-muted-alt">Verify domain to enable</i>
+                    <i className="text-secondary">Verify domain to enable</i>
                 )
             },
         },
@@ -205,7 +220,7 @@ function VerifiedDomainsTable(): JSX.Element {
                 return is_verified ? (
                     <></>
                 ) : (
-                    <LemonButton type="primary" onClick={() => setVerifyModal(id)}>
+                    <LemonButton type="primary" onClick={() => setVerifyModal(id)} disabledReason={restrictionReason}>
                         Verify
                     </LemonButton>
                 )
@@ -224,8 +239,10 @@ function VerifiedDomainsTable(): JSX.Element {
                                     <LemonButton
                                         onClick={() => setConfigureSAMLModalId(id)}
                                         fullWidth
-                                        disabled={!isSAMLAvailable}
-                                        title={isSAMLAvailable ? undefined : 'Upgrade to enable SAML'}
+                                        disabledReason={
+                                            restrictionReason ||
+                                            (!isSAMLAvailable ? 'Upgrade to enable SAML' : undefined)
+                                        }
                                     >
                                         Configure SAML
                                     </LemonButton>
@@ -249,6 +266,7 @@ function VerifiedDomainsTable(): JSX.Element {
                                     }
                                     fullWidth
                                     icon={<IconTrash />}
+                                    disabledReason={restrictionReason}
                                 >
                                     Remove domain
                                 </LemonButton>

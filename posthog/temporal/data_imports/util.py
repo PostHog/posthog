@@ -1,17 +1,26 @@
+from typing import Optional
 from posthog.settings.utils import get_from_env
 from posthog.utils import str_to_bool
+from posthog.warehouse.models import ExternalDataJob
 from posthog.warehouse.s3 import get_s3_client
 from django.conf import settings
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 
 
-def prepare_s3_files_for_querying(folder_path: str, table_name: str, file_uris: list[str]):
+def prepare_s3_files_for_querying(
+    folder_path: str,
+    table_name: str,
+    file_uris: list[str],
+    pipeline_version: Optional[ExternalDataJob.PipelineVersion] = None,
+):
     s3 = get_s3_client()
 
     normalized_table_name = NamingConvention().normalize_identifier(table_name)
 
     s3_folder_for_job = f"{settings.BUCKET_URL}/{folder_path}"
+
     s3_folder_for_schema = f"{s3_folder_for_job}/{normalized_table_name}"
+
     s3_folder_for_querying = f"{s3_folder_for_job}/{normalized_table_name}__query"
 
     if s3.exists(s3_folder_for_querying):

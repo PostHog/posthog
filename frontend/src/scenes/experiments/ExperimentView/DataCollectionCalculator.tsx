@@ -3,10 +3,10 @@ import { LemonBanner, LemonInput, Link, Tooltip } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { humanFriendlyNumber } from 'lib/utils'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { Query } from '~/queries/Query/Query'
+import { ExperimentFunnelsQuery, ExperimentTrendsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { ExperimentIdType, InsightType } from '~/types'
 
 import { MetricInsightId } from '../constants'
@@ -107,25 +107,34 @@ function TrendCalculation({ experimentId }: ExperimentCalculatorProps): JSX.Elem
 }
 
 export function DataCollectionCalculator({ experimentId }: ExperimentCalculatorProps): JSX.Element {
-    const { getMetricType, minimumDetectableEffect, experiment, conversionMetrics } = useValues(
+    const { getInsightType, firstPrimaryMetric, minimumDetectableEffect, experiment, conversionMetrics } = useValues(
         experimentLogic({ experimentId })
     )
     const { setExperiment } = useActions(experimentLogic({ experimentId }))
 
-    const metricType = getMetricType(0)
+    const insightType = getInsightType(firstPrimaryMetric)
 
     // :KLUDGE: need these to mount the Query component to load the insight */
     const insightLogicInstance = insightLogic({
-        dashboardItemId: metricType === InsightType.FUNNELS ? MetricInsightId.Funnels : MetricInsightId.Trends,
+        dashboardItemId: insightType === InsightType.FUNNELS ? MetricInsightId.Funnels : MetricInsightId.Trends,
         syncWithUrl: false,
     })
     const { insightProps } = useValues(insightLogicInstance)
-    const { query } = useValues(insightDataLogic(insightProps))
+    let query = null
+    if (experiment.metrics.length > 0) {
+        query = {
+            kind: NodeKind.InsightVizNode,
+            source:
+                insightType === InsightType.FUNNELS
+                    ? (firstPrimaryMetric as ExperimentFunnelsQuery).funnels_query
+                    : (firstPrimaryMetric as ExperimentTrendsQuery).count_query,
+        }
+    }
 
     const funnelConversionRate = conversionMetrics?.totalRate * 100 || 0
 
     let sliderMaxValue = 0
-    if (metricType === InsightType.FUNNELS) {
+    if (insightType === InsightType.FUNNELS) {
         if (100 - funnelConversionRate < 50) {
             sliderMaxValue = 100 - funnelConversionRate
         } else {
@@ -143,7 +152,7 @@ export function DataCollectionCalculator({ experimentId }: ExperimentCalculatorP
                         <b>Minimum detectable effect</b>
                         <Tooltip
                             title={
-                                <div className="space-y-2">
+                                <div className="deprecated-space-y-2">
                                     <div>
                                         The Minimum detectable effect represents the smallest change that you want to be
                                         able to detect in your experiment.
@@ -162,7 +171,7 @@ export function DataCollectionCalculator({ experimentId }: ExperimentCalculatorP
                             }
                             closeDelayMs={200}
                         >
-                            <IconInfo className="text-muted-alt text-base ml-1" />
+                            <IconInfo className="text-secondary text-base ml-1" />
                         </Tooltip>
                     </div>
                     <div className="flex gap-4">
@@ -208,7 +217,7 @@ export function DataCollectionCalculator({ experimentId }: ExperimentCalculatorP
                         The calculations are based on the events received in the last 14 days. This event count may
                         differ from what was considered in earlier estimates.
                     </LemonBanner>
-                    {getMetricType(0) === InsightType.TRENDS ? (
+                    {insightType === InsightType.TRENDS ? (
                         <TrendCalculation experimentId={experimentId} />
                     ) : (
                         <FunnelCalculation experimentId={experimentId} />

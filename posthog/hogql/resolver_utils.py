@@ -66,8 +66,11 @@ def ast_to_query_node(expr: ast.Expr | ast.HogQLXTag):
             if isinstance(klass, type) and issubclass(klass, schema.BaseModel) and klass.__name__ == expr.kind:
                 attributes = expr.to_dict()
                 attributes.pop("kind")
-                attributes = {key: ast_to_query_node(value) for key, value in attributes.items()}
-                return klass(**attributes)
+                # Query runners use "source" instead of "children" for their source query
+                if "children" in attributes and "source" in klass.model_fields:
+                    attributes["source"] = attributes.pop("children")[0]
+                new_attributes = {key: ast_to_query_node(value) for key, value in attributes.items()}
+                return klass(**new_attributes)
         raise SyntaxError(f'Tag of kind "{expr.kind}" not found in schema.')
     else:
         raise SyntaxError(f'Expression of type "{type(expr).__name__}". Can\'t convert to constant.')

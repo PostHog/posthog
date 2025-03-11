@@ -1,5 +1,5 @@
 from posthog.hogql.compiler.javascript import JavaScriptCompiler, Local, _sanitize_identifier, to_js_program, to_js_expr
-from posthog.hogql.errors import NotImplementedError, QueryError
+from posthog.hogql.errors import QueryError
 from posthog.hogql import ast
 from posthog.test.base import BaseTest
 
@@ -91,11 +91,6 @@ class TestJavaScript(BaseTest):
         code = compiler.visit_return_statement(ast.ReturnStatement(expr=ast.Constant(value="test")))
         self.assertEqual(code, 'return "test";')
 
-    def test_not_implemented_visit_select_query(self):
-        with self.assertRaises(NotImplementedError) as e:
-            to_js_expr("(select 1)")
-        self.assertEqual(str(e.exception), "JavaScriptCompiler does not support SelectQuery")
-
     def test_throw_statement(self):
         compiler = JavaScriptCompiler()
         code = compiler.visit_throw_statement(ast.ThrowStatement(expr=ast.Constant(value="Error!")))
@@ -148,8 +143,8 @@ class TestJavaScript(BaseTest):
         self.assertEqual(to_js_expr("1 not in 2"), "(!2.includes(1))")
         self.assertEqual(to_js_expr("match('test', 'e.*')"), 'match("test", "e.*")')
         self.assertEqual(to_js_expr("not('test')"), '(!"test")')
-        self.assertEqual(to_js_expr("or('test', 'test2')"), '("test" || "test2")')
-        self.assertEqual(to_js_expr("and('test', 'test2')"), '("test" && "test2")')
+        self.assertEqual(to_js_expr("or('test', 'test2')"), '!!("test" || "test2")')
+        self.assertEqual(to_js_expr("and('test', 'test2')"), '!!("test" && "test2")')
 
     def test_javascript_code_generation(self):
         js_code = to_js_program("""
@@ -225,3 +220,28 @@ return fibonacci(6);"""
         self.assertIn(
             'Variable "globalVar" not declared in this scope. Cannot assign to globals.', str(context.exception)
         )
+
+    def test_bytecode_sql(self):
+        self.assertEqual(
+            to_js_expr("sql(1 + 1)"),
+            '{"__hx_ast": "ArithmeticOperation", "left": {"__hx_ast": "Constant", "value": 1}, "right": {"__hx_ast": "Constant", "value": 1}, "op": "+"}',
+        )
+
+    def test_bytecode_sql_select(self):
+        self.assertEqual(
+            to_js_expr("(select 1)"),
+            '{"__hx_ast": "SelectQuery", "select": [{"__hx_ast": "Constant", "value": 1}]}',
+        )
+
+        self.assertEqual(
+            to_js_expr("(select b.* from b join a on a.id = b.id)"),
+            '{"__hx_ast": "SelectQuery", "select": [{"__hx_ast": "Field", "chain": ["b", "*"]}], "select_from": {"__hx_ast": "JoinExpr", '
+            '"table": {"__hx_ast": "Field", "chain": ["b"]}, "next_join": {"__hx_ast": "JoinExpr", "join_type": "JOIN", "table": '
+            '{"__hx_ast": "Field", "chain": ["a"]}, "constraint": {"__hx_ast": "JoinConstraint", "expr": {"__hx_ast": "CompareOperation", '
+            '"left": {"__hx_ast": "Field", "chain": ["a", "id"]}, "right": {"__hx_ast": "Field", "chain": ["b", "id"]}, "op": "=="}, '
+            '"constraint_type": "ON"}}}}',
+        )
+
+    def test_lambda_dict_literal(self):
+        code = to_js_expr("x -> {'key': x}")
+        assert code == '__lambda((x) => ({"key": x}))'

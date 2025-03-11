@@ -50,7 +50,7 @@ export interface SavedInsightFilters {
     dashboardId: number | undefined | null
 }
 
-function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters {
+export function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters {
     return {
         layoutView: values.layoutView || LayoutView.List,
         order: values.order || '-last_modified_at', // Sync with `sorting` selector
@@ -88,6 +88,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
         addInsight: (insight: QueryBasedInsightModel) => ({ insight }),
         openAlertModal: (alertId: AlertType['id']) => ({ alertId }),
         closeAlertModal: true,
+        setDashboardUpdateLoading: (insightId: number, loading: boolean) => ({ insightId, loading }),
     }),
     loaders(({ values }) => ({
         insights: {
@@ -181,6 +182,14 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
             {
                 openAlertModal: (_, { alertId }) => alertId,
                 closeAlertModal: () => null,
+            },
+        ],
+        dashboardUpdatesInProgress: [
+            {} as Record<number, boolean>,
+            {
+                setDashboardUpdateLoading: (state, { insightId, loading }) => {
+                    return { ...state, [insightId]: loading }
+                },
             },
         ],
     }),

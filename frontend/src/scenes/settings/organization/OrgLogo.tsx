@@ -27,13 +27,14 @@ export function OrganizationLogo(): JSX.Element {
     const restrictionReason = useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })
 
     return (
-        <div className="space-y-4">
+        <div className="deprecated-space-y-4">
             <LemonFileInput
                 accept="image/*"
                 multiple={false}
                 onChange={setFilesToUpload}
                 loading={uploading}
                 value={filesToUpload}
+                disabled={!!restrictionReason}
                 callToAction={
                     <>
                         <div className="relative">
@@ -76,11 +77,13 @@ export function OrganizationLogo(): JSX.Element {
                     updateOrganization({ logo_media_id: logoMediaId })
                 }}
                 disabledReason={
-                    !currentOrganization
+                    restrictionReason
+                        ? restrictionReason
+                        : !currentOrganization
                         ? 'Organization not loaded'
                         : logoMediaId === currentOrganization.logo_media_id
                         ? 'Logo unchanged'
-                        : restrictionReason
+                        : undefined
                 }
                 loading={currentOrganizationLoading || uploading}
             >

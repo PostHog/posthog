@@ -1,24 +1,28 @@
 import './ErrorTracking.scss'
 
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
+import PanelLayout from 'lib/components/PanelLayout/PanelLayout'
 import { useEffect } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { ErrorTrackingIssue } from '~/queries/schema'
+import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
-import { AlphaAccessScenePrompt } from './AlphaAccessScenePrompt'
 import { AssigneeSelect } from './AssigneeSelect'
-import ErrorTrackingFilters from './ErrorTrackingFilters'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
-import { OverviewTab } from './groups/OverviewTab'
-import { SymbolSetUploadModal } from './SymbolSetUploadModal'
+import { ErrorTrackingSetupPrompt } from './ErrorTrackingSetupPrompt'
+import { Events } from './issue/Events'
+import { Metadata } from './issue/Metadata'
+import { SparklinePanel } from './issue/Sparkline'
 
 export const scene: SceneExport = {
     component: ErrorTrackingIssueScene,
     logic: errorTrackingIssueSceneLogic,
-    paramsToProps: ({ params: { id } }): (typeof errorTrackingIssueSceneLogic)['props'] => ({ id }),
+    paramsToProps: ({
+        params: { id },
+        searchParams: { fingerprint },
+    }): (typeof errorTrackingIssueSceneLogic)['props'] => ({ id, fingerprint }),
 }
 
 const STATUS_LABEL: Record<ErrorTrackingIssue['status'], string> = {
@@ -29,28 +33,24 @@ const STATUS_LABEL: Record<ErrorTrackingIssue['status'], string> = {
 }
 
 export function ErrorTrackingIssueScene(): JSX.Element {
-    const { issue, issueLoading, hasGroupActions } = useValues(errorTrackingIssueSceneLogic)
-    const { updateIssue, loadIssue } = useActions(errorTrackingIssueSceneLogic)
+    const { issue } = useValues(errorTrackingIssueSceneLogic)
+    const { updateIssue, initIssue, assignIssue } = useActions(errorTrackingIssueSceneLogic)
 
     useEffect(() => {
-        // don't like doing this but scene logics do not unmount after being loaded
-        // so this refreshes the group on each page visit in case any changes occurred
-        if (!issueLoading) {
-            loadIssue()
-        }
+        initIssue()
     }, [])
 
     return (
-        <AlphaAccessScenePrompt>
+        <ErrorTrackingSetupPrompt>
             <>
                 <PageHeader
                     buttons={
-                        issue && hasGroupActions ? (
+                        issue ? (
                             issue.status === 'active' ? (
                                 <div className="flex divide-x gap-x-2">
                                     <AssigneeSelect
                                         assignee={issue.assignee}
-                                        onChange={(assignee) => updateIssue({ assignee })}
+                                        onChange={assignIssue}
                                         type="secondary"
                                         showName
                                     />
@@ -81,12 +81,23 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                         )
                     }
                 />
-                <ErrorTrackingFilters.FilterGroup />
-                <LemonDivider className="mt-2" />
-                <ErrorTrackingFilters.Options isGroup />
-                <OverviewTab />
-                <SymbolSetUploadModal />
+                {issue ? (
+                    <div className="ErrorTrackingIssue">
+                        <Metadata />
+                        <LemonDivider className="my-4" />
+                        <PanelLayout>
+                            <PanelLayout.Container column primary>
+                                <SparklinePanel />
+                                <PanelLayout.Panel primary>
+                                    <Events />
+                                </PanelLayout.Panel>
+                            </PanelLayout.Container>
+                        </PanelLayout>
+                    </div>
+                ) : (
+                    <Spinner />
+                )}
             </>
-        </AlphaAccessScenePrompt>
+        </ErrorTrackingSetupPrompt>
     )
 }

@@ -31,6 +31,8 @@ interface NavbarItemBase {
     featureFlag?: (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
     tag?: 'alpha' | 'beta' | 'new'
     sideAction?: Omit<SideAction, 'divider' | 'data-attr' | 'tooltipPlacement'> & { identifier: string }
+    /** @deprecated */
+    onClick?: () => void
 }
 export interface SceneNavbarItem extends NavbarItemBase {
     to: string
@@ -45,12 +47,22 @@ export type NavbarItem = NavbarItemBase | SceneNavbarItem | SidebarNavbarItem
 
 export type ListItemSaveHandler = (newName: string) => Promise<void>
 
-/** A category of items. This is either displayed directly for sidebars with only one category, or as an accordion. */
-export interface SidebarCategory {
+export interface SidebarCategoryBase {
     key: string
     /** Category content noun. If the plural form is non-standard, provide a tuple with both forms. @example 'person' */
     noun: string | [singular: string, plural: string]
-    items: BasicListItem[] | ExtendedListItem[]
+    items: BasicListItem[] | ExtendedListItem[] | ListItemAccordion[]
+
+    /** Ref to the corresponding <a> element. This is injected automatically when the element is rendered. */
+    ref?: React.MutableRefObject<HTMLElement | null>
+}
+
+export interface ListItemAccordion extends SidebarCategoryBase {
+    depth?: number
+}
+
+/** A category of items. This is either displayed directly for sidebars with only one category, or as an accordion. */
+export interface SidebarCategory extends SidebarCategoryBase {
     loading: boolean
     /**
      * Items can be created in three ways:
@@ -126,6 +138,8 @@ export interface BasicListItem {
     onRename?: ListItemSaveHandler
     /** Ref to the corresponding <a> element. This is injected automatically when the element is rendered. */
     ref?: React.MutableRefObject<HTMLElement | null>
+    /** If this item is inside an accordion, this is the depth of the accordion. */
+    depth?: number
 }
 
 export type ExtraListItemContext = string | Dayjs
@@ -151,4 +165,5 @@ export interface TentativeListItem {
 export interface ButtonListItem extends BasicListItem {
     key: '__button__'
     onClick: () => void
+    icon?: JSX.Element
 }

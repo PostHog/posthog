@@ -3,11 +3,14 @@ import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect/LemonSelect'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
+import { userLogic } from 'scenes/userLogic'
 
-import { HogQLQuery, NodeKind } from '~/queries/schema'
+import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
-import { ProductKey, SDK, SDKInstructionsMap } from '~/types'
+import { ProductKey, SDK, SDKInstructionsMap, SDKTag } from '~/types'
 
 import { onboardingLogic } from '../onboardingLogic'
 import { allSDKs } from './allSDKs'
@@ -42,13 +45,25 @@ export const multiInstallProducts = [ProductKey.PRODUCT_ANALYTICS, ProductKey.FE
 export const sdksLogic = kea<sdksLogicType>([
     path(['scenes', 'onboarding', 'sdks', 'sdksLogic']),
     connect({
-        values: [onboardingLogic, ['productKey'], liveEventsTableLogic, ['eventHosts']],
+        values: [
+            onboardingLogic,
+            ['productKey'],
+            liveEventsTableLogic,
+            ['eventHosts'],
+            featureFlagLogic,
+            ['featureFlags'],
+            userLogic,
+            ['user', 'isUserNonTechnical'],
+        ],
+        actions: [eventUsageLogic, ['reportSDKSelected']],
     }),
     actions({
         setSourceFilter: (sourceFilter: string | null) => ({ sourceFilter }),
         filterSDKs: true,
         setSDKs: (sdks: SDK[]) => ({ sdks }),
         setSelectedSDK: (sdk: SDK | null) => ({ sdk }),
+        setSearchTerm: (searchTerm: string) => ({ searchTerm }),
+        setSelectedTag: (selectedTag: SDKTag | null) => ({ selectedTag }),
         setSourceOptions: (sourceOptions: LemonSelectOptions<string>) => ({ sourceOptions }),
         resetSDKs: true,
         setAvailableSDKInstructionsMap: (sdkInstructionMap: SDKInstructionsMap) => ({ sdkInstructionMap }),
@@ -56,6 +71,7 @@ export const sdksLogic = kea<sdksLogicType>([
         setPanel: (panel: 'instructions' | 'options') => ({ panel }),
         setHasSnippetEvents: (hasSnippetEvents: boolean) => ({ hasSnippetEvents }),
         setSnippetHosts: (snippetHosts: string[]) => ({ snippetHosts }),
+        selectSDK: (sdk: SDK) => ({ sdk }),
     }),
     reducers({
         sourceFilter: [
@@ -109,6 +125,18 @@ export const sdksLogic = kea<sdksLogicType>([
                 setSnippetHosts: (_, { snippetHosts }) => snippetHosts,
             },
         ],
+        searchTerm: [
+            '' as string,
+            {
+                setSearchTerm: (_, { searchTerm }) => searchTerm,
+            },
+        ],
+        selectedTag: [
+            null as SDKTag | null,
+            {
+                setSelectedTag: (_, { selectedTag }) => selectedTag,
+            },
+        ],
     }),
     selectors({
         showSourceOptionsSelect: [
@@ -121,9 +149,10 @@ export const sdksLogic = kea<sdksLogicType>([
         ],
         combinedSnippetAndLiveEventsHosts: [
             (selectors) => [selectors.snippetHosts, selectors.eventHosts],
-            (snippetHosts: string[], eventHosts: string[]): string[] => {
+            // if the connected kea hasn't mounted for some reason, eventHosts can be undefined
+            (snippetHosts: string[], eventHosts?: string[]): string[] => {
                 const combinedSnippetAndLiveEventsHosts = snippetHosts
-                for (const host of eventHosts) {
+                for (const host of eventHosts ?? []) {
                     const hostProtocol = new URL(host).protocol
                     const currentProtocol = window.location.protocol
                     if (hostProtocol === currentProtocol && !combinedSnippetAndLiveEventsHosts.includes(host)) {
@@ -131,6 +160,15 @@ export const sdksLogic = kea<sdksLogicType>([
                     }
                 }
                 return combinedSnippetAndLiveEventsHosts
+            },
+        ],
+        tags: [
+            (s) => [s.sdks],
+            (sdks: SDK[]): string[] => {
+                const tagsWithSDKs = Object.values(SDKTag).filter((tag: SDKTag) =>
+                    sdks.some((sdk) => sdk.tags.includes(tag))
+                )
+                return ['All', ...tagsWithSDKs]
             },
         ],
     }),
@@ -171,6 +209,22 @@ export const sdksLogic = kea<sdksLogicType>([
             },
         ],
     })),
+    selectors({
+        filteredSDKs: [
+            (s) => [s.sdks, s.searchTerm, s.selectedTag],
+            (sdks: SDK[], searchTerm: string, selectedTag: SDKTag | null): SDK[] => {
+                return sdks.filter((sdk) => {
+                    if (selectedTag && !sdk.tags.includes(selectedTag)) {
+                        return false
+                    }
+                    if (searchTerm && !sdk.name.toLowerCase().includes(searchTerm.toLowerCase())) {
+                        return false
+                    }
+                    return true
+                })
+            },
+        ],
+    }),
     listeners(({ actions, values }) => ({
         filterSDKs: () => {
             const filteredSDks: SDK[] = allSDKs
@@ -178,7 +232,7 @@ export const sdksLogic = kea<sdksLogicType>([
                     if (!values.sourceFilter || !sdk) {
                         return true
                     }
-                    return sdk.tags.includes(values.sourceFilter)
+                    return sdk.tags.includes(values.sourceFilter as SDKTag)
                 })
                 .filter((sdk) => Object.keys(values.availableSDKInstructionsMap).includes(sdk.key))
             actions.setSDKs(filteredSDks)
@@ -215,6 +269,10 @@ export const sdksLogic = kea<sdksLogicType>([
             if (values.showSideBySide && !values.selectedSDK) {
                 actions.setSelectedSDK(values.sdks?.[0] || null)
             }
+        },
+        selectSDK: ({ sdk }) => {
+            actions.setSelectedSDK(sdk)
+            actions.reportSDKSelected(sdk)
         },
     })),
     events(({ actions }) => ({

@@ -12,6 +12,7 @@ export enum PipelineBackend {
     Plugin = 'plugin',
     HogFunction = 'hog_function',
     ManagedSource = 'managed_source',
+    SelfManagedSource = 'self_managed',
 }
 
 // Base - we're taking a discriminated union approach here, so that TypeScript can discern types for free
@@ -76,7 +77,8 @@ export type NewDestinationItemType = {
     name: string
     description: string
     backend: PipelineBackend
-    status?: 'stable' | 'beta' | 'alpha' | 'free' | 'deprecated' | 'client-side'
+    free: boolean
+    status?: 'stable' | 'alpha' | 'beta' | 'deprecated'
 }
 
 export type NewDestinationFilters = {
@@ -124,18 +126,14 @@ export function convertToPipelineNode<S extends PipelineStage>(
     ? Source
     : never {
     let node: PipelineNode
+
     // check if type is a hog function
     if ('hog' in candidate) {
         node = {
             stage: stage as PipelineStage.Destination,
             backend: PipelineBackend.HogFunction,
             interval: 'realtime',
-            id:
-                candidate.type === 'destination' ||
-                candidate.type === 'site_destination' ||
-                candidate.type === 'site_app'
-                    ? `hog-${candidate.id}`
-                    : candidate.id,
+            id: `hog-${candidate.id}`,
             name: candidate.name,
             description: candidate.description,
             enabled: candidate.enabled,

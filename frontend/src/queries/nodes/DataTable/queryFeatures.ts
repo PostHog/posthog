@@ -1,10 +1,12 @@
-import { Node } from '~/queries/schema'
+import { Node } from '~/queries/schema/schema-general'
 import {
     isActorsQuery,
     isEventsQuery,
     isHogQLQuery,
     isPersonsNode,
+    isRevenueExampleEventsQuery,
     isSessionAttributionExplorerQuery,
+    isTracesQuery,
     isWebExternalClicksQuery,
     isWebGoalsQuery,
     isWebOverviewQuery,
@@ -26,12 +28,18 @@ export enum QueryFeature {
     displayResponseError,
     hideLoadNextButton,
     testAccountFilters,
+    highlightExceptionEventRows,
 }
 
 export function getQueryFeatures(query: Node): Set<QueryFeature> {
     const features = new Set<QueryFeature>()
 
-    if (isHogQLQuery(query) || isEventsQuery(query) || isSessionAttributionExplorerQuery(query)) {
+    if (
+        isHogQLQuery(query) ||
+        isEventsQuery(query) ||
+        isSessionAttributionExplorerQuery(query) ||
+        isRevenueExampleEventsQuery(query)
+    ) {
         features.add(QueryFeature.dateRangePicker)
         features.add(QueryFeature.columnsInResponse)
         features.add(QueryFeature.eventPropertyFilters)
@@ -68,6 +76,12 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
         features.add(QueryFeature.columnsInResponse)
         features.add(QueryFeature.resultIsArrayOfArrays)
         features.add(QueryFeature.hideLoadNextButton)
+    }
+
+    if (isTracesQuery(query)) {
+        features.add(QueryFeature.dateRangePicker)
+        features.add(QueryFeature.eventPropertyFilters)
+        features.add(QueryFeature.testAccountFilters)
     }
 
     return features

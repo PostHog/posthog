@@ -43,7 +43,7 @@ export function FunnelStepsPicker(): JSX.Element | null {
 
     return (
         <div className="flex items-center">
-            <span className="text-muted-alt">&nbsp;from</span>
+            <span className="text-secondary">&nbsp;from</span>
             <LemonSelect
                 size="small"
                 className="mx-1"
@@ -56,7 +56,7 @@ export function FunnelStepsPicker(): JSX.Element | null {
                     fromStep != null && onChange(fromStep, funnelsFilter?.funnelToStep)
                 }
             />
-            <span className="text-muted-alt">to</span>
+            <span className="text-secondary">to</span>
             <LemonSelect
                 size="small"
                 className="mx-1"

@@ -1,3 +1,4 @@
+import dataclasses
 from datetime import date, datetime
 from typing import Any, Literal, Optional, cast
 from uuid import UUID
@@ -241,8 +242,7 @@ class Resolver(CloningVisitor):
             new_node.group_by = [self.visit(expr) for expr in node.group_by]
         if node.order_by:
             new_node.order_by = [self.visit(expr) for expr in node.order_by]
-        if node.limit_by:
-            new_node.limit_by = [self.visit(expr) for expr in node.limit_by]
+        new_node.limit_by = self.visit(node.limit_by)
         new_node.limit = self.visit(node.limit)
         new_node.limit_with_ties = node.limit_with_ties
         new_node.offset = self.visit(node.offset)
@@ -502,12 +502,8 @@ class Resolver(CloningVisitor):
             signatures = HOGQL_CLICKHOUSE_FUNCTIONS[node.name].signatures
             if signatures:
                 for sig_arg_types, sig_return_type in signatures:
-                    if sig_arg_types is None:
-                        return_type = sig_return_type
-                        break
-
-                    if compare_types(arg_types, sig_arg_types):
-                        return_type = sig_return_type
+                    if sig_arg_types is None or compare_types(arg_types, sig_arg_types):
+                        return_type = dataclasses.replace(sig_return_type)
                         break
 
         if return_type is None:
@@ -675,7 +671,10 @@ class Resolver(CloningVisitor):
                 new_node: ast.Expr = ast.Alias(alias=node.type.name, expr=new_expr, hidden=True)
 
                 if node.type.isolate_scope:
-                    self.scopes.append(ast.SelectQueryType(tables={node.type.name: node.type.table_type}))
+                    table_type = node.type.table_type
+                    while isinstance(table_type, ast.VirtualTableType):
+                        table_type = table_type.table_type
+                    self.scopes.append(ast.SelectQueryType(tables={node.type.name: table_type}))
 
                 new_node = self.visit(new_node)
 

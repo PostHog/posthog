@@ -2,6 +2,7 @@ from typing import Optional, cast
 
 from django.conf import settings
 
+from posthog.clickhouse.explain import execute_explain_get_index_use
 from posthog.hogql import ast
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.context import HogQLContext
@@ -25,7 +26,9 @@ from posthog.schema import (
     HogQLMetadata,
     HogQLMetadataResponse,
     HogQLNotice,
+    QueryIndexUsage,
 )
+from posthog.hogql.visitor import TraversingVisitor
 
 
 def get_hogql_metadata(
@@ -39,6 +42,7 @@ def get_hogql_metadata(
         errors=[],
         warnings=[],
         notices=[],
+        table_names=[],
     )
 
     query_modifiers = create_default_modifiers_for_team(team)
@@ -71,12 +75,19 @@ def get_hogql_metadata(
             if query.variables:
                 select_ast = replace_variables(select_ast, list(query.variables.values()), team)
             _is_valid_view = is_valid_view(select_ast)
+            table_names = get_table_names(select_ast)
+            response.table_names = table_names
             response.isValidView = _is_valid_view
-            print_ast(
+            clickhouse_sql = print_ast(
                 select_ast,
                 context=context,
                 dialect="clickhouse",
             )
+
+            if context.errors:
+                response.isUsingIndices = QueryIndexUsage.UNDECISIVE
+            else:
+                response.isUsingIndices = execute_explain_get_index_use(clickhouse_sql, context)
         else:
             raise ValueError(f"Unsupported language: {query.language}")
         response.warnings = context.warnings
@@ -138,3 +149,28 @@ def is_valid_view(select_query: ast.SelectQuery | ast.SelectSetQuery) -> bool:
                 if field.chain and field.chain[-1] == "*":
                     return False
     return True
+
+
+def get_table_names(select_query: ast.SelectQuery | ast.SelectSetQuery) -> list[str]:
+    # Don't need types, we're only interested in the table names as passed in
+    collector = TableCollector()
+    collector.visit(select_query)
+    return list(collector.table_names - collector.ctes)
+
+
+class TableCollector(TraversingVisitor):
+    def __init__(self):
+        self.table_names = set()
+        self.ctes = set()
+
+    def visit_cte(self, node: ast.CTE):
+        self.ctes.add(node.name)
+        super().visit(node.expr)
+
+    def visit_join_expr(self, node: ast.JoinExpr):
+        if isinstance(node.table, ast.Field):
+            self.table_names.add(node.table.chain[0])
+        else:
+            self.visit(node.table)
+
+        self.visit(node.next_join)

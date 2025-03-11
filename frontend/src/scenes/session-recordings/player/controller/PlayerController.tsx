@@ -1,45 +1,17 @@
-import { IconClock, IconCollapse45, IconExpand45, IconPause, IconPlay, IconSearch } from '@posthog/icons'
+import { IconPause, IconPlay } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
+import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconFullScreen, IconSync } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import {
-    SettingsBar,
-    SettingsButton,
-    SettingsMenu,
-    SettingsToggle,
-} from 'scenes/session-recordings/components/PanelSettings'
-import { playerSettingsLogic, TimestampFormat } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { PlayerUpNext } from 'scenes/session-recordings/player/PlayerUpNext'
-import {
-    PLAYBACK_SPEEDS,
-    sessionRecordingPlayerLogic,
-} from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { TimestampFormatToLabel } from 'scenes/session-recordings/utils'
+import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { SessionPlayerState } from '~/types'
 
 import { SeekSkip, Timestamp } from './PlayerControllerTime'
 import { Seekbar } from './Seekbar'
-
-function SetPlaybackSpeed(): JSX.Element {
-    const { speed } = useValues(sessionRecordingPlayerLogic)
-    const { setSpeed } = useActions(sessionRecordingPlayerLogic)
-    return (
-        <SettingsMenu
-            data-attr="session-recording-speed-select"
-            items={PLAYBACK_SPEEDS.map((speedToggle) => ({
-                label: `${speedToggle}x`,
-                onClick: () => setSpeed(speedToggle),
-                active: speed === speedToggle && speedToggle !== 1,
-                status: speed === speedToggle ? 'danger' : 'default',
-            }))}
-            label={`${speed}x`}
-        />
-    )
-}
 
 function PlayPauseButton(): JSX.Element {
     const { playingState, endReached } = useValues(sessionRecordingPlayerLogic)
@@ -70,92 +42,6 @@ function PlayPauseButton(): JSX.Element {
     )
 }
 
-function ShowMouseTail(): JSX.Element {
-    const { showMouseTail } = useValues(playerSettingsLogic)
-    const { setShowMouseTail } = useActions(playerSettingsLogic)
-
-    return (
-        <SettingsToggle
-            title="Show mouse tail"
-            label="Show mouse tail"
-            active={showMouseTail}
-            data-attr="show-mouse-tail"
-            onClick={() => setShowMouseTail(!showMouseTail)}
-        />
-    )
-}
-
-function SkipInactivity(): JSX.Element {
-    const { skipInactivitySetting } = useValues(playerSettingsLogic)
-    const { setSkipInactivitySetting } = useActions(playerSettingsLogic)
-
-    return (
-        <SettingsToggle
-            title="Skip inactivity"
-            label="Skip inactivity"
-            active={skipInactivitySetting}
-            data-attr="skip-inactivity"
-            onClick={() => setSkipInactivitySetting(!skipInactivitySetting)}
-        />
-    )
-}
-
-function InspectDOM(): JSX.Element {
-    const { sessionPlayerMetaData } = useValues(sessionRecordingPlayerLogic)
-    const { openExplorer } = useActions(sessionRecordingPlayerLogic)
-
-    return (
-        <SettingsButton
-            title="View the DOM at this point in time in the recording"
-            label="Inspect DOM"
-            data-attr="explore-dom"
-            onClick={() => openExplorer()}
-            disabledReason={
-                sessionPlayerMetaData?.snapshot_source === 'web' ? undefined : 'Only available for web recordings'
-            }
-            icon={<IconSearch />}
-        />
-    )
-}
-
-function PlayerBottomSettings(): JSX.Element {
-    const { timestampFormat } = useValues(playerSettingsLogic)
-    const { setTimestampFormat } = useActions(playerSettingsLogic)
-
-    return (
-        <SettingsBar border="top" className="justify-between">
-            <div className="flex flex-row gap-0.5">
-                <SkipInactivity />
-                <ShowMouseTail />
-                <SetPlaybackSpeed />
-                <SettingsMenu
-                    highlightWhenActive={false}
-                    items={[
-                        {
-                            label: 'UTC',
-                            onClick: () => setTimestampFormat(TimestampFormat.UTC),
-                            active: timestampFormat === TimestampFormat.UTC,
-                        },
-                        {
-                            label: 'Device',
-                            onClick: () => setTimestampFormat(TimestampFormat.Device),
-                            active: timestampFormat === TimestampFormat.Device,
-                        },
-                        {
-                            label: 'Relative',
-                            onClick: () => setTimestampFormat(TimestampFormat.Relative),
-                            active: timestampFormat === TimestampFormat.Relative,
-                        },
-                    ]}
-                    icon={<IconClock />}
-                    label={TimestampFormatToLabel[timestampFormat]}
-                />
-                <InspectDOM />
-            </div>
-        </SettingsBar>
-    )
-}
-
 function FullScreen(): JSX.Element {
     const { isFullScreen } = useValues(sessionRecordingPlayerLogic)
     const { setIsFullScreen } = useActions(sessionRecordingPlayerLogic)
@@ -174,49 +60,20 @@ function FullScreen(): JSX.Element {
     )
 }
 
-function Maximise(): JSX.Element {
-    const { sidebarOpen, playlistOpen } = useValues(playerSettingsLogic)
-    const { setSidebarOpen, setPlaylistOpen } = useActions(playerSettingsLogic)
-
-    const isMaximised = !sidebarOpen && !playlistOpen
-
-    function onChangeMaximise(): void {
-        setPlaylistOpen(isMaximised)
-        setSidebarOpen(isMaximised)
-    }
-
-    useKeyboardHotkeys(
-        {
-            m: {
-                action: onChangeMaximise,
-            },
-        },
-        []
-    )
-
-    return (
-        <LemonButton
-            size="xsmall"
-            onClick={onChangeMaximise}
-            tooltip={
-                <>
-                    {isMaximised ? 'Open' : 'Close'} other panels <KeyboardShortcut m />
-                </>
-            }
-            icon={isMaximised ? <IconCollapse45 className="text-lg" /> : <IconExpand45 className="text-lg" />}
-        />
-    )
-}
-
 export function PlayerController(): JSX.Element {
     const { playlistLogic } = useValues(sessionRecordingPlayerLogic)
 
+    const { ref, size } = useResizeBreakpoints({
+        0: 'small',
+        600: 'normal',
+    })
+
     return (
-        <div className="bg-bg-light flex flex-col select-none">
+        <div className="bg-surface-primary flex flex-col select-none">
             <Seekbar />
-            <div className="w-full px-2 py-1 relative flex items-center justify-center">
+            <div className="w-full px-2 py-1 relative flex items-center justify-center" ref={ref}>
                 <div className="absolute left-2">
-                    <Timestamp />
+                    <Timestamp size={size} />
                 </div>
                 <div className="flex gap-0.5 items-center justify-center">
                     <SeekSkip direction="backward" />
@@ -225,12 +82,9 @@ export function PlayerController(): JSX.Element {
                 </div>
                 <div className="absolute right-2 flex justify-end items-center">
                     {playlistLogic ? <PlayerUpNext playlistLogic={playlistLogic} /> : undefined}
-                    <Maximise />
                     <FullScreen />
                 </div>
             </div>
-
-            <PlayerBottomSettings />
         </div>
     )
 }

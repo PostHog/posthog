@@ -4,7 +4,7 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { ActivityFilters } from '~/layout/navigation-3000/sidepanel/panels/activity/activityForSceneLogic'
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { ActivityScope, Breadcrumb, PipelineNodeTab, PipelineStage } from '~/types'
 
 import type { pipelineNodeLogicType } from './pipelineNodeLogicType'
@@ -33,7 +33,16 @@ type ManagedSourceId = {
     backend: PipelineBackend.ManagedSource
     id: string
 }
-export type PipelineNodeLimitedType = PluginNodeId | BatchExportNodeId | HogFunctionNodeId | ManagedSourceId
+type DataWarehouseId = {
+    backend: PipelineBackend.SelfManagedSource
+    id: number | string
+}
+export type PipelineNodeLimitedType =
+    | PluginNodeId
+    | BatchExportNodeId
+    | HogFunctionNodeId
+    | ManagedSourceId
+    | DataWarehouseId
 
 export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
     props({} as PipelineNodeLogicProps),
@@ -78,13 +87,15 @@ export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
             ],
         ],
 
-        activityFilters: [
+        [SIDE_PANEL_CONTEXT_KEY]: [
             (s) => [s.node],
-            (node): ActivityFilters | null => {
+            (node): SidePanelSceneContext | null => {
                 return node.backend === PipelineBackend.Plugin
                     ? {
-                          scope: ActivityScope.PLUGIN,
-                          item_id: `${node.id}`,
+                          activity_scope: ActivityScope.PLUGIN,
+                          activity_item_id: `${node.id}`,
+                          //   access_control_resource: 'plugin',
+                          //   access_control_resource_id: `${node.id}`,
                       }
                     : null
             },
@@ -106,6 +117,10 @@ export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
 
                     if (id.indexOf('managed') === 0) {
                         return { backend: PipelineBackend.ManagedSource, id: `${id}`.replace('managed-', '') }
+                    }
+
+                    if (id.indexOf('self-managed') === 0) {
+                        return { backend: PipelineBackend.SelfManagedSource, id: `${id}`.replace('self-managed-', '') }
                     }
 
                     return { backend: PipelineBackend.BatchExport, id }

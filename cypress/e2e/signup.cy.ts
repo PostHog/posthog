@@ -1,4 +1,4 @@
-import { decideResponse } from '../fixtures/api/decide'
+import { setupFeatureFlags } from '../support/decide'
 
 const VALID_PASSWORD = 'hedgE-hog-123%'
 
@@ -171,13 +171,9 @@ describe('Signup', () => {
     })
 
     it('Shows redirect notice if redirecting for maintenance', () => {
-        cy.intercept('**/decide/*', (req) =>
-            req.reply(
-                decideResponse({
-                    'redirect-signups-to-instance': 'us',
-                })
-            )
-        )
+        setupFeatureFlags({
+            'redirect-signups-to-instance': 'us',
+        })
 
         cy.visit('/logout')
         cy.location('pathname').should('include', '/login')

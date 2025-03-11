@@ -4,6 +4,7 @@ import {
     LemonButton,
     LemonDialog,
     LemonDivider,
+    LemonSelect,
     LemonSwitch,
     LemonTag,
     Link,
@@ -14,15 +15,17 @@ import { useActions, useValues } from 'kea'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { EventSelect } from 'lib/components/EventSelect/EventSelect'
+import { InternalMultipleChoiceSurvey } from 'lib/components/InternalSurvey/InternalMultipleChoiceSurvey'
 import { PropertySelect } from 'lib/components/PropertySelect/PropertySelect'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { SESSION_RECORDING_OPT_OUT_SURVEY_ID } from 'lib/constants'
 import { IconSelectEvents } from 'lib/lemon-ui/icons'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { isObject, objectsEqual } from 'lib/utils'
-import { ReactNode } from 'react'
+import { ReactNode, useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { SessionRecordingAIConfig } from '~/types'
+import { SessionRecordingAIConfig, type SessionRecordingMaskingLevel } from '~/types'
 
 interface SupportedPlatformProps {
     note?: ReactNode
@@ -34,7 +37,7 @@ function SupportedPlatform(props: SupportedPlatformProps): JSX.Element {
     const node = (
         <div
             className={clsx(
-                props.supported ? 'bg-success-highlight' : 'bg-danger-highlight',
+                props.supported ? 'bg-fill-success-highlight' : 'bg-fill-error-highlight',
                 'px-1 py-0.5',
                 props.note && 'cursor-pointer'
             )}
@@ -56,7 +59,7 @@ export function SupportedPlatforms(props: {
     flutter?: boolean | { note?: ReactNode }
 }): JSX.Element {
     return (
-        <div className="text-xs inline-flex flex-row bg-bg-3000 rounded items-center border overflow-hidden mb-2">
+        <div className="text-xs inline-flex flex-row bg-primary rounded items-center border overflow-hidden mb-2 w-fit">
             <span className="px-1 py-0.5 font-semibold">Supported platforms:</span>
             <LemonDivider vertical className="h-full" />
             <SupportedPlatform
@@ -103,7 +106,7 @@ function LogCaptureSettings(): JSX.Element {
     return (
         <div>
             <h3>Log capture</h3>
-            <SupportedPlatforms android={true} ios={true} flutter={true} web={true} reactNative={true} />
+            <SupportedPlatforms android={true} ios={false} flutter={false} web={true} reactNative={true} />
             <p>
                 This setting controls if browser console logs will be captured as a part of recordings. The console logs
                 will be shown in the recording player to help you debug any issues.
@@ -167,7 +170,7 @@ function CanvasCaptureSettings(): JSX.Element | null {
                     })
                 }}
                 label={
-                    <div className="space-x-1">
+                    <div className="deprecated-space-x-1">
                         <LemonTag type="success">New</LemonTag>
                         <LemonLabel>Capture canvas elements</LemonLabel>
                     </div>
@@ -208,7 +211,13 @@ export function NetworkCaptureSettings(): JSX.Element {
 
     return (
         <>
-            <SupportedPlatforms android={true} ios={true} flutter={false} web={true} reactNative={false} />
+            <SupportedPlatforms
+                android={true}
+                ios={true}
+                flutter={false}
+                web={true}
+                reactNative={{ note: <>RN network capture is only supported on iOS</> }}
+            />
             <p>
                 This setting controls if performance and network information will be captured alongside recordings. The
                 network requests and timings will be shown in the recording player to help you debug any issues.
@@ -242,7 +251,7 @@ export function NetworkCaptureSettings(): JSX.Element {
                     <PayloadWarning />
                 </LemonBanner>
                 <SupportedPlatforms android={false} ios={false} flutter={false} web={true} reactNative={false} />
-                <div className="flex flex-row space-x-2">
+                <div className="flex flex-row deprecated-space-x-2">
                     <LemonSwitch
                         data-attr="opt-in-capture-network-headers-switch"
                         onChange={(checked) => {
@@ -321,7 +330,7 @@ export function NetworkCaptureSettings(): JSX.Element {
  */
 export function ReplayAuthorizedDomains(): JSX.Element {
     return (
-        <div className="space-y-2">
+        <div className="deprecated-space-y-2">
             <SupportedPlatforms android={false} ios={false} flutter={false} web={true} reactNative={false} />
             <p>
                 Use the settings below to restrict the domains where recordings will be captured. If no domains are
@@ -495,9 +504,73 @@ export function ReplayAISettings(): JSX.Element | null {
     )
 }
 
+export function ReplayMaskingSettings(): JSX.Element {
+    const { updateCurrentTeam } = useActions(teamLogic)
+    const { currentTeam } = useValues(teamLogic)
+
+    const handleMaskingChange = (level: SessionRecordingMaskingLevel): void => {
+        updateCurrentTeam({
+            session_recording_masking_config: {
+                ...currentTeam?.session_recording_masking_config,
+                maskAllInputs: level !== 'free-love',
+                maskTextSelector: level === 'total-privacy' ? '*' : undefined,
+            },
+        })
+    }
+
+    const maskingConfig = {
+        maskAllInputs: currentTeam?.session_recording_masking_config?.maskAllInputs ?? true,
+        maskTextSelector: currentTeam?.session_recording_masking_config?.maskTextSelector,
+    }
+
+    const maskingLevel =
+        maskingConfig.maskTextSelector === '*' && maskingConfig.maskAllInputs
+            ? 'total-privacy'
+            : maskingConfig.maskTextSelector === undefined && !maskingConfig.maskAllInputs
+            ? 'free-love'
+            : 'normal'
+
+    return (
+        <div>
+            <SupportedPlatforms web={true} />
+            <p>This controls what data is masked during session recordings.</p>
+            <p>
+                You can configure more advanced settings or change masking for other platforms directly in code.{' '}
+                <Link to="https://posthog.com/docs/session-replay/privacy" target="_blank">
+                    Learn more
+                </Link>
+            </p>
+            <p>If you specify this in code, it will take precedence over the setting here.</p>
+            <LemonSelect
+                value={maskingLevel}
+                onChange={(val) => val && handleMaskingChange(val)}
+                options={[
+                    { value: 'total-privacy', label: 'Total privacy (mask all text/images)' },
+                    { value: 'normal', label: 'Normal (mask inputs but not text/images)' },
+                    { value: 'free-love', label: 'Free love (mask only passwords)' },
+                ]}
+            />
+        </div>
+    )
+}
+
 export function ReplayGeneral(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
+    const [showSurvey, setShowSurvey] = useState<boolean>(false)
+
+    /**
+     * Handle the opt in change
+     * @param checked
+     */
+    const handleOptInChange = (checked: boolean): void => {
+        updateCurrentTeam({
+            session_recording_opt_in: checked,
+        })
+
+        //If the user opts out, we show the survey
+        setShowSurvey(!checked)
+    }
 
     return (
         <div className="flex flex-col gap-4">
@@ -515,16 +588,13 @@ export function ReplayGeneral(): JSX.Element {
                 <LemonSwitch
                     data-attr="opt-in-session-recording-switch"
                     onChange={(checked) => {
-                        updateCurrentTeam({
-                            // when switching replay on or off,
-                            // we set defaults for some of the other settings
-                            session_recording_opt_in: checked,
-                        })
+                        handleOptInChange(checked)
                     }}
                     label="Record user sessions"
                     bordered
                     checked={!!currentTeam?.session_recording_opt_in}
                 />
+                {showSurvey && <InternalMultipleChoiceSurvey surveyId={SESSION_RECORDING_OPT_OUT_SURVEY_ID} />}
             </div>
             <LogCaptureSettings />
             <CanvasCaptureSettings />

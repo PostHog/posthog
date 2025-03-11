@@ -32,7 +32,7 @@ import {
     TRENDS_FILTER_PROPERTIES,
     TrendsFilter,
     TrendsFilterLegacy,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import { FunnelExclusionLegacy, LegacyRecordingFilters, NotebookNodeType, NotebookType } from '~/types'
 
 // NOTE: Increment this number when you add a new content migration

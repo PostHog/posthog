@@ -5,6 +5,7 @@ import { KeyboardShortcut, KeyboardShortcutProps } from '~/layout/navigation-300
 import { LemonButton, LemonButtonProps } from '../LemonButton'
 import { LemonDivider } from '../LemonDivider'
 import { LemonDropdown, LemonDropdownProps } from '../LemonDropdown'
+import { LemonTag } from '../LemonTag'
 import { TooltipProps } from '../Tooltip'
 import { useKeyboardNavigation } from './useKeyboardNavigation'
 
@@ -13,7 +14,16 @@ type KeyboardShortcut = Array<keyof KeyboardShortcutProps>
 export interface LemonMenuItemBase
     extends Pick<
         LemonButtonProps,
-        'icon' | 'sideIcon' | 'sideAction' | 'disabledReason' | 'tooltip' | 'active' | 'status' | 'data-attr'
+        | 'icon'
+        | 'sideIcon'
+        | 'sideAction'
+        | 'disabledReason'
+        | 'tooltip'
+        | 'tooltipPlacement'
+        | 'active'
+        | 'status'
+        | 'data-attr'
+        | 'size'
     > {
     label: string | JSX.Element
     key?: React.Key
@@ -29,7 +39,7 @@ export interface LemonMenuItemNode extends LemonMenuItemBase {
 }
 
 export interface LemonMenuItemLeafCallback extends LemonMenuItemBase {
-    onClick: () => void
+    onClick?: () => void
     items?: never
     placement?: never
     keyboardShortcut?: KeyboardShortcut
@@ -53,11 +63,14 @@ export interface LemonMenuItemCustom {
     active?: never
     items?: never
     keyboardShortcut?: never
+
     /** True if the item is a custom element. */
     custom?: boolean
     placement?: never
 }
-export type LemonMenuItem = LemonMenuItemLeaf | LemonMenuItemCustom | LemonMenuItemNode
+export type LemonMenuItem = (LemonMenuItemLeaf | LemonMenuItemCustom | LemonMenuItemNode) & {
+    tag?: 'alpha' | 'beta' | 'new'
+}
 
 export interface LemonMenuSection {
     title?: string | React.ReactNode
@@ -186,7 +199,7 @@ export function LemonMenuSectionList({
             {sections.map((section, i) => {
                 const sectionElement = (
                     <li key={section.key || i}>
-                        <section className="space-y-px">
+                        <section className="deprecated-space-y-px">
                             {section.title ? (
                                 typeof section.title === 'string' ? (
                                     <h5 className="mx-2 my-1">{section.title}</h5>
@@ -217,23 +230,23 @@ export function LemonMenuSectionList({
 
 interface LemonMenuItemListProps {
     items: LemonMenuItem[]
-    buttonSize: 'xsmall' | 'small' | 'medium'
-    tooltipPlacement: TooltipProps['placement'] | undefined
-    itemsRef: React.RefObject<React.RefObject<HTMLButtonElement>[]> | undefined
+    buttonSize?: 'xsmall' | 'small' | 'medium'
+    tooltipPlacement?: TooltipProps['placement'] | undefined
+    itemsRef?: React.RefObject<React.RefObject<HTMLButtonElement>[]> | undefined
     itemIndexOffset?: number
 }
 
 export function LemonMenuItemList({
     items,
-    buttonSize,
+    buttonSize = 'small',
     itemIndexOffset = 0,
-    tooltipPlacement,
+    tooltipPlacement = 'right',
     itemsRef,
 }: LemonMenuItemListProps): JSX.Element {
     let rollingItemIndex = 0
 
     return (
-        <ul className="space-y-px">
+        <ul className="deprecated-space-y-px">
             {items.map((item, index) => (
                 <li key={item.key || index}>
                     <LemonMenuItemButton
@@ -241,6 +254,7 @@ export function LemonMenuItemList({
                         size={buttonSize}
                         tooltipPlacement={tooltipPlacement}
                         ref={itemsRef?.current?.[itemIndexOffset + rollingItemIndex++]}
+                        tag={item.tag}
                     />
                 </li>
             ))}
@@ -252,12 +266,17 @@ interface LemonMenuItemButtonProps {
     item: LemonMenuItem
     size: 'xsmall' | 'small' | 'medium'
     tooltipPlacement: TooltipProps['placement'] | undefined
+    tag?: 'alpha' | 'beta' | 'new'
 }
 
 const LemonMenuItemButton: FunctionComponent<LemonMenuItemButtonProps & React.RefAttributes<HTMLButtonElement>> =
     React.forwardRef(
         (
-            { item: { label, items, placement, keyboardShortcut, custom, ...buttonProps }, size, tooltipPlacement },
+            {
+                item: { label, items, placement, keyboardShortcut, tag, custom, ...buttonProps },
+                size,
+                tooltipPlacement,
+            },
             ref
         ): JSX.Element => {
             const Label = typeof label === 'function' ? label : null
@@ -280,6 +299,15 @@ const LemonMenuItemButton: FunctionComponent<LemonMenuItemButtonProps & React.Re
                             {/* Show the keyboard shortcut on the right */}
                             <KeyboardShortcut {...Object.fromEntries(keyboardShortcut.map((key) => [key, true]))} />
                         </div>
+                    )}
+                    {tag && (
+                        <LemonTag
+                            type={tag === 'alpha' ? 'completion' : tag === 'beta' ? 'warning' : 'success'}
+                            size="small"
+                            className="ml-2"
+                        >
+                            {tag.toUpperCase()}
+                        </LemonTag>
                     )}
                 </LemonButton>
             )

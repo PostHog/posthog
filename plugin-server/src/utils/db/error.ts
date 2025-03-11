@@ -1,7 +1,7 @@
 import { PluginEvent, PostHogEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
-import { captureException } from '@sentry/node'
 
 import { Hub, PluginConfig, PluginError, PluginLogEntrySource, PluginLogEntryType } from '../../types'
+import { captureException } from '../posthog'
 
 export class DependencyUnavailableError extends Error {
     constructor(message: string, dependencyName: string, error: Error) {
@@ -25,6 +25,19 @@ export class MessageSizeTooLarge extends Error {
     readonly isRetriable = false
 }
 
+export class RedisOperationError extends Error {
+    constructor(message: string, error: Error, operation: string, logContext?: Record<string, any>) {
+        super(message)
+        this.name = 'RedisOperationError'
+        this.error = error
+        this.operation = operation
+        this.logContext = logContext
+    }
+    readonly error: Error
+    readonly logContext?: Record<string, any>
+    readonly operation: string
+}
+
 export async function processError(
     server: Hub,
     pluginConfig: PluginConfig | null,
@@ -35,7 +48,7 @@ export async function processError(
         captureException(new Error('Tried to process error for nonexistent plugin config!'), {
             tags: { team_id: event?.team_id },
         })
-        return
+        return Promise.resolve()
     }
 
     if (error instanceof DependencyUnavailableError) {

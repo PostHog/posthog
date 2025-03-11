@@ -3,29 +3,36 @@ from datetime import datetime, timedelta
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
+import celery
 import structlog
 from celery import shared_task
 from dateutil import parser
 from django.db.models import QuerySet
 from django.utils import timezone
-from sentry_sdk import capture_exception
+from posthoganalytics.client import Client
+
+from posthog.clickhouse.query_tagging import tag_queries
+from posthog.exceptions_capture import capture_exception
 
 from posthog.models.dashboard import Dashboard
 from posthog.models.event_definition import EventDefinition
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag
-from posthog.models.feedback.survey import Survey
+from posthog.models.surveys.survey import Survey
 from posthog.models.messaging import MessagingRecord
+from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.session_recordings.models.session_recording_playlist import (
     SessionRecordingPlaylist,
 )
-from posthog.tasks.usage_report import (
-    USAGE_REPORT_TASK_KWARGS,
-    capture_report,
-    get_instance_metadata,
+from posthog.tasks.email import NotificationSetting, NotificationSettingType
+from posthog.tasks.report_utils import (
+    OrgDigestReport,
+    TeamDigestReport,
+    capture_event,
+    get_user_team_lookup,
 )
-from posthog.tasks.utils import CeleryQueue
+from posthog.tasks.usage_report import USAGE_REPORT_TASK_KWARGS, get_instance_metadata
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 
 logger = structlog.get_logger(__name__)
@@ -54,7 +61,11 @@ def get_teams_for_digest() -> list[Team]:
 
 
 def get_teams_with_new_dashboards(end: datetime, begin: datetime) -> QuerySet:
-    return Dashboard.objects.filter(created_at__gt=begin, created_at__lte=end).values("team_id", "name", "id")
+    return (
+        Dashboard.objects.filter(created_at__gt=begin, created_at__lte=end)
+        .exclude(name__contains="Generated Dashboard")
+        .values("team_id", "name", "id")
+    )
 
 
 def get_teams_with_new_event_definitions(end: datetime, begin: datetime) -> QuerySet:
@@ -62,14 +73,34 @@ def get_teams_with_new_event_definitions(end: datetime, begin: datetime) -> Quer
 
 
 def get_teams_with_new_playlists(end: datetime, begin: datetime) -> QuerySet:
-    return SessionRecordingPlaylist.objects.filter(created_at__gt=begin, created_at__lte=end).values(
-        "team_id", "name", "short_id"
+    return (
+        SessionRecordingPlaylist.objects.filter(
+            created_at__gt=begin,
+            created_at__lte=end,
+        )
+        .exclude(
+            name__isnull=True,
+            derived_name__isnull=True,
+        )
+        .exclude(
+            name="",
+            derived_name=None,
+        )
+        .values("team_id", "name", "short_id", "derived_name")
     )
 
 
 def get_teams_with_new_experiments_launched(end: datetime, begin: datetime) -> QuerySet:
-    return Experiment.objects.filter(start_date__gt=begin, start_date__lte=end).values(
-        "team_id", "name", "id", "start_date"
+    return (
+        Experiment.objects.filter(
+            start_date__gt=begin,
+            start_date__lte=end,
+        )
+        .exclude(
+            end_date__gt=begin,
+            end_date__lte=end,
+        )
+        .values("team_id", "name", "id", "start_date")
     )
 
 
@@ -144,7 +175,7 @@ def get_periodic_digest_report(all_digest_data: dict[str, Any], team: Team) -> p
             for event_definition in all_digest_data["teams_with_new_event_definitions"].get(team.id, [])
         ],
         new_playlists=[
-            {"name": playlist.get("name"), "id": playlist.get("short_id")}
+            {"name": playlist.get("name") or playlist.get("derived_name", "Untitled"), "id": playlist.get("short_id")}
             for playlist in all_digest_data["teams_with_new_playlists"].get(team.id, [])
         ],
         new_experiments_launched=[
@@ -184,54 +215,55 @@ def get_periodic_digest_report(all_digest_data: dict[str, Any], team: Team) -> p
     )
 
 
-@shared_task(queue=CeleryQueue.USAGE_REPORTS.value, ignore_result=True, max_retries=3)
-def send_periodic_digest_report(
-    *,
-    team_id: int,
-    team_name: str,
-    periodic_digest_report: dict[str, Any],
-    instance_metadata: dict[str, Any],
-    period_end: datetime,
-    period_start: datetime,
-    digest_items_with_data: int,
-) -> None:
-    period_str = period_end.strftime("%Y-%m-%d")
-    days = (period_end - period_start).days
-    campaign_key = f"periodic_digest_{period_str}_{days}d"
+def _get_all_org_digest_reports(period_start: datetime, period_end: datetime) -> dict[str, OrgDigestReport]:
+    """
+    Gets all digest data and organizes it by organization
+    """
+    logger.info("Getting all digest data...")
+    time_now = datetime.now()
+    all_digest_data = _get_all_digest_data_as_team_rows(period_start, period_end)
+    logger.debug(f"Getting all digest data took {(datetime.now() - time_now).total_seconds()} seconds.")
 
-    # Use a consistent identifier for the team
-    team_identifier = f"team_{team_id}"
+    logger.info("Getting teams for digest reports...")
+    time_now = datetime.now()
+    teams = get_teams_for_digest()
+    logger.debug(f"Getting teams for digest reports took {(datetime.now() - time_now).total_seconds()} seconds.")
 
-    # Check if we've already sent this digest using get_or_create
-    record, created = MessagingRecord.objects.get_or_create(raw_email=team_identifier, campaign_key=campaign_key)
+    org_reports: dict[str, OrgDigestReport] = {}
 
-    if not created and record.sent_at:
-        logger.info(f"Skipping duplicate periodic digest for team {team_id} for period ending {period_str}")
-        return
+    logger.info("Generating reports for organizations...")
+    time_now = datetime.now()
 
-    full_report_dict = {
-        "team_id": team_id,
-        "team_name": team_name,
-        "template": "periodic_digest_report",
-        "digest_items_with_data": digest_items_with_data,
-        **periodic_digest_report,
-        **instance_metadata,
-    }
+    for team in teams:
+        org_id = str(team.organization_id)
+        if org_id not in org_reports:
+            org_reports[org_id] = OrgDigestReport(
+                organization_id=org_id,
+                organization_name=team.organization.name,
+                organization_created_at=team.organization.created_at.isoformat(),
+                teams=[],
+                total_digest_items_with_data=0,
+            )
 
-    capture_report.delay(
-        capture_event_name="transactional email",
-        team_id=team_id,
-        full_report_dict=full_report_dict,
-        send_for_all_members=True,
-    )
+        team_report = get_periodic_digest_report(all_digest_data, team)
+        if count_non_zero_digest_items(team_report) > 0:  # Only include teams with data
+            org_reports[org_id].teams.append(
+                TeamDigestReport(
+                    team_id=team.id,
+                    team_name=team.name,
+                    report=dataclasses.asdict(team_report),
+                    digest_items_with_data=count_non_zero_digest_items(team_report),
+                )
+            )
 
-    # Mark as sent
-    record.sent_at = timezone.now()
-    record.save()
+    time_since = datetime.now() - time_now
+    logger.debug(f"Generating reports for organizations took {time_since.total_seconds()} seconds.")
+    return org_reports
 
 
 @shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=0)
 def send_all_periodic_digest_reports(
+    self: celery.Task,
     dry_run: bool = False,
     end_date: Optional[str] = None,
     begin_date: Optional[str] = None,
@@ -243,29 +275,98 @@ def send_all_periodic_digest_reports(
     )
     period_start = parser.parse(begin_date) if begin_date else period_end - timedelta(days=7)
 
-    try:
-        all_digest_data = _get_all_digest_data_as_team_rows(period_start, period_end)
-        teams = get_teams_for_digest()
-        time_now = datetime.now()
-        for team in teams:
-            report = get_periodic_digest_report(all_digest_data, team)
-            full_report_dict = dataclasses.asdict(report)
-            instance_metadata = dataclasses.asdict(get_instance_metadata((period_start, period_end)))
-            digest_items_with_data = count_non_zero_digest_items(report)
+    tag_queries(celery_request_id=self.request.id)
 
-            # Then capture as events to PostHog, so they can be sent via email
-            if digest_items_with_data > 0 and not dry_run:
-                send_periodic_digest_report.delay(
-                    team_id=team.id,
-                    team_name=team.name,
-                    periodic_digest_report=full_report_dict,
-                    instance_metadata=instance_metadata,
-                    period_end=period_end,
-                    period_start=period_start,
-                    digest_items_with_data=digest_items_with_data,
+    try:
+        org_reports = _get_all_org_digest_reports(period_start, period_end)
+        instance_metadata = dataclasses.asdict(get_instance_metadata((period_start, period_end)))
+
+        logger.info("Sending digest reports...")
+        time_now = datetime.now()
+
+        for org_id, org_report in org_reports.items():
+            if not org_report.teams:  # Skip if no teams have data
+                continue
+
+            if dry_run:
+                continue
+
+            # Get user access and notification preferences
+            user_teams, user_notifications = get_user_team_lookup(org_id)
+
+            # Check if we've already sent this digest
+            period_str = period_end.strftime("%Y-%m-%d")
+            days = (period_end - period_start).days
+            campaign_key = f"periodic_digest_{period_str}_{days}d"
+
+            record, created = MessagingRecord.objects.get_or_create(
+                raw_email=f"org_{org_id}", campaign_key=campaign_key
+            )
+
+            if not created and record.sent_at:
+                logger.info(f"Skipping duplicate periodic digest for org {org_id}")
+                continue
+
+            # Get all org members
+            org_members = OrganizationMembership.objects.filter(organization_id=org_id).select_related("user")
+            # Send customized report to each user
+            for membership in org_members:
+                user = membership.user
+                user_team_ids = user_teams.get(user.id, set())
+                user_notif_team_ids = user_notifications.get(user.id, set())
+
+                # Filter report to only include teams the user has access to
+                user_report = org_report.filter_for_user(user_team_ids, user_notif_team_ids)
+
+                if not user_report.teams or not user.distinct_id:
+                    continue
+
+                report_dict = dataclasses.asdict(user_report)
+                send_digest_notifications(
+                    organization_id=org_id,
+                    event_name="transactional email",
+                    properties={
+                        **report_dict,
+                        **instance_metadata,
+                        "template_name": "periodic_digest_report",
+                    },
+                    notification_type=NotificationSetting.WEEKLY_PROJECT_DIGEST.value,
+                    distinct_id=user.distinct_id,
                 )
+
+            # Mark as sent
+            record.sent_at = timezone.now()
+            record.save()
+
         time_since = datetime.now() - time_now
-        logger.debug(f"Sending usage reports to PostHog and Billing took {time_since.total_seconds()} seconds.")  # noqa T201
+        logger.debug(f"Sending digest reports took {time_since.total_seconds()} seconds.")
+
     except Exception as err:
         capture_exception(err)
         raise
+
+
+def send_digest_notifications(
+    *,
+    organization_id: str,
+    event_name: str,
+    properties: dict[str, Any],
+    notification_type: NotificationSettingType,
+    timestamp: Optional[datetime] = None,
+    distinct_id: str,
+) -> None:
+    """
+    Sends a single notification for digest reports.
+    """
+    pha_client = Client("sTMFPsFhdP1Ssg")
+
+    capture_event(
+        pha_client=pha_client,
+        name=event_name,
+        organization_id=organization_id,
+        team_id=None,
+        properties=properties,
+        timestamp=timestamp,
+        distinct_id=distinct_id,
+    )
+    pha_client.group_identify("organization", organization_id, properties)

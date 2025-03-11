@@ -5,7 +5,6 @@ from ee.api.test.base import LicensedTestMixin
 from ee.clickhouse.views.test.funnel.util import (
     EventPattern,
     FunnelRequest,
-    get_funnel_actors_ok,
     get_funnel_ok,
 )
 from posthog.constants import INSIGHT_FUNNELS
@@ -100,6 +99,3 @@ class ClickhouseTestUnorderedFunnelGroups(ClickhouseTestMixin, LicensedTestMixin
         assert result["Completed 1 step"]["count"] == 2
         assert result["Completed 2 steps"]["count"] == 1
         assert result["Completed 2 steps"]["average_conversion_time"] == 86400
-
-        actors = get_funnel_actors_ok(self.client, result["Completed 1 step"]["converted_people_url"])
-        assert len(actors) == 2

@@ -15,22 +15,34 @@ import { OnboardingStep } from '../OnboardingStep'
 import { sdksLogic } from './sdksLogic'
 import { SDKSnippet } from './SDKSnippet'
 
+export type SDKsProps = {
+    sdkInstructionMap: SDKInstructionsMap
+    stepKey?: OnboardingStepKey
+    listeningForName?: string
+    teamPropertyToVerify?: string
+    usersAction?: string
+    subtitle?: string
+}
+
+export function InviteHelpCard(): JSX.Element {
+    return (
+        <LemonCard hoverEffect={false}>
+            <h3 className="font-bold">Need help?</h3>
+            <p>Invite a team member to help you get set up.</p>
+            <InviteMembersButton type="secondary" />
+        </LemonCard>
+    )
+}
+
 export function SDKs({
     sdkInstructionMap,
     stepKey = OnboardingStepKey.INSTALL,
     listeningForName = 'event',
     teamPropertyToVerify = 'ingested_event',
-}: {
-    usersAction?: string
-    sdkInstructionMap: SDKInstructionsMap
-    subtitle?: string
-    stepKey?: OnboardingStepKey
-    listeningForName?: string
-    teamPropertyToVerify?: string
-}): JSX.Element {
+}: SDKsProps): JSX.Element {
     const { loadCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { setSourceFilter, setSelectedSDK, setAvailableSDKInstructionsMap, setShowSideBySide, setPanel } =
+    const { setSourceFilter, selectSDK, setAvailableSDKInstructionsMap, setShowSideBySide, setPanel } =
         useActions(sdksLogic)
     const { sourceFilter, sdks, selectedSDK, sourceOptions, showSourceOptionsSelect, showSideBySide, panel } =
         useValues(sdksLogic)
@@ -39,7 +51,9 @@ export function SDKs({
     const [showListeningFor, setShowListeningFor] = React.useState(false)
     const [hasCheckedInstallation, setHasCheckedInstallation] = React.useState(false)
 
-    const { width } = useWindowSize()
+    const {
+        windowSize: { width },
+    } = useWindowSize()
 
     useEffect(() => {
         if (showListeningFor && !currentTeam?.[teamPropertyToVerify]) {
@@ -86,10 +100,11 @@ export function SDKs({
                     )}
                     {sdks?.map((sdk) => (
                         <React.Fragment key={`sdk-${sdk.key}`}>
+                            {/* // TODO: Make light/dark version of the logos */}
                             <LemonButton
                                 data-attr={`onboarding-sdk-${sdk.key}`}
                                 active={selectedSDK?.key === sdk.key}
-                                onClick={selectedSDK?.key !== sdk.key ? () => setSelectedSDK(sdk) : undefined}
+                                onClick={selectedSDK?.key !== sdk.key ? () => selectSDK(sdk) : undefined}
                                 fullWidth
                                 icon={
                                     typeof sdk.image === 'string' ? (
@@ -106,11 +121,7 @@ export function SDKs({
                             </LemonButton>
                         </React.Fragment>
                     ))}
-                    <LemonCard className="mt-6" hoverEffect={false}>
-                        <h3 className="font-bold">Need help with this step?</h3>
-                        <p>Invite a team member to help you get set up.</p>
-                        <InviteMembersButton type="secondary" />
-                    </LemonCard>
+                    <InviteHelpCard />
                 </div>
                 {selectedSDK && productKey && !!sdkInstructionMap[selectedSDK.key] && (
                     <div
@@ -139,14 +150,14 @@ export function SDKs({
                                             </LemonButton>
                                         </div>
                                         {hasCheckedInstallation && !showListeningFor && (
-                                            <p className="italic text-muted mt-2 text-xs">
+                                            <p className="italic text-secondary mt-2 text-xs">
                                                 No {listeningForName}s received. Please check your implementation and
                                                 try again.
                                             </p>
                                         )}
                                     </>
                                 ) : (
-                                    <p className="flex items-center italic text-muted">
+                                    <p className="flex items-center italic text-secondary">
                                         {!currentTeam?.[teamPropertyToVerify] ? (
                                             <>
                                                 <Spinner className="text-3xl mr-2" /> Verifying installation...

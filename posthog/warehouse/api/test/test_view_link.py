@@ -100,7 +100,7 @@ class TestViewLinkQuery(APIBaseTest):
                 "field_name": "some_field",
             },
         )
-        self.assertEqual(response.status_code, 400, response.content)
+        self.assertEqual(response.status_code, 201, response.content)
 
     def test_update_with_configuration(self):
         join = DataWarehouseJoin.objects.create(

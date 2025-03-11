@@ -1,13 +1,13 @@
-import { BaseIcon, IconCheck, IconEye, IconLogomark, IconSearch, IconVideoCamera } from '@posthog/icons'
+import { BaseIcon, IconCheck, IconChevronDown, IconEye, IconHide, IconLogomark, IconVideoCamera } from '@posthog/icons'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
 import { IconUnverifiedEvent } from 'lib/lemon-ui/icons'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
-import { SettingsBar, SettingsMenu, SettingsToggle } from 'scenes/session-recordings/components/PanelSettings'
+import { SettingsBar, SettingsMenu } from 'scenes/session-recordings/components/PanelSettings'
 import { SimpleKeyValueList } from 'scenes/session-recordings/player/inspector/components/SimpleKeyValueList'
 
 import { eventDebugMenuLogic } from '~/toolbar/debug/eventDebugMenuLogic'
@@ -15,10 +15,10 @@ import { EventType } from '~/types'
 
 import { ToolbarMenu } from '../bar/ToolbarMenu'
 
-function showEventMenuItem(
+function checkableMenuItem(
     label: string,
-    count: number,
-    icon: JSX.Element,
+    count: number | null,
+    icon: JSX.Element | null,
     isActive: boolean,
     onClick: () => void
 ): LemonMenuItem {
@@ -30,13 +30,15 @@ function showEventMenuItem(
                     {icon}
                     {label}
                 </div>
-                <span
-                    // without setting fontVariant to none a single digit number between brackets gets rendered as a ligature 🤷
-                    // eslint-disable-next-line react/forbid-dom-props
-                    style={{ fontVariant: 'none' }}
-                >
-                    ({count})
-                </span>
+                {count !== null && (
+                    <span
+                        // without setting fontVariant to none a single digit number between brackets gets rendered as a ligature 🤷
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{ fontVariant: 'none' }}
+                    >
+                        ({count})
+                    </span>
+                )}
             </div>
         ),
         active: isActive,
@@ -56,39 +58,41 @@ function EventTimestamp({ e }: { e: EventType }): JSX.Element {
     return (
         <div>
             <span>{ts.format(formatString)}</span>
-            <span className="text-xxs text-muted">{ts.format('.SSS')}</span>
+            <span className="text-xxs text-secondary">{ts.format('.SSS')}</span>
         </div>
     )
 }
 
 export const EventDebugMenu = (): JSX.Element => {
     const {
-        searchVisible,
         searchText,
         isCollapsedEventRow,
         activeFilteredEvents,
         searchFilteredEventsCount,
-        expandedEvent,
         selectedEventTypes,
+        hidePostHogProperties,
+        hidePostHogFlags,
+        expandedProperties,
     } = useValues(eventDebugMenuLogic)
-    const { markExpanded, setSelectedEventType, setSearchText, setSearchVisible } = useActions(eventDebugMenuLogic)
+    const { markExpanded, setSelectedEventType, setSearchText, setHidePostHogProperties, setHidePostHogFlags } =
+        useActions(eventDebugMenuLogic)
 
     const showEventsMenuItems = [
-        showEventMenuItem(
+        checkableMenuItem(
             'PostHog Events',
             searchFilteredEventsCount['posthog'],
             <IconLogomark />,
             selectedEventTypes.includes('posthog'),
             () => setSelectedEventType('posthog', !selectedEventTypes.includes('posthog'))
         ),
-        showEventMenuItem(
+        checkableMenuItem(
             'Custom Events',
             searchFilteredEventsCount['custom'],
             <IconVideoCamera />,
             selectedEventTypes.includes('custom'),
             () => setSelectedEventType('custom', !selectedEventTypes.includes('custom'))
         ),
-        showEventMenuItem(
+        checkableMenuItem(
             'Replay Events',
             searchFilteredEventsCount['snapshot'],
             <IconUnverifiedEvent />,
@@ -96,64 +100,69 @@ export const EventDebugMenu = (): JSX.Element => {
             () => setSelectedEventType('snapshot', !selectedEventTypes.includes('snapshot'))
         ),
     ]
+
+    const hideThingsMenuItems = [
+        checkableMenuItem('Hide PostHog properties', null, null, hidePostHogProperties, () =>
+            setHidePostHogProperties(!hidePostHogProperties)
+        ),
+        checkableMenuItem('Hide PostHog flags', null, null, hidePostHogFlags, () =>
+            setHidePostHogFlags(!hidePostHogFlags)
+        ),
+    ]
+
     return (
         <ToolbarMenu>
-            <ToolbarMenu.Header noPadding>
-                <div className="flex flex-col pb-2 space-y-1">
+            <ToolbarMenu.Header>
+                <div className="flex flex-col pb-2 deprecated-space-y-1">
                     <div className="flex justify-center flex-col">
-                        <SettingsBar border="bottom" className="justify-end">
-                            <div className="flex-1 text-sm">
-                                View events from this page as they are sent to PostHog.
-                            </div>
-                            <SettingsToggle
-                                label="Search"
-                                icon={<IconSearch />}
-                                active={searchVisible}
-                                onClick={() => setSearchVisible(!searchVisible)}
-                            />
-                        </SettingsBar>
-                        {searchVisible && (
-                            <LemonInput
-                                size="xsmall"
-                                fullWidth={true}
-                                type="search"
-                                value={searchText}
-                                onChange={setSearchText}
-                            />
-                        )}
+                        <LemonInput
+                            autoFocus={true}
+                            fullWidth={true}
+                            placeholder="Search"
+                            type="search"
+                            value={searchText}
+                            onChange={setSearchText}
+                        />
                     </div>
                 </div>
             </ToolbarMenu.Header>
             <ToolbarMenu.Body>
-                <div className="flex flex-col space-y-1">
+                <div className="flex flex-col deprecated-space-y-1">
+                    <div className="flex-1 text-sm pl-1">
+                        View all events sent from this page as they are sent to PostHog.
+                    </div>
                     {activeFilteredEvents.length ? (
                         activeFilteredEvents.map((e) => {
+                            const expanded = e.uuid !== undefined && !isCollapsedEventRow(e.uuid)
+
                             return (
                                 <div
                                     className="-mx-1 py-1 px-2 cursor-pointer"
                                     key={e.uuid}
                                     onClick={() => {
-                                        expandedEvent === e.uuid ? markExpanded(null) : markExpanded(e.uuid || null)
+                                        expanded ? markExpanded(null) : markExpanded(e.uuid || null)
                                     }}
                                 >
-                                    <div className="flex flex-row justify-between hover:bg-bg-light hover:text-text-3000-light">
+                                    <div className="flex flex-row justify-between hover:bg-surface-primary hover:text-accent-highlight">
                                         <EventTimestamp e={e} />
-                                        <PropertyKeyInfo
-                                            value={e.event}
-                                            type={TaxonomicFilterGroupType.Events}
-                                            disableIcon={true}
-                                        />
+
+                                        <div className="flex flex-row items-end gap-1">
+                                            <PropertyKeyInfo
+                                                disableIcon
+                                                value={e.event}
+                                                type={TaxonomicFilterGroupType.Events}
+                                            />
+                                            <IconChevronDown className={clsx(expanded ? 'rotate-180' : '')} />
+                                        </div>
                                     </div>
-                                    <AnimatedCollapsible
-                                        collapsed={e.uuid === undefined ? true : isCollapsedEventRow(e.uuid)}
-                                    >
+                                    {expanded && (
                                         <div className="my-1 ml-1 pl-2 border-l-2">
                                             <SimpleKeyValueList
-                                                item={e.properties}
+                                                item={expandedProperties}
                                                 emptyMessage={searchText ? 'No matching properties' : 'No properties'}
                                             />
                                         </div>
-                                    </AnimatedCollapsible>
+                                    )}
                                 </div>
                             )
                         })
@@ -166,8 +175,14 @@ export const EventDebugMenu = (): JSX.Element => {
                     )}
                 </div>
             </ToolbarMenu.Body>
-            <ToolbarMenu.Footer noPadding>
-                <SettingsBar border="top" className="justify-end">
+            <ToolbarMenu.Footer>
+                <SettingsBar border="none" className="justify-between">
+                    <SettingsMenu
+                        items={hideThingsMenuItems}
+                        highlightWhenActive={false}
+                        icon={<IconHide />}
+                        label="Hide properties"
+                    />
                     <SettingsMenu
                         items={showEventsMenuItems}
                         highlightWhenActive={false}

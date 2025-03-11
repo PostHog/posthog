@@ -6,6 +6,7 @@ use sqlx::PgPool;
 use crate::{
     config::Config,
     error::UnhandledError,
+    metric_consts::{FRAME_CACHE_HITS, FRAME_CACHE_MISSES, FRAME_DB_HITS, FRAME_DB_MISSES},
     symbol_store::{saving::SymbolSetRecord, Catalog},
 };
 
@@ -35,15 +36,20 @@ impl Resolver {
         catalog: &Catalog,
     ) -> Result<Frame, UnhandledError> {
         if let Some(result) = self.cache.get(&frame.frame_id()) {
+            metrics::counter!(FRAME_CACHE_HITS).increment(1);
             return Ok(result.contents);
         }
+        metrics::counter!(FRAME_CACHE_MISSES).increment(1);
 
         if let Some(result) =
             ErrorTrackingStackFrame::load(pool, team_id, &frame.frame_id(), self.result_ttl).await?
         {
             self.cache.insert(frame.frame_id(), result.clone());
+            metrics::counter!(FRAME_DB_HITS).increment(1);
             return Ok(result.contents);
         }
+
+        metrics::counter!(FRAME_DB_MISSES).increment(1);
 
         let resolved = frame.resolve(team_id, catalog).await?;
 
@@ -146,14 +152,14 @@ mod test {
         // We're going to pretend out stack consists exclusively of JS frames whose source
         // we have locally
         test_stack.retain(|s| {
-            let RawFrame::JavaScript(s) = s else {
+            let RawFrame::JavaScriptWeb(s) = s else {
                 return false;
             };
             s.source_url.as_ref().unwrap().contains(CHUNK_PATH)
         });
 
         for frame in test_stack.iter_mut() {
-            let RawFrame::JavaScript(frame) = frame else {
+            let RawFrame::JavaScriptWeb(frame) = frame else {
                 panic!("Expected a JavaScript frame")
             };
             // Our test data contains our /actual/ source urls - we need to swap that to localhost

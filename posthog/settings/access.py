@@ -25,7 +25,12 @@ SECURE_REDIRECT_EXEMPT = [r"^_health/?"]
 if get_from_env("DISABLE_SECURE_SSL_REDIRECT", False, type_cast=str_to_bool):
     SECURE_SSL_REDIRECT = False
 
-CSRF_TRUSTED_ORIGINS = [os.getenv("SITE_URL", "http://localhost:8000").rstrip("/")]
+raw_site_url = os.getenv("SITE_URL")
+CSRF_TRUSTED_ORIGINS = (
+    [raw_site_url.rstrip("/")]
+    if raw_site_url
+    else ["http://localhost:8000", "http://localhost:8010"]  # 8000 is just Django, 8010 is Django + Capture via Caddy
+)
 
 # Proxy settings
 IS_BEHIND_PROXY = get_from_env("IS_BEHIND_PROXY", False, type_cast=str_to_bool)

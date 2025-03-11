@@ -15,7 +15,7 @@ import {
     ConditionalFormattingRule,
     DataVisualizationNode,
     HogQLVariable,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType, DashboardType, ItemMode } from '~/types'
 
@@ -178,6 +178,12 @@ export const convertTableValue = (
 }
 
 const toFriendlyClickhouseTypeName = (type: string): ColumnScalar => {
+    if (type.indexOf('Array') !== -1) {
+        return 'ARRAY'
+    }
+    if (type.indexOf('Tuple') !== -1) {
+        return 'TUPLE'
+    }
     if (type.indexOf('Int') !== -1) {
         return 'INTEGER'
     }
@@ -203,8 +209,8 @@ const toFriendlyClickhouseTypeName = (type: string): ColumnScalar => {
     return type as ColumnScalar
 }
 
-const isNumericalType = (type: string): boolean => {
-    if (type.indexOf('Int') !== -1 || type.indexOf('Float') !== -1 || type.indexOf('Decimal') !== -1) {
+const isNumericalType = (type: ColumnScalar): boolean => {
+    if (type === 'INTEGER' || type === 'FLOAT' || type === 'DECIMAL') {
         return true
     }
 
@@ -547,11 +553,13 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
                 return columns.map((column, index) => {
                     const type = types[index]?.[1]
+                    const friendlyClickhouseTypeName = toFriendlyClickhouseTypeName(type)
+
                     return {
                         name: column,
                         type: {
-                            name: toFriendlyClickhouseTypeName(type),
-                            isNumerical: isNumericalType(type),
+                            name: friendlyClickhouseTypeName,
+                            isNumerical: isNumericalType(friendlyClickhouseTypeName),
                         },
                         label: `${column} - ${type}`,
                         dataIndex: index,
@@ -775,7 +783,10 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         dataVisualizationProps: [() => [(_, props) => props], (props): DataVisualizationLogicProps => props],
         isTableVisualization: [
             (state) => [state.visualizationType],
-            (visualizationType): boolean => visualizationType === ChartDisplayType.ActionsTable,
+            (visualizationType): boolean =>
+                // BoldNumber relies on yAxis formatting so it's considered a table visualization
+                visualizationType === ChartDisplayType.ActionsTable ||
+                visualizationType === ChartDisplayType.BoldNumber,
         ],
         showTableSettings: [
             (state) => [state.visualizationType],

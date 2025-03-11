@@ -18,10 +18,8 @@ from posthog.queries.trends.trends import Trends
 from posthog.queries.session_recordings.session_recording_list import (
     SessionRecordingList,
 )
-from ee.clickhouse.queries.retention import ClickhouseRetention
 from posthog.queries.util import get_earliest_timestamp
 from posthog.models import Action, Cohort, Team, Organization
-from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.filter import Filter
@@ -531,111 +529,6 @@ class QuerySuite:
         )
 
         SessionRecordingList(filter, self.team).run()
-
-    @benchmark_clickhouse
-    def track_retention(self):
-        filter = RetentionFilter(
-            data={
-                "insight": "RETENTION",
-                "target_event": {"id": "$pageview"},
-                "returning_event": {"id": "$pageview"},
-                "total_intervals": 14,
-                "retention_type": "retention_first_time",
-                "period": "Week",
-                **DATE_RANGE,
-            },
-            team=self.team,
-        )
-
-        ClickhouseRetention().run(filter, self.team)
-
-    @benchmark_clickhouse
-    def track_retention_with_person_breakdown(self):
-        filter = RetentionFilter(
-            data={
-                "insight": "RETENTION",
-                "target_event": {"id": "$pageview"},
-                "returning_event": {"id": "$pageview"},
-                "total_intervals": 14,
-                "retention_type": "retention_first_time",
-                "breakdown_type": "person",
-                "breakdowns": [
-                    {"type": "person", "property": "$browser"},
-                    {"type": "person", "property": "$browser_version"},
-                ],
-                "period": "Week",
-                **DATE_RANGE,
-            },
-            team=self.team,
-        )
-
-        with no_materialized_columns():
-            ClickhouseRetention().run(filter, self.team)
-
-    @benchmark_clickhouse
-    def track_retention_filter_by_person_property(self):
-        filter = RetentionFilter(
-            data={
-                "insight": "RETENTION",
-                "target_event": {"id": "$pageview"},
-                "returning_event": {"id": "$pageview"},
-                "total_intervals": 14,
-                "retention_type": "retention_first_time",
-                "period": "Week",
-                "properties": [
-                    {
-                        "key": "email",
-                        "operator": "icontains",
-                        "value": ".com",
-                        "type": "person",
-                    }
-                ],
-                **DATE_RANGE,
-            },
-            team=self.team,
-        )
-
-        with no_materialized_columns():
-            ClickhouseRetention().run(filter, self.team)
-
-    @benchmark_clickhouse
-    def track_retention_filter_by_person_property_materialized(self):
-        filter = RetentionFilter(
-            data={
-                "insight": "RETENTION",
-                "target_event": {"id": "$pageview"},
-                "returning_event": {"id": "$pageview"},
-                "total_intervals": 14,
-                "retention_type": "retention_first_time",
-                "period": "Week",
-                "properties": [
-                    {
-                        "key": "email",
-                        "operator": "icontains",
-                        "value": ".com",
-                        "type": "person",
-                    }
-                ],
-                **DATE_RANGE,
-            },
-            team=self.team,
-        )
-
-        ClickhouseRetention().run(filter, self.team)
-
-    @benchmark_clickhouse
-    def track_lifecycle(self):
-        filter = Filter(
-            data={
-                "insight": "LIFECYCLE",
-                "events": [{"id": "$pageview", "type": "events"}],
-                "interval": "week",
-                "shown_as": "Lifecycle",
-                "date_from": "-14d",
-                **DATE_RANGE,
-            },
-            team=self.team,
-        )
 
         Trends().run(filter, self.team)
 

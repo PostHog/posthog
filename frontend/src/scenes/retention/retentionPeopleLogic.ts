@@ -7,7 +7,7 @@ import { queryForActors } from 'scenes/retention/queries'
 import { RetentionTablePeoplePayload } from 'scenes/retention/types'
 
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { NodeKind, RetentionQuery } from '~/queries/schema'
+import { NodeKind, RetentionQuery } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
 import type { retentionPeopleLogicType } from './retentionPeopleLogicType'

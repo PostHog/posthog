@@ -4,7 +4,7 @@ import pytest
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from django.test.client import Client as TestClient
 from posthog.warehouse.models import (
     ExternalDataSchema,
@@ -91,7 +91,13 @@ def external_data_resources(client, organization, team):
         # No status but should be completed because a data warehouse table already exists
     )
     job = ExternalDataJob.objects.create(
-        pipeline=source, schema=schema, workflow_id="fake_workflow_id", team=team, status="Running", rows_synced=100000
+        pipeline=source,
+        schema=schema,
+        workflow_id="fake_workflow_id",
+        team=team,
+        status="Running",
+        rows_synced=100000,
+        pipeline_version=ExternalDataJob.PipelineVersion.V1,
     )
 
     return {

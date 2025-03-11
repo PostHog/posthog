@@ -146,11 +146,11 @@ class TestProperty(BaseTest):
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "icontains"}),
-            self._parse_expr("properties.a ilike '%3%'"),
+            self._parse_expr("toString(properties.a) ilike '%3%'"),
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "not_icontains"}),
-            self._parse_expr("properties.a not ilike '%3%'"),
+            self._parse_expr("toString(properties.a) not ilike '%3%'"),
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": ".*", "operator": "regex"}),
@@ -233,7 +233,7 @@ class TestProperty(BaseTest):
                     "operator": "icontains",
                 }
             ),
-            self._parse_expr("properties.a ilike '%b%' or properties.a ilike '%c%'"),
+            self._parse_expr("toString(properties.a) ilike '%b%' or toString(properties.a) ilike '%c%'"),
         )
         a = self._property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "regex"})
         self.assertEqual(
@@ -258,7 +258,7 @@ class TestProperty(BaseTest):
                     "operator": "not_icontains",
                 }
             ),
-            self._parse_expr("properties.a not ilike '%b%' and properties.a not ilike '%c%'"),
+            self._parse_expr("toString(properties.a) not ilike '%b%' and toString(properties.a) not ilike '%c%'"),
         )
         a = self._property_to_expr(
             {
@@ -353,7 +353,7 @@ class TestProperty(BaseTest):
                     "operator": "icontains",
                 }
             ),
-            self._parse_expr("elements_chain_href ilike '%href-text.%'"),
+            self._parse_expr("toString(elements_chain_href) ilike '%href-text.%'"),
         )
         self.assertEqual(
             self._property_to_expr(
@@ -717,27 +717,31 @@ class TestProperty(BaseTest):
         action_mock = MagicMock()
         with patch("posthog.models.Action.objects.get", return_value=action_mock):
             entity = RetentionEntity(**{"type": TREND_FILTER_TYPE_ACTIONS, "id": 123})
-            result = entity_to_expr(entity)
+            result = entity_to_expr(entity, self.team)
             self.assertIsInstance(result, ast.Expr)
 
     def test_entity_to_expr_events_type_with_id(self):
         entity = RetentionEntity(**{"type": TREND_FILTER_TYPE_EVENTS, "id": "event_id"})
-        result = entity_to_expr(entity)
-        expected = ast.CompareOperation(
-            op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=["events", "event"]),
-            right=ast.Constant(value="event_id"),
+        result = entity_to_expr(entity, self.team)
+        expected = ast.And(
+            exprs=[
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["events", "event"]),
+                    right=ast.Constant(value="event_id"),
+                )
+            ]
         )
         self.assertEqual(result, expected)
 
     def test_entity_to_expr_events_type_without_id(self):
         entity = RetentionEntity(**{"type": TREND_FILTER_TYPE_EVENTS, "id": None})
-        result = entity_to_expr(entity)
+        result = entity_to_expr(entity, self.team)
         self.assertEqual(result, ast.Constant(value=True))
 
     def test_entity_to_expr_default_case(self):
         entity = RetentionEntity()
-        result = entity_to_expr(entity)
+        result = entity_to_expr(entity, self.team)
         self.assertEqual(result, ast.Constant(value=True))
 
     def test_session_duration(self):

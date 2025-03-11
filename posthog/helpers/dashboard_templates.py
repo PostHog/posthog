@@ -557,6 +557,10 @@ def create_dashboard_from_template(template_key: str, dashboard: Dashboard) -> N
     create_from_template(dashboard, template)
 
 
+FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME = "Feature Flag Called Total Volume"
+FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME = "Feature Flag calls made by unique users per variant"
+
+
 def create_feature_flag_dashboard(feature_flag, dashboard: Dashboard) -> None:
     dashboard.filters = {"date_from": "-30d"}
     if dashboard.team.organization.is_feature_available(AvailableFeature.TAGGING):
@@ -571,8 +575,8 @@ def create_feature_flag_dashboard(feature_flag, dashboard: Dashboard) -> None:
     # 1 row
     _create_tile_for_insight(
         dashboard,
-        name="Feature Flag Called Total Volume",
-        description="Shows the number of total calls made on feature flag with key: " + feature_flag.key,
+        name=FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME,
+        description=_get_feature_flag_total_volume_insight_description(feature_flag.key),
         query={
             "kind": "InsightVizNode",
             "source": {
@@ -627,9 +631,8 @@ def create_feature_flag_dashboard(feature_flag, dashboard: Dashboard) -> None:
 
     _create_tile_for_insight(
         dashboard,
-        name="Feature Flag calls made by unique users per variant",
-        description="Shows the number of unique user calls made on feature flag per variant with key: "
-        + feature_flag.key,
+        name=FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME,
+        description=_get_feature_flag_unique_users_insight_description(feature_flag.key),
         query={
             "kind": "InsightVizNode",
             "source": {
@@ -688,6 +691,64 @@ def create_feature_flag_dashboard(feature_flag, dashboard: Dashboard) -> None:
         },
         color="green",
     )
+
+
+def _get_feature_flag_total_volume_insight_description(feature_flag_key: str) -> str:
+    return f"Shows the number of total calls made on feature flag with key: {feature_flag_key}"
+
+
+def _get_feature_flag_unique_users_insight_description(feature_flag_key: str) -> str:
+    return f"Shows the number of unique user calls made on feature flag per variant with key: {feature_flag_key}"
+
+
+def update_feature_flag_dashboard(feature_flag, old_key: str) -> None:
+    # We need to update the *system* created insights with the new key, so we search for them by name
+    dashboard = feature_flag.usage_dashboard
+
+    if not dashboard:
+        return
+
+    total_volume_insight = dashboard.insights.filter(name=FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME).first()
+    if total_volume_insight:
+        _update_tile_with_new_key(
+            total_volume_insight,
+            feature_flag.key,
+            old_key,
+            _get_feature_flag_total_volume_insight_description,
+        )
+
+    unique_users_insight = dashboard.insights.filter(name=FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME).first()
+    if unique_users_insight:
+        _update_tile_with_new_key(
+            unique_users_insight,
+            feature_flag.key,
+            old_key,
+            _get_feature_flag_unique_users_insight_description,
+        )
+
+
+def _update_tile_with_new_key(insight, new_key: str, old_key: str, descriptionFunction: Callable[[str], str]) -> None:
+    old_description = descriptionFunction(old_key)
+    new_description = descriptionFunction(new_key)
+
+    if insight.description != old_description:  # We don't touch insights that have been manually edited
+        return
+
+    if insight.query:
+        property_values = insight.query.get("source", {}).get("properties", {}).get("values", [])
+        if len(property_values) != 1:  # Exit if not exactly one property group
+            return
+
+        property_group = property_values[0]
+        values = property_group.get("values", [])
+        # Only proceed if there's exactly one value and it's a feature flag
+        if len(values) == 1 and values[0].get("key") == "$feature_flag" and values[0].get("value") == old_key:
+            values[0]["value"] = new_key
+            insight.query = insight.query  # Trigger field update
+            # Only update the insight if it matches what we expect for the system created insights
+            insight.description = new_description
+            insight.save()
+            return
 
 
 def add_enriched_insights_to_feature_flag_dashboard(feature_flag, dashboard: Dashboard) -> None:

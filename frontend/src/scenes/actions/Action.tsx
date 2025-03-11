@@ -7,7 +7,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { Query } from '~/queries/Query/Query'
-import { NodeKind } from '~/queries/schema'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { ActionType } from '~/types'
 
 import { ActionEdit } from './ActionEdit'
@@ -23,7 +23,7 @@ export function Action({ id }: { id?: ActionType['id'] } = {}): JSX.Element {
 
     if (actionLoading) {
         return (
-            <div className="space-y-2">
+            <div className="deprecated-space-y-2">
                 <LemonSkeleton className="w-1/4 h-6" />
 
                 <LemonSkeleton className="w-1/3 h-10" />
@@ -60,6 +60,7 @@ export function Action({ id }: { id?: ActionType['id'] } = {}): JSX.Element {
                                         kind: NodeKind.EventsQuery,
                                         select: defaultDataTableColumns(NodeKind.EventsQuery),
                                         actionId: id,
+                                        after: '-24h',
                                     },
                                     full: true,
                                     showEventFilter: false,

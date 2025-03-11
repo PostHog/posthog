@@ -27,7 +27,7 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
 
     return (
         <LemonModal
-            title="Re-authenticate account"
+            title="Re-authenticate for security"
             isOpen={showAuthenticationModal}
             onClose={() => setDismissedReauthentication(true)}
             maxWidth="30rem"
@@ -53,13 +53,16 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
                 ) : undefined
             }
         >
-            <p>You are accessing a sensitive part of PostHog. For your security we require you to re-authenticate.</p>
+            <p>
+                Before accessing and changing sensitive settings, we ask you to&nbsp;re-authenticate. Just to ensure you
+                are you!
+            </p>
 
             {showPassword ? (
                 <Form
                     logic={timeSensitiveAuthenticationLogic}
                     formKey="reauthentication"
-                    className="space-y-4"
+                    className="deprecated-space-y-4"
                     enableFormOnSubmit
                 >
                     {!twoFactorRequired ? (
@@ -89,7 +92,7 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
             ) : null}
 
             {!ssoEnforcement ? (
-                <div className="space-y-2">
+                <div className="deprecated-space-y-2">
                     <SocialLoginButtons
                         className="mt-4"
                         caption={showPassword ? 'Or re-authenticate with' : undefined}
@@ -119,10 +122,10 @@ export function TimeSensitiveAuthenticationArea({ children }: { children: JSX.El
     }, [])
 
     return timeSensitiveAuthenticationRequired ? (
-        <div className="flex-1 bg-bg-3000 border border-border rounded flex flex-col items-center p-6 text-center w-full">
+        <div className="flex-1 bg-primary border border-primary rounded flex flex-col items-center p-6 text-center w-full">
             <h2>Re-authentication required</h2>
 
-            <p>For security purposes, this area requires that you re-authenticate</p>
+            <p>This area requires that you re-authenticate.</p>
 
             <LemonButton type="primary" onClick={() => setDismissedReauthentication(false)}>
                 Re-authenticate

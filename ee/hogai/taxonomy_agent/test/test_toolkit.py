@@ -124,9 +124,9 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
             team=self.team, type=PropertyDefinition.Type.PERSON, name="id", property_type=PropertyType.Numeric
         )
 
-        for i in range(5):
+        for i in range(25):
             id = f"person{i}"
-            with freeze_time(f"2024-01-01T{i}:00:00Z"):
+            with freeze_time(f"2024-01-01T00:{i}:00Z"):
                 _create_person(
                     distinct_ids=[id],
                     properties={"email": f"{id}@example.com", "id": i},
@@ -134,18 +134,18 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
                 )
         with freeze_time(f"2024-01-02T00:00:00Z"):
             _create_person(
-                distinct_ids=["person5"],
-                properties={"email": "person5@example.com", "id": 5},
+                distinct_ids=["person25"],
+                properties={"email": "person25@example.com", "id": 25},
                 team=self.team,
             )
 
-        self.assertEqual(
+        self.assertIn(
+            '"person5@example.com", "person4@example.com", "person3@example.com", "person2@example.com", "person1@example.com"',
             toolkit.retrieve_entity_property_values("person", "email"),
-            '"person5@example.com", "person4@example.com", "person3@example.com", "person2@example.com", "person1@example.com" and 1 more distinct value.',
         )
-        self.assertEqual(
+        self.assertIn(
+            "1 more distinct value",
             toolkit.retrieve_entity_property_values("person", "id"),
-            "5, 4, 3, 2, 1 and 1 more distinct value.",
         )
 
         toolkit = DummyToolkit(self.team)
@@ -181,7 +181,7 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             toolkit.retrieve_entity_property_values("proj", "test"),
-            "6, 5, 4, 3, 2 and 2 more distinct values.",
+            "6, 5, 4, 3, 2, 1, 0",
         )
         self.assertEqual(toolkit.retrieve_entity_property_values("org", "test"), '"7"')
 
@@ -257,7 +257,7 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(toolkit.retrieve_event_property_values("event1", "bool"), "true")
         self.assertEqual(
             toolkit.retrieve_event_property_values("event1", "id"),
-            "9, 8, 7, 6, 5 and 5 more distinct values.",
+            "9, 8, 7, 6, 5, 4, 3, 2, 1, 0",
         )
         self.assertEqual(
             toolkit.retrieve_event_property_values("event1", "date"), f'"{datetime(2024, 1, 1).isoformat()}"'

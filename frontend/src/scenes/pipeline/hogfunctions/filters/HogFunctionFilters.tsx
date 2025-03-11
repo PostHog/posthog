@@ -1,5 +1,6 @@
-import { LemonLabel, LemonSelect } from '@posthog/lemon-ui'
+import { LemonBanner, LemonLabel, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 import { id } from 'chartjs-plugin-trendline'
+import clsx from 'clsx'
 import { useValues } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -9,10 +10,11 @@ import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import { groupsModel } from '~/models/groupsModel'
-import { NodeKind } from '~/queries/schema'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, EntityTypes, FilterType, HogFunctionFiltersType } from '~/types'
 
 import { hogFunctionConfigurationLogic } from '../hogFunctionConfigurationLogic'
+import { HogFunctionFiltersInternal } from './HogFunctionFiltersInternal'
 
 function sanitizeActionFilters(filters?: FilterType): Partial<HogFunctionFiltersType> {
     if (!filters) {
@@ -43,13 +45,13 @@ function sanitizeActionFilters(filters?: FilterType): Partial<HogFunctionFilters
     return sanitized
 }
 
-export function HogFunctionFilters(): JSX.Element {
+export function HogFunctionFilters({ embedded = false }: { embedded?: boolean }): JSX.Element {
     const { groupsTaxonomicTypes } = useValues(groupsModel)
-    const { configuration, type, useMapping } = useValues(hogFunctionConfigurationLogic)
+    const { configuration, type, useMapping, filtersContainPersonProperties } = useValues(hogFunctionConfigurationLogic)
 
     if (type === 'broadcast') {
         return (
-            <div className="border bg-bg-light rounded p-3 space-y-2">
+            <div className="p-3 border rounded deprecated-space-y-2 bg-surface-primary">
                 <LemonField name="filters" label="Filters">
                     {({ value, onChange }) => (
                         <PropertyFilters
@@ -74,10 +76,23 @@ export function HogFunctionFilters(): JSX.Element {
         )
     }
 
-    const showMasking = type === 'destination'
+    if (type === 'internal_destination') {
+        return <HogFunctionFiltersInternal />
+    }
+
+    const isLegacyPlugin = configuration?.template?.id?.startsWith('plugin-')
+
+    const showMasking = type === 'destination' && !isLegacyPlugin
+    const showDropEvents = type === 'transformation'
 
     return (
-        <div className="border bg-bg-light rounded p-3 space-y-2">
+        <div
+            className={clsx(
+                'deprecated-space-y-2 rounded bg-surface-primary',
+                !embedded && 'border p-3',
+                embedded && 'p-2'
+            )}
+        >
             <LemonField
                 name="filters"
                 label={useMapping ? 'Global filters' : 'Filters'}
@@ -87,6 +102,12 @@ export function HogFunctionFilters(): JSX.Element {
                     const filters = (value ?? {}) as HogFunctionFiltersType
                     return (
                         <>
+                            {useMapping && (
+                                <p className="mb-0 text-sm text-secondary">
+                                    Filters here apply for all events that could trigger this function, regardless of
+                                    mappings.
+                                </p>
+                            )}
                             <TestAccountFilterSwitch
                                 checked={filters?.filter_test_accounts ?? false}
                                 onChange={(filter_test_accounts) => onChange({ ...filters, filter_test_accounts })}
@@ -100,6 +121,7 @@ export function HogFunctionFilters(): JSX.Element {
                                     TaxonomicFilterGroupType.EventFeatureFlags,
                                     TaxonomicFilterGroupType.Elements,
                                     TaxonomicFilterGroupType.HogQLExpression,
+                                    ...groupsTaxonomicTypes,
                                 ]}
                                 onChange={(properties: AnyPropertyFilter[]) => {
                                     onChange({
@@ -112,10 +134,10 @@ export function HogFunctionFilters(): JSX.Element {
 
                             {!useMapping ? (
                                 <>
-                                    <div className="flex w-full gap-2 justify-between">
+                                    <div className="flex justify-between w-full gap-2">
                                         <LemonLabel>Match events and actions</LemonLabel>
                                     </div>
-                                    <p className="mb-0 text-muted-alt text-xs">
+                                    <p className="mb-0 text-xs text-secondary">
                                         If set, the destination will only run if the <b>event matches any</b> of the
                                         below.
                                     </p>
@@ -153,16 +175,51 @@ export function HogFunctionFilters(): JSX.Element {
                                         }}
                                         buttonCopy="Add event matcher"
                                     />
+
+                                    {showDropEvents && (
+                                        <>
+                                            <LemonLabel>
+                                                <span className="flex items-center justify-between flex-1 gap-2">
+                                                    Drop events that don't match
+                                                    <LemonSwitch
+                                                        checked={value?.drop_events ?? false}
+                                                        onChange={(drop_events) => onChange({ ...value, drop_events })}
+                                                    />
+                                                </span>
+                                            </LemonLabel>
+
+                                            {!value?.drop_events ? (
+                                                <p>
+                                                    Currently, this will run for all events that match the above
+                                                    conditions. Any that do not match will be unmodified and ingested as
+                                                    they are.
+                                                </p>
+                                            ) : (
+                                                <LemonBanner type="error">
+                                                    This will drop all events that don't match the above conditions.
+                                                    Please ensure this is definitely intended.
+                                                </LemonBanner>
+                                            )}
+                                        </>
+                                    )}
                                 </>
                             ) : null}
                         </>
                     )
                 }}
             </LemonField>
+
+            {filtersContainPersonProperties ? (
+                <LemonBanner type="warning">
+                    You are filtering on Person properties. Be aware that this filtering applies at the time the event
+                    is processed so if Person Profiles are not enabled or the person property has not been set by then
+                    then the filters may not work as expected.
+                </LemonBanner>
+            ) : null}
             {showMasking ? (
                 <LemonField name="masking" label="Trigger options">
                     {({ value, onChange }) => (
-                        <div className="flex items-center gap-1 flex-wrap">
+                        <div className="flex flex-wrap items-center gap-1">
                             <LemonSelect
                                 options={[
                                     {
@@ -192,7 +249,7 @@ export function HogFunctionFilters(): JSX.Element {
                             />
                             {configuration.masking?.hash ? (
                                 <>
-                                    <div className="flex items-center gap-1 flex-wrap">
+                                    <div className="flex flex-wrap items-center gap-1">
                                         <span>of</span>
                                         <LemonSelect
                                             value={value?.ttl}
@@ -237,7 +294,7 @@ export function HogFunctionFilters(): JSX.Element {
                                             ]}
                                         />
                                     </div>
-                                    <div className="flex items-center gap-1 flex-wrap">
+                                    <div className="flex flex-wrap items-center gap-1">
                                         <span>or until</span>
                                         <LemonSelect
                                             value={value?.threshold}

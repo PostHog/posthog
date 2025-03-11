@@ -7,6 +7,7 @@ import {
     IconLive,
     IconLogomark,
     IconNight,
+    IconPieChart,
     IconQuestion,
     IconSearch,
     IconTestTube,
@@ -29,6 +30,7 @@ import { FlagsToolbarMenu } from '~/toolbar/flags/FlagsToolbarMenu'
 import { HeatmapToolbarMenu } from '~/toolbar/stats/HeatmapToolbarMenu'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { useToolbarFeatureFlag } from '~/toolbar/toolbarPosthogJS'
+import { WebVitalsToolbarMenu } from '~/toolbar/web-vitals/WebVitalsToolbarMenu'
 
 import { HedgehogMenu } from '../hedgehog/HedgehogMenu'
 import { ToolbarButton } from './ToolbarButton'
@@ -83,7 +85,7 @@ function MoreMenu(): JSX.Element {
             }
             maxContentWidth={true}
         >
-            <ToolbarButton title="More options">
+            <ToolbarButton>
                 <IconMenu />
             </ToolbarButton>
         </LemonMenu>
@@ -94,9 +96,12 @@ export function ToolbarInfoMenu(): JSX.Element | null {
     const ref = useRef<HTMLDivElement | null>(null)
     const { visibleMenu, isDragging, menuProperties, minimized, isBlurred } = useValues(toolbarLogic)
     const { setMenu } = useActions(toolbarLogic)
+
     const { isAuthenticated } = useValues(toolbarConfigLogic)
+
     const showExperimentsFlag = useToolbarFeatureFlag('web-experiments')
-    const showExperiments = inStorybook() || inStorybookTestRunner() ? true : showExperimentsFlag
+    const showExperiments = inStorybook() || inStorybookTestRunner() || showExperimentsFlag
+
     const content = minimized ? null : visibleMenu === 'flags' ? (
         <FlagsToolbarMenu />
     ) : visibleMenu === 'heatmap' ? (
@@ -107,6 +112,8 @@ export function ToolbarInfoMenu(): JSX.Element | null {
         <HedgehogMenu />
     ) : visibleMenu === 'debugger' ? (
         <EventDebugMenu />
+    ) : visibleMenu === 'web-vitals' ? (
+        <WebVitalsToolbarMenu />
     ) : visibleMenu === 'experiments' && showExperiments ? (
         <ExperimentsToolbarMenu />
     ) : null
@@ -155,8 +162,9 @@ export function Toolbar(): JSX.Element | null {
     const { setVisibleMenu, toggleMinimized, onMouseOrTouchDown, setElement, setIsBlurred } = useActions(toolbarLogic)
     const { isAuthenticated, userIntent, authorizationLoading } = useValues(toolbarConfigLogic)
     const { authorize } = useActions(toolbarConfigLogic)
+
     const showExperimentsFlag = useToolbarFeatureFlag('web-experiments')
-    const showExperiments = inStorybook() || inStorybookTestRunner() ? true : showExperimentsFlag
+    const showExperiments = inStorybook() || inStorybookTestRunner() || showExperimentsFlag
 
     useEffect(() => {
         setElement(ref.current)
@@ -187,18 +195,18 @@ export function Toolbar(): JSX.Element | null {
     if (isEmbeddedInApp) {
         return null
     }
+
     return (
         <>
             <ToolbarInfoMenu />
             <div
                 ref={ref}
-                className={clsx(
-                    'Toolbar',
-                    minimized && 'Toolbar--minimized',
-                    hedgehogMode && 'Toolbar--hedgehog-mode',
-                    isDragging && 'Toolbar--dragging',
-                    showExperiments && 'Toolbar--with-experiments'
-                )}
+                className={clsx('Toolbar', {
+                    'Toolbar--minimized': minimized,
+                    'Toolbar--hedgehog-mode': hedgehogMode,
+                    'Toolbar--dragging': isDragging,
+                    'Toolbar--with-experiments': showExperiments,
+                })}
                 onMouseDown={(e) => onMouseOrTouchDown(e.nativeEvent)}
                 onTouchStart={(e) => onMouseOrTouchDown(e.nativeEvent)}
                 onMouseOver={() => setIsBlurred(false)}
@@ -233,6 +241,9 @@ export function Toolbar(): JSX.Element | null {
                         </ToolbarButton>
                         <ToolbarButton menuId="debugger" title="Event debugger">
                             <IconLive />
+                        </ToolbarButton>
+                        <ToolbarButton menuId="web-vitals" title="Web vitals">
+                            <IconPieChart />
                         </ToolbarButton>
                         {showExperiments && (
                             <ToolbarButton menuId="experiments" title="Experiments">

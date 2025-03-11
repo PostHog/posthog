@@ -6,6 +6,7 @@ from temporalio import activity
 
 # TODO: remove dependency
 
+from posthog.warehouse.data_load.service import delete_external_data_schedule
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSource
 from posthog.warehouse.models.external_data_schema import (
     ExternalDataSchema,
@@ -18,6 +19,7 @@ class CreateExternalDataJobModelActivityInputs:
     team_id: int
     schema_id: uuid.UUID
     source_id: uuid.UUID
+    billable: bool
 
 
 @activity.defn
@@ -29,6 +31,13 @@ def create_external_data_job_model_activity(
     close_old_connections()
 
     try:
+        source_exists = ExternalDataSource.objects.filter(id=inputs.source_id).exclude(deleted=True).exists()
+        schema_exists = ExternalDataSchema.objects.filter(id=inputs.schema_id).exclude(deleted=True).exists()
+
+        if not source_exists or not schema_exists:
+            delete_external_data_schedule(str(inputs.schema_id))
+            raise Exception("Source or schema no longer exists - deleted temporal schedule")
+
         job = ExternalDataJob.objects.create(
             team_id=inputs.team_id,
             pipeline_id=inputs.source_id,
@@ -37,6 +46,8 @@ def create_external_data_job_model_activity(
             rows_synced=0,
             workflow_id=activity.info().workflow_id,
             workflow_run_id=activity.info().workflow_run_id,
+            pipeline_version=ExternalDataJob.PipelineVersion.V2,
+            billable=inputs.billable,
         )
 
         schema = ExternalDataSchema.objects.get(team_id=inputs.team_id, id=inputs.schema_id)
