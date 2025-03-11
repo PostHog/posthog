@@ -3,10 +3,10 @@ import { useActions, useValues } from 'kea'
 import { cn } from 'lib/utils/css-classes'
 
 import { ProjectTree } from '~/layout/navigation-3000/components/ProjectTree/ProjectTree'
-import { ProjectTreeNavbar } from '~/layout/navigation-3000/components/ProjectTree/ProjectTreeNavbar'
 
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { panelLayoutLogic } from './panelLayoutLogic'
+import { PanelLayoutNavBar } from './PanelLayoutNavBar'
 
 const panelLayoutStyles = cva('gap-0 w-fit relative h-screen z-[var(--z-project-panel-layout)]', {
     variants: {
@@ -82,9 +82,9 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
                     })
                 )}
             >
-                <ProjectTreeNavbar>
+                <PanelLayoutNavBar>
                     <ProjectTree contentRef={mainRef} />
-                </ProjectTreeNavbar>
+                </PanelLayoutNavBar>
             </div>
 
             {isMobileLayout && showMobileNavbarOverlay && (

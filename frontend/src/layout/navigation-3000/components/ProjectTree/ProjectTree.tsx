@@ -10,8 +10,8 @@ import { useRef } from 'react'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
+import { ProjectDropdownMenu } from '../../../panel-layout/ProjectDropdownMenu'
 import { navigation3000Logic } from '../../navigationLogic'
-import { ProjectDropdownMenu } from './ProjectDropdownMenu'
 import { projectTreeLogic } from './projectTreeLogic'
 import { joinPath, splitPath } from './utils'
 

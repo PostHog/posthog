@@ -27,7 +27,7 @@ const panelStyles = cva('z-[var(--z-project-panel-layout)] h-screen left-0', {
     },
 })
 
-export function ProjectTreeNavbar({ children }: { children: React.ReactNode }): JSX.Element {
+export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): JSX.Element {
     const { theme } = useValues(themeLogic)
     const { toggleSearchBar } = useActions(commandBarLogic)
     const containerRef = useRef<HTMLDivElement | null>(null)
