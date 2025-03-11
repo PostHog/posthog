@@ -75,9 +75,6 @@ mod do_hash_tests {
         test_cases: Vec<TestCase>,
     }
 
-    // If your do_hash function is in a separate crate or module,
-    // import it: use your_crate::do_hash;
-
     #[test]
     fn test_do_hash_from_json() {
         // Load the test cases from the json file. This file should be identical across this
