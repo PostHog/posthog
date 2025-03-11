@@ -33,6 +33,7 @@ resources_by_env = {
         "cluster": ClickhouseClusterResource.configure_at_launch(),
         "io_manager": dagster.fs_io_manager,
         "slack": dagster.ResourceDefinition.none_resource(description="Dummy Slack resource for local development"),
+        "s3": S3Resource(),
     },
 }
 

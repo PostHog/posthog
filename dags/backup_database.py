@@ -1,7 +1,7 @@
-import abc
 from dataclasses import dataclass
 from datetime import datetime
 from functools import partial
+from typing import Literal, Optional
 from clickhouse_driver import Client
 import dagster
 from django.conf import settings
@@ -12,20 +12,37 @@ from dagster_aws.s3 import S3Resource
 
 
 @dataclass
-class BackupRunner(abc.ABC):
-    cluster: ClickhouseCluster
-    database: str
+class BackupDetails:
+    path: str
+    incremental: bool
+    base_backup: str
 
-    @abc.abstractmethod
+
+class BackupRunner:
+    def __init__(self, cluster: ClickhouseCluster, database: str, kind: Literal["full", "incremental"]):
+        self.cluster = cluster
+        self.database = database
+        self.kind = kind
+
     def query(self, client: Client, shard: int):
-        pass
+        # base_backup = "aa"
+        # if self.kind == "full":
+        #     base_backup = ""
+        # else:
+        #     base_backup = "TBD"
+
+        return """
+        BACKUP DATABASE %(database)s
+        TO S3('https://%(bucket)s.s3.amazonaws.com/%(path)s/%(shard)s')
+        FROM %(base_backup)s
+        """.format()
 
     def execute(self, client: Client, shard: int):
         client.execute(self.query(client, shard), settings={"async": True})
 
     @property
     def path(self):
-        return f"{self.database}/{datetime.now().isoformat()}"
+        return f"{self.database}/{datetime.now().isoformat()}-{self.kind}"
 
     def run_backup(self):
         self.cluster.map_any_host_in_shards(
@@ -42,7 +59,7 @@ class FullBackupRunner(BackupRunner):
 
 
 class IncrementalBackupRunner(BackupRunner):
-    pass
+    base_backup: BackupDetails
 
 
 class BackupDatabaseConfig(dagster.Config):
@@ -53,11 +70,34 @@ class BackupDatabaseConfig(dagster.Config):
 
 
 @dagster.op
+def get_latest_backup(
+    context: dagster.OpExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+    s3: S3Resource,
+) -> Optional[BackupDetails]:
+    backups = s3.get_client().list_objects_v2(
+        Bucket=settings.CLICKHOUSE_BACKUPS_BUCKET, Prefix="posthog/", Delimiter="/"
+    )
+    latest_backup = backups["CommonPrefixes"][-1] if "CommonPrefixes" in backups else None
+
+    return (
+        BackupDetails(
+            path=latest_backup["Prefix"],
+            incremental=False,
+            base_backup=None,
+        )
+        if latest_backup
+        else None
+    )
+
+
+@dagster.op
 def run_backup(
     context: dagster.OpExecutionContext,
     config: BackupDatabaseConfig,
     cluster: dagster.ResourceParam[ClickhouseCluster],
     s3: S3Resource,
+    latest_backup: Optional[BackupDetails],
 ):
     """
     Backup ClickHouse database to S3 using ClickHouse's native backup functionality.
@@ -95,4 +135,5 @@ def run_backup(
 
 @dagster.job
 def backup_database():
-    run_backup()
+    get_latest_backup()
+    # run_backup(latest_backup)
