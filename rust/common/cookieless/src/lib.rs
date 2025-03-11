@@ -33,15 +33,15 @@ pub fn do_hash(
     hasher.write(input_str.as_bytes());
     let hash_value = hasher.finish128();
 
+    // Rearrange the bytes to match the TS implementation
     let h1 = hash_value.h1.to_le_bytes().to_vec();
     let h2 = hash_value.h2.to_le_bytes().to_vec();
-
-    // rearrange the bytes to match the TS implementation
     let mut rearranged = Vec::with_capacity(16);
     rearranged.extend_from_slice(&h2[4..8]);
     rearranged.extend_from_slice(&h2[0..4]);
     rearranged.extend_from_slice(&h1[4..8]);
     rearranged.extend_from_slice(&h1[0..4]);
+
     rearranged
 }
 
