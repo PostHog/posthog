@@ -162,6 +162,7 @@ def test_alter_mutation_single_command(cluster: ClickhouseCluster) -> None:
 
     # check to ensure data is as expected to be after update
     for host_info in shard_mutations.keys():
+        assert host_info.shard_num is not None
         query_results = cluster.map_all_hosts_in_shard(
             host_info.shard_num, Query(f"SELECT person_id, count() FROM {table} GROUP BY ALL ORDER BY ALL")
         ).result()
@@ -242,7 +243,7 @@ def test_alter_mutation_multiple_commands(cluster: ClickhouseCluster) -> None:
         )
 
         assert all(
-            mutations == (existing_mutations[host] | {new_command: None})
+            mutations == {new_command: None, **existing_mutations[host]}
             for host, mutations in (
                 cluster.map_all_hosts(runner_with_extra_command.find_existing_mutations).result().items()
             )
@@ -314,6 +315,7 @@ def test_lightweight_delete(cluster: ClickhouseCluster) -> None:
 
     # check to ensure data is as expected to be after update (fewer rows visible than initially created)
     for host_info in shard_mutations.keys():
+        assert host_info.shard_num is not None
         query_results = cluster.map_all_hosts_in_shard(
             host_info.shard_num, Query(f"SELECT count(1) FROM {table}")
         ).result()
