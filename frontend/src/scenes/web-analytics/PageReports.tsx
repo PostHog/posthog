@@ -12,7 +12,6 @@ import { WebQuery } from './tiles/WebAnalyticsTile'
 import {
     DeviceTab,
     GeographyTab,
-    GraphsTab,
     PathTab,
     SourceTab,
     TabsTile,
@@ -21,9 +20,49 @@ import {
     webAnalyticsLogic,
 } from './webAnalyticsLogic'
 
+// Reusable tile component
+interface AnalyticsTileProps {
+    title: string
+    description?: string
+    query: any
+    tileId: TileId
+    tabId: string
+    className?: string
+}
+
+const AnalyticsTile: React.FC<AnalyticsTileProps> = ({ title, description, query, tileId, tabId, className = '' }) => {
+    const { openModal } = useActions(webAnalyticsLogic)
+
+    // Create insight props for the query
+    const createInsightProps = (tileId: TileId, tabId?: string): InsightLogicProps => ({
+        dashboardItemId: `new-${tileId}${tabId ? `-${tabId}` : ''}`,
+        loadPriority: 0,
+        dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
+    })
+
+    return (
+        <div className={`border rounded p-4 bg-white ${className}`}>
+            <div className="flex justify-between items-center mb-2">
+                <h3 className="font-semibold">{title}</h3>
+                <LemonButton icon={<IconExpand45 />} size="small" onClick={() => openModal(tileId, tabId)} />
+            </div>
+            {description && <p className="text-sm text-muted mb-2">{description}</p>}
+            {query && (
+                <div className="overflow-x-auto">
+                    <WebQuery
+                        query={query}
+                        showIntervalSelect={false}
+                        tileId={tileId}
+                        insightProps={createInsightProps(tileId, tabId)}
+                    />
+                </div>
+            )}
+        </div>
+    )
+}
+
 export const PageReports = (): JSX.Element => {
     const { webAnalyticsFilters, tiles, dateFilter, shouldFilterTestAccounts } = useValues(webAnalyticsLogic)
-    const { openModal } = useActions(webAnalyticsLogic)
 
     // Check if a specific page is selected in the filters
     const hasPageFilter = webAnalyticsFilters.some(
@@ -135,367 +174,158 @@ export const PageReports = (): JSX.Element => {
                 </LemonBanner>
             )}
 
-            {/* Trends Section */}
-            <div className="space-y-4">
-                <h2 className="text-lg font-semibold">Trends</h2>
-
-                <div className="grid grid-cols-1 gap-4">
-                    {/* Combined Metrics Graph */}
-                    <div className="border rounded p-4 bg-white">
-                        <div className="flex justify-between items-center mb-4">
-                            <h3 className="font-semibold">Page Performance</h3>
-                            <div className="flex gap-2">
-                                <LemonButton
-                                    icon={<IconExpand45 />}
-                                    size="small"
-                                    onClick={() => openModal(TileId.GRAPHS, GraphsTab.UNIQUE_USERS)}
-                                />
-                            </div>
-                        </div>
-                        <div className="w-full min-h-[400px]">
-                            <WebQuery
-                                query={combinedMetricsQuery}
-                                showIntervalSelect={true}
-                                tileId={TileId.GRAPHS}
-                                insightProps={createInsightProps(TileId.GRAPHS, 'combined')}
-                            />
-                        </div>
-                    </div>
+            {/* Performance Metrics Section */}
+            <div>
+                <h2 className="text-lg font-semibold mb-4">Performance Metrics</h2>
+                <div className="w-full min-h-[400px]">
+                    <WebQuery
+                        query={combinedMetricsQuery}
+                        showIntervalSelect={true}
+                        tileId={TileId.GRAPHS}
+                        insightProps={createInsightProps(TileId.GRAPHS, 'combined')}
+                    />
                 </div>
             </div>
 
             <LemonDivider />
 
             {/* Page Paths Analysis Section */}
-            <div className="space-y-4">
-                <h2 className="text-lg font-semibold">Page Paths Analysis</h2>
+            <div>
+                <h2 className="text-lg font-semibold mb-4">Page Paths Analysis</h2>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    {/* Entry Paths Table */}
-                    <div className="border rounded p-4 bg-white">
-                        <div className="flex justify-between items-center mb-2">
-                            <h3 className="font-semibold">Entry Paths</h3>
-                            <LemonButton
-                                icon={<IconExpand45 />}
-                                size="small"
-                                onClick={() => openModal(TileId.PATHS, PathTab.INITIAL_PATH)}
-                            />
-                        </div>
-                        <p className="text-sm text-muted mb-2">How users arrive at this page</p>
-                        {entryPathsQuery && (
-                            <div className="overflow-x-auto">
-                                <WebQuery
-                                    query={entryPathsQuery}
-                                    showIntervalSelect={false}
-                                    tileId={TileId.PATHS}
-                                    insightProps={createInsightProps(TileId.PATHS, PathTab.INITIAL_PATH)}
-                                />
-                            </div>
-                        )}
-                    </div>
+                    <AnalyticsTile
+                        title="Entry Paths"
+                        description="How users arrive at this page"
+                        query={entryPathsQuery}
+                        tileId={TileId.PATHS}
+                        tabId={PathTab.INITIAL_PATH}
+                    />
 
-                    {/* Exit Paths Table */}
-                    <div className="border rounded p-4 bg-white">
-                        <div className="flex justify-between items-center mb-2">
-                            <h3 className="font-semibold">Exit Paths</h3>
-                            <LemonButton
-                                icon={<IconExpand45 />}
-                                size="small"
-                                onClick={() => openModal(TileId.PATHS, PathTab.END_PATH)}
-                            />
-                        </div>
-                        <p className="text-sm text-muted mb-2">Where users go after viewing this page</p>
-                        {exitPathsQuery && (
-                            <div className="overflow-x-auto">
-                                <WebQuery
-                                    query={exitPathsQuery}
-                                    showIntervalSelect={false}
-                                    tileId={TileId.PATHS}
-                                    insightProps={createInsightProps(TileId.PATHS, PathTab.END_PATH)}
-                                />
-                            </div>
-                        )}
-                    </div>
+                    <AnalyticsTile
+                        title="Exit Paths"
+                        description="Where users go after viewing this page"
+                        query={exitPathsQuery}
+                        tileId={TileId.PATHS}
+                        tabId={PathTab.END_PATH}
+                    />
 
-                    {/* Outbound Clicks Table */}
-                    <div className="border rounded p-4 bg-white">
-                        <div className="flex justify-between items-center mb-2">
-                            <h3 className="font-semibold">Outbound Clicks</h3>
-                            <LemonButton
-                                icon={<IconExpand45 />}
-                                size="small"
-                                onClick={() => openModal(TileId.PATHS, PathTab.EXIT_CLICK)}
-                            />
-                        </div>
-                        <p className="text-sm text-muted mb-2">External links users click on this page</p>
-                        {outboundClicksQuery && (
-                            <div className="overflow-x-auto">
-                                <WebQuery
-                                    query={outboundClicksQuery}
-                                    showIntervalSelect={false}
-                                    tileId={TileId.PATHS}
-                                    insightProps={createInsightProps(TileId.PATHS, PathTab.EXIT_CLICK)}
-                                />
-                            </div>
-                        )}
-                    </div>
+                    <AnalyticsTile
+                        title="Outbound Clicks"
+                        description="External links users click on this page"
+                        query={outboundClicksQuery}
+                        tileId={TileId.PATHS}
+                        tabId={PathTab.EXIT_CLICK}
+                    />
                 </div>
             </div>
 
             <LemonDivider />
 
             {/* Traffic Sources Section */}
-            <div className="space-y-4">
-                <h2 className="text-lg font-semibold">Traffic Sources</h2>
+            <div>
+                <h2 className="text-lg font-semibold mb-4">Traffic Sources</h2>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* Channels Table */}
-                    <div className="border rounded p-4 bg-white">
-                        <div className="flex justify-between items-center mb-2">
-                            <h3 className="font-semibold">Channels</h3>
-                            <LemonButton
-                                icon={<IconExpand45 />}
-                                size="small"
-                                onClick={() => openModal(TileId.SOURCES, SourceTab.CHANNEL)}
-                            />
-                        </div>
-                        <p className="text-sm text-muted mb-2">Marketing channels bringing traffic to this page</p>
-                        {channelsQuery && (
-                            <div className="overflow-x-auto">
-                                <WebQuery
-                                    query={channelsQuery}
-                                    showIntervalSelect={false}
-                                    tileId={TileId.SOURCES}
-                                    insightProps={createInsightProps(TileId.SOURCES, SourceTab.CHANNEL)}
-                                />
-                            </div>
-                        )}
-                    </div>
+                    <AnalyticsTile
+                        title="Channels"
+                        description="Marketing channels bringing users to this page"
+                        query={channelsQuery}
+                        tileId={TileId.SOURCES}
+                        tabId={SourceTab.CHANNEL}
+                    />
 
-                    {/* Referrers Table */}
-                    <div className="border rounded p-4 bg-white">
-                        <div className="flex justify-between items-center mb-2">
-                            <h3 className="font-semibold">Referrers</h3>
-                            <LemonButton
-                                icon={<IconExpand45 />}
-                                size="small"
-                                onClick={() => openModal(TileId.SOURCES, SourceTab.REFERRING_DOMAIN)}
-                            />
-                        </div>
-                        <p className="text-sm text-muted mb-2">Websites referring traffic to this page</p>
-                        {referrersQuery && (
-                            <div className="overflow-x-auto">
-                                <WebQuery
-                                    query={referrersQuery}
-                                    showIntervalSelect={false}
-                                    tileId={TileId.SOURCES}
-                                    insightProps={createInsightProps(TileId.SOURCES, SourceTab.REFERRING_DOMAIN)}
-                                />
-                            </div>
-                        )}
-                    </div>
+                    <AnalyticsTile
+                        title="Referrers"
+                        description="Websites referring traffic to this page"
+                        query={referrersQuery}
+                        tileId={TileId.SOURCES}
+                        tabId={SourceTab.REFERRING_DOMAIN}
+                    />
                 </div>
             </div>
 
             <LemonDivider />
 
-            {/* Device Section */}
-            <div className="space-y-4">
-                <h2 className="text-lg font-semibold">Device Information</h2>
+            {/* Device Information Section */}
+            <div>
+                <h2 className="text-lg font-semibold mb-4">Device Information</h2>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    {/* Device Type Table */}
-                    <div className="border rounded p-4 bg-white">
-                        <div className="flex justify-between items-center mb-2">
-                            <h3 className="font-semibold">Device Types</h3>
-                            <LemonButton
-                                icon={<IconExpand45 />}
-                                size="small"
-                                onClick={() => openModal(TileId.DEVICES, DeviceTab.DEVICE_TYPE)}
-                            />
-                        </div>
-                        <p className="text-sm text-muted mb-2">Types of devices used to access this page</p>
-                        {deviceTypeQuery && (
-                            <div className="overflow-x-auto">
-                                <WebQuery
-                                    query={deviceTypeQuery}
-                                    showIntervalSelect={false}
-                                    tileId={TileId.DEVICES}
-                                    insightProps={createInsightProps(TileId.DEVICES, DeviceTab.DEVICE_TYPE)}
-                                />
-                            </div>
-                        )}
-                    </div>
+                    <AnalyticsTile
+                        title="Device Types"
+                        description="Types of devices used to access this page"
+                        query={deviceTypeQuery}
+                        tileId={TileId.DEVICES}
+                        tabId={DeviceTab.DEVICE_TYPE}
+                    />
 
-                    {/* Browser Table */}
-                    <div className="border rounded p-4 bg-white">
-                        <div className="flex justify-between items-center mb-2">
-                            <h3 className="font-semibold">Browsers</h3>
-                            <LemonButton
-                                icon={<IconExpand45 />}
-                                size="small"
-                                onClick={() => openModal(TileId.DEVICES, DeviceTab.BROWSER)}
-                            />
-                        </div>
-                        <p className="text-sm text-muted mb-2">Browsers used to access this page</p>
-                        {browserQuery && (
-                            <div className="overflow-x-auto">
-                                <WebQuery
-                                    query={browserQuery}
-                                    showIntervalSelect={false}
-                                    tileId={TileId.DEVICES}
-                                    insightProps={createInsightProps(TileId.DEVICES, DeviceTab.BROWSER)}
-                                />
-                            </div>
-                        )}
-                    </div>
+                    <AnalyticsTile
+                        title="Browsers"
+                        description="Browsers used to access this page"
+                        query={browserQuery}
+                        tileId={TileId.DEVICES}
+                        tabId={DeviceTab.BROWSER}
+                    />
 
-                    {/* OS Table */}
-                    <div className="border rounded p-4 bg-white">
-                        <div className="flex justify-between items-center mb-2">
-                            <h3 className="font-semibold">Operating Systems</h3>
-                            <LemonButton
-                                icon={<IconExpand45 />}
-                                size="small"
-                                onClick={() => openModal(TileId.DEVICES, DeviceTab.OS)}
-                            />
-                        </div>
-                        <p className="text-sm text-muted mb-2">Operating systems used to access this page</p>
-                        {osQuery && (
-                            <div className="overflow-x-auto">
-                                <WebQuery
-                                    query={osQuery}
-                                    showIntervalSelect={false}
-                                    tileId={TileId.DEVICES}
-                                    insightProps={createInsightProps(TileId.DEVICES, DeviceTab.OS)}
-                                />
-                            </div>
-                        )}
-                    </div>
+                    <AnalyticsTile
+                        title="Operating Systems"
+                        description="Operating systems used to access this page"
+                        query={osQuery}
+                        tileId={TileId.DEVICES}
+                        tabId={DeviceTab.OS}
+                    />
                 </div>
             </div>
 
             <LemonDivider />
 
-            {/* Demography Section */}
-            <div className="space-y-4">
-                <h2 className="text-lg font-semibold">Demography</h2>
+            {/* Geography Section */}
+            <div>
+                <h2 className="text-lg font-semibold mb-4">Geography</h2>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {/* Countries Table */}
-                    <div className="border rounded p-4 bg-white">
-                        <div className="flex justify-between items-center mb-2">
-                            <h3 className="font-semibold">Countries</h3>
-                            <LemonButton
-                                icon={<IconExpand45 />}
-                                size="small"
-                                onClick={() => openModal(TileId.GEOGRAPHY, GeographyTab.COUNTRIES)}
-                            />
-                        </div>
-                        <p className="text-sm text-muted mb-2">Countries where visitors are from</p>
-                        {countriesQuery && (
-                            <div className="overflow-x-auto">
-                                <WebQuery
-                                    query={countriesQuery}
-                                    showIntervalSelect={false}
-                                    tileId={TileId.GEOGRAPHY}
-                                    insightProps={createInsightProps(TileId.GEOGRAPHY, GeographyTab.COUNTRIES)}
-                                />
-                            </div>
-                        )}
-                    </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <AnalyticsTile
+                        title="Countries"
+                        description="Countries of visitors"
+                        query={countriesQuery}
+                        tileId={TileId.GEOGRAPHY}
+                        tabId={GeographyTab.COUNTRIES}
+                    />
 
-                    {/* Regions Table */}
-                    <div className="border rounded p-4 bg-white">
-                        <div className="flex justify-between items-center mb-2">
-                            <h3 className="font-semibold">Regions</h3>
-                            <LemonButton
-                                icon={<IconExpand45 />}
-                                size="small"
-                                onClick={() => openModal(TileId.GEOGRAPHY, GeographyTab.REGIONS)}
-                            />
-                        </div>
-                        <p className="text-sm text-muted mb-2">Regions where visitors are from</p>
-                        {regionsQuery && (
-                            <div className="overflow-x-auto">
-                                <WebQuery
-                                    query={regionsQuery}
-                                    showIntervalSelect={false}
-                                    tileId={TileId.GEOGRAPHY}
-                                    insightProps={createInsightProps(TileId.GEOGRAPHY, GeographyTab.REGIONS)}
-                                />
-                            </div>
-                        )}
-                    </div>
+                    <AnalyticsTile
+                        title="Regions"
+                        description="Regions of visitors"
+                        query={regionsQuery}
+                        tileId={TileId.GEOGRAPHY}
+                        tabId={GeographyTab.REGIONS}
+                    />
 
-                    {/* Cities Table */}
-                    <div className="border rounded p-4 bg-white">
-                        <div className="flex justify-between items-center mb-2">
-                            <h3 className="font-semibold">Cities</h3>
-                            <LemonButton
-                                icon={<IconExpand45 />}
-                                size="small"
-                                onClick={() => openModal(TileId.GEOGRAPHY, GeographyTab.CITIES)}
-                            />
-                        </div>
-                        <p className="text-sm text-muted mb-2">Cities where visitors are from</p>
-                        {citiesQuery && (
-                            <div className="overflow-x-auto">
-                                <WebQuery
-                                    query={citiesQuery}
-                                    showIntervalSelect={false}
-                                    tileId={TileId.GEOGRAPHY}
-                                    insightProps={createInsightProps(TileId.GEOGRAPHY, GeographyTab.CITIES)}
-                                />
-                            </div>
-                        )}
-                    </div>
+                    <AnalyticsTile
+                        title="Cities"
+                        description="Cities of visitors"
+                        query={citiesQuery}
+                        tileId={TileId.GEOGRAPHY}
+                        tabId={GeographyTab.CITIES}
+                    />
+                </div>
 
-                    {/* Timezones Table */}
-                    <div className="border rounded p-4 bg-white">
-                        <div className="flex justify-between items-center mb-2">
-                            <h3 className="font-semibold">Timezones</h3>
-                            <LemonButton
-                                icon={<IconExpand45 />}
-                                size="small"
-                                onClick={() => openModal(TileId.GEOGRAPHY, GeographyTab.TIMEZONES)}
-                            />
-                        </div>
-                        <p className="text-sm text-muted mb-2">Timezones of visitors</p>
-                        {timezonesQuery && (
-                            <div className="overflow-x-auto">
-                                <WebQuery
-                                    query={timezonesQuery}
-                                    showIntervalSelect={false}
-                                    tileId={TileId.GEOGRAPHY}
-                                    insightProps={createInsightProps(TileId.GEOGRAPHY, GeographyTab.TIMEZONES)}
-                                />
-                            </div>
-                        )}
-                    </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                    <AnalyticsTile
+                        title="Timezones"
+                        description="Timezones of visitors"
+                        query={timezonesQuery}
+                        tileId={TileId.GEOGRAPHY}
+                        tabId={GeographyTab.TIMEZONES}
+                    />
 
-                    {/* Languages Table */}
-                    <div className="border rounded p-4 bg-white">
-                        <div className="flex justify-between items-center mb-2">
-                            <h3 className="font-semibold">Languages</h3>
-                            <LemonButton
-                                icon={<IconExpand45 />}
-                                size="small"
-                                onClick={() => openModal(TileId.GEOGRAPHY, GeographyTab.LANGUAGES)}
-                            />
-                        </div>
-                        <p className="text-sm text-muted mb-2">Languages of visitors</p>
-                        {languagesQuery && (
-                            <div className="overflow-x-auto">
-                                <WebQuery
-                                    query={languagesQuery}
-                                    showIntervalSelect={false}
-                                    tileId={TileId.GEOGRAPHY}
-                                    insightProps={createInsightProps(TileId.GEOGRAPHY, GeographyTab.LANGUAGES)}
-                                />
-                            </div>
-                        )}
-                    </div>
+                    <AnalyticsTile
+                        title="Languages"
+                        description="Languages of visitors"
+                        query={languagesQuery}
+                        tileId={TileId.GEOGRAPHY}
+                        tabId={GeographyTab.LANGUAGES}
+                    />
                 </div>
             </div>
         </div>
