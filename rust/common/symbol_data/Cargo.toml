@@ -1,5 +1,5 @@
 [package]
-name = "posthog-common-symbol-data"
+name = "posthog-symbol-data"
 version = "0.1.0"
 authors = [
     "David <david@posthog.com>",
