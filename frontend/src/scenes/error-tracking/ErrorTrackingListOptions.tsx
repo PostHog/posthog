@@ -15,7 +15,7 @@ export const ErrorTrackingListOptions = (): JSX.Element => {
 
     const { selectedIssueIds } = useValues(errorTrackingSceneLogic)
     const { setSelectedIssueIds } = useActions(errorTrackingSceneLogic)
-    const { mergeIssues, resolveIssues } = useActions(errorTrackingDataNodeLogic)
+    const { mergeIssues, assignIssues, resolveIssues } = useActions(errorTrackingDataNodeLogic)
 
     return (
         <>
@@ -49,6 +49,15 @@ export const ErrorTrackingListOptions = (): JSX.Element => {
                             >
                                 Resolve
                             </LemonButton>
+                            <AssigneeSelect
+                                type="secondary"
+                                size="small"
+                                showName
+                                showIcon={false}
+                                unassignedLabel="Assign"
+                                assignee={null}
+                                onChange={(assignee) => assignIssues(selectedIssueIds, assignee)}
+                            />
                         </>
                     ) : (
                         <LemonButton

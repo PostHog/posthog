@@ -9,6 +9,7 @@ from rest_framework.parsers import MultiPartParser, FileUploadParser
 
 from django.http import JsonResponse
 from django.conf import settings
+from django.db import transaction
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -132,80 +133,46 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         assignee = request.data.get("assignee", None)
         instance = self.get_object()
 
-        assignment_before = ErrorTrackingIssueAssignment.objects.filter(issue_id=instance.id).first()
-        serialized_assignment_before = (
-            ErrorTrackingIssueAssignmentSerializer(assignment_before).data if assignment_before else None
-        )
-
-        if assignee:
-            assignment_after, _ = ErrorTrackingIssueAssignment.objects.update_or_create(
-                issue_id=instance.id,
-                defaults={
-                    "user_id": None if assignee["type"] == "user_group" else assignee["id"],
-                    "user_group_id": None if assignee["type"] == "user" else assignee["id"],
-                },
-            )
-
-            serialized_assignment_after = (
-                ErrorTrackingIssueAssignmentSerializer(assignment_after).data if assignment_after else None
-            )
-        else:
-            if assignment_before:
-                assignment_before.delete()
-            serialized_assignment_after = None
-
-        log_activity(
-            organization_id=self.organization.id,
-            team_id=self.team_id,
-            user=request.user,
-            was_impersonated=is_impersonated_session(request),
-            item_id=str(instance.id),
-            scope="ErrorTrackingIssue",
-            activity="assigned",
-            detail=Detail(
-                name=instance.name,
-                changes=[
-                    Change(
-                        type="ErrorTrackingIssue",
-                        field="assignee",
-                        before=serialized_assignment_before,
-                        after=serialized_assignment_after,
-                        action="changed",
-                    )
-                ],
-            ),
-        )
+        assign_issue(instance, assignee, self.organization, self.team_id)
 
         return Response({"success": True})
 
     @action(methods=["POST"], detail=False)
     def bulk(self, request, **kwargs):
-        issue_ids = request.data.get("ids", [])
         action = request.data.get("action")
+        issues = self.queryset.filter(id__in=request.data.get("ids", []))
 
-        if action == "resolve":
-            self.queryset.filter(id__in=issue_ids).update(status=ErrorTrackingIssue.Status.RESOLVED)
-        elif action == "assign":
-            assignments = ErrorTrackingIssueAssignment.objects.filter(issue_id__in=issue_ids)
+        with transaction.atomic():
+            if action == "resolve":
+                for issue in issues:
+                    log_activity(
+                        organization_id=self.organization.id,
+                        team_id=self.team_id,
+                        user=request.user,
+                        was_impersonated=is_impersonated_session(request),
+                        item_id=issue.id,
+                        scope="ErrorTrackingIssue",
+                        activity="updated",
+                        detail=Detail(
+                            name=issue.name,
+                            changes=[
+                                Change(
+                                    type="ErrorTrackingIssue",
+                                    action="changed",
+                                    field="status",
+                                    before=issue.status,
+                                    after=ErrorTrackingIssue.Status.RESOLVED,
+                                )
+                            ],
+                        ),
+                    )
 
-            # given bulk operation it's actually easier to delete all assignments and recreate them
-            assignments.delete()
+                issues.update(status=ErrorTrackingIssue.Status.RESOLVED)
+            elif action == "assign":
+                assignee = request.data.get("assignee", None)
 
-            assignee = request.data.get("assignee", None)
-            if assignee:
-                ErrorTrackingIssueAssignment.objects.bulk_create(
-                    [
-                        ErrorTrackingIssueAssignment(
-                            issue_id=issue_id,
-                            user_id=(None if assignee["type"] == "user_group" else assignee["id"]),
-                            user_group_id=(None if assignee["type"] == "user" else assignee["id"]),
-                        )
-                        for issue_id in issue_ids
-                    ],
-                    update_conflicts=True,
-                    unique_fields=["issue_id"],
-                    update_fields=["user_id", "user_group_id", "created_at"],
-                )
+                for issue in issues:
+                    assign_issue(issue, assignee, self.organization, self.team_id)
 
         return Response({"success": True})
 
@@ -234,6 +201,52 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             page=page,
         )
         return activity_page_response(activity_page, limit, page, request)
+
+
+def assign_issue(issue: ErrorTrackingIssue, assignee, organization, team_id):
+    assignment_before = ErrorTrackingIssueAssignment.objects.filter(issue_id=issue.id).first()
+    serialized_assignment_before = (
+        ErrorTrackingIssueAssignmentSerializer(assignment_before).data if assignment_before else None
+    )
+
+    if assignee:
+        assignment_after, _ = ErrorTrackingIssueAssignment.objects.update_or_create(
+            issue_id=issue.id,
+            defaults={
+                "user_id": None if assignee["type"] == "user_group" else assignee["id"],
+                "user_group_id": None if assignee["type"] == "user" else assignee["id"],
+            },
+        )
+
+        serialized_assignment_after = (
+            ErrorTrackingIssueAssignmentSerializer(assignment_after).data if assignment_after else None
+        )
+    else:
+        if assignment_before:
+            assignment_before.delete()
+        serialized_assignment_after = None
+
+    log_activity(
+        organization_id=organization.id,
+        team_id=team_id,
+        user=request.user,
+        was_impersonated=is_impersonated_session(request),
+        item_id=str(issue.id),
+        scope="ErrorTrackingIssue",
+        activity="assigned",
+        detail=Detail(
+            name=issue.name,
+            changes=[
+                Change(
+                    type="ErrorTrackingIssue",
+                    field="assignee",
+                    before=serialized_assignment_before,
+                    after=serialized_assignment_after,
+                    action="changed",
+                )
+            ],
+        ),
+    )
 
 
 class ErrorTrackingStackFrameSerializer(serializers.ModelSerializer):
