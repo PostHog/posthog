@@ -404,6 +404,20 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         allowUnauthenticated: true,
         layout: 'plain',
     },
+    [Scene.Notebook]: {
+        projectBased: true,
+        hideProjectNotice: true, // FIXME: Currently doesn't render well...
+        name: 'Notebook',
+        layout: 'app-raw',
+        activityScope: ActivityScope.NOTEBOOK,
+        defaultDocsPath: '/blog/introducing-notebooks',
+    },
+    [Scene.Notebooks]: {
+        projectBased: true,
+        name: 'Notebooks',
+        activityScope: ActivityScope.NOTEBOOK,
+        defaultDocsPath: '/blog/introducing-notebooks',
+    },
     [Scene.Canvas]: {
         projectBased: true,
         name: 'Canvas',
@@ -621,6 +635,8 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.integrationsRedirect(':kind')]: [Scene.IntegrationsRedirect, 'integrationsRedirect'],
     [urls.debugQuery()]: [Scene.DebugQuery, 'debugQuery'],
     [urls.debugHog()]: [Scene.DebugHog, 'debugHog'],
+    [urls.notebook(':shortId')]: [Scene.Notebook, 'notebook'],
+    [urls.notebooks()]: [Scene.Notebooks, 'notebooks'],
     [urls.canvas()]: [Scene.Canvas, 'canvas'],
     [urls.settings(':section' as any)]: [Scene.Settings, 'settings'],
     [urls.moveToPostHogCloud()]: [Scene.MoveToPostHogCloud, 'moveToPostHogCloud'],
