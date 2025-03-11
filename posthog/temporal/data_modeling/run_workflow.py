@@ -426,12 +426,17 @@ async def materialize_model(
 def count_delta_table_rows(delta_table: DeltaTable) -> int:
     """
     Count the number of rows in a Delta table from its latest operation.
+
+    The history(1) method returns the most recent operation in the Delta table's
+    transaction log. We use this to get the number of rows added in the latest
+    operation rather than scanning the entire table, which is more efficient.
     """
     try:
         latest_operation = delta_table.history(1)[0]
         row_count = int(latest_operation["operationMetrics"].get("num_added_rows", 0))
         return row_count
-    except Exception:
+    except Exception as e:
+        logger.exception("Failed to count rows in Delta table %s: %s", delta_table.name, str(e))
         return 0
 
 
