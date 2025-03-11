@@ -1,6 +1,7 @@
 import { LemonButton, LemonDivider, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import { Fragment } from 'react'
 
 import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
 
@@ -29,22 +30,24 @@ export function SessionRecordingNextConfirmation(): JSX.Element {
                 <p>
                     Would you like to mark <strong>{similarRecordingsCount}</strong> similar recordings as viewed?
                 </p>
-                <ul className="deprecated-space-y-px">
-                    {similarRecordings.map((recording, i) => (
-                        <>
-                            {i > 0 && <LemonDivider className="my-0" />}
-                            <li>
-                                <ViewRecordingButton
-                                    sessionId={recording.id as string}
-                                    label={`View recording ${i + 1}`}
-                                    checkIfViewed={true}
-                                    inModal={true}
-                                    fullWidth={true}
-                                />
-                            </li>
-                        </>
-                    ))}
-                </ul>
+                <div className="overflow-y-auto max-h-80 border rounded">
+                    <ul className="deprecated-space-y-px m-0">
+                        {similarRecordings.map((recording, i) => (
+                            <Fragment key={recording}>
+                                {i > 0 && <LemonDivider className="my-0" />}
+                                <li>
+                                    <ViewRecordingButton
+                                        sessionId={recording}
+                                        label={`View recording ${i + 1}`}
+                                        checkIfViewed={true}
+                                        inModal={true}
+                                        fullWidth={true}
+                                    />
+                                </li>
+                            </Fragment>
+                        ))}
+                    </ul>
+                </div>
             </>
         </LemonModal>
     )

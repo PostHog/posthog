@@ -1018,12 +1018,17 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         )
 
         recordings = []
+        recording_ids = []
         for rec in similar_recordings:
             recording_instance = SessionRecording.get_or_build(session_id=rec["session_id"], team=self.team)
             recordings.append(recording_instance)
+            recording_ids.append(recording_instance.session_id)
 
-        serializer = SessionRecordingSerializer(recordings, many=True)
-        return Response({"count": len(recordings), "results": serializer.data})
+        # Filter out recordings that have been viewed by the current user
+        viewed_recordings = current_user_viewed(recording_ids, cast(User, request.user), self.team)
+        unviewed_recordings = [rec for rec in recordings if rec.session_id not in viewed_recordings]
+
+        return Response({"count": len(unviewed_recordings), "results": [rec.session_id for rec in unviewed_recordings]})
 
 
 # TODO i guess this becomes the query runner for our _internal_ use of RecordingsQuery
