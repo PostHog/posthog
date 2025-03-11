@@ -10,7 +10,7 @@ export const manifest: ProductManifest = {
         featureFlag: (id: string | number): string => `/feature_flags/${id}`,
         featureFlagDuplicate: (sourceId: number | string | null): string => `/feature_flags/new?sourceId=${sourceId}`,
     },
-    fileTypes: {
+    fileSystemTypes: {
         feature_flag: {
             icon: <IconToggle />,
             href: (ref: string) => urls.featureFlag(ref),

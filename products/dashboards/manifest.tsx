@@ -19,7 +19,7 @@ export const manifest: ProductManifest = {
 
         sharedDashboard: (shareToken: string): string => `/shared_dashboard/${shareToken}`,
     },
-    fileTypes: {
+    fileSystemTypes: {
         dashboard: {
             icon: <IconDashboard />,
             href: (ref: string) => urls.dashboard(ref),
@@ -29,7 +29,7 @@ export const manifest: ProductManifest = {
         {
             path: `Create new/Dashboard`,
             type: 'dashboard' as const,
-            href: urls.dashboards() + '#newDashboard=modal',
+            href: () => urls.dashboards() + '#newDashboard=modal',
         },
     ],
 }

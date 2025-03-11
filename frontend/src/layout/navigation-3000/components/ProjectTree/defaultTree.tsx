@@ -5,47 +5,36 @@ import {
     IconCursorClick,
     IconDatabase,
     IconFeatures,
-    IconGraph,
     IconHandMoney,
     IconLive,
-    IconMegaphone,
     IconMessage,
-    IconNotebook,
     IconNotification,
     IconPeople,
-    IconPerson,
-    IconPieChart,
     IconPlug,
-    IconRewindPlay,
     IconRocket,
     IconServer,
     IconSparkles,
     IconTarget,
-    IconTestTube,
     IconWarning,
 } from '@posthog/icons'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
+import { fileSystemTypes, treeItems } from '~/products'
 import { FileSystemType } from '~/queries/schema/schema-general'
-import { ActivityTab, InsightType, PipelineStage, ReplayTabs } from '~/types'
+import { ActivityTab, PipelineStage } from '~/types'
 
 import { FileSystemImport } from './types'
 
 export function iconForType(type?: FileSystemType): JSX.Element {
+    if (type && type in fileSystemTypes && (fileSystemTypes as any)[type].icon) {
+        return (fileSystemTypes as any)[type].icon
+    }
     switch (type) {
         case 'aichat':
             return <IconSparkles />
-        case 'broadcast':
-            return <IconMegaphone />
         case 'feature':
             return <IconFeatures />
-        case 'experiment':
-            return <IconTestTube />
-        case 'insight':
-            return <IconGraph />
-        case 'notebook':
-            return <IconNotebook />
         case 'repl':
             return <IconTarget />
         case 'survey':
@@ -69,6 +58,7 @@ export function iconForType(type?: FileSystemType): JSX.Element {
 
 export const getDefaultTree = (groupNodes: FileSystemImport[]): FileSystemImport[] =>
     [
+        ...treeItems,
         {
             path: `Create new/AI chat`,
             type: 'aichat' as const,
@@ -76,54 +66,9 @@ export const getDefaultTree = (groupNodes: FileSystemImport[]): FileSystemImport
             flag: FEATURE_FLAGS.ARTIFICIAL_HOG,
         },
         {
-            path: `Create new/Experiment`,
-            type: 'experiment' as const,
-            href: urls.experiment('new'),
-        },
-        {
             path: `Create new/Feature`,
             type: 'feature' as const,
             href: urls.featureManagement('new'),
-        },
-        {
-            path: `Create new/Insight/Trends`,
-            type: 'insight' as const,
-            href: urls.insightNew({ type: InsightType.TRENDS }),
-        },
-        {
-            path: `Create new/Insight/Funnels`,
-            type: 'insight' as const,
-            href: urls.insightNew({ type: InsightType.FUNNELS }),
-        },
-        {
-            path: `Create new/Insight/Retention`,
-            type: 'insight' as const,
-            href: urls.insightNew({ type: InsightType.RETENTION }),
-        },
-        {
-            path: `Create new/Insight/User paths`,
-            type: 'insight' as const,
-            href: urls.insightNew({ type: InsightType.PATHS }),
-        },
-        {
-            path: `Create new/Insight/Stickiness`,
-            type: 'insight' as const,
-            href: urls.insightNew({ type: InsightType.STICKINESS }),
-        },
-        {
-            path: `Create new/Insight/Lifecycle`,
-            type: 'insight' as const,
-            href: urls.insightNew({ type: InsightType.LIFECYCLE }),
-        },
-        {
-            path: `Create new/Notebook`,
-            type: 'notebook' as const,
-            href: urls.notebook('new'),
-        },
-        {
-            path: `Create new/Broadcast`,
-            type: 'broadcast' as const,
-            href: urls.messagingBroadcasts(),
         },
         {
             path: `Create new/Repl`,
@@ -208,11 +153,6 @@ export const getDefaultTree = (groupNodes: FileSystemImport[]): FileSystemImport
             href: urls.dataWarehouse(),
         },
         {
-            path: 'Explore/People and groups/People',
-            icon: <IconPerson />,
-            href: urls.persons(),
-        },
-        {
             path: 'Explore/People and groups/Cohorts',
             icon: <IconPeople />,
             href: urls.cohorts(),
@@ -235,35 +175,10 @@ export const getDefaultTree = (groupNodes: FileSystemImport[]): FileSystemImport
             flag: FEATURE_FLAGS.LLM_OBSERVABILITY,
         },
         {
-            path: 'Explore/Web Analytics',
-            icon: <IconPieChart />,
-            href: urls.webAnalytics(),
-        },
-        {
-            path: 'Explore/Recordings/Recordings',
-            href: urls.replay(ReplayTabs.Home),
-            icon: <IconRewindPlay />,
-        },
-        {
-            path: 'Explore/Recordings/What to watch',
-            href: urls.replay(ReplayTabs.Templates),
-            icon: <IconRewindPlay />,
-        },
-        {
-            path: 'Explore/Recordings/Playlists',
-            href: urls.replay(ReplayTabs.Playlists),
-            icon: <IconRewindPlay />,
-        },
-        {
             path: 'Explore/Error tracking',
             icon: <IconWarning />,
             href: urls.errorTracking(),
             flag: FEATURE_FLAGS.ERROR_TRACKING,
-        },
-        {
-            path: 'Explore/Early access features',
-            icon: <IconRocket />,
-            href: urls.earlyAccessFeatures(),
         },
         {
             path: 'Explore/Heatmaps',

@@ -1,3 +1,6 @@
+import { IconPerson } from 'node_modules/@posthog/icons/dist'
+import { urls } from 'scenes/urls'
+
 import { ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
@@ -9,4 +12,12 @@ export const manifest: ProductManifest = {
             encode ? `/persons/${encodeURIComponent(uuid)}` : `/persons/${uuid}`,
         persons: (): string => '/persons',
     },
+    fileSystemTypes: {},
+    treeItems: [
+        {
+            path: 'Explore/People and groups/People',
+            icon: <IconPerson />,
+            href: () => urls.persons(),
+        },
+    ],
 }

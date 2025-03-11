@@ -1,3 +1,6 @@
+import { IconMegaphone } from '@posthog/icons'
+import { urls } from 'scenes/urls'
+
 import { ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
@@ -36,4 +39,17 @@ export const manifest: ProductManifest = {
         messagingProviderNew: (template?: string): string =>
             '/messaging/providers/new' + (template ? `/${template}` : ''),
     },
+    fileSystemTypes: {
+        broadcast: {
+            icon: <IconMegaphone />,
+            href: (ref: string) => urls.messagingBroadcast(ref),
+        },
+    },
+    treeItems: [
+        {
+            path: `Create new/Broadcast`,
+            type: 'broadcast' as const,
+            href: () => urls.messagingBroadcastNew(),
+        },
+    ],
 }
