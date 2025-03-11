@@ -31,6 +31,7 @@ class TestSessionsAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.pk}/sessions/property_definitions/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         actual_properties = {entry["name"] for entry in response.json()["results"]}
+
         expected_properties = {
             "$autocapture_count",
             "$channel_type",
@@ -41,11 +42,21 @@ class TestSessionsAPI(APIBaseTest):
             "$end_current_url",
             "$end_pathname",
             "$end_hostname",
-            "$entry_gad_source",
-            "$entry_gclid",
-            "$entry_fbclid",
             "$entry__kx",
+            "$entry_dclid",
+            "$entry_fbclid",
+            "$entry_gad_source",
+            "$entry_gbraid",
+            "$entry_gclid",
+            "$entry_gclsrc",
+            "$entry_igshid",
             "$entry_irclid",
+            "$entry_li_fat_id",
+            "$entry_mc_cid",
+            "$entry_msclkid",
+            "$entry_ttclid",
+            "$entry_twclid",
+            "$entry_wbraid",
             "$entry_referring_domain",
             "$entry_utm_campaign",
             "$entry_utm_content",
