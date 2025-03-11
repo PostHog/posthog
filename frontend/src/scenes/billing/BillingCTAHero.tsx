@@ -8,6 +8,7 @@ import useResizeObserver from 'use-resize-observer'
 
 import { BillingProductV2Type } from '~/types'
 
+import { getUpgradeProductLink } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import { billingProductLogic } from './billingProductLogic'
 import { paymentEntryLogic } from './paymentEntryLogic'
@@ -55,7 +56,10 @@ export const BillingCTAHero = ({ product }: { product: BillingProductV2Type }): 
                     ) : (
                         <BillingUpgradeCTA
                             className="mt-4 inline-block"
-                            to={`/api/billing/activate?products=all_products:&redirect_path=${redirectPath}`}
+                            to={getUpgradeProductLink({
+                                product,
+                                redirectPath,
+                            })}
                             type="primary"
                             status="alt"
                             data-attr="billing-page-core-upgrade-cta"

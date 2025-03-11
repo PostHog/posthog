@@ -173,7 +173,7 @@ function TraceSidebar({
 
     return (
         <aside
-            className="border-border max-h-fit bg-surface-primary border rounded overflow-hidden flex flex-col md:w-80"
+            className="border-primary max-h-fit bg-surface-primary border rounded overflow-hidden flex flex-col md:w-80"
             ref={ref}
         >
             <h3 className="font-medium text-sm px-2 my-2">Tree</h3>
@@ -356,7 +356,7 @@ function EventContentDisplay({
 
 const EventContent = React.memo(({ event }: { event: LLMTrace | LLMTraceEvent | null }): JSX.Element => {
     return (
-        <div className="flex-1 bg-surface-primary max-h-fit border rounded flex flex-col border-border p-4 overflow-y-auto">
+        <div className="flex-1 bg-surface-primary max-h-fit border rounded flex flex-col border-primary p-4 overflow-y-auto">
             {!event ? (
                 <InsightEmptyState heading="Event not found" detail="Check if the event ID is correct." />
             ) : (

@@ -13,6 +13,10 @@ export interface PathCleanFiltersProps {
     setFilters: (filters: PathCleaningFilter[]) => void
 }
 
+const keyFromFilter = (filter: PathCleaningFilter): string => {
+    return `${filter.alias}-${filter.regex}`
+}
+
 export function PathCleanFilters({ filters = [], setFilters }: PathCleanFiltersProps): JSX.Element {
     const [localFilters, setLocalFilters] = useState(filters)
 
@@ -69,13 +73,10 @@ export function PathCleanFilters({ filters = [], setFilters }: PathCleanFiltersP
                     collisionDetection={closestCenter}
                     modifiers={[restrictToParentElement]}
                 >
-                    <SortableContext
-                        items={localFilters.map((filter) => String(filter.alias))}
-                        strategy={rectSortingStrategy}
-                    >
+                    <SortableContext items={localFilters.map(keyFromFilter)} strategy={rectSortingStrategy}>
                         {localFilters.map((filter, index) => (
                             <PathCleanFilterItem
-                                key={filter.alias}
+                                key={keyFromFilter(filter)}
                                 filter={filter}
                                 onChange={(filter) => onEditFilter(index, filter)}
                                 onRemove={() => onRemoveFilter(index)}
