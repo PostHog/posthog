@@ -55,9 +55,14 @@ export const PayGateButton = ({ feature, currentUsage, ...buttonProps }: PayGate
             <LemonButton
                 type="primary"
                 center
-                onClick={showPaymentEntryModal}
-                disableClientSideRouting={true}
                 {...buttonProps}
+                onClick={(ev) => {
+                    showPaymentEntryModal()
+                    if (buttonProps.onClick) {
+                        buttonProps.onClick(ev)
+                    }
+                }}
+                disableClientSideRouting={true}
             >
                 {ctaLabel}
             </LemonButton>
