@@ -31,10 +31,11 @@ from posthog.models import Team
 from posthog.settings.base_variables import TEST
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
+from posthog.temporal.data_modeling.metrics import get_data_modeling_finished_metric
+from posthog.warehouse.data_load.create_table import create_table_from_saved_query
 from posthog.warehouse.models import DataWarehouseModelPath, DataWarehouseSavedQuery
 from posthog.warehouse.util import database_sync_to_async
-from posthog.warehouse.data_load.create_table import create_table_from_saved_query
-from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 
 logger = structlog.get_logger()
 
@@ -736,6 +737,12 @@ class RunWorkflow(PostHogWorkflow):
             ),
         )
         completed, failed, ancestor_failed = results
+
+        # publish metrics
+        if failed or ancestor_failed:
+            get_data_modeling_finished_metric(status="failed").add(1)
+        elif completed:
+            get_data_modeling_finished_metric(status="completed").add(1)
 
         selected_labels = [selector.label for selector in inputs.select]
         create_table_activity_inputs = CreateTableActivityInputs(
