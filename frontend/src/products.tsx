@@ -100,8 +100,8 @@ export const productUrls = {
     dashboardTextTile: (id: string | number, textTileId: string | number): string =>
         `${urls.dashboard(id)}/text-tiles/${textTileId}`,
     dashboardSharing: (id: string | number): string => `/dashboard/${id}/sharing`,
-    dashboardSubcriptions: (id: string | number): string => `/dashboard/${id}/subscriptions`,
-    dashboardSubcription: (id: string | number, subscriptionId: string): string =>
+    dashboardSubscriptions: (id: string | number): string => `/dashboard/${id}/subscriptions`,
+    dashboardSubscription: (id: string | number, subscriptionId: string): string =>
         `/dashboard/${id}/subscriptions/${subscriptionId}`,
     sharedDashboard: (shareToken: string): string => `/shared_dashboard/${shareToken}`,
     earlyAccessFeatures: (): string => '/early_access_features',
