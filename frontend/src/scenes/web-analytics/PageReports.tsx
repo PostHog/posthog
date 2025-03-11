@@ -4,9 +4,11 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { addProductIntentForCrossSell, ProductIntentContext } from 'lib/utils/product-intents'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { urls } from 'scenes/urls'
 
 import { InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { BaseMathType, ChartDisplayType, InsightLogicProps, ProductKey } from '~/types'
@@ -22,6 +24,7 @@ import {
     WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
     webAnalyticsLogic,
 } from './webAnalyticsLogic'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 
 // LearnMorePopover component
 interface LearnMorePopoverProps {
@@ -70,6 +73,116 @@ const LearnMorePopover = ({ url, title, description }: LearnMorePopoverProps): J
     )
 }
 
+// URL Search Header component
+function PageUrlSearchHeader(): JSX.Element {
+    const { webAnalyticsFilters, dateFilter } = useValues(webAnalyticsLogic)
+    const { togglePropertyFilter } = useActions(webAnalyticsLogic)
+    
+    const [searchTerm, setSearchTerm] = useState('')
+    const [topPages, setTopPages] = useState<string[]>([])
+    
+    // Get the selected page path from filters
+    const selectedPage = webAnalyticsFilters.find(
+        (filter) => filter.key === '$pathname'
+    )?.value as string | undefined
+    
+    // Check if a specific page is selected in the filters
+    const hasPageFilter = webAnalyticsFilters.some(
+        (filter) => filter.key === '$pathname'
+    )
+    
+    // Load top pages on component mount
+    useEffect(() => {
+        // This would normally be an API call to get top pages
+        // For now, we'll just use some example pages
+        setTopPages([
+            '/pricing',
+            '/features',
+            '/about',
+            '/contact',
+            '/blog',
+            '/docs',
+            '/login',
+            '/signup',
+        ])
+    }, [dateFilter])
+    
+    // Filter pages based on search term
+    const filteredPages = searchTerm 
+        ? topPages.filter(page => page.toLowerCase().includes(searchTerm.toLowerCase()))
+        : topPages
+    
+    // Handle page selection
+    const handlePageSelect = (page: string | null) => {
+        if (page) {
+            togglePropertyFilter({
+                key: '$pathname',
+                value: page,
+                operator: 'exact',
+                type: 'event',
+            })
+        } else if (hasPageFilter) {
+            // Remove the filter if it exists
+            const existingFilter = webAnalyticsFilters.find(f => f.key === '$pathname')
+            if (existingFilter) {
+                togglePropertyFilter(existingFilter)
+            }
+        }
+    }
+
+    return (
+        <div className="bg-bg-light p-4 rounded flex items-center gap-2 mb-4">
+            <div className="flex-1">
+                <h3 className="mb-2">Select a page to analyze</h3>
+                <p className="text-muted mb-2">
+                    Page Reports provide detailed analytics for a specific page on your website.
+                    Select a page to see visitor behavior, traffic sources, and more.
+                </p>
+                <div className="flex gap-2">
+                    <div className="flex-1">
+                        <LemonInputSelect
+                            mode="single"
+                            allowCustomValues
+                            placeholder="e.g. /pricing"
+                            onInputChange={setSearchTerm}
+                            value={selectedPage ? [selectedPage] : undefined}
+                            onChange={(v) => handlePageSelect(v[0] ?? null)}
+                            options={
+                                filteredPages.map((page) => ({
+                                    label: page,
+                                    key: page,
+                                }))
+                            }
+                        />
+                    </div>
+                    <LemonButton
+                        type="secondary"
+                        sideIcon={<IconOpenInNew />}
+                        to={selectedPage ? urls.insightNew() : undefined}
+                        targetBlank
+                        disabledReason={!selectedPage ? 'Select a URL first' : undefined}
+                    >
+                        Open as insight
+                    </LemonButton>
+                </div>
+            </div>
+        </div>
+    )
+}
+
+// Empty state component
+const EmptyState = (): JSX.Element => {
+    return (
+        <ProductIntroduction
+            productName="PAGE REPORTS"
+            thingName="page report"
+            description="Page Reports provide in-depth analytics for individual pages on your website. Use the search bar above to select a specific page and see detailed metrics."
+            isEmpty={true}
+            customHog={() => <img src="/static/assets/hedgehog/x-ray-hogs-02.png" alt="X-ray hedgehog" className="w-60" />}
+        />
+    )
+}
+
 export const PageReports = (): JSX.Element => {
     const { webAnalyticsFilters, tiles, dateFilter, shouldFilterTestAccounts, compareFilter, getNewInsightUrl } =
         useValues(webAnalyticsLogic)
@@ -77,12 +190,12 @@ export const PageReports = (): JSX.Element => {
 
     // Check if a specific page is selected in the filters
     const hasPageFilter = webAnalyticsFilters.some(
-        (filter) => filter.key === '$pathname' || filter.key === '$current_url'
+        (filter) => filter.key === '$pathname'
     )
 
     // Get the selected page path from filters
     const selectedPage = webAnalyticsFilters.find(
-        (filter) => filter.key === '$pathname' || filter.key === '$current_url'
+        (filter) => filter.key === '$pathname'
     )?.value as string | undefined
 
     // Find the tiles
@@ -235,181 +348,177 @@ export const PageReports = (): JSX.Element => {
 
     return (
         <div className="space-y-2 mt-2">
-            {!hasPageFilter && (
-                <LemonBanner type="info" className="mb-2">
-                    <h3 className="font-semibold">No specific page selected</h3>
-                    <p>
-                        Select a specific page using the filters above to see detailed analytics for that page.
-                        Currently showing aggregated data across all pages.
-                    </p>
-                </LemonBanner>
-            )}
+            <PageUrlSearchHeader />
 
-            {hasPageFilter && (
-                <LemonBanner type="success" className="mb-2">
-                    <h3 className="font-semibold">Page Report: {selectedPage}</h3>
-                </LemonBanner>
-            )}
+            {!hasPageFilter ? (
+                <EmptyState />
+            ) : (
+                <>
+                    <LemonBanner type="success" className="mb-2">
+                        <h3 className="font-semibold">Page Report: {selectedPage}</h3>
+                    </LemonBanner>
 
-            {/* Trends Section */}
-            <Section title="Trends over time">
-                <div>
-                    <div className="flex justify-between items-center mb-1">
-                        <div className="flex gap-1">
-                            {getNewInsightUrl(TileId.GRAPHS, 'combined') && (
-                                <LemonButton
-                                    icon={<IconOpenInNew />}
-                                    size="small"
-                                    to={getNewInsightUrl(TileId.GRAPHS, 'combined')}
-                                    onClick={() => {
-                                        void addProductIntentForCrossSell({
-                                            from: ProductKey.WEB_ANALYTICS,
-                                            to: ProductKey.PRODUCT_ANALYTICS,
-                                            intent_context: ProductIntentContext.WEB_ANALYTICS_INSIGHT,
-                                        })
-                                    }}
-                                    tooltip="Open as new Insight"
-                                />
-                            )}
+                    {/* Trends Section */}
+                    <Section title="Trends over time">
+                        <div>
+                            <div className="flex justify-between items-center mb-1">
+                                <div className="flex gap-1">
+                                    {getNewInsightUrl(TileId.GRAPHS, 'combined') && (
+                                        <LemonButton
+                                            icon={<IconOpenInNew />}
+                                            size="small"
+                                            to={getNewInsightUrl(TileId.GRAPHS, 'combined')}
+                                            onClick={() => {
+                                                void addProductIntentForCrossSell({
+                                                    from: ProductKey.WEB_ANALYTICS,
+                                                    to: ProductKey.PRODUCT_ANALYTICS,
+                                                    intent_context: ProductIntentContext.WEB_ANALYTICS_INSIGHT,
+                                                })
+                                            }}
+                                            tooltip="Open as new Insight"
+                                        />
+                                    )}
+                                </div>
+                            </div>
+                            <div>
+                                <div className="w-full min-h-[350px]">
+                                    <WebQuery
+                                        query={combinedMetricsQuery}
+                                        showIntervalSelect={true}
+                                        tileId={TileId.GRAPHS}
+                                        insightProps={createInsightProps(TileId.GRAPHS, 'combined')}
+                                    />
+                                </div>
+                            </div>
                         </div>
-                    </div>
-                    <div>
-                        <div className="w-full min-h-[350px]">
-                            <WebQuery
-                                query={combinedMetricsQuery}
-                                showIntervalSelect={true}
-                                tileId={TileId.GRAPHS}
-                                insightProps={createInsightProps(TileId.GRAPHS, 'combined')}
+                    </Section>
+
+                    {/* Page Paths Analysis Section */}
+                    <Section title="Page Paths Analysis">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                            <SimpleTile
+                                title="Entry Paths"
+                                description="How users arrive at this page"
+                                query={entryPathsQuery}
+                                tileId={TileId.PATHS}
+                                tabId={PathTab.INITIAL_PATH}
+                            />
+
+                            <SimpleTile
+                                title="Exit Paths"
+                                description="Where users go after viewing this page"
+                                query={exitPathsQuery}
+                                tileId={TileId.PATHS}
+                                tabId={PathTab.END_PATH}
+                            />
+
+                            <SimpleTile
+                                title="Outbound Clicks"
+                                description="External links users click on this page"
+                                query={outboundClicksQuery}
+                                tileId={TileId.PATHS}
+                                tabId={PathTab.EXIT_CLICK}
                             />
                         </div>
-                    </div>
-                </div>
-            </Section>
+                    </Section>
 
-            {/* Page Paths Analysis Section */}
-            <Section title="Page Paths Analysis">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                    <SimpleTile
-                        title="Entry Paths"
-                        description="How users arrive at this page"
-                        query={entryPathsQuery}
-                        tileId={TileId.PATHS}
-                        tabId={PathTab.INITIAL_PATH}
-                    />
+                    {/* Traffic Sources Section */}
+                    <Section title="Traffic Sources">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                            <SimpleTile
+                                title="Channels"
+                                description="Marketing channels bringing users to this page"
+                                query={channelsQuery}
+                                tileId={TileId.SOURCES}
+                                tabId={SourceTab.CHANNEL}
+                            />
 
-                    <SimpleTile
-                        title="Exit Paths"
-                        description="Where users go after viewing this page"
-                        query={exitPathsQuery}
-                        tileId={TileId.PATHS}
-                        tabId={PathTab.END_PATH}
-                    />
+                            <SimpleTile
+                                title="Referrers"
+                                description="Websites referring traffic to this page"
+                                query={referrersQuery}
+                                tileId={TileId.SOURCES}
+                                tabId={SourceTab.REFERRING_DOMAIN}
+                            />
+                        </div>
+                    </Section>
 
-                    <SimpleTile
-                        title="Outbound Clicks"
-                        description="External links users click on this page"
-                        query={outboundClicksQuery}
-                        tileId={TileId.PATHS}
-                        tabId={PathTab.EXIT_CLICK}
-                    />
-                </div>
-            </Section>
+                    {/* Device Information Section */}
+                    <Section title="Device Information">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                            <SimpleTile
+                                title="Device Types"
+                                description="Types of devices used to access this page"
+                                query={deviceTypeQuery}
+                                tileId={TileId.DEVICES}
+                                tabId={DeviceTab.DEVICE_TYPE}
+                            />
 
-            {/* Traffic Sources Section */}
-            <Section title="Traffic Sources">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                    <SimpleTile
-                        title="Channels"
-                        description="Marketing channels bringing users to this page"
-                        query={channelsQuery}
-                        tileId={TileId.SOURCES}
-                        tabId={SourceTab.CHANNEL}
-                    />
+                            <SimpleTile
+                                title="Browsers"
+                                description="Browsers used to access this page"
+                                query={browserQuery}
+                                tileId={TileId.DEVICES}
+                                tabId={DeviceTab.BROWSER}
+                            />
 
-                    <SimpleTile
-                        title="Referrers"
-                        description="Websites referring traffic to this page"
-                        query={referrersQuery}
-                        tileId={TileId.SOURCES}
-                        tabId={SourceTab.REFERRING_DOMAIN}
-                    />
-                </div>
-            </Section>
+                            <SimpleTile
+                                title="Operating Systems"
+                                description="Operating systems used to access this page"
+                                query={osQuery}
+                                tileId={TileId.DEVICES}
+                                tabId={DeviceTab.OS}
+                            />
+                        </div>
+                    </Section>
 
-            {/* Device Information Section */}
-            <Section title="Device Information">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                    <SimpleTile
-                        title="Device Types"
-                        description="Types of devices used to access this page"
-                        query={deviceTypeQuery}
-                        tileId={TileId.DEVICES}
-                        tabId={DeviceTab.DEVICE_TYPE}
-                    />
+                    {/* Geography Section */}
+                    <Section title="Geography">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                            <SimpleTile
+                                title="Countries"
+                                description="Countries where users access this page from"
+                                query={countriesQuery}
+                                tileId={TileId.GEOGRAPHY}
+                                tabId={GeographyTab.COUNTRIES}
+                            />
 
-                    <SimpleTile
-                        title="Browsers"
-                        description="Browsers used to access this page"
-                        query={browserQuery}
-                        tileId={TileId.DEVICES}
-                        tabId={DeviceTab.BROWSER}
-                    />
+                            <SimpleTile
+                                title="Regions"
+                                description="Regions where users access this page from"
+                                query={regionsQuery}
+                                tileId={TileId.GEOGRAPHY}
+                                tabId={GeographyTab.REGIONS}
+                            />
 
-                    <SimpleTile
-                        title="Operating Systems"
-                        description="Operating systems used to access this page"
-                        query={osQuery}
-                        tileId={TileId.DEVICES}
-                        tabId={DeviceTab.OS}
-                    />
-                </div>
-            </Section>
+                            <SimpleTile
+                                title="Cities"
+                                description="Cities where users access this page from"
+                                query={citiesQuery}
+                                tileId={TileId.GEOGRAPHY}
+                                tabId={GeographyTab.CITIES}
+                            />
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-2">
+                            <SimpleTile
+                                title="Timezones"
+                                description="Timezones where users access this page from"
+                                query={timezonesQuery}
+                                tileId={TileId.GEOGRAPHY}
+                                tabId={GeographyTab.TIMEZONES}
+                            />
 
-            {/* Geography Section */}
-            <Section title="Geography">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                    <SimpleTile
-                        title="Countries"
-                        description="Countries where users access this page from"
-                        query={countriesQuery}
-                        tileId={TileId.GEOGRAPHY}
-                        tabId={GeographyTab.COUNTRIES}
-                    />
-
-                    <SimpleTile
-                        title="Regions"
-                        description="Regions where users access this page from"
-                        query={regionsQuery}
-                        tileId={TileId.GEOGRAPHY}
-                        tabId={GeographyTab.REGIONS}
-                    />
-
-                    <SimpleTile
-                        title="Cities"
-                        description="Cities where users access this page from"
-                        query={citiesQuery}
-                        tileId={TileId.GEOGRAPHY}
-                        tabId={GeographyTab.CITIES}
-                    />
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-2">
-                    <SimpleTile
-                        title="Timezones"
-                        description="Timezones where users access this page from"
-                        query={timezonesQuery}
-                        tileId={TileId.GEOGRAPHY}
-                        tabId={GeographyTab.TIMEZONES}
-                    />
-
-                    <SimpleTile
-                        title="Languages"
-                        description="Languages of users accessing this page"
-                        query={languagesQuery}
-                        tileId={TileId.GEOGRAPHY}
-                        tabId={GeographyTab.LANGUAGES}
-                    />
-                </div>
-            </Section>
+                            <SimpleTile
+                                title="Languages"
+                                description="Languages of users accessing this page"
+                                query={languagesQuery}
+                                tileId={TileId.GEOGRAPHY}
+                                tabId={GeographyTab.LANGUAGES}
+                            />
+                        </div>
+                    </Section>
+                </>
+            )}
         </div>
     )
 }
