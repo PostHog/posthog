@@ -219,6 +219,13 @@ export function HogFunctionConfiguration({
                             <b>Error saving filters:</b> {hogFunction.filters.bytecode_error}
                         </LemonBanner>
                     </div>
+                ) : ['template-reddit-conversions-api', 'template-snapchat-ads'].includes(templateId ?? '') ? (
+                    <div>
+                        <LemonBanner type="warning">
+                            The receiving destination imposes a rate limit of 10 events per second. Exceeding this limit
+                            may result in some events failing to be delivered.
+                        </LemonBanner>
+                    </div>
                 ) : null}
 
                 <Form
