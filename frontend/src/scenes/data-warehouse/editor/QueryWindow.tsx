@@ -98,10 +98,17 @@ export function QueryWindow(): JSX.Element {
         localCache: true,
     }
 
+    const { loadData } = useActions(dataNodeLogic(dataNodeLogicProps))
+
     const variablesLogicProps: VariablesLogicProps = {
         key: dataVisualizationLogicProps.key,
         readOnly: false,
         queryInput,
+        sourceQuery,
+        setQuery: setSourceQuery,
+        onUpdate: (query) => {
+            loadData(true, undefined, query.source)
+        },
     }
 
     return (
