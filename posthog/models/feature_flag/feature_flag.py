@@ -55,7 +55,7 @@ class FeatureFlag(ModelActivityMixin, models.Model):
 
     ensure_experience_continuity = models.BooleanField(default=False, null=True, blank=True)
     usage_dashboard = models.ForeignKey("Dashboard", on_delete=models.SET_NULL, null=True, blank=True)
-    analytics_dashboards = models.ManyToManyField(
+    analytics_dashboards: models.ManyToManyField = models.ManyToManyField(
         "Dashboard",
         through="FeatureFlagDashboards",
         related_name="analytics_dashboards",
@@ -133,11 +133,13 @@ class FeatureFlag(ModelActivityMixin, models.Model):
             return False
 
         return any(
-            ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER in tile.insight.name for tile in self.usage_dashboard.tiles.all()
+            ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER in (tile.insight.name or "")
+            for tile in self.usage_dashboard.tiles.all()
+            if tile.insight
         )
 
-    def get_filters(self):
-        if "groups" in self.filters:
+    def get_filters(self) -> dict:
+        if isinstance(self.filters, dict) and "groups" in self.filters:
             return self.filters
         else:
             # :TRICKY: Keep this backwards compatible.
