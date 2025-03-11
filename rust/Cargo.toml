@@ -11,6 +11,7 @@ members = [
     "common/alloc",
     "common/types",
     "common/limiters",
+    "common/symbol_data",
     "feature-flags",
     "hook-api",
     "hook-common",
@@ -21,6 +22,7 @@ members = [
     "cyclotron-janitor",
     "cyclotron-fetch",
     "cymbal",
+    "posthog-cli",
 ]
 
 [workspace.lints.rust]

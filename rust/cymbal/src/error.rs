@@ -1,11 +1,10 @@
 use aws_sdk_s3::primitives::ByteStreamError;
 use common_kafka::kafka_producer::KafkaProduceError;
+use common_symbol_data::SymbolDataError;
 use rdkafka::error::KafkaError;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
-
-use crate::hack::js_data::JsDataError;
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -13,6 +12,19 @@ pub enum Error {
     UnhandledError(#[from] UnhandledError),
     #[error(transparent)]
     ResolutionError(#[from] FrameError),
+}
+
+// Errors specifically in using chunk ID's. These are
+// handled as distinct from general resolution errors,
+// because we want to handle them differently.
+#[derive(Debug, Error)]
+pub enum ChunkIdError {
+    #[error("Chunk ID not found {0}")]
+    NotFound(String),
+    #[error("Missing storage pointer {0}")]
+    MissingStoragePtr(String),
+    #[error(transparent)]
+    Other(#[from] Error),
 }
 
 #[derive(Debug, Error)]
@@ -88,7 +100,9 @@ pub enum JsResolveErr {
     #[error("Redirect error while fetching: {0}")]
     RedirectError(String),
     #[error("JSDataError: {0}")]
-    JSDataError(#[from] JsDataError),
+    JSDataError(#[from] SymbolDataError),
+    #[error("Invalid Source and Map")]
+    InvalidSourceAndMap,
     #[error("Invalid data url found at {0}. {1}")]
     InvalidDataUrl(String, String),
 }
@@ -147,5 +161,18 @@ impl From<reqwest::Error> for JsResolveErr {
 impl From<aws_sdk_s3::Error> for UnhandledError {
     fn from(e: aws_sdk_s3::Error) -> Self {
         UnhandledError::S3Error(Box::new(e))
+    }
+}
+
+// A couple of conveniences for chunk id specific handling
+impl From<UnhandledError> for ChunkIdError {
+    fn from(e: UnhandledError) -> Self {
+        ChunkIdError::Other(Error::UnhandledError(e))
+    }
+}
+
+impl From<FrameError> for ChunkIdError {
+    fn from(e: FrameError) -> Self {
+        ChunkIdError::Other(Error::ResolutionError(e))
     }
 }

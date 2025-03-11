@@ -2,12 +2,15 @@ import json
 from django.http import HttpRequest
 import structlog
 from typing import Optional, cast
+from django.contrib.auth.base_user import AbstractBaseUser
 
 from django.core.cache import cache
 from django.db import models
 from django.db.models.signals import post_delete, post_save
 from django.utils import timezone
 from posthog.exceptions_capture import capture_exception
+from posthog.models.signals import mutable_receiver
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 
 from posthog.constants import (
     ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER,
@@ -16,14 +19,13 @@ from posthog.constants import (
 from posthog.models.cohort import Cohort, CohortOrEmpty
 from posthog.models.property import GroupTypeIndex
 from posthog.models.property.property import Property, PropertyGroup
-from posthog.models.signals import mutable_receiver
 
 FIVE_DAYS = 60 * 60 * 24 * 5  # 5 days in seconds
 
 logger = structlog.get_logger(__name__)
 
 
-class FeatureFlag(models.Model):
+class FeatureFlag(ModelActivityMixin, models.Model):
     # When adding new fields, make sure to update organization_feature_flags.py::copy_flags
     key = models.CharField(max_length=400)
     name = models.TextField(
@@ -39,12 +41,21 @@ class FeatureFlag(models.Model):
     deleted = models.BooleanField(default=False)
     active = models.BooleanField(default=True)
 
+    version = models.IntegerField(default=0, null=True)
+    last_modified_by = models.ForeignKey(
+        "User",
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="updated_feature_flags",
+        db_index=False,
+    )
+
     rollback_conditions = models.JSONField(null=True, blank=True)
     performed_rollback = models.BooleanField(null=True, blank=True)
 
     ensure_experience_continuity = models.BooleanField(default=False, null=True, blank=True)
     usage_dashboard = models.ForeignKey("Dashboard", on_delete=models.SET_NULL, null=True, blank=True)
-    analytics_dashboards = models.ManyToManyField(
+    analytics_dashboards: models.ManyToManyField = models.ManyToManyField(
         "Dashboard",
         through="FeatureFlagDashboards",
         related_name="analytics_dashboards",
@@ -122,11 +133,13 @@ class FeatureFlag(models.Model):
             return False
 
         return any(
-            ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER in tile.insight.name for tile in self.usage_dashboard.tiles.all()
+            ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER in (tile.insight.name or "")
+            for tile in self.usage_dashboard.tiles.all()
+            if tile.insight
         )
 
-    def get_filters(self):
-        if "groups" in self.filters:
+    def get_filters(self) -> dict:
+        if isinstance(self.filters, dict) and "groups" in self.filters:
             return self.filters
         else:
             # :TRICKY: Keep this backwards compatible.
@@ -316,14 +329,16 @@ class FeatureFlag(models.Model):
 
         return list(cohort_ids)
 
-    def scheduled_changes_dispatcher(self, payload):
+    def scheduled_changes_dispatcher(self, payload, user: Optional[AbstractBaseUser] = None):
         from posthog.api.feature_flag import FeatureFlagSerializer
 
         if "operation" not in payload or "value" not in payload:
             raise Exception("Invalid payload")
 
         http_request = HttpRequest()
-        http_request.user = self.created_by
+        # We kind of cheat here set the request user to the user who created the scheduled change
+        # It's not the correct type, but it matches enough to get the job done
+        http_request.user = user or self.created_by  # type: ignore
         context = {
             "request": http_request,
             "team_id": self.team_id,

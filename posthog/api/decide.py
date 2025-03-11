@@ -1,13 +1,15 @@
 from random import random
+from typing import Any, Union
 
 import structlog
 from django.conf import settings
-from django.http import HttpRequest, JsonResponse
+from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from prometheus_client import Counter
 from rest_framework import status
 from posthog.exceptions_capture import capture_exception
 from statshog.defaults.django import statsd
+from typing import Optional
 
 from posthog.api.survey import SURVEY_TARGETING_FLAG_PREFIX
 from posthog.api.utils import (
@@ -53,7 +55,30 @@ REMOTE_CONFIG_CACHE_COUNTER = Counter(
 )
 
 
-def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool = False) -> dict:
+def maybe_log_decide_data(request_body: Optional[dict] = None, response_body: Optional[dict] = None):
+    try:
+        context = structlog.contextvars.get_contextvars()
+        team_id_filter: list[str] = settings.DECIDE_TRACK_TEAM_IDS
+        team_id_as_string = str(context.get("team_id"))
+
+        if team_id_as_string not in team_id_filter:
+            return
+
+        request_id = structlog.get_context(logger).get("request_id")
+
+        if request_body:
+            logger.warn(
+                "Decide request data", request_id=request_id, team_id=team_id_as_string, request_body=request_body
+            )
+        if response_body:
+            logger.warn(
+                "Decide response data", request_id=request_id, team_id=team_id_as_string, response_body=response_body
+            )
+    except:
+        logger.warn("Failed to log decide data", team_id=team_id_as_string)
+
+
+def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool = False) -> dict[str, Any]:
     use_remote_config = False
 
     # Explicitly set via query param for testing otherwise rollout percentage
@@ -164,7 +189,7 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
 
 @csrf_exempt
 @timed("posthog_cloud_decide_endpoint")
-def get_decide(request: HttpRequest):
+def get_decide(request: HttpRequest) -> HttpResponse:
     """Handle the /decide endpoint which provides configuration and feature flags to PostHog clients.
     The decide endpoint is a critical API that tells PostHog clients (like posthog-js) how they should behave,
     including which feature flags are enabled, whether to record sessions, etc.
@@ -258,16 +283,6 @@ def get_decide(request: HttpRequest):
 
     # --- 4. Process authenticated requests ---
     if team:
-        # Set up logging and context
-        is_request_sampled_for_logging = random() < settings.DECIDE_REQUEST_LOGGING_SAMPLING_RATE
-        if is_request_sampled_for_logging:
-            logger.warn(
-                "DECIDE_REQUEST_STARTED",
-                team_id=team.id,
-                distinct_id=data.get("distinct_id", None),
-                user_agent=request.headers.get("User-Agent", ""),
-            )
-
         # Check if team is allowed to use decide
         if team.id in settings.DECIDE_SHORT_CIRCUITED_TEAM_IDS:
             return cors_response(
@@ -282,11 +297,20 @@ def get_decide(request: HttpRequest):
         token = team.api_token
         structlog.contextvars.bind_contextvars(team_id=team.id)
 
+        maybe_log_decide_data(request_body=data)
+
         # --- 5. Handle feature flags ---
-        flags_response = get_feature_flags_response(
-            request, data, team, token, api_version, is_request_sampled_for_logging
-        )
+        flags_response = get_feature_flags_response_or_body(request, data, team, token, api_version)
+        if isinstance(flags_response, HttpResponse):
+            return flags_response
+
         response = get_base_config(token, team, request, skip_db=flags_response.get("errorsWhileComputingFlags", False))
+
+        try:
+            request_id = structlog.get_context(logger).get("request_id")
+            response["requestId"] = request_id
+        except:
+            logger.warn("Failed to get request_id from logger context", team_id=team.id)
 
         # For remote config, we need to ensure quota limiting is reflected
         if flags_response.get("quotaLimited"):
@@ -314,13 +338,18 @@ def get_decide(request: HttpRequest):
         )
 
     statsd.incr(f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "decide"})
+    maybe_log_decide_data(response_body=response)
+
     return cors_response(request, JsonResponse(response))
 
 
-def get_feature_flags_response(
-    request: HttpRequest, data: dict, team: Team, token: str, api_version: int, is_request_sampled_for_logging: bool
-) -> dict:
-    """Determine feature flag response based on various conditions."""
+def get_feature_flags_response_or_body(
+    request: HttpRequest, data: dict, team: Team, token: str, api_version: int
+) -> dict | HttpResponse:
+    """
+    Determine feature flag response body based on various conditions.
+    If the distinct_id is not provided, return a 400 response.
+    """
 
     # Early exit if flags are disabled via request
     if process_bool(data.get("disable_flags")) is True:
@@ -378,18 +407,19 @@ def get_feature_flags_response(
         hash_key_override=data.get("$anon_distinct_id"),
         property_value_overrides=all_property_overrides,
         group_property_value_overrides=(data.get("group_properties") or {}),
+        flag_keys=data.get("flag_keys_to_evaluate"),
     )
 
     # Record metrics and handle billing
-    _record_feature_flag_metrics(team, feature_flags, errors, data, is_request_sampled_for_logging, request)
+    _record_feature_flag_metrics(team, feature_flags, errors, data)
 
     # Format response based on API version
     return _format_feature_flags_response(feature_flags, feature_flag_payloads, errors, api_version)
 
 
 def _format_feature_flags_response(
-    feature_flags: dict, feature_flag_payloads: dict, errors: bool, api_version: int
-) -> dict:
+    feature_flags: dict[str, Any], feature_flag_payloads: dict[str, Any], errors: bool, api_version: int
+) -> dict[str, Any]:
     """Format feature flags response according to API version."""
     active_flags = {key: value for key, value in feature_flags.items() if value}
 
@@ -407,12 +437,10 @@ def _format_feature_flags_response(
 
 def _record_feature_flag_metrics(
     team: Team,
-    feature_flags: dict,
+    feature_flags: dict[str, Any],
     errors: bool,
-    data: dict,
-    is_request_sampled_for_logging: bool,
-    request: HttpRequest,
-):
+    data: dict[str, Any],
+) -> None:
     """Record metrics and handle billing for feature flag computations."""
     if not feature_flags:
         return
@@ -423,16 +451,6 @@ def _record_feature_flag_metrics(
         errors_computing=errors,
         has_hash_key_override=bool(data.get("$anon_distinct_id")),
     ).inc()
-
-    if is_request_sampled_for_logging:
-        logger.warn(
-            "DECIDE_REQUEST_SUCCEEDED",
-            team_id=team.id,
-            distinct_id=data.get("distinct_id"),
-            user_agent=request.headers.get("User-Agent", ""),
-            errors_while_computing=errors or False,
-            has_hash_key_override=bool(data.get("$anon_distinct_id")),
-        )
 
     # Handle billing analytics
     if not all(flag.startswith(SURVEY_TARGETING_FLAG_PREFIX) for flag in feature_flags.keys()):
@@ -445,8 +463,8 @@ def _session_recording_domain_not_allowed(team: Team, request: HttpRequest) -> b
     return team.recording_domains and not on_permitted_recording_domain(team.recording_domains, request)
 
 
-def _session_recording_config_response(request: HttpRequest, team: Team) -> bool | dict:
-    session_recording_config_response: bool | dict = False
+def _session_recording_config_response(request: HttpRequest, team: Team) -> Union[bool, dict[str, Any]]:
+    session_recording_config_response: Union[bool, dict[str, Any]] = False
 
     try:
         if team.session_recording_opt_in and not _session_recording_domain_not_allowed(team, request):

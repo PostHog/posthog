@@ -1,78 +1,207 @@
-import { DndContext, useDraggable, useDroppable } from '@dnd-kit/core'
-import { CSS } from '@dnd-kit/utilities'
-import { IconUpload } from '@posthog/icons'
-import { LemonButton, Spinner } from '@posthog/lemon-ui'
+import { IconPin, IconPinFilled, IconPlus, IconSearch, IconSort, IconX } from '@posthog/icons'
+import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
-import { Resizer } from 'lib/components/Resizer/Resizer'
-import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonTree } from 'lib/lemon-ui/LemonTree/LemonTree'
-import { ReactNode, useRef } from 'react'
+import { LemonTree, LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { ContextMenuGroup, ContextMenuItem } from 'lib/ui/ContextMenu/ContextMenu'
+import { useRef } from 'react'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
+import { ProjectDropdownMenu } from '../../../panel-layout/ProjectDropdownMenu'
 import { navigation3000Logic } from '../../navigationLogic'
-import { NavbarBottom } from '../NavbarBottom'
 import { projectTreeLogic } from './projectTreeLogic'
 import { joinPath, splitPath } from './utils'
 
-// TODO: Swap out for a better DnD approach
-// Currently you can only drag the title text, and must click on the icon or to the right of it to trigger a click
-function Draggable(props: { id: string; children: ReactNode }): JSX.Element {
-    const { attributes, listeners, setNodeRef, transform } = useDraggable({
-        id: props.id,
-    })
-    const style = {
-        transform: CSS.Translate.toString(transform),
+export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLElement> }): JSX.Element {
+    const {
+        treeData,
+        loadingPaths,
+        expandedFolders,
+        lastViewedId,
+        viableItems,
+        pendingActionsCount,
+        pendingLoaderLoading,
+        searchTerm,
+    } = useValues(projectTreeLogic)
+
+    const {
+        createFolder,
+        rename,
+        deleteItem,
+        moveItem,
+        toggleFolderOpen,
+        setLastViewedId,
+        setExpandedFolders,
+        applyPendingActions,
+        cancelPendingActions,
+        loadFolder,
+        setSearchTerm,
+        clearSearch,
+    } = useActions(projectTreeLogic)
+
+    const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
+    const { showLayoutPanel, toggleLayoutPanelPinned } = useActions(panelLayoutLogic)
+    const { isLayoutPanelPinned } = useValues(panelLayoutLogic)
+    const treeRef = useRef<LemonTreeRef>(null)
+    const containerRef = useRef<HTMLDivElement | null>(null)
+
+    const handleCopyPath = (path?: string): void => {
+        if (path) {
+            void navigator.clipboard.writeText(path)
+        }
     }
 
     return (
-        // eslint-disable-next-line react/forbid-dom-props
-        <div ref={setNodeRef} style={style} {...listeners} {...attributes}>
-            {props.children}
-        </div>
-    )
-}
-export function Droppable(props: { id: string; children: ReactNode }): JSX.Element {
-    const { setNodeRef } = useDroppable({ id: props.id })
-
-    return <div ref={setNodeRef}>{props.children}</div>
-}
-
-export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLElement> }): JSX.Element {
-    const { theme } = useValues(themeLogic)
-    const { isNavShown, mobileLayout } = useValues(navigation3000Logic)
-    const { toggleNavCollapsed, hideNavOnMobile } = useActions(navigation3000Logic)
-    const { treeData, viableItems, loadingPaths, unappliedPaths } = useValues(projectTreeLogic)
-    const { addFolder, deleteItem, moveItem } = useActions(projectTreeLogic)
-    const containerRef = useRef<HTMLDivElement | null>(null)
-
-    return (
         <>
-            <nav className={clsx('Navbar3000', !isNavShown && 'Navbar3000--hidden')} ref={containerRef}>
-                <div
-                    className="Navbar3000__content w-80"
-                    // eslint-disable-next-line react/forbid-dom-props
-                    style={theme?.sidebarStyle}
-                >
-                    <DndContext
-                        onDragEnd={({ active, over }) => {
-                            const oldPath = active.id as string
-                            const folder = over?.id
-                            if (folder === oldPath) {
-                                // We can't click on draggable items. If we drag to itself, assume it's a click
-                                // TODO: clicking on expandable folders does not work as we can't control
-                                // the open/closed state of the tree - only files work.
-                                const item = viableItems.find((i) => i.path === oldPath)
-                                if (item) {
-                                    if (item.href) {
-                                        router.actions.push(item.href)
+            <nav
+                className={clsx('flex flex-col max-h-screen min-h-screen relative w-[320px] border-r border-primary')}
+                ref={containerRef}
+            >
+                <div className="flex justify-between p-1 bg-surface-tertiary">
+                    <ProjectDropdownMenu />
+
+                    <div className="flex gap-1 items-center justify-end">
+                        <LemonButton
+                            size="small"
+                            type="tertiary"
+                            tooltip="Sort by name"
+                            onClick={() => alert('Sort by name')}
+                            className="hover:bg-fill-highlight-100 shrink-0"
+                            icon={<IconSort />}
+                        />
+                        {!isMobileLayout && (
+                            <LemonButton
+                                size="small"
+                                type="tertiary"
+                                tooltip={isLayoutPanelPinned ? 'Unpin panel' : 'Pin panel'}
+                                onClick={() => toggleLayoutPanelPinned(!isLayoutPanelPinned)}
+                                className="hover:bg-fill-highlight-100 shrink-0"
+                                icon={isLayoutPanelPinned ? <IconPinFilled /> : <IconPin />}
+                            />
+                        )}
+                        <LemonButton
+                            size="small"
+                            type="tertiary"
+                            tooltip="Create new root folder"
+                            onClick={() => createFolder('')}
+                            className="hover:bg-fill-highlight-100 shrink-0"
+                            icon={<IconPlus className="size-4" />}
+                        />
+                    </div>
+                </div>
+
+                <div className="border-b border-secondary h-px" />
+                <div className="z-main-nav flex flex-1 flex-col justify-between overflow-y-auto bg-surface-secondary">
+                    <div className="flex gap-1 p-1 items-center justify-between">
+                        <LemonInput
+                            placeholder="Search..."
+                            className="w-full"
+                            prefix={<IconSearch className="size-4" />}
+                            size="small"
+                            value={searchTerm}
+                            onChange={(value) => setSearchTerm(value)}
+                            suffix={
+                                searchTerm ? (
+                                    <LemonButton
+                                        size="small"
+                                        type="tertiary"
+                                        onClick={() => clearSearch()}
+                                        icon={<IconX className="size-4" />}
+                                        className="bg-transparent [&_svg]:opacity-30 hover:[&_svg]:opacity-100"
+                                        tooltip="Clear search"
+                                    />
+                                ) : null
+                            }
+                            onKeyDown={(e) => {
+                                if (e.key === 'ArrowDown') {
+                                    e.preventDefault() // Prevent scrolling
+                                    const visibleItems = treeRef.current?.getVisibleItems()
+                                    if (visibleItems && visibleItems.length > 0) {
+                                        e.currentTarget.blur() // Remove focus from input
+                                        treeRef.current?.focusItem(visibleItems[0].id)
                                     }
                                 }
-                            } else if (folder === '') {
+                            }}
+                        />
+                        <div className="flex gap-1 items-center">
+                            {pendingActionsCount > 0 ? (
+                                <span>
+                                    {pendingActionsCount} <span>{pendingActionsCount > 1 ? 'changes' : 'change'}</span>
+                                </span>
+                            ) : null}
+                            {pendingActionsCount > 0 ? (
+                                <LemonButton
+                                    onClick={() => {
+                                        cancelPendingActions()
+                                    }}
+                                    type="secondary"
+                                    size="small"
+                                    tooltip="Click to cancel changes"
+                                >
+                                    Cancel
+                                </LemonButton>
+                            ) : null}
+                            <LemonButton
+                                size="small"
+                                type={pendingActionsCount > 0 ? 'primary' : 'secondary'}
+                                disabledReason={pendingActionsCount === 0 ? 'Nothing to save' : undefined}
+                                className={pendingActionsCount === 0 ? 'opacity-30' : ''}
+                                loading={pendingLoaderLoading}
+                                tooltip={pendingActionsCount === 0 ? undefined : 'Save recent actions'}
+                                onClick={
+                                    !pendingLoaderLoading
+                                        ? () => {
+                                              applyPendingActions()
+                                          }
+                                        : undefined
+                                }
+                            >
+                                Save
+                            </LemonButton>
+                        </div>
+                    </div>
+
+                    <div className="border-b border-primary h-px" />
+
+                    <LemonTree
+                        ref={treeRef}
+                        contentRef={contentRef}
+                        className="px-0 py-1"
+                        data={treeData}
+                        expandedItemIds={expandedFolders}
+                        isFinishedBuildingTreeData={Object.keys(loadingPaths).length === 0}
+                        defaultSelectedFolderOrNodeId={lastViewedId || undefined}
+                        onNodeClick={(node) => {
+                            if (node?.record?.path) {
+                                setLastViewedId(node?.id || '')
+                                showLayoutPanel(false)
+                            }
+                            if (node?.id.startsWith('project-load-more/')) {
+                                const path = node.id.split('/').slice(1).join('/')
+                                if (path) {
+                                    loadFolder(path)
+                                }
+                            }
+                        }}
+                        onFolderClick={(folder, isExpanded) => {
+                            if (folder) {
+                                toggleFolderOpen(folder?.id || '', isExpanded)
+                            }
+                        }}
+                        onSetExpandedItemIds={setExpandedFolders}
+                        enableDragAndDrop={true}
+                        onDragEnd={(dragEvent) => {
+                            const oldPath = dragEvent.active.id as string
+                            const folder = dragEvent.over?.id
+
+                            if (oldPath === folder) {
+                                return false
+                            }
+
+                            if (folder === '') {
                                 const oldSplit = splitPath(oldPath)
                                 const oldFile = oldSplit.pop()
                                 if (oldFile && oldSplit.length > 0) {
@@ -92,146 +221,136 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                                 }
                             }
                         }}
-                    >
-                        <ScrollableShadows innerClassName="Navbar3000__top" direction="vertical">
-                            <LemonTree
-                                contentRef={contentRef}
-                                className="px-0 py-1"
-                                data={treeData}
-                                renderItem={(item, children): JSX.Element => {
-                                    const path = item.record?.path || ''
-                                    const loading =
-                                        typeof item.record?.path === 'string' || item.record?.type === 'project' ? (
-                                            loadingPaths[path] ? (
-                                                <Spinner className="ml-1" />
-                                            ) : unappliedPaths[path] ? (
-                                                <IconUpload className="ml-1 text-warning" />
-                                            ) : undefined
-                                        ) : undefined
-                                    if (item.record?.type === 'project') {
-                                        return (
-                                            <Droppable id="">
-                                                {children}
-                                                {loading}
-                                            </Droppable>
-                                        )
-                                    } else if (path) {
-                                        return (
-                                            <Droppable id={path}>
-                                                <Draggable id={path}>
-                                                    {children}
-                                                    {loading}
-                                                </Draggable>
-                                            </Droppable>
-                                        )
-                                    }
-                                    return (
-                                        <>
-                                            {children}
-                                            {loading}
-                                        </>
-                                    )
-                                }}
-                                right={({ record }) =>
-                                    record?.created_at || record?.type ? (
-                                        <More
-                                            size="xsmall"
-                                            onClick={(e) => e.stopPropagation()}
-                                            overlay={
-                                                <>
-                                                    {record?.type === 'folder' || record?.type === 'project' ? (
-                                                        <LemonButton
-                                                            onClick={() => {
-                                                                const folder = prompt(
-                                                                    record.path
-                                                                        ? `Create a folder under "${record.path}":`
-                                                                        : 'Create a new folder:',
-                                                                    ''
-                                                                )
-                                                                if (folder) {
-                                                                    addFolder(
-                                                                        record.path
-                                                                            ? joinPath([
-                                                                                  ...splitPath(record.path),
-                                                                                  folder,
-                                                                              ])
-                                                                            : folder
-                                                                    )
-                                                                }
-                                                            }}
-                                                            fullWidth
-                                                        >
-                                                            New Folder
-                                                        </LemonButton>
-                                                    ) : null}
-                                                    {record.path ? (
-                                                        <LemonButton
-                                                            onClick={() => {
-                                                                const oldPath = record.path
-                                                                const splits = splitPath(oldPath)
-                                                                if (splits.length > 0) {
-                                                                    const folder = prompt(
-                                                                        'New name?',
-                                                                        splits[splits.length - 1]
-                                                                    )
-                                                                    if (folder) {
-                                                                        moveItem(
-                                                                            oldPath,
-                                                                            joinPath([...splits.slice(0, -1), folder])
-                                                                        )
-                                                                    }
-                                                                }
-                                                            }}
-                                                            fullWidth
-                                                        >
-                                                            Rename
-                                                        </LemonButton>
-                                                    ) : null}
-                                                    {record.path ? (
-                                                        <LemonButton
-                                                            onClick={() => {
-                                                                void navigator.clipboard.writeText(record.path)
-                                                            }}
-                                                            fullWidth
-                                                        >
-                                                            Copy Path
-                                                        </LemonButton>
-                                                    ) : null}
-                                                    {record?.created_at ? (
-                                                        <LemonButton
-                                                            onClick={() => deleteItem(record as FileSystemEntry)}
-                                                            fullWidth
-                                                        >
-                                                            Delete
-                                                        </LemonButton>
-                                                    ) : null}
-                                                </>
-                                            }
-                                        />
-                                    ) : undefined
-                                }
-                            />
-                        </ScrollableShadows>
-                    </DndContext>
-                    <NavbarBottom />
-                </div>
-                {!mobileLayout && (
-                    <Resizer
-                        logicKey="navbar"
-                        placement="right"
-                        containerRef={containerRef}
-                        closeThreshold={100}
-                        onToggleClosed={(shouldBeClosed) => toggleNavCollapsed(shouldBeClosed)}
-                        onDoubleClick={() => toggleNavCollapsed()}
+                        isItemDraggable={(item) => {
+                            return item.id.startsWith('project/') && item.record?.path
+                        }}
+                        isItemDroppable={(item) => {
+                            const path = item.record?.path || ''
+
+                            // disable dropping for these IDS
+                            if (!item.id.startsWith('project/')) {
+                                return false
+                            }
+
+                            // hacky, if the item has a href, it should not be droppable
+                            if (item.record?.href) {
+                                return false
+                            }
+
+                            if (path) {
+                                return true
+                            }
+                            return false
+                        }}
+                        itemContextMenu={(item) => {
+                            if (!item.id.startsWith('project/')) {
+                                return undefined
+                            }
+                            return (
+                                <ContextMenuGroup>
+                                    <ContextMenuItem
+                                        onClick={(e) => {
+                                            e.stopPropagation()
+                                            createFolder(item.record?.path)
+                                        }}
+                                    >
+                                        New Folder
+                                    </ContextMenuItem>
+                                    {item.record?.path ? (
+                                        <ContextMenuItem onClick={() => item.record?.path && rename(item.record.path)}>
+                                            Rename
+                                        </ContextMenuItem>
+                                    ) : null}
+                                    {item.record?.path ? (
+                                        <ContextMenuItem
+                                            onClick={(e) => {
+                                                e.stopPropagation()
+                                                handleCopyPath(item.record?.path)
+                                            }}
+                                        >
+                                            Copy Path
+                                        </ContextMenuItem>
+                                    ) : null}
+                                    {item.record?.created_at ? (
+                                        <ContextMenuItem
+                                            onClick={(e) => {
+                                                e.stopPropagation()
+                                                deleteItem(item.record as unknown as FileSystemEntry)
+                                            }}
+                                        >
+                                            Delete
+                                        </ContextMenuItem>
+                                    ) : null}
+                                    {/* Add more menu items as needed */}
+                                </ContextMenuGroup>
+                            )
+                        }}
+                        itemSideAction={(item) => {
+                            if (!item.id.startsWith('project/')) {
+                                return undefined
+                            }
+                            return {
+                                icon: (
+                                    <More
+                                        size="xsmall"
+                                        onClick={(e) => e.stopPropagation()}
+                                        overlay={
+                                            <>
+                                                {item.record?.type === 'folder' || item.record?.type === 'project' ? (
+                                                    <LemonButton
+                                                        onClick={(e) => {
+                                                            e.stopPropagation()
+                                                            item.record?.path && createFolder(item.record.path)
+                                                        }}
+                                                        fullWidth
+                                                        size="small"
+                                                    >
+                                                        New Folder
+                                                    </LemonButton>
+                                                ) : null}
+                                                {item.record?.path ? (
+                                                    <LemonButton
+                                                        onClick={() => item.record?.path && rename(item.record.path)}
+                                                        fullWidth
+                                                        size="small"
+                                                    >
+                                                        Rename
+                                                    </LemonButton>
+                                                ) : null}
+                                                {item.record?.path ? (
+                                                    <LemonButton
+                                                        onClick={(e) => {
+                                                            e.stopPropagation()
+                                                            handleCopyPath(item.record?.path)
+                                                        }}
+                                                        fullWidth
+                                                        size="small"
+                                                    >
+                                                        Copy Path
+                                                    </LemonButton>
+                                                ) : null}
+                                                {item.record?.created_at ? (
+                                                    <LemonButton
+                                                        onClick={(e) => {
+                                                            e.stopPropagation()
+                                                            deleteItem(item.record as unknown as FileSystemEntry)
+                                                        }}
+                                                        fullWidth
+                                                        size="small"
+                                                    >
+                                                        Delete
+                                                    </LemonButton>
+                                                ) : null}
+                                            </>
+                                        }
+                                    />
+                                ),
+                                identifier: item.record?.path || 'more',
+                            }
+                        }}
                     />
-                )}
+                </div>
             </nav>
-            {mobileLayout && (
-                <div
-                    className={clsx('Navbar3000__overlay', !isNavShown && 'Navbar3000--hidden')}
-                    onClick={() => hideNavOnMobile()}
-                />
-            )}
         </>
     )
 }

@@ -50,7 +50,7 @@ export function DebugSceneQuery({ query, setQuery, queryKey }: DebugSceneQueryPr
                     setQuery={(query) => setQuery(JSON.stringify(query, null, 2))}
                 />
             ) : (
-                <div className="space-y-4">
+                <div className="deprecated-space-y-4">
                     <QueryEditor
                         query={query}
                         setQuery={setQuery}

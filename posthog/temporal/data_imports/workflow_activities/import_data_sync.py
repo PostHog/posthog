@@ -1,26 +1,27 @@
 import dataclasses
 import uuid
 from datetime import datetime
-from dateutil import parser
 from typing import Any, Optional
 
+from dateutil import parser
 from django.db import close_old_connections
 from django.db.models import Prefetch
 from dlt.sources import DltSource
+from structlog.typing import FilteringBoundLogger
 from temporalio import activity
 
 from posthog.models.integration import Integration
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
+from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
+from posthog.temporal.common.shutdown import ShutdownMonitor
 from posthog.temporal.data_imports.pipelines.bigquery import delete_all_temp_destination_tables, delete_table
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
+from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
 from posthog.warehouse.models import (
     ExternalDataJob,
     ExternalDataSource,
 )
-from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
-from structlog.typing import FilteringBoundLogger
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.ssh_tunnel import SSHTunnel
 from posthog.warehouse.types import IncrementalFieldType
@@ -68,7 +69,7 @@ def _trim_source_job_inputs(source: ExternalDataSource) -> None:
 def import_data_activity_sync(inputs: ImportDataActivityInputs):
     logger = bind_temporal_worker_logger_sync(team_id=inputs.team_id)
 
-    with HeartbeaterSync(factor=30, logger=logger):
+    with HeartbeaterSync(factor=30, logger=logger), ShutdownMonitor() as shutdown_monitor:
         close_old_connections()
 
         model = ExternalDataJob.objects.prefetch_related(
@@ -117,6 +118,8 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
         if schema.is_incremental:
             logger.debug(f"Incremental last value being used is: {processed_incremental_last_value}")
 
+        shutdown_monitor.raise_if_is_worker_shutdown()
+
         source: DltSource | SourceResponse
 
         if model.pipeline.source_type == ExternalDataSource.Type.STRIPE:
@@ -144,6 +147,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 inputs=inputs,
                 schema=schema,
                 reset_pipeline=reset_pipeline,
+                shutdown_monitor=shutdown_monitor,
             )
         elif model.pipeline.source_type == ExternalDataSource.Type.HUBSPOT:
             from posthog.temporal.data_imports.pipelines.hubspot import hubspot
@@ -172,15 +176,16 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 inputs=inputs,
                 schema=schema,
                 reset_pipeline=reset_pipeline,
+                shutdown_monitor=shutdown_monitor,
             )
         elif model.pipeline.source_type in [
             ExternalDataSource.Type.POSTGRES,
             ExternalDataSource.Type.MYSQL,
             ExternalDataSource.Type.MSSQL,
         ]:
-            from posthog.temporal.data_imports.pipelines.sql_database import sql_source_for_type
-            from posthog.temporal.data_imports.pipelines.postgres.postgres import postgres_source
             from posthog.temporal.data_imports.pipelines.mysql.mysql import mysql_source
+            from posthog.temporal.data_imports.pipelines.postgres.postgres import postgres_source
+            from posthog.temporal.data_imports.pipelines.sql_database import sql_source_for_type
 
             host = model.pipeline.job_inputs.get("host")
             port = model.pipeline.job_inputs.get("port")
@@ -260,7 +265,6 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                             db_incremental_field_last_value=processed_incremental_last_value
                             if schema.is_incremental
                             else None,
-                            team_id=inputs.team_id,
                         )
                     else:
                         source = sql_source_for_type(
@@ -293,6 +297,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                         inputs=inputs,
                         schema=schema,
                         reset_pipeline=reset_pipeline,
+                        shutdown_monitor=shutdown_monitor,
                     )
 
             if ExternalDataSource.Type(model.pipeline.source_type) == ExternalDataSource.Type.POSTGRES:
@@ -335,7 +340,6 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                     if schema.is_incremental
                     else None,
                     db_incremental_field_last_value=processed_incremental_last_value if schema.is_incremental else None,
-                    team_id=inputs.team_id,
                 )
             else:
                 source = sql_source_for_type(
@@ -366,9 +370,10 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 inputs=inputs,
                 schema=schema,
                 reset_pipeline=reset_pipeline,
+                shutdown_monitor=shutdown_monitor,
             )
         elif model.pipeline.source_type == ExternalDataSource.Type.SNOWFLAKE:
-            from posthog.temporal.data_imports.pipelines.sql_database import (
+            from posthog.temporal.data_imports.pipelines.snowflake.snowflake import (
                 snowflake_source,
             )
 
@@ -396,6 +401,8 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 warehouse=warehouse,
                 role=role,
                 table_names=endpoints,
+                logger=logger,
+                is_incremental=schema.is_incremental,
                 incremental_field=schema.sync_type_config.get("incremental_field") if schema.is_incremental else None,
                 incremental_field_type=schema.sync_type_config.get("incremental_field_type")
                 if schema.is_incremental
@@ -410,6 +417,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 inputs=inputs,
                 schema=schema,
                 reset_pipeline=reset_pipeline,
+                shutdown_monitor=shutdown_monitor,
             )
         elif model.pipeline.source_type == ExternalDataSource.Type.SALESFORCE:
             from posthog.temporal.data_imports.pipelines.salesforce import (
@@ -455,6 +463,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 inputs=inputs,
                 schema=schema,
                 reset_pipeline=reset_pipeline,
+                shutdown_monitor=shutdown_monitor,
             )
 
         elif model.pipeline.source_type == ExternalDataSource.Type.ZENDESK:
@@ -478,6 +487,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 inputs=inputs,
                 schema=schema,
                 reset_pipeline=reset_pipeline,
+                shutdown_monitor=shutdown_monitor,
             )
         elif model.pipeline.source_type == ExternalDataSource.Type.VITALLY:
             from posthog.temporal.data_imports.pipelines.vitally import vitally_source
@@ -500,6 +510,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 inputs=inputs,
                 schema=schema,
                 reset_pipeline=reset_pipeline,
+                shutdown_monitor=shutdown_monitor,
             )
         elif model.pipeline.source_type == ExternalDataSource.Type.BIGQUERY:
             from posthog.temporal.data_imports.pipelines.sql_database import bigquery_source
@@ -516,7 +527,16 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 model.pipeline.job_inputs.get("using_temporary_dataset", False) and temporary_dataset_id is not None
             )
 
-            destination_table_prefix = "__posthog_import_"
+            # Including the schema ID in table prefix ensures we only delete tables
+            # from this schema, and that if we fail we will clean up any previous
+            # execution's tables.
+            # Table names in BigQuery can have up to 1024 bytes, so we can be pretty
+            # relaxed with using a relatively long UUID as part of the prefix.
+            # Some special characters do need to be replaced, so we use the hex
+            # representation of the UUID.
+            schema_id = inputs.schema_id.hex
+            destination_table_prefix = f"__posthog_import_{schema_id}"
+
             destination_table_dataset_id = temporary_dataset_id if using_temporary_dataset else dataset_id
             destination_table = f"{project_id}.{destination_table_dataset_id}.{destination_table_prefix}{inputs.run_id}_{str(datetime.now().timestamp()).replace('.', '')}"
 
@@ -557,9 +577,8 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                     inputs=inputs,
                     schema=schema,
                     reset_pipeline=reset_pipeline,
+                    shutdown_monitor=shutdown_monitor,
                 )
-            except:
-                raise
             finally:
                 # Delete the destination table (if it exists) after we're done with it
                 delete_table(
@@ -593,6 +612,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 inputs=inputs,
                 schema=schema,
                 reset_pipeline=reset_pipeline,
+                shutdown_monitor=shutdown_monitor,
             )
         else:
             raise ValueError(f"Source type {model.pipeline.source_type} not supported")
@@ -605,7 +625,10 @@ def _run(
     inputs: ImportDataActivityInputs,
     schema: ExternalDataSchema,
     reset_pipeline: bool,
+    shutdown_monitor: ShutdownMonitor,
 ):
-    pipeline = PipelineNonDLT(source, logger, job_inputs.run_id, schema.is_incremental, reset_pipeline)
+    pipeline = PipelineNonDLT(
+        source, logger, job_inputs.run_id, schema.is_incremental, reset_pipeline, shutdown_monitor
+    )
     pipeline.run()
     del pipeline

@@ -8,7 +8,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import recordingEventsJson from '../../__mocks__/recording_events_query'
-import recordingMetaJson from '../../__mocks__/recording_meta.json'
+import { recordingMetaJson } from '../../__mocks__/recording_meta'
 import { snapshotsAsJSONLines } from '../../__mocks__/recording_snapshots'
 
 const playerProps = { sessionRecordingId: '1', playerKey: 'playlist' }

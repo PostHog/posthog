@@ -9,11 +9,12 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { ReactNode, useRef } from 'react'
 import { SceneConfig } from 'scenes/sceneTypes'
 
+import { PanelLayout } from '~/layout/panel-layout/PanelLayout'
+
 import { navigationLogic } from '../navigation/navigationLogic'
 import { ProjectNotice } from '../navigation/ProjectNotice'
 import { MinimalNavigation } from './components/MinimalNavigation'
 import { Navbar } from './components/Navbar'
-import { ProjectTree } from './components/ProjectTree/ProjectTree'
 import { Sidebar } from './components/Sidebar'
 import { TopBar } from './components/TopBar'
 import { navigation3000Logic } from './navigationLogic'
@@ -48,14 +49,14 @@ export function Navigation({
             {/* eslint-disable-next-line react/forbid-elements */}
             <a
                 href="#main-content"
-                className="sr-only focus:not-sr-only focus:fixed focus:z-[9999999] focus:top-4 focus:left-4 focus:p-4 focus:bg-white focus:dark:bg-gray-800 focus:rounded focus:shadow-lg"
+                className="sr-only focus:not-sr-only focus:fixed focus:z-top focus:top-4 focus:left-4 focus:p-4 focus:bg-white focus:dark:bg-gray-800 focus:rounded focus:shadow-lg"
                 tabIndex={0}
             >
                 Skip to content
             </a>
 
             <FlaggedFeature flag={FEATURE_FLAGS.TREE_VIEW} fallback={<Navbar />}>
-                <ProjectTree contentRef={mainRef} />
+                <PanelLayout mainRef={mainRef} />
             </FlaggedFeature>
             <FlaggedFeature flag={FEATURE_FLAGS.POSTHOG_3000_NAV}>
                 {activeNavbarItem && <Sidebar key={activeNavbarItem.identifier} navbarItem={activeNavbarItem} />}

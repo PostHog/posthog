@@ -195,11 +195,11 @@ class CookielessServerHashMode(models.IntegerChoices):
 
 
 class Team(UUIDClassicModel):
-    """Team means "environment" (historically it meant "project", but now we have the Project model for that)."""
+    """Team means "environment" (historically it meant "project", but now we have the parent Project model for that)."""
 
     class Meta:
-        verbose_name = "team (soon to be environment)"
-        verbose_name_plural = "teams (soon to be environments)"
+        verbose_name = "environment (aka team)"
+        verbose_name_plural = "environments (aka teams)"
         constraints = [
             models.CheckConstraint(
                 name="project_id_is_not_null",
@@ -444,7 +444,7 @@ class Team(UUIDClassicModel):
 
     @cached_property
     def persons_seen_so_far(self) -> int:
-        from posthog.client import sync_execute
+        from posthog.clickhouse.client import sync_execute
         from posthog.queries.person_query import PersonQuery
 
         filter = Filter(data={"full": "true"})
@@ -461,7 +461,7 @@ class Team(UUIDClassicModel):
 
     @lru_cache(maxsize=5)
     def groups_seen_so_far(self, group_type_index: GroupTypeIndex) -> int:
-        from posthog.client import sync_execute
+        from posthog.clickhouse.client import sync_execute
 
         return sync_execute(
             f"""

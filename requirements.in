@@ -19,11 +19,12 @@ clickhouse-driver==0.2.9
 clickhouse-pool==0.5.3
 conditional-cache==1.2
 cryptography==39.0.2
-dagster==1.9.9
-dagster-aws==0.25.9
-dagster-webserver==1.9.9
-dagster-postgres==0.25.9
-dagster-celery==0.25.9
+dagster==1.10.1
+dagster-aws==0.26.1
+dagster-webserver==1.10.1
+dagster-postgres==0.26.1
+dagster-celery==0.26.1
+dagster-slack==0.26.1
 # dagster-cloud==1.9.8
 deltalake==0.25.2
 dj-database-url==0.5.0
@@ -69,7 +70,7 @@ pandas==2.2.0
 paramiko==3.4.0
 Pillow==10.2.0
 pdpyras==5.2.0
-posthoganalytics==3.16.0
+posthoganalytics==3.18.1
 psutil==6.0.0
 psycopg2-binary==2.9.7
 pymssql==2.3.1
@@ -93,7 +94,7 @@ semantic_version==2.8.5
 simple-salesforce>=1.12.6
 scikit-learn==1.5.0
 slack_sdk==3.17.1
-snowflake-connector-python==3.6.0
+snowflake-connector-python==3.13.2
 snowflake-sqlalchemy==1.7.3
 social-auth-app-django==5.0.0
 social-auth-core==4.3.0
@@ -113,9 +114,9 @@ more-itertools==9.0.0
 django-two-factor-auth==1.14.0
 phonenumberslite==8.13.6
 openai==1.56.2
-tiktoken==0.8.0
+tiktoken==0.9.*
 nh3==0.2.14
-hogql-parser==1.0.459
+hogql-parser==1.1.0
 zxcvbn==4.4.28
 zstd==1.5.5.1
 xmlsec==1.3.14
@@ -124,3 +125,4 @@ grpcio~=1.63.2 # Version constrained so that `deepeval` can be installed in in d
 tenacity~=8.4.2  # Version constrained so that `deepeval` can be installed in in dev
 markdown-it-py~=3.0.0
 tzlocal~=5.1
+cohere==5.14.0

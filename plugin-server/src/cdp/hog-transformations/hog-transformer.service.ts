@@ -15,7 +15,7 @@ import { buildGlobalsWithInputs, HogExecutorService } from '../services/hog-exec
 import { HogFunctionManagerService } from '../services/hog-function-manager.service'
 import { HogFunctionMonitoringService } from '../services/hog-function-monitoring.service'
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
-import { cleanNullValues, createGeoipLookup } from './transformation-functions'
+import { cleanNullValues } from './transformation-functions'
 
 export const hogTransformationDroppedEvents = new Counter({
     name: 'hog_transformation_dropped_events',
@@ -63,9 +63,12 @@ export class HogTransformerService {
         this.hogFunctionMonitoringService = new HogFunctionMonitoringService(hub)
     }
 
-    private getTransformationFunctions() {
+    private async getTransformationFunctions() {
+        const geoipLookup = await this.hub.geoipService.get()
         return {
-            geoipLookup: createGeoipLookup(this.hub.mmdb),
+            geoipLookup: (val: unknown): any => {
+                return typeof val === 'string' ? geoipLookup.city(val) : null
+            },
             cleanNullValues,
         }
     }
@@ -223,7 +226,7 @@ export class HogTransformerService {
         hogFunction: HogFunctionType,
         globals: HogFunctionInvocationGlobals
     ): Promise<HogFunctionInvocationResult> {
-        const transformationFunctions = this.getTransformationFunctions()
+        const transformationFunctions = await this.getTransformationFunctions()
         const globalsWithInputs = buildGlobalsWithInputs(globals, {
             ...(hogFunction.inputs ?? {}),
             ...(hogFunction.encrypted_inputs ?? {}),
