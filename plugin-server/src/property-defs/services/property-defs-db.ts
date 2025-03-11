@@ -3,7 +3,6 @@ import { DateTime } from 'luxon'
 import { EventDefinitionType, EventPropertyType, Hub, PropertyDefinitionType } from '../../types'
 import { PostgresUse } from '../../utils/db/postgres'
 import { status } from '../../utils/status'
-import { UUIDT } from '../../utils/utils'
 
 export interface TeamIdRow {
     teamId: number
@@ -45,7 +44,7 @@ export class PropertyDefsDB {
                     DO UPDATE SET property_type=EXCLUDED.property_type
                     WHERE posthog_propertydefinition.property_type IS NULL`,
                 [
-                    new UUIDT().toString(),
+                    propertyDefinition.id,
                     propertyDefinition.name,
                     propertyDefinition.type,
                     propertyDefinition.group_type_index,
@@ -72,7 +71,7 @@ export class PropertyDefsDB {
                     DO UPDATE SET last_seen_at=EXCLUDED.last_seen_at WHERE posthog_eventdefinition.last_seen_at < EXCLUDED.last_seen_at
                 `,
                 [
-                    new UUIDT().toString(),
+                    eventDefinition.id,
                     eventDefinition.name,
                     eventDefinition.team_id,
                     eventDefinition.project_id,

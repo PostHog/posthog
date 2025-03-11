@@ -20,6 +20,7 @@ import {
 } from '../types'
 import { parseRawClickHouseEvent } from '../utils/event'
 import { status } from '../utils/status'
+import { UUIDT } from '../utils/utils'
 import { PropertyDefsDB } from './services/property-defs-db'
 import {
     getPropertyType,
@@ -56,11 +57,16 @@ const propDefDroppedCounter = new Counter({
 })
 
 export type CollectedPropertyDefinitions = {
+    // looked up prior to event/prop extraction
     knownTeamIds: Set<number>
+    // looked up prior to event/prop extraction
     resolvedTeamGroups: Record<number, ResolvedGroups>
-    eventDefinitionsById: Record<string, EventDefinitionType>
-    propertyDefinitionsById: Record<string, PropertyDefinitionType>
-    eventPropertiesById: Record<string, EventPropertyType>
+    // known team ID => resolved group_type & group_type_index
+    eventDefinitionsById: Record<number, Record<string, EventDefinitionType>>
+    // known team ID => deduped properties
+    propertyDefinitionsById: Record<number, Record<string, PropertyDefinitionType>>
+    // known team ID => deduped event_properties
+    eventPropertiesById: Record<number, Record<string, EventPropertyType>>
 }
 
 /**
@@ -130,16 +136,12 @@ export class PropertyDefsConsumer {
     public async handleKafkaBatch(messages: Message[]) {
         const parsedMessages = await this.runInstrumented('parseKafkaMessages', () => this.parseKafkaBatch(messages))
 
+        // used to filter and dedup to minimum batch of writable records
         const collected: CollectedPropertyDefinitions = {
-            // resolved prior to prop extraction; used to filter events/props w/o parent team
             knownTeamIds: new Set<number>(),
-            // resolved prior to prop extraction; used to filter group updates w/o team or registered groups
             resolvedTeamGroups: {},
-            // deduped from batch, written to posthog_eventdefinition
             eventDefinitionsById: {},
-            // deduped from batch, written to posthog_propertydefinition
             propertyDefinitionsById: {},
-            // deduped from batch, written to posthog_eventproperty
             eventPropertiesById: {},
         }
 
@@ -162,28 +164,40 @@ export class PropertyDefsConsumer {
 
         console.log('🔁', `Property definitions collected`, JSON.stringify(collected, null, 2))
 
-        for (const eventDef of Object.values(collected.eventDefinitionsById)) {
-            eventDefTypesCounter.inc()
-            status.info('🔁', `Writing event definition`, { eventDef })
+        for (const knownTeamId in collected.eventDefinitionsById) {
+            for (const key in collected.eventDefinitionsById[knownTeamId]) {
+                const eventDef = collected.eventDefinitionsById[knownTeamId][key]
 
-            // TODO: Batch all these DB writes
-            void this.scheduleWork(this.propertyDefsDB.writeEventDefinition(eventDef))
+                eventDefTypesCounter.inc()
+                status.info('🔁', `Writing event definition`, { eventDef })
+
+                // TODO: Batch all these DB writes
+                void this.scheduleWork(this.propertyDefsDB.writeEventDefinition(eventDef))
+            }
         }
 
-        for (const propDef of Object.values(collected.propertyDefinitionsById)) {
-            propertyDefTypesCounter.inc({ type: propDef.property_type ?? 'null' })
-            status.info('🔁', `Writing property definition`, { propDef })
+        for (const knownTeamId in collected.propertyDefinitionsById) {
+            for (const key in collected.propertyDefinitionsById[knownTeamId]) {
+                const propDef: PropertyDefinitionType = collected.propertyDefinitionsById[knownTeamId][key]
 
-            // TODO: Batch all these DB writes
-            void this.scheduleWork(this.propertyDefsDB.writePropertyDefinition(propDef))
+                propertyDefTypesCounter.inc({ type: propDef.property_type?.toString() ?? 'unknown' })
+                status.info('🔁', `Writing property definition`, { propDef })
+
+                // TODO: Batch all these DB writes
+                void this.scheduleWork(this.propertyDefsDB.writePropertyDefinition(propDef))
+            }
         }
 
-        for (const eventProp of Object.values(collected.eventPropertiesById)) {
-            eventPropTypesCounter.inc()
-            status.info('🔁', `Writing event property`, { eventProp })
+        for (const knownTeamId in collected.eventPropertiesById) {
+            for (const key in collected.eventPropertiesById[knownTeamId]) {
+                const eventProp = collected.eventPropertiesById[knownTeamId][key]
 
-            // TODO: Batch all these DB writes
-            void this.scheduleWork(this.propertyDefsDB.writeEventProperty(eventProp))
+                eventPropTypesCounter.inc()
+                status.info('🔁', `Writing event property`, { eventProp })
+
+                // TODO: Batch all these DB writes
+                void this.scheduleWork(this.propertyDefsDB.writeEventProperty(eventProp))
+            }
         }
 
         status.debug('🔁', `Waiting for promises`, { promises: this.promises.size })
@@ -243,11 +257,14 @@ export class PropertyDefsConsumer {
                 continue
             }
 
-            const eventDefIdKey: string = `${event.team_id}:${event.event}`
+            if (!collected.eventDefinitionsById[event.team_id]) {
+                collected.eventDefinitionsById[event.team_id] = {}
+            }
 
-            if (!collected.eventDefinitionsById[eventDefIdKey]) {
-                collected.eventDefinitionsById[eventDefIdKey] = {
-                    id: eventDefIdKey,
+            // Capture event definition
+            if (!collected.eventDefinitionsById[event.team_id][event.event]) {
+                collected.eventDefinitionsById[event.team_id][event.event] = {
+                    id: new UUIDT().toString(),
                     name: event.event,
                     team_id: event.team_id,
                     project_id: event.team_id, // TODO: add project_id
@@ -257,42 +274,50 @@ export class PropertyDefsConsumer {
                 }
             }
 
-            // Detect group identify events
+            // Decision: are there group properties eligible for capture in this event?
+            let shouldCaptureGroupProps: boolean = true
             if (event.event === '$groupidentify') {
                 // bail if the team ID doesn't exist in posthog_team
                 if (!collected.resolvedTeamGroups[event.team_id]) {
-                    propDefDroppedCounter.inc({ type: 'event', reason: 'team_groups_not_found' })
-                    continue
+                    propDefDroppedCounter.inc({ type: 'group', reason: 'team_groups_not_found' })
+                    shouldCaptureGroupProps = false
                 }
 
-                // bail on this event if there's no group type assigned or we couldn't resolve it's index
-                const groupType: string | undefined = event.properties['$group_type'] // e.g. "organization"
-                if (typeof groupType === 'undefined') {
+                // bail if there's no group type assigned to the event
+                if (!event.properties['$group_type']) {
                     propDefDroppedCounter.inc({ type: 'group', reason: 'undefined_group' })
-                    continue
-                }
-                if (!collected.resolvedTeamGroups[event.team_id][groupType]) {
-                    propDefDroppedCounter.inc({ type: 'group', reason: 'group_index_not_found' })
-                    continue
+                    shouldCaptureGroupProps = false
                 }
 
+                // bail if the group type on the event was not resolved to an index in posthog_grouptypemappings
+                if (!collected.resolvedTeamGroups[event.team_id][event.properties['$group_type']]) {
+                    propDefDroppedCounter.inc({ type: 'group', reason: 'group_index_not_found' })
+                    shouldCaptureGroupProps = false
+                }
+            }
+
+            // Capture group properties
+            if (shouldCaptureGroupProps) {
+                const groupType: string = event.properties['$group_type'] // e.g. "organization"
                 const groupProperties: Record<string, any> | undefined = event.properties['$group_set'] // { name: 'value', id: 'id', foo: "bar" }
+
                 for (const [property, value] of Object.entries(groupProperties ?? {})) {
                     if (!willFitInPostgres(property)) {
                         propDefDroppedCounter.inc({ type: 'group', reason: 'key_too_long' })
                         continue
                     }
 
-                    const propDefId = `${event.team_id}:${groupType}:${property}`
-
-                    if (collected.propertyDefinitionsById[propDefId]) {
+                    const propType = getPropertyType(property, value)
+                    if (!propType) {
+                        propDefDroppedCounter.inc({ type: 'group', reason: 'missing_prop_type' })
                         continue
                     }
 
-                    const propType = getPropertyType(property, value)
-                    if (propType) {
-                        collected.propertyDefinitionsById[propDefId] = {
-                            id: propDefId,
+                    const groupTypeIndex = collected.resolvedTeamGroups[event.team_id][groupType]
+                    const propDefKey = `${groupType}:${property}`
+                    if (!collected.propertyDefinitionsById[event.team_id][propDefKey]) {
+                        collected.propertyDefinitionsById[event.team_id][propDefKey] = {
+                            id: new UUIDT().toString(),
                             name: property,
                             is_numerical: propType === PropertyType.Numeric,
                             team_id: event.team_id,
@@ -300,26 +325,25 @@ export class PropertyDefsConsumer {
                             property_type: propType,
                             type: PropertyDefinitionTypeEnum.Group,
                             group_type_name: groupType,
-                            group_type_index: 0, // TODO(eli): resolve these w/DB query on team_id using "groupType"
+                            group_type_index: groupTypeIndex,
                         }
                     }
                 }
             }
 
-            // Detect person properties
+            // Capture person properties
             for (const [property, value] of Object.entries(event.person_properties ?? {})) {
                 if (!willFitInPostgres(property)) {
                     propDefDroppedCounter.inc({ type: 'person', reason: 'key_too_long' })
                     continue
                 }
 
-                const propDefPersonId = `${event.team_id}:person:${property}`
-
-                if (!collected.propertyDefinitionsById[propDefPersonId]) {
+                const propDefKey = `person:${property}`
+                if (!collected.propertyDefinitionsById[event.team_id][propDefKey]) {
                     const propType = getPropertyType(property, value)
                     if (propType) {
-                        collected.propertyDefinitionsById[propDefPersonId] = {
-                            id: propDefPersonId,
+                        collected.propertyDefinitionsById[event.team_id][propDefKey] = {
+                            id: new UUIDT().toString(),
                             name: property,
                             is_numerical: propType === PropertyType.Numeric,
                             team_id: event.team_id,
@@ -331,7 +355,7 @@ export class PropertyDefsConsumer {
                 }
             }
 
-            // Detect event properties
+            // Capture event properties
             for (const [property, value] of Object.entries(event.properties)) {
                 if (!willFitInPostgres(property)) {
                     propDefDroppedCounter.inc({ type: 'event', reason: 'key_too_long' })
@@ -343,13 +367,12 @@ export class PropertyDefsConsumer {
                     continue
                 }
 
-                const propDefEventId = `${event.team_id}:event:${property}`
-
-                if (!collected.propertyDefinitionsById[propDefEventId]) {
+                const propDefKey = `event:${property}`
+                if (!collected.propertyDefinitionsById[event.team_id][propDefKey]) {
                     const propType = getPropertyType(property, value)
                     if (propType) {
-                        collected.propertyDefinitionsById[propDefEventId] = {
-                            id: propDefEventId,
+                        collected.propertyDefinitionsById[event.team_id][propDefKey] = {
+                            id: new UUIDT().toString(),
                             name: property,
                             is_numerical: propType === PropertyType.Numeric,
                             team_id: event.team_id,
@@ -360,11 +383,10 @@ export class PropertyDefsConsumer {
                     }
                 }
 
-                const eventPropId = `${event.team_id}:${event.event}:${property}`
-
-                if (!collected.eventPropertiesById[eventPropId]) {
-                    collected.eventPropertiesById[eventPropId] = {
-                        id: eventPropId,
+                const eventPropKey = `${event.event}:${property}`
+                if (!collected.eventPropertiesById[event.team_id][eventPropKey]) {
+                    collected.eventPropertiesById[event.team_id][eventPropKey] = {
+                        id: new UUIDT().toString(),
                         event: event.event,
                         property,
                         team_id: event.team_id,
