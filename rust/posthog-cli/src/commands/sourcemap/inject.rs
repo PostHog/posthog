@@ -21,11 +21,11 @@ pub fn inject(directory: &Path, _output: &Option<PathBuf>) -> Result<()> {
     info!("Found {} pairs", pairs.len());
     for pair in &mut pairs {
         let chunk_id = uuid::Uuid::now_v7().to_string();
-        pair.add_chunk_id(chunk_id)?;
+        pair.set_chunk_id(chunk_id)?;
     }
     // Write the source and sourcemaps back to disk
     for pair in &pairs {
-        pair.write()?;
+        pair.save()?;
     }
     info!("Finished processing directory");
     Ok(())
