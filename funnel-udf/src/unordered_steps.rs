@@ -114,8 +114,10 @@ impl AggregateFunnelRowUnordered {
             let oldest_event = oldest_event.unwrap();
             let oldest_event_index = oldest_event_index.unwrap();
 
+            let has_completed_funnel = vars.num_steps_completed >= args.num_steps;
+
             // Break if we are in the conversion window and have not completed all the steps.
-            if vars.num_steps_completed < args.num_steps && oldest_event.timestamp + args.conversion_window_limit as f64 >= latest_timestamp {
+            if !has_completed_funnel && oldest_event.timestamp + args.conversion_window_limit as f64 >= latest_timestamp {
                 break;
             }
 

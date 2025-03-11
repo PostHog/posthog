@@ -69,8 +69,9 @@ impl AggregateFunnelRowUnordered {
         for (i, event) in all_events.iter().enumerate() {
             self.process_event(args, &mut vars, event, prop_val);
             // Call update_max_step if this is the last event
+            // Here we have to iterate through the whole loop like we did
             if i == all_events.len() - 1 {
-                self.update_max_step(&mut vars, event);
+                self.oldest_event_loop(args, &mut vars, event, false);
             }
         }
 
@@ -93,7 +94,7 @@ impl AggregateFunnelRowUnordered {
     }
 
     #[inline(always)]
-    fn process_event(&mut self, args: &Args, vars: &mut Vars, event: &Event, prop_val: &PropVal) {
+    fn oldest_event_loop(&mut self, args: &Args, vars: &mut Vars, event: &Event, is_last_event: bool) {
         // Find the latest event timestamp
         let latest_timestamp = event.timestamp;
 
@@ -118,13 +119,17 @@ impl AggregateFunnelRowUnordered {
             let oldest_event = oldest_event.unwrap();
             let oldest_event_index = oldest_event_index.unwrap();
 
-            // Now we are in the conversion window so we need to process the new event
-            if oldest_event.timestamp + args.conversion_window_limit as f64 >= latest_timestamp {
-                break;
-            }
+            // Tricky: Trends is abusing "num_steps" to be the last step
+            // This might actually have incorrect counting if people are excluded
+            // from steps after this step. Try writing a test to compare them.
+            let has_completed_funnel = vars.num_steps_completed >= args.num_steps;
 
+            if !(is_last_event || has_completed_funnel || ((oldest_event.timestamp + args.conversion_window_limit as f64) < latest_timestamp)) {
+                break
+            }
+            // If we're on the last event, if we're completed the funnel, or if we're outside the conversation window, process and delete the earliest event
             // Update max_step if we've completed more steps than before
-            self.update_max_step(vars, event);
+            self.update_max_step(vars, oldest_event.interval_start, event);
 
             // Here we need to remove the oldest event and potentially decrement the num_steps_completed
             vars.events_by_step[oldest_event_index].pop_front();
@@ -134,6 +139,11 @@ impl AggregateFunnelRowUnordered {
                 vars.num_steps_completed -= 1;
             }
         }
+    }
+
+    #[inline(always)]
+    fn process_event(&mut self, args: &Args, vars: &mut Vars, event: &Event, prop_val: &PropVal) {
+        self.oldest_event_loop(args, vars, event, false);
 
         // If we hit an exclusion, we clear everything
         let is_exclusion = event.steps.iter().all(|&step| step < 0);
@@ -174,17 +184,18 @@ impl AggregateFunnelRowUnordered {
         }
         vars.events_by_step[min_timestamp_step - 1].push_back(event.clone());
         // Print the length of each entry in events_by_step
+        /*
         println!();
         for (i, events) in vars.events_by_step.iter().enumerate() {
             for (j, event) in events.iter().enumerate() {
                 println!("Step {}, Event {}: {:?}", i + 1, j + 1, event);
             }
         }
+         */
     }
 
     #[inline(always)]
-    fn update_max_step(&self, vars: &mut Vars, event: &Event) {
-        let interval_start = event.interval_start;
+    fn update_max_step(&self, vars: &mut Vars, interval_start: u64, event: &Event) {
 
         let greater_than_max_step = vars
             .interval_start_to_interval_data
