@@ -154,6 +154,6 @@ export interface SceneConfig {
     activityScope?: ActivityScope | string
     /** Default docs path - what the docs side panel will open by default if this scene is active  */
     defaultDocsPath?: string
-    /** Component import */
+    /** Component import, used only in manifests */
     import?: () => Promise<any>
 }
