@@ -1,6 +1,6 @@
 use anyhow::{anyhow, bail, Context, Ok, Result};
-use common_symbol_data::{write_symbol_data, SourceAndMap};
 use core::str;
+use posthog_symbol_data::{write_symbol_data, SourceAndMap};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
