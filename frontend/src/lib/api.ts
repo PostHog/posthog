@@ -1310,7 +1310,7 @@ const api = {
 
         listRequest(
             filters: Partial<{
-                scope?: ActivityScope
+                scope?: ActivityScope | string
                 scopes?: ActivityScope[] | string
                 user?: UserBasicType['id']
                 page?: number

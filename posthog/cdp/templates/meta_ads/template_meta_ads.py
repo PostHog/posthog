@@ -148,9 +148,9 @@ if (res.status >= 400) {
             "label": "User data",
             "description": "A map that contains customer information data. See this page for options: https://developers.facebook.com/docs/marketing-api/conversions-api/parameters/customer-information-parameters",
             "default": {
-                "em": "{sha256Hex(person.properties.email)}",
-                "fn": "{sha256Hex(person.properties.first_name)}",
-                "ln": "{sha256Hex(person.properties.last_name)}",
+                "em": "{sha256Hex(lower(person.properties.email))}",
+                "fn": "{sha256Hex(lower(person.properties.first_name))}",
+                "ln": "{sha256Hex(lower(person.properties.last_name))}",
                 "fbc": "{not empty(person.properties.fbclid ?? person.properties.$initial_fbclid) ? f'fb.1.{toUnixTimestampMilli(now())}.{person.properties.fbclid ?? person.properties.$initial_fbclid}' : ''}",
             },
             "secret": False,
