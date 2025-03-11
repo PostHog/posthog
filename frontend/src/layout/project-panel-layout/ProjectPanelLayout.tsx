@@ -1,60 +1,105 @@
-import { useActions, useValues } from "kea"
-import { ProjectTree } from "~/layout/navigation-3000/components/ProjectTree/ProjectTree"
-import { ProjectTreeNavbar } from "~/layout/navigation-3000/components/ProjectTree/ProjectTreeNavbar"
-import { projectPanelLayoutLogic } from "./projectPanelLayoutLogic"
 import { cva } from 'class-variance-authority'
-import { cn } from "lib/utils/css-classes"
-import { navigation3000Logic } from "../navigation-3000/navigationLogic"
+import { useActions, useValues } from 'kea'
+import { cn } from 'lib/utils/css-classes'
 
-const panelLayoutStyles = cva('grid gap-0 w-fit relative', {
+import { ProjectTree } from '~/layout/navigation-3000/components/ProjectTree/ProjectTree'
+import { ProjectTreeNavbar } from '~/layout/navigation-3000/components/ProjectTree/ProjectTreeNavbar'
+
+import { navigation3000Logic } from '../navigation-3000/navigationLogic'
+import { projectPanelLayoutLogic } from './projectPanelLayoutLogic'
+
+const panelLayoutStyles = cva('gap-0 w-fit relative h-screen z-[var(--z-project-panel-layout)]', {
     variants: {
+        isNavbarVisibleMobile: {
+            true: 'translate-x-0',
+            false: '',
+        },
+        isNavbarVisibleDesktop: {
+            true: 'w-[var(--project-navbar-width)]',
+            false: '',
+        },
         isPanelVisible: {
-            true: 'grid-cols-[250px_1fr]',
-            false: 'grid-cols-[250px_1fr]'
+            true: '',
+            false: 'w-[var(--project-navbar-width)]',
         },
         isPanelPinned: {
             true: '',
-            false: ''
-        }
+            false: '',
+        },
+        isMobileLayout: {
+            true: 'flex absolute top-0 bottom-0 left-0',
+            false: 'grid',
+        },
     },
     compoundVariants: [
         {
-            isPanelVisible: true,
-            isPanelPinned: false,
-            className: 'grid-cols-[250px_1fr]'
+            isMobileLayout: true,
+            isNavbarVisibleMobile: true,
+            className: 'translate-x-0',
         },
         {
+            isMobileLayout: true,
+            isNavbarVisibleMobile: false,
+            className: 'translate-x-[calc(var(--project-navbar-width)*-1)]',
+        },
+        {
+            isMobileLayout: false,
             isPanelVisible: true,
             isPanelPinned: true,
-            className: 'grid-cols-[250px_1fr]'
-        }
+            className: 'w-[calc(var(--project-navbar-width)+var(--project-panel-width))]',
+        },
     ],
     defaultVariants: {
         isPanelPinned: false,
-        isPanelVisible: false
-    }
+        isPanelVisible: false,
+    },
 })
 
 export function ProjectPanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement> }): JSX.Element {
-    const { isPanelPinned, isPanelVisible } = useValues(projectPanelLayoutLogic)
-    const { mobileLayout } = useValues(navigation3000Logic)    
-    const { togglePanelVisible } = useActions(projectPanelLayoutLogic)
-    
-    console.log('isPanelVisible', isPanelVisible)
+    const { isPanelPinned, isPanelVisible, isNavbarVisibleMobile, isNavbarVisibleDesktop } =
+        useValues(projectPanelLayoutLogic)
+    const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
+    const { togglePanelVisible, showNavBar } = useActions(projectPanelLayoutLogic)
+
+    const showMobileNavbarOverlay = isNavbarVisibleMobile
+    const showDesktopNavbarOverlay = isNavbarVisibleDesktop && !isPanelPinned && isPanelVisible
 
     return (
-        <div id="project-panel-layout" className={cn(panelLayoutStyles({ isPanelPinned, isPanelVisible }))}>
-            <ProjectTreeNavbar />
-            <div className={cn(
-                "z-[var(--z-project-panel-layout)] h-screen",
-                isPanelVisible ? 'block' : 'hidden',
-                mobileLayout ? 'absolute left-[250px] top-0 bottom-0' : 'relative',
-                !isPanelPinned ? 'absolute left-[250px] top-0 bottom-0' : 'relative'
-            )}>
-                <ProjectTree contentRef={mainRef} />
-            </div>ekgirviuhbbhgukijhndufvhhrrfdgjvgfnu
-            
-            {!isPanelPinned && isPanelVisible && <div onClick={() => togglePanelVisible(!isPanelVisible)} className="z-[var(--z-project-panel-overlay)] fixed inset-0 w-screen h-screen"/>}
+        <div className="relative">
+            <div
+                id="project-panel-layout"
+                className={cn(
+                    panelLayoutStyles({
+                        isNavbarVisibleMobile,
+                        isNavbarVisibleDesktop,
+                        isPanelPinned,
+                        isPanelVisible,
+                        isMobileLayout,
+                    })
+                )}
+            >
+                <ProjectTreeNavbar>
+                    <ProjectTree contentRef={mainRef} />
+                </ProjectTreeNavbar>
+            </div>
+
+            {isMobileLayout && showMobileNavbarOverlay && (
+                <div
+                    onClick={() => {
+                        showNavBar(false)
+                        togglePanelVisible(false)
+                    }}
+                    className="z-[var(--z-project-panel-overlay)] fixed inset-0 w-screen h-screen"
+                />
+            )}
+            {!isMobileLayout && showDesktopNavbarOverlay && (
+                <div
+                    onClick={() => {
+                        togglePanelVisible(false)
+                    }}
+                    className="z-[var(--z-project-panel-overlay)] fixed inset-0 w-screen h-screen"
+                />
+            )}
         </div>
     )
 }
