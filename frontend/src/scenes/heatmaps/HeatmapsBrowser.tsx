@@ -218,41 +218,112 @@ function LoadingOverlay(): JSX.Element {
     )
 }
 
+function ViewportChooser({
+    setWidth,
+    selectedWidth,
+}: {
+    setWidth: (width: number | null) => void
+    selectedWidth: number | null
+}): JSX.Element {
+    const [hoveredWidth, setHoveredWidth] = React.useState<number | null>(null)
+
+    const viewports: Record<number, string> = {
+        320: 'Mobile - S (320px)',
+        375: 'Mobile - M (375px)',
+        425: 'Mobile - L (425px)',
+        768: 'Tablet (768px)',
+        1024: 'Desktop (1024px)',
+        1440: 'Desktop - L (1440px)',
+        1920: 'Desktop - XL (1920px)',
+    }
+
+    const handleWidthSelect = (width: number): void => {
+        setWidth(selectedWidth === width ? null : width)
+    }
+
+    const label =
+        hoveredWidth !== null ? (
+            <span>{viewports[hoveredWidth]}</span>
+        ) : selectedWidth !== null ? (
+            <span>{viewports[selectedWidth]}</span>
+        ) : (
+            <span>Choose viewport</span>
+        )
+
+    return (
+        <div className="w-full flex flex-row items-center justify-center relative h-8 border-y rounded-0 bg-bg-light select-none overflow-hidden">
+            {Object.keys(viewports)
+                .map((width) => {
+                    const numWidth = parseInt(width)
+                    return (
+                        <div
+                            key={width}
+                            className={clsx(
+                                'absolute h-full border-l border-r cursor-pointer flex items-center justify-center px-2 text-xs transition-colors',
+                                'hover:bg-primary hover:bg-opacity-20',
+                                'left-1/2 -translate-x-1/2',
+                                selectedWidth === numWidth && 'bg-primary bg-opacity-20'
+                            )}
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{
+                                width: numWidth,
+                            }}
+                            onClick={() => handleWidthSelect(numWidth)}
+                            onMouseEnter={() => setHoveredWidth(numWidth)}
+                            onMouseLeave={() => setHoveredWidth(null)}
+                        >
+                            {numWidth === 320 ? <span>{label}</span> : null}
+                        </div>
+                    )
+                })
+                .reverse()}
+        </div>
+    )
+}
+
 function EmbeddedHeatmapBrowser({
     iframeRef,
 }: {
     iframeRef?: React.MutableRefObject<HTMLIFrameElement | null>
 }): JSX.Element | null {
     const logic = heatmapsBrowserLogic()
+    const [widthOverride, setWidthOverride] = React.useState<number | null>(null)
 
     const { browserUrl, loading, iframeBanner } = useValues(logic)
     const { onIframeLoad, setIframeWidth } = useActions(logic)
 
     const { width: iframeWidth } = useResizeObserver<HTMLIFrameElement>({ ref: iframeRef })
     useEffect(() => {
-        setIframeWidth(iframeWidth ?? null)
-    }, [iframeWidth])
+        if (widthOverride === null) {
+            setIframeWidth(iframeWidth ?? null)
+        }
+    }, [iframeWidth, setIframeWidth, widthOverride])
 
     return browserUrl ? (
-        <div className="flex flex-row gap-x-2 w-full">
+        <div className="flex flex-row w-full">
             <FilterPanel />
             <div className="relative flex-1 w-full h-full">
                 {loading ? <LoadingOverlay /> : null}
                 {!loading && iframeBanner ? <IframeErrorOverlay /> : null}
-                <iframe
-                    ref={iframeRef}
-                    className="w-full h-full bg-white"
-                    src={appEditorUrl(browserUrl, {
-                        userIntent: 'heatmaps',
-                    })}
-                    onLoad={onIframeLoad}
-                    // these two sandbox values are necessary so that the site and toolbar can run
-                    // this is a very loose sandbox,
-                    // but we specify it so that at least other capabilities are denied
-                    sandbox="allow-scripts allow-same-origin"
-                    // we don't allow things such as camera access though
-                    allow=""
-                />
+                <ViewportChooser setWidth={setWidthOverride} selectedWidth={widthOverride} />
+                <div className="flex justify-center h-full">
+                    <iframe
+                        ref={iframeRef}
+                        className="h-full bg-white"
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{ width: widthOverride ?? '100%' }}
+                        src={appEditorUrl(browserUrl, {
+                            userIntent: 'heatmaps',
+                        })}
+                        onLoad={onIframeLoad}
+                        // these two sandbox values are necessary so that the site and toolbar can run
+                        // this is a very loose sandbox,
+                        // but we specify it so that at least other capabilities are denied
+                        sandbox="allow-scripts allow-same-origin"
+                        // we don't allow things such as camera access though
+                        allow=""
+                    />
+                </div>
             </div>
         </div>
     ) : null

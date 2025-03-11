@@ -1,6 +1,10 @@
-pub mod auth;
-pub mod upload;
+pub mod login;
+pub mod query;
+pub mod sourcemap;
+
 use clap::{Parser, Subcommand};
+use query::OutputMode;
+use std::path::PathBuf;
 
 use crate::error::CapturedError;
 
@@ -20,6 +24,14 @@ pub enum Commands {
     /// Authenticate with PostHog, storing a personal API token locally
     Login,
 
+    /// Run a SQL query against any data you have in posthog. This is mostly for fun, and subject to change
+    Query {
+        /// The query to run
+        query: String,
+        #[arg(short, long, default_value = "print", value_enum)]
+        output: OutputMode,
+    },
+
     #[command(about = "Upload a directory of bundled chunks to PostHog")]
     Sourcemap {
         #[command(subcommand)]
@@ -33,17 +45,17 @@ pub enum SourcemapCommand {
     Inject {
         /// The directory containing the bundled chunks
         #[arg(short, long)]
-        directory: String,
+        directory: PathBuf,
 
         /// Where to write the injected chunks. If not provided, the original files will be overwritten
         #[arg(short, long)]
-        output: Option<String>,
+        output: Option<PathBuf>,
     },
     /// Upload the bundled chunks to PostHog
     Upload {
         /// The directory containing the bundled chunks
         #[arg(short, long)]
-        directory: String,
+        directory: PathBuf,
 
         /// The build ID to associate with the uploaded chunks
         #[arg(short, long)]
@@ -57,18 +69,17 @@ impl Cli {
 
         match &command.command {
             Commands::Login => {
-                auth::login()?;
+                login::login()?;
             }
             Commands::Sourcemap { cmd } => match cmd {
-                SourcemapCommand::Inject {
-                    directory: _,
-                    output: _,
-                } => return Ok(()),
-                SourcemapCommand::Upload {
-                    directory: _,
-                    build: _,
-                } => return Ok(()),
+                SourcemapCommand::Inject { directory, output } => {
+                    sourcemap::inject::inject(directory, output)?;
+                }
+                SourcemapCommand::Upload { directory, build } => {
+                    sourcemap::upload::upload(&command.host, directory, build)?;
+                }
             },
+            Commands::Query { query, output } => query::run_query(&command.host, query, *output)?,
         }
 
         Ok(())

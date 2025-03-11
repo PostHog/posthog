@@ -119,7 +119,7 @@ export function LegacySharedTrendsMetricForm(): JSX.Element {
                                         className={`flex-1 cursor-pointer p-4 rounded border ${
                                             !sharedMetricQuery.exposure_query
                                                 ? 'border-accent-primary bg-accent-primary-highlight'
-                                                : 'border-border'
+                                                : 'border-primary'
                                         }`}
                                         onClick={() => {
                                             setSharedMetric({
@@ -147,7 +147,7 @@ export function LegacySharedTrendsMetricForm(): JSX.Element {
                                         className={`flex-1 cursor-pointer p-4 rounded border ${
                                             sharedMetricQuery.exposure_query
                                                 ? 'border-accent-primary bg-accent-primary-highlight'
-                                                : 'border-border'
+                                                : 'border-primary'
                                         }`}
                                         onClick={() => {
                                             setSharedMetric({

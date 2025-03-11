@@ -73,13 +73,6 @@ export function iconForType(type?: FileSystemType): JSX.Element {
     }
 }
 
-// {
-//     identifier: Scene.Products,
-//     label: 'Welcome to PostHog',
-//     icon: <IconLogomark />,
-//     to: urls.products(),
-// },
-
 export const getDefaultTree = (groupNodes: FileSystemImport[]): FileSystemImport[] =>
     [
         {
