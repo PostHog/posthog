@@ -69,6 +69,15 @@ common_inputs = [
         "secret": False,
         "required": True,
     },
+    {
+        "key": "testEventMode",
+        "type": "boolean",
+        "label": "Test Event Mode",
+        "description": "Use this field to specify that events should be test events rather than actual traffic. You'll want to disable this field when sending real traffic through this integration.",
+        "default": False,
+        "secret": False,
+        "required": False,
+    },
 ]
 
 template: HogFunctionTemplate = HogFunctionTemplate(
@@ -106,7 +115,7 @@ for (let key, value in inputs.customData) {
     }
 }
 
-let res := fetch(f'https://tr.snapchat.com/v3/{inputs.pixelId}/events?access_token={inputs.oauth.access_token}', {
+let res := fetch(f'https://tr.snapchat.com/v3/{inputs.pixelId}/events{inputs.testEventMode ? '/validate' : ''}?access_token={inputs.oauth.access_token}', {
     'method': 'POST',
     'headers': {
         'Content-Type': 'application/json',
@@ -144,6 +153,11 @@ if (res.status >= 400) {
                 "em": "{sha256Hex(person.properties.email)}",
                 "ph": "{sha256Hex(person.properties.phone)}",
                 "sc_click_id": "{person.properties.sccid ?? person.properties.$initial_sccid}",
+                "client_user_agent": "{event.properties.$raw_user_agent}",
+                "fn": "{sha256Hex(person.properties.first_name)}",
+                "ln": "{sha256Hex(person.properties.last_name)}",
+                "client_ip_address": "{event.properties.$ip}",
+                "external_id": "{sha256Hex(person.id)}",
             },
             "secret": False,
             "required": True,
