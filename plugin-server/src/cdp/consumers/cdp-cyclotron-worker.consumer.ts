@@ -85,7 +85,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
     }
 
     private async handleJobBatch(jobs: CyclotronJob[]) {
-        cyclotronBatchUtilizationGuage
+        cyclotronBatchUtilizationGauge
             .labels({ queue: this.queue })
             .set(jobs.length / this.hub.CDP_CYCLOTRON_BATCH_SIZE)
         if (!this.cyclotronWorker) {
