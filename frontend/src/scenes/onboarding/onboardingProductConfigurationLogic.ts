@@ -50,21 +50,22 @@ export const onboardingProductConfigurationLogic = kea<onboardingProductConfigur
     })),
     listeners(({ values, actions }) => ({
         saveConfiguration: async () => {
-            let updateConfig: Partial<TeamType> = {}
+            const updateConfig: Record<string, any> = {}
+
             values.configOptions.forEach((configOption) => {
                 if (configOption.teamProperty) {
-                    updateConfig[configOption.teamProperty as keyof TeamType] = configOption.inverseToggle
-                        ? !configOption.value
-                        : configOption.value
+                    const value = configOption.inverseToggle ? !configOption.value : configOption.value
+
+                    updateConfig[configOption.teamProperty] = value
                 }
+
                 if (configOption.onChange) {
-                    updateConfig = {
-                        ...updateConfig,
-                        ...configOption.onChange(configOption.value),
-                    }
+                    const changes = configOption.onChange(configOption.value)
+                    Object.assign(updateConfig, changes)
                 }
             })
-            actions.updateCurrentTeam(updateConfig)
+
+            actions.updateCurrentTeam(updateConfig as Partial<TeamType>)
         },
     })),
 ])
