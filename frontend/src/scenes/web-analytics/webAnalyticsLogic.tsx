@@ -2369,7 +2369,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 tile_visualizations,
             }: Record<string, any>
         ): void => {
-            if (![ProductTab.ANALYTICS, ProductTab.WEB_VITALS].includes(productTab)) {
+            if (![ProductTab.ANALYTICS, ProductTab.WEB_VITALS, ProductTab.PAGE_REPORTS].includes(productTab)) {
                 return
             }
 
