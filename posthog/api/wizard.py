@@ -123,10 +123,17 @@ class SetupWizardViewSet(viewsets.ViewSet):
 
         openai = OpenAI(posthog_client=posthog_client)
 
+        distinct_id = wizard_data.get("user_distinct_id")
+
         completion = openai.beta.chat.completions.parse(
             model=SETUP_WIZARD_MODEL,
             messages=messages,
-            response_format={"type": "json_schema", "json_schema": json_schema},  # type: ignore
+            response_format={"type": "json_schema", "json_schema": json_schema},
+            posthog_distinct_id=distinct_id,  # type: ignore
+            posthog_properties={  # type: ignore
+                "ai_product": "wizard",
+                "ai_feature": "query",
+            },
         )
 
         if not completion.choices or not completion.choices[0].message.content:
