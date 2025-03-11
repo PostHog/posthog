@@ -1395,7 +1395,7 @@ dependencies = [
  "async-trait",
  "redis",
  "serde-pickle",
- "thiserror",
+ "thiserror 1.0.69",
  "tokio",
 ]
 
@@ -2243,8 +2243,8 @@ dependencies = [
  "sha1",
  "sqlx",
  "strum",
- "time",
  "thiserror 1.0.69",
+ "time",
  "tokio",
  "tower",
  "tower-http",
