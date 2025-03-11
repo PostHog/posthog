@@ -198,13 +198,10 @@ export class LegacyOneventCompareService {
         const copiedCalls = [...recordedCalls]
         const recorder = new HttpCallRecorder()
 
-        const error: any = undefined
-
         const result = await this.legacyPluginExecutorService.execute(invocation, {
             fetch: (url, init) => {
                 // For each call take the first one out of the stack
 
-                throw new Error('test')
                 const call = copiedCalls.shift()
 
                 if (!call) {
