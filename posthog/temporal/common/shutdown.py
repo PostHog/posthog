@@ -99,7 +99,6 @@ class ShutdownMonitor:
                 # Not running in an activity context.
                 return
 
-            await self.logger.adebug("Shutdown detected.")
             self._is_shutdown_event.set()
 
         self._monitor_shutdown_task = asyncio.create_task(monitor())
