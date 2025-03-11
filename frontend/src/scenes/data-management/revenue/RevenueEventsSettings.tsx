@@ -39,7 +39,7 @@ export function RevenueEventsSettings(): JSX.Element {
                 productName="Revenue tracking"
                 thingName="revenue event"
                 description={introductionDescription}
-                isEmpty={events.length === 0 || externalDataSchemas.length === 0}
+                isEmpty={events.length === 0 && externalDataSchemas.length === 0}
                 actionElementOverride={
                     <>
                         <div className="flex flex-col gap-2">
