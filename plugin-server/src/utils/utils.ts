@@ -65,7 +65,7 @@ export function bufferToUint32ArrayLE(buffer: Buffer): Uint32Array {
 }
 
 export function uint32ArrayLEToBase64String(uint32Array: Uint32Array): string {
-    return uint32ArrayToBuffer(uint32Array).toString('base64')
+    return uint32ArrayLEToBuffer(uint32Array).toString('base64')
 }
 
 export function uint32ArrayLEToBuffer(uint32Array: Uint32Array): Buffer {
