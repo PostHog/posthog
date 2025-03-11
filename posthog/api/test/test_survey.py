@@ -1127,6 +1127,7 @@ class TestSurvey(APIBaseTest):
                         "active": False,
                         "ensure_experience_continuity": False,
                         "has_encrypted_payloads": False,
+                        "version": ANY,  # Add version field with ANY matcher
                     },
                     "linked_flag": None,
                     "linked_flag_id": None,
