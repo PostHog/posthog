@@ -108,6 +108,16 @@ const createKafkaMessages: (events: ClickHouseEvent[]) => Message[] = (events) =
     })
 }
 
+/**
+ * TEST CASES TO COVER:
+ * - $groupidentify
+ *   - Should create group properties from the $group_set property
+ *   - Should create property properties from its own event properties
+ *   - Should limit to the max number of groups using the group types
+ * - batching
+ *   - Should only write once per unique constraint (team_id, event, property etc)
+ */
+
 describe('PropertyDefsConsumer', () => {
     let ingester: PropertyDefsConsumer
     let hub: Hub
@@ -143,7 +153,7 @@ describe('PropertyDefsConsumer', () => {
     })
 
     describe('property updates', () => {
-        it('should write property defs to the DB', async () => {
+        it('should write simple property defs to the DB', async () => {
             await ingester.handleKafkaBatch(
                 createKafkaMessages([
                     createClickHouseEvent({
@@ -159,54 +169,47 @@ describe('PropertyDefsConsumer', () => {
             expect(propertyDefsDB.writePropertyDefinition).toHaveBeenCalledTimes(1)
             expect(propertyDefsDB.writeEventProperty).toHaveBeenCalledTimes(1)
 
-            expect(forSnapshot(await propertyDefsDB.listEventDefinitions(team.id))).toMatchInlineSnapshot(`
-                [
-                  {
-                    "created_at": "2025-01-01T00:00:00.000Z",
-                    "id": "<REPLACED-UUID-0>",
-                    "last_seen_at": "2025-01-01T00:00:00.000Z",
-                    "name": "$pageview",
-                    "project_id": "2",
-                    "query_usage_30_day": null,
-                    "team_id": 2,
-                    "volume_30_day": null,
-                  },
-                ]
-            `)
+            expect(forSnapshot(await propertyDefsDB.listEventDefinitions(team.id))).toMatchSnapshot()
 
             expect(
                 forSnapshot(await propertyDefsDB.listEventProperties(team.id), {
                     overrides: { id: '<REPLACED_NUMBER>' },
                 })
-            ).toMatchInlineSnapshot(`
-                [
-                  {
-                    "event": "$pageview",
-                    "id": "<REPLACED_NUMBER>",
-                    "project_id": "2",
-                    "property": "url",
-                    "team_id": 2,
-                  },
-                ]
-            `)
+            ).toMatchSnapshot()
 
-            expect(forSnapshot(await propertyDefsDB.listPropertyDefinitions(team.id))).toMatchInlineSnapshot(`
-                [
-                  {
-                    "group_type_index": null,
-                    "id": "<REPLACED-UUID-0>",
-                    "is_numerical": false,
-                    "name": "url",
-                    "project_id": "2",
-                    "property_type": "String",
-                    "property_type_format": null,
-                    "query_usage_30_day": null,
-                    "team_id": 2,
-                    "type": 1,
-                    "volume_30_day": null,
-                  },
-                ]
-            `)
+            expect(forSnapshot(await propertyDefsDB.listPropertyDefinitions(team.id))).toMatchSnapshot()
+        })
+
+        it('should only write the first seen property defs to the DB', async () => {
+            await ingester.handleKafkaBatch(
+                createKafkaMessages([
+                    createClickHouseEvent({
+                        team_id: team.id,
+                        properties: {
+                            url: 'http://example.com',
+                        },
+                    }),
+                    createClickHouseEvent({
+                        team_id: team.id,
+                        properties: {
+                            url: 2,
+                        },
+                    }),
+                    createClickHouseEvent({
+                        team_id: team.id,
+                        properties: {
+                            url: 5,
+                        },
+                    }),
+                ])
+            )
+
+            expect(propertyDefsDB.writeEventDefinition).toHaveBeenCalledTimes(1)
+            expect(propertyDefsDB.writePropertyDefinition).toHaveBeenCalledTimes(1)
+            expect(propertyDefsDB.writeEventProperty).toHaveBeenCalledTimes(1)
+
+            // Snapshot shows a String type as it was the first seen value
+            expect(forSnapshot(await propertyDefsDB.listPropertyDefinitions(team.id))).toMatchSnapshot()
         })
     })
 })

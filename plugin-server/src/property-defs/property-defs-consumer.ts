@@ -248,8 +248,6 @@ export class PropertyDefsConsumer {
                         }
                     }
                 }
-
-                continue
             }
 
             // Detect person properties
