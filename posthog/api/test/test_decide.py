@@ -1004,6 +1004,97 @@ class TestDecide(BaseTest, QueryMatchingTest):
             response.json()["featureFlagPayloads"]["multivariate-flag"],
         )
 
+    def test_feature_flags_v4_json(self, *args):
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+        self.client.logout()
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["example_id"],
+            properties={"email": "tim@posthog.com"},
+        )
+        bf = FeatureFlag.objects.create(
+            team=self.team,
+            rollout_percentage=0,
+            name="Beta feature",
+            key="beta-feature",
+            created_by=self.user,
+        )
+        mvFlag = FeatureFlag.objects.create(
+            team=self.team,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": None}],
+                "multivariate": {
+                    "variants": [
+                        {
+                            "key": "first-variant",
+                            "name": "First Variant",
+                            "rollout_percentage": 50,
+                        },
+                        {
+                            "key": "second-variant",
+                            "name": "Second Variant",
+                            "rollout_percentage": 25,
+                        },
+                        {
+                            "key": "third-variant",
+                            "name": "Third Variant",
+                            "rollout_percentage": 25,
+                        },
+                    ]
+                },
+                "payloads": {"first-variant": {"color": "blue"}},
+            },
+            name="This is a feature flag with multiple variants.",
+            key="multivariate-flag",
+            created_by=self.user,
+            version=42,
+        )
+        self.assertEqual(mvFlag.version, 42)
+
+        response = self._post_decide(api_version=4, assert_num_queries=0)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        flags = response.json()["flags"]
+        self.assertEqual(
+            flags["beta-feature"],
+            {
+                "key": "beta-feature",
+                "enabled": False,
+                "variant": None,
+                "reason": {
+                    "code": "out_of_rollout_bound",
+                    "condition_index": 0,
+                    "description": None,
+                },
+                "metadata": {
+                    "id": bf.id,
+                    "version": 1,
+                    "description": "Beta feature",
+                    "payload": None,
+                },
+            },
+        )
+        self.assertEqual(
+            flags["multivariate-flag"],
+            {
+                "key": "multivariate-flag",
+                "enabled": True,
+                "variant": "first-variant",
+                "reason": {
+                    "code": "condition_match",  # Adjust based on actual value
+                    "condition_index": 0,  # Adjust based on actual value
+                    "description": None,
+                },
+                "metadata": {
+                    "id": mvFlag.id,
+                    "version": 42,
+                    "description": "This is a feature flag with multiple variants.",
+                    "payload": {"color": "blue"},
+                },
+            },
+        )
+
     def test_feature_flags_v2(self, *args):
         self.team.app_urls = ["https://example.com"]
         self.team.save()

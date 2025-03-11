@@ -27,7 +27,7 @@ from posthog.geoip import get_geoip_properties
 from posthog.logging.timing import timed
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Team, User
-from posthog.models.feature_flag import get_all_feature_flags
+from posthog.models.feature_flag import get_all_feature_flags_with_details
 from posthog.models.feature_flag.flag_analytics import increment_request_count
 from posthog.models.filters.mixins.utils import process_bool
 from posthog.models.remote_config import RemoteConfig
@@ -354,6 +354,7 @@ def get_feature_flags_response_or_body(
     # Early exit if flags are disabled via request
     if process_bool(data.get("disable_flags")) is True:
         return {
+            "flags": {},
             "featureFlags": {},
             "errorsWhileComputingFlags": False,
             "featureFlagPayloads": {},
@@ -369,6 +370,7 @@ def get_feature_flags_response_or_body(
         if token in limited_tokens_flags:
             return {
                 "quotaLimited": ["feature_flags"],
+                "flags": {},
                 "featureFlags": {},
                 "errorsWhileComputingFlags": False,
                 "featureFlagPayloads": {},
@@ -400,7 +402,7 @@ def get_feature_flags_response_or_body(
     }
 
     # Compute feature flags
-    feature_flags, _, feature_flag_payloads, errors = get_all_feature_flags(
+    feature_flags, _, feature_flag_payloads, errors, flags_details = get_all_feature_flags_with_details(
         team,
         distinct_id,
         data.get("groups") or {},
@@ -414,25 +416,60 @@ def get_feature_flags_response_or_body(
     _record_feature_flag_metrics(team, feature_flags, errors, data)
 
     # Format response based on API version
-    return _format_feature_flags_response(feature_flags, feature_flag_payloads, errors, api_version)
+    return _format_feature_flags_response(feature_flags, feature_flag_payloads, flags_details, errors, api_version)
 
 
 def _format_feature_flags_response(
-    feature_flags: dict[str, Any], feature_flag_payloads: dict[str, Any], errors: bool, api_version: int
+    feature_flags: dict[str, Any],
+    feature_flag_payloads: dict[str, Any],
+    flags_details: Optional[dict[str, Any]],
+    errors: bool,
+    api_version: int,
 ) -> dict[str, Any]:
     """Format feature flags response according to API version."""
     active_flags = {key: value for key, value in feature_flags.items() if value}
 
     if api_version == 2:
         return {"featureFlags": active_flags}
-    elif api_version >= 3:
+    elif api_version == 3:
         return {
             "featureFlags": feature_flags,
             "errorsWhileComputingFlags": errors,
             "featureFlagPayloads": feature_flag_payloads,
         }
+    elif api_version >= 4:
+        return {
+            "flags": _format_feature_flag_details(flags_details),
+            "errorsWhileComputingFlags": errors,
+        }
     else:  # v1
         return {"featureFlags": list(active_flags.keys())}
+
+
+def _format_feature_flag_details(flags_details: Optional[dict]) -> dict:
+    if flags_details is None:
+        return {}
+
+    flag_details = {}
+    for flag_key, flag_value in flags_details.items():
+        flag_details[flag_key] = {
+            "key": flag_key,
+            "enabled": flag_value.match.match,
+            "variant": flag_value.match.variant,
+            "reason": {
+                "code": flag_value.match.reason.value,
+                "condition_index": flag_value.match.condition_index,
+                "description": None,  # TBD add description.
+            },
+            "metadata": {
+                "id": flag_value.id,
+                "payload": flag_value.match.payload,
+                "version": flag_value.version,
+                "description": flag_value.description,
+            },
+        }
+
+    return flag_details
 
 
 def _record_feature_flag_metrics(
