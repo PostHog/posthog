@@ -4,10 +4,10 @@ use std::collections::VecDeque;
 use std::iter::repeat;
 use uuid::Uuid;
 
-pub struct Vars {
-    pub max_step: (usize, EnteredTimestamp),
-    pub events_by_step: Vec<VecDeque<Event>>,
-    pub num_steps_completed: usize,
+struct Vars {
+    max_step: (usize, EnteredTimestamp),
+    events_by_step: Vec<VecDeque<Event>>,
+    num_steps_completed: usize,
 }
 
 pub struct AggregateFunnelRowUnordered {

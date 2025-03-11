@@ -70,9 +70,9 @@ struct IntervalData {
 
 pub type ResultsMap = HashMap<u64, ResultStruct>;
 
-pub struct Vars {
-    pub interval_start_to_entered_timestamps: HashMap<u64, IntervalData>,
-    pub results: ResultsMap,
+struct Vars {
+    interval_start_to_entered_timestamps: HashMap<u64, IntervalData>,
+    results: ResultsMap,
 }
 
 struct AggregateFunnelRow {

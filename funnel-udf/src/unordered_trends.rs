@@ -1,9 +1,8 @@
-use crate::trends::{Args, EnteredTimestamp, Event, Exclusion, MaxStep, ResultStruct};
+use crate::trends::{Args, Event, Exclusion, MaxStep, ResultStruct};
 use crate::PropVal;
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::iter::repeat;
-use uuid::Uuid;
 
 pub type ResultsMap = HashMap<u64, ResultStruct>;
 
@@ -20,11 +19,6 @@ struct IntervalData {
 pub struct AggregateFunnelRowUnordered {
     pub breakdown_step: Option<usize>,
 }
-
-const DEFAULT_ENTERED_TIMESTAMP: EnteredTimestamp = EnteredTimestamp {
-    timestamp: 0.0,
-    excluded: false,
-};
 
 impl AggregateFunnelRowUnordered {
     #[inline(always)]
