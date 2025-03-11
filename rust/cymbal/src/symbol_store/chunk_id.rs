@@ -61,7 +61,7 @@ where
 
         let Some(record) = SymbolSetRecord::load(&self.pool, team_id, &id).await? else {
             counter!(CHUNK_ID_NOT_FOUND).increment(1);
-            return Err(ChunkIdError::NotFound(id.clone()).into());
+            return Err(ChunkIdError::NotFound(id.clone()));
         };
 
         // If we failed to parse this chunk's data in the past, we should not try again.
@@ -78,7 +78,7 @@ where
             // have a symbol record for a chunk id with no storage pointer and no failure reason.
             error!("No storage pointer found for chunk id {}", id);
             counter!(CHUNK_ID_MISSING_STORAGE_PTR).increment(1);
-            return Err(ChunkIdError::MissingStoragePtr(id.clone()).into());
+            return Err(ChunkIdError::MissingStoragePtr(id.clone()));
         };
 
         let data = self.client.get(&self.bucket, &storage_ptr).await?;
