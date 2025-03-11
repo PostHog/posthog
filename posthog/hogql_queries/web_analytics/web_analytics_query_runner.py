@@ -201,7 +201,12 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
         if isinstance(self.query.conversionGoal, CustomEventConversionGoal):
             event_name = self.query.conversionGoal.customEventName
             revenue_property = next(
-                (event_item.revenueProperty for event_item in config.events if event_item.eventName == event_name), None
+                (
+                    event_item.revenueProperty
+                    for event_item in (config.events or [])
+                    if event_item.eventName == event_name
+                ),
+                None,
             )
 
             if not revenue_property:
