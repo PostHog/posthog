@@ -128,25 +128,36 @@ export class PropertyDefsConsumer {
 
     public async handleKafkaBatch(messages: Message[]) {
         const parsedMessages = await this.runInstrumented('parseKafkaMessages', () => this.parseKafkaBatch(messages))
+
+        // TODO: Pre-load all teams and groups related to the events in the batch.
+        // We have some managers for this but perhaps it makes sense to do this in a more optimized way here.
+
         const collected = await this.runInstrumented('derivePropDefs', () =>
             Promise.resolve(this.extractPropertyDefinitions(parsedMessages))
         )
 
         for (const eventDef of Object.values(collected.eventDefinitionsById)) {
             eventDefTypesCounter.inc()
-            console.log(eventDef) // TODO(eli): temp: make linter happy
-            // TODO(eli): write it!
+            status.debug('🔁', `Writing event definition`, { eventDef })
+
+            // TODO: Batch all these DB writes
+            void this.scheduleWork(this.propertyDefsDB.writeEventDefinition(eventDef))
         }
 
         for (const propDef of Object.values(collected.propertyDefinitionsById)) {
             propertyDefTypesCounter.inc({ type: propDef.property_type ?? 'null' })
-            // TODO(eli): write it!
+            status.debug('🔁', `Writing property definition`, { propDef })
+
+            // TODO: Batch all these DB writes
+            void this.scheduleWork(this.propertyDefsDB.writePropertyDefinition(propDef))
         }
 
         for (const eventProp of Object.values(collected.eventPropertiesById)) {
             eventPropTypesCounter.inc()
-            console.log(eventProp) // TODO(eli): temp: make linter happy
-            // TODO(eli): write it!
+            status.debug('🔁', `Writing event property`, { eventProp })
+
+            // TODO: Batch all these DB writes
+            void this.scheduleWork(this.propertyDefsDB.writeEventProperty(eventProp))
         }
 
         status.debug('🔁', `Waiting for promises`, { promises: this.promises.size })
