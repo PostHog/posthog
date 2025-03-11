@@ -133,7 +133,9 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         assignee = request.data.get("assignee", None)
         instance = self.get_object()
 
-        assign_issue(instance, assignee, self.organization, self.team_id)
+        assign_issue(
+            instance, assignee, self.organization, request.user, self.team_id, is_impersonated_session(request)
+        )
 
         return Response({"success": True})
 
@@ -172,7 +174,9 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                 assignee = request.data.get("assignee", None)
 
                 for issue in issues:
-                    assign_issue(issue, assignee, self.organization, self.team_id)
+                    assign_issue(
+                        issue, assignee, self.organization, request.user, self.team_id, is_impersonated_session(request)
+                    )
 
         return Response({"success": True})
 
@@ -203,7 +207,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         return activity_page_response(activity_page, limit, page, request)
 
 
-def assign_issue(issue: ErrorTrackingIssue, assignee, organization, team_id):
+def assign_issue(issue: ErrorTrackingIssue, assignee, organization, user, team_id, was_impersonated):
     assignment_before = ErrorTrackingIssueAssignment.objects.filter(issue_id=issue.id).first()
     serialized_assignment_before = (
         ErrorTrackingIssueAssignmentSerializer(assignment_before).data if assignment_before else None
@@ -229,8 +233,8 @@ def assign_issue(issue: ErrorTrackingIssue, assignee, organization, team_id):
     log_activity(
         organization_id=organization.id,
         team_id=team_id,
-        user=request.user,
-        was_impersonated=is_impersonated_session(request),
+        user=user,
+        was_impersonated=was_impersonated,
         item_id=str(issue.id),
         scope="ErrorTrackingIssue",
         activity="assigned",
