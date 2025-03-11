@@ -1,6 +1,6 @@
 use crate::{
     api::{errors::FlagError, types::FlagsResponse},
-    client::{database::Client, geoip::GeoIpClient},
+    client::database::Client,
     cohort::cohort_cache_manager::CohortCacheManager,
     flags::{
         flag_matching::{FeatureFlagMatcher, GroupTypeMappingCache},
@@ -13,6 +13,7 @@ use crate::{
 use axum::{extract::State, http::HeaderMap};
 use base64::{engine::general_purpose, Engine as _};
 use bytes::Bytes;
+use common_geoip::GeoIpClient;
 use derive_builder::Builder;
 use flate2::read::GzDecoder;
 use serde::{Deserialize, Serialize};
@@ -173,21 +174,23 @@ pub fn get_person_property_overrides(
 ) -> Option<HashMap<String, Value>> {
     match (geoip_enabled, person_properties) {
         (true, Some(mut props)) => {
-            let geoip_props = geoip_service.get_geoip_properties(Some(&ip.to_string()));
-            if !geoip_props.is_empty() {
+            if let Some(geoip_props) = geoip_service.get_geoip_properties(&ip.to_string()) {
                 props.extend(geoip_props.into_iter().map(|(k, v)| (k, Value::String(v))));
             }
             Some(props)
         }
         (true, None) => {
-            let geoip_props = geoip_service.get_geoip_properties(Some(&ip.to_string()));
-            if !geoip_props.is_empty() {
-                Some(
-                    geoip_props
-                        .into_iter()
-                        .map(|(k, v)| (k, Value::String(v)))
-                        .collect(),
-                )
+            if let Some(geoip_props) = geoip_service.get_geoip_properties(&ip.to_string()) {
+                if !geoip_props.is_empty() {
+                    Some(
+                        geoip_props
+                            .into_iter()
+                            .map(|(k, v)| (k, Value::String(v)))
+                            .collect(),
+                    )
+                } else {
+                    None
+                }
             } else {
                 None
             }
@@ -375,7 +378,8 @@ mod tests {
 
     fn create_test_geoip_service() -> GeoIpClient {
         let config = Config::default_test_config();
-        GeoIpClient::new(&config).expect("Failed to create GeoIpService for testing")
+        GeoIpClient::new(config.get_maxmind_db_path())
+            .expect("Failed to create GeoIpService for testing")
     }
 
     #[test]

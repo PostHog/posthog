@@ -17,6 +17,7 @@ common-kafka = { path = "../common/kafka" }
 common-types = { path = "../common/types" }
 common-dns = { path = "../common/dns" }
 common-symbol-data = { path = "../common/symbol_data" }
+common-geoip = { path = "../common/geoip" }
 thiserror = { workspace = true }
 sqlx = { workspace = true }
 serde_json = { workspace = true }

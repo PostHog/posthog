@@ -5,7 +5,8 @@ use common_kafka::{
     kafka_producer::{create_kafka_producer, send_iter_to_kafka},
 };
 use common_types::ClickHouseEvent;
-use cymbal::get_props;
+
+use cymbal::pipeline::exception::get_props;
 use envconfig::Envconfig;
 use health::HealthRegistry;
 

@@ -82,7 +82,8 @@ pub enum PersonMode {
 pub struct ClickHouseEvent {
     pub uuid: Uuid,
     pub team_id: i32,
-    pub project_id: i64,
+    // NOTE - option - this is a nullable column in the DB, so :shrug:
+    pub project_id: Option<i64>,
     pub event: String,
     pub distinct_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -93,7 +94,7 @@ pub struct ClickHouseEvent {
     pub timestamp: String,
     // TODO: verify timestamp format
     pub created_at: String,
-    pub elements_chain: String,
+    pub elements_chain: Option<String>,
     // TODO: verify timestamp format
     #[serde(skip_serializing_if = "Option::is_none")]
     pub person_created_at: Option<String>,

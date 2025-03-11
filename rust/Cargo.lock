@@ -1345,6 +1345,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-geoip"
+version = "0.1.0"
+dependencies = [
+ "maxminddb",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tracing",
+]
+
+[[package]]
 name = "common-kafka"
 version = "0.1.0"
 dependencies = [
@@ -1383,6 +1393,7 @@ dependencies = [
 name = "common-types"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "serde",
  "serde_json",
  "sqlx",
@@ -1677,6 +1688,7 @@ dependencies = [
  "chrono",
  "common-alloc",
  "common-dns",
+ "common-geoip",
  "common-kafka",
  "common-metrics",
  "common-symbol-data",
@@ -2171,13 +2183,13 @@ dependencies = [
  "bytes",
  "chrono",
  "common-alloc",
+ "common-geoip",
  "common-metrics",
  "derive_builder",
  "envconfig",
  "flate2",
  "futures",
  "health",
- "maxminddb",
  "metrics",
  "moka",
  "once_cell",

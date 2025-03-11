@@ -43,8 +43,16 @@ FROM debian:bookworm-slim AS runtime
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     libssl-dev "ca-certificates" \
+    "curl" \
+    "brotli" \
     && \
-    rm -rf /var/lib/apt/lists/*
+    rm -rf /var/lib/apt/lists/* && \
+    mkdir share && \
+    ( curl -s -L "https://mmdbcdn.posthog.net/" --http1.1 | brotli --decompress --output=./share/GeoLite2-City.mmdb ) && \
+    chmod -R 755 ./share/GeoLite2-City.mmdb && \
+    mkdir -p /app/share && \
+    mv ./share/GeoLite2-City.mmdb /app/share/ && \
+    rm -rf ./share
 
 ARG BIN
 ENV BIN=$BIN

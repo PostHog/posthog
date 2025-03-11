@@ -1,4 +1,5 @@
 use aws_config::{BehaviorVersion, Region};
+use common_geoip::GeoIpClient;
 use common_kafka::{
     kafka_consumer::SingleTopicConsumer,
     kafka_producer::{create_kafka_producer, KafkaContext},
@@ -23,6 +24,7 @@ use crate::{
         sourcemap::SourcemapProvider,
         Catalog, S3Client,
     },
+    teams::TeamManager,
 };
 
 pub struct AppContext {
@@ -35,6 +37,9 @@ pub struct AppContext {
     pub catalog: Catalog,
     pub resolver: Resolver,
     pub config: Config,
+    pub geoip_client: GeoIpClient,
+
+    pub team_manager: TeamManager,
 }
 
 impl AppContext {
@@ -110,6 +115,10 @@ impl AppContext {
         let catalog = Catalog::new(limited_smp);
         let resolver = Resolver::new(config);
 
+        let team_manager = TeamManager::new(config);
+
+        let geoip_client = GeoIpClient::new(config.maxmind_db_path.clone())?;
+
         Ok(Self {
             health_registry,
             worker_liveness,
@@ -120,6 +129,8 @@ impl AppContext {
             catalog,
             resolver,
             config: config.clone(),
+            team_manager,
+            geoip_client,
         })
     }
 }
