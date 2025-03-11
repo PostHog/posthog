@@ -329,21 +329,12 @@ def test_lightweight_delete(cluster: ClickhouseCluster) -> None:
 
     # start all mutations
     shard_mutations = cluster.map_one_host_per_shard(runner).result()
-    assert len(shard_mutations) > 0
+    wait_and_check_mutations_on_shards(cluster, shard_mutations)
 
-    # check results
+    # check to ensure data is as expected to be after update (fewer rows visible than initially created)
     def get_row_exists_count(client: Client) -> list[tuple[int]]:
         return client.execute(f"SELECT count(1) FROM {table}")
 
-    for host_info, mutation in shard_mutations.items():
-        assert host_info.shard_num is not None
-
-        # wait for mutations to complete on shard
-        cluster.map_all_hosts_in_shard(host_info.shard_num, mutation.wait).result()
-
-        # check to make sure all mutations are marked as done
-        assert all(cluster.map_all_hosts_in_shard(host_info.shard_num, mutation.is_done).result().values())
-
-        # check to ensure data is as expected to be after update (fewer rows visible than initially created)
+    for host_info in shard_mutations.keys():
         query_results = cluster.map_all_hosts_in_shard(host_info.shard_num, get_row_exists_count).result()
         assert all(result[0][0] < count for result in query_results.values())
