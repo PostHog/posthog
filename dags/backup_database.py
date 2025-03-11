@@ -1,8 +1,9 @@
 from dataclasses import dataclass
 from datetime import datetime, UTC
 from functools import partial
+import re
 import time
-from typing import Optional
+from typing import ClassVar, Optional
 from clickhouse_driver import Client
 import dagster
 from django.conf import settings
@@ -14,6 +15,8 @@ from dagster_aws.s3 import S3Resource
 
 @dataclass
 class Backup:
+    PATH_REGEX: ClassVar[re.Pattern] = re.compile(r"^(\w+)\/(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)\/((\w+)\/)?$")
+
     database: str
     date: datetime
     table: Optional[str] = None
@@ -57,7 +60,7 @@ class Backup:
     def throw_on_error(self, client: Client) -> bool:
         rows = client.execute(
             f"""
-            SELECT hostname(), argMax(status, event_time_microseconds), argMax(left(error, 100), event_time_microseconds)
+            SELECT hostname(), argMax(status, event_time_microseconds), argMax(left(error, 200), event_time_microseconds)
             FROM clusterAllReplicas(posthog, system.backup_log)
             WHERE (start_time >= (now() - toIntervalDay(7))) AND name LIKE '%{self.path}%'
             GROUP BY hostname()
@@ -91,7 +94,7 @@ class Backup:
 
     def wait(self, client: Client) -> None:
         while not self.is_done(client):
-            time.sleep(60.0 * 2)
+            time.sleep(5)
 
 
 class BackupConfig(dagster.Config):
@@ -121,11 +124,14 @@ def get_latest_backup(
         return None
 
     latest_backup = backups["CommonPrefixes"][-1]
-    (database, date, _) = latest_backup["Prefix"].split("/")
+    match = Backup.PATH_REGEX.match(latest_backup["Prefix"])
+    if not match:
+        raise ValueError(f"Could not parse backup path {latest_backup['Prefix']}")
 
     return Backup(
-        database=database,
-        date=datetime.strptime(date, "%Y-%m-%dT%H:%M:%SZ"),
+        database=match.group(1),
+        table=match.group(3),
+        date=datetime.strptime(match.group(2), "%Y-%m-%dT%H:%M:%SZ"),
         base_backup=None,
     )
 
