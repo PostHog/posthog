@@ -2299,10 +2299,19 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             if (compareFilter) {
                 urlParams.set('compare_filter', JSON.stringify(compareFilter))
             }
-            if (productTab !== ProductTab.ANALYTICS) {
-                urlParams.set('product_tab', productTab)
+
+            // Check if the page reports feature flag is enabled
+            const { featureFlags } = featureFlagLogic.values
+            const pageReportsEnabled = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PAGE_REPORTS]
+
+            // If trying to access page reports but the feature flag is not enabled, use analytics tab instead
+            const effectiveProductTab =
+                !pageReportsEnabled && productTab === ProductTab.PAGE_REPORTS ? ProductTab.ANALYTICS : productTab
+
+            if (effectiveProductTab !== ProductTab.ANALYTICS) {
+                urlParams.set('product_tab', effectiveProductTab)
             }
-            if (productTab === ProductTab.WEB_VITALS) {
+            if (effectiveProductTab === ProductTab.WEB_VITALS) {
                 urlParams.set('percentile', webVitalsPercentile)
             }
             if (domainFilter) {
@@ -2316,9 +2325,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             }
 
             let basePath = '/web'
-            if (productTab === ProductTab.PAGE_REPORTS) {
+            if (pageReportsEnabled && effectiveProductTab === ProductTab.PAGE_REPORTS) {
                 basePath = '/web/page-reports'
-            } else if (productTab === ProductTab.WEB_VITALS) {
+            } else if (effectiveProductTab === ProductTab.WEB_VITALS) {
                 basePath = '/web/web-vitals'
             }
             return `${basePath}${urlParams.toString() ? '?' + urlParams.toString() : ''}`
@@ -2369,6 +2378,15 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 tile_visualizations,
             }: Record<string, any>
         ): void => {
+            // Check if the page reports feature flag is enabled
+            const { featureFlags } = featureFlagLogic.values
+            const pageReportsEnabled = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PAGE_REPORTS]
+
+            // If trying to access page reports but the feature flag is not enabled, redirect to analytics
+            if (productTab === ProductTab.PAGE_REPORTS && !pageReportsEnabled) {
+                productTab = ProductTab.ANALYTICS
+            }
+
             if (![ProductTab.ANALYTICS, ProductTab.WEB_VITALS, ProductTab.PAGE_REPORTS].includes(productTab)) {
                 return
             }

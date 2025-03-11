@@ -8,6 +8,7 @@ import { IconOpenInNew, IconTableChart } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect/LemonSegmentedSelect'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -340,10 +341,10 @@ export const LearnMorePopover = ({ url, title, description }: LearnMorePopoverPr
 }
 
 export const WebAnalyticsDashboard = (): JSX.Element => {
-    const { mobileLayout } = useValues(navigationLogic)
     const { productTab } = useValues(webAnalyticsLogic)
-
     const { setProductTab } = useActions(webAnalyticsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { mobileLayout } = useValues(navigationLogic)
 
     return (
         <BindLogic logic={webAnalyticsLogic} props={{}}>
@@ -365,7 +366,21 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
                             tabs={[
                                 { key: ProductTab.ANALYTICS, label: 'Web analytics' },
                                 { key: ProductTab.WEB_VITALS, label: 'Web vitals' },
-                                { key: ProductTab.PAGE_REPORTS, label: 'Page reports' },
+                                ...(featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PAGE_REPORTS]
+                                    ? [
+                                          {
+                                              key: ProductTab.PAGE_REPORTS,
+                                              label: (
+                                                  <div className="flex items-center gap-1">
+                                                      Page reports
+                                                      <LemonTag type="completion" className="uppercase">
+                                                          Alpha
+                                                      </LemonTag>
+                                                  </div>
+                                              ),
+                                          },
+                                      ]
+                                    : []),
                             ]}
                         />
 
@@ -374,7 +389,12 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
 
                     <WebAnalyticsHealthCheck />
 
-                    {productTab === ProductTab.PAGE_REPORTS ? <PageReports /> : <Tiles />}
+                    {productTab === ProductTab.PAGE_REPORTS &&
+                    featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PAGE_REPORTS] ? (
+                        <PageReports />
+                    ) : (
+                        <Tiles />
+                    )}
                 </div>
             </BindLogic>
         </BindLogic>
