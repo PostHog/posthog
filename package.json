@@ -93,6 +93,10 @@
             "eslint --cache -c .eslintrc.js --fix",
             "prettier --write"
         ],
+        "products/*/manifest.tsx": [
+            "eslint --cache -c .eslintrc.js --fix",
+            "prettier --write"
+        ],
         "products/**/frontend/**/*.{js,jsx,mjs,ts,tsx}": [
             "eslint --cache -c .eslintrc.js --fix",
             "prettier --write"
