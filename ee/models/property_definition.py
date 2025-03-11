@@ -19,6 +19,7 @@ class EnterprisePropertyDefinition(PropertyDefinition):
         blank=True,
         related_name="property_verifying_user",
     )
+    hidden = models.BooleanField(blank=True, null=True, default=False)
 
     # Deprecated in favour of app-wide tagging model. See EnterpriseTaggedItem
     deprecated_tags: ArrayField = ArrayField(models.CharField(max_length=32), null=True, blank=True, default=list)

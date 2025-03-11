@@ -1,80 +1,190 @@
-import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+import { IconPlusSmall, IconSearch, IconSort, IconX } from '@posthog/icons'
+import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonTree } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { LemonTree, LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { ContextMenuGroup, ContextMenuItem } from 'lib/ui/ContextMenu/ContextMenu'
 import { useRef } from 'react'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 import { navigation3000Logic } from '../../navigationLogic'
-import { KeyboardShortcut } from '../KeyboardShortcut'
 import { NavbarBottom } from '../NavbarBottom'
+import { ProjectDropdownMenu } from './ProjectDropdownMenu'
 import { projectTreeLogic } from './projectTreeLogic'
 import { joinPath, splitPath } from './utils'
 
 export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLElement> }): JSX.Element {
-    const { theme } = useValues(themeLogic)
     const { isNavShown, mobileLayout } = useValues(navigation3000Logic)
     const { toggleNavCollapsed, hideNavOnMobile } = useActions(navigation3000Logic)
-    const { treeData, loadingPaths, expandedFolders, lastViewedPath, viableItems, helpNoticeVisible } =
-        useValues(projectTreeLogic)
+    const {
+        treeData,
+        loadingPaths,
+        expandedFolders,
+        lastViewedId,
+        viableItems,
+        pendingActionsCount,
+        pendingLoaderLoading,
+        searchTerm,
+    } = useValues(projectTreeLogic)
 
     const {
-        addFolder,
+        createFolder,
+        rename,
         deleteItem,
         moveItem,
-        toggleFolder,
-        updateSelectedFolder,
-        updateLastViewedPath,
-        updateExpandedFolders,
-        updateHelpNoticeVisibility,
+        toggleFolderOpen,
+        setLastViewedId,
+        setExpandedFolders,
+        applyPendingActions,
+        cancelPendingActions,
+        loadFolder,
+        setSearchTerm,
+        clearSearch,
     } = useActions(projectTreeLogic)
+    const treeRef = useRef<LemonTreeRef>(null)
     const containerRef = useRef<HTMLDivElement | null>(null)
 
-    // Items that should not be draggable or droppable, or have a side action
-    // TODO: sync with projectTreeLogic
-    const specialItemsIds: string[] = [
-        'project',
-        'project/Explore',
-        'project/Create new',
-        '__separator__',
-        '__apply_pending_actions__',
-    ]
+    const handleCopyPath = (path?: string): void => {
+        if (path) {
+            void navigator.clipboard.writeText(path)
+        }
+    }
 
     return (
         <>
-            <nav className={clsx('Navbar3000', !isNavShown && 'Navbar3000--hidden')} ref={containerRef}>
-                <div
-                    className="Navbar3000__content w-80"
-                    // eslint-disable-next-line react/forbid-dom-props
-                    style={theme?.sidebarStyle}
-                >
+            <nav className={clsx('Navbar3000 relative', !isNavShown && 'Navbar3000--hidden')} ref={containerRef}>
+                <div className="flex justify-between p-1 bg-surface-tertiary">
+                    <ProjectDropdownMenu />
+
+                    <div className="flex gap-1 items-center justify-end">
+                        <LemonButton
+                            size="small"
+                            type="tertiary"
+                            tooltip="Sort by name"
+                            onClick={() => alert('Sort by name')}
+                            className="shrink-0"
+                            icon={<IconSort />}
+                        />
+                        <LemonButton
+                            size="small"
+                            type="tertiary"
+                            tooltip="Create new root folder"
+                            onClick={() => createFolder('')}
+                            className="shrink-0"
+                            icon={<IconPlusSmall />}
+                        />
+                    </div>
+                </div>
+
+                <div className="border-b border-secondary h-px" />
+                <div className="z-main-nav flex flex-1 flex-col justify-between overflow-y-auto bg-surface-secondary w-80">
+                    <div className="flex gap-1 p-1 items-center justify-between">
+                        <LemonInput
+                            placeholder="Search..."
+                            className="w-full"
+                            prefix={<IconSearch className="size-4" />}
+                            size="small"
+                            value={searchTerm}
+                            onChange={(value) => setSearchTerm(value)}
+                            suffix={
+                                searchTerm ? (
+                                    <LemonButton
+                                        size="small"
+                                        type="tertiary"
+                                        onClick={() => clearSearch()}
+                                        icon={<IconX className="size-4" />}
+                                        className="bg-transparent [&_svg]:opacity-30 hover:[&_svg]:opacity-100"
+                                        tooltip="Clear search"
+                                    />
+                                ) : null
+                            }
+                            onKeyDown={(e) => {
+                                if (e.key === 'ArrowDown') {
+                                    e.preventDefault() // Prevent scrolling
+                                    const visibleItems = treeRef.current?.getVisibleItems()
+                                    if (visibleItems && visibleItems.length > 0) {
+                                        e.currentTarget.blur() // Remove focus from input
+                                        treeRef.current?.focusItem(visibleItems[0].id)
+                                    }
+                                }
+                            }}
+                        />
+                        <div className="flex gap-1 items-center">
+                            {pendingActionsCount > 0 ? (
+                                <span>
+                                    {pendingActionsCount} <span>{pendingActionsCount > 1 ? 'changes' : 'change'}</span>
+                                </span>
+                            ) : null}
+                            {pendingActionsCount > 0 ? (
+                                <LemonButton
+                                    onClick={() => {
+                                        cancelPendingActions()
+                                    }}
+                                    type="secondary"
+                                    size="small"
+                                    tooltip="Click to cancel changes"
+                                >
+                                    Cancel
+                                </LemonButton>
+                            ) : null}
+                            <LemonButton
+                                size="small"
+                                type={pendingActionsCount > 0 ? 'primary' : 'secondary'}
+                                disabledReason={pendingActionsCount === 0 ? 'Nothing to save' : undefined}
+                                className={pendingActionsCount === 0 ? 'opacity-30' : ''}
+                                loading={pendingLoaderLoading}
+                                tooltip={pendingActionsCount === 0 ? undefined : 'Save recent actions'}
+                                onClick={
+                                    !pendingLoaderLoading
+                                        ? () => {
+                                              applyPendingActions()
+                                          }
+                                        : undefined
+                                }
+                            >
+                                Save
+                            </LemonButton>
+                        </div>
+                    </div>
+
+                    <div className="border-b border-primary h-px" />
+
                     <LemonTree
+                        ref={treeRef}
                         contentRef={contentRef}
                         className="px-0 py-1"
                         data={treeData}
                         expandedItemIds={expandedFolders}
                         isFinishedBuildingTreeData={Object.keys(loadingPaths).length === 0}
-                        defaultSelectedFolderOrNodeId={lastViewedPath || undefined}
+                        defaultSelectedFolderOrNodeId={lastViewedId || undefined}
                         onNodeClick={(node) => {
-                            if (node?.record?.type === 'project' || node?.record?.type === 'folder') {
-                                updateLastViewedPath(node.record?.path)
+                            if (node?.record?.path) {
+                                setLastViewedId(node?.id || '')
+                            }
+                            if (node?.id.startsWith('project-load-more/')) {
+                                const path = node.id.split('/').slice(1).join('/')
+                                if (path) {
+                                    loadFolder(path)
+                                }
                             }
                         }}
                         onFolderClick={(folder, isExpanded) => {
                             if (folder) {
-                                updateSelectedFolder(folder.record?.path || '')
-                                toggleFolder(folder.record?.path || '', isExpanded)
+                                toggleFolderOpen(folder?.id || '', isExpanded)
                             }
                         }}
-                        onSetExpandedItemIds={updateExpandedFolders}
+                        onSetExpandedItemIds={setExpandedFolders}
                         enableDragAndDrop={true}
                         onDragEnd={(dragEvent) => {
                             const oldPath = dragEvent.active.id as string
                             const folder = dragEvent.over?.id
+
+                            if (oldPath === folder) {
+                                return false
+                            }
 
                             if (folder === '') {
                                 const oldSplit = splitPath(oldPath)
@@ -97,17 +207,13 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                             }
                         }}
                         isItemDraggable={(item) => {
-                            return (
-                                item.record?.type !== 'project' &&
-                                item.record?.path &&
-                                !specialItemsIds.includes(item.id || '')
-                            )
+                            return item.id.startsWith('project/') && item.record?.path
                         }}
                         isItemDroppable={(item) => {
                             const path = item.record?.path || ''
 
-                            // disable dropping for special items
-                            if (specialItemsIds.includes(item.id || '')) {
+                            // disable dropping for these IDS
+                            if (!item.id.startsWith('project/')) {
                                 return false
                             }
 
@@ -121,8 +227,51 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                             }
                             return false
                         }}
+                        itemContextMenu={(item) => {
+                            if (!item.id.startsWith('project/')) {
+                                return undefined
+                            }
+                            return (
+                                <ContextMenuGroup>
+                                    <ContextMenuItem
+                                        onClick={(e) => {
+                                            e.stopPropagation()
+                                            createFolder(item.record?.path)
+                                        }}
+                                    >
+                                        New Folder
+                                    </ContextMenuItem>
+                                    {item.record?.path ? (
+                                        <ContextMenuItem onClick={() => item.record?.path && rename(item.record.path)}>
+                                            Rename
+                                        </ContextMenuItem>
+                                    ) : null}
+                                    {item.record?.path ? (
+                                        <ContextMenuItem
+                                            onClick={(e) => {
+                                                e.stopPropagation()
+                                                handleCopyPath(item.record?.path)
+                                            }}
+                                        >
+                                            Copy Path
+                                        </ContextMenuItem>
+                                    ) : null}
+                                    {item.record?.created_at ? (
+                                        <ContextMenuItem
+                                            onClick={(e) => {
+                                                e.stopPropagation()
+                                                deleteItem(item.record as unknown as FileSystemEntry)
+                                            }}
+                                        >
+                                            Delete
+                                        </ContextMenuItem>
+                                    ) : null}
+                                    {/* Add more menu items as needed */}
+                                </ContextMenuGroup>
+                            )
+                        }}
                         itemSideAction={(item) => {
-                            if (specialItemsIds.includes(item.id || '')) {
+                            if (!item.id.startsWith('project/')) {
                                 return undefined
                             }
                             return {
@@ -136,19 +285,7 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                                                     <LemonButton
                                                         onClick={(e) => {
                                                             e.stopPropagation()
-                                                            const folder = prompt(
-                                                                item.record?.path
-                                                                    ? `Create a folder under "${item.record?.path}":`
-                                                                    : 'Create a new folder:',
-                                                                ''
-                                                            )
-                                                            if (folder) {
-                                                                addFolder(
-                                                                    item.record?.path
-                                                                        ? joinPath([item.record?.path, folder])
-                                                                        : folder
-                                                                )
-                                                            }
+                                                            item.record?.path && createFolder(item.record.path)
                                                         }}
                                                         fullWidth
                                                         size="small"
@@ -158,22 +295,7 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                                                 ) : null}
                                                 {item.record?.path ? (
                                                     <LemonButton
-                                                        onClick={() => {
-                                                            const oldPath = item.record?.path
-                                                            const splits = splitPath(oldPath)
-                                                            if (splits.length > 0) {
-                                                                const folder = prompt(
-                                                                    'New name?',
-                                                                    splits[splits.length - 1]
-                                                                )
-                                                                if (folder) {
-                                                                    moveItem(
-                                                                        oldPath,
-                                                                        joinPath([...splits.slice(0, -1), folder])
-                                                                    )
-                                                                }
-                                                            }
-                                                        }}
+                                                        onClick={() => item.record?.path && rename(item.record.path)}
                                                         fullWidth
                                                         size="small"
                                                     >
@@ -184,9 +306,7 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                                                     <LemonButton
                                                         onClick={(e) => {
                                                             e.stopPropagation()
-                                                            if (item.record?.path) {
-                                                                void navigator.clipboard.writeText(item.record?.path)
-                                                            }
+                                                            handleCopyPath(item.record?.path)
                                                         }}
                                                         fullWidth
                                                         size="small"
@@ -214,29 +334,6 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                             }
                         }}
                     />
-                    {helpNoticeVisible ? (
-                        <>
-                            <div className="border-b border-primary h-px" />
-                            <div className="p-2">
-                                <LemonBanner
-                                    type="info"
-                                    dismissKey="project-tree-help-notice"
-                                    onClose={() => updateHelpNoticeVisibility(false)}
-                                >
-                                    <p className="font-semibold mb-1">Behold, 🌲 navigation</p>
-                                    <ul className="mb-0 text-xs list-disc pl-4 py-0">
-                                        <li>
-                                            All your files are still here, open 'unfiled' to see them, and organize them
-                                            the way you'd like.
-                                        </li>
-                                        <li>
-                                            Hold down <KeyboardShortcut command /> to enable drag and drop.
-                                        </li>
-                                    </ul>
-                                </LemonBanner>
-                            </div>
-                        </>
-                    ) : null}
                     <div className="border-b border-primary h-px" />
                     <NavbarBottom />
                 </div>

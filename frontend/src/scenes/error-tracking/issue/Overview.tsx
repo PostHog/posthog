@@ -17,7 +17,7 @@ export const Overview = (): JSX.Element => {
 
     if (issueLoading) {
         return (
-            <div className="space-y-2">
+            <div className="deprecated-space-y-2">
                 <LemonSkeleton />
                 <LemonSkeleton.Row repeat={2} />
             </div>

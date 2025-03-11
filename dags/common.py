@@ -1,3 +1,4 @@
+from enum import Enum
 import dagster
 from clickhouse_driver.errors import Error, ErrorCodes
 
@@ -7,6 +8,11 @@ from posthog.clickhouse.cluster import (
     RetryPolicy,
     get_cluster,
 )
+
+
+class JobOwners(str, Enum):
+    TEAM_CLICKHOUSE = "team-clickhouse"
+    TEAM_WEB_ANALYTICS = "team-web-analytics"
 
 
 class ClickhouseClusterResource(dagster.ConfigurableResource):
@@ -27,11 +33,12 @@ class ClickhouseClusterResource(dagster.ConfigurableResource):
             context.log,
             client_settings=self.client_settings,
             retry_policy=RetryPolicy(
-                max_attempts=4,
+                max_attempts=8,
                 delay=ExponentialBackoff(20),
                 exceptions=lambda e: (
                     isinstance(e, Error)
-                    and e.code in (ErrorCodes.NETWORK_ERROR, ErrorCodes.TOO_MANY_SIMULTANEOUS_QUERIES)
+                    and e.code
+                    in (ErrorCodes.NETWORK_ERROR, ErrorCodes.TOO_MANY_SIMULTANEOUS_QUERIES, ErrorCodes.NOT_ENOUGH_SPACE)
                 ),
             ),
         )

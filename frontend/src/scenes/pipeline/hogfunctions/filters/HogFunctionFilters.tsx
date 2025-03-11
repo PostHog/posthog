@@ -1,5 +1,6 @@
 import { LemonBanner, LemonLabel, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 import { id } from 'chartjs-plugin-trendline'
+import clsx from 'clsx'
 import { useValues } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -44,13 +45,13 @@ function sanitizeActionFilters(filters?: FilterType): Partial<HogFunctionFilters
     return sanitized
 }
 
-export function HogFunctionFilters(): JSX.Element {
+export function HogFunctionFilters({ embedded = false }: { embedded?: boolean }): JSX.Element {
     const { groupsTaxonomicTypes } = useValues(groupsModel)
     const { configuration, type, useMapping, filtersContainPersonProperties } = useValues(hogFunctionConfigurationLogic)
 
     if (type === 'broadcast') {
         return (
-            <div className="p-3 space-y-2 border rounded bg-surface-primary">
+            <div className="p-3 border rounded deprecated-space-y-2 bg-surface-primary">
                 <LemonField name="filters" label="Filters">
                     {({ value, onChange }) => (
                         <PropertyFilters
@@ -85,7 +86,13 @@ export function HogFunctionFilters(): JSX.Element {
     const showDropEvents = type === 'transformation'
 
     return (
-        <div className="p-3 space-y-2 border rounded bg-surface-primary">
+        <div
+            className={clsx(
+                'deprecated-space-y-2 rounded bg-surface-primary',
+                !embedded && 'border p-3',
+                embedded && 'p-2'
+            )}
+        >
             <LemonField
                 name="filters"
                 label={useMapping ? 'Global filters' : 'Filters'}
@@ -114,6 +121,7 @@ export function HogFunctionFilters(): JSX.Element {
                                     TaxonomicFilterGroupType.EventFeatureFlags,
                                     TaxonomicFilterGroupType.Elements,
                                     TaxonomicFilterGroupType.HogQLExpression,
+                                    ...groupsTaxonomicTypes,
                                 ]}
                                 onChange={(properties: AnyPropertyFilter[]) => {
                                     onChange({

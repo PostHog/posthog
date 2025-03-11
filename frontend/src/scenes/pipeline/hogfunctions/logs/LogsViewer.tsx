@@ -20,7 +20,7 @@ import { LogEntryLevel } from '~/types'
 import { ALL_LOG_LEVELS, GroupedLogEntry, LOG_VIEWER_LIMIT, logsViewerLogic } from './logsViewerLogic'
 import { LogsViewerLogicProps } from './logsViewerLogic'
 
-const tagTypeForLevel = (level: LogEntryLevel): LemonTagProps['type'] => {
+export const tagTypeForLevel = (level: LogEntryLevel): LemonTagProps['type'] => {
     switch (level.toLowerCase()) {
         case 'debug':
             return 'muted'
@@ -54,7 +54,7 @@ export function LogsViewer({ renderColumns = (c) => c, ...props }: LogsViewerPro
     const { revealHiddenLogs, loadMoreLogs, setFilters, setRowExpanded } = useActions(logic)
 
     return (
-        <div className="flex-1 space-y-2 ph-no-capture">
+        <div className="flex-1 deprecated-space-y-2 ph-no-capture">
             <div className="flex flex-wrap items-center gap-2">
                 <LemonInput
                     className="flex-1 min-w-120"
@@ -75,7 +75,7 @@ export function LogsViewer({ renderColumns = (c) => c, ...props }: LogsViewerPro
                         matchWidth={false}
                         placement="right-end"
                         overlay={
-                            <div className="space-y-2 overflow-hidden max-w-100">
+                            <div className="deprecated-space-y-2 overflow-hidden max-w-100">
                                 {ALL_LOG_LEVELS.map((level) => {
                                     return (
                                         <LemonButton

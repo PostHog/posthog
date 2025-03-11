@@ -1,31 +1,32 @@
 import { DateTime } from 'luxon'
 
-import { startPluginsServer } from '../../../src/main/pluginsServer'
+import { PluginServer } from '../../../src/server'
 import {
     Database,
     Hub,
     LogLevel,
+    PluginServerMode,
     PluginsServerConfig,
     PropertyUpdateOperation,
     TimestampFormat,
 } from '../../../src/types'
 import { PostgresUse } from '../../../src/utils/db/postgres'
 import { castTimestampOrNow, UUIDT } from '../../../src/utils/utils'
-import { makePiscina } from '../../../src/worker/piscina'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../helpers/clickhouse'
 import { resetKafka } from '../../helpers/kafka'
 import { createUserTeamAndOrganization, resetTestDatabase } from '../../helpers/sql'
 
 jest.mock('../../../src/utils/status')
-jest.setTimeout(60000) // 60 sec timeout
+jest.setTimeout(30000)
 
 const extraServerConfig: Partial<PluginsServerConfig> = {
     LOG_LEVEL: LogLevel.Log,
 }
 
 describe('postgres parity', () => {
+    jest.retryTimes(5) // Flakey due to reliance on kafka/clickhouse
     let hub: Hub
-    let stopServer: () => Promise<void>
+    let server: PluginServer
     let teamId = 10 // Incremented every test. Avoids late ingestion causing issues
 
     beforeAll(async () => {
@@ -34,6 +35,7 @@ describe('postgres parity', () => {
     })
 
     beforeEach(async () => {
+        jest.spyOn(process, 'exit').mockImplementation()
         console.log('[TEST] Resetting tests databases')
         await resetTestDatabase(`
             async function processEvent (event) {
@@ -44,9 +46,11 @@ describe('postgres parity', () => {
         `)
         await resetTestDatabaseClickhouse(extraServerConfig)
         console.log('[TEST] Starting plugins server')
-        const startResponse = await startPluginsServer(extraServerConfig, makePiscina, { ingestion: true })
-        hub = startResponse.hub!
-        stopServer = startResponse.stop
+        server = new PluginServer({
+            PLUGIN_SERVER_MODE: PluginServerMode.ingestion_v2,
+        })
+        await server.start()
+        hub = server.hub!
         teamId++
         console.log('[TEST] Setting up seed data')
         await createUserTeamAndOrganization(
@@ -62,7 +66,7 @@ describe('postgres parity', () => {
 
     afterEach(async () => {
         console.log('[TEST] Stopping server')
-        await stopServer()
+        await server.stop()
     })
 
     test('createPerson', async () => {
