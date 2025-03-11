@@ -79,9 +79,9 @@ You are given a table with the results of a SQL query. Values are separated by t
 
 Example:
 ```
-| column1 | column2 | column3 |
-| value1  | value2  | value3  |
-| value4  | value5  | value6  |
+column1|column2|column3
+value1|value2|value3
+value4|value5|value6
 ```
 """.strip()
 

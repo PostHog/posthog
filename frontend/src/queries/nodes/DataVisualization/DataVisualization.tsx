@@ -101,6 +101,7 @@ export function DataTableVisualization({
         variablesOverride,
     }
 
+    // The `as unknown as InsightLogicProps` below is smelly, but it's required because Kea logics can't be generic
     const { exportContext } = useValues(insightDataLogic(insightProps as unknown as InsightLogicProps))
 
     return (

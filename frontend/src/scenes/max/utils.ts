@@ -64,5 +64,5 @@ export function castAssistantQuery(
     } else if (isHogQLQuery(query)) {
         return castAssistantHogQLQuery(query)
     }
-    throw new Error('Unsupported query type')
+    throw new Error(`Unsupported query type: ${query.kind}`)
 }
