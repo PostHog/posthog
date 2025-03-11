@@ -61,9 +61,12 @@ export function QueryWindow(): JSX.Element {
         saveAsView,
         setSourceQuery,
     } = useActions(logic)
+
+    const logicKey = activeModelUri?.uri.path ?? dataNodeKey
+
     const { response } = useValues(
         dataNodeLogic({
-            key: activeModelUri?.uri.path ?? dataNodeKey,
+            key: logicKey,
             query: sourceQuery.source,
             autoLoad: false,
         })
@@ -72,10 +75,10 @@ export function QueryWindow(): JSX.Element {
     const { updateDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
 
     const dataVisualizationLogicProps: DataVisualizationLogicProps = {
-        key: activeModelUri?.uri.path ?? dataNodeKey,
+        key: logicKey,
         query: sourceQuery,
         dashboardId: undefined,
-        dataNodeCollectionId: activeModelUri?.uri.path ?? dataNodeKey,
+        dataNodeCollectionId: logicKey,
         insightMode: ItemMode.Edit,
         loadPriority: undefined,
         cachedResults: undefined,
@@ -86,10 +89,10 @@ export function QueryWindow(): JSX.Element {
 
     const dataNodeLogicProps: DataNodeLogicProps = {
         query: sourceQuery.source,
-        key: activeModelUri?.uri.path ?? dataNodeKey,
+        key: logicKey,
         cachedResults: undefined,
         loadPriority: undefined,
-        dataNodeCollectionId: activeModelUri?.uri.path ?? dataNodeKey,
+        dataNodeCollectionId: logicKey,
         variablesOverride: undefined,
         autoLoad: false,
         localCache: true,
