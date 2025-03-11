@@ -347,7 +347,6 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                 to={getUpgradeProductLink({
                                                     product,
                                                     redirectPath,
-                                                    includeAddons: true,
                                                 })}
                                                 type="primary"
                                                 status="alt"

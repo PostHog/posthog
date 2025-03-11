@@ -25,7 +25,6 @@ export const PayGateButton = ({ feature, currentUsage, ...buttonProps }: PayGate
             return getUpgradeProductLink({
                 product: productWithFeature as BillingProductV2Type,
                 redirectPath: urls.organizationBilling(),
-                includeAddons: true,
             })
         } else if (gateVariant === 'add-card') {
             return `/organization/billing${scrollToProduct ? `?products=${productWithFeature?.type}` : ''}`
