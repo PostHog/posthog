@@ -79,7 +79,8 @@ mod do_hash_tests {
         // Rust implementation and the TypeScript implementation
         let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/test_cases.json");
         let data_str = fs::read_to_string(&path)
-            .expect(&format!("Failed to read file at: {}", &path.display()));
+            .unwrap_or_else(|e| panic!("Failed to read file at {}: {}", path.display(), e));
+
         let test_data: TestData =
             serde_json::from_str(&data_str).expect("Failed to parse JSON test data");
 
