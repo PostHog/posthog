@@ -298,7 +298,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 # Check for unsupported schemes
                 if parsed_url.scheme not in ALLOWED_LINK_URL_SCHEMES:
                     raise serializers.ValidationError(
-                        f"Link must be a URL with one of these schemes: {', '.join(ALLOWED_LINK_URL_SCHEMES)}"
+                        f"Link must be a URL with one of these schemes: [{', '.join(ALLOWED_LINK_URL_SCHEMES)}]"
                     )
 
                 # Separate validation for `mailto:` links
