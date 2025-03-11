@@ -78,40 +78,6 @@ const parseBillingResponse = (data: Partial<BillingType>): BillingType => {
     return data as BillingType
 }
 
-/**
- * Formats the plan status for display, indicating whether a user is on a trial or not
- *
- * @param billing The billing object from the API
- * @returns A formatted string describing the plan status
- */
-export const formatPlanStatus = (billing: BillingType | null): string => {
-    if (!billing) {
-        return ''
-    }
-
-    // Check for old-style active trial
-    if (billing.free_trial_until && billing.free_trial_until.isAfter(dayjs())) {
-        return '(trial plan)'
-    }
-
-    // Check for new-style active trial
-    if (billing.trial?.status === 'active') {
-        return '(trial plan)'
-    }
-
-    // Check for expired trial
-    if (billing.trial?.status === 'expired' && billing.trial.expires_at) {
-        return `(trial expired ${dayjs(billing.trial.expires_at).format('MM/DD/YYYY')})`
-    }
-
-    // Regular paid plan
-    if (billing.subscription_level !== 'free') {
-        return '(your plan)'
-    }
-
-    return ''
-}
-
 export const billingLogic = kea<billingLogicType>([
     path(['scenes', 'billing', 'billingLogic']),
     actions({
