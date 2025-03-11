@@ -178,8 +178,11 @@ describe('LegacyPluginExecutorService', () => {
             expect(customerIoPlugin.onEvent).toHaveBeenCalledTimes(1)
             expect(forSnapshot(jest.mocked(customerIoPlugin.onEvent!).mock.calls[0][0])).toMatchInlineSnapshot(`
                 {
+                  "$set": undefined,
+                  "$set_once": undefined,
                   "distinct_id": "distinct_id",
                   "event": "mycustomevent",
+                  "ip": undefined,
                   "person": {
                     "created_at": "",
                     "properties": {
@@ -205,6 +208,7 @@ describe('LegacyPluginExecutorService', () => {
                   [
                     "https://api.customer.io/v1/api/info/ip_addresses",
                     {
+                      "body": undefined,
                       "headers": {
                         "Authorization": "Basic MTIzNDU2Nzg5MDpjaW8tdG9rZW4=",
                         "User-Agent": "PostHog Customer.io App",
@@ -328,8 +332,11 @@ describe('LegacyPluginExecutorService', () => {
                 expect(res.error).toBeUndefined()
                 expect(forSnapshot(res.execResult)).toMatchInlineSnapshot(`
                     {
+                      "$set": undefined,
+                      "$set_once": undefined,
                       "distinct_id": "distinct_id",
                       "event": "dont-drop-me",
+                      "ip": undefined,
                       "properties": {
                         "email": "test@posthog.com",
                       },
@@ -377,8 +384,11 @@ describe('LegacyPluginExecutorService', () => {
                 expect(res.error).toBeUndefined()
                 expect(forSnapshot(res.execResult)).toMatchInlineSnapshot(`
                     {
+                      "$set": undefined,
+                      "$set_once": undefined,
                       "distinct_id": "distinct_id",
                       "event": "$pageview",
+                      "ip": undefined,
                       "properties": {
                         "version": "1.12.20",
                         "version__major": 1,
