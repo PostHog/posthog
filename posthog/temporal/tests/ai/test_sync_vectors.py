@@ -656,7 +656,12 @@ async def test_actions_basic_workflow():
             call_count = [0, 0, 0]
             await activity_environment.client.execute_workflow(
                 SyncVectorsWorkflow.run,
-                SyncVectorsInputs(start_dt=timezone.now().isoformat(), batch_size=1, insert_batch_size=1),
+                SyncVectorsInputs(
+                    start_dt=timezone.now().isoformat(),
+                    summarize_batch_size=1,
+                    embed_batch_size=1,
+                    insert_batch_size=1,
+                ),
                 id=str(uuid.uuid4()),
                 task_queue=settings.TEMPORAL_TASK_QUEUE,
             )

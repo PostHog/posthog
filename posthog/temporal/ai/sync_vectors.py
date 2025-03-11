@@ -307,8 +307,10 @@ async def batch_embed_and_sync_actions(inputs: BatchEmbedAndSyncActionsInputs) -
 class SyncVectorsInputs:
     start_dt: str | None = None
     """Start date for the sync if the workflow is not triggered by a schedule."""
-    batch_size: int = 96
-    """How many elements to process in a single batch."""
+    summarize_batch_size: int = 32
+    """How many elements to summarize in a single batch."""
+    embed_batch_size: int = 96
+    """How many elements to embed in a single batch."""
     max_parallel_requests: int = 4
     """How many parallel requests to send to vendors."""
     insert_batch_size: int = 10000
@@ -329,17 +331,19 @@ class SyncVectorsWorkflow(PostHogWorkflow):
 
         approximate_actions_count = await temporalio.workflow.execute_activity(
             get_approximate_actions_count,
-            GetApproximateActionsCountInputs(start_dt_str),
+            GetApproximateActionsCountInputs(start_dt=start_dt_str),
             start_to_close_timeout=timedelta(seconds=15),
             retry_policy=temporalio.common.RetryPolicy(initial_interval=timedelta(seconds=30), maximum_attempts=3),
         )
 
         tasks = []
-        for i in range(0, approximate_actions_count, inputs.batch_size):
+        for i in range(0, approximate_actions_count, inputs.summarize_batch_size):
             tasks.append(
                 temporalio.workflow.execute_activity(
                     batch_summarize_actions,
-                    BatchSummarizeActionsInputs(start_dt_str, i, inputs.batch_size),
+                    BatchSummarizeActionsInputs(
+                        start_dt=start_dt_str, offset=i, batch_size=inputs.summarize_batch_size
+                    ),
                     start_to_close_timeout=timedelta(minutes=3),
                     retry_policy=temporalio.common.RetryPolicy(
                         initial_interval=timedelta(seconds=30), maximum_attempts=3
@@ -347,7 +351,7 @@ class SyncVectorsWorkflow(PostHogWorkflow):
                 )
             )
 
-            # Maximum allowed parallel request count to LLMs is 384 (96 * 4).
+            # Maximum allowed parallel request count to LLMs is 128 (32 * 4).
             if len(tasks) == inputs.max_parallel_requests:
                 await self._process_batch(tasks)
                 tasks = []
@@ -359,7 +363,10 @@ class SyncVectorsWorkflow(PostHogWorkflow):
             res = await temporalio.workflow.execute_activity(
                 batch_embed_and_sync_actions,
                 BatchEmbedAndSyncActionsInputs(
-                    start_dt_str, inputs.insert_batch_size, inputs.batch_size, inputs.max_parallel_requests
+                    start_dt=start_dt_str,
+                    insert_batch_size=inputs.insert_batch_size,
+                    embeddings_batch_size=inputs.embed_batch_size,
+                    max_parallel_requests=inputs.max_parallel_requests,
                 ),
                 start_to_close_timeout=timedelta(minutes=5),
                 retry_policy=temporalio.common.RetryPolicy(initial_interval=timedelta(seconds=30), maximum_attempts=3),
