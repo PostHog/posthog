@@ -68,6 +68,7 @@ import {
 
 import { getResponseBytes, sortDates, sortDayJsDates } from '../insights/utils'
 import { teamLogic } from '../teamLogic'
+import { dashboardColorsLogic } from './dashboardColorsLogic'
 import type { dashboardLogicType } from './dashboardLogicType'
 
 export const BREAKPOINTS: Record<DashboardLayoutSize, number> = {
@@ -180,9 +181,9 @@ async function getSingleInsight(
 
 export const dashboardLogic = kea<dashboardLogicType>([
     path(['scenes', 'dashboard', 'dashboardLogic']),
-    connect(() => ({
+    connect((props: DashboardLogicProps) => ({
         values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags'], variableDataLogic, ['variables']],
-        logic: [dashboardsModel, insightsModel, eventUsageLogic],
+        logic: [dashboardsModel, insightsModel, eventUsageLogic, dashboardColorsLogic(props)],
     })),
 
     props({} as DashboardLogicProps),
@@ -1589,6 +1590,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
     })),
 
     subscriptions(({ values, actions }) => ({
+        insightTiles: (insightTiles) => {
+            console.debug('subscriptions.insightTiles', insightTiles)
+
+            // itemsLoading -> general loading state
+        },
         variables: (variables) => {
             // try to convert url variables to variables
             const urlVariables = values.urlVariables

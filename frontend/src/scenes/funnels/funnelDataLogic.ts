@@ -3,9 +3,10 @@ import { BIN_COUNT_AUTO } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { average, percentage, sum } from 'lib/utils'
+import { dashboardColorsLogic } from 'scenes/dashboard/dashboardColorsLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { getFunnelResultCustomizationColorToken } from 'scenes/insights/utils'
+import { getFunnelDatasetKey, getFunnelResultCustomizationColorToken } from 'scenes/insights/utils'
 
 import { groupsModel, Noun } from '~/models/groupsModel'
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -418,12 +419,18 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                     if (theme == null) {
                         return null
                     }
-                    return getFunnelResultCustomizationColorToken(
+
+                    const t = dashboardColorsLogic.findMounted({ id: props.dashboardId })
+                    // console.debug('a', builtDashboardColorsLogic?.values.resultCustomizations)
+
+                    const colorToken = getFunnelResultCustomizationColorToken(
                         resultCustomizations,
                         theme,
                         dataset,
                         props?.cachedInsight?.disable_baseline
                     )
+                    // builtDashboardColorsLogic?.actions.setResultColorUsed(getFunnelDatasetKey(dataset), colorToken)
+                    return colorToken
                 }
             },
         ],
