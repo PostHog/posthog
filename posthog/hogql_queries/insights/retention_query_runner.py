@@ -464,12 +464,12 @@ class RetentionQueryRunner(QueryRunner):
                     breakdown_extract_expr = self.breakdown_extract_expr(
                         breakdown.property, cast(str, breakdown.type), breakdown.group_type_index
                     )
-                    breakdown = f"breakdown_{i}"
-                    breakdowns.append(breakdown)
+                    breakdown_label = f"breakdown_{i}"
+                    breakdowns.append(breakdown_label)
 
                     # update both select and group by
-                    inner_query.select.append(ast.Alias(alias=breakdown, expr=breakdown_extract_expr))
-                    inner_query.group_by.append(ast.Field(chain=[breakdown]))
+                    inner_query.select.append(ast.Alias(alias=breakdown_label, expr=breakdown_extract_expr))
+                    cast(list[ast.Expr], inner_query.group_by).append(ast.Field(chain=[breakdown_label]))
             elif self.query.breakdownFilter.breakdown is not None:
                 raise ValueError(
                     "Single breakdowns are deprecated, make sure multiple-breakdowns feature flag is enabled"
@@ -572,19 +572,17 @@ class RetentionQueryRunner(QueryRunner):
         )
 
         if self.breakdowns_in_query:
-            # Group results by breakdown_value
-            breakdown_results = {}
+            breakdown_value_to_counts: dict[str, list[tuple[int, int, int]]] = {}
             for row in response.results:
-                if len(row) == 4:  # With breakdown: start_interval, intervals_from_base, breakdown_value, count
-                    start_interval, intervals_from_base, breakdown_value, count = row
+                start_interval, intervals_from_base, breakdown_value, count = row
 
-                    if breakdown_value not in breakdown_results:
-                        breakdown_results[breakdown_value] = []
+                if breakdown_value not in breakdown_value_to_counts:
+                    breakdown_value_to_counts[breakdown_value] = []
 
-                    breakdown_results[breakdown_value].append((start_interval, intervals_from_base, count))
+                breakdown_value_to_counts[breakdown_value].append((start_interval, intervals_from_base, count))
 
-            results = []
-            for breakdown_value, intervals in breakdown_results.items():
+            results: list[dict[str, Any]] = []
+            for breakdown_value, intervals in breakdown_value_to_counts.items():
                 result_dict = {
                     (start_interval, intervals_from_base): {
                         "count": correct_result_for_sampling(count, self.query.samplingFactor),
