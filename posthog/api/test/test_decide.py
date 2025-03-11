@@ -74,9 +74,6 @@ def make_session_recording_decide_response(overrides: Optional[dict] = None) -> 
     }
 
 
-# TODO: Add a derived version of decide that covers the new RemoteConfig option
-
-
 class TestDecide(BaseTest, QueryMatchingTest):
     """
     Tests the `/decide` endpoint.
