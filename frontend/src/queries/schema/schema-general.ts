@@ -75,6 +75,7 @@ export enum NodeKind {
     RecordingsQuery = 'RecordingsQuery',
     SessionAttributionExplorerQuery = 'SessionAttributionExplorerQuery',
     RevenueExampleEventsQuery = 'RevenueExampleEventsQuery',
+    RevenueExampleExternalTablesQuery = 'RevenueExampleExternalTablesQuery',
     ErrorTrackingQuery = 'ErrorTrackingQuery',
 
     // Interface nodes
@@ -144,6 +145,7 @@ export type AnyDataNode =
     | WebVitalsPathBreakdownQuery
     | SessionAttributionExplorerQuery
     | RevenueExampleEventsQuery
+    | RevenueExampleExternalTablesQuery
     | ErrorTrackingQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
@@ -170,6 +172,7 @@ export type QuerySchema =
     | HogQLAutocomplete
     | SessionAttributionExplorerQuery
     | RevenueExampleEventsQuery
+    | RevenueExampleExternalTablesQuery
     | ErrorTrackingQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
@@ -677,6 +680,7 @@ export interface DataTableNode
                     | WebVitalsPathBreakdownQuery
                     | SessionAttributionExplorerQuery
                     | RevenueExampleEventsQuery
+                    | RevenueExampleExternalTablesQuery
                     | ErrorTrackingQuery
                     | ExperimentFunnelsQuery
                     | ExperimentTrendsQuery
@@ -701,6 +705,7 @@ export interface DataTableNode
         | WebVitalsPathBreakdownQuery
         | SessionAttributionExplorerQuery
         | RevenueExampleEventsQuery
+        | RevenueExampleExternalTablesQuery
         | ErrorTrackingQuery
         | ExperimentFunnelsQuery
         | ExperimentTrendsQuery
@@ -1721,6 +1726,23 @@ export interface RevenueExampleEventsQueryResponse extends AnalyticsQueryRespons
 }
 export type CachedRevenueExampleEventsQueryResponse = CachedQueryResponse<RevenueExampleEventsQueryResponse>
 
+export interface RevenueExampleExternalTablesQuery extends DataNode<RevenueExampleExternalTablesQueryResponse> {
+    kind: NodeKind.RevenueExampleExternalTablesQuery
+    revenueTrackingConfig: RevenueTrackingConfig
+    limit?: integer
+    offset?: integer
+}
+
+export interface RevenueExampleExternalTablesQueryResponse extends AnalyticsQueryResponseBase<unknown> {
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+    types?: unknown[]
+    columns?: unknown[]
+}
+export type CachedRevenueExampleExternalTablesQueryResponse =
+    CachedQueryResponse<RevenueExampleExternalTablesQueryResponse>
+
 export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
     kind: NodeKind.ErrorTrackingQuery
     issueId?: ErrorTrackingIssue['id']
@@ -2687,6 +2709,14 @@ export interface RevenueTrackingExternalDataSchema {
 
 export interface RevenueTrackingConfig {
     baseCurrency?: CurrencyCode
-    events: RevenueTrackingEventItem[]
-    externalDataSchemas: RevenueTrackingExternalDataSchema[]
+
+    /*
+     * @default []
+     */
+    events?: RevenueTrackingEventItem[]
+
+    /*
+     * @default []
+     */
+    externalDataSchemas?: RevenueTrackingExternalDataSchema[]
 }

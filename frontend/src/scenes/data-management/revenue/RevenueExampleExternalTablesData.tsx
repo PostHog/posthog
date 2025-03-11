@@ -1,13 +1,13 @@
 import { useValues } from 'kea'
 
+import { Query } from '~/queries/Query/Query'
+
 import { revenueEventsSettingsLogic } from './revenueEventsSettingsLogic'
 
-export function RevenueExternalTablesData(): JSX.Element | null {
-    // TODO: Add logic to get external tables data
-    // Currently displaying the same as revenue events
-    const { eventsQuery } = useValues(revenueEventsSettingsLogic)
+export function RevenueExampleExternalTablesData(): JSX.Element | null {
+    const { exampleExternalDataSchemasQuery } = useValues(revenueEventsSettingsLogic)
 
-    if (!eventsQuery) {
+    if (!exampleExternalDataSchemasQuery) {
         return null
     }
 
@@ -18,7 +18,7 @@ export function RevenueExternalTablesData(): JSX.Element | null {
                 The following rows of data were imported from your revenue external tables. This is helpful when you're
                 trying to debug what your revenue data looks like.
             </p>
-            <h2>TODO</h2>
+            <Query query={exampleExternalDataSchemasQuery} context={{ showOpenEditorButton: true }} />
         </div>
     )
 }

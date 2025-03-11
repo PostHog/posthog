@@ -298,7 +298,13 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.RevenueExampleEventsQuery]: {
         name: 'Revenue Example Events',
         description: 'Revenue Example Events Query.',
-        icon: IconPieChart,
+        icon: IconTableChart,
+        inMenu: true,
+    },
+    [NodeKind.RevenueExampleExternalTablesQuery]: {
+        name: 'Revenue External Tables',
+        description: 'Revenue External Tables Query.',
+        icon: IconTableChart,
         inMenu: true,
     },
     [NodeKind.ErrorTrackingQuery]: {

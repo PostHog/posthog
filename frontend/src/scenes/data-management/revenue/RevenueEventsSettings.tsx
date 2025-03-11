@@ -11,8 +11,8 @@ import { BaseCurrency } from './BaseCurrency'
 import { EventConfiguration } from './EventConfiguration'
 import { ExternalTableConfiguration } from './ExternalTableConfiguration'
 import { revenueEventsSettingsLogic } from './revenueEventsSettingsLogic'
-import { RevenueEventsTable } from './RevenueEventsTable'
-import { RevenueExternalTablesData } from './RevenueExternalTablesData'
+import { RevenueExampleEventsTable } from './RevenueExampleEventsTable'
+import { RevenueExampleExternalTablesData } from './RevenueExampleExternalTablesData'
 
 type Tab = 'revenue-events' | 'external-tables'
 
@@ -55,17 +55,19 @@ export function RevenueEventsSettings(): JSX.Element {
                                 Create revenue event
                             </LemonButton>
 
-                            <LemonButton
-                                type="primary"
-                                icon={<IconPlus />}
-                                onClick={() => {
-                                    externalDataSchemasButtonRef.current?.scrollIntoView({ behavior: 'smooth' })
-                                    externalDataSchemasButtonRef.current?.click()
-                                }}
-                                data-attr="import-revenue-external-data-schema"
-                            >
-                                Import revenue data from external tables
-                            </LemonButton>
+                            {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_DATA_WAREHOUSE_REVENUE_SETTINGS] && (
+                                <LemonButton
+                                    type="primary"
+                                    icon={<IconPlus />}
+                                    onClick={() => {
+                                        externalDataSchemasButtonRef.current?.scrollIntoView({ behavior: 'smooth' })
+                                        externalDataSchemasButtonRef.current?.click()
+                                    }}
+                                    data-attr="import-revenue-external-data-schema"
+                                >
+                                    Import revenue data from external tables
+                                </LemonButton>
+                            )}
                         </div>
                     </>
                 }
@@ -87,17 +89,17 @@ export function RevenueEventsSettings(): JSX.Element {
                         {
                             key: 'revenue-events',
                             label: 'Revenue events',
-                            content: <RevenueEventsTable />,
+                            content: <RevenueExampleEventsTable />,
                         },
                         {
                             key: 'external-tables',
                             label: 'External tables',
-                            content: <RevenueExternalTablesData />,
+                            content: <RevenueExampleExternalTablesData />,
                         },
                     ]}
                 />
             ) : (
-                <RevenueEventsTable />
+                <RevenueExampleEventsTable />
             )}
         </div>
     )

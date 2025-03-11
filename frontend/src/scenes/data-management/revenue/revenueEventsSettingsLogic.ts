@@ -9,6 +9,7 @@ import {
     DataTableNode,
     NodeKind,
     RevenueExampleEventsQuery,
+    RevenueExampleExternalTablesQuery,
     RevenueTrackingConfig,
     RevenueTrackingEventItem,
 } from '~/queries/schema/schema-general'
@@ -232,8 +233,7 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
             },
         ],
 
-        // TODO: Add external data schemas query
-        eventsQuery: [
+        exampleEventsQuery: [
             (s) => [s.revenueTrackingConfig],
             (revenueTrackingConfig: RevenueTrackingConfig | null) => {
                 if (!revenueTrackingConfig) {
@@ -242,6 +242,29 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
 
                 const source: RevenueExampleEventsQuery = {
                     kind: NodeKind.RevenueExampleEventsQuery,
+                    revenueTrackingConfig: revenueTrackingConfig,
+                }
+
+                const query: DataTableNode = {
+                    kind: NodeKind.DataTableNode,
+                    full: true,
+                    showPropertyFilter: false,
+                    source,
+                }
+
+                return query
+            },
+        ],
+
+        exampleExternalDataSchemasQuery: [
+            (s) => [s.revenueTrackingConfig],
+            (revenueTrackingConfig: RevenueTrackingConfig | null) => {
+                if (!revenueTrackingConfig) {
+                    return null
+                }
+
+                const source: RevenueExampleExternalTablesQuery = {
+                    kind: NodeKind.RevenueExampleExternalTablesQuery,
                     revenueTrackingConfig: revenueTrackingConfig,
                 }
 

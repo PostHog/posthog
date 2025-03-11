@@ -4,10 +4,10 @@ import { Query } from '~/queries/Query/Query'
 
 import { revenueEventsSettingsLogic } from './revenueEventsSettingsLogic'
 
-export function RevenueEventsTable(): JSX.Element | null {
-    const { eventsQuery } = useValues(revenueEventsSettingsLogic)
+export function RevenueExampleEventsTable(): JSX.Element | null {
+    const { exampleEventsQuery } = useValues(revenueEventsSettingsLogic)
 
-    if (!eventsQuery) {
+    if (!exampleEventsQuery) {
         return null
     }
 
@@ -18,7 +18,7 @@ export function RevenueEventsTable(): JSX.Element | null {
                 The following revenue events are available in your data. This is helpful when you're trying to debug
                 what your revenue events look like.
             </p>
-            <Query query={eventsQuery} context={{ showOpenEditorButton: true }} />
+            <Query query={exampleEventsQuery} context={{ showOpenEditorButton: true }} />
         </div>
     )
 }

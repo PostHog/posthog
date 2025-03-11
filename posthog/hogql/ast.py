@@ -839,6 +839,10 @@ class SelectQuery(Expr):
     settings: Optional[HogQLQuerySettings] = None
     view_name: Optional[str] = None
 
+    @classmethod
+    def empty(cls) -> "SelectQuery":
+        return SelectQuery(select=[Constant(value=1)], where=Constant(value=False))
+
 
 SetOperator = Literal["UNION ALL", "UNION DISTINCT", "INTERSECT", "INTERSECT DISTINCT", "EXCEPT"]
 

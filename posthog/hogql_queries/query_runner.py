@@ -373,6 +373,18 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
+    if kind == "RevenueExampleExternalTablesQuery":
+        # TODO: Implement this
+        from .web_analytics.revenue_example_external_tables import RevenueExampleExternalTablesQueryRunner
+
+        return RevenueExampleExternalTablesQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
     if kind == "ErrorTrackingQuery":
         from .error_tracking_query_runner import ErrorTrackingQueryRunner
 

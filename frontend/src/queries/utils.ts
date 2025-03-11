@@ -177,6 +177,10 @@ export function isRevenueExampleEventsQuery(node?: Record<string, any> | null): 
     return node?.kind === NodeKind.RevenueExampleEventsQuery
 }
 
+export function isRevenueExampleExternalTablesQuery(node?: Record<string, any> | null): boolean {
+    return node?.kind === NodeKind.RevenueExampleExternalTablesQuery
+}
+
 export function isErrorTrackingQuery(node?: Record<string, any> | null): node is ErrorTrackingQuery {
     return node?.kind === NodeKind.ErrorTrackingQuery
 }

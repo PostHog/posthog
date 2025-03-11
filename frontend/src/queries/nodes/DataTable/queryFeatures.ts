@@ -5,6 +5,7 @@ import {
     isHogQLQuery,
     isPersonsNode,
     isRevenueExampleEventsQuery,
+    isRevenueExampleExternalTablesQuery,
     isSessionAttributionExplorerQuery,
     isTracesQuery,
     isWebExternalClicksQuery,
@@ -46,6 +47,12 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
         features.add(QueryFeature.resultIsArrayOfArrays)
         features.add(QueryFeature.displayResponseError)
         features.add(QueryFeature.testAccountFilters)
+    }
+
+    if (isRevenueExampleExternalTablesQuery(query)) {
+        features.add(QueryFeature.columnsInResponse)
+        features.add(QueryFeature.resultIsArrayOfArrays)
+        features.add(QueryFeature.displayResponseError)
     }
 
     if (isEventsQuery(query)) {
