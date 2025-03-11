@@ -47,9 +47,7 @@ pub fn do_hash(
 
 #[cfg(test)]
 mod do_hash_tests {
-    use super::*; // Only if do_hash() is in the same crate and is public.
-                  // Otherwise `use <your_crate_name>::do_hash;`
-
+    use super::*;
     use serde::Deserialize;
     use std::fs;
     use std::path::Path;
