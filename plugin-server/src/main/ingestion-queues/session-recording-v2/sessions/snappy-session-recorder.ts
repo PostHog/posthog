@@ -3,7 +3,7 @@ import snappy from 'snappy'
 
 import { status } from '../../../../utils/status'
 import { ParsedMessageData } from '../kafka/types'
-import { ConsoleLogLevel, getConsoleLogLevel, hrefFrom, isClick, isKeypress, isMouseActivity } from '../rrweb-types'
+import { hrefFrom, isClick, isKeypress, isMouseActivity } from '../rrweb-types'
 import { activeMillisecondsFromSegmentationEvents, SegmentationEvent, toSegmentationEvent } from '../segmentation'
 
 const MAX_SNAPSHOT_FIELD_LENGTH = 1000
@@ -31,12 +31,6 @@ export interface EndResult {
     mouseActivityCount?: number
     /** Active time in milliseconds */
     activeMilliseconds?: number
-    /** Number of console log messages */
-    consoleLogCount?: number
-    /** Number of console warning messages */
-    consoleWarnCount?: number
-    /** Number of console error messages */
-    consoleErrorCount?: number
     /** Size of the session data in bytes */
     size?: number
     /** Number of messages in the session */
@@ -88,9 +82,6 @@ export class SnappySessionRecorder {
     private messageCount: number = 0
     private snapshotSource: string | null = null
     private snapshotLibrary: string | null = null
-    private consoleLogCount: number = 0
-    private consoleWarnCount: number = 0
-    private consoleErrorCount: number = 0
     private segmentationEvents: SegmentationEvent[] = []
     private droppedUrlsCount: number = 0
 
@@ -155,15 +146,6 @@ export class SnappySessionRecorder {
 
                 if (isMouseActivity(event)) {
                     this.mouseActivityCount += 1
-                }
-
-                const logLevel = getConsoleLogLevel(event)
-                if (logLevel === ConsoleLogLevel.Log) {
-                    this.consoleLogCount++
-                } else if (logLevel === ConsoleLogLevel.Warn) {
-                    this.consoleWarnCount++
-                } else if (logLevel === ConsoleLogLevel.Error) {
-                    this.consoleErrorCount++
                 }
 
                 const serializedLine = JSON.stringify([windowId, event]) + '\n'
@@ -246,9 +228,6 @@ export class SnappySessionRecorder {
             keypressCount: this.keypressCount,
             mouseActivityCount: this.mouseActivityCount,
             activeMilliseconds: activeTime,
-            consoleLogCount: this.consoleLogCount,
-            consoleWarnCount: this.consoleWarnCount,
-            consoleErrorCount: this.consoleErrorCount,
             size: uncompressedBuffer.length,
             messageCount: this.messageCount,
             snapshotSource: this.snapshotSource,
