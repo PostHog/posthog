@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from datetime import datetime, UTC
 from functools import partial
+import time
 from typing import Optional
 from clickhouse_driver import Client
 import dagster
@@ -40,6 +41,31 @@ class Backup:
 
         client.execute(query, settings=backup_settings, query_id=f"{self.id}-{shard}")
 
+    def is_done(self, client: Client) -> bool:
+        rows = client.execute(
+            f"""
+            SELECT hostname(), argMax(status, event_time_microseconds)
+            FROM clusterAllReplicas(posthog, system.backup_log)
+            WHERE (start_time >= (now() - toIntervalDay(7))) AND query_id LIKE '{self.id}%'
+            GROUP BY hostname()
+            """
+        )
+
+        if len(rows) > 0:
+            statuses = [status for _, status in rows]
+            if any(status == "CREATING_BACKUP" for status in statuses):
+                return False
+            elif all(status == "BACKUP_CREATED" for status in statuses):
+                return True
+            else:
+                raise ValueError(f"The backup {self.id} finished with unexpected statuses in different nodes: {rows}")
+        else:
+            raise ValueError(f"could not find backup matching {self!r}")
+
+    def wait(self, client: Client) -> None:
+        while not self.is_done(client):
+            time.sleep(60.0 * 5)
+
 
 class BackupDatabaseConfig(dagster.Config):
     incremental: bool = pydantic.Field(
@@ -53,7 +79,7 @@ def get_latest_backup(
     s3: S3Resource,
 ) -> Optional[Backup]:
     backups = s3.get_client().list_objects_v2(
-        Bucket=settings.CLICKHOUSE_BACKUPS_BUCKET, Prefix="posthog/", Delimiter="/"
+        Bucket=settings.CLICKHOUSE_BACKUPS_BUCKET, Prefix=f"{settings.CLICKHOUSE_DATABASE}/", Delimiter="/"
     )
 
     if "CommonPrefixes" not in backups:
@@ -95,6 +121,8 @@ def run_backup(
     )
 
     cluster.map_any_host_in_shards({shard: partial(backup.create, shard=shard) for shard in cluster.shards}).result()
+
+    cluster.any_host(backup.wait).result()
 
 
 @dagster.job
