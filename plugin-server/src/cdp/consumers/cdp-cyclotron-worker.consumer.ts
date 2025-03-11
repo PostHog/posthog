@@ -7,7 +7,7 @@ import { HogFunctionInvocation, HogFunctionInvocationResult, HogFunctionTypeType
 import { cyclotronJobToInvocation, invocationToCyclotronJobUpdate } from '../utils'
 import { CdpConsumerBase } from './cdp-base.consumer'
 
-const cyclotronBatchUtilizationGuage = new Gauge({
+const cyclotronBatchUtilizationGauge = new Gauge({
     name: 'cdp_cyclotron_batch_utilization',
     help: 'Indicates how big batches are we are processing compared to the max batch size. Useful as a scaling metric',
     labelNames: ['queue'],
