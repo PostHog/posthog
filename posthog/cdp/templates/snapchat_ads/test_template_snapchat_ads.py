@@ -90,3 +90,64 @@ class TestTemplateSnapchatAds(BaseHogFunctionTemplateTest):
         assert self.get_mock_fetch_calls()[0][0] == snapshot(
             "https://tr.snapchat.com/v3/pixel12345/events/validate?access_token=oauth-1234"
         )
+
+    def test_required_fields(self):
+        self.run_function(
+            self._inputs(userData={}),
+            globals={
+                "event": {
+                    "uuid": "49ff3d7c-359d-4f45-960e-6cda29f1beea",
+                    "properties": {
+                        "$current_url": "https://posthog.com/cdp",
+                    },
+                    "event": "$pageview",
+                },
+            },
+        )
+
+        assert len(self.get_mock_fetch_calls()) == 0
+
+        self.run_function(
+            self._inputs(userData={"ph": "1234567890"}),
+            globals={
+                "event": {
+                    "uuid": "49ff3d7c-359d-4f45-960e-6cda29f1beea",
+                    "properties": {
+                        "$current_url": "https://posthog.com/cdp",
+                    },
+                    "event": "$pageview",
+                },
+            },
+        )
+
+        assert len(self.get_mock_fetch_calls()) == 1
+
+        self.run_function(
+            self._inputs(userData={"em": "1234567890"}),
+            globals={
+                "event": {
+                    "uuid": "49ff3d7c-359d-4f45-960e-6cda29f1beea",
+                    "properties": {
+                        "$current_url": "https://posthog.com/cdp",
+                    },
+                    "event": "$pageview",
+                },
+            },
+        )
+
+        assert len(self.get_mock_fetch_calls()) == 1
+
+        self.run_function(
+            self._inputs(userData={"client_ip_address": "1234567890", "client_user_agent": "Mozilla/5.0"}),
+            globals={
+                "event": {
+                    "uuid": "49ff3d7c-359d-4f45-960e-6cda29f1beea",
+                    "properties": {
+                        "$current_url": "https://posthog.com/cdp",
+                    },
+                    "event": "$pageview",
+                },
+            },
+        )
+
+        assert len(self.get_mock_fetch_calls()) == 1

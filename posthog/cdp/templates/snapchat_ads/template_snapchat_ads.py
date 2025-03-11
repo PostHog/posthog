@@ -115,6 +115,10 @@ for (let key, value in inputs.customData) {
     }
 }
 
+if (not (not empty(body.data.1.user_data.em) or not empty(body.data.1.user_data.ph) or ( not empty(body.data.1.user_data.client_ip_address) and not empty(body.data.1.user_data.client_user_agent) ))) {
+    return
+}
+
 let res := fetch(f'https://tr.snapchat.com/v3/{inputs.pixelId}/events{inputs.testEventMode ? '/validate' : ''}?access_token={inputs.oauth.access_token}', {
     'method': 'POST',
     'headers': {
