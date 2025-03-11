@@ -173,6 +173,13 @@ impl AggregateFunnelRowUnordered {
             vars.num_steps_completed += 1;
         }
         vars.events_by_step[min_timestamp_step - 1].push_back(event.clone());
+        // Print the length of each entry in events_by_step
+        println!();
+        for (i, events) in vars.events_by_step.iter().enumerate() {
+            for (j, event) in events.iter().enumerate() {
+                println!("Step {}, Event {}: {:?}", i + 1, j + 1, event);
+            }
+        }
     }
 
     #[inline(always)]

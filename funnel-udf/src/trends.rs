@@ -21,7 +21,7 @@ pub struct EnteredTimestamp {
     pub excluded: bool,
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct Event {
     pub timestamp: f64,
     #[serde(deserialize_with = "deserialize_number_from_string")]
