@@ -1984,7 +1984,7 @@
       properties VARCHAR CODEC(ZSTD(3)),
       timestamp DateTime64(6, 'UTC') DEFAULT NOW('UTC'),
       is_deleted UInt8,
-  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.pg_embeddings', '{replica}', timestamp, is_deleted)
+  ) ENGINE = ReplacingMergeTree(timestamp, is_deleted)
   
       -- id for uniqueness
       ORDER BY (team_id, domain, id)
@@ -3819,7 +3819,7 @@
       properties VARCHAR CODEC(ZSTD(3)),
       timestamp DateTime64(6, 'UTC') DEFAULT NOW('UTC'),
       is_deleted UInt8,
-  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.pg_embeddings', '{replica}', timestamp, is_deleted)
+  ) ENGINE = ReplacingMergeTree(timestamp, is_deleted)
   
       -- id for uniqueness
       ORDER BY (team_id, domain, id)
