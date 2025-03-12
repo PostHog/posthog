@@ -219,7 +219,10 @@ export class LegacyPluginExecutorService {
 
                 if (isTestFunction && method.toUpperCase() !== 'GET') {
                     // For testing we mock out all non-GET requests
-                    addLog('info', 'Fetch called but mocked due to test function')
+                    addLog('info', 'Fetch called but mocked due to test function', {
+                        url: args[0],
+                        method,
+                    })
                     // Simulate a mini bit of fetch delay
                     await new Promise((resolve) => setTimeout(resolve, 200))
                     return {
@@ -257,6 +260,8 @@ export class LegacyPluginExecutorService {
                     properties: event.properties || {},
                 }
 
+                const start = performance.now()
+
                 await plugin.onEvent?.(processedEvent, {
                     ...state.meta,
                     // NOTE: We override logger and fetch here so we can track the calls
@@ -264,6 +269,8 @@ export class LegacyPluginExecutorService {
                     fetch,
                     storage: this.legacyStorage(invocation.hogFunction.team_id, legacyPluginConfigId),
                 })
+
+                addLog('info', `Function completed in ${performance.now() - start}ms.`)
             } else {
                 if (plugin === firstTimeEventTrackerPlugin) {
                     // Special fallback case until this is fully removed
