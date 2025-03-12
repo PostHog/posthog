@@ -2,6 +2,7 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="alpha",
+    free=False,
     type="destination",
     id="template-tiktok-ads",
     name="TikTok Ads Conversions",
@@ -22,6 +23,10 @@ let body := {
             'page': {}
         }
     ]
+}
+
+if (not empty(inputs.testEventCode)) {
+    body.test_event_code := inputs.testEventCode
 }
 
 for (let key, value in inputs.userProperties) {
@@ -105,6 +110,15 @@ if (res.status >= 400) {
             },
             "secret": False,
             "required": True,
+        },
+        {
+            "key": "testEventCode",
+            "type": "string",
+            "label": "Test Event Code",
+            "description": "Use this field to specify that events should be test events rather than actual traffic. You'll want to remove your Test Event Code when sending real traffic through this integration.",
+            "default": "",
+            "secret": False,
+            "required": False,
         },
     ],
     filters={
