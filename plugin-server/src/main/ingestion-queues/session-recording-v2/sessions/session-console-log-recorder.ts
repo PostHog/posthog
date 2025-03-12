@@ -47,6 +47,24 @@ function payloadToSafeString(payload: unknown[]): string {
         .join(' ')
 }
 
+function deduplicateConsoleLogEntries(consoleLogEntries: ConsoleLogEntry[]): ConsoleLogEntry[] {
+    // assuming that the console log entries are all for one team id (and they should be)
+    // because we only use these for search
+    // then we can deduplicate them by the message string and level
+
+    const seen = new Set<string>()
+    const deduped: ConsoleLogEntry[] = []
+
+    for (const cle of consoleLogEntries) {
+        const fingerPrint = `${cle.level}-${cle.message}`
+        if (!seen.has(fingerPrint)) {
+            deduped.push(cle)
+            seen.add(fingerPrint)
+        }
+    }
+    return deduped
+}
+
 export interface ConsoleLogEndResult {
     /** Number of console log messages */
     consoleLogCount: number
@@ -120,7 +138,7 @@ export class SessionConsoleLogRecorder {
         }
 
         if (logsToStore.length > 0) {
-            await this.store.storeSessionConsoleLogs(logsToStore)
+            await this.store.storeSessionConsoleLogs(deduplicateConsoleLogEntries(logsToStore))
         }
     }
 

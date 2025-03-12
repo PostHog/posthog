@@ -347,4 +347,200 @@ describe('SessionConsoleLogRecorder', () => {
             }
         })
     })
+
+    describe('Deduplication', () => {
+        it('should deduplicate identical messages with same level', async () => {
+            const events = [
+                createConsoleLogEvent({
+                    level: 'info',
+                    payload: ['Duplicate message'],
+                    timestamp: 1000,
+                }),
+                createConsoleLogEvent({
+                    level: 'info',
+                    payload: ['Duplicate message'],
+                    timestamp: 2000,
+                }),
+            ]
+
+            await recorder.recordMessage(createMessage('window1', events))
+
+            expect(mockConsoleLogStore.storeSessionConsoleLogs).toHaveBeenCalledTimes(1)
+            expect(mockConsoleLogStore.storeSessionConsoleLogs).toHaveBeenCalledWith([
+                expect.objectContaining({
+                    level: LogLevel.Info,
+                    message: 'Duplicate message',
+                }),
+            ])
+        })
+
+        it('should not deduplicate same messages with different levels', async () => {
+            const events = [
+                createConsoleLogEvent({
+                    level: 'info',
+                    payload: ['Same message'],
+                    timestamp: 1000,
+                }),
+                createConsoleLogEvent({
+                    level: 'warn',
+                    payload: ['Same message'],
+                    timestamp: 2000,
+                }),
+                createConsoleLogEvent({
+                    level: 'error',
+                    payload: ['Same message'],
+                    timestamp: 3000,
+                }),
+            ]
+
+            await recorder.recordMessage(createMessage('window1', events))
+
+            expect(mockConsoleLogStore.storeSessionConsoleLogs).toHaveBeenCalledTimes(1)
+            expect(mockConsoleLogStore.storeSessionConsoleLogs).toHaveBeenCalledWith([
+                expect.objectContaining({
+                    level: LogLevel.Info,
+                    message: 'Same message',
+                }),
+                expect.objectContaining({
+                    level: LogLevel.Warn,
+                    message: 'Same message',
+                }),
+                expect.objectContaining({
+                    level: LogLevel.Error,
+                    message: 'Same message',
+                }),
+            ])
+        })
+
+        it('should deduplicate across multiple windows', async () => {
+            const message1 = createMessage('window1', [
+                createConsoleLogEvent({
+                    level: 'info',
+                    payload: ['Duplicate message'],
+                    timestamp: 1000,
+                }),
+            ])
+
+            const message2 = createMessage('window2', [
+                createConsoleLogEvent({
+                    level: 'info',
+                    payload: ['Duplicate message'],
+                    timestamp: 2000,
+                }),
+            ])
+
+            await recorder.recordMessage(message1)
+            await recorder.recordMessage(message2)
+
+            expect(mockConsoleLogStore.storeSessionConsoleLogs).toHaveBeenCalledTimes(2)
+            expect(mockConsoleLogStore.storeSessionConsoleLogs).toHaveBeenNthCalledWith(1, [
+                expect.objectContaining({
+                    level: LogLevel.Info,
+                    message: 'Duplicate message',
+                }),
+            ])
+            expect(mockConsoleLogStore.storeSessionConsoleLogs).toHaveBeenNthCalledWith(2, [
+                expect.objectContaining({
+                    level: LogLevel.Info,
+                    message: 'Duplicate message',
+                }),
+            ])
+        })
+
+        it('should maintain correct counts even with deduplication', async () => {
+            const events = [
+                createConsoleLogEvent({
+                    level: 'info',
+                    payload: ['Duplicate info'],
+                    timestamp: 1000,
+                }),
+                createConsoleLogEvent({
+                    level: 'info',
+                    payload: ['Duplicate info'],
+                    timestamp: 2000,
+                }),
+                createConsoleLogEvent({
+                    level: 'warn',
+                    payload: ['Duplicate warn'],
+                    timestamp: 3000,
+                }),
+                createConsoleLogEvent({
+                    level: 'warn',
+                    payload: ['Duplicate warn'],
+                    timestamp: 4000,
+                }),
+                createConsoleLogEvent({
+                    level: 'error',
+                    payload: ['Duplicate error'],
+                    timestamp: 5000,
+                }),
+                createConsoleLogEvent({
+                    level: 'error',
+                    payload: ['Duplicate error'],
+                    timestamp: 6000,
+                }),
+            ]
+
+            await recorder.recordMessage(createMessage('window1', events))
+            const result = recorder.end()
+
+            expect(result.consoleLogCount).toBe(2) // Original counts should include duplicates
+            expect(result.consoleWarnCount).toBe(2)
+            expect(result.consoleErrorCount).toBe(2)
+
+            expect(mockConsoleLogStore.storeSessionConsoleLogs).toHaveBeenCalledTimes(1)
+            expect(mockConsoleLogStore.storeSessionConsoleLogs).toHaveBeenCalledWith([
+                expect.objectContaining({
+                    level: LogLevel.Info,
+                    message: 'Duplicate info',
+                }),
+                expect.objectContaining({
+                    level: LogLevel.Warn,
+                    message: 'Duplicate warn',
+                }),
+                expect.objectContaining({
+                    level: LogLevel.Error,
+                    message: 'Duplicate error',
+                }),
+            ])
+        })
+
+        it('should preserve different messages with same level', async () => {
+            const events = [
+                createConsoleLogEvent({
+                    level: 'info',
+                    payload: ['First unique message'],
+                    timestamp: 1000,
+                }),
+                createConsoleLogEvent({
+                    level: 'info',
+                    payload: ['Second unique message'],
+                    timestamp: 2000,
+                }),
+                createConsoleLogEvent({
+                    level: 'info',
+                    payload: ['Third unique message'],
+                    timestamp: 3000,
+                }),
+            ]
+
+            await recorder.recordMessage(createMessage('window1', events))
+
+            expect(mockConsoleLogStore.storeSessionConsoleLogs).toHaveBeenCalledTimes(1)
+            expect(mockConsoleLogStore.storeSessionConsoleLogs).toHaveBeenCalledWith([
+                expect.objectContaining({
+                    level: LogLevel.Info,
+                    message: 'First unique message',
+                }),
+                expect.objectContaining({
+                    level: LogLevel.Info,
+                    message: 'Second unique message',
+                }),
+                expect.objectContaining({
+                    level: LogLevel.Info,
+                    message: 'Third unique message',
+                }),
+            ])
+        })
+    })
 })
