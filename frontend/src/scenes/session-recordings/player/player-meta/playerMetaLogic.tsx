@@ -37,6 +37,18 @@ export interface SessionSummaryResponse {
     content: string
 }
 
+const ALLOW_LISTED_PERSON_PROPERTIES = [
+    '$os_name',
+    '$os',
+    '$browser_name',
+    '$browser',
+    '$device_type',
+    '$referrer',
+    '$geoip_country_code',
+    '$geoip_subdivision_1_name',
+    '$geoip_city_name',
+]
+
 function allowListedPersonProperties(sessionPlayerMetaData: SessionRecordingType | null): Record<string, any> {
     const personProperties = sessionPlayerMetaData?.person?.properties ?? {}
     return Object.fromEntries(
@@ -356,15 +368,3 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
         },
     })),
 ])
-
-const ALLOW_LISTED_PERSON_PROPERTIES = [
-    '$os_name',
-    '$os',
-    '$browser_name',
-    '$browser',
-    '$device_type',
-    '$referrer',
-    '$geoip_country_code',
-    '$geoip_subdivision_1_name',
-    '$geoip_city_name',
-]
