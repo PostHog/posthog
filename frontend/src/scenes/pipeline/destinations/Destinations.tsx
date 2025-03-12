@@ -346,7 +346,7 @@ export function DestinationsTable({
     )
 }
 
-export function ReorderTransformationsModal({ types }: { types: HogFunctionTypeType[] }): JSX.Element {
+function ReorderTransformationsModal({ types }: { types: HogFunctionTypeType[] }): JSX.Element {
     const { reorderTransformationsModalOpen, destinations, temporaryTransformationOrder, loading } = useValues(
         pipelineDestinationsLogic({ types })
     )
