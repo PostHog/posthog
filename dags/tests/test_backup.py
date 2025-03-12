@@ -1,4 +1,3 @@
-from datetime import datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -10,9 +9,9 @@ def test_get_latest_backup(table: str):
     mock_s3 = MagicMock()
     mock_s3.get_client().list_objects_v2.return_value = {
         "CommonPrefixes": [
-            {"Prefix": "posthog/2024-01-01T07:54:04Z/"},
-            {"Prefix": "posthog/2024-02-01T07:54:04Z/"},
-            {"Prefix": f"posthog/2024-03-01T07:54:04Z/{f'{table}/' if table else ''}"},
+            {"Prefix": f"posthog/{f'{table}/' if table else ''}2024-01-01T07:54:04Z/"},
+            {"Prefix": f"posthog/{f'{table}/' if table else ''}2024-02-01T07:54:04Z/"},
+            {"Prefix": f"posthog/{f'{table}/' if table else ''}2024-03-01T07:54:04Z/"},
         ]
     }
 
@@ -21,7 +20,7 @@ def test_get_latest_backup(table: str):
 
     assert isinstance(result, Backup)
     assert result.database == "posthog"
-    assert result.date == datetime(2024, 3, 1, 7, 54, 4)
+    assert result.date == "2024-03-01T07:54:04Z"
     assert result.base_backup is None
 
     expected_table = table if table else None
@@ -43,7 +42,7 @@ def test_create_table_backup():
         id="test",
         database="posthog",
         table="test",
-        date=datetime(2024, 3, 1),
+        date="2024-03-01T00:00:00Z",
     )
 
     with patch("django.conf.settings.CLICKHOUSE_BACKUPS_BUCKET", "mock_bucket"):
@@ -52,7 +51,7 @@ def test_create_table_backup():
         client.execute.assert_called_once_with(
             """
         BACKUP TABLE test
-        TO S3('https://mock_bucket.s3.amazonaws.com/posthog/2024-03-01T00:00:00Z/test/noshard')
+        TO S3('https://mock_bucket.s3.amazonaws.com/posthog/test/2024-03-01T00:00:00Z/noshard')
         SETTINGS async = 1
         """,
             query_id="test-noshard",
@@ -64,7 +63,7 @@ def test_create_database_backup():
     backup = Backup(
         id="test",
         database="posthog",
-        date=datetime(2024, 3, 1),
+        date="2024-03-01T00:00:00Z",
     )
 
     with patch("django.conf.settings.CLICKHOUSE_BACKUPS_BUCKET", "mock_bucket"):
@@ -85,11 +84,11 @@ def test_create_incremental_backup():
     backup = Backup(
         id="test",
         database="posthog",
-        date=datetime(2024, 3, 1),
+        date="2024-03-01T00:00:00Z",
         base_backup=Backup(
             id="test",
             database="posthog",
-            date=datetime(2024, 2, 1),
+            date="2024-02-01T00:00:00Z",
         ),
     )
 
@@ -111,7 +110,7 @@ def test_is_done():
     backup = Backup(
         id="test",
         database="posthog",
-        date=datetime(2024, 3, 1),
+        date="2024-03-01T00:00:00Z",
     )
 
     client.execute.side_effect = [
@@ -132,7 +131,7 @@ def test_throw_on_error():
     backup = Backup(
         id="test",
         database="posthog",
-        date=datetime(2024, 3, 1),
+        date="2024-03-01T00:00:00Z",
     )
 
     client.execute.side_effect = [

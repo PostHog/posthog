@@ -16,23 +16,26 @@ from dagster_aws.s3 import S3Resource
 @dataclass
 class Backup:
     database: str
-    date: datetime
+    date: str
     table: Optional[str] = None
     id: Optional[str] = None
     base_backup: Optional["Backup"] = None
 
+    def __post_init__(self):
+        datetime.strptime(self.date, "%Y-%m-%dT%H:%M:%SZ")  # It will fail if the date is invalid
+
     @property
     def path(self):
-        base_path = f"{self.database}/{self.date.strftime('%Y-%m-%dT%H:%M:%SZ')}"
+        base_path = f"{self.database}"
         if self.table:
             base_path = f"{base_path}/{self.table}"
 
-        return base_path
+        return f"{base_path}/{self.date}"
 
     @classmethod
     def from_s3_path(cls, path: str) -> "Backup":
         path_regex = re.compile(
-            r"^(?P<database>\w+)\/(?P<date>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)\/((?P<table>\w+)\/)?$"
+            r"^(?P<database>\w+)(\/(?P<table>\w+))?\/(?P<date>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)\/$"
         )
         match = path_regex.match(path)
         if not match:
@@ -40,7 +43,7 @@ class Backup:
 
         return Backup(
             database=match.group("database"),
-            date=datetime.strptime(match.group("date"), "%Y-%m-%dT%H:%M:%SZ"),
+            date=match.group("date"),
             table=match.group("table"),
             base_backup=None,
         )
@@ -105,7 +108,7 @@ class Backup:
 
     def wait(self, client: Client) -> None:
         while not self.is_done(client):
-            time.sleep(300)
+            time.sleep(120)
 
         self.throw_on_error(client)
 
@@ -123,6 +126,12 @@ class BackupConfig(dagster.Config):
         default="",
         description="The table to backup. If not specified, the entire database will be backed up.",
     )
+    date: str = pydantic.Field(
+        default=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        description="The date to backup. If not specified, the current date will be used.",
+        pattern=r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$",
+        validate_default=True,
+    )
 
 
 @dagster.op
@@ -133,8 +142,12 @@ def get_latest_backup(
     """
     Get the latest backup metadata for a ClickHouse database / table from S3.
     """
+    base_prefix = f"{config.database}/"
+    if config.table:
+        base_prefix = f"{base_prefix}{config.table}/"
+
     backups = s3.get_client().list_objects_v2(
-        Bucket=settings.CLICKHOUSE_BACKUPS_BUCKET, Prefix=f"{config.database}/", Delimiter="/"
+        Bucket=settings.CLICKHOUSE_BACKUPS_BUCKET, Prefix=base_prefix, Delimiter="/"
     )
 
     if "CommonPrefixes" not in backups:
@@ -162,7 +175,7 @@ def run_backup(
         id=context.run_id,
         database=config.database,
         table=config.table,
-        date=datetime.now(UTC),
+        date=config.date,
         base_backup=latest_backup if config.incremental else None,
     )
 
