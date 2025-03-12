@@ -14,4 +14,6 @@ BUCKET = "test-pipeline"
 
 PYARROW_DEBUG_LOGGING = get_from_env("PYARROW_DEBUG_LOGGING", False, type_cast=str_to_bool)
 
-NEW_BIGQUERY_SOURCE_TEAM_IDS: list[str] = get_list(os.getenv("NEW_BIGQUERY_SOURCE_TEAM_IDS", ""))
+# Temporary, using it to maintain existing teams in old  bigquery source.
+# After further testing this will be removed and all teams moved to new source.
+OLD_BIGQUERY_SOURCE_TEAM_IDS: list[str] = get_list(os.getenv("OLD_BIGQUERY_SOURCE_TEAM_IDS", ""))

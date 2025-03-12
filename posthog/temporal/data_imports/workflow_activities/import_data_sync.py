@@ -554,8 +554,8 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
             )
 
             try:
-                if str(inputs.team_id) in settings.NEW_BIGQUERY_SOURCE_TEAM_IDS:
-                    source = bigquery_source(
+                if str(inputs.team_id) in settings.OLD_BIGQUERY_SOURCE_TEAM_IDS:
+                    source = sql_bigquery_source(
                         dataset_id=dataset_id,
                         project_id=project_id,
                         private_key=private_key,
@@ -563,7 +563,6 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                         client_email=client_email,
                         token_uri=token_uri,
                         table_name=schema.name,
-                        is_incremental=schema.is_incremental,
                         bq_destination_table_id=destination_table,
                         incremental_field=schema.sync_type_config.get("incremental_field")
                         if schema.is_incremental
@@ -576,7 +575,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                         else None,
                     )
                 else:
-                    source = sql_bigquery_source(
+                    source = bigquery_source(
                         dataset_id=dataset_id,
                         project_id=project_id,
                         private_key=private_key,
@@ -584,6 +583,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                         client_email=client_email,
                         token_uri=token_uri,
                         table_name=schema.name,
+                        is_incremental=schema.is_incremental,
                         bq_destination_table_id=destination_table,
                         incremental_field=schema.sync_type_config.get("incremental_field")
                         if schema.is_incremental

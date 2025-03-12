@@ -303,7 +303,6 @@ def test_bigquery_source_incremental(
     inputs = setup_bigquery(team, bigquery_config, bigquery_dataset, bigquery_table, is_incremental=True)
 
     with override_settings(
-        NEW_BIGQUERY_SOURCE_TEAM_IDS=[str(team.pk)],
         AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
         AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
         AIRBYTE_BUCKET_REGION="us-east-1",
@@ -347,7 +346,6 @@ def test_bigquery_source_incremental(
     _ = job.result()
 
     with override_settings(
-        NEW_BIGQUERY_SOURCE_TEAM_IDS=[str(team.pk)],
         AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
         AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
         AIRBYTE_BUCKET_REGION="us-east-1",
