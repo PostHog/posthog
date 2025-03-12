@@ -80,7 +80,7 @@ impl SourcePair {
             magic_source
                 .append(&chunk_comment)
                 .map_err(|err| anyhow!("Failed to append chunk comment: {}", err))?;
-            let adjustement = magic_source
+            let adjustment = magic_source
                 .generate_map(GenerateDecodedMapOptions {
                     include_content: true,
                     ..Default::default()
