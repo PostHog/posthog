@@ -31,6 +31,7 @@ COPY frontend/bin/ frontend/bin/
 COPY bin/ bin/
 COPY patches/ patches/
 COPY common/hogvm/typescript/ common/hogvm/typescript/
+COPY common/icons/ common/icons/
 COPY common/esbuilder/ common/esbuilder/
 COPY common/eslint_rules/ common/eslint_rules/
 COPY common/tailwind/ common/tailwind/
@@ -214,6 +215,8 @@ COPY --from=plugin-server-build --chown=posthog:posthog /code/common/plugin_tran
 COPY --from=plugin-server-build --chown=posthog:posthog /code/common/plugin_transpiler/package.json /code/common/plugin_transpiler/package.json
 COPY --from=plugin-server-build --chown=posthog:posthog /code/common/hogvm/typescript/dist /code/common/hogvm/typescript/dist
 COPY --from=plugin-server-build --chown=posthog:posthog /code/common/hogvm/typescript/node_modules /code/common/hogvm/typescript/node_modules
+COPY --from=plugin-server-build --chown=posthog:posthog /code/common/icons/dist /code/common/icons/dist
+COPY --from=plugin-server-build --chown=posthog:posthog /code/common/icons/node_modules /code/common/icons/node_modules
 COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/dist /code/plugin-server/dist
 COPY --from=plugin-server-build --chown=posthog:posthog /code/node_modules /code/node_modules
 COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/node_modules /code/plugin-server/node_modules
