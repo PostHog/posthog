@@ -189,7 +189,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                                 {earlyAccessFeature.stage == EarlyAccessFeatureStage.Draft && (
                                     <LemonButton
                                         onClick={() => updateStage(EarlyAccessFeatureStage.Beta)}
-                                        tooltip="Make beta feature available"
+                                        tooltip="Publish this feature to make it available"
                                         type="primary"
                                     >
                                         Publish
