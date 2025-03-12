@@ -541,7 +541,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         2,
         3,
         signatures=[
-            ((DateType(), UnknownType())),
+            ((DateType(), UnknownType()), DateType()),
             ((StringType(), UnknownType()), DateType()),
         ],
     ),
