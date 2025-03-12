@@ -130,7 +130,7 @@
             <type>Array(Tuple(Nullable(Float64), UUID, Nullable(String), Array(Int8)))</type>
             <name>value</name>
         </argument>
-        <format>MsgPack</format>
+        <format>JSONEachRow</format>
         <command>aggregate_funnel_test.py</command>
         <lifetime>600</lifetime>
     </function>
@@ -300,7 +300,7 @@
             <type>Array(Tuple(Nullable(Float64), UInt64, UUID, Array(String), Array(Int8)))</type>
             <name>value</name>
         </argument>
-        <format>MsgPack</format>
+        <format>JSONEachRow</format>
         <command>aggregate_funnel_array_trends_test.py</command>
         <lifetime>600</lifetime>
     </function>

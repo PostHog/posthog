@@ -20,7 +20,7 @@ enum PropVal {
 fn main() {
     let args: Vec<String> = env::args().collect();
     let arg = args.get(1).map(|x| x.as_str());
-    let use_msgpack = args.get(2).map_or(false, |x| x == "--msgpack");
+    let use_json = args.get(2).map_or(false, |x| x == "--json");
 
     let stdin = io::stdin();
     let mut stdout = io::stdout();
@@ -32,7 +32,7 @@ fn main() {
                 _ => steps::process_line(&line),
             };
             
-            if use_msgpack {
+            if !use_json {
                 // Serialize to MessagePack
                 let bytes = rmp_serde::to_vec(&output).unwrap();
                 stdout.write_all(&bytes).unwrap();
