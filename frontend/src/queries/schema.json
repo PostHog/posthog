@@ -9124,6 +9124,10 @@
                     "enum": ["auto", "v1", "v2"],
                     "type": "string"
                 },
+                "sessionsV2JoinMode": {
+                    "enum": ["string", "uuid"],
+                    "type": "string"
+                },
                 "useMaterializedViews": {
                     "type": "boolean"
                 }

@@ -113,6 +113,7 @@ export type SettingId =
     | 'hedgehog-mode'
     | 'persons-join-mode'
     | 'bounce-rate-page-view-mode'
+    | 'session-join-mode'
     | 'bounce-rate-duration'
     | 'revenue-base-currency'
     | 'session-table-version'
