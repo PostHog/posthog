@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, cast
 
-import cohere
 import posthoganalytics
 import structlog
 import temporalio.activity
@@ -17,6 +16,7 @@ from django.db.models import F, Q
 from openai import APIError as OpenAIAPIError
 
 from ee.hogai.summarizers.chains import abatch_summarize_actions
+from ee.hogai.utils.embeddings import get_async_cohere_client
 from posthog.models import Action
 from posthog.models.ai.pg_embeddings import INSERT_BULK_PG_EMBEDDINGS_SQL
 from posthog.temporal.common.base import PostHogWorkflow
@@ -80,10 +80,6 @@ async def get_approximate_actions_count(inputs: GetApproximateActionsCountInputs
     """
     qs = await get_actions_qs(datetime.fromisoformat(inputs.start_dt))
     return await qs.acount()
-
-
-def get_cohere_client() -> cohere.AsyncClientV2:
-    return cohere.AsyncClientV2()
 
 
 @dataclass
@@ -155,7 +151,7 @@ async def batch_embed_actions(
         "Preparing to embed actions",
         actions_count=len(actions),
     )
-    cohere_client = get_cohere_client()
+    cohere_client = get_async_cohere_client()
 
     filtered_batches = [
         [action for action in actions[i : i + batch_size] if action["summary"]]

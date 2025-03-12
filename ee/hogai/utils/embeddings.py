@@ -1,7 +1,7 @@
 import cohere
 
 
-def aget_cohere_client() -> cohere.AsyncClientV2:
+def get_async_cohere_client() -> cohere.AsyncClientV2:
     return cohere.AsyncClientV2()
 
 

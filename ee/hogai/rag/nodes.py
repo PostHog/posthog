@@ -4,6 +4,7 @@ from typing import Literal, cast
 from cohere.core.api_error import ApiError as BaseCohereApiError
 from langchain_core.runnables import RunnableConfig
 
+from ee.hogai.utils.embeddings import get_cohere_client
 from ee.hogai.utils.nodes import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
@@ -11,8 +12,6 @@ from posthog.hogql_queries.ai.vector_search_query_runner import VectorSearchQuer
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Action
 from posthog.schema import CachedVectorSearchQueryResponse, TeamTaxonomyQuery, VectorSearchQuery
-
-from .utils import get_cohere_client
 
 NextRagNode = Literal["trends", "funnel", "retention", "end"]
 
