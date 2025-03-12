@@ -35,6 +35,7 @@ import { AvailableFeature, ProductKey, SidePanelTab } from '~/types'
 import AlgoliaSearch from '../../components/AlgoliaSearch'
 import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
 import { sidePanelStateLogic } from '../sidePanelStateLogic'
+import { InKeepMaxChatInterface } from './sidePanelInKeepMaxChatInterface'
 import { MaxChatInterface } from './sidePanelMaxChatInterface'
 import { sidePanelStatusLogic } from './sidePanelStatusLogic'
 const PRODUCTS = [
@@ -204,16 +205,24 @@ export const SidePanelSupport = (): JSX.Element => {
     const { status } = useValues(sidePanelStatusLogic)
 
     const theLogic = supportLogic({ onClose: () => closeSidePanel(SidePanelTab.Support) })
-    const { openEmailForm, closeEmailForm, openMaxChatInterface, closeMaxChatInterface } = useActions(theLogic)
-    const { isEmailFormOpen, isMaxChatInterfaceOpen } = useValues(theLogic)
+    const { openEmailForm, closeEmailForm, openMaxChatInterface, closeMaxChatInterface, openInKeepMaxChatInterface } =
+        useActions(theLogic)
+    const { isEmailFormOpen, isMaxChatInterfaceOpen, isInKeepMaxChatInterfaceOpen } = useValues(theLogic)
 
     const region = preflight?.region
 
     return (
         <>
-            <div className="overflow-y-auto" data-attr="side-panel-support-container">
+            <div
+                className={`${isInKeepMaxChatInterfaceOpen ? 'h-full flex flex-col' : 'overflow-y-auto'}`}
+                data-attr="side-panel-support-container"
+            >
                 <SidePanelPaneHeader title="Help" />
-                <div className="p-3 max-w-160 w-full mx-auto">
+                <div
+                    className={`${
+                        isInKeepMaxChatInterfaceOpen ? 'flex-1 flex flex-col' : 'p-3 max-w-160 w-full mx-auto'
+                    }`}
+                >
                     {isEmailFormOpen ? (
                         <SupportFormBlock onCancel={() => closeEmailForm()} />
                     ) : isMaxChatInterfaceOpen ? (
@@ -228,6 +237,10 @@ export const SidePanelSupport = (): JSX.Element => {
                             >
                                 End Chat
                             </LemonButton>
+                        </div>
+                    ) : isInKeepMaxChatInterfaceOpen ? (
+                        <div className="h-full flex flex-col flex-1">
+                            <InKeepMaxChatInterface />
                         </div>
                     ) : (
                         <>
@@ -285,9 +298,8 @@ export const SidePanelSupport = (): JSX.Element => {
                                     <Section title="Ask Max the Hedgehog">
                                         <>
                                             <p>
-                                                Max is PostHog's support AI who can answer support questions, help you
-                                                with troubleshooting, find info in our documentation, write HogQL
-                                                queries, regex expressions, etc.
+                                                This Max is direct to the Anthropic API, not via InKeep. (Internal use
+                                                only.)
                                             </p>
                                             <LemonButton
                                                 type="primary"
@@ -300,6 +312,33 @@ export const SidePanelSupport = (): JSX.Element => {
                                                 className="mt-2"
                                             >
                                                 ✨ Chat with Max
+                                            </LemonButton>
+                                        </>
+                                    </Section>
+                                </FlaggedFeature>
+                            ) : null}
+
+                            {isCloud || true ? (
+                                <FlaggedFeature flag={FEATURE_FLAGS.INKEEP_MAX_SUPPORT_SIDEBAR} match={true}>
+                                    <Section title="Ask Max the Hedgehog">
+                                        <>
+                                            <p>
+                                                This Max is PostHog's support AI.
+                                                <br />
+                                                He can answer support questions, read the docs, write SQL queries and
+                                                expressions, regex patterns, etc.
+                                            </p>
+                                            <LemonButton
+                                                type="primary"
+                                                fullWidth
+                                                center
+                                                onClick={() => {
+                                                    openInKeepMaxChatInterface()
+                                                }}
+                                                targetBlank={false}
+                                                className="mt-2"
+                                            >
+                                                🦔 Chat with Max AI
                                             </LemonButton>
                                         </>
                                     </Section>
