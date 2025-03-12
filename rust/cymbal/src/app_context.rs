@@ -109,7 +109,7 @@ impl AppContext {
         // We want to fetch each sourcemap from the outside world
         // exactly once, and if it isn't in the cache, load/parse
         // it from s3 exactly once too. Limiting the per symbol set
-        // reference concurreny to 1 ensures this.
+        // reference concurrency to 1 ensures this.
         let limited_layer = concurrency::AtMostOne::new(caching_layer);
 
         info!(
