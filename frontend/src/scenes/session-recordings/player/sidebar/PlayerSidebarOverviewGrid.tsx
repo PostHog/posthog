@@ -19,14 +19,16 @@ export function PlayerSidebarOverviewGrid(): JSX.Element {
             ) : (
                 <OverviewGrid>
                     {overviewItems.map((item) => {
-                        // we don't know what value we're getting here, since it comes off properties.
-                        // so we need to make sure it's safe to render
-                        const safeChildren =
-                            typeof item.value === 'string' || React.isValidElement(item.value) ? (
-                                item.value
-                            ) : (
-                                <pre><code>{JSON.stringify(item.value, null, 2)}</code></pre>
-                            )
+                        const canRenderDireectly =
+                            typeof item.value === 'string' ||
+                            typeof item.value === 'number' ||
+                            React.isValidElement(item.value)
+                        const safeChildren = canRenderDireectly ? (
+                            item.value
+                        ) : (
+                            <pre>{JSON.stringify(item.value, null, 2)}</pre>
+                        )
+
                         return (
                             <OverviewGridItem
                                 key={item.label}
