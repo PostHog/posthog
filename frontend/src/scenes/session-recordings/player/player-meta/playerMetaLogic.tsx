@@ -58,7 +58,7 @@ function allowListedPersonProperties(sessionPlayerMetaData: SessionRecordingType
     )
 }
 
-export function canRenderDirectly(value: any): boolean {
+function canRenderDirectly(value: any): boolean {
     return typeof value === 'string' || typeof value === 'number' || React.isValidElement(value)
 }
 
@@ -321,7 +321,12 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                           getFirstFilterTypeFor(property) || TaxonomicFilterGroupType.EventProperties
                         : TaxonomicFilterGroupType.PersonProperties
 
-                    const safeValue = typeof value === 'string' ? value : JSON.stringify(value)
+                    const safeValue =
+                        typeof value === 'string'
+                            ? value
+                            : typeof value === 'number'
+                            ? value.toString()
+                            : JSON.stringify(value, null, 2)
 
                     const calculatedPropertyType: PropertyFilterType | undefined = shouldUsePersonProperties
                         ? PropertyFilterType.Person
