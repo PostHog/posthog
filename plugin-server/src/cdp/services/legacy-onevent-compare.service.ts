@@ -5,6 +5,7 @@ import { Hub, PluginConfig, PluginMethodsConcrete, PostIngestionEvent } from '..
 import { Response } from '../../utils/fetch'
 import { getHttpCallRecorder, HttpCallRecorder, RecordedHttpCall, recordFetchRequest } from '../../utils/recorded-fetch'
 import { status } from '../../utils/status'
+import { cloneObject } from '../../utils/utils'
 import { DESTINATION_PLUGINS } from '../legacy-plugins'
 import { HogFunctionInvocation, HogFunctionInvocationResult, HogFunctionType } from '../types'
 import { createInvocation } from '../utils'
@@ -107,6 +108,8 @@ export class LegacyOneventCompareService {
 
         let pluginConfigError: any = null
 
+        const clonedEvent = cloneObject(event) // NOTE: The hog function can modify the event so we need to clone it
+
         try {
             // Execute the operation
             await onEvent(onEventPayload)
@@ -116,7 +119,8 @@ export class LegacyOneventCompareService {
 
         try {
             const recordedCalls = getHttpCallRecorder().getCalls()
-            const hogFunctionResult = await this.runHogFunctionOnEvent(pluginConfig, event, recordedCalls)
+
+            const hogFunctionResult = await this.runHogFunctionOnEvent(pluginConfig, clonedEvent, recordedCalls)
             const comparer = new HttpCallRecorder()
             const comparison = comparer.compareCalls(recordedCalls, hogFunctionResult.recordedCalls)
 
