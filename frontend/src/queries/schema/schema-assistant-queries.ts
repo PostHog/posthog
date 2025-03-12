@@ -148,9 +148,13 @@ export interface AssistantTrendsEventsNode
 export interface AssistantTrendsActionsNode
     extends Omit<
         ActionsNode,
-        'fixedProperties' | 'properties' | 'math_hogql' | 'limit' | 'groupBy' | 'orderBy' | 'response'
+        'fixedProperties' | 'properties' | 'math_hogql' | 'limit' | 'groupBy' | 'orderBy' | 'response' | 'name'
     > {
     properties?: AssistantPropertyFilter[]
+    /**
+     * Action name from the plan.
+     */
+    name: string
 }
 
 export interface AssistantBaseMultipleBreakdownFilter {

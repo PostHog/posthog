@@ -1431,6 +1431,7 @@
                     "type": "string"
                 },
                 "name": {
+                    "description": "Action name from the plan.",
                     "type": "string"
                 },
                 "properties": {
@@ -1440,7 +1441,7 @@
                     "type": "array"
                 }
             },
-            "required": ["id", "kind"],
+            "required": ["id", "kind", "name"],
             "type": "object"
         },
         "AssistantTrendsBreakdownFilter": {
