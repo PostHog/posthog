@@ -563,8 +563,8 @@ importers:
         specifier: workspace:*
         version: link:../common/hogvm/typescript
       '@posthog/icons':
-        specifier: 0.11.4
-        version: 0.11.4(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.11.5
+        version: 0.11.5(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@posthog/plugin-scaffold':
         specifier: ^1.4.4
         version: 1.4.4
@@ -4401,8 +4401,8 @@ packages:
       react: '>=16.14.0'
       react-dom: '>=16.14.0'
 
-  '@posthog/icons@0.11.4':
-    resolution: {integrity: sha512-4wvtpX9fr+yhmS0D+SZ1Rs6PYFL1Wb0hQ5HxTSy4ShKK2B6PMYQ1NIIT6WNWfyoC+WAOdna86H9GgHVxUfSz2A==}
+  '@posthog/icons@0.11.5':
+    resolution: {integrity: sha512-GvHJ494Pw4W4EwAr4v7CTVOIdKqcHYW8z+DV+K9UUYF6K5+0vG8SBfJFYK4PKQ7DGnHu3mSZyV6dw7kI+/81Hg==}
     peerDependencies:
       react: '>=16.14.0'
       react-dom: '>=16.14.0'
@@ -19400,7 +19400,7 @@ snapshots:
       react: 18.2.0
       react-dom: 18.2.0(react@18.2.0)
 
-  '@posthog/icons@0.11.4(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
+  '@posthog/icons@0.11.5(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
     dependencies:
       react: 18.2.0
       react-dom: 18.2.0(react@18.2.0)

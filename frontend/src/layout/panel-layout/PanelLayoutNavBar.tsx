@@ -1,7 +1,6 @@
 import {
     IconBolt,
     IconChevronRight,
-    IconCircleDashed,
     IconClock,
     IconFolderOpen,
     IconPeople,
@@ -193,24 +192,6 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 }}
                             >
                                 <span>Activity</span>
-                            </LemonButton>
-
-                            <LemonButton
-                                className="hover:bg-fill-highlight-100"
-                                fullWidth
-                                icon={
-                                    <IconWrapper>
-                                        <IconCircleDashed />
-                                    </IconWrapper>
-                                }
-                                size="small"
-                                sideIcon={
-                                    <IconWrapper size="sm">
-                                        <IconChevronRight />
-                                    </IconWrapper>
-                                }
-                            >
-                                <span>Quick start</span>
                             </LemonButton>
                         </ScrollableShadows>
                     </div>
