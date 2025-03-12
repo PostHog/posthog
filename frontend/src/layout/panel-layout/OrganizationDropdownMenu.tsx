@@ -1,4 +1,4 @@
-import { IconChevronDown, IconPlusSmall } from '@posthog/icons'
+import { IconChevronRight, IconPlusSmall } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
@@ -11,6 +11,7 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
+import { Icon } from 'lib/ui/Icon/Icon'
 import { cn } from 'lib/utils/css-classes'
 import { useState } from 'react'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -49,20 +50,26 @@ export function OrganizationDropdownMenu(): JSX.Element {
                                 mediaId={currentOrganization.logo_media_id}
                             />
                         ) : (
-                            <IconPlusSmall className="size-5" />
+                            <Icon>
+                                <IconPlusSmall />
+                            </Icon>
                         )
                     }
                     size="small"
                     className="hover:bg-fill-highlight-100 w-fit"
                     tooltip="Open organization dropdown"
+                    sideIcon={
+                        <Icon size="sm">
+                            <IconChevronRight
+                                className={cn(
+                                    'transition-transform duration-200 prefers-reduced-motion:transition-none',
+                                    isDropdownOpen ? 'rotate-270' : 'rotate-90'
+                                )}
+                            />
+                        </Icon>
+                    }
                 >
                     <span>{currentOrganization ? currentOrganization.name : 'Open'}</span>
-                    <IconChevronDown
-                        className={cn(
-                            'size-5 transition-transform duration-200 prefers-reduced-motion:transition-none',
-                            isDropdownOpen && 'rotate-180'
-                        )}
-                    />
                 </LemonButton>
             </DropdownMenuTrigger>
             <DropdownMenuContent loop align="start">
@@ -111,7 +118,11 @@ export function OrganizationDropdownMenu(): JSX.Element {
                 {preflight?.can_create_org && (
                     <DropdownMenuItem asChild>
                         <LemonButton
-                            icon={<IconPlusSmall />}
+                            icon={
+                                <Icon>
+                                    <IconPlusSmall />
+                                </Icon>
+                            }
                             onClick={() =>
                                 guardAvailableFeature(
                                     AvailableFeature.ORGANIZATIONS_PROJECTS,
