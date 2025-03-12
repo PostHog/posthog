@@ -164,7 +164,7 @@ fn test_property_timestamp_detection() {
 
     assert_eq!(
         detect_property_type(
-            "udpatedAt",
+            "updatedAt",
             &Value::Number(Number::from(Utc::now().timestamp_millis() as u64 / 1000u64))
         ),
         Some(PropertyValueType::DateTime)
