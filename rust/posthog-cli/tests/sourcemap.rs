@@ -1,5 +1,8 @@
 use posthog_cli::utils::sourcemaps::read_pairs;
-use std::{fs, path::PathBuf};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 use test_log::test;
 
 fn get_case_path(relative_path: &str) -> PathBuf {
@@ -9,7 +12,7 @@ fn get_case_path(relative_path: &str) -> PathBuf {
         .expect("Failed to canonicalize path")
 }
 
-fn assert_file_eq(base_path: &PathBuf, path: &str, actual: &str) {
+fn assert_file_eq(base_path: &Path, path: &str, actual: &str) {
     let expected = fs::read_to_string(base_path.join(path)).expect("Failed to read expected file");
     assert_eq!(expected, actual);
 }
