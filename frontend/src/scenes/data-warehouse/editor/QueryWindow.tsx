@@ -210,6 +210,12 @@ function RunButton(): JSX.Element {
     const { runQuery } = useActions(multitabEditorLogic)
     const { cancelQuery } = useActions(dataNodeLogic)
     const { responseLoading } = useValues(dataNodeLogic)
+    const { metadata } = useValues(multitabEditorLogic)
+
+    const isUsingIndices = metadata?.isUsingIndices === 'yes'
+    const tooltipContent = !isUsingIndices
+        ? 'This query is not using indices optimally, which may result in slower performance.'
+        : undefined
 
     return (
         <LemonButton
@@ -220,9 +226,16 @@ function RunButton(): JSX.Element {
                     runQuery()
                 }
             }}
-            icon={responseLoading ? <IconCancel /> : <IconPlayFilled color="var(--success)" />}
+            icon={
+                responseLoading ? (
+                    <IconCancel />
+                ) : (
+                    <IconPlayFilled color={isUsingIndices ? 'var(--success)' : 'var(--warning)'} />
+                )
+            }
             type="tertiary"
             size="xsmall"
+            tooltip={tooltipContent}
         >
             {responseLoading ? 'Cancel' : 'Run'}
         </LemonButton>
