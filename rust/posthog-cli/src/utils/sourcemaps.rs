@@ -5,6 +5,7 @@ use posthog_symbol_data::{write_symbol_data, SourceAndMap};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sourcemap::SourceMap;
+use std::collections::BTreeMap;
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
@@ -15,15 +16,15 @@ use walkdir::WalkDir;
 use super::constant::{CHUNKID_COMMENT_PREFIX, CHUNKID_PLACEHOLDER, CODE_SNIPPET_TEMPLATE};
 
 pub struct SourceFile {
-    path: PathBuf,
-    content: String,
+    pub path: PathBuf,
+    pub content: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SourceMapChunkId {
     chunk_id: Option<String>,
     #[serde(flatten)]
-    fields: HashMap<String, Value>,
+    fields: BTreeMap<String, Value>,
 }
 
 impl SourceFile {
@@ -36,8 +37,9 @@ impl SourceFile {
         Ok(SourceFile::new(path.clone(), content))
     }
 
-    pub fn save(&self) -> Result<()> {
-        std::fs::write(&self.path, &self.content)?;
+    pub fn save(&self, dest: Option<PathBuf>) -> Result<()> {
+        let final_path = dest.unwrap_or(self.path.clone());
+        std::fs::write(&final_path, &self.content)?;
         Ok(())
     }
 }
@@ -112,14 +114,12 @@ impl SourcePair {
         self.chunk_id = Some(chunk_id.clone());
         self.source.content = new_source_content;
         self.sourcemap.content = serde_json::to_string(&new_sourcemap)?;
-
-        self.save()?;
         Ok(())
     }
 
     pub fn save(&self) -> Result<()> {
-        self.source.save()?;
-        self.sourcemap.save()?;
+        self.source.save(None)?;
+        self.sourcemap.save(None)?;
         Ok(())
     }
 
@@ -188,47 +188,4 @@ pub fn guess_sourcemap_path(path: &Path) -> PathBuf {
 fn is_javascript_file(path: &Path) -> bool {
     path.extension()
         .map_or(false, |ext| ext == "js" || ext == "mjs" || ext == "cjs")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use anyhow::{Context, Result};
-    use std::fs::File;
-    use std::io::Write;
-    use tempfile::{tempdir, TempDir};
-    use test_log::test;
-    use tracing::info;
-
-    fn create_pair(dir: &TempDir, path: &str, pair_name: &str, extension: &str) -> Result<()> {
-        let sub_path = dir.path().join(path);
-        if !sub_path.exists() {
-            std::fs::create_dir_all(&sub_path)?;
-        }
-        let js_path = sub_path.join(format!("{}.{}", pair_name, extension));
-        info!("Creating file: {:?}", js_path);
-        let mut file = File::create(&js_path).context("Failed to create file")?;
-        let map_path = sub_path.join(format!("{}.{}.{}", pair_name, extension, "map"));
-        let mut map_file = File::create(&map_path).context("Failed to create map")?;
-        writeln!(file, "console.log('hello');").context("Failed to write to file")?;
-        writeln!(map_file, "{{}}").context("Failed to write to file")?;
-        Ok(())
-    }
-
-    fn setup_test_directory() -> Result<TempDir> {
-        let dir = tempdir()?;
-        create_pair(&dir, "", "regular", "js")?;
-        create_pair(&dir, "assets", "module", "mjs")?;
-        create_pair(&dir, "assets/sub", "common", "cjs")?;
-        Ok(dir)
-    }
-
-    #[test]
-    fn test_tempdir_creation() {
-        let dist_dir = setup_test_directory().unwrap();
-        assert!(dist_dir.path().exists());
-        let dist_dir_path = dist_dir.path().to_path_buf();
-        let pairs = read_pairs(&dist_dir_path).expect("Failed to read pairs");
-        assert_eq!(pairs.len(), 3);
-    }
 }
