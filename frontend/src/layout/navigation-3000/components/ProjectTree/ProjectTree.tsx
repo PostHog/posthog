@@ -1,24 +1,21 @@
-import { IconPlusSmall, IconSearch, IconSort, IconX } from '@posthog/icons'
+import { IconPin, IconPinFilled, IconPlus, IconSearch, IconSort, IconX } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { Resizer } from 'lib/components/Resizer/Resizer'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTree, LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { ContextMenuGroup, ContextMenuItem } from 'lib/ui/ContextMenu/ContextMenu'
 import { useRef } from 'react'
 
+import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
+import { ProjectDropdownMenu } from '../../../panel-layout/ProjectDropdownMenu'
 import { navigation3000Logic } from '../../navigationLogic'
-import { NavbarBottom } from '../NavbarBottom'
-import { ProjectDropdownMenu } from './ProjectDropdownMenu'
 import { projectTreeLogic } from './projectTreeLogic'
 import { joinPath, splitPath } from './utils'
 
 export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLElement> }): JSX.Element {
-    const { isNavShown, mobileLayout } = useValues(navigation3000Logic)
-    const { toggleNavCollapsed, hideNavOnMobile } = useActions(navigation3000Logic)
     const {
         treeData,
         loadingPaths,
@@ -44,6 +41,10 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
         setSearchTerm,
         clearSearch,
     } = useActions(projectTreeLogic)
+
+    const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
+    const { showLayoutPanel, toggleLayoutPanelPinned } = useActions(panelLayoutLogic)
+    const { isLayoutPanelPinned } = useValues(panelLayoutLogic)
     const treeRef = useRef<LemonTreeRef>(null)
     const containerRef = useRef<HTMLDivElement | null>(null)
 
@@ -55,7 +56,10 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
 
     return (
         <>
-            <nav className={clsx('Navbar3000 relative', !isNavShown && 'Navbar3000--hidden')} ref={containerRef}>
+            <nav
+                className={clsx('flex flex-col max-h-screen min-h-screen relative w-[320px] border-r border-primary')}
+                ref={containerRef}
+            >
                 <div className="flex justify-between p-1 bg-surface-tertiary">
                     <ProjectDropdownMenu />
 
@@ -65,22 +69,32 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                             type="tertiary"
                             tooltip="Sort by name"
                             onClick={() => alert('Sort by name')}
-                            className="shrink-0"
+                            className="hover:bg-fill-highlight-100 shrink-0"
                             icon={<IconSort />}
                         />
+                        {!isMobileLayout && (
+                            <LemonButton
+                                size="small"
+                                type="tertiary"
+                                tooltip={isLayoutPanelPinned ? 'Unpin panel' : 'Pin panel'}
+                                onClick={() => toggleLayoutPanelPinned(!isLayoutPanelPinned)}
+                                className="hover:bg-fill-highlight-100 shrink-0"
+                                icon={isLayoutPanelPinned ? <IconPinFilled /> : <IconPin />}
+                            />
+                        )}
                         <LemonButton
                             size="small"
                             type="tertiary"
                             tooltip="Create new root folder"
                             onClick={() => createFolder('')}
-                            className="shrink-0"
-                            icon={<IconPlusSmall />}
+                            className="hover:bg-fill-highlight-100 shrink-0"
+                            icon={<IconPlus className="size-4" />}
                         />
                     </div>
                 </div>
 
                 <div className="border-b border-secondary h-px" />
-                <div className="z-main-nav flex flex-1 flex-col justify-between overflow-y-auto bg-surface-secondary w-80">
+                <div className="z-main-nav flex flex-1 flex-col justify-between overflow-y-auto bg-surface-secondary">
                     <div className="flex gap-1 p-1 items-center justify-between">
                         <LemonInput
                             placeholder="Search..."
@@ -163,6 +177,7 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                         onNodeClick={(node) => {
                             if (node?.record?.path) {
                                 setLastViewedId(node?.id || '')
+                                showLayoutPanel(false)
                             }
                             if (node?.id.startsWith('project-load-more/')) {
                                 const path = node.id.split('/').slice(1).join('/')
@@ -334,26 +349,8 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                             }
                         }}
                     />
-                    <div className="border-b border-primary h-px" />
-                    <NavbarBottom />
                 </div>
-                {!mobileLayout && (
-                    <Resizer
-                        logicKey="navbar"
-                        placement="right"
-                        containerRef={containerRef}
-                        closeThreshold={100}
-                        onToggleClosed={(shouldBeClosed) => toggleNavCollapsed(shouldBeClosed)}
-                        onDoubleClick={() => toggleNavCollapsed()}
-                    />
-                )}
             </nav>
-            {mobileLayout && (
-                <div
-                    className={clsx('Navbar3000__overlay', !isNavShown && 'Navbar3000--hidden')}
-                    onClick={() => hideNavOnMobile()}
-                />
-            )}
         </>
     )
 }

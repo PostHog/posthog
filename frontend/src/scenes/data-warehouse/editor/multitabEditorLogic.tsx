@@ -90,10 +90,9 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
     actions({
         setQueryInput: (queryInput: string) => ({ queryInput }),
         updateState: true,
-        runQuery: (queryOverride?: string, switchTab?: boolean, tabKey?: string) => ({
+        runQuery: (queryOverride?: string, switchTab?: boolean) => ({
             queryOverride,
             switchTab,
-            tabKey,
         }),
         setActiveQuery: (query: string) => ({ query }),
         renameTab: (tab: QueryTab, newName: string) => ({ tab, newName }),
@@ -509,7 +508,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             localStorage.setItem(editorModelsStateKey(props.key), JSON.stringify(queries))
             actions.updateQueryTabState()
         },
-        runQuery: ({ queryOverride, switchTab, tabKey }) => {
+        runQuery: ({ queryOverride, switchTab }) => {
             const query = queryOverride || values.queryInput
 
             actions.setSourceQuery({
@@ -520,7 +519,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 },
             })
             dataNodeLogic({
-                key: tabKey ?? values.activeModelUri?.uri.path ?? dataNodeKey,
+                key: values.activeModelUri?.uri.path ?? dataNodeKey,
                 query: {
                     ...values.sourceQuery.source,
                     query,
@@ -528,7 +527,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             }).mount()
 
             dataNodeLogic({
-                key: tabKey ?? values.activeModelUri?.uri.path ?? dataNodeKey,
+                key: values.activeModelUri?.uri.path ?? dataNodeKey,
                 query: {
                     ...values.sourceQuery.source,
                     query,
@@ -678,24 +677,13 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 const val = _model?.getValue()
 
                 actions.setQueryInput(val ?? '')
-
-                if (activeModelUri.sourceQuery) {
-                    actions.setSourceQuery({
-                        ...activeModelUri.sourceQuery,
-                        source: {
-                            ...activeModelUri.sourceQuery.source,
-                            query: val ?? '',
-                        },
-                    })
-                } else {
-                    actions.setSourceQuery({
-                        kind: NodeKind.DataVisualizationNode,
-                        source: {
-                            kind: NodeKind.HogQLQuery,
-                            query: val ?? '',
-                        },
-                    })
-                }
+                actions.setSourceQuery({
+                    ...values.sourceQuery,
+                    source: {
+                        ...values.sourceQuery.source,
+                        query: val ?? '',
+                    },
+                })
             }
         },
         allTabs: () => {

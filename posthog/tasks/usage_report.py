@@ -5,10 +5,9 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import Any, Literal, Optional, TypedDict, Union
 
-import celery
 import requests
 import structlog
-from celery import shared_task
+from celery import shared_task, current_task
 from dateutil import parser
 from django.conf import settings
 from django.db import connection
@@ -67,7 +66,6 @@ QUERY_RETRY_DELAY = 1
 QUERY_RETRY_BACKOFF = 2
 
 USAGE_REPORT_TASK_KWARGS = {
-    "bind": True,
     "queue": CeleryQueue.USAGE_REPORTS.value,
     "ignore_result": True,
     "autoretry_for": (Exception,),
@@ -87,7 +85,9 @@ class UsageReportCounters:
 
     # Recordings
     recording_count_in_period: int
+    recording_bytes_in_period: int
     mobile_recording_count_in_period: int
+    mobile_recording_bytes_in_period: int
     mobile_billable_recording_count_in_period: int
     # Persons and Groups
     group_types_total: int
@@ -291,13 +291,16 @@ def get_org_user_count(organization_id: str) -> int:
 
 
 @shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=3, rate_limit="5/s")
-def send_report_to_billing_service(self: celery.Task, org_id: str, report: dict[str, Any]) -> None:
+def send_report_to_billing_service(org_id: str, report: dict[str, Any]) -> None:
     if not settings.EE_AVAILABLE:
         return
 
     from ee.billing.billing_manager import BillingManager, build_billing_token
     from ee.billing.billing_types import BillingStatus
     from ee.settings import BILLING_SERVICE_URL
+
+    if current_task and current_task.request:
+        tag_queries(celery_request_id=current_task.request.id)
 
     try:
         license = get_cached_instance_license()
@@ -774,9 +777,48 @@ def get_teams_with_hog_function_fetch_calls_in_period(
     return results
 
 
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_recording_bytes_in_period(
+    begin: datetime, end: datetime, snapshot_source: Literal["mobile", "web"] = "web"
+) -> list[tuple[int, int]]:
+    previous_begin = begin - (end - begin)
+
+    query = """
+        SELECT team_id, sum(total_size) as bytes
+        FROM (
+            SELECT any(team_id) as team_id, session_id, sum(size) as total_size
+            FROM session_replay_events
+            WHERE min_first_timestamp BETWEEN %(begin)s AND %(end)s
+            GROUP BY session_id
+            HAVING ifNull(argMinMerge(snapshot_source), 'web') == %(snapshot_source)s
+        )
+        WHERE session_id NOT IN (
+            -- we want to exclude sessions that might have events with timestamps
+            -- before the period we are interested in
+            SELECT DISTINCT session_id
+            FROM session_replay_events
+            -- begin is the very first instant of the period we are interested in
+            -- we assume it is also the very first instant of a day
+            -- so we can to subtract 1 second to get the day before
+            WHERE min_first_timestamp BETWEEN %(previous_begin)s AND %(begin)s
+            GROUP BY session_id
+        )
+        GROUP BY team_id
+    """
+    with tags_context(usage_report="get_teams_with_recording_bytes_in_period"):
+        result = sync_execute(
+            query,
+            {"previous_begin": previous_begin, "begin": begin, "end": end, "snapshot_source": snapshot_source},
+            workload=Workload.OFFLINE,
+            settings=CH_BILLING_SETTINGS,
+        )
+
+    return result
+
+
 @shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=0)
 def capture_report(
-    self: celery.Task,
     *,
     capture_event_name: str,
     org_id: Optional[str] = None,
@@ -877,7 +919,13 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_recording_count_in_period": get_teams_with_recording_count_in_period(
             period_start, period_end, snapshot_source="web"
         ),
+        "teams_with_recording_bytes_in_period": get_teams_with_recording_bytes_in_period(
+            period_start, period_end, snapshot_source="web"
+        ),
         "teams_with_mobile_recording_count_in_period": get_teams_with_recording_count_in_period(
+            period_start, period_end, snapshot_source="mobile"
+        ),
+        "teams_with_mobile_recording_bytes_in_period": get_teams_with_recording_bytes_in_period(
             period_start, period_end, snapshot_source="mobile"
         ),
         "teams_with_mobile_billable_recording_count_in_period": get_teams_with_mobile_billable_recording_count_in_period(
@@ -1066,7 +1114,9 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
             team.id, 0
         ),
         recording_count_in_period=all_data["teams_with_recording_count_in_period"].get(team.id, 0),
+        recording_bytes_in_period=all_data["teams_with_recording_bytes_in_period"].get(team.id, 0),
         mobile_recording_count_in_period=all_data["teams_with_mobile_recording_count_in_period"].get(team.id, 0),
+        mobile_recording_bytes_in_period=all_data["teams_with_mobile_recording_bytes_in_period"].get(team.id, 0),
         mobile_billable_recording_count_in_period=all_data["teams_with_mobile_billable_recording_count_in_period"].get(
             team.id, 0
         ),
@@ -1190,7 +1240,6 @@ def _get_full_org_usage_report_as_dict(full_report: FullUsageReport) -> dict[str
 
 @shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=3)
 def send_all_org_usage_reports(
-    self: celery.Task,
     dry_run: bool = False,
     at: Optional[str] = None,
     capture_event_name: Optional[str] = None,
@@ -1200,7 +1249,8 @@ def send_all_org_usage_reports(
     import posthoganalytics
     from sentry_sdk import capture_message
 
-    tag_queries(celery_request_id=self.request.id)
+    if current_task and current_task.request:
+        tag_queries(celery_request_id=current_task.request.id)
 
     are_usage_reports_disabled = posthoganalytics.feature_enabled("disable-usage-reports", "internal_billing_events")
     if are_usage_reports_disabled:
@@ -1244,7 +1294,7 @@ def send_all_org_usage_reports(
 
             # Then capture the events to Billing
             if has_non_zero_usage(full_report):
-                send_report_to_billing_service.delay(org_id, full_report_dict)
+                send_report_to_billing_service.delay(org_id=org_id, report=full_report_dict)
         time_since = datetime.now() - time_now
         logger.debug(f"Sending usage reports to PostHog and Billing took {time_since.total_seconds()} seconds.")  # noqa T201
     except Exception as err:

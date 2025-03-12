@@ -281,7 +281,13 @@ function EventTriggerOptions(): JSX.Element | null {
 export function ReplayTriggers(): JSX.Element {
     return (
         <div className="deprecated-space-y-2">
-            <SupportedPlatforms android={false} ios={false} flutter={false} web={true} reactNative={false} />
+            <SupportedPlatforms
+                android={false}
+                ios={false}
+                flutter={false}
+                web={{ version: '1.186.0', note: 'url trigger is supported since version 1.171.0' }}
+                reactNative={false}
+            />
             <p>
                 Use the settings below to control when recordings are started or paused. If no triggers are selected,
                 then recordings will always start if enabled.

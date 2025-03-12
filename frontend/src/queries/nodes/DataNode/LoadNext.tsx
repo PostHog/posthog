@@ -68,17 +68,20 @@ export function LoadNext({ query }: LoadNextProps): JSX.Element {
 }
 
 export function LoadPreviewText(): JSX.Element {
-    const { cachedResponse, hasMoreData, responseLoading } = useValues(dataNodeLogic)
+    const { response, hasMoreData, responseLoading } = useValues(dataNodeLogic)
 
     if (responseLoading) {
         return <div />
     }
 
+    const resultCount = response?.results?.length ?? 0
+    const isSingleEntry = resultCount === 1
+    const showFirstPrefix = hasMoreData && resultCount > 1
+
     return (
         <>
-            Showing {hasMoreData && (cachedResponse?.results?.length ?? 0) > 1 ? 'first ' : ' '}
-            {cachedResponse?.results?.length === 1 ? 'one' : cachedResponse?.results?.length}{' '}
-            {cachedResponse?.results?.length === 1 ? 'entry' : 'entries'}
+            Showing {showFirstPrefix ? 'first ' : ' '}
+            {isSingleEntry ? 'one' : resultCount} {isSingleEntry ? 'entry' : 'entries'}
         </>
     )
 }

@@ -390,6 +390,9 @@
          "posthog_action"."bytecode_error",
          "posthog_action"."steps_json",
          "posthog_action"."pinned_at",
+         "posthog_action"."summary",
+         "posthog_action"."last_summarized_at",
+         "posthog_action"."embedding_last_synced_at",
          "posthog_action"."is_calculating",
          "posthog_action"."last_calculated_at"
   FROM "posthog_action"
@@ -842,6 +845,9 @@
          "posthog_action"."bytecode_error",
          "posthog_action"."steps_json",
          "posthog_action"."pinned_at",
+         "posthog_action"."summary",
+         "posthog_action"."last_summarized_at",
+         "posthog_action"."embedding_last_synced_at",
          "posthog_action"."is_calculating",
          "posthog_action"."last_calculated_at"
   FROM "posthog_action"
@@ -1360,6 +1366,9 @@
          "posthog_action"."bytecode_error",
          "posthog_action"."steps_json",
          "posthog_action"."pinned_at",
+         "posthog_action"."summary",
+         "posthog_action"."last_summarized_at",
+         "posthog_action"."embedding_last_synced_at",
          "posthog_action"."is_calculating",
          "posthog_action"."last_calculated_at"
   FROM "posthog_action"
@@ -1793,6 +1802,9 @@
          "posthog_action"."bytecode_error",
          "posthog_action"."steps_json",
          "posthog_action"."pinned_at",
+         "posthog_action"."summary",
+         "posthog_action"."last_summarized_at",
+         "posthog_action"."embedding_last_synced_at",
          "posthog_action"."is_calculating",
          "posthog_action"."last_calculated_at"
   FROM "posthog_action"
@@ -2139,6 +2151,9 @@
          "posthog_action"."bytecode_error",
          "posthog_action"."steps_json",
          "posthog_action"."pinned_at",
+         "posthog_action"."summary",
+         "posthog_action"."last_summarized_at",
+         "posthog_action"."embedding_last_synced_at",
          "posthog_action"."is_calculating",
          "posthog_action"."last_calculated_at"
   FROM "posthog_action"
@@ -2261,6 +2276,9 @@
          "posthog_action"."bytecode_error",
          "posthog_action"."steps_json",
          "posthog_action"."pinned_at",
+         "posthog_action"."summary",
+         "posthog_action"."last_summarized_at",
+         "posthog_action"."embedding_last_synced_at",
          "posthog_action"."is_calculating",
          "posthog_action"."last_calculated_at"
   FROM "posthog_action"
