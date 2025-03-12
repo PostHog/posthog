@@ -14,18 +14,18 @@ pub enum Error {
     ResolutionError(#[from] FrameError),
 }
 
-// Errors specifically in using chunk ID's. These are
-// handled as distinct from general resolution errors,
-// because we want to handle them differently.
-#[derive(Debug, Error)]
-pub enum ChunkIdError {
-    #[error("Chunk ID not found {0}")]
-    NotFound(String),
-    #[error("Missing storage pointer {0}")]
-    MissingStoragePtr(String),
-    #[error(transparent)]
-    Other(#[from] Error),
-}
+// // Errors specifically in using chunk ID's. These are
+// // handled as distinct from general resolution errors,
+// // because we want to handle them differently.
+// #[derive(Debug, Error)]
+// pub enum ChunkIdError {
+//     #[error("Chunk ID not found {0}")]
+//     NotFound(String),
+//     #[error("Missing storage pointer {0}")]
+//     MissingStoragePtr(String),
+//     #[error(transparent)]
+//     Other(#[from] Error),
+// }
 
 #[derive(Debug, Error)]
 pub enum UnhandledError {
@@ -57,13 +57,17 @@ pub enum UnhandledError {
 pub enum FrameError {
     #[error(transparent)]
     JavaScript(#[from] JsResolveErr),
+    #[error("No symbol set for chunk id: {0}")]
+    MissingChunkIdData(String),
 }
 
 #[derive(Debug, Error, Serialize, Deserialize)]
 pub enum JsResolveErr {
+    #[error("This frame had no source url or chunk id")]
+    NoUrlOrChunkId,
     // The frame has no source url. This might indicate it needs no further processing, who knows
     #[error("No source url found")]
-    NoSourceUrl,
+    NoSourceUrl, // Deprecated, use NoUrlOrChunkId instead
     // We failed to parse a found source map
     #[error("Invalid source map: {0}")]
     InvalidSourceMap(String),
@@ -105,6 +109,8 @@ pub enum JsResolveErr {
     InvalidSourceAndMap,
     #[error("Invalid data url found at {0}. {1}")]
     InvalidDataUrl(String, String),
+    #[error("No sourcemap uploaded for chunk id: {0}")]
+    NoSourcemapUploaded(String),
 }
 
 #[derive(Debug, Error)]
@@ -161,18 +167,5 @@ impl From<reqwest::Error> for JsResolveErr {
 impl From<aws_sdk_s3::Error> for UnhandledError {
     fn from(e: aws_sdk_s3::Error) -> Self {
         UnhandledError::S3Error(Box::new(e))
-    }
-}
-
-// A couple of conveniences for chunk id specific handling
-impl From<UnhandledError> for ChunkIdError {
-    fn from(e: UnhandledError) -> Self {
-        ChunkIdError::Other(Error::UnhandledError(e))
-    }
-}
-
-impl From<FrameError> for ChunkIdError {
-    fn from(e: FrameError) -> Self {
-        ChunkIdError::Other(Error::ResolutionError(e))
     }
 }

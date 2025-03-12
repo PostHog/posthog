@@ -61,9 +61,7 @@ impl RawFrame {
 
     pub fn symbol_set_ref(&self) -> Option<String> {
         match self {
-            RawFrame::JavaScriptWeb(frame) | RawFrame::LegacyJS(frame) => {
-                frame.source_url().map(String::from).ok()
-            }
+            RawFrame::JavaScriptWeb(frame) | RawFrame::LegacyJS(frame) => frame.symbol_set_ref(),
             RawFrame::JavaScriptNode(_) => None, // Python frames don't have symbol sets
             RawFrame::Python(_) => None,         // Python frames don't have symbol sets
         }

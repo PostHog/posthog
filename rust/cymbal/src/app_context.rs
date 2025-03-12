@@ -90,35 +90,34 @@ impl AppContext {
         )));
 
         let smp = SourcemapProvider::new(config);
-        let saving_smp = Saving::new(
+
+        let chunk_layer = ChunkIdFetcher::new(
             smp,
+            s3_client.clone(),
+            pool.clone(),
+            config.object_storage_bucket.clone(),
+        );
+
+        let saving_layer = Saving::new(
+            chunk_layer,
             pool.clone(),
             s3_client.clone(),
             config.object_storage_bucket.clone(),
             config.ss_prefix.clone(),
         );
-        let caching_smp = Caching::new(saving_smp, ss_cache.clone());
+        let caching_layer = Caching::new(saving_layer, ss_cache.clone());
         // We want to fetch each sourcemap from the outside world
         // exactly once, and if it isn't in the cache, load/parse
         // it from s3 exactly once too. Limiting the per symbol set
         // reference concurreny to 1 ensures this.
-        let limited_smp = concurrency::AtMostOne::new(caching_smp);
-
-        let chunk_id_fetcher = SourcemapProvider::new(config);
-        let chunk_id_fetcher = ChunkIdFetcher::new(
-            chunk_id_fetcher,
-            s3_client,
-            pool.clone(),
-            config.object_storage_bucket.clone(),
-        );
-        let caching_chunk_id_fetcher = Caching::new(chunk_id_fetcher, ss_cache);
+        let limited_layer = concurrency::AtMostOne::new(caching_layer);
 
         info!(
             "AppContext initialized, subscribed to topic {}",
             config.consumer.kafka_consumer_topic
         );
 
-        let catalog = Catalog::new(limited_smp, caching_chunk_id_fetcher);
+        let catalog = Catalog::new(limited_layer);
         let resolver = Resolver::new(config);
 
         Ok(Self {
