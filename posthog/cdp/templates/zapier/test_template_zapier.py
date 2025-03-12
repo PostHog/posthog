@@ -36,3 +36,19 @@ class TestTemplateZapier(BaseHogFunctionTemplateTest):
             ("https://hooks.zapier.com/hooks/catch/7363152/2l3ak6v/", {"body": {"hello": "world"}, "method": "POST"})
         )
         assert self.get_mock_print_calls() == snapshot([])
+
+    def test_function_handles_leading_slash(self):
+        # Test with a path that has a leading slash
+        self.run_function(
+            inputs={
+                "hook": "/hooks/catch/7363152/2l3ak6v/",
+                "body": {"hello": "world"},
+                "debug": False,
+            }
+        )
+
+        # The leading slash should be removed to avoid double slashes
+        assert self.get_mock_fetch_calls()[0] == snapshot(
+            ("https://hooks.zapier.com/hooks/catch/7363152/2l3ak6v/", {"body": {"hello": "world"}, "method": "POST"})
+        )
+        assert self.get_mock_print_calls() == snapshot([])

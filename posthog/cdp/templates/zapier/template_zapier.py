@@ -13,8 +13,14 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     hog="""
 let hook_path := inputs.hook;
 let prefix := 'https://hooks.zapier.com/';
+// Remove the prefix if it exists
 if (position(hook_path, prefix) == 1) {
   hook_path := replaceOne(hook_path, prefix, '');
+}
+
+// Remove leading slash if present to avoid double slashes
+if (position(hook_path, '/') == 1) {
+  hook_path := replaceOne(hook_path, '/', '');
 }
 
 let res := fetch(f'https://hooks.zapier.com/{hook_path}', {
