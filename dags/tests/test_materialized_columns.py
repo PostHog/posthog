@@ -14,9 +14,17 @@ from dags.materialized_columns import (
     PartitionRange,
     materialize_column,
     run_materialize_mutations,
+    zip_values,
 )
 from posthog.clickhouse.cluster import ClickhouseCluster, Query
 from posthog.test.base import materialized
+
+
+def test_zip_values():
+    assert [*zip_values({1: ["a", "b"], 2: ["c", "d"]})] == [
+        {1: "a", 2: "c"},
+        {1: "b", 2: "d"},
+    ]
 
 
 def test_partition_range_validation():

@@ -14,6 +14,20 @@ from posthog import settings
 from posthog.clickhouse.cluster import ClickhouseCluster, AlterTableMutationRunner
 
 
+K = TypeVar("K")
+V = TypeVar("V")
+
+
+def zip_values(mapping: Mapping[K, Iterable[V]]) -> Iterator[Mapping[K, V]]:
+    keys, values = [], []
+    for key, value in mapping.items():
+        keys.append(key)
+        values.append(value)
+
+    for chunk in zip(*values):
+        yield dict(zip(keys, chunk))
+
+
 class PartitionRange(dagster.Config):
     lower: str
     upper: str
@@ -105,20 +119,6 @@ class MaterializeColumnConfig(dagster.Config):
                     {f"MATERIALIZE COLUMN {self.column} IN PARTITION %(partition)s"},
                     parameters={"partition": partition},
                 )
-
-
-K = TypeVar("K")
-V = TypeVar("V")
-
-
-def zip_values(mapping: Mapping[K, Iterable[V]]) -> Iterator[Mapping[K, V]]:
-    keys, values = [], []
-    for key, value in mapping.items():
-        keys.append(key)
-        values.append(value)
-
-    for chunk in zip(*values):
-        yield dict(zip(keys, chunk))
 
 
 @dagster.op
