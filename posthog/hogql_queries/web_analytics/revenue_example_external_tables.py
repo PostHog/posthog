@@ -1,3 +1,5 @@
+from typing import Union
+
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
@@ -21,7 +23,7 @@ class RevenueExampleExternalTablesQueryRunner(QueryRunner):
             limit_context=LimitContext.QUERY, limit=self.query.limit if self.query.limit else None
         )
 
-    def to_query(self) -> ast.SelectSetQuery:
+    def to_query(self) -> Union[ast.SelectQuery, ast.SelectSetQuery]:
         tracking_config = self.query.revenueTrackingConfig
 
         # TODO: Once https://github.com/PostHog/posthog/pull/29680 is merged

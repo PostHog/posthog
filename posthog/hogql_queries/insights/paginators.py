@@ -67,7 +67,7 @@ class HogQLHasMorePaginator:
 
     def execute_hogql_query(
         self,
-        query: Union[str, ast.SelectQuery, ast.SelectSetQuery],
+        query: Union[ast.SelectQuery, ast.SelectSetQuery],
         *,
         query_type: str,
         **kwargs,
