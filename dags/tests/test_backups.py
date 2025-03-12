@@ -10,8 +10,8 @@ def test_get_latest_backup(table: str):
     mock_s3.get_client().list_objects_v2.return_value = {
         "CommonPrefixes": [
             {"Prefix": f"posthog/{f'{table}/' if table else ''}2024-01-01T07:54:04Z/"},
-            {"Prefix": f"posthog/{f'{table}/' if table else ''}2024-02-01T07:54:04Z/"},
             {"Prefix": f"posthog/{f'{table}/' if table else ''}2024-03-01T07:54:04Z/"},
+            {"Prefix": f"posthog/{f'{table}/' if table else ''}2024-02-01T07:54:04Z/"},
         ]
     }
 

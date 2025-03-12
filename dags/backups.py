@@ -157,7 +157,7 @@ def get_latest_backup(
     if "CommonPrefixes" not in backups:
         return None
 
-    latest_backup = backups["CommonPrefixes"][-1]["Prefix"]
+    latest_backup = sorted(backups["CommonPrefixes"], key=lambda x: x["Prefix"])[-1]["Prefix"]
     return Backup.from_s3_path(latest_backup)
 
 
