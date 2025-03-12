@@ -141,6 +141,15 @@ class TrendsQueryRunner(QueryRunner):
 
         return queries
 
+    def to_events_query(
+        self,
+        time_frame: Optional[str],
+        series_index: int,
+        breakdown_value: Optional[str | int | list[str]] = None,
+        compare_value: Optional[Compare] = None,
+    ):
+        pass
+
     def to_actors_query(
         self,
         time_frame: Optional[str],
