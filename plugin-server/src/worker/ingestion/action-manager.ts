@@ -136,14 +136,7 @@ export async function fetchAllActionsGroupedByTeam(
         await client.query<RawAction>(
             PostgresUse.COMMON_READ,
             `
-            SELECT
-                ${ACTION_SELECT_FIELDS.join(',')}
-                post_to_slack,
-                slack_message_format,
-                is_calculating,
-                updated_at,
-                last_calculated_at,
-                steps_json
+            SELECT ${ACTION_SELECT_FIELDS.join(',')}
             FROM posthog_action
             WHERE deleted = FALSE AND (post_to_slack OR id = ANY($1))
         `,
