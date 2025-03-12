@@ -130,15 +130,6 @@ describe('CdpCyclotronWorkerPlugins', () => {
                   "distinct_id": "distinct_id",
                   "event": "mycustomevent",
                   "ip": null,
-                  "person": {
-                    "created_at": "",
-                    "properties": {
-                      "email": "test@posthog.com",
-                      "first_name": "Pumpkin",
-                    },
-                    "team_id": 2,
-                    "uuid": "uuid",
-                  },
                   "properties": {
                     "email": "test@posthog.com",
                   },
