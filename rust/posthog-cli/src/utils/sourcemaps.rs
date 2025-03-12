@@ -1,4 +1,4 @@
-use anyhow::{anyhow, bail, Context, Ok, Result};
+use anyhow::{anyhow, bail, Ok, Result};
 use core::str;
 use magic_string::{GenerateDecodedMapOptions, MagicString};
 use posthog_symbol_data::{write_symbol_data, SourceAndMap};
