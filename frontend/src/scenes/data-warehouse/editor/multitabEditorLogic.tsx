@@ -534,7 +534,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             }
 
             const logic = dataNodeLogic({
-                key: dataNodeKey,
+                key: values.activeModelUri?.uri.path ?? dataNodeKey,
                 query: queryToSave,
             })
 
