@@ -110,7 +110,7 @@ pub fn run_query(endpoint: &str, token: &str, to_run: &str) -> Result<HogQLQuery
 
     let value: Value = serde_json::from_str(&body)?;
 
-    if code.is_client_error() {
+    if !code.is_success() {
         let error: HogQLQueryErrorResponse = serde_json::from_value(value)?;
         return Ok(Err(error));
     }

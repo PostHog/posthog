@@ -62,7 +62,7 @@ pub fn query_command(host: &str, query: &QueryCommand) -> Result<(), Error> {
                 }
             }
         }
-    };
+    }
 
     Ok(())
 }

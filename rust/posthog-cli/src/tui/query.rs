@@ -244,9 +244,9 @@ impl QueryTui {
         match &mut self.lower_panel_state {
             Some(LowerPanelState::TableState(ref mut ts)) => {
                 if key.code == KeyCode::Down {
-                    ts.select(Some(ts.selected().unwrap_or(0) + 1));
+                    ts.select_next();
                 } else if key.code == KeyCode::Up {
-                    ts.select(Some(ts.selected().unwrap_or(0).saturating_sub(1)));
+                    ts.select_previous();
                 }
             }
             Some(LowerPanelState::DebugState(ta)) => {
@@ -353,7 +353,7 @@ fn get_error_display<'c>(err: &HogQLQueryErrorResponse, is_focus: bool) -> Parag
 // A function that returns a text area with the json
 fn get_debug_display(response: &HogQLQueryResponse) -> TextArea<'static> {
     let json = serde_json::to_string_pretty(&response)
-        .unwrap()
+        .expect("Can serialize response to json")
         .lines()
         .map(|s| s.to_string())
         .collect();
