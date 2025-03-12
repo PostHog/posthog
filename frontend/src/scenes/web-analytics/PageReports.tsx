@@ -1,23 +1,35 @@
-import { IconExpand45, IconInfo, IconX } from '@posthog/icons'
+import { IconExpand45, IconTrending } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { XRayHog2 } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { IconOpenInNew } from 'lib/lemon-ui/icons/icons'
+import { IconOpenInNew, IconTableChart } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
+import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
-import { Popover } from 'lib/lemon-ui/Popover'
 import { addProductIntentForCrossSell, ProductIntentContext } from 'lib/utils/product-intents'
-import { useState } from 'react'
+import { memo } from 'react'
 
-import { InsightLogicProps } from '~/types'
-import { ProductKey } from '~/types'
+import { NodeKind } from '~/queries/schema/schema-general'
+import { WebStatsBreakdown } from '~/queries/schema/schema-general'
+import { ChartDisplayType, InsightLogicProps, ProductKey } from '~/types'
 
-import { pageReportsLogic } from './pageReportsLogic'
+import { pageReportsLogic, PageReportsTileId } from './pageReportsLogic'
 import { WebQuery } from './tiles/WebAnalyticsTile'
-import { DeviceTab, GeographyTab, PathTab, SourceTab, TileId, webAnalyticsLogic } from './webAnalyticsLogic'
+import { tileVisualizationLogic } from './tileVisualizationLogic'
+import { LearnMorePopover } from './WebAnalyticsDashboard'
+import {
+    DeviceTab,
+    GeographyTab,
+    getWebAnalyticsBreakdownFilter,
+    PathTab,
+    SourceTab,
+    TileId,
+    TileVisualizationOption,
+    webAnalyticsLogic,
+} from './webAnalyticsLogic'
 
 // Extended interface for pageReportsLogic values
 interface PageReportsLogicValues {
@@ -46,9 +58,18 @@ interface PageReportsLogicValues {
         languagesQuery: any
     }
     // Helper functions
-    createInsightProps: (tileId: TileId, tabId?: string) => InsightLogicProps
+    createInsightProps: (tileId: TileId | PageReportsTileId, tabId?: string) => InsightLogicProps
     // Combined metrics query
     combinedMetricsQuery: any
+    // Visualization options
+    getTileVisualization: (tileId: PageReportsTileId) => TileVisualizationOption
+    tileVisualizations: Record<PageReportsTileId, TileVisualizationOption>
+    // Date filter
+    dateFilter: any
+    // Compare filter
+    compareFilter: any
+    // Filter test accounts
+    shouldFilterTestAccounts: boolean
 }
 
 // Extended interface for pageReportsLogic actions
@@ -57,53 +78,7 @@ interface PageReportsLogicActions {
     setPageUrlSearchTerm: (searchTerm: string) => void
     loadPages: (searchTerm?: string) => void
     toggleStripQueryParams: () => void
-}
-
-// LearnMorePopover component
-interface LearnMorePopoverProps {
-    url?: string
-    title: string
-    description: string | JSX.Element
-}
-
-const LearnMorePopover = ({ url, title, description }: LearnMorePopoverProps): JSX.Element => {
-    const [isOpen, setIsOpen] = useState(false)
-
-    return (
-        <Popover
-            visible={isOpen}
-            onClickOutside={() => setIsOpen(false)}
-            overlay={
-                <div className="p-4">
-                    <div className="flex flex-row w-full">
-                        <h2 className="flex-1">{title}</h2>
-                        <LemonButton
-                            targetBlank
-                            type="tertiary"
-                            onClick={() => setIsOpen(false)}
-                            size="small"
-                            icon={<IconX />}
-                        />
-                    </div>
-                    <div className="text-sm text-gray-700">{description}</div>
-                    {url && (
-                        <div className="flex justify-end mt-4">
-                            <LemonButton
-                                to={url}
-                                onClick={() => setIsOpen(false)}
-                                targetBlank={true}
-                                sideIcon={<IconOpenInNew />}
-                            >
-                                Learn more
-                            </LemonButton>
-                        </div>
-                    )}
-                </div>
-            }
-        >
-            <LemonButton onClick={() => setIsOpen(!isOpen)} size="small" icon={<IconInfo />} className="ml-1" />
-        </Popover>
-    )
+    setTileVisualization: (tileId: PageReportsTileId, visualization: TileVisualizationOption) => void
 }
 
 // URL Search Header component
@@ -165,37 +140,117 @@ function PageUrlSearchHeader(): JSX.Element {
     )
 }
 
-export const PageReports = (): JSX.Element => {
-    const { getNewInsightUrl } = useValues(webAnalyticsLogic)
-    const { openModal } = useActions(webAnalyticsLogic)
-    const values = useValues(pageReportsLogic) as unknown as PageReportsLogicValues
+// Map tile IDs to breakdown types
+const tileToBreakdown: Record<PageReportsTileId, Record<string, WebStatsBreakdown>> = {
+    [PageReportsTileId.PATHS]: {
+        [PathTab.INITIAL_PATH]: WebStatsBreakdown.InitialPage,
+        [PathTab.END_PATH]: WebStatsBreakdown.ExitPage,
+        [PathTab.EXIT_CLICK]: WebStatsBreakdown.ExitClick,
+    },
+    [PageReportsTileId.SOURCES]: {
+        [SourceTab.CHANNEL]: WebStatsBreakdown.InitialChannelType,
+        [SourceTab.REFERRING_DOMAIN]: WebStatsBreakdown.InitialReferringDomain,
+    },
+    [PageReportsTileId.DEVICES]: {
+        [DeviceTab.DEVICE_TYPE]: WebStatsBreakdown.DeviceType,
+        [DeviceTab.BROWSER]: WebStatsBreakdown.Browser,
+        [DeviceTab.OS]: WebStatsBreakdown.OS,
+    },
+    [PageReportsTileId.GEOGRAPHY]: {
+        [GeographyTab.COUNTRIES]: WebStatsBreakdown.Country,
+        [GeographyTab.REGIONS]: WebStatsBreakdown.Region,
+        [GeographyTab.CITIES]: WebStatsBreakdown.City,
+        [GeographyTab.TIMEZONES]: WebStatsBreakdown.Timezone,
+        [GeographyTab.LANGUAGES]: WebStatsBreakdown.Language,
+    },
+}
 
-    // Section component for consistent styling
-    const Section = ({ title, children }: { title: string; children: React.ReactNode }): JSX.Element => (
-        <>
-            <div className="flex items-center gap-2 mb-2">
-                <h2 className="text-xl font-semibold">{title}</h2>
-            </div>
-            {children}
-            <LemonDivider className="my-4" />
-        </>
-    )
+// Define SimpleTile as a standalone component outside of PageReports
+interface SimpleTileProps {
+    title: string
+    description: string
+    query: any
+    tileId: TileId
+    tabId: string
+    pageReportsTileId?: PageReportsTileId
+    createInsightProps: (tileId: TileId | PageReportsTileId, tabId?: string) => InsightLogicProps
+    getNewInsightUrl: (tileId: TileId, tabId?: string) => string | undefined
+    openModal: (tileId: TileId, tabId: string) => void
+    dateFilter: any
+    shouldFilterTestAccounts: boolean
+    compareFilter: any
+    pageUrl: string | null
+}
 
-    // SimpleTile component for consistent styling
-    const SimpleTile = ({
+// Memoize the component to prevent unnecessary re-renders
+const SimpleTile = memo(
+    ({
         title,
         description,
         query,
         tileId,
         tabId,
-    }: {
-        title: string
-        description: string
-        query: any
-        tileId: TileId
-        tabId: string
-    }): JSX.Element => {
+        pageReportsTileId,
+        createInsightProps,
+        getNewInsightUrl,
+        openModal,
+        dateFilter,
+        shouldFilterTestAccounts,
+        compareFilter,
+        pageUrl,
+    }: SimpleTileProps): JSX.Element => {
+        // Use the tileVisualizationLogic with its own key - MUST be called before any conditionals
+        const uniqueKey = `${pageReportsTileId || tileId}-${tabId}`
+        const { visualization } = useValues(tileVisualizationLogic({ tileId: uniqueKey, tabId }))
+        const { setVisualization } = useActions(tileVisualizationLogic({ tileId: uniqueKey, tabId }))
+
+        if (!tileId || !tabId) {
+            return <div>Invalid tile configuration</div>
+        }
+
         const insightUrl = getNewInsightUrl(tileId, tabId)
+
+        // Get the appropriate breakdown for this tile and tab
+        const breakdownBy = pageReportsTileId && tileToBreakdown[pageReportsTileId]?.[tabId]
+
+        // Create a processed query based on visualization type
+        let processedQuery = query
+
+        if (query && visualization === 'graph' && breakdownBy) {
+            // For graph visualization, create a trends query with the appropriate breakdown
+            const breakdownFilter = getWebAnalyticsBreakdownFilter(breakdownBy)
+
+            processedQuery = {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    dateRange: {
+                        date_from: dateFilter.dateFrom,
+                        date_to: dateFilter.dateTo,
+                    },
+                    interval: dateFilter.interval,
+                    series: [
+                        {
+                            event: '$pageview',
+                            kind: NodeKind.EventsNode,
+                            math: 'dau',
+                            name: '$pageview',
+                            custom_name: 'Unique visitors',
+                        },
+                    ],
+                    trendsFilter: {
+                        display: ChartDisplayType.ActionsLineGraph,
+                        showLegend: true,
+                    },
+                    breakdownFilter,
+                    filterTestAccounts: shouldFilterTestAccounts,
+                    compareFilter: compareFilter,
+                    properties: query?.source?.properties || [],
+                },
+                hidePersonsModal: true,
+                embedded: true,
+            }
+        }
 
         return (
             <div>
@@ -205,6 +260,25 @@ export const PageReports = (): JSX.Element => {
                         <LearnMorePopover title={title} description={description} />
                     </div>
                     <div className="flex gap-1">
+                        {pageReportsTileId && (
+                            <LemonSegmentedButton
+                                value={visualization}
+                                onChange={(value) => setVisualization(value as TileVisualizationOption)}
+                                options={[
+                                    {
+                                        value: 'table',
+                                        icon: <IconTableChart />,
+                                        tooltip: 'Show as table',
+                                    },
+                                    {
+                                        value: 'graph',
+                                        icon: <IconTrending />,
+                                        tooltip: 'Show as graph',
+                                    },
+                                ]}
+                                size="small"
+                            />
+                        )}
                         {insightUrl && (
                             <LemonButton
                                 icon={<IconOpenInNew />}
@@ -229,18 +303,44 @@ export const PageReports = (): JSX.Element => {
                     </div>
                 </div>
                 <div>
-                    {query && (
+                    {processedQuery && (
                         <WebQuery
-                            query={query}
+                            query={processedQuery}
                             showIntervalSelect={false}
                             tileId={tileId}
-                            insightProps={values.createInsightProps(tileId, tabId)}
-                            key={`${tileId}-${tabId}-${values.pageUrl}`}
+                            insightProps={createInsightProps(pageReportsTileId || tileId, tabId)}
+                            key={`${tileId}-${tabId}-${pageUrl || 'none'}-${visualization}`}
                         />
                     )}
-                    {!query && <div className="text-muted text-center p-4">No data available for this query</div>}
+                    {!query && (
+                        <div className="text-muted text-center p-4 absolute top-0 left-0 right-0 bottom-0 flex items-center justify-center bg-white bg-opacity-80 z-10">
+                            No data available for this query
+                        </div>
+                    )}
                 </div>
             </div>
+        )
+    }
+)
+
+// For better debugging
+SimpleTile.displayName = 'SimpleTile'
+
+export const PageReports = (): JSX.Element => {
+    const { getNewInsightUrl } = useValues(webAnalyticsLogic)
+    const { openModal } = useActions(webAnalyticsLogic)
+    const values = useValues(pageReportsLogic) as unknown as PageReportsLogicValues
+
+    // Section component for consistent styling
+    const Section = ({ title, children }: { title: string; children: React.ReactNode }): JSX.Element => {
+        return (
+            <>
+                <div className="flex items-center justify-between mb-2">
+                    <h2 className="text-xl font-semibold">{title}</h2>
+                </div>
+                {children}
+                <LemonDivider className="my-4" />
+            </>
         )
     }
 
@@ -296,6 +396,14 @@ export const PageReports = (): JSX.Element => {
                                 query={values.queries.entryPathsQuery}
                                 tileId={TileId.PATHS}
                                 tabId={PathTab.INITIAL_PATH}
+                                pageReportsTileId={PageReportsTileId.PATHS}
+                                createInsightProps={values.createInsightProps}
+                                getNewInsightUrl={getNewInsightUrl}
+                                openModal={openModal}
+                                dateFilter={values.dateFilter}
+                                shouldFilterTestAccounts={values.shouldFilterTestAccounts}
+                                compareFilter={values.compareFilter}
+                                pageUrl={values.pageUrl}
                             />
 
                             <SimpleTile
@@ -304,6 +412,14 @@ export const PageReports = (): JSX.Element => {
                                 query={values.queries.exitPathsQuery}
                                 tileId={TileId.PATHS}
                                 tabId={PathTab.END_PATH}
+                                pageReportsTileId={PageReportsTileId.PATHS}
+                                createInsightProps={values.createInsightProps}
+                                getNewInsightUrl={getNewInsightUrl}
+                                openModal={openModal}
+                                dateFilter={values.dateFilter}
+                                shouldFilterTestAccounts={values.shouldFilterTestAccounts}
+                                compareFilter={values.compareFilter}
+                                pageUrl={values.pageUrl}
                             />
 
                             <SimpleTile
@@ -312,6 +428,14 @@ export const PageReports = (): JSX.Element => {
                                 query={values.queries.outboundClicksQuery}
                                 tileId={TileId.PATHS}
                                 tabId={PathTab.EXIT_CLICK}
+                                pageReportsTileId={PageReportsTileId.PATHS}
+                                createInsightProps={values.createInsightProps}
+                                getNewInsightUrl={getNewInsightUrl}
+                                openModal={openModal}
+                                dateFilter={values.dateFilter}
+                                shouldFilterTestAccounts={values.shouldFilterTestAccounts}
+                                compareFilter={values.compareFilter}
+                                pageUrl={values.pageUrl}
                             />
                         </div>
                     </Section>
@@ -325,6 +449,14 @@ export const PageReports = (): JSX.Element => {
                                 query={values.queries.channelsQuery}
                                 tileId={TileId.SOURCES}
                                 tabId={SourceTab.CHANNEL}
+                                pageReportsTileId={PageReportsTileId.SOURCES}
+                                createInsightProps={values.createInsightProps}
+                                getNewInsightUrl={getNewInsightUrl}
+                                openModal={openModal}
+                                dateFilter={values.dateFilter}
+                                shouldFilterTestAccounts={values.shouldFilterTestAccounts}
+                                compareFilter={values.compareFilter}
+                                pageUrl={values.pageUrl}
                             />
 
                             <SimpleTile
@@ -333,6 +465,14 @@ export const PageReports = (): JSX.Element => {
                                 query={values.queries.referrersQuery}
                                 tileId={TileId.SOURCES}
                                 tabId={SourceTab.REFERRING_DOMAIN}
+                                pageReportsTileId={PageReportsTileId.SOURCES}
+                                createInsightProps={values.createInsightProps}
+                                getNewInsightUrl={getNewInsightUrl}
+                                openModal={openModal}
+                                dateFilter={values.dateFilter}
+                                shouldFilterTestAccounts={values.shouldFilterTestAccounts}
+                                compareFilter={values.compareFilter}
+                                pageUrl={values.pageUrl}
                             />
                         </div>
                     </Section>
@@ -346,6 +486,14 @@ export const PageReports = (): JSX.Element => {
                                 query={values.queries.deviceTypeQuery}
                                 tileId={TileId.DEVICES}
                                 tabId={DeviceTab.DEVICE_TYPE}
+                                pageReportsTileId={PageReportsTileId.DEVICES}
+                                createInsightProps={values.createInsightProps}
+                                getNewInsightUrl={getNewInsightUrl}
+                                openModal={openModal}
+                                dateFilter={values.dateFilter}
+                                shouldFilterTestAccounts={values.shouldFilterTestAccounts}
+                                compareFilter={values.compareFilter}
+                                pageUrl={values.pageUrl}
                             />
 
                             <SimpleTile
@@ -354,6 +502,14 @@ export const PageReports = (): JSX.Element => {
                                 query={values.queries.browserQuery}
                                 tileId={TileId.DEVICES}
                                 tabId={DeviceTab.BROWSER}
+                                pageReportsTileId={PageReportsTileId.DEVICES}
+                                createInsightProps={values.createInsightProps}
+                                getNewInsightUrl={getNewInsightUrl}
+                                openModal={openModal}
+                                dateFilter={values.dateFilter}
+                                shouldFilterTestAccounts={values.shouldFilterTestAccounts}
+                                compareFilter={values.compareFilter}
+                                pageUrl={values.pageUrl}
                             />
 
                             <SimpleTile
@@ -362,6 +518,14 @@ export const PageReports = (): JSX.Element => {
                                 query={values.queries.osQuery}
                                 tileId={TileId.DEVICES}
                                 tabId={DeviceTab.OS}
+                                pageReportsTileId={PageReportsTileId.DEVICES}
+                                createInsightProps={values.createInsightProps}
+                                getNewInsightUrl={getNewInsightUrl}
+                                openModal={openModal}
+                                dateFilter={values.dateFilter}
+                                shouldFilterTestAccounts={values.shouldFilterTestAccounts}
+                                compareFilter={values.compareFilter}
+                                pageUrl={values.pageUrl}
                             />
                         </div>
                     </Section>
@@ -375,6 +539,14 @@ export const PageReports = (): JSX.Element => {
                                 query={values.queries.countriesQuery}
                                 tileId={TileId.GEOGRAPHY}
                                 tabId={GeographyTab.COUNTRIES}
+                                pageReportsTileId={PageReportsTileId.GEOGRAPHY}
+                                createInsightProps={values.createInsightProps}
+                                getNewInsightUrl={getNewInsightUrl}
+                                openModal={openModal}
+                                dateFilter={values.dateFilter}
+                                shouldFilterTestAccounts={values.shouldFilterTestAccounts}
+                                compareFilter={values.compareFilter}
+                                pageUrl={values.pageUrl}
                             />
 
                             <SimpleTile
@@ -383,6 +555,14 @@ export const PageReports = (): JSX.Element => {
                                 query={values.queries.regionsQuery}
                                 tileId={TileId.GEOGRAPHY}
                                 tabId={GeographyTab.REGIONS}
+                                pageReportsTileId={PageReportsTileId.GEOGRAPHY}
+                                createInsightProps={values.createInsightProps}
+                                getNewInsightUrl={getNewInsightUrl}
+                                openModal={openModal}
+                                dateFilter={values.dateFilter}
+                                shouldFilterTestAccounts={values.shouldFilterTestAccounts}
+                                compareFilter={values.compareFilter}
+                                pageUrl={values.pageUrl}
                             />
 
                             <SimpleTile
@@ -391,6 +571,14 @@ export const PageReports = (): JSX.Element => {
                                 query={values.queries.citiesQuery}
                                 tileId={TileId.GEOGRAPHY}
                                 tabId={GeographyTab.CITIES}
+                                pageReportsTileId={PageReportsTileId.GEOGRAPHY}
+                                createInsightProps={values.createInsightProps}
+                                getNewInsightUrl={getNewInsightUrl}
+                                openModal={openModal}
+                                dateFilter={values.dateFilter}
+                                shouldFilterTestAccounts={values.shouldFilterTestAccounts}
+                                compareFilter={values.compareFilter}
+                                pageUrl={values.pageUrl}
                             />
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-2">
@@ -400,6 +588,14 @@ export const PageReports = (): JSX.Element => {
                                 query={values.queries.timezonesQuery}
                                 tileId={TileId.GEOGRAPHY}
                                 tabId={GeographyTab.TIMEZONES}
+                                pageReportsTileId={PageReportsTileId.GEOGRAPHY}
+                                createInsightProps={values.createInsightProps}
+                                getNewInsightUrl={getNewInsightUrl}
+                                openModal={openModal}
+                                dateFilter={values.dateFilter}
+                                shouldFilterTestAccounts={values.shouldFilterTestAccounts}
+                                compareFilter={values.compareFilter}
+                                pageUrl={values.pageUrl}
                             />
 
                             <SimpleTile
@@ -408,6 +604,14 @@ export const PageReports = (): JSX.Element => {
                                 query={values.queries.languagesQuery}
                                 tileId={TileId.GEOGRAPHY}
                                 tabId={GeographyTab.LANGUAGES}
+                                pageReportsTileId={PageReportsTileId.GEOGRAPHY}
+                                createInsightProps={values.createInsightProps}
+                                getNewInsightUrl={getNewInsightUrl}
+                                openModal={openModal}
+                                dateFilter={values.dateFilter}
+                                shouldFilterTestAccounts={values.shouldFilterTestAccounts}
+                                compareFilter={values.compareFilter}
+                                pageUrl={values.pageUrl}
                             />
                         </div>
                     </Section>

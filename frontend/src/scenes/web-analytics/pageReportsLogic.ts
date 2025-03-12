@@ -14,10 +14,19 @@ import {
     SourceTab,
     TabsTile,
     TileId,
+    TileVisualizationOption,
     WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
     webAnalyticsLogic,
     WebAnalyticsTile,
 } from './webAnalyticsLogic'
+
+// Define new TileIds for page reports to avoid conflicts with web analytics
+export enum PageReportsTileId {
+    PATHS = 'PAGE_REPORTS_PATHS',
+    SOURCES = 'PAGE_REPORTS_SOURCES',
+    DEVICES = 'PAGE_REPORTS_DEVICES',
+    GEOGRAPHY = 'PAGE_REPORTS_GEOGRAPHY',
+}
 
 export interface PageURL {
     url: string
@@ -40,6 +49,10 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
         setPageUrlSearchTerm: (searchTerm: string) => ({ searchTerm }),
         loadPages: (searchTerm: string = '') => ({ searchTerm }),
         toggleStripQueryParams: () => ({}),
+        setTileVisualization: (tileId: PageReportsTileId, visualization: TileVisualizationOption) => ({
+            tileId,
+            visualization,
+        }),
     }),
 
     reducers: () => ({
@@ -72,6 +85,16 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
             { persist: true },
             {
                 toggleStripQueryParams: (state: boolean) => !state,
+            },
+        ],
+        tileVisualizations: [
+            {} as Record<PageReportsTileId, TileVisualizationOption>,
+            { persist: true },
+            {
+                setTileVisualization: (state, { tileId, visualization }) => ({
+                    ...state,
+                    [tileId]: visualization,
+                }),
             },
         ],
     }),
@@ -189,7 +212,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
         createInsightProps: [
             () => [],
             () =>
-                (tileId: TileId, tabId?: string): InsightLogicProps => ({
+                (tileId: TileId | PageReportsTileId, tabId?: string): InsightLogicProps => ({
                     dashboardItemId: `new-${tileId}${tabId ? `-${tabId}` : ''}`,
                     loadPriority: 0,
                     dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
@@ -256,6 +279,13 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 hidePersonsModal: true,
                 embedded: true,
             }),
+        ],
+        // Get visualization type for a specific tile
+        getTileVisualization: [
+            (s) => [s.tileVisualizations],
+            (tileVisualizations: Record<PageReportsTileId, TileVisualizationOption>) =>
+                (tileId: PageReportsTileId): TileVisualizationOption =>
+                    tileVisualizations[tileId] || 'table',
         ],
     },
 
