@@ -1,11 +1,11 @@
 use anyhow::{anyhow, bail, Ok, Result};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use tracing::info;
 use uuid;
 
 use crate::utils::sourcemaps::read_pairs;
 
-pub fn inject(directory: &Path, _output: &Option<PathBuf>) -> Result<()> {
+pub fn inject(directory: &Path) -> Result<()> {
     let directory = directory.canonicalize().map_err(|e| {
         anyhow!(
             "Directory '{}' not found or inaccessible: {}",
