@@ -452,7 +452,7 @@ class MutationRunner(abc.ABC):
     def __call__(self, client: Client) -> MutationWaiter:
         """
         Ensure that all mutation commands are either running, or have previously run to completion. Returns an object
-        that can be used to check the status of the mutation and wait for its to be finished.
+        that can be used to check the status of the mutation and wait for it to be finished.
         """
         expected_commands = self.get_all_commands()
         mutations_running = self.find_existing_mutations(client, expected_commands)
