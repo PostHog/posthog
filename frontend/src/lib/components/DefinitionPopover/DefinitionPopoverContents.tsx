@@ -387,10 +387,12 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                                         {!hogQLOnly && (
                                             <LemonSelect
                                                 fullWidth
-                                                allowClear={optional}
+                                                allowClear={!!optional}
                                                 value={isHogQL ? '' : fieldValue}
                                                 options={allowHogQL ? [...columnOptions, hogqlOption] : columnOptions}
-                                                onChange={(value) => setLocalDefinition({ [key]: value })}
+                                                onChange={(value: string | null) =>
+                                                    setLocalDefinition({ [key]: value })
+                                                }
                                             />
                                         )}
                                         {((allowHogQL && isHogQL) || hogQLOnly) && (

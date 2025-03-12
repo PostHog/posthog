@@ -12,29 +12,34 @@ import { RevenueTrackingExternalDataSchema } from '~/queries/schema/schema-gener
 import { databaseTableListLogic } from '../database/databaseTableListLogic'
 import { revenueEventsSettingsLogic } from './revenueEventsSettingsLogic'
 
+type DataWarehousePopoverFieldKey = 'revenueField' | 'currencyField' | 'timestampField'
+
 // NOTE: Not allowing HogQL right now, but we could add it in the future
-const DATA_WAREHOUSE_POPOVER_FIELDS = [
+const DATA_WAREHOUSE_POPOVER_FIELDS: {
+    key: DataWarehousePopoverFieldKey
+    label: string
+    description: string
+    optional?: boolean
+}[] = [
     {
-        key: 'revenueField',
+        key: 'revenueField' as const,
         label: 'Revenue Field',
         description: 'The revenue amount of the entry.',
     },
     {
-        key: 'currencyField',
+        key: 'currencyField' as const,
         label: 'Revenue Currency Field',
         description:
             "The currency code for this revenue entry. E.g. USD, EUR, GBP, etc. If not set, the project's base currency will be used.",
         optional: true,
     },
     {
-        key: 'timestampField',
+        key: 'timestampField' as const,
         label: 'Timestamp Field',
         description:
             "The timestamp of the revenue entry. We'll use this to order the revenue entries and properly filter them on Web Analytics.",
     },
-] as const satisfies DataWarehousePopoverField[]
-
-type DataWarehouseInformationField = (typeof DATA_WAREHOUSE_POPOVER_FIELDS)[number]['key']
+] satisfies DataWarehousePopoverField[]
 
 export function ExternalTableConfiguration({
     buttonRef,
@@ -115,7 +120,7 @@ export function ExternalTableConfiguration({
                                         }
 
                                         const typedProperties = properties as Record<
-                                            DataWarehouseInformationField,
+                                            DataWarehousePopoverFieldKey,
                                             string
                                         >
                                         addExternalDataSchema({
