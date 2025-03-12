@@ -436,13 +436,13 @@ class MutationRunner(abc.ABC):
     settings: Mapping[str, Any] = field(default_factory=dict, kw_only=True)
 
     @abc.abstractmethod
-    def get_commands(self) -> Set[str]:
-        """Returns the command that can be used to find the mutation in the ``system.mutations`` table."""
+    def get_all_commands(self) -> Set[str]:
+        """Returns all of the commands that are considered part of this mutation."""
         raise NotImplementedError
 
     @abc.abstractmethod
     def get_statement(self, commands: Set[str]) -> str:
-        """Returns the full statement that can be used to enqueue the mutation for the provided commands."""
+        """Returns a statement that can be used to enqueue a mutation for the provided commands."""
         raise NotImplementedError
 
     def __post_init__(self) -> None:
@@ -452,9 +452,9 @@ class MutationRunner(abc.ABC):
     def __call__(self, client: Client) -> MutationWaiter:
         """
         Ensure that all mutation commands are either running, or have previously run to completion. Returns an object
-        that can be used to check the status of the mutation and wait for its completion.
+        that can be used to check the status of the mutation and wait for its to be finished.
         """
-        expected_commands = self.get_commands()
+        expected_commands = self.get_all_commands()
         mutations = self.find_existing_mutations(client, expected_commands)
 
         commands_to_enqueue = {command for command, mutation in mutations.items() if mutation is None}
@@ -481,9 +481,9 @@ class MutationRunner(abc.ABC):
         specified.)
         """
         if commands is None:
-            commands = self.get_commands()
+            commands = self.get_all_commands()
 
-        if unexpected_commands := (commands - self.get_commands()):
+        if unexpected_commands := (commands - self.get_all_commands()):
             raise ValueError(f"unexpected commands: {unexpected_commands!r}")
 
         # we match commands by position, so require a stable ordering - this is because this class is provided the
@@ -559,7 +559,7 @@ class MutationRunner(abc.ABC):
 class AlterTableMutationRunner(MutationRunner):
     commands: Set[str]  # the part after ALTER TABLE prefix, i.e. UPDATE, DELETE, MATERIALIZE, etc.
 
-    def get_commands(self) -> Set[str]:
+    def get_all_commands(self) -> Set[str]:
         return self.commands
 
     def get_statement(self, commands: Set[str]) -> str:
@@ -570,12 +570,12 @@ class AlterTableMutationRunner(MutationRunner):
 class LightweightDeleteMutationRunner(MutationRunner):
     predicate: str
 
-    def get_commands(self) -> Set[str]:
+    def get_all_commands(self) -> Set[str]:
         return {f"UPDATE _row_exists = 0 WHERE {self.predicate}"}
 
     def get_statement(self, commands: Set[str]) -> str:
         # XXX: lightweight deletes should only be called with the same command represented by the predicate
-        if commands != self.get_commands():
+        if commands != self.get_all_commands():
             raise ValueError(f"unexpected commands: {commands!r}")
 
         return f"DELETE FROM {settings.CLICKHOUSE_DATABASE}.{self.table} WHERE {self.predicate}"
