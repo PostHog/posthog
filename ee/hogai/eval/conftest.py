@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, UTC
 import functools
 from collections.abc import Generator
 from pathlib import Path
@@ -9,6 +10,7 @@ from langchain_core.runnables import RunnableConfig
 
 from ee.models import Conversation
 from ee.models.assistant import CoreMemory
+from posthog.clickhouse.client.execute import sync_execute
 from posthog.demo.matrix.manager import MatrixManager
 from posthog.models import Organization, Project, Team, User
 from posthog.tasks.demo_create_data import HedgeboxMatrix
@@ -127,8 +129,11 @@ def setup_test_data(django_db_setup, team, user, django_db_blocker):
             n_clusters=500,
             group_type_index_offset=0,
         )
-        matrix_manager = MatrixManager(matrix, print_steps=True)
+        latest_master_team_event_timestamp = sync_execute("SELECT max(timestamp) FROM events WHERE team_id = 0")[0][0]
+        matrix_manager = MatrixManager(matrix, print_steps=True, use_pre_save=True)
         with override_settings(TEST=False):
+            if (datetime.now(UTC) - latest_master_team_event_timestamp) > timedelta(hours=1):
+                matrix_manager.reset_master()
             # Simulation saving should occur in non-test mode, so that Kafka isn't mocked. Normally in tests we don't
             # want to ingest via Kafka, but simulation saving is specifically designed to use that route for speed
             matrix_manager.run_on_team(team, user)
