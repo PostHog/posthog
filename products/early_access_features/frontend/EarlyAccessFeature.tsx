@@ -10,6 +10,7 @@ import {
     LemonTextArea,
     Link,
 } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
@@ -233,7 +234,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                 }
                 delimited
             />
-            <div className={cn(isEditingFeature || isNewEarlyAccessFeature ? 'max-w-160' : null)}>
+            <div className={clsx(isEditingFeature || isNewEarlyAccessFeature ? 'max-w-160' : null)}>
                 <div className="flex flex-col gap-4 flex-2 min-w-[15rem]">
                     {isNewEarlyAccessFeature && (
                         <LemonField name="name" label="Name">
