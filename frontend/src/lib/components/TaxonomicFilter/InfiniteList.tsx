@@ -288,7 +288,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
     }
 
     return (
-        <div className={cn('Taxonomic-infinite-list', showEmptyState && 'empty-infinite-list')}>
+        <div className={cn('taxonomic-infinite-list', showEmptyState && 'empty-infinite-list')}>
             {showEmptyState ? (
                 <div className="no-infinite-results flex flex-col deprecated-space-y-1 items-center">
                     <IconArchive className="text-5xl text-tertiary" />

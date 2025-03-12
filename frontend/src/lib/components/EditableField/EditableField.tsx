@@ -279,7 +279,7 @@ export function EditableField({
                     <span className="flex items-center">
                         {React.cloneElement(notice.icon, {
                             ...notice.icon.props,
-                            className: cn(tice.icon.props.className, 'EditableField__notice'),
+                            className: cn(notice.icon.props.className, 'EditableField__notice'),
                         })}
                     </span>
                 </Tooltip>
