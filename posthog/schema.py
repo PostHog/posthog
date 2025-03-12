@@ -8281,6 +8281,10 @@ class InsightActorsQuery(BaseModel):
     status: Optional[str] = None
 
 
+class InsightEventsQuery(InsightActorsQuery):
+    kind: Literal["InsightEventsQuery"] = "InsightEventsQuery"
+
+
 class InsightActorsQueryOptions(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
