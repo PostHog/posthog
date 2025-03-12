@@ -1,3 +1,10 @@
+import {
+    HedgehogActorAccessories,
+    HedgehogActorAccessoryOption,
+    HedgehogActorAccessoryOptions,
+    HedgehogActorColorOptions,
+    HedgehogActorSkinOption,
+} from '@posthog/hedgehog-mode'
 import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -5,15 +12,14 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { capitalizeFirstLetter } from 'lib/utils'
 import React from 'react'
 
-import { HedgehogSkin } from '~/types'
-
-import { COLOR_TO_FILTER_MAP, hedgehogBuddyLogic } from './hedgehogBuddyLogic'
 import { HedgehogBuddyProfile, HedgehogBuddyStatic } from './HedgehogBuddyRender'
-import { accessoryGroups, standardAccessories } from './sprites/sprites'
+import { hedgehogModeLogic } from './hedgehogModeLogic'
+
+const ACCESSORY_GROUPS = ['headwear', 'eyewear', 'other'] as const
 
 export function HedgehogOptions(): JSX.Element {
-    const { hedgehogConfig } = useValues(hedgehogBuddyLogic)
-    const { patchHedgehogConfig } = useActions(hedgehogBuddyLogic)
+    const { hedgehogConfig } = useValues(hedgehogModeLogic)
+    const { patchHedgehogConfig } = useActions(hedgehogModeLogic)
 
     return (
         <div>
@@ -45,7 +51,7 @@ export function HedgehogOptions(): JSX.Element {
 
             <div className="deprecated-space-y-2">
                 <h4>Options</h4>
-                <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex flex-wrap items-center gap-2">
                     <LemonSwitch
                         bordered
                         label="Walk around freely"
@@ -91,6 +97,7 @@ export function HedgehogOptions(): JSX.Element {
                         tooltip="If enabled then all of your organization members will appear in your browser as hedgehogs as well!"
                     />
                 </div>
+                <HedgehogSkins />
                 <HedgehogColor />
                 <HedgehogAccessories />
             </div>
@@ -99,12 +106,12 @@ export function HedgehogOptions(): JSX.Element {
 }
 
 function HedgehogAccessories(): JSX.Element {
-    const { hedgehogConfig } = useValues(hedgehogBuddyLogic)
-    const { patchHedgehogConfig } = useActions(hedgehogBuddyLogic)
+    const { hedgehogConfig } = useValues(hedgehogModeLogic)
+    const { patchHedgehogConfig } = useActions(hedgehogModeLogic)
 
-    const accessories = hedgehogConfig.accessories
+    const accessories = hedgehogConfig.accessories.filter((acc) => !!HedgehogActorAccessories[acc])
 
-    const onClick = (accessory: string): void => {
+    const onClick = (accessory: HedgehogActorAccessoryOption): void => {
         // If it is in the list - remove it
         // If it isn't in the list, remove all accessories of the same group and add the new one
 
@@ -115,7 +122,7 @@ function HedgehogAccessories(): JSX.Element {
         } else {
             patchHedgehogConfig({
                 accessories: accessories
-                    .filter((acc) => standardAccessories[acc].group !== standardAccessories[accessory].group)
+                    .filter((acc) => HedgehogActorAccessories[acc].group !== HedgehogActorAccessories[accessory].group)
                     .concat(accessory),
             })
         }
@@ -123,28 +130,28 @@ function HedgehogAccessories(): JSX.Element {
 
     return (
         <>
-            {accessoryGroups.map((group) => (
+            {ACCESSORY_GROUPS.map((group) => (
                 <React.Fragment key={group}>
                     <h4>{capitalizeFirstLetter(group)}</h4>
 
-                    <div className="flex gap-2 pb-2 pt-px overflow-y-auto flex-wrap">
-                        {Object.keys(standardAccessories)
-                            .filter((acc) => standardAccessories[acc].group === group)
-                            .map((acc) => (
-                                <LemonButton
-                                    key={acc}
-                                    className={clsx(
-                                        'border-2',
-                                        accessories.includes(acc) ? 'border-accent-primary' : 'border-transparent'
-                                    )}
-                                    size="small"
-                                    onClick={() => onClick(acc)}
-                                    noPadding
-                                    tooltip={<>{capitalizeFirstLetter(acc)}</>}
-                                >
-                                    <HedgehogBuddyStatic accessories={[acc]} />
-                                </LemonButton>
-                            ))}
+                    <div className="flex flex-wrap gap-2 pt-px pb-2 overflow-y-auto">
+                        {HedgehogActorAccessoryOptions.filter(
+                            (acc) => HedgehogActorAccessories[acc].group === group
+                        ).map((acc) => (
+                            <LemonButton
+                                key={acc}
+                                className={clsx(
+                                    'border-2',
+                                    accessories.includes(acc) ? 'border-accent-primary' : 'border-transparent'
+                                )}
+                                size="small"
+                                onClick={() => onClick(acc)}
+                                noPadding
+                                tooltip={<>{capitalizeFirstLetter(acc)}</>}
+                            >
+                                <HedgehogBuddyStatic accessories={[acc]} />
+                            </LemonButton>
+                        ))}
                     </div>
                 </React.Fragment>
             ))}
@@ -152,36 +159,52 @@ function HedgehogAccessories(): JSX.Element {
     )
 }
 
-function HedgehogColor(): JSX.Element {
-    const { hedgehogConfig } = useValues(hedgehogBuddyLogic)
-    const { patchHedgehogConfig } = useActions(hedgehogBuddyLogic)
-    const skinSpiderHogEnabled = !!useFeatureFlag('HEDGEHOG_SKIN_SPIDERHOG')
+function HedgehogSkins(): JSX.Element | null {
+    const { hedgehogConfig } = useValues(hedgehogModeLogic)
+    const { patchHedgehogConfig } = useActions(hedgehogModeLogic)
+    const skinSpiderHogEnabled = !!useFeatureFlag('HEDGEHOG_SKIN_SPIDERHOG') || hedgehogConfig.skin === 'spiderhog'
 
-    const skins: HedgehogSkin[] = skinSpiderHogEnabled ? ['default', 'spiderhog'] : ['default']
+    const skins: HedgehogActorSkinOption[] = skinSpiderHogEnabled ? ['default', 'spiderhog'] : ['default']
+
+    if (skins.length === 1) {
+        return null
+    }
 
     return (
         <>
-            <h4>Skins and colors</h4>
+            <h4>Skins</h4>
 
-            <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex flex-wrap items-center gap-2">
                 {skins.map((option) => (
                     <LemonButton
                         key={option}
                         className={clsx(
                             'border-2',
-                            !hedgehogConfig.color && hedgehogConfig.skin === option
-                                ? 'border-accent-primary'
-                                : 'border-transparent'
+                            hedgehogConfig.skin === option ? 'border-accent-primary' : 'border-transparent'
                         )}
                         size="small"
-                        onClick={() => patchHedgehogConfig({ skin: option as any, color: null })}
+                        onClick={() => patchHedgehogConfig({ skin: option as any })}
                         noPadding
                         tooltip={<>{capitalizeFirstLetter(option ?? 'default')}</>}
                     >
                         <HedgehogBuddyStatic skin={option} />
                     </LemonButton>
                 ))}
-                {[...Object.keys(COLOR_TO_FILTER_MAP)].map((option) => (
+            </div>
+        </>
+    )
+}
+
+function HedgehogColor(): JSX.Element {
+    const { hedgehogConfig } = useValues(hedgehogModeLogic)
+    const { patchHedgehogConfig } = useActions(hedgehogModeLogic)
+
+    return (
+        <>
+            <h4>Colors</h4>
+
+            <div className="flex flex-wrap items-center gap-2">
+                {['none', ...HedgehogActorColorOptions].map((option) => (
                     <LemonButton
                         key={option}
                         className={clsx(
@@ -189,7 +212,7 @@ function HedgehogColor(): JSX.Element {
                             hedgehogConfig.color === option ? 'border-accent-primary' : 'border-transparent'
                         )}
                         size="small"
-                        onClick={() => patchHedgehogConfig({ color: option as any, skin: 'default' })}
+                        onClick={() => patchHedgehogConfig({ color: option === 'none' ? null : (option as any) })}
                         noPadding
                         tooltip={<>{capitalizeFirstLetter(option ?? 'default')}</>}
                     >
