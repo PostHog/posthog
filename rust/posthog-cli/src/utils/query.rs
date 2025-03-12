@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use anyhow::Error;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -66,6 +68,8 @@ pub struct HogQLQueryResponse {
     pub results: Vec<Vec<Value>>,
     #[serde(default, deserialize_with = "null_is_empty")]
     pub timings: Vec<Timing>,
+    #[serde(flatten, skip_serializing_if = "HashMap::is_empty")]
+    pub other: HashMap<String, Value>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -74,6 +78,8 @@ pub struct HogQLQueryErrorResponse {
     pub detail: String,
     #[serde(rename = "type")]
     pub error_type: String,
+    #[serde(flatten, skip_serializing_if = "HashMap::is_empty")]
+    pub other: HashMap<String, Value>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -98,6 +104,8 @@ pub struct MetadataResponse {
     pub is_valid_view: bool,
     #[serde(default, deserialize_with = "null_is_empty")]
     pub table_names: Vec<String>,
+    #[serde(flatten, skip_serializing_if = "HashMap::is_empty")]
+    pub other: HashMap<String, Value>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -114,6 +122,8 @@ pub struct Notice {
     pub message: String,
     #[serde(flatten)]
     pub span: Option<NoticeSpan>,
+    #[serde(flatten, skip_serializing_if = "HashMap::is_empty")]
+    pub other: HashMap<String, Value>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
