@@ -129,7 +129,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
                   "$set_once": undefined,
                   "distinct_id": "distinct_id",
                   "event": "mycustomevent",
-                  "ip": undefined,
+                  "ip": null,
                   "person": {
                     "created_at": "",
                     "properties": {

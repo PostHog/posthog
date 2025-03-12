@@ -32,6 +32,7 @@ INSERT INTO sharded_session_replay_events (
     console_error_count,
     snapshot_source,
     snapshot_library,
+    size,
     _timestamp
 )
 SELECT
@@ -50,6 +51,7 @@ SELECT
     %(console_error_count)s,
     argMinState(cast(%(snapshot_source)s, 'LowCardinality(Nullable(String))'), toDateTime64(%(first_timestamp)s, 6, 'UTC')),
     argMinState(cast(%(snapshot_library)s, 'LowCardinality(Nullable(String))'), toDateTime64(%(first_timestamp)s, 6, 'UTC')),
+    %(size)s,
     %(_timestamp)s
 """
 
@@ -122,6 +124,7 @@ def produce_replay_summary(
     snapshot_source: str | None = None,
     snapshot_library: str | None = None,
     kafka_timestamp: Optional[datetime] = None,
+    size: Optional[int] = None,
     *,
     ensure_analytics_event_in_session: bool = True,
 ):
@@ -148,7 +151,9 @@ def produce_replay_summary(
         "console_error_count": console_error_count or 0,
         "snapshot_source": snapshot_source,
         "snapshot_library": snapshot_library,
+        "size": size or 0,
     }
+
     if settings.TEST:
         # we don't want to set _timestamp if we're using a real KafkaProducer
         # and `ClickhouseProducer` does not use kafka when in test mode

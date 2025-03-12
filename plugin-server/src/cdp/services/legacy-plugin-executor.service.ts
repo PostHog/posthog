@@ -239,6 +239,7 @@ export class LegacyPluginExecutorService {
                 // Destination style
                 const processedEvent: ProcessedPluginEvent = {
                     ...event,
+                    ip: null, // convertToOnEventPayload removes this so we should too
                     person,
                     properties: event.properties || {},
                 }
