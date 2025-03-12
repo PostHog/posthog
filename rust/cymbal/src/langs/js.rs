@@ -11,7 +11,11 @@ use crate::{
     frames::{Context, ContextLine, Frame},
     metric_consts::{FRAME_NOT_RESOLVED, FRAME_RESOLVED},
     sanitize_string,
-    symbol_store::{sourcemap::OwnedSourceMapCache, SymbolCatalog},
+    symbol_store::{
+        chunk_id::{ChunkId, WithChunkId},
+        sourcemap::OwnedSourceMapCache,
+        SymbolCatalog,
+    },
 };
 
 // A minifed JS stack frame. Just the minimal information needed to lookup some
@@ -25,6 +29,8 @@ pub struct RawJSFrame {
     pub in_app: bool,
     #[serde(rename = "function")]
     pub fn_name: String,
+    #[serde(rename = "chunkId", skip_serializing_if = "Option::is_none")]
+    pub chunk_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Eq, PartialEq)]
@@ -38,7 +44,8 @@ pub struct FrameLocation {
 impl RawJSFrame {
     pub async fn resolve<C>(&self, team_id: i32, catalog: &C) -> Result<Frame, UnhandledError>
     where
-        C: SymbolCatalog<Url, OwnedSourceMapCache>,
+        C: SymbolCatalog<Url, OwnedSourceMapCache>
+            + SymbolCatalog<WithChunkId<Url>, OwnedSourceMapCache>,
     {
         match self.resolve_impl(team_id, catalog).await {
             Ok(frame) => Ok(frame),
@@ -51,7 +58,8 @@ impl RawJSFrame {
 
     async fn resolve_impl<C>(&self, team_id: i32, catalog: &C) -> Result<Frame, Error>
     where
-        C: SymbolCatalog<Url, OwnedSourceMapCache>,
+        C: SymbolCatalog<Url, OwnedSourceMapCache>
+            + SymbolCatalog<WithChunkId<Url>, OwnedSourceMapCache>,
     {
         let url = self.source_url()?;
 
@@ -59,7 +67,15 @@ impl RawJSFrame {
             return Ok(Frame::from(self)); // We're probably an unminified frame
         };
 
-        let sourcemap = catalog.lookup(team_id, url).await?;
+        let sourcemap = if let Some(chunk_id) = self.chunk_id.clone() {
+            let r = WithChunkId {
+                inner: url,
+                chunk_id: ChunkId(chunk_id),
+            };
+            catalog.lookup(team_id, r).await?
+        } else {
+            catalog.lookup(team_id, url).await?
+        };
 
         let smc = sourcemap.get_smc();
 
@@ -312,6 +328,7 @@ mod test {
             source_url: Some("http://example.com/path/to/file.js:1:2".to_string()),
             in_app: true,
             fn_name: "main".to_string(),
+            chunk_id: None,
         };
 
         assert_eq!(
@@ -324,6 +341,7 @@ mod test {
             source_url: Some("http://example.com/path/to/file.js".to_string()),
             in_app: true,
             fn_name: "main".to_string(),
+            chunk_id: None,
         };
 
         assert_eq!(
