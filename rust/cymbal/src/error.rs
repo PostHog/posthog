@@ -14,19 +14,6 @@ pub enum Error {
     ResolutionError(#[from] FrameError),
 }
 
-// // Errors specifically in using chunk ID's. These are
-// // handled as distinct from general resolution errors,
-// // because we want to handle them differently.
-// #[derive(Debug, Error)]
-// pub enum ChunkIdError {
-//     #[error("Chunk ID not found {0}")]
-//     NotFound(String),
-//     #[error("Missing storage pointer {0}")]
-//     MissingStoragePtr(String),
-//     #[error(transparent)]
-//     Other(#[from] Error),
-// }
-
 #[derive(Debug, Error)]
 pub enum UnhandledError {
     #[error("Config error: {0}")]
