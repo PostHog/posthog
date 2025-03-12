@@ -25,7 +25,7 @@ export function PlayerSidebarOverviewGrid(): JSX.Element {
                             typeof item.value === 'string' || React.isValidElement(item.value) ? (
                                 item.value
                             ) : (
-                                <code>{JSON.stringify(item.value)}</code>
+                                <pre><code>{JSON.stringify(item.value, null, 2)}</code></pre>
                             )
                         return (
                             <OverviewGridItem
