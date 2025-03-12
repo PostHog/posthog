@@ -179,8 +179,6 @@ describe('user-agent tests', () => {
             expect.arrayContaining(['$browser', '$browser_version', '$os', '$device', '$device_type', '$browser_type'])
         )
 
-        console.log(processedEvent.properties)
-
         expect(processedEvent.properties).toStrictEqual(
             expect.objectContaining({
                 $browser: 'edge-chromium',
@@ -219,8 +217,6 @@ describe('user-agent tests', () => {
         expect(Object.keys(processedEvent.properties!)).toEqual(
             expect.arrayContaining(['$browser', '$browser_version', '$os', '$device', '$device_type', '$browser_type'])
         )
-
-        console.log(processedEvent.properties)
 
         expect(processedEvent.properties).toStrictEqual(
             expect.objectContaining({

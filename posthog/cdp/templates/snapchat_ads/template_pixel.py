@@ -54,6 +54,9 @@ export function onLoad({ inputs }) {
             userProperties[key] = value;
         }
     };
+    if (posthog.config.debug) {
+        console.log('[PostHog] snaptr init', inputs.pixelId, userProperties);
+    }
     snaptr('init', inputs.pixelId, userProperties);
 }
 export function onEvent({ inputs }) {
@@ -63,6 +66,9 @@ export function onEvent({ inputs }) {
             eventProperties[key] = value;
         }
     };
+    if (posthog.config.debug) {
+        console.log('[PostHog] snaptr track', inputs.eventType, eventProperties);
+    }
     snaptr('track', inputs.eventType, eventProperties);
 }
 """.strip(),

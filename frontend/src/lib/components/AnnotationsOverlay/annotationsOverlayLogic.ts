@@ -103,7 +103,7 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
         },
     })),
     selectors({
-        annotationsOverlayProps: [
+        fun: [
             () => [(_, props) => props],
             (props: AnnotationsOverlayLogicProps): AnnotationsOverlayLogicProps => props,
         ],

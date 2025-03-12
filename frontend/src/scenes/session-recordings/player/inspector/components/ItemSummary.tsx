@@ -1,4 +1,5 @@
 import { IconCursor, IconKeyboard, IconWarning } from '@posthog/icons'
+import { Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { pluralize } from 'lib/utils'
 
@@ -24,8 +25,12 @@ export function ItemSummary({ item }: { item: InspectorListItemSummary }): JSX.E
                     (item.errorCount || 0) > 0 ? 'text-danger' : 'text-success'
                 )}
             >
-                <IconWarning className="mr-1" />
-                <span>{pluralize(item.errorCount || 0, 'error')}</span>
+                <Tooltip
+                    title={`A count of $exception events in this recording. Captured by PostHog's error tracking.`}
+                >
+                    <IconWarning className="mr-1" />
+                    <span>{pluralize(item.errorCount || 0, 'error')}</span>
+                </Tooltip>
             </div>
         </div>
     )

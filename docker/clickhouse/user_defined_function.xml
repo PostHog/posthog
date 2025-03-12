@@ -153,10 +153,6 @@
             <name>num_steps</name>
         </argument>
         <argument>
-            <type>UInt8</type>
-            <name>num_steps</name>
-        </argument>
-        <argument>
             <type>UInt64</type>
             <name>conversion_window_limit</name>
         </argument>

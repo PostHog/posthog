@@ -704,6 +704,7 @@ def get_team_attribute_by_quota_resource(organization: Organization) -> list[str
 
 def report_quota_limiting_event(event_type: str, properties: dict) -> None:
     posthoganalytics.capture("internal_billing_events", event_type, properties=properties)
+    posthoganalytics.flush()  # Ensure the event is sent
 
 
 def update_organization_usage_field(organization: Organization, resource: QuotaResource, key: str, value: Any) -> None:
