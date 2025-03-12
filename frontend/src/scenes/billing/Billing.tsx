@@ -143,7 +143,7 @@ export function Billing(): JSX.Element {
                     <div className="flex items-center gap-4">
                         <PoliceHog className="w-20 h-20 flex-shrink-0" />
                         <div>
-                            <p className="text-lg">... and you're on (a) trial</p>
+                            <p className="text-lg">You're on (a) trial</p>
                             <p>
                                 You are currently on a free trial for <b>{toSentenceCase(billing.trial.target)} plan</b>{' '}
                                 until <b>{dayjs(billing.trial.expires_at).format('LL')}</b>.
