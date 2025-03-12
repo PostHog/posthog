@@ -115,7 +115,7 @@ export class SessionRecordingIngester {
 
         const offsetManager = new KafkaOffsetManager(this.commitOffsets.bind(this), this.topic)
         const metadataStore = new SessionMetadataStore(producer)
-        const consoleLogStore = new SessionConsoleLogStore(producer)
+        const consoleLogStore = new SessionConsoleLogStore(producer, '')
         this.fileStorage = s3Client
             ? new S3SessionBatchFileStorage(
                   s3Client,

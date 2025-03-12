@@ -14,13 +14,24 @@ export type ConsoleLogEntry = {
 }
 
 export class SessionConsoleLogStore {
-    constructor(private producer: KafkaProducerWrapper) {
+    constructor(private readonly producer: KafkaProducerWrapper, private readonly topic: string) {
         status.debug('🔍', 'session_console_log_store_created')
+        if (!this.topic) {
+            status.warn('⚠️', 'session_console_log_store_no_topic_configured')
+        }
     }
 
     public async storeSessionConsoleLogs(logs: ConsoleLogEntry[]): Promise<void> {
-        status.info('🔍', 'session_console_log_store_storing_logs', { count: logs.length })
-        // TODO: Implement storing console logs to Kafka
-        return Promise.resolve()
+        if (logs.length === 0 || !this.topic) {
+            return
+        }
+
+        await this.producer.queueMessages({
+            topic: this.topic,
+            messages: logs.map((log) => ({
+                value: JSON.stringify(log),
+                key: log.log_source_id, // Using session_id as the key for partitioning
+            })),
+        })
     }
 }
