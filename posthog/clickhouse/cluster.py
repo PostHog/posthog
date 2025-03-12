@@ -455,13 +455,19 @@ class MutationRunner(abc.ABC):
         that can be used to check the status of the mutation and wait for its to be finished.
         """
         expected_commands = self.get_all_commands()
-        mutations = self.find_existing_mutations(client, expected_commands)
+        mutations_running = {
+            command: mutation
+            for command, mutation in self.find_existing_mutations(client, expected_commands).items()
+            if mutation is not None
+        }
 
-        if commands_to_enqueue := {command for command, mutation in mutations.items() if mutation is None}:
-            client.execute(self.get_statement(commands_to_enqueue), self.parameters, settings=self.settings)
+        commands_to_enqueue = expected_commands - mutations_running.keys()
+        if not commands_to_enqueue:
+            return MutationWaiter(self.table, set(mutations_running.values()))
 
-        # find mutation ids for all commands
-        # mutations are not always immediately visible, so give it a bit of time to show up
+        client.execute(self.get_statement(commands_to_enqueue), self.parameters, settings=self.settings)
+
+        # mutations are not always immediately visible, so give anything new a bit of time to show up
         start = time.time()
         for _ in range(5):
             mutations_running = {
@@ -472,7 +478,9 @@ class MutationRunner(abc.ABC):
             if mutations_running.keys() == expected_commands:
                 return MutationWaiter(self.table, set(mutations_running.values()))
 
-        raise Exception(f"unable to find mutation after {time.time() - start:0.2f}s!")
+        raise Exception(
+            f"unable to find mutation for {expected_commands - mutations_running.keys()!r} after {time.time() - start:0.2f}s!"
+        )
 
     def find_existing_mutations(self, client: Client, commands: Set[str] | None = None) -> Mapping[str, str | None]:
         """
