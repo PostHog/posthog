@@ -20,6 +20,7 @@ pub enum QueryCommand {
         /// Run the final query and print the results as json lines to stdout
         execute: bool,
     },
+    /// Run a query directly, and print the results as json lines to stdout
     Run {
         /// The query to run
         query: String,

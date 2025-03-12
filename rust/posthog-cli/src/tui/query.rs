@@ -190,7 +190,7 @@ impl QueryTui {
     fn handle_events(&mut self, text_area: &mut TextArea) -> Result<Option<String>, Error> {
         self.handle_bg_query()?;
         self.save_editor_state(text_area.lines().to_vec())?;
-        if event::poll(Duration::from_millis(17))? == false {
+        if !event::poll(Duration::from_millis(17))? {
             return Ok(None);
         }
         if let Event::Key(key) = event::read()? {
@@ -362,7 +362,7 @@ fn get_debug_display(response: &HogQLQueryResponse) -> TextArea<'static> {
     ta
 }
 
-fn style_debug_display<'c>(mut ta: TextArea<'c>, is_focus: bool) -> TextArea<'c> {
+fn style_debug_display(mut ta: TextArea, is_focus: bool) -> TextArea {
     let border_color = if is_focus {
         Color::Cyan
     } else {
