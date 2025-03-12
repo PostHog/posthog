@@ -436,7 +436,7 @@ def count_delta_table_rows(delta_table: DeltaTable) -> int:
         row_count = int(latest_operation["operationMetrics"].get("num_added_rows", 0))
         return row_count
     except Exception as e:
-        logger.exception("Failed to count rows in Delta table %s: %s", delta_table.table_name, str(e))
+        logger.exception("Failed to count rows in Delta table: %s", str(e))
         return 0
 
 
