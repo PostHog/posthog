@@ -135,7 +135,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     sender.add_periodic_task(
         crontab(hour="*", minute="30"),
         run_quota_limiting.s(),
-        name="update quota limiting",
+        name="run quota limiting",
     )
 
     # Send all periodic digest reports
