@@ -103,11 +103,7 @@ impl RawJSFrame {
     pub fn symbol_set_ref(&self) -> Option<String> {
         // If we have a chunk ID for a frame, no matter where the data we save comes from, we save it with that
         // chunk id as the ref.
-        if let Some(id) = &self.chunk_id {
-            Some(id.clone())
-        } else {
-            self.source_url().ok().map(|u| u.path().to_string())
-        }
+        self.get_ref().ok().map(|r| r.to_string())
     }
 
     fn source_url(&self) -> Result<Url, JsResolveErr> {
