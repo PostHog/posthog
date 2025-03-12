@@ -192,7 +192,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                                         tooltip="Make beta feature available"
                                         type="primary"
                                     >
-                                        Release beta
+                                        Publish
                                     </LemonButton>
                                 )}
                                 <LemonDivider vertical />
