@@ -134,14 +134,14 @@ def run_materialize_mutations(
     mutations_to_run_by_shard = {
         host.shard_num: mutations
         for host, mutations in cluster.map_one_host_per_shard(config.get_mutations_to_run).result().items()
-        if host.shard_num is not None
+        if host.shard_num is not None  # XXX: need to fix
     }
 
     for mutations in zip_values(mutations_to_run_by_shard):
         shard_waiters = {
             host.shard_num: waiter
             for host, waiter in cluster.map_any_host_in_shards(mutations).result().items()
-            if host.shard_num is not None
+            if host.shard_num is not None  # XXX: need to fix
         }
         cluster.map_all_hosts_in_shards(shard_waiters).result()
 
