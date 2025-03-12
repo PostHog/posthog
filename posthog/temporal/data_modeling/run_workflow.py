@@ -739,7 +739,9 @@ class RunWorkflow(PostHogWorkflow):
         completed, failed, ancestor_failed = results
 
         # publish metrics
-        if failed or ancestor_failed:
+        if ancestor_failed:
+            get_data_modeling_finished_metric(status="ancestor_failed").add(1)
+        elif failed:
             get_data_modeling_finished_metric(status="failed").add(1)
         elif completed:
             get_data_modeling_finished_metric(status="completed").add(1)
