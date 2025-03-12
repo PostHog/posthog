@@ -100,9 +100,7 @@ export class PropertyDefsDB {
     async resolveGroupsForTeams(teamIds: number[]): Promise<TeamGroupRow[]> {
         const result = await this.hub.postgres.query<TeamGroupRow>(
             PostgresUse.COMMON_READ,
-            `SELECT pt.id AS team_id, pgtm.group_type AS group_name, pgtm.group_type_index AS group_index FROM posthog_team
-                INNER JOIN posthog.grouptypemapping AS pgtm ON pt.id = pgtm.team_id
-                WHERE id = ANY ($1)`,
+            `SELECT team_ids, group_type_index FROM posthog_grouptype WHERE team_ids = ANY ($1)`,
             [teamIds],
             'findTeamIds'
         )

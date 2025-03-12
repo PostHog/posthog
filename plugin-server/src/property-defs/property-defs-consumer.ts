@@ -84,7 +84,6 @@ export class PropertyDefsConsumer {
     protected promises: Set<Promise<any>> = new Set()
 
     constructor(private hub: Hub) {
-        // The group and topic are configurable allowing for multiple ingestion consumers to be run in parallel
         this.groupId = hub.PROPERTY_DEFS_CONSUMER_GROUP_ID
         this.topic = hub.PROPERTY_DEFS_CONSUMER_CONSUME_TOPIC
         this.propertyDefsDB = new PropertyDefsDB(hub)
@@ -146,21 +145,24 @@ export class PropertyDefsConsumer {
         }
 
         const teamsInBatch = this.extractTeamIds(parsedMessages)
-        collected.knownTeamIds = await this.runInstrumented('resolveTeams', () =>
-            Promise.resolve(this.resolveTeams(this.propertyDefsDB, teamsInBatch))
-        )
-
         const groupTeamsInBatch = this.extractGroupTeamIds(parsedMessages, collected.knownTeamIds)
-        collected.resolvedTeamGroups = await this.runInstrumented('resolveGroupsForTeams', () =>
-            Promise.resolve(this.resolveGroupsForTeams(this.propertyDefsDB, groupTeamsInBatch))
-        )
+
+        const [knownTeamIds, resolvedTeamGroups] = await Promise.all([
+            this.runInstrumented('resolveTeams', () => this.resolveTeams(this.propertyDefsDB, teamsInBatch)),
+            this.runInstrumented('resolveGroupsForTeams', () =>
+                this.resolveGroupsForTeams(this.propertyDefsDB, groupTeamsInBatch)
+            ),
+        ])
+
+        collected.knownTeamIds = knownTeamIds
+        collected.resolvedTeamGroups = resolvedTeamGroups
 
         console.log('🔁', `Event batch teams and group indices resolved`)
 
         // extract and dedup event and property definitions
-        void (await this.runInstrumented('derivePropDefs', () =>
+        await this.runInstrumented('derivePropDefs', () =>
             Promise.resolve(this.extractPropertyDefinitions(parsedMessages, collected))
-        ))
+        )
 
         console.log('🔁', `Property definitions collected`, JSON.stringify(collected, null, 2))
 
