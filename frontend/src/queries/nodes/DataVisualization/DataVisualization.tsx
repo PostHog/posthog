@@ -117,6 +117,7 @@ export function DataTableVisualization({
                             key: dataVisualizationLogicProps.key,
                             readOnly: readOnly ?? false,
                             dashboardId: insightProps.dashboardId,
+                            sourceQuery: query,
                             setQuery: setQuery,
                             onUpdate: (query: DataVisualizationNode) => {
                                 loadData(true, undefined, query.source)
