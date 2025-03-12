@@ -1,5 +1,14 @@
 import { IconFlag, IconQuestion, IconX } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonInput, LemonSkeleton, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonDivider,
+    LemonInput,
+    LemonSelect,
+    LemonSkeleton,
+    LemonTag,
+    LemonTextArea,
+    Link,
+} from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
@@ -253,28 +262,52 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                                 </LemonField>
                             )}
                         </div>
-                        {isEditingFeature || isNewEarlyAccessFeature ? (
-                            <></>
-                        ) : (
+
+                        {!isNewEarlyAccessFeature && earlyAccessFeature.stage !== 'draft' ? (
                             <div className="flex-1 min-w-[20rem]">
                                 <b>Stage</b>
                                 <div>
-                                    <LemonTag
-                                        type={
-                                            earlyAccessFeature.stage === EarlyAccessFeatureStage.Beta
-                                                ? 'warning'
-                                                : earlyAccessFeature.stage ===
-                                                  EarlyAccessFeatureStage.GeneralAvailability
-                                                ? 'success'
-                                                : 'default'
-                                        }
-                                        className="mt-2 uppercase"
-                                    >
-                                        {earlyAccessFeature.stage}
-                                    </LemonTag>
+                                    {isEditingFeature ? (
+                                        <LemonField name="stage">
+                                            <LemonSelect
+                                                options={[
+                                                    {
+                                                        value: 'concept',
+                                                        label: 'Concept',
+                                                    },
+                                                    {
+                                                        value: 'alpha',
+                                                        label: 'Alpha',
+                                                    },
+                                                    {
+                                                        value: 'beta',
+                                                        label: 'Beta',
+                                                    },
+                                                    {
+                                                        value: 'general-availability',
+                                                        label: 'General availability',
+                                                    },
+                                                ]}
+                                            />
+                                        </LemonField>
+                                    ) : (
+                                        <LemonTag
+                                            type={
+                                                earlyAccessFeature.stage === EarlyAccessFeatureStage.Beta
+                                                    ? 'warning'
+                                                    : earlyAccessFeature.stage ===
+                                                      EarlyAccessFeatureStage.GeneralAvailability
+                                                    ? 'success'
+                                                    : 'default'
+                                            }
+                                            className="mt-2 uppercase"
+                                        >
+                                            {earlyAccessFeature.stage}
+                                        </LemonTag>
+                                    )}
                                 </div>
                             </div>
-                        )}
+                        ) : null}
                     </div>
                     <div className="flex flex-wrap items-start gap-4">
                         <div className="flex-1 min-w-[20rem]">

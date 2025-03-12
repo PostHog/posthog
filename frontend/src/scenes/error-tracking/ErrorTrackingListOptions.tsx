@@ -11,34 +11,66 @@ export const ErrorTrackingListOptions = (): JSX.Element => {
     const { setAssignee } = useActions(errorTrackingLogic)
     const { orderBy, status } = useValues(errorTrackingSceneLogic)
     const { setOrderBy, setStatus } = useActions(errorTrackingSceneLogic)
+    const { results } = useValues(errorTrackingDataNodeLogic)
 
     const { selectedIssueIds } = useValues(errorTrackingSceneLogic)
     const { setSelectedIssueIds } = useActions(errorTrackingSceneLogic)
-    const { mergeIssues } = useActions(errorTrackingDataNodeLogic)
+    const { mergeIssues, assignIssues, resolveIssues } = useActions(errorTrackingDataNodeLogic)
 
     return (
         <>
             <div className="sticky top-[var(--breadcrumbs-height-compact)] z-20 py-2 bg-primary flex justify-between">
-                <div className="flex space-x-2">
-                    <LemonButton
-                        disabledReason={selectedIssueIds.length < 2 ? 'Select at least two issues to merge' : null}
-                        type="secondary"
-                        size="small"
-                        onClick={() => {
-                            mergeIssues(selectedIssueIds)
-                            setSelectedIssueIds([])
-                        }}
-                    >
-                        Merge Issues
-                    </LemonButton>
-                    {selectedIssueIds.length > 0 && (
-                        <LemonButton type="secondary" size="small" onClick={() => setSelectedIssueIds([])}>
-                            Unselect all
+                <div className="flex deprecated-space-x-2">
+                    {selectedIssueIds.length > 0 ? (
+                        <>
+                            <LemonButton type="secondary" size="small" onClick={() => setSelectedIssueIds([])}>
+                                Unselect all
+                            </LemonButton>
+                            <LemonButton
+                                disabledReason={
+                                    selectedIssueIds.length < 2 ? 'Select at least two issues to merge' : null
+                                }
+                                type="secondary"
+                                size="small"
+                                onClick={() => {
+                                    mergeIssues(selectedIssueIds)
+                                    setSelectedIssueIds([])
+                                }}
+                            >
+                                Merge
+                            </LemonButton>
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                onClick={() => {
+                                    resolveIssues(selectedIssueIds)
+                                    setSelectedIssueIds([])
+                                }}
+                            >
+                                Resolve
+                            </LemonButton>
+                            <AssigneeSelect
+                                type="secondary"
+                                size="small"
+                                showName
+                                showIcon={false}
+                                unassignedLabel="Assign"
+                                assignee={null}
+                                onChange={(assignee) => assignIssues(selectedIssueIds, assignee)}
+                            />
+                        </>
+                    ) : (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            onClick={() => setSelectedIssueIds(results.map((issue) => issue.id))}
+                        >
+                            Select all
                         </LemonButton>
                     )}
                 </div>
                 {selectedIssueIds.length < 1 && (
-                    <span className="flex space-x-2">
+                    <span className="flex deprecated-space-x-2">
                         <div className="flex items-center gap-1">
                             <span>Status:</span>
                             <LemonSelect

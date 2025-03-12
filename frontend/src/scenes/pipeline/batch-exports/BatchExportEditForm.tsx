@@ -23,7 +23,7 @@ export function BatchExportGeneralEditFields({
 }): JSX.Element {
     return (
         <>
-            <div className="space-y-4">
+            <div className="deprecated-space-y-4">
                 {!isPipeline && (
                     <LemonField name="name" label="Name">
                         <LemonInput placeholder="Name your workflow for future reference" />
@@ -87,7 +87,7 @@ export function BatchExportsEditFields({
 }): JSX.Element {
     return (
         <>
-            <div className="space-y-4 max-w-200 mt-4">
+            <div className="deprecated-space-y-4 max-w-200 mt-4">
                 {batchExportConfigForm.destination === 'S3' ? (
                     <>
                         <div className="flex gap-4">
