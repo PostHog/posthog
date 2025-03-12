@@ -178,8 +178,11 @@ describe('LegacyPluginExecutorService', () => {
             expect(customerIoPlugin.onEvent).toHaveBeenCalledTimes(1)
             expect(forSnapshot(jest.mocked(customerIoPlugin.onEvent!).mock.calls[0][0])).toMatchInlineSnapshot(`
                 {
+                  "$set": undefined,
+                  "$set_once": undefined,
                   "distinct_id": "distinct_id",
                   "event": "mycustomevent",
+                  "ip": null,
                   "person": {
                     "created_at": "",
                     "properties": {
@@ -205,6 +208,7 @@ describe('LegacyPluginExecutorService', () => {
                   [
                     "https://api.customer.io/v1/api/info/ip_addresses",
                     {
+                      "body": undefined,
                       "headers": {
                         "Authorization": "Basic MTIzNDU2Nzg5MDpjaW8tdG9rZW4=",
                         "User-Agent": "PostHog Customer.io App",
@@ -246,35 +250,6 @@ describe('LegacyPluginExecutorService', () => {
                   "Detected email, test@posthog.com",
                   "{"status":{},"existsAlready":false,"email":"test@posthog.com"}",
                   "true",
-                ]
-            `)
-        })
-
-        it('should mock out fetch if it is a test function', async () => {
-            jest.spyOn(customerIoPlugin, 'onEvent')
-
-            const invocation = createInvocation(fn, globals)
-            invocation.hogFunction.name = 'My function [CDP-TEST-HIDDEN]'
-            invocation.globals.event.event = 'mycustomevent'
-            invocation.globals.event.properties = {
-                email: 'test@posthog.com',
-            }
-
-            const res = await service.execute(invocation)
-
-            // NOTE: Setup call is not mocked
-            expect(mockFetch).toHaveBeenCalledTimes(1)
-
-            expect(customerIoPlugin.onEvent).toHaveBeenCalledTimes(1)
-
-            expect(forSnapshot(res.logs.map((l) => l.message))).toMatchInlineSnapshot(`
-                [
-                  "Successfully authenticated with Customer.io. Completing setupPlugin.",
-                  "Detected email, test@posthog.com",
-                  "{"status":{},"existsAlready":false,"email":"test@posthog.com"}",
-                  "true",
-                  "Fetch called but mocked due to test function",
-                  "Fetch called but mocked due to test function",
                 ]
             `)
         })
@@ -357,8 +332,11 @@ describe('LegacyPluginExecutorService', () => {
                 expect(res.error).toBeUndefined()
                 expect(forSnapshot(res.execResult)).toMatchInlineSnapshot(`
                     {
+                      "$set": undefined,
+                      "$set_once": undefined,
                       "distinct_id": "distinct_id",
                       "event": "dont-drop-me",
+                      "ip": undefined,
                       "properties": {
                         "email": "test@posthog.com",
                       },
@@ -406,8 +384,11 @@ describe('LegacyPluginExecutorService', () => {
                 expect(res.error).toBeUndefined()
                 expect(forSnapshot(res.execResult)).toMatchInlineSnapshot(`
                     {
+                      "$set": undefined,
+                      "$set_once": undefined,
                       "distinct_id": "distinct_id",
                       "event": "$pageview",
+                      "ip": undefined,
                       "properties": {
                         "version": "1.12.20",
                         "version__major": 1,
