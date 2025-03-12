@@ -649,5 +649,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.heatmaps()]: [Scene.Heatmaps, 'heatmaps'],
     [urls.sessionAttributionExplorer()]: [Scene.SessionAttributionExplorer, 'sessionAttributionExplorer'],
     [urls.wizard()]: [Scene.Wizard, 'wizard'],
+    [urls.clientAuthorization()]: [Scene.ClientAuthorization, 'clientAuthorization'],
     ...productRoutes,
 }
