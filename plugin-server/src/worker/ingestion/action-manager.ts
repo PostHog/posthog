@@ -109,6 +109,22 @@ export class ActionManager {
     }
 }
 
+const ACTION_SELECT_FIELDS = [
+    'id',
+    'team_id',
+    'name',
+    'description',
+    'created_at',
+    'created_by_id',
+    'deleted',
+    'post_to_slack',
+    'slack_message_format',
+    'is_calculating',
+    'updated_at',
+    'last_calculated_at',
+    'steps_json',
+] as const
+
 export async function fetchAllActionsGroupedByTeam(
     client: PostgresRouter
 ): Promise<Record<Team['id'], Record<Action['id'], Action>>> {
@@ -121,21 +137,13 @@ export async function fetchAllActionsGroupedByTeam(
             PostgresUse.COMMON_READ,
             `
             SELECT
-                id,
-                team_id,
-                name,
-                description,
-                created_at,
-                created_by_id,
-                deleted,
+                ${ACTION_SELECT_FIELDS.join(',')}
                 post_to_slack,
                 slack_message_format,
                 is_calculating,
                 updated_at,
                 last_calculated_at,
-                steps_json,
-                bytecode,
-                bytecode_error
+                steps_json
             FROM posthog_action
             WHERE deleted = FALSE AND (post_to_slack OR id = ANY($1))
         `,
@@ -192,7 +200,7 @@ export async function fetchAction(client: PostgresRouter, id: Action['id']): Pro
     const rawActions: RawAction[] = (
         await client.query(
             PostgresUse.COMMON_READ,
-            `SELECT * FROM posthog_action WHERE id = $1 AND deleted = FALSE`,
+            `SELECT ${ACTION_SELECT_FIELDS.join(',')} FROM posthog_action WHERE id = $1 AND deleted = FALSE`,
             [id],
             'fetchActions'
         )
