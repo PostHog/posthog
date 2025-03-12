@@ -39,12 +39,7 @@ function IconWithBadge({ icon, verified, hidden, tooltipTitle, className }: Icon
 }
 
 export function getPropertyDefinitionIcon(definition: PropertyDefinition): JSX.Element {
-    if (
-        definition.name &&
-        CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties[
-            definition.name as keyof typeof CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties
-        ]
-    ) {
+    if (CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties[definition.name]) {
         return (
             <IconWithBadge
                 icon={<IconLogomark />}

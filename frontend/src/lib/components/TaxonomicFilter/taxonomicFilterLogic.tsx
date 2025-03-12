@@ -51,11 +51,7 @@ import type { taxonomicFilterLogicType } from './taxonomicFilterLogicType'
 
 export const eventTaxonomicGroupProps: Pick<TaxonomicFilterGroup, 'getPopoverHeader' | 'getIcon'> = {
     getPopoverHeader: (eventDefinition: EventDefinition): string => {
-        if (
-            CORE_FILTER_DEFINITIONS_BY_GROUP.events[
-                eventDefinition.name as keyof typeof CORE_FILTER_DEFINITIONS_BY_GROUP.events
-            ]
-        ) {
+        if (CORE_FILTER_DEFINITIONS_BY_GROUP.events[eventDefinition.name]) {
             return 'PostHog event'
         }
         return `${eventDefinition.verified ? 'Verified' : 'Unverified'} event`
@@ -67,12 +63,7 @@ export const propertyTaxonomicGroupProps = (
     verified: boolean = false
 ): Pick<TaxonomicFilterGroup, 'getPopoverHeader' | 'getIcon'> => ({
     getPopoverHeader: (propertyDefinition: PropertyDefinition): string => {
-        if (
-            verified ||
-            !!CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties[
-                propertyDefinition.name as keyof typeof CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties
-            ]
-        ) {
+        if (verified || !!CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties[propertyDefinition.name]) {
             return 'PostHog property'
         }
         return 'Property'
