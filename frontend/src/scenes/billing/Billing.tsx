@@ -5,7 +5,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
 import { router } from 'kea-router'
-import { BuilderHog3 } from 'lib/components/hedgehogs'
+import { BuilderHog3, StarHog } from 'lib/components/hedgehogs'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { OrganizationMembershipLevel } from 'lib/constants'
@@ -141,7 +141,11 @@ export function Billing(): JSX.Element {
             {billing?.trial ? (
                 <LemonBanner type="info" hideIcon className="mb-2">
                     <div className="flex items-center gap-4">
-                        <BuilderHog3 className="w-20 h-20 flex-shrink-0" />
+                        {billing.trial.type === 'autosubscribe' ? (
+                            <StarHog className="w-20 h-20 flex-shrink-0" />
+                        ) : (
+                            <BuilderHog3 className="w-20 h-20 flex-shrink-0" />
+                        )}
                         <div>
                             You are currently on a free trial for <b>{toSentenceCase(billing.trial.target)} plan</b>{' '}
                             until <b>{dayjs(billing.trial.expires_at).format('LL')}</b>.
