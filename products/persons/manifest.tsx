@@ -1,4 +1,4 @@
-import { IconPerson } from 'node_modules/@posthog/icons/dist'
+import { IconPerson } from '@posthog/icons'
 import { urls } from 'scenes/urls'
 
 import { ProductManifest } from '../../frontend/src/types'
