@@ -216,8 +216,8 @@ impl From<(&RawJSFrame, JsResolveErr, &FrameLocation)> for Frame {
 
         // TODO - extremely rough
         let was_minified = match err {
-            JsResolveErr::NoSourceUrl => false, // This frame's `source` was None
-            JsResolveErr::NoSourcemap(_) => false, // A total guess
+            JsResolveErr::NoSourceUrl | JsResolveErr::NoUrlOrChunkId => false, // This frame's `source` didn't exist
+            JsResolveErr::NoSourcemap(_) => false,                             // A total guess
             _ => true,
         };
 
