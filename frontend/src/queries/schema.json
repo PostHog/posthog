@@ -626,6 +626,51 @@
             "required": ["value"],
             "type": "object"
         },
+        "AssistantFunnelNodeShared": {
+            "additionalProperties": false,
+            "properties": {
+                "math": {
+                    "$ref": "#/definitions/AssistantFunnelsMath",
+                    "description": "Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time."
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AssistantPropertyFilter"
+                    },
+                    "type": "array"
+                }
+            },
+            "type": "object"
+        },
+        "AssistantFunnelsActionsNode": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "description": "Action ID from the plan.",
+                    "type": "number"
+                },
+                "kind": {
+                    "const": "ActionsNode",
+                    "type": "string"
+                },
+                "math": {
+                    "$ref": "#/definitions/AssistantFunnelsMath",
+                    "description": "Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time."
+                },
+                "name": {
+                    "description": "Action name from the plan.",
+                    "type": "string"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AssistantPropertyFilter"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["id", "kind", "name"],
+            "type": "object"
+        },
         "AssistantFunnelsBreakdownFilter": {
             "additionalProperties": false,
             "properties": {
@@ -678,7 +723,7 @@
                     "type": "string"
                 },
                 "math": {
-                    "$ref": "#/definitions/AssistantTrendsMath",
+                    "$ref": "#/definitions/AssistantFunnelsMath",
                     "description": "Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time."
                 },
                 "properties": {
@@ -765,6 +810,20 @@
             },
             "type": "object"
         },
+        "AssistantFunnelsMath": {
+            "enum": ["first_time_for_user", "first_time_for_user_with_filters"],
+            "type": "string"
+        },
+        "AssistantFunnelsNode": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/AssistantFunnelsEventsNode"
+                },
+                {
+                    "$ref": "#/definitions/AssistantFunnelsActionsNode"
+                }
+            ]
+        },
         "AssistantFunnelsQuery": {
             "additionalProperties": false,
             "properties": {
@@ -810,9 +869,9 @@
                     "type": ["number", "null"]
                 },
                 "series": {
-                    "description": "Events to include",
+                    "description": "Events or actions to include",
                     "items": {
-                        "$ref": "#/definitions/AssistantFunnelsEventsNode"
+                        "$ref": "#/definitions/AssistantFunnelsNode"
                     },
                     "type": "array"
                 }
@@ -1677,10 +1736,6 @@
                 }
             },
             "type": "object"
-        },
-        "AssistantTrendsMath": {
-            "enum": ["first_time_for_user", "first_time_for_user_with_filters"],
-            "type": "string"
         },
         "AssistantTrendsQuery": {
             "additionalProperties": false,

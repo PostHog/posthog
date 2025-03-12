@@ -94,6 +94,11 @@ class AssistantFunnelsBreakdownType(StrEnum):
     SESSION = "session"
 
 
+class AssistantFunnelsMath(StrEnum):
+    FIRST_TIME_FOR_USER = "first_time_for_user"
+    FIRST_TIME_FOR_USER_WITH_FILTERS = "first_time_for_user_with_filters"
+
+
 class AssistantGenerationStatusType(StrEnum):
     ACK = "ack"
     GENERATION_ERROR = "generation_error"
@@ -272,11 +277,6 @@ class AssistantTrendsFilter(BaseModel):
     yAxisScaleType: Optional[YAxisScaleType] = Field(
         default=YAxisScaleType.LINEAR, description="Whether to scale the y-axis."
     )
-
-
-class AssistantTrendsMath(StrEnum):
-    FIRST_TIME_FOR_USER = "first_time_for_user"
-    FIRST_TIME_FOR_USER_WITH_FILTERS = "first_time_for_user_with_filters"
 
 
 class AutocompleteCompletionItemKind(StrEnum):
@@ -3442,6 +3442,75 @@ class AssistantBasePropertyFilter(
     ]
 
 
+class AssistantFunnelNodeShared(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    math: Optional[AssistantFunnelsMath] = Field(
+        default=None,
+        description=(
+            "Optional math aggregation type for the series. Only specify this math type if the user wants one of these."
+            " `first_time_for_user` - counts the number of users who have completed the event for the first time ever."
+            " `first_time_for_user_with_filters` - counts the number of users who have completed the event with"
+            " specified filters for the first time."
+        ),
+    )
+    properties: Optional[
+        list[
+            Union[
+                Union[
+                    AssistantGenericPropertyFilter1,
+                    AssistantGenericPropertyFilter2,
+                    AssistantGenericPropertyFilter3,
+                    AssistantGenericPropertyFilter4,
+                ],
+                Union[
+                    AssistantGroupPropertyFilter1,
+                    AssistantGroupPropertyFilter2,
+                    AssistantGroupPropertyFilter3,
+                    AssistantGroupPropertyFilter4,
+                ],
+            ]
+        ]
+    ] = None
+
+
+class AssistantFunnelsActionsNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: float = Field(..., description="Action ID from the plan.")
+    kind: Literal["ActionsNode"] = "ActionsNode"
+    math: Optional[AssistantFunnelsMath] = Field(
+        default=None,
+        description=(
+            "Optional math aggregation type for the series. Only specify this math type if the user wants one of these."
+            " `first_time_for_user` - counts the number of users who have completed the event for the first time ever."
+            " `first_time_for_user_with_filters` - counts the number of users who have completed the event with"
+            " specified filters for the first time."
+        ),
+    )
+    name: str = Field(..., description="Action name from the plan.")
+    properties: Optional[
+        list[
+            Union[
+                Union[
+                    AssistantGenericPropertyFilter1,
+                    AssistantGenericPropertyFilter2,
+                    AssistantGenericPropertyFilter3,
+                    AssistantGenericPropertyFilter4,
+                ],
+                Union[
+                    AssistantGroupPropertyFilter1,
+                    AssistantGroupPropertyFilter2,
+                    AssistantGroupPropertyFilter3,
+                    AssistantGroupPropertyFilter4,
+                ],
+            ]
+        ]
+    ] = None
+
+
 class AssistantFunnelsEventsNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3451,7 +3520,7 @@ class AssistantFunnelsEventsNode(BaseModel):
     )
     event: str = Field(..., description="Name of the event.")
     kind: Literal["EventsNode"] = "EventsNode"
-    math: Optional[AssistantTrendsMath] = Field(
+    math: Optional[AssistantFunnelsMath] = Field(
         default=None,
         description=(
             "Optional math aggregation type for the series. Only specify this math type if the user wants one of these."
@@ -3526,7 +3595,9 @@ class AssistantFunnelsQuery(BaseModel):
     samplingFactor: Optional[float] = Field(
         default=None, description="Sampling rate from 0 to 1 where 1 is 100% of the data."
     )
-    series: list[AssistantFunnelsEventsNode] = Field(..., description="Events to include")
+    series: list[Union[AssistantFunnelsEventsNode, AssistantFunnelsActionsNode]] = Field(
+        ..., description="Events or actions to include"
+    )
 
 
 class AssistantInsightsQueryBase(BaseModel):

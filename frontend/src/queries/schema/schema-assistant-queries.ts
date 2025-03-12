@@ -304,9 +304,19 @@ export interface AssistantTrendsQuery extends AssistantInsightsQueryBase {
     compareFilter?: CompareFilter
 }
 
-export type AssistantTrendsMath = FunnelMathType.FirstTimeForUser | FunnelMathType.FirstTimeForUserWithFilters
+export type AssistantFunnelsMath = FunnelMathType.FirstTimeForUser | FunnelMathType.FirstTimeForUserWithFilters
 
-export interface AssistantFunnelsEventsNode extends Omit<Node, 'response'> {
+export interface AssistantFunnelNodeShared {
+    /**
+     * Optional math aggregation type for the series. Only specify this math type if the user wants one of these.
+     * `first_time_for_user` - counts the number of users who have completed the event for the first time ever.
+     * `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time.
+     */
+    math?: AssistantFunnelsMath
+    properties?: AssistantPropertyFilter[]
+}
+
+export interface AssistantFunnelsEventsNode extends Omit<Node, 'response'>, AssistantFunnelNodeShared {
     kind: NodeKind.EventsNode
     /**
      * Name of the event.
@@ -316,14 +326,21 @@ export interface AssistantFunnelsEventsNode extends Omit<Node, 'response'> {
      * Optional custom name for the event if it is needed to be renamed.
      */
     custom_name?: string
-    /**
-     * Optional math aggregation type for the series. Only specify this math type if the user wants one of these.
-     * `first_time_for_user` - counts the number of users who have completed the event for the first time ever.
-     * `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time.
-     */
-    math?: AssistantTrendsMath
-    properties?: AssistantPropertyFilter[]
 }
+
+export interface AssistantFunnelsActionsNode extends Omit<Node, 'response'>, AssistantFunnelNodeShared {
+    kind: NodeKind.ActionsNode
+    /**
+     * Action ID from the plan.
+     */
+    id: number
+    /**
+     * Action name from the plan.
+     */
+    name: string
+}
+
+export type AssistantFunnelsNode = AssistantFunnelsEventsNode | AssistantFunnelsActionsNode
 
 /**
  * Exclustion steps for funnels. The "from" and "to" steps must not exceed the funnel's series length.
@@ -413,9 +430,9 @@ export interface AssistantFunnelsQuery extends AssistantInsightsQueryBase {
      */
     interval?: IntervalType
     /**
-     * Events to include
+     * Events or actions to include
      */
-    series: AssistantFunnelsEventsNode[]
+    series: AssistantFunnelsNode[]
     /**
      * Properties specific to the funnels insight
      */
