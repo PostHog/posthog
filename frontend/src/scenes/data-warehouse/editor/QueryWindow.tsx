@@ -208,7 +208,7 @@ function RunButton(): JSX.Element {
     const { runQuery } = useActions(multitabEditorLogic)
     const { cancelQuery } = useActions(dataNodeLogic)
     const { responseLoading } = useValues(dataNodeLogic)
-    const { metadata } = useValues(multitabEditorLogic)
+    const { metadata, queryInput } = useValues(multitabEditorLogic)
 
     const isUsingIndices = metadata?.isUsingIndices === 'yes'
     const tooltipContent = !isUsingIndices
@@ -228,7 +228,11 @@ function RunButton(): JSX.Element {
                 responseLoading ? (
                     <IconCancel />
                 ) : (
-                    <IconPlayFilled color={isUsingIndices ? 'var(--success)' : 'var(--warning)'} />
+                    <IconPlayFilled
+                        color={
+                            !metadata || isUsingIndices || queryInput.length === 0 ? 'var(--success)' : 'var(--warning)'
+                        }
+                    />
                 )
             }
             type="tertiary"

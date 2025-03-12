@@ -89,10 +89,9 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
     actions({
         setQueryInput: (queryInput: string) => ({ queryInput }),
         updateState: true,
-        runQuery: (queryOverride?: string, switchTab?: boolean, tabKey?: string) => ({
+        runQuery: (queryOverride?: string, switchTab?: boolean) => ({
             queryOverride,
             switchTab,
-            tabKey,
         }),
         setActiveQuery: (query: string) => ({ query }),
         renameTab: (tab: QueryTab, newName: string) => ({ tab, newName }),
@@ -467,7 +466,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             localStorage.setItem(editorModelsStateKey(props.key), JSON.stringify(queries))
             actions.updateQueryTabState()
         },
-        runQuery: ({ queryOverride, switchTab, tabKey }) => {
+        runQuery: ({ queryOverride, switchTab }) => {
             const query = queryOverride || values.queryInput
 
             actions.setSourceQuery({
@@ -478,7 +477,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 },
             })
             dataNodeLogic({
-                key: tabKey ?? values.activeModelUri?.uri.path ?? dataNodeKey,
+                key: values.activeModelUri?.uri.path ?? dataNodeKey,
                 query: {
                     ...values.sourceQuery.source,
                     query,
@@ -486,7 +485,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             }).mount()
 
             dataNodeLogic({
-                key: tabKey ?? values.activeModelUri?.uri.path ?? dataNodeKey,
+                key: values.activeModelUri?.uri.path ?? dataNodeKey,
                 query: {
                     ...values.sourceQuery.source,
                     query,
