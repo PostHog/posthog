@@ -159,32 +159,17 @@ export const convertAmountToUsage = (
 export const getUpgradeProductLink = ({
     product,
     redirectPath,
-    includeAddons = true,
 }: {
     product: BillingProductV2Type
     redirectPath?: string
-    includeAddons: boolean
 }): string => {
     let url = '/api/billing/activate?'
     if (redirectPath) {
         url += `redirect_path=${redirectPath}&`
     }
 
-    url += `products=all_products:&intent_product=${product.type},`
+    url += `products=all_products:&intent_product=${product.type}`
 
-    if (includeAddons && product.addons?.length) {
-        for (const addon of product.addons) {
-            if (
-                // TODO: this breaks if we support multiple plans per addon due to just grabbing the first plan
-                addon.plans?.[0]?.plan_key &&
-                !addon.inclusion_only
-            ) {
-                url += `${addon.type}:${addon.plans[0].plan_key},`
-            }
-        }
-    }
-    // remove the trailing comma that will be at the end of the url
-    url = url.slice(0, -1)
     return url
 }
 
