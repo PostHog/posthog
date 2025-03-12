@@ -10,10 +10,10 @@
 
 At the moment we don't have a pipeline to deploy a new version of a UDF. As such, we manually split the deployment into four steps:
 
-1. Deploying the binary file of the function.
-2. Deploying a ClickHouse configuration change to use the function.
-3. Checking in Metabase if the function was picked up by ClickHouse.
-4. Deploying the code change that uses the new function.
+1. Deploying the user_scripts folder with the new versioned binaries. (https://github.com/PostHog/posthog/pull/26773)
+2. Deploying a ClickHouse configuration change to use the function. (https://github.com/PostHog/posthog-cloud-infra/pull/3324)
+3. Checking in Metabase if the function was picked up by ClickHouse. [This action](https://github.com/PostHog/posthog-cloud-infra/actions/workflows/clickhouse-udfs.yml) should be triggered by the deploy of the new config files, but if it wasn't, ask infra or clickhouse teams.
+4. Deploying the code change that uses the new function. (https://github.com/PostHog/posthog/pull/26773)
 
 ## Design decisions
 
