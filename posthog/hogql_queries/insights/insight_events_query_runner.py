@@ -85,7 +85,7 @@ class InsightEventsQueryRunner(QueryRunner):
     def calculate(self) -> HogQLQueryResponse:
         settings = None
 
-        return execute_hogql_query(
+        response = execute_hogql_query(
             query_type="InsightEventsQuery",
             query=self.to_query(),
             team=self.team,
@@ -93,4 +93,15 @@ class InsightEventsQueryRunner(QueryRunner):
             modifiers=self.modifiers,
             limit_context=self.limit_context,
             settings=settings,
+        )
+
+        return ActorsQueryResponse(
+            results=response.results,
+            timings=response.timings,
+            types=[t for _, t in response.types] if response.types else None,
+            columns=["uuid", "date", "uuid2", "some_id"],
+            hogql=response.hogql,
+            modifiers=self.modifiers,
+            offset=0,
+            limit=100,
         )
