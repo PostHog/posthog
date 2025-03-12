@@ -14,7 +14,7 @@
         "build": "tsc && vite build",
         "lint": "eslint src --ext ts,tsx --report-unused-disable-directives",
         "preview": "vite preview",
-        "prepublishOnly": "yarn lint && yarn build",
+        "prepublishOnly": "pnpm lint && pnpm build",
         "prepare": "husky",
         "prettier": "prettier -w ."
     },
