@@ -50,6 +50,7 @@ export function RunningTimeCalculatorModal(): JSX.Element {
                                         ...experiment?.parameters,
                                         recommended_running_time: recommendedRunningTime,
                                         recommended_sample_size: recommendedSampleSize || undefined,
+                                        minimum_detectable_effect: minimumDetectableEffect || undefined,
                                     },
                                 })
                                 closeCalculateRunningTimeModal()
