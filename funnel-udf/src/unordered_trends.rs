@@ -73,7 +73,7 @@ impl AggregateFunnelRowUnordered {
             if interval_data.max_step.step >= args.from_step {
                 Some((interval_start, ResultStruct(
                     interval_start,
-                    if interval_data.max_step.step >= args.num_steps {
+                    if interval_data.max_step.step >= args.to_step {
                         1
                     } else {
                         -1

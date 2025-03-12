@@ -34,6 +34,7 @@ pub struct Event {
 #[derive(Deserialize)]
 pub struct Args {
     pub from_step: usize,
+    pub to_step: usize,
     pub num_steps: usize,
     pub conversion_window_limit: u64, // In seconds
     pub breakdown_attribution_type: String,
@@ -216,7 +217,7 @@ impl AggregateFunnelRow {
                             .unwrap()
                     {
                         let mut entered_timestamp =
-                            vec![DEFAULT_ENTERED_TIMESTAMP.clone(); args.num_steps + 1];
+                            vec![DEFAULT_ENTERED_TIMESTAMP.clone(); args.to_step + 1];
                         entered_timestamp[1] = entered_timestamp_one;
                         let interval_data = IntervalData {
                             max_step: MaxStep {
@@ -267,7 +268,7 @@ impl AggregateFunnelRow {
                                         };
                                     }
                                     // check if we have hit the goal. if we have, remove it from the list and add it to the successful_timestamps
-                                    if interval_data.entered_timestamp[args.num_steps].timestamp
+                                    if interval_data.entered_timestamp[args.to_step].timestamp
                                         != 0.0
                                     {
                                         vars.results.insert(
