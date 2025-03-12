@@ -210,14 +210,26 @@ export class LegacyPluginExecutorService {
                 throw new Error(`Plugin ${pluginId} setup failed: ${e.message}`)
             }
 
-            const fetch = (...args: Parameters<typeof trackedFetch>) => {
+            const isTestFunction = invocation.hogFunction.name.includes(CDP_TEST_ID)
+
+            const fetch = async (...args: Parameters<typeof trackedFetch>) => {
                 // TRICKY: We use the overridden fetch here if given as it is used by the comparer service
                 // Additionally we don't do real fetches for test functions
-                if (invocation.hogFunction.name.includes(CDP_TEST_ID)) {
-                    return Promise.resolve({
+                const method = args[1] && typeof args[1].method === 'string' ? args[1].method : 'GET'
+
+                if (isTestFunction && method.toUpperCase() !== 'GET') {
+                    // For testing we mock out all non-GET requests
+                    addLog('info', 'Fetch called but mocked due to test function')
+                    // Simulate a mini bit of fetch delay
+                    await new Promise((resolve) => setTimeout(resolve, 200))
+                    return {
                         status: 200,
-                        body: JSON.stringify({}),
-                    })
+                        json: () =>
+                            Promise.resolve({
+                                status: 'OK',
+                                message: 'Test function',
+                            }),
+                    } as Response
                 }
 
                 return (options?.fetch || this.fetch)(...args)

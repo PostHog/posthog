@@ -254,6 +254,35 @@ describe('LegacyPluginExecutorService', () => {
             `)
         })
 
+        it('should mock out fetch if it is a test function', async () => {
+            jest.spyOn(customerIoPlugin, 'onEvent')
+
+            const invocation = createInvocation(fn, globals)
+            invocation.hogFunction.name = 'My function [CDP-TEST-HIDDEN]'
+            invocation.globals.event.event = 'mycustomevent'
+            invocation.globals.event.properties = {
+                email: 'test@posthog.com',
+            }
+
+            const res = await service.execute(invocation)
+
+            // NOTE: Setup call is not mocked
+            expect(mockFetch).toHaveBeenCalledTimes(1)
+
+            expect(customerIoPlugin.onEvent).toHaveBeenCalledTimes(1)
+
+            expect(forSnapshot(res.logs.map((l) => l.message))).toMatchInlineSnapshot(`
+                [
+                  "Successfully authenticated with Customer.io. Completing setupPlugin.",
+                  "Detected email, test@posthog.com",
+                  "{"status":{},"existsAlready":false,"email":"test@posthog.com"}",
+                  "true",
+                  "Fetch called but mocked due to test function",
+                  "Fetch called but mocked due to test function",
+                ]
+            `)
+        })
+
         it('should handle and collect errors', async () => {
             jest.spyOn(customerIoPlugin, 'onEvent')
 
