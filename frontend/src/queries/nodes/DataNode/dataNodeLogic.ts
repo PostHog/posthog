@@ -83,8 +83,6 @@ export interface DataNodeLogicProps {
 
     /** Whether to automatically load data when the query changes. Used for manual override in SQL editor */
     autoLoad?: boolean
-    /** Whether to use local cache for the response. */
-    localCache?: boolean
 }
 
 export const AUTOLOAD_INTERVAL = 30000
