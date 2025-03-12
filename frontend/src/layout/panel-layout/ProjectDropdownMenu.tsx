@@ -113,7 +113,7 @@ export function ProjectDropdownMenu(): JSX.Element | null {
                                 <IconGear />
                             </IconWrapper>
                         ),
-                        tooltip: `Go to ${currentTeam?.name} settings`,
+                        tooltip: `Go to ${currentTeam.name} settings`,
                         onClick: () => {
                             push(urls.settings('project'))
                         },
