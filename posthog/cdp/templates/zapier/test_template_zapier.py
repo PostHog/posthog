@@ -25,7 +25,7 @@ class TestTemplateZapier(BaseHogFunctionTemplateTest):
         # Test with a full URL including the prefix
         self.run_function(
             inputs={
-                "hook": "https://hooks.zapier.com/hooks/catch/7363152/2l3ak6v/",
+                "hook": "https://hooks.zapier.com/hooks/catch/123456/abcdef/",
                 "body": {"hello": "world"},
                 "debug": False,
             }
@@ -33,7 +33,7 @@ class TestTemplateZapier(BaseHogFunctionTemplateTest):
 
         # The URL prefix should be stripped, so the fetch call should use just the path
         assert self.get_mock_fetch_calls()[0] == snapshot(
-            ("https://hooks.zapier.com/hooks/catch/7363152/2l3ak6v/", {"body": {"hello": "world"}, "method": "POST"})
+            ("https://hooks.zapier.com/hooks/catch/123456/abcdef/", {"body": {"hello": "world"}, "method": "POST"})
         )
         assert self.get_mock_print_calls() == snapshot([])
 
@@ -41,7 +41,7 @@ class TestTemplateZapier(BaseHogFunctionTemplateTest):
         # Test with a path that has a leading slash
         self.run_function(
             inputs={
-                "hook": "/hooks/catch/7363152/2l3ak6v/",
+                "hook": "/hooks/catch/123456/abcdef/",
                 "body": {"hello": "world"},
                 "debug": False,
             }
@@ -49,6 +49,6 @@ class TestTemplateZapier(BaseHogFunctionTemplateTest):
 
         # The leading slash should be removed to avoid double slashes
         assert self.get_mock_fetch_calls()[0] == snapshot(
-            ("https://hooks.zapier.com/hooks/catch/7363152/2l3ak6v/", {"body": {"hello": "world"}, "method": "POST"})
+            ("https://hooks.zapier.com/hooks/catch/123456/abcdef/", {"body": {"hello": "world"}, "method": "POST"})
         )
         assert self.get_mock_print_calls() == snapshot([])
