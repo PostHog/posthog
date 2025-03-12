@@ -87,6 +87,12 @@ export function EarlyAccessFeatures(): JSX.Element {
                             },
                             sorter: (a, b) => STAGES_IN_ORDER[a.stage] - STAGES_IN_ORDER[b.stage],
                         },
+                        {
+                            title: 'Opted-in users',
+                            key: 'opt_in_count',
+                            render: (_, feature) => feature.opt_in_count ?? 0,
+                            sorter: (a, b) => (a.opt_in_count ?? 0) - (b.opt_in_count ?? 0),
+                        },
                     ]}
                     dataSource={earlyAccessFeatures}
                 />

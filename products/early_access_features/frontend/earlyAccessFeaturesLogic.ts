@@ -14,7 +14,26 @@ export const earlyAccessFeaturesLogic = kea<earlyAccessFeaturesLogicType>([
             __default: [] as EarlyAccessFeatureType[],
             loadEarlyAccessFeatures: async () => {
                 const response = await api.earlyAccessFeatures.list()
-                return response.results
+                const featuresWithCounts = await Promise.all(
+                    response.results.map(async (feature) => {
+                        const key = `$feature_enrollment/${feature.feature_flag.key}`
+                        const optInCount = await api.persons.list({
+                            properties: [
+                                {
+                                    key: key,
+                                    value: ['true'],
+                                    operator: 'exact',
+                                    type: 'person',
+                                },
+                            ],
+                        })
+                        return {
+                            ...feature,
+                            opt_in_count: optInCount.count,
+                        }
+                    })
+                )
+                return featuresWithCounts
             },
         },
     }),

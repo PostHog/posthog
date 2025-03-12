@@ -3140,13 +3140,14 @@ export enum EarlyAccessFeatureTabs {
 export interface EarlyAccessFeatureType {
     /** UUID */
     id: string
-    feature_flag: FeatureFlagBasicType
+    feature_flag: FeatureFlagType
     name: string
     description: string
     stage: EarlyAccessFeatureStage
     /** Documentation URL. Can be empty. */
     documentation_url: string
     created_at: string
+    opt_in_count?: number
 }
 
 export interface NewEarlyAccessFeatureType extends Omit<EarlyAccessFeatureType, 'id' | 'created_at' | 'feature_flag'> {
@@ -5068,4 +5069,6 @@ export interface ProductManifest {
     routes?: Record<string, [string /** Scene */, string /** Scene Key (unique for layout tabs) */]>
     redirects?: Record<string, string | ((params: Params, searchParams: Params, hashParams: Params) => string)>
     urls?: Record<string, string | ((...args: any[]) => string)>
+}
+ng)>
 }
