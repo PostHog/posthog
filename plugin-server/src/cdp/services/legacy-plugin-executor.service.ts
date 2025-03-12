@@ -18,7 +18,7 @@ import {
 } from '../legacy-plugins/types'
 import { sanitizeLogMessage } from '../services/hog-executor.service'
 import { HogFunctionInvocation, HogFunctionInvocationResult } from '../types'
-import { isLegacyPluginHogFunction } from '../utils'
+import { CDP_TEST_ID, isLegacyPluginHogFunction } from '../utils'
 
 const pluginExecutionDuration = new Histogram({
     name: 'cdp_plugin_execution_duration_ms',
@@ -116,8 +116,6 @@ export class LegacyPluginExecutorService {
         invocation: HogFunctionInvocation,
         options?: LegacyPluginExecutorOptions
     ): Promise<HogFunctionInvocationResult> {
-        const fetch = options?.fetch || this.fetch
-
         const result: HogFunctionInvocationResult = {
             invocation,
             finished: true,
@@ -210,6 +208,19 @@ export class LegacyPluginExecutorService {
                 await state.setupPromise
             } catch (e) {
                 throw new Error(`Plugin ${pluginId} setup failed: ${e.message}`)
+            }
+
+            const fetch = (...args: Parameters<typeof trackedFetch>) => {
+                // TRICKY: We use the overridden fetch here if given as it is used by the comparer service
+                // Additionally we don't do real fetches for test functions
+                if (invocation.hogFunction.name.includes(CDP_TEST_ID)) {
+                    return Promise.resolve({
+                        status: 200,
+                        body: JSON.stringify({}),
+                    })
+                }
+
+                return (options?.fetch || this.fetch)(...args)
             }
 
             const start = performance.now()
