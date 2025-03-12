@@ -1814,7 +1814,7 @@ export interface FileSystemEntry {
 }
 
 export interface FileSystemImport extends Omit<FileSystemEntry, 'href'> {
-    icon?: JSX.Element
+    icon?: any // Setting as "any" to keep Python schema.py in check
     flag?: string
     href: (ref?: string) => string
 }

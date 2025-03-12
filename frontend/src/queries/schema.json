@@ -7856,9 +7856,7 @@
                     },
                     "type": "object"
                 },
-                "icon": {
-                    "$ref": "#/definitions/global.JSX.Element"
-                },
+                "icon": {},
                 "id": {
                     "description": "Unique UUID for tree entry",
                     "type": "string"
@@ -13425,28 +13423,6 @@
             "required": ["k", "t"],
             "type": "object"
         },
-        "React.Key": {
-            "type": ["string", "number"]
-        },
-        "React.ReactElement<any,any>": {
-            "additionalProperties": false,
-            "properties": {
-                "key": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/React.Key"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
-                },
-                "props": {},
-                "type": {}
-            },
-            "required": ["type", "props", "key"],
-            "type": "object"
-        },
         "ReasoningMessage": {
             "additionalProperties": false,
             "properties": {
@@ -16495,25 +16471,6 @@
                     "type": "boolean"
                 }
             },
-            "type": "object"
-        },
-        "global.JSX.Element": {
-            "additionalProperties": false,
-            "properties": {
-                "key": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/React.Key"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
-                },
-                "props": {},
-                "type": {}
-            },
-            "required": ["key", "props", "type"],
             "type": "object"
         },
         "integer": {
