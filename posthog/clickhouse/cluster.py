@@ -457,8 +457,7 @@ class MutationRunner(abc.ABC):
         expected_commands = self.get_all_commands()
         mutations = self.find_existing_mutations(client, expected_commands)
 
-        commands_to_enqueue = {command for command, mutation in mutations.items() if mutation is None}
-        if commands_to_enqueue:
+        if commands_to_enqueue := {command for command, mutation in mutations.items() if mutation is None}:
             client.execute(self.get_statement(commands_to_enqueue), self.parameters, settings=self.settings)
 
         # find mutation ids for all commands
