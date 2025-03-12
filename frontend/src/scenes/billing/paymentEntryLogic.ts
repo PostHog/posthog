@@ -1,16 +1,31 @@
 import { kea } from 'kea'
+import { router } from 'kea-router'
 import api from 'lib/api'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { userLogic } from 'scenes/userLogic'
 
+import { billingLogic } from './billingLogic'
 import type { paymentEntryLogicType } from './paymentEntryLogicType'
 
 export const paymentEntryLogic = kea<paymentEntryLogicType>({
     path: ['scenes', 'billing', 'PaymentEntryLogic'],
 
+    connect: {
+        actions: [
+            userLogic,
+            ['loadUser'],
+            organizationLogic,
+            ['loadCurrentOrganization'],
+            billingLogic,
+            ['loadBilling'],
+        ],
+    },
+
     actions: {
         setClientSecret: (clientSecret) => ({ clientSecret }),
         setLoading: (loading) => ({ loading }),
         setError: (error) => ({ error }),
-        initiateAuthorization: (redirectPath: string | null) => ({ redirectPath }),
+        initiateAuthorization: true,
         pollAuthorizationStatus: (paymentIntentId?: string) => ({ paymentIntentId }),
         setAuthorizationStatus: (status: string | null) => ({ status }),
         showPaymentEntryModal: (redirectPath?: string | null) => ({ redirectPath }),
@@ -92,7 +107,15 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
                         if (values.redirectPath) {
                             window.location.pathname = values.redirectPath
                         } else {
-                            window.location.reload()
+                            // Push success to the url
+                            router.actions.push(router.values.location.pathname, {
+                                ...router.values.searchParams,
+                                success: true,
+                            })
+                            actions.loadBilling()
+                            actions.loadCurrentOrganization()
+                            actions.loadUser()
+                            actions.hidePaymentEntryModal()
                         }
                         return
                     } else if (status === 'failed') {
