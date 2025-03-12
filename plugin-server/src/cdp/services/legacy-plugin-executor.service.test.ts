@@ -183,15 +183,6 @@ describe('LegacyPluginExecutorService', () => {
                   "distinct_id": "distinct_id",
                   "event": "mycustomevent",
                   "ip": null,
-                  "person": {
-                    "created_at": "",
-                    "properties": {
-                      "email": "test@posthog.com",
-                      "first_name": "Pumpkin",
-                    },
-                    "team_id": 2,
-                    "uuid": "uuid",
-                  },
                   "properties": {
                     "email": "test@posthog.com",
                   },
@@ -219,7 +210,7 @@ describe('LegacyPluginExecutorService', () => {
                   [
                     "https://track.customer.io/api/v1/customers/distinct_id",
                     {
-                      "body": "{"_update":false,"identifier":"distinct_id","email":"test@posthog.com"}",
+                      "body": "{"_update":false,"identifier":"distinct_id"}",
                       "headers": {
                         "Authorization": "Basic MTIzNDU2Nzg5MDpjaW8tdG9rZW4=",
                         "Content-Type": "application/json",
@@ -247,8 +238,8 @@ describe('LegacyPluginExecutorService', () => {
             expect(res.logs.map((l) => l.message)).toMatchInlineSnapshot(`
                 [
                   "Successfully authenticated with Customer.io. Completing setupPlugin.",
-                  "Detected email, test@posthog.com",
-                  "{"status":{},"existsAlready":false,"email":"test@posthog.com"}",
+                  "Detected email, null",
+                  "{"status":{},"existsAlready":false,"email":null}",
                   "true",
                 ]
             `)
@@ -274,8 +265,8 @@ describe('LegacyPluginExecutorService', () => {
             expect(forSnapshot(res.logs.map((l) => l.message))).toMatchInlineSnapshot(`
                 [
                   "Successfully authenticated with Customer.io. Completing setupPlugin.",
-                  "Detected email, test@posthog.com",
-                  "{"status":{},"existsAlready":false,"email":"test@posthog.com"}",
+                  "Detected email, null",
+                  "{"status":{},"existsAlready":false,"email":null}",
                   "true",
                   "Fetch called but mocked due to test function",
                   "Fetch called but mocked due to test function",
@@ -311,8 +302,8 @@ describe('LegacyPluginExecutorService', () => {
             expect(forSnapshot(res.logs.map((l) => l.message))).toMatchInlineSnapshot(`
                 [
                   "Successfully authenticated with Customer.io. Completing setupPlugin.",
-                  "Detected email, test@posthog.com",
-                  "{"status":{},"existsAlready":false,"email":"test@posthog.com"}",
+                  "Detected email, null",
+                  "{"status":{},"existsAlready":false,"email":null}",
                   "true",
                   "Plugin execution failed: Received a potentially intermittent error from the Customer.io API. Response 500: {}",
                 ]

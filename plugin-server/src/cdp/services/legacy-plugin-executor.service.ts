@@ -237,15 +237,6 @@ export class LegacyPluginExecutorService {
 
             const start = performance.now()
 
-            const person: ProcessedPluginEvent['person'] = invocation.globals.person
-                ? {
-                      uuid: invocation.globals.person.id,
-                      team_id: invocation.hogFunction.team_id,
-                      properties: invocation.globals.person.properties,
-                      created_at: '', // NOTE: We don't have this anymore - see if any plugin uses it...
-                  }
-                : undefined
-
             const event = {
                 distinct_id: invocation.globals.event.distinct_id,
                 ip: invocation.globals.event.properties.$ip,
@@ -263,7 +254,6 @@ export class LegacyPluginExecutorService {
                 const processedEvent: ProcessedPluginEvent = {
                     ...event,
                     ip: null, // convertToOnEventPayload removes this so we should too
-                    person,
                     properties: event.properties || {},
                 }
 
