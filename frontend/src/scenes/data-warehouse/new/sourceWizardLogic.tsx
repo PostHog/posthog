@@ -60,10 +60,10 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
             },
             {
                 name: 'stripe_secret_key',
-                label: 'Client secret',
+                label: 'API key',
                 type: 'password',
                 required: true,
-                placeholder: 'sk_live_...',
+                placeholder: 'rk_live_...',
             },
         ],
     },
