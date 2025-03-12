@@ -2,6 +2,7 @@ from typing import Union
 
 from posthog.hogql import ast
 from posthog.schema import CurrencyCode, RevenueTrackingConfig, RevenueTrackingEventItem
+from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DECIMAL_PRECISION
 from posthog.hogql.database.models import (
     StringDatabaseField,
     DateDatabaseField,
@@ -86,7 +87,7 @@ def revenue_comparison_and_value_exprs(
                     name="toDecimal",
                     args=[
                         ast.Field(chain=["events", "properties", event.revenueProperty]),
-                        ast.Constant(value=10),
+                        ast.Constant(value=EXCHANGE_RATE_DECIMAL_PRECISION),
                     ],
                 ),
                 convert_currency_call(
@@ -100,7 +101,10 @@ def revenue_comparison_and_value_exprs(
     else:
         value_expr = ast.Call(
             name="toDecimal",
-            args=[ast.Field(chain=["events", "properties", event.revenueProperty]), ast.Constant(value=10)],
+            args=[
+                ast.Field(chain=["events", "properties", event.revenueProperty]),
+                ast.Constant(value=EXCHANGE_RATE_DECIMAL_PRECISION),
+            ],
         )
 
     return (comparison_expr, value_expr)
