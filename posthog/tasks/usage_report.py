@@ -306,7 +306,7 @@ def send_report_to_billing_service(self: celery.Task, org_id: str, report: dict[
 
     # hack to process old entries, remove after 2025.03.12
     if isinstance(self, str):
-        report = org_id
+        report = org_id  # type: ignore
         org_id = self
         self = None
 
