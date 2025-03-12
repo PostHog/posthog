@@ -1,351 +1,925 @@
-import { kea } from 'kea'
-import { router } from 'kea-router'
-import api from 'lib/api'
+import { lemonToast } from '@posthog/lemon-ui'
+import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+import { getDefaultInterval, updateDatesWithInterval } from 'lib/utils'
 
-import { InsightVizNode, NodeKind, QuerySchema, TrendsQuery } from '~/queries/schema/schema-general'
+import { performQuery } from '~/queries/query'
+import { BreakdownFilter, InsightVizNode, NodeKind, WebStatsBreakdown } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
-import { BaseMathType, ChartDisplayType, InsightLogicProps, PropertyFilterType, PropertyOperator } from '~/types'
+import { ChartDisplayType, PropertyFilterType, PropertyOperator } from '~/types'
 
-import type { pageReportsLogicType } from './pageReportsLogicType'
-import {
-    DeviceTab,
-    GeographyTab,
-    PathTab,
-    SourceTab,
-    TabsTile,
-    TileId,
-    TileVisualizationOption,
-    WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
-    webAnalyticsLogic,
-    WebAnalyticsTile,
-} from './webAnalyticsLogic'
-
-// Define new TileIds for page reports to avoid conflicts with web analytics
 export enum PageReportsTileId {
-    PATHS = 'PAGE_REPORTS_PATHS',
-    SOURCES = 'PAGE_REPORTS_SOURCES',
-    DEVICES = 'PAGE_REPORTS_DEVICES',
-    GEOGRAPHY = 'PAGE_REPORTS_GEOGRAPHY',
+    PAGES = 'pages',
+    PATHS = 'paths',
+    SOURCES = 'sources',
+    DEVICES = 'devices',
+    GEOGRAPHY = 'geography',
+    WEBSITE_ENGAGEMENT = 'engagement',
 }
 
 export interface PageURL {
     url: string
-    count: number
+    url_matching: 'exact' | 'contains' | 'startswith'
+    id: string
 }
 
-export interface PageReportsLogicProps {}
+export interface CompareFilter {
+    compare?: boolean
+    compare_to?: string
+}
 
-export const pageReportsLogic = kea<pageReportsLogicType>({
-    path: ['scenes', 'web-analytics', 'pageReportsLogic'],
-    props: {} as PageReportsLogicProps,
+export const INITIAL_DATE_FROM = '-7d'
+export const INITIAL_DATE_TO = null
+export const INITIAL_INTERVAL = 'day'
 
-    connect: {
-        values: [webAnalyticsLogic, ['dateFilter', 'tiles', 'shouldFilterTestAccounts', 'compareFilter']],
-        actions: [webAnalyticsLogic, ['togglePropertyFilter']],
-    },
+interface PageReportsLogicProps {
+    id?: string
+}
 
-    actions: () => ({
-        setPageUrl: (url: string | string[] | null) => ({ url }),
-        setPageUrlSearchTerm: (searchTerm: string) => ({ searchTerm }),
-        loadPages: (searchTerm: string = '') => ({ searchTerm }),
+// Helper function to convert WebStatsBreakdown to property filter
+export const webStatsBreakdownToPropertyName = (
+    breakdownBy: WebStatsBreakdown
+):
+    | { key: string; type: PropertyFilterType.Person | PropertyFilterType.Event | PropertyFilterType.Session }
+    | undefined => {
+    switch (breakdownBy) {
+        case WebStatsBreakdown.Page:
+            return { key: '$pathname', type: PropertyFilterType.Event }
+        case WebStatsBreakdown.InitialPage:
+            return { key: '$entry_pathname', type: PropertyFilterType.Session }
+        case WebStatsBreakdown.ExitPage:
+            return { key: '$end_pathname', type: PropertyFilterType.Session }
+        case WebStatsBreakdown.ExitClick:
+            return { key: '$last_external_click_url', type: PropertyFilterType.Session }
+        case WebStatsBreakdown.InitialChannelType:
+            return { key: '$channel_type', type: PropertyFilterType.Session }
+        case WebStatsBreakdown.InitialReferringDomain:
+            return { key: '$entry_referring_domain', type: PropertyFilterType.Session }
+        case WebStatsBreakdown.InitialUTMSource:
+            return { key: '$entry_utm_source', type: PropertyFilterType.Session }
+        case WebStatsBreakdown.InitialUTMCampaign:
+            return { key: '$entry_utm_campaign', type: PropertyFilterType.Session }
+        case WebStatsBreakdown.InitialUTMMedium:
+            return { key: '$entry_utm_medium', type: PropertyFilterType.Session }
+        case WebStatsBreakdown.InitialUTMContent:
+            return { key: '$entry_utm_content', type: PropertyFilterType.Session }
+        case WebStatsBreakdown.InitialUTMTerm:
+            return { key: '$entry_utm_term', type: PropertyFilterType.Session }
+        case WebStatsBreakdown.Browser:
+            return { key: '$browser', type: PropertyFilterType.Event }
+        case WebStatsBreakdown.OS:
+            return { key: '$os', type: PropertyFilterType.Event }
+        case WebStatsBreakdown.Viewport:
+            return { key: '$viewport', type: PropertyFilterType.Event }
+        case WebStatsBreakdown.DeviceType:
+            return { key: '$device_type', type: PropertyFilterType.Event }
+        case WebStatsBreakdown.Country:
+            return { key: '$geoip_country_code', type: PropertyFilterType.Event }
+        case WebStatsBreakdown.Region:
+            return { key: '$geoip_subdivision_1_code', type: PropertyFilterType.Event }
+        case WebStatsBreakdown.City:
+            return { key: '$geoip_city_name', type: PropertyFilterType.Event }
+        case WebStatsBreakdown.Timezone:
+            return { key: '$timezone', type: PropertyFilterType.Event }
+        case WebStatsBreakdown.Language:
+            return { key: '$geoip_language', type: PropertyFilterType.Event }
+        default:
+            return undefined
+    }
+}
+
+// Helper function to create breakdown filter
+export const getWebAnalyticsBreakdownFilter = (breakdown: WebStatsBreakdown): BreakdownFilter | undefined => {
+    const property = webStatsBreakdownToPropertyName(breakdown)
+
+    if (!property) {
+        return undefined
+    }
+
+    return {
+        breakdown_type: property.type,
+        breakdown: property.key,
+    }
+}
+
+export const pageReportsLogic = kea<any>([
+    path(['scenes', 'web-analytics', 'pageReportsLogic']),
+    props({} as PageReportsLogicProps),
+    key(({ id }) => id || 'new'),
+    actions({
+        addPage: (page) => ({ page }),
+        setEdit: (edit) => ({ edit }),
         toggleStripQueryParams: () => ({}),
-        setTileVisualization: (tileId: PageReportsTileId, visualization: TileVisualizationOption) => ({
-            tileId,
-            visualization,
-        }),
+        setPageUrl: (page) => ({ page }),
+        addPageFromUrl: (url) => ({ url }),
+        setSearchTerm: (search) => ({ search }),
+        setDateFilter: (dateFrom, dateTo) => ({ dateFrom, dateTo }),
+        setInterval: (interval) => ({ interval }),
+        setShouldFilterTestAccounts: (shouldFilterTestAccounts) => ({ shouldFilterTestAccounts }),
+        setCompareFilter: (compareFilter) => ({ compareFilter }),
     }),
+    loaders(({ values }) => ({
+        pages: {
+            __default: [] as PageURL[],
+            loadPages: async () => {
+                try {
+                    // Simple query using the same pattern as heatmapsLogic
+                    const searchQuery = values.searchTerm
+                        ? values.stripQueryParams
+                            ? // Use startsWith when query params are stripped
+                              hogql`AND properties.$current_url LIKE concat(${hogql.identifier(
+                                  values.searchTerm
+                              )}, '%')`
+                            : // Use contains when we need to match query params
+                              hogql`AND properties.$current_url like '%${hogql.identifier(values.searchTerm)}%'`
+                        : ''
 
-    reducers: () => ({
-        pageUrl: [
-            null as string | null,
-            { persist: true },
-            {
-                setPageUrl: (_state, { url }) => {
-                    if (Array.isArray(url)) {
-                        return url.length > 0 ? url[0] : null
-                    }
-                    return url
-                },
+                    const response = (await performQuery({
+                        kind: NodeKind.HogQLQuery,
+                        query: `
+                            SELECT DISTINCT properties.$current_url as url, count() as count
+                            FROM events
+                            WHERE event = '$pageview' ${searchQuery}
+                            GROUP BY url
+                            ORDER BY count DESC
+                            LIMIT 100
+                        `,
+                    })) as { results: [string, number][] }
+
+                    return (response.results || []).map((result: [string, number]) => ({
+                        url: result[0],
+                        url_matching: values.stripQueryParams ? 'startswith' : 'exact',
+                        id: result[0],
+                    }))
+                } catch (error: any) {
+                    lemonToast.error(`Error loading pages: ${error.message}`)
+                    return []
+                }
             },
-        ],
-        pageUrlSearchTerm: [
-            '',
+        },
+    })),
+    reducers(() => ({
+        edit: [
+            false,
             {
-                setPageUrlSearchTerm: (_state, { searchTerm }) => searchTerm,
-            },
-        ],
-        isInitialLoad: [
-            true,
-            {
-                loadPagesSuccess: () => false,
+                setEdit: (_, { edit }) => edit,
             },
         ],
         stripQueryParams: [
-            false as boolean,
-            { persist: true },
+            true,
             {
-                toggleStripQueryParams: (state: boolean) => !state,
+                toggleStripQueryParams: (state) => !state,
             },
         ],
-        tileVisualizations: [
-            {} as Record<PageReportsTileId, TileVisualizationOption>,
-            { persist: true },
+        pageUrl: [
+            null as PageURL | null,
             {
-                setTileVisualization: (state, { tileId, visualization }) => ({
+                setPageUrl: (_, { page }) => page,
+            },
+        ],
+        searchTerm: [
+            '',
+            {
+                setSearchTerm: (_, { search }) => search || '',
+            },
+        ],
+        dateFilter: [
+            {
+                dateFrom: INITIAL_DATE_FROM,
+                dateTo: INITIAL_DATE_TO,
+                interval: INITIAL_INTERVAL,
+            },
+            {
+                persistenceKey: 'pageReports-dateFilter',
+            },
+            {
+                setDateFilter: (state, { dateFrom, dateTo }) => ({
                     ...state,
-                    [tileId]: visualization,
+                    dateFrom,
+                    dateTo,
+                    interval: getDefaultInterval(dateFrom, dateTo),
                 }),
-            },
-        ],
-    }),
-
-    loaders: ({ values }) => ({
-        pages: [
-            [] as PageURL[],
-            {
-                loadPages: async ({ searchTerm }: { searchTerm: string }) => {
-                    try {
-                        let query: { kind: NodeKind; query: string }
-                        // Simple query using the same pattern as heatmapsLogic
-                        if (searchTerm) {
-                            query = {
-                                kind: NodeKind.HogQLQuery,
-                                query: values.stripQueryParams
-                                    ? hogql`SELECT DISTINCT cutQueryStringAndFragment(properties.$current_url) AS url, count() as count
-                                        FROM events
-                                        WHERE event = '$pageview'
-                                        AND cutQueryStringAndFragment(properties.$current_url) like '%${hogql.identifier(
-                                            searchTerm
-                                        )}%'
-                                        GROUP BY url
-                                        ORDER BY count DESC
-                                        LIMIT 100`
-                                    : hogql`SELECT DISTINCT properties.$current_url AS url, count() as count
-                                        FROM events
-                                        WHERE event = '$pageview'
-                                        AND properties.$current_url like '%${hogql.identifier(searchTerm)}%'
-                                        GROUP BY url
-                                        ORDER BY count DESC
-                                        LIMIT 100`,
-                            }
-                        } else {
-                            query = {
-                                kind: NodeKind.HogQLQuery,
-                                query: values.stripQueryParams
-                                    ? hogql`SELECT DISTINCT cutQueryStringAndFragment(properties.$current_url) AS url, count() as count
-                                        FROM events
-                                        WHERE event = '$pageview'
-                                        GROUP BY url
-                                        ORDER BY count DESC
-                                        LIMIT 100`
-                                    : hogql`SELECT DISTINCT properties.$current_url AS url, count() as count
-                                        FROM events
-                                        WHERE event = '$pageview'
-                                        GROUP BY url
-                                        ORDER BY count DESC
-                                        LIMIT 100`,
-                            }
-                        }
-
-                        const response = await api.query(query)
-                        const res = response as { results: [string, number][] }
-                        const results = res.results?.map((x) => ({ url: x[0], count: x[1] })) as PageURL[]
-
-                        return results
-                    } catch (error) {
-                        console.error('Error loading pages:', error)
-                        return []
+                setInterval: (state, { interval }) => {
+                    const { dateFrom, dateTo } = updateDatesWithInterval(interval, state.dateFrom, state.dateTo)
+                    return {
+                        dateFrom,
+                        dateTo,
+                        interval,
                     }
                 },
             },
         ],
-    }),
-
-    selectors: {
-        pageUrlSearchOptionsWithCount: [(selectors) => [selectors.pages], (pages: PageURL[]): PageURL[] => pages || []],
-        hasPageUrl: [(selectors) => [selectors.pageUrl], (pageUrl: string | null) => !!pageUrl],
-        isLoading: [
-            (selectors) => [selectors.pagesLoading, selectors.isInitialLoad],
-            (pagesLoading: boolean, isInitialLoad: boolean) => pagesLoading || isInitialLoad,
+        shouldFilterTestAccounts: [
+            false,
+            {
+                persistenceKey: 'pageReports-shouldFilterTestAccounts',
+            },
+            {
+                setShouldFilterTestAccounts: (_, { shouldFilterTestAccounts }) => shouldFilterTestAccounts,
+            },
         ],
-        pageUrlArray: [
-            (selectors) => [selectors.pageUrl],
-            (pageUrl: string | null): string[] => (pageUrl ? [pageUrl] : []),
+        compareFilter: [
+            null as CompareFilter | null,
+            {
+                persistenceKey: 'pageReports-compareFilter',
+            },
+            {
+                setCompareFilter: (_, { compareFilter }) => compareFilter,
+            },
         ],
-        // Single queries selector that returns all queries
-        queries: [
-            (s) => [s.tiles],
-            (tiles: WebAnalyticsTile[]) => {
-                // Helper function to get query from a tile by tab ID so we
-                // can use what we already have in the web analytics logic
-                const getQuery = (tileId: TileId, tabId: string): QuerySchema | undefined => {
-                    const tile = tiles?.find((t) => t.tileId === tileId) as TabsTile | undefined
-                    return tile?.tabs.find((tab) => tab.id === tabId)?.query
+    })),
+    selectors({
+        hasPageSelected: [(s) => [s.pageUrl], (pageUrl: PageURL | null) => pageUrl !== null],
+        trendSeries: [
+            (s) => [s.pageUrl, s.stripQueryParams],
+            (pageUrl: PageURL | null, stripQueryParams: boolean): string => {
+                if (!pageUrl) {
+                    return ''
+                }
+                return `${pageUrl.url} - ${stripQueryParams ? 'No query params' : 'With query params'}`
+            },
+        ],
+        pageSearchResults: [
+            (s) => [s.pages, s.searchTerm],
+            (pages: PageURL[], searchTerm: string) => {
+                if (!searchTerm) {
+                    return pages
+                }
+                return pages.filter((page) => page.url.toLowerCase().includes(searchTerm.toLowerCase()))
+            },
+        ],
+        getNewInsightUrl: [
+            (s) => [s.pageUrl, s.stripQueryParams],
+            (pageUrl: PageURL | null, stripQueryParams: boolean): string | null => {
+                if (!pageUrl?.url) {
+                    return null
                 }
 
-                // Return an object with all queries
+                return `/insights/new?insight=TRENDS&interval=day&display=ActionsLineGraph&events=[{"id":"$pageview","name":"$pageview","type":"events","order":0,"custom_name":"Views of ${encodeURIComponent(
+                    pageUrl.url
+                )}","math":"dau","properties":[{"key":"${
+                    stripQueryParams ? 'normalized_url' : 'url'
+                }","value":"${encodeURIComponent(pageUrl.url)}","operator":"exact","type":"event"}]}]`
+            },
+        ],
+        // Create property filter for the current page URL
+        pageUrlPropertyFilter: [
+            (s) => [s.pageUrl, s.stripQueryParams],
+            (pageUrl: PageURL | null, stripQueryParams: boolean) => {
+                if (!pageUrl?.url) {
+                    return []
+                }
+
+                return [
+                    {
+                        key: '$current_url',
+                        type: PropertyFilterType.Event,
+                        value: pageUrl.url,
+                        operator: stripQueryParams ? PropertyOperator.IContains : PropertyOperator.Exact,
+                    },
+                ]
+            },
+        ],
+        // Combined metrics query for the main chart
+        combinedMetricsQuery: [
+            (s) => [
+                s.pageUrl,
+                s.stripQueryParams,
+                s.dateFilter,
+                s.compareFilter,
+                s.shouldFilterTestAccounts,
+                s.pageUrlPropertyFilter,
+            ],
+            (
+                pageUrl: PageURL | null,
+                stripQueryParams: boolean,
+                dateFilter: any,
+                compareFilter: CompareFilter | null,
+                shouldFilterTestAccounts: boolean,
+                pageUrlPropertyFilter: any
+            ): InsightVizNode => {
                 return {
-                    // Path queries
-                    entryPathsQuery: getQuery(TileId.PATHS, PathTab.INITIAL_PATH),
-                    exitPathsQuery: getQuery(TileId.PATHS, PathTab.END_PATH),
-                    outboundClicksQuery: getQuery(TileId.PATHS, PathTab.EXIT_CLICK),
-
-                    // Source queries
-                    channelsQuery: getQuery(TileId.SOURCES, SourceTab.CHANNEL),
-                    referrersQuery: getQuery(TileId.SOURCES, SourceTab.REFERRING_DOMAIN),
-
-                    // Device queries
-                    deviceTypeQuery: getQuery(TileId.DEVICES, DeviceTab.DEVICE_TYPE),
-                    browserQuery: getQuery(TileId.DEVICES, DeviceTab.BROWSER),
-                    osQuery: getQuery(TileId.DEVICES, DeviceTab.OS),
-
-                    // Geography queries
-                    countriesQuery: getQuery(TileId.GEOGRAPHY, GeographyTab.COUNTRIES),
-                    regionsQuery: getQuery(TileId.GEOGRAPHY, GeographyTab.REGIONS),
-                    citiesQuery: getQuery(TileId.GEOGRAPHY, GeographyTab.CITIES),
-                    timezonesQuery: getQuery(TileId.GEOGRAPHY, GeographyTab.TIMEZONES),
-                    languagesQuery: getQuery(TileId.GEOGRAPHY, GeographyTab.LANGUAGES),
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        dateRange: {
+                            date_from: dateFilter.dateFrom || '-7d',
+                            date_to: dateFilter.dateTo,
+                        },
+                        interval: dateFilter.interval,
+                        series: [
+                            {
+                                kind: NodeKind.EventsNode,
+                                event: '$pageview',
+                                name: 'Unique Users',
+                                custom_name: 'Unique Users',
+                                math: 'dau' as any,
+                                properties: pageUrlPropertyFilter,
+                            },
+                            {
+                                kind: NodeKind.EventsNode,
+                                event: '$pageview',
+                                name: 'Total Page Views',
+                                custom_name: 'Total Page Views',
+                                math: 'total' as any,
+                                properties: pageUrlPropertyFilter,
+                            },
+                            {
+                                kind: NodeKind.EventsNode,
+                                event: '$pageview',
+                                name: 'Sessions',
+                                custom_name: 'Sessions',
+                                math: 'unique_session' as any,
+                                properties: pageUrlPropertyFilter,
+                            },
+                        ],
+                        trendsFilter: {
+                            display: ChartDisplayType.ActionsLineGraph,
+                        },
+                        filterTestAccounts: shouldFilterTestAccounts,
+                        compareFilter: compareFilter ?? undefined,
+                    },
                 }
             },
         ],
-        // Helper function for creating insight props
-        createInsightProps: [
-            () => [],
-            () =>
-                (tileId: TileId | PageReportsTileId, tabId?: string): InsightLogicProps => ({
-                    dashboardItemId: `new-${tileId}${tabId ? `-${tabId}` : ''}`,
-                    loadPriority: 0,
-                    dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
-                }),
-        ],
-        // Combined metrics query
-        combinedMetricsQuery: [
-            (s) => [s.pageUrl, s.stripQueryParams, s.dateFilter, s.compareFilter, s.shouldFilterTestAccounts],
+        // Entry paths query
+        entryPathsQuery: [
+            (s) => [
+                s.pageUrl,
+                s.stripQueryParams,
+                s.dateFilter,
+                s.compareFilter,
+                s.shouldFilterTestAccounts,
+                s.pageUrlPropertyFilter,
+            ],
             (
-                pageUrl: string | null,
+                pageUrl: PageURL | null,
                 stripQueryParams: boolean,
                 dateFilter: any,
-                compareFilter: any,
-                shouldFilterTestAccounts: boolean
-            ): InsightVizNode<TrendsQuery> => ({
-                kind: NodeKind.InsightVizNode,
-                source: {
-                    kind: NodeKind.TrendsQuery,
-                    series: [
-                        {
-                            event: '$pageview',
-                            kind: NodeKind.EventsNode,
-                            math: BaseMathType.UniqueUsers,
-                            name: '$pageview',
-                            custom_name: 'Unique visitors',
+                compareFilter: CompareFilter | null,
+                shouldFilterTestAccounts: boolean,
+                pageUrlPropertyFilter: any
+            ) => {
+                if (!pageUrl?.url) {
+                    return null
+                }
+
+                return {
+                    kind: NodeKind.DataTableNode,
+                    source: {
+                        kind: NodeKind.WebStatsTableQuery,
+                        properties: pageUrlPropertyFilter,
+                        breakdownBy: WebStatsBreakdown.InitialPage,
+                        dateRange: {
+                            date_from: dateFilter.dateFrom || '-7d',
+                            date_to: dateFilter.dateTo,
                         },
-                        {
-                            event: '$pageview',
-                            kind: NodeKind.EventsNode,
-                            math: BaseMathType.TotalCount,
-                            name: '$pageview',
-                            custom_name: 'Page views',
-                        },
-                        {
-                            event: '$pageview',
-                            kind: NodeKind.EventsNode,
-                            math: BaseMathType.UniqueSessions,
-                            name: '$pageview',
-                            custom_name: 'Sessions',
-                        },
-                    ],
-                    interval: dateFilter.interval,
-                    dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
-                    trendsFilter: {
-                        display: ChartDisplayType.ActionsLineGraph,
-                        showLegend: true,
+                        compareFilter: compareFilter ?? undefined,
+                        limit: 10,
+                        filterTestAccounts: shouldFilterTestAccounts,
                     },
-                    compareFilter,
-                    filterTestAccounts: shouldFilterTestAccounts,
-                    properties: [
-                        {
-                            key: stripQueryParams
-                                ? 'cutQueryStringAndFragment(properties.$current_url)'
-                                : '$current_url',
-                            value: pageUrl,
-                            // Use IContains when stripQueryParams is active to group URLs
-                            operator: stripQueryParams
-                                ? PropertyOperator.IContains
-                                : PropertyOperator.IsCleanedPathExact,
-                            type: PropertyFilterType.Event,
+                    full: true,
+                    embedded: false,
+                    showActions: true,
+                    columns: ['breakdown_value', 'visitors', 'views'],
+                }
+            },
+        ],
+        // Exit paths query
+        exitPathsQuery: [
+            (s) => [
+                s.pageUrl,
+                s.stripQueryParams,
+                s.dateFilter,
+                s.compareFilter,
+                s.shouldFilterTestAccounts,
+                s.pageUrlPropertyFilter,
+            ],
+            (
+                pageUrl: PageURL | null,
+                stripQueryParams: boolean,
+                dateFilter: any,
+                compareFilter: CompareFilter | null,
+                shouldFilterTestAccounts: boolean,
+                pageUrlPropertyFilter: any
+            ) => {
+                if (!pageUrl?.url) {
+                    return null
+                }
+
+                return {
+                    kind: NodeKind.DataTableNode,
+                    source: {
+                        kind: NodeKind.WebStatsTableQuery,
+                        properties: pageUrlPropertyFilter,
+                        breakdownBy: WebStatsBreakdown.ExitPage,
+                        dateRange: {
+                            date_from: dateFilter.dateFrom || '-7d',
+                            date_to: dateFilter.dateTo,
                         },
-                    ],
-                },
-                hidePersonsModal: true,
-                embedded: true,
-            }),
+                        compareFilter: compareFilter ?? undefined,
+                        limit: 10,
+                        filterTestAccounts: shouldFilterTestAccounts,
+                    },
+                    full: true,
+                    embedded: false,
+                    showActions: true,
+                    columns: ['breakdown_value', 'visitors', 'views'],
+                }
+            },
         ],
-        // Get visualization type for a specific tile
-        getTileVisualization: [
-            (s) => [s.tileVisualizations],
-            (tileVisualizations: Record<PageReportsTileId, TileVisualizationOption>) =>
-                (tileId: PageReportsTileId): TileVisualizationOption =>
-                    tileVisualizations[tileId] || 'table',
+        // Outbound clicks query
+        outboundClicksQuery: [
+            (s) => [
+                s.pageUrl,
+                s.stripQueryParams,
+                s.dateFilter,
+                s.compareFilter,
+                s.shouldFilterTestAccounts,
+                s.pageUrlPropertyFilter,
+            ],
+            (
+                pageUrl: PageURL | null,
+                stripQueryParams: boolean,
+                dateFilter: any,
+                compareFilter: CompareFilter | null,
+                shouldFilterTestAccounts: boolean,
+                pageUrlPropertyFilter: any
+            ) => {
+                if (!pageUrl?.url) {
+                    return null
+                }
+
+                return {
+                    kind: NodeKind.DataTableNode,
+                    source: {
+                        kind: NodeKind.WebStatsTableQuery,
+                        properties: pageUrlPropertyFilter,
+                        breakdownBy: WebStatsBreakdown.ExitClick,
+                        dateRange: {
+                            date_from: dateFilter.dateFrom || '-7d',
+                            date_to: dateFilter.dateTo,
+                        },
+                        compareFilter: compareFilter ?? undefined,
+                        limit: 10,
+                        filterTestAccounts: shouldFilterTestAccounts,
+                    },
+                    full: true,
+                    embedded: false,
+                    showActions: true,
+                    columns: ['breakdown_value', 'visitors', 'views'],
+                }
+            },
         ],
-    },
+        // Channels query
+        channelsQuery: [
+            (s) => [
+                s.pageUrl,
+                s.stripQueryParams,
+                s.dateFilter,
+                s.compareFilter,
+                s.shouldFilterTestAccounts,
+                s.pageUrlPropertyFilter,
+            ],
+            (
+                pageUrl: PageURL | null,
+                stripQueryParams: boolean,
+                dateFilter: any,
+                compareFilter: CompareFilter | null,
+                shouldFilterTestAccounts: boolean,
+                pageUrlPropertyFilter: any
+            ) => {
+                if (!pageUrl?.url) {
+                    return null
+                }
 
-    listeners: ({ actions, values }) => ({
-        setPageUrlSearchTerm: ({ searchTerm }) => {
-            actions.loadPages(searchTerm)
-        },
-        setPageUrl: ({ url }) => {
-            // When URL changes, make sure we update the URL in the browser
-            // This will trigger the actionToUrl handler
-            router.actions.replace('/web/page-reports', url ? { pageURL: url } : {}, router.values.hashParams)
+                return {
+                    kind: NodeKind.DataTableNode,
+                    source: {
+                        kind: NodeKind.WebStatsTableQuery,
+                        properties: pageUrlPropertyFilter,
+                        breakdownBy: WebStatsBreakdown.InitialChannelType,
+                        dateRange: {
+                            date_from: dateFilter.dateFrom || '-7d',
+                            date_to: dateFilter.dateTo,
+                        },
+                        compareFilter: compareFilter ?? undefined,
+                        limit: 10,
+                        filterTestAccounts: shouldFilterTestAccounts,
+                    },
+                    full: true,
+                    embedded: false,
+                    showActions: true,
+                    columns: ['breakdown_value', 'visitors', 'views'],
+                }
+            },
+        ],
+        // Referrers query
+        referrersQuery: [
+            (s) => [
+                s.pageUrl,
+                s.stripQueryParams,
+                s.dateFilter,
+                s.compareFilter,
+                s.shouldFilterTestAccounts,
+                s.pageUrlPropertyFilter,
+            ],
+            (
+                pageUrl: PageURL | null,
+                stripQueryParams: boolean,
+                dateFilter: any,
+                compareFilter: CompareFilter | null,
+                shouldFilterTestAccounts: boolean,
+                pageUrlPropertyFilter: any
+            ) => {
+                if (!pageUrl?.url) {
+                    return null
+                }
 
-            // Apply or remove the filter when pageUrl changes
-            const stripQueryParams = values.stripQueryParams
-            const key = stripQueryParams ? 'cutQueryStringAndFragment(properties.$current_url)' : '$current_url'
+                return {
+                    kind: NodeKind.DataTableNode,
+                    source: {
+                        kind: NodeKind.WebStatsTableQuery,
+                        properties: pageUrlPropertyFilter,
+                        breakdownBy: WebStatsBreakdown.InitialReferringDomain,
+                        dateRange: {
+                            date_from: dateFilter.dateFrom || '-7d',
+                            date_to: dateFilter.dateTo,
+                        },
+                        compareFilter: compareFilter ?? undefined,
+                        limit: 10,
+                        filterTestAccounts: shouldFilterTestAccounts,
+                    },
+                    full: true,
+                    embedded: false,
+                    showActions: true,
+                    columns: ['breakdown_value', 'visitors', 'views'],
+                }
+            },
+        ],
+        // Device type query
+        deviceTypeQuery: [
+            (s) => [
+                s.pageUrl,
+                s.stripQueryParams,
+                s.dateFilter,
+                s.compareFilter,
+                s.shouldFilterTestAccounts,
+                s.pageUrlPropertyFilter,
+            ],
+            (
+                pageUrl: PageURL | null,
+                stripQueryParams: boolean,
+                dateFilter: any,
+                compareFilter: CompareFilter | null,
+                shouldFilterTestAccounts: boolean,
+                pageUrlPropertyFilter: any
+            ) => {
+                if (!pageUrl?.url) {
+                    return null
+                }
 
-            // Call the connected action directly
-            const urlValue = Array.isArray(url) ? (url.length > 0 ? url[0] : '') : url || ''
-            actions.togglePropertyFilter(PropertyFilterType.Event, key, urlValue)
+                return {
+                    kind: NodeKind.DataTableNode,
+                    source: {
+                        kind: NodeKind.WebStatsTableQuery,
+                        properties: pageUrlPropertyFilter,
+                        breakdownBy: WebStatsBreakdown.DeviceType,
+                        dateRange: {
+                            date_from: dateFilter.dateFrom || '-7d',
+                            date_to: dateFilter.dateTo,
+                        },
+                        compareFilter: compareFilter ?? undefined,
+                        limit: 10,
+                        filterTestAccounts: shouldFilterTestAccounts,
+                    },
+                    full: true,
+                    embedded: false,
+                    showActions: true,
+                    columns: ['breakdown_value', 'visitors', 'views'],
+                }
+            },
+        ],
+        // Browser query
+        browserQuery: [
+            (s) => [
+                s.pageUrl,
+                s.stripQueryParams,
+                s.dateFilter,
+                s.compareFilter,
+                s.shouldFilterTestAccounts,
+                s.pageUrlPropertyFilter,
+            ],
+            (
+                pageUrl: PageURL | null,
+                stripQueryParams: boolean,
+                dateFilter: any,
+                compareFilter: CompareFilter | null,
+                shouldFilterTestAccounts: boolean,
+                pageUrlPropertyFilter: any
+            ) => {
+                if (!pageUrl?.url) {
+                    return null
+                }
+
+                return {
+                    kind: NodeKind.DataTableNode,
+                    source: {
+                        kind: NodeKind.WebStatsTableQuery,
+                        properties: pageUrlPropertyFilter,
+                        breakdownBy: WebStatsBreakdown.Browser,
+                        dateRange: {
+                            date_from: dateFilter.dateFrom || '-7d',
+                            date_to: dateFilter.dateTo,
+                        },
+                        compareFilter: compareFilter ?? undefined,
+                        limit: 10,
+                        filterTestAccounts: shouldFilterTestAccounts,
+                    },
+                    full: true,
+                    embedded: false,
+                    showActions: true,
+                    columns: ['breakdown_value', 'visitors', 'views'],
+                }
+            },
+        ],
+        // OS query
+        osQuery: [
+            (s) => [
+                s.pageUrl,
+                s.stripQueryParams,
+                s.dateFilter,
+                s.compareFilter,
+                s.shouldFilterTestAccounts,
+                s.pageUrlPropertyFilter,
+            ],
+            (
+                pageUrl: PageURL | null,
+                stripQueryParams: boolean,
+                dateFilter: any,
+                compareFilter: CompareFilter | null,
+                shouldFilterTestAccounts: boolean,
+                pageUrlPropertyFilter: any
+            ) => {
+                if (!pageUrl?.url) {
+                    return null
+                }
+
+                return {
+                    kind: NodeKind.DataTableNode,
+                    source: {
+                        kind: NodeKind.WebStatsTableQuery,
+                        properties: pageUrlPropertyFilter,
+                        breakdownBy: WebStatsBreakdown.OS,
+                        dateRange: {
+                            date_from: dateFilter.dateFrom || '-7d',
+                            date_to: dateFilter.dateTo,
+                        },
+                        compareFilter: compareFilter ?? undefined,
+                        limit: 10,
+                        filterTestAccounts: shouldFilterTestAccounts,
+                    },
+                    full: true,
+                    embedded: false,
+                    showActions: true,
+                    columns: ['breakdown_value', 'visitors', 'views'],
+                }
+            },
+        ],
+        // Countries query
+        countriesQuery: [
+            (s) => [
+                s.pageUrl,
+                s.stripQueryParams,
+                s.dateFilter,
+                s.compareFilter,
+                s.shouldFilterTestAccounts,
+                s.pageUrlPropertyFilter,
+            ],
+            (
+                pageUrl: PageURL | null,
+                stripQueryParams: boolean,
+                dateFilter: any,
+                compareFilter: CompareFilter | null,
+                shouldFilterTestAccounts: boolean,
+                pageUrlPropertyFilter: any
+            ) => {
+                if (!pageUrl?.url) {
+                    return null
+                }
+
+                return {
+                    kind: NodeKind.DataTableNode,
+                    source: {
+                        kind: NodeKind.WebStatsTableQuery,
+                        properties: pageUrlPropertyFilter,
+                        breakdownBy: WebStatsBreakdown.Country,
+                        dateRange: {
+                            date_from: dateFilter.dateFrom || '-7d',
+                            date_to: dateFilter.dateTo,
+                        },
+                        compareFilter: compareFilter ?? undefined,
+                        limit: 10,
+                        filterTestAccounts: shouldFilterTestAccounts,
+                    },
+                    full: true,
+                    embedded: false,
+                    showActions: true,
+                    columns: ['breakdown_value', 'visitors', 'views'],
+                }
+            },
+        ],
+        // Regions query
+        regionsQuery: [
+            (s) => [
+                s.pageUrl,
+                s.stripQueryParams,
+                s.dateFilter,
+                s.compareFilter,
+                s.shouldFilterTestAccounts,
+                s.pageUrlPropertyFilter,
+            ],
+            (
+                pageUrl: PageURL | null,
+                stripQueryParams: boolean,
+                dateFilter: any,
+                compareFilter: CompareFilter | null,
+                shouldFilterTestAccounts: boolean,
+                pageUrlPropertyFilter: any
+            ) => {
+                if (!pageUrl?.url) {
+                    return null
+                }
+
+                return {
+                    kind: NodeKind.DataTableNode,
+                    source: {
+                        kind: NodeKind.WebStatsTableQuery,
+                        properties: pageUrlPropertyFilter,
+                        breakdownBy: WebStatsBreakdown.Region,
+                        dateRange: {
+                            date_from: dateFilter.dateFrom || '-7d',
+                            date_to: dateFilter.dateTo,
+                        },
+                        compareFilter: compareFilter ?? undefined,
+                        limit: 10,
+                        filterTestAccounts: shouldFilterTestAccounts,
+                    },
+                    full: true,
+                    embedded: false,
+                    showActions: true,
+                    columns: ['breakdown_value', 'visitors', 'views'],
+                }
+            },
+        ],
+        // Cities query
+        citiesQuery: [
+            (s) => [
+                s.pageUrl,
+                s.stripQueryParams,
+                s.dateFilter,
+                s.compareFilter,
+                s.shouldFilterTestAccounts,
+                s.pageUrlPropertyFilter,
+            ],
+            (
+                pageUrl: PageURL | null,
+                stripQueryParams: boolean,
+                dateFilter: any,
+                compareFilter: CompareFilter | null,
+                shouldFilterTestAccounts: boolean,
+                pageUrlPropertyFilter: any
+            ) => {
+                if (!pageUrl?.url) {
+                    return null
+                }
+
+                return {
+                    kind: NodeKind.DataTableNode,
+                    source: {
+                        kind: NodeKind.WebStatsTableQuery,
+                        properties: pageUrlPropertyFilter,
+                        breakdownBy: WebStatsBreakdown.City,
+                        dateRange: {
+                            date_from: dateFilter.dateFrom || '-7d',
+                            date_to: dateFilter.dateTo,
+                        },
+                        compareFilter: compareFilter ?? undefined,
+                        limit: 10,
+                        filterTestAccounts: shouldFilterTestAccounts,
+                    },
+                    full: true,
+                    embedded: false,
+                    showActions: true,
+                    columns: ['breakdown_value', 'visitors', 'views'],
+                }
+            },
+        ],
+        // Timezones query
+        timezonesQuery: [
+            (s) => [
+                s.pageUrl,
+                s.stripQueryParams,
+                s.dateFilter,
+                s.compareFilter,
+                s.shouldFilterTestAccounts,
+                s.pageUrlPropertyFilter,
+            ],
+            (
+                pageUrl: PageURL | null,
+                stripQueryParams: boolean,
+                dateFilter: any,
+                compareFilter: CompareFilter | null,
+                shouldFilterTestAccounts: boolean,
+                pageUrlPropertyFilter: any
+            ) => {
+                if (!pageUrl?.url) {
+                    return null
+                }
+
+                return {
+                    kind: NodeKind.DataTableNode,
+                    source: {
+                        kind: NodeKind.WebStatsTableQuery,
+                        properties: pageUrlPropertyFilter,
+                        breakdownBy: WebStatsBreakdown.Timezone,
+                        dateRange: {
+                            date_from: dateFilter.dateFrom || '-7d',
+                            date_to: dateFilter.dateTo,
+                        },
+                        compareFilter: compareFilter ?? undefined,
+                        limit: 10,
+                        filterTestAccounts: shouldFilterTestAccounts,
+                    },
+                    full: true,
+                    embedded: false,
+                    showActions: true,
+                    columns: ['breakdown_value', 'visitors', 'views'],
+                }
+            },
+        ],
+        // Languages query
+        languagesQuery: [
+            (s) => [
+                s.pageUrl,
+                s.stripQueryParams,
+                s.dateFilter,
+                s.compareFilter,
+                s.shouldFilterTestAccounts,
+                s.pageUrlPropertyFilter,
+            ],
+            (
+                pageUrl: PageURL | null,
+                stripQueryParams: boolean,
+                dateFilter: any,
+                compareFilter: CompareFilter | null,
+                shouldFilterTestAccounts: boolean,
+                pageUrlPropertyFilter: any
+            ) => {
+                if (!pageUrl?.url) {
+                    return null
+                }
+
+                return {
+                    kind: NodeKind.DataTableNode,
+                    source: {
+                        kind: NodeKind.WebStatsTableQuery,
+                        properties: pageUrlPropertyFilter,
+                        breakdownBy: WebStatsBreakdown.Language,
+                        dateRange: {
+                            date_from: dateFilter.dateFrom || '-7d',
+                            date_to: dateFilter.dateTo,
+                        },
+                        compareFilter: compareFilter ?? undefined,
+                        limit: 10,
+                        filterTestAccounts: shouldFilterTestAccounts,
+                    },
+                    full: true,
+                    embedded: false,
+                    showActions: true,
+                    columns: ['breakdown_value', 'visitors', 'views'],
+                }
+            },
+        ],
+    }),
+    listeners(({ values, actions }) => ({
+        addPageFromUrl: ({ url }) => {
+            if (!url) {
+                return
+            }
+            const page = {
+                url,
+                url_matching: values.stripQueryParams ? 'startswith' : 'exact',
+                id: url,
+            }
+            actions.setPageUrl(page)
         },
         toggleStripQueryParams: () => {
-            // Reload pages when the strip query params option changes
-            actions.loadPages(values.pageUrlSearchTerm)
-
-            // Update the property filter with the new key and operator
-            const stripQueryParams = values.stripQueryParams
-            const key = stripQueryParams ? 'cutQueryStringAndFragment(properties.$current_url)' : '$current_url'
-
-            // Call the connected action directly
-            actions.togglePropertyFilter(PropertyFilterType.Event, key, values.pageUrl || '')
+            // When toggling strip query params, reload pages
+            actions.loadPages()
         },
-        [webAnalyticsLogic.actionTypes.setDates]: () => {
-            actions.loadPages(values.pageUrlSearchTerm)
-        },
+    })),
+    afterMount(({ actions }) => {
+        actions.loadPages()
     }),
-
-    afterMount: ({ actions }: { actions: pageReportsLogicType['actions'] }) => {
-        // Load pages immediately when component mounts
-        actions.loadPages('')
-    },
-
-    urlToAction: ({ actions, values }) => ({
-        '/web/page-reports': (_, searchParams) => {
-            if (searchParams.pageURL && searchParams.pageURL !== values.pageUrl) {
-                actions.setPageUrl(searchParams.pageURL)
-            }
-        },
-    }),
-
-    actionToUrl: ({ values }) => ({
-        setPageUrl: () => {
-            const searchParams = { ...router.values.searchParams }
-
-            if (values.pageUrl) {
-                searchParams.pageURL = values.pageUrl
-            } else {
-                delete searchParams.pageURL
-            }
-
-            return ['/web/page-reports', searchParams, router.values.hashParams, { replace: true }]
-        },
-    }),
-})
+])
