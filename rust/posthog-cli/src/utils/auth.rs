@@ -5,7 +5,7 @@ use tracing::info;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Token {
     pub token: String,
     pub env_id: String,

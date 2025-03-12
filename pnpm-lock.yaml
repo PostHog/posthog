@@ -733,6 +733,9 @@ importers:
       core-js:
         specifier: ^3.32.0
         version: 3.40.0
+      country-flag-emoji-polyfill:
+        specifier: ^0.1.8
+        version: 0.1.8
       crypto-browserify:
         specifier: ^3.12.0
         version: 3.12.1
@@ -839,8 +842,8 @@ importers:
         specifier: ^2.11.0
         version: 2.11.0
       posthog-js:
-        specifier: 1.230.1
-        version: 1.230.1(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.230.2
+        version: 1.230.2(@rrweb/types@2.0.0-alpha.17)
       posthog-js-lite:
         specifier: 3.0.0
         version: 3.0.0
@@ -8176,6 +8179,9 @@ packages:
       typescript:
         optional: true
 
+  country-flag-emoji-polyfill@0.1.8:
+    resolution: {integrity: sha512-Mbah52sADS3gshUYhK5142gtUuJpHYOXlXtLFI3Ly4RqgkmPMvhX9kMZSTqDM8P7UqtSW99eHKFphhQSGXA3Cg==}
+
   create-ecdh@4.0.4:
     resolution: {integrity: sha512-mf+TCx8wWc9VpuxfP2ht0iSISLZnt0JgWlrOKZiNqyUZWnjIaCIVNQArMHnCZKfEYRg6IM7A+NeJoN8gf/Ws0A==}
 
@@ -13197,8 +13203,8 @@ packages:
   posthog-js@1.217.2:
     resolution: {integrity: sha512-3KC+UjI0UT5zh8kAOVqe/AfvRjBMKynRIBQNlv0TXnfpZG0+h3r/1ONecDgCCGLs/a/55SJCExrugDlx+HPH3w==}
 
-  posthog-js@1.230.1:
-    resolution: {integrity: sha512-H4KYK1O6F6VaKzfhG7FLb4qYUrK/NLi3ENr2Csqhkn3T0zLihZoLixFTDc2Nc98aQcq9K3T3MxKPPkc2EFtHVQ==}
+  posthog-js@1.230.2:
+    resolution: {integrity: sha512-MciEotiLuByI2L7NMrGYR48yVvurekkCETjPoCmI8XLeDi33L+6glR7mCUH8xQxaoFr3FqK61HlUmvTApnzOgg==}
     peerDependencies:
       '@rrweb/types': 2.0.0-alpha.17
       rrweb-snapshot: 2.0.0-alpha.17
@@ -24311,6 +24317,8 @@ snapshots:
     optionalDependencies:
       typescript: 4.9.5
 
+  country-flag-emoji-polyfill@0.1.8: {}
+
   create-ecdh@4.0.4:
     dependencies:
       bn.js: 4.12.1
@@ -30830,7 +30838,7 @@ snapshots:
       preact: 10.25.4
       web-vitals: 4.2.4
 
-  posthog-js@1.230.1(@rrweb/types@2.0.0-alpha.17):
+  posthog-js@1.230.2(@rrweb/types@2.0.0-alpha.17):
     dependencies:
       core-js: 3.40.0
       fflate: 0.4.8

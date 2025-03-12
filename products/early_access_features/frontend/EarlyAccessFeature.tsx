@@ -20,6 +20,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { cn } from 'lib/utils/css-classes'
 import { useState } from 'react'
 import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -213,7 +214,9 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                                             },
                                         ]}
                                     >
-                                        <LemonButton type="primary">Release</LemonButton>
+                                        <LemonButton tooltip="Publish this feature to make it available" type="primary">
+                                            Release
+                                        </LemonButton>
                                     </LemonMenu>
                                 )}
                                 <LemonDivider vertical />

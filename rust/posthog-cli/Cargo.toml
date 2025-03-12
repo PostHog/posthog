@@ -26,10 +26,11 @@ serde_json.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 uuid.workspace = true
-common-symbol-data = { path = "../common/symbol_data" }
+posthog-symbol-data = "0.1.0"
 walkdir = "2.5.0"
 ratatui = "0.29.0"
 crossterm = "0.28.1"
+tui-textarea = "0.7.0"
 
 [dev-dependencies]
 tempfile = "3.18.0"

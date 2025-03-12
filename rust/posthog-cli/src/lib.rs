@@ -1,5 +1,6 @@
 pub mod commands;
 pub mod error;
+pub mod tui;
 pub mod utils;
 
 pub mod cmd {

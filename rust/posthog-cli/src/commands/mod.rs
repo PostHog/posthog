@@ -3,7 +3,7 @@ pub mod query;
 pub mod sourcemap;
 
 use clap::{Parser, Subcommand};
-use query::OutputMode;
+use query::QueryCommand;
 use std::path::PathBuf;
 
 use crate::error::CapturedError;
@@ -26,10 +26,8 @@ pub enum Commands {
 
     /// Run a SQL query against any data you have in posthog. This is mostly for fun, and subject to change
     Query {
-        /// The query to run
-        query: String,
-        #[arg(short, long, default_value = "print", value_enum)]
-        output: OutputMode,
+        #[command(subcommand)]
+        cmd: QueryCommand,
     },
 
     #[command(about = "Upload a directory of bundled chunks to PostHog")]
@@ -79,7 +77,7 @@ impl Cli {
                     sourcemap::upload::upload(&command.host, directory, build)?;
                 }
             },
-            Commands::Query { query, output } => query::run_query(&command.host, query, *output)?,
+            Commands::Query { cmd } => query::query_command(&command.host, cmd)?,
         }
 
         Ok(())
