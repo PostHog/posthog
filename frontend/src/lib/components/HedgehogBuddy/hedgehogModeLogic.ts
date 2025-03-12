@@ -107,7 +107,7 @@ export const hedgehogModeLogic = kea<hedgehogModeLogicType>([
                     const hedgeHogMode = new HedgeHogMode({
                         assetsUrl: '/static/hedgehog-mode/',
                         platformSelector:
-                            '.border, .border-t, .LemonButton--primary, .LemonButton--secondary:not(.LemonButton--status-alt:not(.LemonButton--active)), .LemonInput, .LemonSelect, .LemonTable, .LemonSwitch--bordered',
+                            '.border, .border-t, .LemonButton--primary, .LemonButton--secondary:not(.LemonButton--status-alt:not(.LemonButton--active)), .LemonInput, .LemonSelect, .LemonTable, .LemonSwitch--bordered, .LemonBanner',
                     })
                     await hedgeHogMode.render(values.gameElement)
 
