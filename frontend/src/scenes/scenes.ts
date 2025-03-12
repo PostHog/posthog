@@ -440,6 +440,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         projectBased: true,
         name: 'Session attribution explorer (beta)',
     },
+    [Scene.Wizard]: {
+        projectBased: true,
+        name: 'Wizard',
+        layout: 'plain',
+    },
     ...productConfiguration,
 }
 
@@ -518,8 +523,8 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.dashboard(':id')]: [Scene.Dashboard, 'dashboard'],
     [urls.dashboardTextTile(':id', ':textTileId')]: [Scene.Dashboard, 'dashboardTextTile'],
     [urls.dashboardSharing(':id')]: [Scene.Dashboard, 'dashboardSharing'],
-    [urls.dashboardSubcriptions(':id')]: [Scene.Dashboard, 'dashboardSubcriptions'],
-    [urls.dashboardSubcription(':id', ':subscriptionId')]: [Scene.Dashboard, 'dashboardSubcription'],
+    [urls.dashboardSubscriptions(':id')]: [Scene.Dashboard, 'dashboardSubscriptions'],
+    [urls.dashboardSubscription(':id', ':subscriptionId')]: [Scene.Dashboard, 'dashboardSubscription'],
     [urls.createAction()]: [Scene.Action, 'createAction'],
     [urls.duplicateAction(null)]: [Scene.Action, 'duplicateAction'],
     [urls.action(':id')]: [Scene.Action, 'action'],
@@ -637,5 +642,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.moveToPostHogCloud()]: [Scene.MoveToPostHogCloud, 'moveToPostHogCloud'],
     [urls.heatmaps()]: [Scene.Heatmaps, 'heatmaps'],
     [urls.sessionAttributionExplorer()]: [Scene.SessionAttributionExplorer, 'sessionAttributionExplorer'],
+    [urls.wizard()]: [Scene.Wizard, 'wizard'],
     ...productRoutes,
 }

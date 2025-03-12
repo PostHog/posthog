@@ -35,12 +35,14 @@ import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
 import { OtherIntegrations } from './environment/OtherIntegrations'
 import { PathCleaningFiltersConfig } from './environment/PathCleaningFiltersConfig'
 import { PersonDisplayNameProperties } from './environment/PersonDisplayNameProperties'
+import { RevenueBaseCurrencySettings } from './environment/RevenueBaseCurrencySettings'
 import { SessionRecordingIngestionSettings } from './environment/SessionRecordingIngestionSettings'
 import {
     NetworkCaptureSettings,
     ReplayAISettings,
     ReplayAuthorizedDomains,
     ReplayGeneral,
+    ReplayMaskingSettings,
 } from './environment/SessionRecordingSettings'
 import { SlackIntegration } from './environment/SlackIntegration'
 import { SurveySettings } from './environment/SurveySettings'
@@ -240,6 +242,12 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <CustomChannelTypes />,
             },
             {
+                id: 'revenue-base-currency',
+                title: 'Revenue base currency',
+                component: <RevenueBaseCurrencySettings />,
+                flag: 'WEB_REVENUE_TRACKING',
+            },
+            {
                 id: 'cookieless-server-hash-mode',
                 title: 'Cookieless server hash mode',
                 component: <CookielessServerHashModeSetting />,
@@ -272,6 +280,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'replay-network',
                 title: 'Network capture',
                 component: <NetworkCaptureSettings />,
+            },
+            {
+                id: 'replay-masking',
+                title: 'Masking',
+                component: <ReplayMaskingSettings />,
             },
             {
                 id: 'replay-authorized-domains',

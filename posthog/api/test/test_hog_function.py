@@ -189,6 +189,10 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             mock_get_templates.return_value.json.return_value = MOCK_NODE_TEMPLATES
             HogFunctionTemplates._load_templates()  # Cache templates to simplify tests
 
+        # Create the action referenced in EXAMPLE_FULL
+        if not Action.objects.filter(id=9, team=self.team).exists():
+            Action.objects.create(id=9, name="Test Action", team=self.team, created_by=self.user)
+
     def _get_function_activity(
         self,
         function_id: Optional[int] = None,
@@ -309,8 +313,6 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     def test_creates_with_template_values_if_not_provided(self, *args):
         payload: dict = {
-            "name": "Fetch URL",
-            "description": "Test description",
             "template_id": template_webhook.id,
             "type": "destination",
         }
@@ -329,6 +331,9 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert response.json()["hog"] == template_webhook.hog
         assert response.json()["inputs_schema"] == template_webhook.inputs_schema
+        assert response.json()["name"] == template_webhook.name
+        assert response.json()["description"] == template_webhook.description
+        assert response.json()["icon_url"] == template_webhook.icon_url
 
     def test_deletes_via_update(self, *args):
         response = self.client.post(
@@ -1133,7 +1138,52 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert len(response.json()["results"]) == 1
         assert response.json()["results"][0]["id"] == transformation_id
 
-        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?types=destination,transformation")
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?type=destination,site_app")
+        assert len(response.json()["results"]) == 1
+        assert response.json()["results"][0]["id"] == destination_id
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?type=destination,transformation")
+        assert len(response.json()["results"]) == 2
+
+    def test_list_with_enabled_filter(self, *args):
+        response_destination = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                **EXAMPLE_FULL,
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                },
+            },
+        )
+
+        destination_id = response_destination.json()["id"]
+
+        response_transform = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "HogTransform",
+                "hog": "return event",
+                "type": "transformation",
+                "template_id": "template-geoip",
+                "enabled": False,
+            },
+        )
+
+        transformation_id = response_transform.json()["id"]
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/")
+        assert len(response.json()["results"]) == 2
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?enabled=true")
+
+        assert len(response.json()["results"]) == 1
+        assert response.json()["results"][0]["id"] == destination_id
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?enabled=false")
+        assert len(response.json()["results"]) == 1
+        assert response.json()["results"][0]["id"] == transformation_id
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?enabled=true,false")
         assert len(response.json()["results"]) == 2
 
     def test_create_hog_function_with_site_app_type(self):
@@ -1691,4 +1741,51 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "value": "http://localhost:2080/0e02d917-563f-4050-9725-aad881b69937",
             }
 
-            # We don't need to validate everything as its just a duplicate of the other tests so just check a few fields
+    def test_can_update_with_null_filters(self):
+        # First create a function with filters
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "Test Function",
+                "type": "destination",
+                "hog": "print('hello world')",
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                    "filter_test_accounts": True,
+                },
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        function_id = response.json()["id"]
+
+        # Verify filters were saved
+        function = HogFunction.objects.get(id=function_id)
+        assert function.filters.get("events") is not None
+        assert function.filters.get("filter_test_accounts") is True
+        assert function.filters.get("bytecode") is not None
+
+        # Now update the function with null filters
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{function_id}/",
+            data={"filters": None},
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        # Verify filters were updated to an empty object with valid bytecode
+        function.refresh_from_db()
+        assert function.filters.get("events", None) is None
+        assert function.filters.get("filter_test_accounts", None) is None
+        assert function.filters.get("bytecode") is not None
+
+        # Also test with empty object
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{function_id}/",
+            data={"filters": {}},
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        # Verify filters remain an empty object with valid bytecode
+        function.refresh_from_db()
+        assert function.filters.get("events", None) is None
+        assert function.filters.get("filter_test_accounts", None) is None
+        assert function.filters.get("bytecode") is not None

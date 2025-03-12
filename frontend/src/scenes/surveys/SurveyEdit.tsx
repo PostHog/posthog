@@ -94,7 +94,7 @@ function SurveyCompletionConditions(): JSX.Element {
     }
 
     return (
-        <div className="space-y-4">
+        <div className="deprecated-space-y-4">
             <div>
                 <h3>How long would you like to collect survey responses? </h3>
                 <LemonField.Pure>

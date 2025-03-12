@@ -142,7 +142,7 @@ function DictionaryField({
     }, [entries, onChange])
 
     return (
-        <div className="space-y-2">
+        <div className="deprecated-space-y-2">
             {entries.map(([key, val], index) => (
                 <div className="flex items-center gap-2" key={index}>
                     <LemonInput
@@ -500,7 +500,7 @@ export function HogFunctionInputWithSchema({
                     }}
                 </LemonField>
             ) : (
-                <div className="p-2 space-y-4 border border-dashed rounded">
+                <div className="p-2 deprecated-space-y-4 border border-dashed rounded">
                     <HogFunctionInputSchemaControls
                         value={schema}
                         onChange={onSchemaChange}

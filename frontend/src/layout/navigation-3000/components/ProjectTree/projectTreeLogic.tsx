@@ -1,4 +1,5 @@
 import { IconBook } from '@posthog/icons'
+import Fuse from 'fuse.js'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
@@ -14,8 +15,10 @@ import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 import { getDefaultTree } from './defaultTree'
 import type { projectTreeLogicType } from './projectTreeLogicType'
-import { FileSystemImport, ProjectTreeAction } from './types'
+import { FileSystemImport, FolderState, ProjectTreeAction } from './types'
 import { convertFileSystemEntryToTreeDataItem, findInProjectTree, joinPath, splitPath } from './utils'
+
+const PAGINATION_LIMIT = 100
 
 export const projectTreeLogic = kea<projectTreeLogicType>([
     path(['layout', 'navigation-3000', 'components', 'projectTreeLogic']),
@@ -43,13 +46,18 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         setLastViewedId: (id: string) => ({ id }),
         toggleFolderOpen: (folderId: string, isExpanded: boolean) => ({ folderId, isExpanded }),
         setHelpNoticeVisibility: (visible: boolean) => ({ visible }),
-        toggleDragAndDrop: (enabled: boolean) => ({ enabled }),
         loadFolder: (folder: string) => ({ folder }),
         loadFolderStart: (folder: string) => ({ folder }),
-        loadFolderSuccess: (folder: string, entries: FileSystemEntry[]) => ({ folder, entries }),
+        loadFolderSuccess: (folder: string, entries: FileSystemEntry[], hasMore: boolean = false) => ({
+            folder,
+            entries,
+            hasMore,
+        }),
         loadFolderFailure: (folder: string, error: string) => ({ folder, error }),
         rename: (path: string) => ({ path }),
         createFolder: (parentPath: string) => ({ parentPath }),
+        setSearchTerm: (searchTerm: string) => ({ searchTerm }),
+        clearSearch: true,
     }),
     loaders(({ actions, values }) => ({
         allUnfiledItems: [
@@ -131,10 +139,13 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             },
         ],
         folderStates: [
-            {} as Record<string, 'loading' | 'loaded' | 'error'>,
+            {} as Record<string, FolderState>,
             {
                 loadFolderStart: (state, { folder }) => ({ ...state, [folder]: 'loading' }),
-                loadFolderSuccess: (state, { folder }) => ({ ...state, [folder]: 'loaded' }),
+                loadFolderSuccess: (state, { folder, hasMore }) => ({
+                    ...state,
+                    [folder]: hasMore ? 'has-more' : 'loaded',
+                }),
                 loadFolderFailure: (state, { folder }) => ({ ...state, [folder]: 'error' }),
             },
         ],
@@ -172,10 +183,11 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 setHelpNoticeVisibility: (_, { visible }) => visible,
             },
         ],
-        dragAndDropEnabled: [
-            false,
+        searchTerm: [
+            '',
             {
-                toggleDragAndDrop: (_, { enabled }) => enabled,
+                setSearchTerm: (_, { searchTerm }) => searchTerm,
+                clearSearch: () => '',
             },
         ],
     }),
@@ -275,8 +287,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         ],
         pendingActionsCount: [(s) => [s.pendingActions], (pendingActions): number => pendingActions.length],
         projectTree: [
-            (s) => [s.viableItems],
-            (viableItems): TreeDataItem[] => convertFileSystemEntryToTreeDataItem(viableItems),
+            (s) => [s.viableItems, s.folderStates],
+            (viableItems, folderStates): TreeDataItem[] =>
+                convertFileSystemEntryToTreeDataItem(viableItems, folderStates, 'project'),
         ],
         groupNodes: [
             (s) => [s.groupTypes, s.groupsAccessStatus, s.aggregationLabel],
@@ -305,10 +318,10 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             },
         ],
         defaultTreeNodes: [
-            (s) => [s.featureFlags, s.groupNodes],
-            (_featureFlags, groupNodes: FileSystemImport[]) =>
+            (s) => [s.featureFlags, s.groupNodes, s.folderStates],
+            (_featureFlags, groupNodes: FileSystemImport[], folderStates) =>
                 // .filter(f => !f.flag || featureFlags[f.flag])
-                convertFileSystemEntryToTreeDataItem(getDefaultTree(groupNodes)),
+                convertFileSystemEntryToTreeDataItem(getDefaultTree(groupNodes), folderStates, 'root'),
         ],
         projectRow: [
             () => [],
@@ -327,10 +340,69 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 },
             ],
         ],
+        searchedTreeItems: [
+            (s) => [s.defaultTreeNodes, s.projectTree, s.projectRow, s.searchTerm],
+            (
+                defaultTreeNodes: TreeDataItem[],
+                projectTree: TreeDataItem[],
+                projectRow: TreeDataItem[],
+                searchTerm: string
+            ): TreeDataItem[] => {
+                if (!searchTerm) {
+                    return [...defaultTreeNodes, ...projectRow, ...projectTree]
+                }
+
+                const allItems = [...defaultTreeNodes, ...projectRow, ...projectTree]
+
+                // TODO: remove from client side @marius :)
+                const fuse = new Fuse(allItems, {
+                    keys: ['name'],
+                    threshold: 0.3,
+                    ignoreLocation: true,
+                })
+
+                const searchResults = fuse.search(searchTerm).map((result) => result.item)
+
+                // Helper function to check if any child matches the search
+                const hasMatchingChild = (item: TreeDataItem): boolean => {
+                    if (!item.children) {
+                        return false
+                    }
+                    return item.children.some(
+                        (child) => searchResults.some((result) => result.id === child.id) || hasMatchingChild(child)
+                    )
+                }
+
+                // Include parent folders of matching items
+                const resultWithParents = searchResults.reduce((acc: TreeDataItem[], item) => {
+                    if (!acc.some((i) => i.id === item.id)) {
+                        acc.push(item)
+                    }
+
+                    // If it's a matching folder, include its children
+                    if (item.children) {
+                        item.children.forEach((child) => {
+                            if (
+                                !acc.some((i) => i.id === child.id) &&
+                                (searchResults.some((r) => r.id === child.id) || hasMatchingChild(child))
+                            ) {
+                                acc.push(child)
+                            }
+                        })
+                    }
+                    return acc
+                }, [])
+
+                return resultWithParents
+            },
+        ],
         treeData: [
-            (s) => [s.defaultTreeNodes, s.projectTree, s.projectRow],
-            (defaultTreeNodes, projectTree, projectRow): TreeDataItem[] => {
-                return [...defaultTreeNodes, ...projectRow, ...projectTree]
+            (s) => [s.searchTerm, s.searchedTreeItems, s.defaultTreeNodes, s.projectTree, s.projectRow],
+            (searchTerm, searchedTreeItems, defaultTreeNodes, projectTree, projectRow): TreeDataItem[] => {
+                if (searchTerm) {
+                    return searchedTreeItems
+                }
+                return [...defaultTreeNodes, ...projectRow, ...projectTree] as TreeDataItem[]
             },
         ],
     }),
@@ -342,8 +414,21 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             }
             actions.loadFolderStart(folder)
             try {
-                const response = await api.fileSystem.list(folder, splitPath(folder).length + 1)
-                actions.loadFolderSuccess(folder, response.results)
+                const previousFiles = values.folders[folder] || []
+                const response = await api.fileSystem.list(
+                    folder,
+                    splitPath(folder).length + 1,
+                    PAGINATION_LIMIT + 1,
+                    previousFiles.length
+                )
+
+                let files = response.results
+                let hasMore = false
+                if (files.length > PAGINATION_LIMIT) {
+                    files = files.slice(0, PAGINATION_LIMIT)
+                    hasMore = true
+                }
+                actions.loadFolderSuccess(folder, [...previousFiles, ...files], hasMore)
             } catch (error) {
                 actions.loadFolderFailure(folder, String(error))
             }

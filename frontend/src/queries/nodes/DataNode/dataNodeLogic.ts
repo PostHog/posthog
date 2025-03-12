@@ -45,6 +45,7 @@ import {
     PersonsNode,
     QueryStatus,
     QueryTiming,
+    RefreshType,
 } from '~/queries/schema/schema-general'
 import {
     isActorsQuery,
@@ -64,8 +65,8 @@ export interface DataNodeLogicProps {
     cachedResults?: AnyResponseType
     /** Disabled data fetching and only allow cached results. */
     doNotLoad?: boolean
-    /** Queries always get refreshed. */
-    alwaysRefresh?: boolean
+    /** Refresh behaviour for queries. */
+    refresh?: RefreshType
     /** Callback when data is successfully loader or provided from cache. */
     onData?: (data: Record<string, unknown> | null | undefined) => void
     /** Load priority. Higher priority (smaller number) queries will be loaded first. */
@@ -172,7 +173,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 clearResponse: () => null,
                 loadData: async ({ refresh: refreshArg, queryId, pollOnly, overrideQuery }, breakpoint) => {
                     const query = overrideQuery ?? props.query
-                    const refresh = props.alwaysRefresh || refreshArg
+                    const refresh = props.refresh || refreshArg
 
                     if (props.doNotLoad) {
                         return props.cachedResults
@@ -217,6 +218,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     cache.abortController = abortController
                     const methodOptions: ApiMethodOptions = {
                         signal: cache.abortController.signal,
+                        async: refresh === 'blocking' || refresh === 'force_blocking' ? false : true,
                     }
                     try {
                         const response = await concurrencyController.run({
@@ -276,7 +278,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             (await performQuery(
                                 addModifiers(values.newQuery, props.modifiers),
                                 undefined,
-                                props.alwaysRefresh
+                                props.refresh
                             )) ?? null
                         actions.setElapsedTime(performance.now() - now)
                         if (values.response === null) {
@@ -308,7 +310,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             (await performQuery(
                                 addModifiers(values.nextQuery, props.modifiers),
                                 undefined,
-                                props.alwaysRefresh
+                                props.refresh
                             )) ?? null
                         actions.setElapsedTime(performance.now() - now)
                         const queryResponse = values.response as
@@ -325,7 +327,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             (await performQuery(
                                 addModifiers(values.nextQuery, props.modifiers),
                                 undefined,
-                                props.alwaysRefresh
+                                props.refresh
                             )) ?? null
                         actions.setElapsedTime(performance.now() - now)
                         if (Array.isArray(values.response)) {

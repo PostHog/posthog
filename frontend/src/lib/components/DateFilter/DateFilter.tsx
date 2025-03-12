@@ -149,7 +149,7 @@ export function DateFilter({
                 }}
             />
         ) : (
-            <div className="space-y-px" ref={optionsRef} onClick={(e) => e.stopPropagation()}>
+            <div className="deprecated-space-y-px" ref={optionsRef} onClick={(e) => e.stopPropagation()}>
                 {dateOptions.map(({ key, values, inactive }) => {
                     if (key === CUSTOM_OPTION_KEY && !showCustom) {
                         return null

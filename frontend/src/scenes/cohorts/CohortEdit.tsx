@@ -39,7 +39,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
 
     if (cohortLoading) {
         return (
-            <div className="space-y-2">
+            <div className="deprecated-space-y-2">
                 <LemonSkeleton active className="h-4 w-2/5" />
                 <LemonSkeleton active className="h-4 w-full" />
                 <LemonSkeleton active className="h-4 w-full" />
@@ -130,7 +130,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                         </div>
                     }
                 />
-                <div className="space-y-2 max-w-200">
+                <div className="deprecated-space-y-2 max-w-200">
                     <div className="flex gap-4 flex-wrap">
                         <div className="flex-1">
                             <LemonField name="name" label="Name">
@@ -215,7 +215,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                         onChange={(files) => onChange(files[0])}
                                         showUploadedFiles={false}
                                         callToAction={
-                                            <div className="flex flex-col items-center justify-center flex-1 cohort-csv-dragger text-text-3000 space-y-1">
+                                            <div className="flex flex-col items-center justify-center flex-1 cohort-csv-dragger text-text-3000 deprecated-space-y-1">
                                                 {cohort.csv ? (
                                                     <>
                                                         <IconUploadFile
@@ -295,7 +295,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                     minutes.
                                 </div>
                             ) : (
-                                <Query query={query} setQuery={setQuery} context={{ alwaysRefresh: true }} />
+                                <Query query={query} setQuery={setQuery} context={{ refresh: true }} />
                             )}
                         </div>
                     </>

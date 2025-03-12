@@ -1,9 +1,18 @@
-import { DndContext, DragEndEvent } from '@dnd-kit/core'
+import { DndContext, DragEndEvent, MouseSensor, TouchSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { IconUpload } from '@posthog/icons'
 import * as AccordionPrimitive from '@radix-ui/react-accordion'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { cn } from 'lib/utils/css-classes'
-import { forwardRef, HTMLAttributes, useCallback, useEffect, useRef, useState } from 'react'
+import {
+    ForwardedRef,
+    forwardRef,
+    HTMLAttributes,
+    useCallback,
+    useEffect,
+    useImperativeHandle,
+    useRef,
+    useState,
+} from 'react'
 
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '../../ui/ContextMenu/ContextMenu'
 import { LemonButton, SideAction } from '../LemonButton'
@@ -93,6 +102,11 @@ export type LemonTreeNodeProps = LemonTreeBaseProps & {
     onContextMenuOpen?: (open: boolean) => void
 }
 
+export interface LemonTreeRef {
+    getVisibleItems: () => TreeDataItem[]
+    focusItem: (id: string) => void
+}
+
 const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
     (
         {
@@ -117,7 +131,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
         },
         ref
     ): JSX.Element => {
-        const DEPTH_OFFSET = 4 + 8 * depth // 4 is .25rem to match lemon button padding x axis
+        const DEPTH_OFFSET = depth === 0 ? 0 : 6 * depth
 
         const [isContextMenuOpenForItem, setIsContextMenuOpenForItem] = useState<string | undefined>(undefined)
 
@@ -147,18 +161,6 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                         )
                     }
 
-                    let cursorClass = 'cursor-pointer'
-
-                    if (enableDragAndDrop) {
-                        if (isItemDraggable?.(item)) {
-                            cursorClass = 'cursor-grab'
-                        } else {
-                            cursorClass = 'cursor-not-allowed'
-                        }
-                    } else {
-                        cursorClass = 'cursor-pointer'
-                    }
-
                     const content = (
                         <AccordionPrimitive.Root
                             type="multiple"
@@ -182,16 +184,14 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                 className={cn(
                                                     'group/lemon-tree-button',
                                                     'flex-1 flex items-center gap-2 font-normal',
-                                                    cursorClass,
+                                                    'cursor-pointer',
                                                     (focusedId === item.id || isContextMenuOpenForItem === item.id) &&
                                                         'ring-2 ring-inset ring-offset-[-1px] ring-accent-primary',
                                                     selectedId === item.id &&
                                                         'border-l-[4px] border-l-accent-primary rounded-tl-sm rounded-bl-sm'
                                                 )}
                                                 onClick={() => {
-                                                    if (!enableDragAndDrop) {
-                                                        handleClick(item)
-                                                    }
+                                                    handleClick(item)
                                                 }}
                                                 onKeyDown={(e) => e.key === 'Enter' && handleClick(item, true)}
                                                 type="tertiary"
@@ -211,31 +211,39 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                     expandedItemIds: expandedItemIds ?? [],
                                                     defaultNodeIcon,
                                                 })}
-                                                disabled={!isItemDraggable?.(item) && enableDragAndDrop}
                                                 tooltip={displayName}
                                                 tooltipPlacement="right"
                                                 style={{ paddingLeft: `${DEPTH_OFFSET}px` }}
                                                 truncate
                                                 sideAction={itemSideAction ? itemSideAction(item) : undefined}
+                                                buttonWrapper={
+                                                    enableDragAndDrop && isItemDraggable?.(item) && item.record?.path
+                                                        ? (button) => (
+                                                              <TreeNodeDraggable id={item.record?.path} enableDragging>
+                                                                  {button}
+                                                              </TreeNodeDraggable>
+                                                          )
+                                                        : undefined
+                                                }
                                             >
-                                                <span
-                                                    className={cn('', {
-                                                        'font-bold': selectedId === item.id,
-                                                        'text-secondary': item.disabledReason,
-                                                    })}
-                                                >
-                                                    {renderItem ? (
-                                                        <>
-                                                            {renderItem(item, displayName)}
-                                                            {item.record?.loading && <Spinner className="ml-1" />}
-                                                            {item.record?.unapplied && (
-                                                                <IconUpload className="ml-1 text-warning" />
-                                                            )}
-                                                        </>
-                                                    ) : (
-                                                        displayName
-                                                    )}
-                                                </span>
+                                                {renderItem ? (
+                                                    <>
+                                                        {renderItem(item, displayName)}
+                                                        {item.record?.loading && <Spinner className="ml-1" />}
+                                                        {item.record?.unapplied && (
+                                                            <IconUpload className="ml-1 text-warning" />
+                                                        )}
+                                                    </>
+                                                ) : (
+                                                    <span
+                                                        className={cn('', {
+                                                            'font-bold': selectedId === item.id,
+                                                            'text-secondary': item.disabledReason,
+                                                        })}
+                                                    >
+                                                        {displayName}
+                                                    </span>
+                                                )}
                                             </LemonButton>
                                         </ContextMenuTrigger>
 
@@ -258,7 +266,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                             showFolderActiveState={showFolderActiveState}
                                             renderItem={renderItem}
                                             itemSideAction={itemSideAction}
-                                            className="space-y-px"
+                                            className="deprecated-space-y-px"
                                             depth={depth + 1}
                                             isItemDraggable={isItemDraggable}
                                             isItemDroppable={isItemDroppable}
@@ -277,20 +285,9 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                     let wrappedContent = content
                     const path = item.record?.path || ''
 
-                    if (isItemDraggable?.(item)) {
+                    if (isItemDroppable?.(item)) {
                         wrappedContent = (
-                            <TreeNodeDroppable id={path} isDroppable={isItemDroppable?.(item) && path}>
-                                <TreeNodeDraggable
-                                    id={path}
-                                    enableDragging={isItemDraggable(item) && enableDragAndDrop}
-                                >
-                                    {wrappedContent}
-                                </TreeNodeDraggable>
-                            </TreeNodeDroppable>
-                        )
-                    } else if (isItemDroppable?.(item)) {
-                        wrappedContent = (
-                            <TreeNodeDroppable id={path} isDroppable={isItemDroppable(item)}>
+                            <TreeNodeDroppable id={path} isDroppable={!!item.record?.path}>
                                 {wrappedContent}
                             </TreeNodeDroppable>
                         )
@@ -304,7 +301,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
 )
 LemonTreeNode.displayName = 'LemonTreeNode'
 
-const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
+const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
     (
         {
             data,
@@ -327,9 +324,24 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
             isFinishedBuildingTreeData,
             ...props
         },
-        ref
+        ref: ForwardedRef<LemonTreeRef>
     ): JSX.Element => {
         const TYPE_AHEAD_TIMEOUT = 500
+        const mouseSensor = useSensor(MouseSensor, {
+            // Require the mouse to move by 10 pixels before activating
+            activationConstraint: {
+                distance: 10,
+            },
+        })
+        const touchSensor = useSensor(TouchSensor, {
+            // Press delay of 250ms, with tolerance of 5px of movement
+            activationConstraint: {
+                delay: 250,
+                tolerance: 5,
+            },
+        })
+        const sensors = useSensors(mouseSensor, touchSensor)
+
         // Scrollable container
         const containerRef = useRef<HTMLDivElement>(null)
 
@@ -501,6 +513,27 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
             ]
         )
 
+        // Helper function to find next/previous non-separator item
+        const findNextFocusableItem = (
+            items: TreeDataItem[],
+            currentIndex: number,
+            direction: 1 | -1
+        ): TreeDataItem | undefined => {
+            let index = currentIndex
+            while (true) {
+                index += direction
+                if (direction > 0 && index >= items.length) {
+                    return undefined
+                }
+                if (direction < 0 && index < 0) {
+                    return undefined
+                }
+                if (items[index].type !== 'separator') {
+                    return items[index]
+                }
+            }
+        }
+
         const handleClick = useCallback(
             (item: TreeDataItem | undefined, isKeyboardAction = false): void => {
                 // Update focusedId when clicking
@@ -646,13 +679,16 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                     case 'ArrowDown': {
                         e.preventDefault()
                         if (currentIndex === -1) {
-                            // If no item is focused, focus the first item
-                            if (visibleItems.length > 0) {
-                                setFocusedId(visibleItems[0].id)
+                            // If no item is focused, focus the first non-separator item
+                            const firstItem = visibleItems.find((item) => item.type !== 'separator')
+                            if (firstItem) {
+                                setFocusedId(firstItem.id)
                             }
-                        } else if (currentIndex < visibleItems.length - 1) {
-                            setFocusedId(visibleItems[currentIndex + 1].id)
-                            // setSelectedd(undefined)
+                        } else {
+                            const nextItem = findNextFocusableItem(visibleItems, currentIndex, 1)
+                            if (nextItem) {
+                                setFocusedId(nextItem.id)
+                            }
                         }
                         break
                     }
@@ -662,13 +698,16 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                     case 'ArrowUp': {
                         e.preventDefault()
                         if (currentIndex === -1) {
-                            // If no item is focused, focus the first item
-                            if (visibleItems.length > 0) {
-                                setFocusedId(visibleItems[0].id)
+                            // If no item is focused, focus the last non-separator item
+                            const lastItem = [...visibleItems].reverse().find((item) => item.type !== 'separator')
+                            if (lastItem) {
+                                setFocusedId(lastItem.id)
                             }
-                        } else if (currentIndex > 0) {
-                            // Otherwise move focus to previous item
-                            setFocusedId(visibleItems[currentIndex - 1].id)
+                        } else {
+                            const prevItem = findNextFocusableItem(visibleItems, currentIndex, -1)
+                            if (prevItem) {
+                                setFocusedId(prevItem.id)
+                            }
                         }
                         break
                     }
@@ -801,8 +840,29 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
             }
         }, [defaultSelectedFolderOrNodeId, hasFocusedContent])
 
+        useImperativeHandle(ref, () => ({
+            getVisibleItems,
+            focusItem: (id: string) => {
+                setFocusedId(id)
+                // Find and focus the actual DOM element
+                const element = containerRef.current?.querySelector(`[data-id="${id}"]`) as HTMLElement
+                element?.focus()
+            },
+        }))
+
         return (
-            <DndContext onDragEnd={onDragEnd}>
+            <DndContext
+                sensors={sensors}
+                onDragEnd={(dragEvent) => {
+                    const active = dragEvent.active?.id
+                    const over = dragEvent.over?.id
+                    if (active && active === over) {
+                        dragEvent.activatorEvent.stopPropagation()
+                    } else {
+                        onDragEnd?.(dragEvent)
+                    }
+                }}
+            >
                 <ScrollableShadows
                     ref={containerRef}
                     direction="vertical"
@@ -821,7 +881,6 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                     <TreeNodeDroppable id="" isDroppable={enableDragAndDrop} className="h-full pb-32">
                         <LemonTreeNode
                             data={data}
-                            ref={ref}
                             selectedId={selectedId}
                             focusedId={focusedId}
                             handleClick={handleClick}
@@ -835,7 +894,7 @@ const LemonTree = forwardRef<HTMLDivElement, LemonTreeProps>(
                             defaultNodeIcon={defaultNodeIcon}
                             showFolderActiveState={showFolderActiveState}
                             itemSideAction={itemSideAction}
-                            className="space-y-px"
+                            className="deprecated-space-y-px"
                             isItemDraggable={isItemDraggable}
                             isItemDroppable={isItemDroppable}
                             enableDragAndDrop={enableDragAndDrop}

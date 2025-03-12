@@ -90,7 +90,7 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
                 </div>
 
                 {alerts.length ? (
-                    <div className="space-y-2">
+                    <div className="deprecated-space-y-2">
                         <div>
                             <strong>{alerts?.length}</strong> {pluralize(alerts.length || 0, 'alert', 'alerts', false)}
                         </div>
