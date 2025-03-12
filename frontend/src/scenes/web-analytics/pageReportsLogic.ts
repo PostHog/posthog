@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
 
-import { InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
+import { InsightVizNode, NodeKind, QuerySchema, TrendsQuery } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import { BaseMathType, ChartDisplayType, InsightLogicProps, PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -153,42 +153,35 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
         queries: [
             (s) => [s.tiles],
             (tiles: WebAnalyticsTile[]) => {
-                // Find tiles by ID
-                const pathsTile = tiles?.find((tile: WebAnalyticsTile) => tile.tileId === TileId.PATHS) as
-                    | TabsTile
-                    | undefined
-                const sourcesTile = tiles?.find((tile: WebAnalyticsTile) => tile.tileId === TileId.SOURCES) as
-                    | TabsTile
-                    | undefined
-                const devicesTile = tiles?.find((tile: WebAnalyticsTile) => tile.tileId === TileId.DEVICES) as
-                    | TabsTile
-                    | undefined
-                const geographyTile = tiles?.find((tile: WebAnalyticsTile) => tile.tileId === TileId.GEOGRAPHY) as
-                    | TabsTile
-                    | undefined
+                // Helper function to get query from a tile by tab ID so we
+                // can use what we already have in the web analytics logic
+                const getQuery = (tileId: TileId, tabId: string): QuerySchema | undefined => {
+                    const tile = tiles?.find((t) => t.tileId === tileId) as TabsTile | undefined
+                    return tile?.tabs.find((tab) => tab.id === tabId)?.query
+                }
 
                 // Return an object with all queries
                 return {
                     // Path queries
-                    entryPathsQuery: pathsTile?.tabs.find((tab) => tab.id === PathTab.INITIAL_PATH)?.query,
-                    exitPathsQuery: pathsTile?.tabs.find((tab) => tab.id === PathTab.END_PATH)?.query,
-                    outboundClicksQuery: pathsTile?.tabs.find((tab) => tab.id === PathTab.EXIT_CLICK)?.query,
+                    entryPathsQuery: getQuery(TileId.PATHS, PathTab.INITIAL_PATH),
+                    exitPathsQuery: getQuery(TileId.PATHS, PathTab.END_PATH),
+                    outboundClicksQuery: getQuery(TileId.PATHS, PathTab.EXIT_CLICK),
 
                     // Source queries
-                    channelsQuery: sourcesTile?.tabs.find((tab) => tab.id === SourceTab.CHANNEL)?.query,
-                    referrersQuery: sourcesTile?.tabs.find((tab) => tab.id === SourceTab.REFERRING_DOMAIN)?.query,
+                    channelsQuery: getQuery(TileId.SOURCES, SourceTab.CHANNEL),
+                    referrersQuery: getQuery(TileId.SOURCES, SourceTab.REFERRING_DOMAIN),
 
                     // Device queries
-                    deviceTypeQuery: devicesTile?.tabs.find((tab) => tab.id === DeviceTab.DEVICE_TYPE)?.query,
-                    browserQuery: devicesTile?.tabs.find((tab) => tab.id === DeviceTab.BROWSER)?.query,
-                    osQuery: devicesTile?.tabs.find((tab) => tab.id === DeviceTab.OS)?.query,
+                    deviceTypeQuery: getQuery(TileId.DEVICES, DeviceTab.DEVICE_TYPE),
+                    browserQuery: getQuery(TileId.DEVICES, DeviceTab.BROWSER),
+                    osQuery: getQuery(TileId.DEVICES, DeviceTab.OS),
 
                     // Geography queries
-                    countriesQuery: geographyTile?.tabs.find((tab) => tab.id === GeographyTab.COUNTRIES)?.query,
-                    regionsQuery: geographyTile?.tabs.find((tab) => tab.id === GeographyTab.REGIONS)?.query,
-                    citiesQuery: geographyTile?.tabs.find((tab) => tab.id === GeographyTab.CITIES)?.query,
-                    timezonesQuery: geographyTile?.tabs.find((tab) => tab.id === GeographyTab.TIMEZONES)?.query,
-                    languagesQuery: geographyTile?.tabs.find((tab) => tab.id === GeographyTab.LANGUAGES)?.query,
+                    countriesQuery: getQuery(TileId.GEOGRAPHY, GeographyTab.COUNTRIES),
+                    regionsQuery: getQuery(TileId.GEOGRAPHY, GeographyTab.REGIONS),
+                    citiesQuery: getQuery(TileId.GEOGRAPHY, GeographyTab.CITIES),
+                    timezonesQuery: getQuery(TileId.GEOGRAPHY, GeographyTab.TIMEZONES),
+                    languagesQuery: getQuery(TileId.GEOGRAPHY, GeographyTab.LANGUAGES),
                 }
             },
         ],
