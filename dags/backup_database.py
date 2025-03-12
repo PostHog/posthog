@@ -3,7 +3,7 @@ from datetime import datetime, UTC
 from functools import partial
 import re
 import time
-from typing import ClassVar, Optional
+from typing import Optional
 from clickhouse_driver import Client
 import dagster
 from django.conf import settings
@@ -15,8 +15,6 @@ from dagster_aws.s3 import S3Resource
 
 @dataclass
 class Backup:
-    PATH_REGEX: ClassVar[re.Pattern] = re.compile(r"^(\w+)\/(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)\/((\w+)\/)?$")
-
     database: str
     date: datetime
     table: Optional[str] = None
@@ -30,6 +28,22 @@ class Backup:
             base_path = f"{base_path}/{self.table}"
 
         return base_path
+
+    @classmethod
+    def from_s3_path(cls, path: str) -> "Backup":
+        path_regex = re.compile(
+            r"^(?P<database>\w+)\/(?P<date>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)\/((?P<table>\w+)\/)?$"
+        )
+        match = path_regex.match(path)
+        if not match:
+            raise ValueError(f"Could not parse backup path: {path}. It does not match the regex: {path_regex.pattern}")
+
+        return Backup(
+            database=match.group("database"),
+            date=datetime.strptime(match.group("date"), "%Y-%m-%dT%H:%M:%SZ"),
+            table=match.group("table"),
+            base_backup=None,
+        )
 
     def create(self, client: Client, shard: int):
         backup_settings = {
@@ -123,17 +137,8 @@ def get_latest_backup(
     if "CommonPrefixes" not in backups:
         return None
 
-    latest_backup = backups["CommonPrefixes"][-1]
-    match = Backup.PATH_REGEX.match(latest_backup["Prefix"])
-    if not match:
-        raise ValueError(f"Could not parse backup path {latest_backup['Prefix']}")
-
-    return Backup(
-        database=match.group(1),
-        table=match.group(3),
-        date=datetime.strptime(match.group(2), "%Y-%m-%dT%H:%M:%SZ"),
-        base_backup=None,
-    )
+    latest_backup = backups["CommonPrefixes"][-1]["Prefix"]
+    return Backup.from_s3_path(latest_backup)
 
 
 @dagster.op
