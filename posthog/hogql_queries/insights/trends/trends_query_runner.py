@@ -141,16 +141,21 @@ class TrendsQueryRunner(QueryRunner):
 
         return queries
 
-    def to_events_query(
-        self,
-        time_frame: Optional[str],
-        series_index: int,
-        breakdown_value: Optional[str | int | list[str]] = None,
-        compare_value: Optional[Compare] = None,
-    ):
-        pass
+    def to_events_query(self, *args, **kwargs) -> ast.SelectQuery | ast.SelectSetQuery:
+        with self.timings.measure("trends_to_events_query"):
+            query_builder = self._get_trends_actors_query_builder(*args, **kwargs)
+            query = query_builder._get_events_query()
 
-    def to_actors_query(
+        return query
+
+    def to_actors_query(self, *args, **kwargs) -> ast.SelectQuery | ast.SelectSetQuery:
+        with self.timings.measure("trends_to_actors_query"):
+            query_builder = self._get_trends_actors_query_builder(*args, **kwargs)
+            query = query_builder.build_actors_query()
+
+        return query
+
+    def _get_trends_actors_query_builder(
         self,
         time_frame: Optional[str],
         series_index: int,
@@ -158,31 +163,26 @@ class TrendsQueryRunner(QueryRunner):
         compare_value: Optional[Compare] = None,
         include_recordings: Optional[bool] = None,
     ) -> ast.SelectQuery | ast.SelectSetQuery:
-        with self.timings.measure("trends_to_actors_query"):
-            if self.query.breakdownFilter and self.query.breakdownFilter.breakdown_type == BreakdownType.COHORT:
-                if self.query.breakdownFilter.breakdown in ("all", ["all"]) or breakdown_value == "all":
-                    self.query.breakdownFilter = None
-                elif isinstance(self.query.breakdownFilter.breakdown, list):
-                    self.query.breakdownFilter.breakdown = [
-                        x for x in self.query.breakdownFilter.breakdown if x != "all"
-                    ]
-            query_builder = TrendsActorsQueryBuilder(
-                trends_query=self.query,
-                team=self.team,
-                timings=self.timings,
-                modifiers=self.modifiers,
-                limit_context=self.limit_context,
-                # actors related args
-                time_frame=time_frame,
-                series_index=series_index,
-                breakdown_value=breakdown_value if breakdown_value != "all" else None,
-                compare_value=compare_value,
-                include_recordings=include_recordings,
-            )
+        if self.query.breakdownFilter and self.query.breakdownFilter.breakdown_type == BreakdownType.COHORT:
+            if self.query.breakdownFilter.breakdown in ("all", ["all"]) or breakdown_value == "all":
+                self.query.breakdownFilter = None
+            elif isinstance(self.query.breakdownFilter.breakdown, list):
+                self.query.breakdownFilter.breakdown = [x for x in self.query.breakdownFilter.breakdown if x != "all"]
+        query_builder = TrendsActorsQueryBuilder(
+            trends_query=self.query,
+            team=self.team,
+            timings=self.timings,
+            modifiers=self.modifiers,
+            limit_context=self.limit_context,
+            # actors related args
+            time_frame=time_frame,
+            series_index=series_index,
+            breakdown_value=breakdown_value if breakdown_value != "all" else None,
+            compare_value=compare_value,
+            include_recordings=include_recordings,
+        )
 
-            query = query_builder.build_actors_query()
-
-        return query
+        return query_builder
 
     def to_actors_query_options(self) -> InsightActorsQueryOptionsResponse:
         res_breakdown: list[BreakdownItem] | None = None

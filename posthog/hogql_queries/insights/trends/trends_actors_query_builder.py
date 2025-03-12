@@ -179,7 +179,8 @@ class TrendsActorsQueryBuilder:
             group_by=[ast.Field(chain=["actor_id"])],
         )
 
-    def _get_events_query(self) -> ast.SelectQuery:
+    def _get_events_query(self, event_cols: Optional[list[str]] = None) -> ast.SelectQuery:
+        # TODO: Add the ability to add event_cols here
         actor_col = ast.Alias(alias="actor_id", expr=self._actor_id_expr())
         actor_distinct_id_expr = self._actor_distinct_id_expr()
         actor_distinct_id_col = (
