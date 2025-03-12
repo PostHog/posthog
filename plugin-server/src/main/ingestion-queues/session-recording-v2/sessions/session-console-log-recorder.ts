@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 import { LogLevel, TimestampFormat } from '../../../../types'
 import { castTimestampOrNow } from '../../../../utils/utils'
 import { ParsedMessageData } from '../kafka/types'
-import { ConsoleLogLevel, getConsoleLogLevel } from '../rrweb-types'
+import { RRWebEventType } from '../rrweb-types'
 import { ConsoleLogEntry, SessionConsoleLogStore } from './session-console-log-store'
 
 const levelMapping: Record<string, LogLevel> = {
@@ -88,24 +88,22 @@ export class SessionConsoleLogRecorder {
 
         for (const events of Object.values(message.eventsByWindowId)) {
             for (const event of events) {
-                const logLevel = getConsoleLogLevel(event)
-
-                if (logLevel === ConsoleLogLevel.Log) {
-                    this.consoleLogCount++
-                } else if (logLevel === ConsoleLogLevel.Warn) {
-                    this.consoleWarnCount++
-                } else if (logLevel === ConsoleLogLevel.Error) {
-                    this.consoleErrorCount++
-                }
-
                 const eventData = event.data as
                     | { plugin?: unknown; payload?: { payload?: unknown; level?: unknown } }
                     | undefined
-                if (event.type === 6 && eventData?.plugin === 'rrweb/console@1') {
+                if (event.type === RRWebEventType.Plugin && eventData?.plugin === 'rrweb/console@1') {
                     const level = safeLevel(eventData?.payload?.level)
                     const maybePayload = eventData?.payload?.payload
                     const payload: unknown[] = Array.isArray(maybePayload) ? maybePayload : []
                     const message = payloadToSafeString(payload)
+
+                    if (level === 'info') {
+                        this.consoleLogCount++
+                    } else if (level === 'warn') {
+                        this.consoleWarnCount++
+                    } else if (level === 'error') {
+                        this.consoleErrorCount++
+                    }
 
                     logsToStore.push({
                         team_id: this.teamId,

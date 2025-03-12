@@ -23,7 +23,7 @@ describe('SessionConsoleLogRecorder', () => {
         payload,
         timestamp,
     }: {
-        level: ConsoleLogLevel
+        level: unknown
         payload: unknown[]
         timestamp: number
     }) => ({
@@ -62,17 +62,11 @@ describe('SessionConsoleLogRecorder', () => {
     describe('Console log counting', () => {
         it('should count console log events', async () => {
             const events = [
-                {
-                    type: RRWebEventType.Plugin,
+                createConsoleLogEvent({
+                    level: 'info',
+                    payload: ['Test log message'],
                     timestamp: 1000,
-                    data: {
-                        plugin: 'rrweb/console@1',
-                        payload: {
-                            level: ConsoleLogLevel.Log,
-                            content: ['Test log message'],
-                        },
-                    },
-                },
+                }),
             ]
             const message = createMessage('window1', events)
 
@@ -86,17 +80,11 @@ describe('SessionConsoleLogRecorder', () => {
 
         it('should count console warn events', async () => {
             const events = [
-                {
-                    type: RRWebEventType.Plugin,
+                createConsoleLogEvent({
+                    level: 'warn',
+                    payload: ['Test warning message'],
                     timestamp: 1000,
-                    data: {
-                        plugin: 'rrweb/console@1',
-                        payload: {
-                            level: ConsoleLogLevel.Warn,
-                            content: ['Test warning message'],
-                        },
-                    },
-                },
+                }),
             ]
             const message = createMessage('window1', events)
 
@@ -110,17 +98,11 @@ describe('SessionConsoleLogRecorder', () => {
 
         it('should count console error events', async () => {
             const events = [
-                {
-                    type: RRWebEventType.Plugin,
+                createConsoleLogEvent({
+                    level: 'error',
+                    payload: ['Test error message'],
                     timestamp: 1000,
-                    data: {
-                        plugin: 'rrweb/console@1',
-                        payload: {
-                            level: ConsoleLogLevel.Error,
-                            content: ['Test error message'],
-                        },
-                    },
-                },
+                }),
             ]
             const message = createMessage('window1', events)
 
@@ -134,50 +116,26 @@ describe('SessionConsoleLogRecorder', () => {
 
         it('should count multiple console events of different types', async () => {
             const events = [
-                {
-                    type: RRWebEventType.Plugin,
+                createConsoleLogEvent({
+                    level: 'info',
+                    payload: ['Test log message 1'],
                     timestamp: 1000,
-                    data: {
-                        plugin: 'rrweb/console@1',
-                        payload: {
-                            level: ConsoleLogLevel.Log,
-                            content: ['Test log message 1'],
-                        },
-                    },
-                },
-                {
-                    type: RRWebEventType.Plugin,
+                }),
+                createConsoleLogEvent({
+                    level: 'warn',
+                    payload: ['Test warning message'],
                     timestamp: 1500,
-                    data: {
-                        plugin: 'rrweb/console@1',
-                        payload: {
-                            level: ConsoleLogLevel.Warn,
-                            content: ['Test warning message'],
-                        },
-                    },
-                },
-                {
-                    type: RRWebEventType.Plugin,
+                }),
+                createConsoleLogEvent({
+                    level: 'error',
+                    payload: ['Test error message'],
                     timestamp: 2000,
-                    data: {
-                        plugin: 'rrweb/console@1',
-                        payload: {
-                            level: ConsoleLogLevel.Error,
-                            content: ['Test error message'],
-                        },
-                    },
-                },
-                {
-                    type: RRWebEventType.Plugin,
+                }),
+                createConsoleLogEvent({
+                    level: 'info',
+                    payload: ['Test log message 2'],
                     timestamp: 2500,
-                    data: {
-                        plugin: 'rrweb/console@1',
-                        payload: {
-                            level: ConsoleLogLevel.Log,
-                            content: ['Test log message 2'],
-                        },
-                    },
-                },
+                }),
             ]
             const message = createMessage('window1', events)
 
@@ -214,6 +172,24 @@ describe('SessionConsoleLogRecorder', () => {
             const result = recorder.end()
 
             expect(result.consoleLogCount).toBe(0)
+            expect(result.consoleWarnCount).toBe(0)
+            expect(result.consoleErrorCount).toBe(0)
+        })
+
+        it('should map log level to info for counting', async () => {
+            const events = [
+                createConsoleLogEvent({
+                    level: 'log',
+                    payload: ['Test log message'],
+                    timestamp: 1000,
+                }),
+            ]
+            const message = createMessage('window1', events)
+
+            await recorder.recordMessage(message)
+            const result = recorder.end()
+
+            expect(result.consoleLogCount).toBe(1)
             expect(result.consoleWarnCount).toBe(0)
             expect(result.consoleErrorCount).toBe(0)
         })
@@ -329,7 +305,7 @@ describe('SessionConsoleLogRecorder', () => {
 
         test.each(testCases)('maps browser level $input to $expected', async ({ input, expected }) => {
             const event = createConsoleLogEvent({
-                level: input as ConsoleLogLevel,
+                level: input as unknown,
                 payload: ['test message'],
                 timestamp: 1000,
             })
@@ -346,11 +322,11 @@ describe('SessionConsoleLogRecorder', () => {
 
         it('handles edge cases', async () => {
             const edgeCases = [
-                { level: 'unknown' as ConsoleLogLevel, expected: LogLevel.Info },
-                { level: '' as ConsoleLogLevel, expected: LogLevel.Info },
-                { level: undefined as unknown as ConsoleLogLevel, expected: LogLevel.Info },
-                { level: null as unknown as ConsoleLogLevel, expected: LogLevel.Info },
-                { level: 123 as unknown as ConsoleLogLevel, expected: LogLevel.Info },
+                { level: 'unknown', expected: LogLevel.Info },
+                { level: '', expected: LogLevel.Info },
+                { level: undefined, expected: LogLevel.Info },
+                { level: null, expected: LogLevel.Info },
+                { level: 123, expected: LogLevel.Info },
             ]
 
             for (const { level, expected } of edgeCases) {
