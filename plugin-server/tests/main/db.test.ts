@@ -180,8 +180,6 @@ describe('DB', () => {
                                 target: 'https://example.com/',
                             },
                         ],
-                        bytecode: null,
-                        bytecode_error: null,
                     },
                 },
             })
