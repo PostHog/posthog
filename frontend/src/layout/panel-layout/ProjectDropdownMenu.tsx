@@ -11,7 +11,7 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
-import { Icon } from 'lib/ui/Icon/Icon'
+import { IconWrapper } from 'lib/ui/IconWrapper/IconWrapper'
 import { cn } from 'lib/utils/css-classes'
 import { getProjectSwitchTargetUrl } from 'lib/utils/router-utils'
 import { useMemo, useState } from 'react'
@@ -46,9 +46,9 @@ function OtherProjectButton({ team }: { team: TeamBasicType }): JSX.Element {
             to={relativeOtherProjectPath}
             sideAction={{
                 icon: (
-                    <Icon>
+                    <IconWrapper>
                         <IconGear />
-                    </Icon>
+                    </IconWrapper>
                 ),
                 tooltip: `Go to ${team.name} settings`,
                 to: urls.project(team.id, urls.settings()),
@@ -81,21 +81,22 @@ export function ProjectDropdownMenu(): JSX.Element | null {
             <DropdownMenuTrigger asChild>
                 <LemonButton
                     icon={
-                        <Icon>
+                        <IconWrapper>
                             <IconFolderOpen />
-                        </Icon>
+                        </IconWrapper>
                     }
                     size="small"
                     className="hover:bg-fill-highlight-100"
                     sideIcon={
-                        <Icon size="sm">
-                            <IconChevronRight
-                                className={cn(
-                                    'transition-transform duration-200 prefers-reduced-motion:transition-none',
-                                    isDropdownOpen ? 'rotate-270' : 'rotate-90'
-                                )}
-                            />
-                        </Icon>
+                        <IconWrapper
+                            size="sm"
+                            className={cn(
+                                'transition-transform duration-200 prefers-reduced-motion:transition-none',
+                                isDropdownOpen ? 'rotate-270' : 'rotate-90'
+                            )}
+                        >
+                            <IconChevronRight />
+                        </IconWrapper>
                     }
                 >
                     <span>Project</span>
@@ -108,9 +109,9 @@ export function ProjectDropdownMenu(): JSX.Element | null {
                     active
                     sideAction={{
                         icon: (
-                            <Icon>
+                            <IconWrapper size="sm">
                                 <IconGear />
-                            </Icon>
+                            </IconWrapper>
                         ),
                         tooltip: `Go to ${currentTeam?.name} settings`,
                         onClick: () => {
@@ -131,9 +132,9 @@ export function ProjectDropdownMenu(): JSX.Element | null {
                     <DropdownMenuItem asChild>
                         <LemonButton
                             icon={
-                                <Icon>
+                                <IconWrapper>
                                     <IconPlusSmall />
-                                </Icon>
+                                </IconWrapper>
                             }
                             onClick={() =>
                                 guardAvailableFeature(AvailableFeature.ORGANIZATIONS_PROJECTS, () => {

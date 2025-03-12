@@ -1,7 +1,7 @@
 import { useDraggable, useDroppable } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
 import { IconChevronRight, IconDocument, IconFolder, IconFolderOpen } from '@posthog/icons'
-import { Icon } from 'lib/ui/Icon/Icon'
+import { IconWrapper } from 'lib/ui/IconWrapper/IconWrapper'
 import { cn } from 'lib/utils/css-classes'
 
 import { TreeDataItem } from './LemonTree'
@@ -26,7 +26,7 @@ export function getIcon({ item, expandedItemIds, defaultNodeIcon }: IconProps): 
         return (
             // On folder group hover, the chevron icon should fade in and the folder should fade out
             <div className="relative">
-                <Icon
+                <IconWrapper
                     size="sm"
                     className={cn(
                         ICON_CLASSES,
@@ -34,15 +34,15 @@ export function getIcon({ item, expandedItemIds, defaultNodeIcon }: IconProps): 
                     )}
                 >
                     <IconChevronRight className={cn('transition-transform size-4', isOpen ? 'rotate-90' : '')} />
-                </Icon>
-                <Icon
+                </IconWrapper>
+                <IconWrapper
                     className={cn(
                         ICON_CLASSES,
                         'group-hover/lemon-tree-button:opacity-10 transition-opacity duration-150'
                     )}
                 >
                     {isOpen ? <IconFolderOpen /> : <IconFolder />}
-                </Icon>
+                </IconWrapper>
             </div>
         )
     }
@@ -50,21 +50,21 @@ export function getIcon({ item, expandedItemIds, defaultNodeIcon }: IconProps): 
     if (isFile) {
         return (
             <>
-                <Icon className={ICON_CLASSES}>
+                <IconWrapper className={ICON_CLASSES}>
                     <IconDocument />
-                </Icon>
+                </IconWrapper>
             </>
         )
     }
 
     return (
-        <Icon
+        <IconWrapper
             className={cn(ICON_CLASSES, {
                 'text-tertiary': item.disabledReason,
             })}
         >
-            {item.icon || defaultNodeIcon || <div className={ICON_CLASSES} />}
-        </Icon>
+            {item.icon || defaultNodeIcon || <div />}
+        </IconWrapper>
     )
 }
 

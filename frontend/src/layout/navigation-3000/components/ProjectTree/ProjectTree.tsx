@@ -1,11 +1,11 @@
-import { IconPin, IconPinFilled, IconPlus, IconSearch, IconSort, IconX } from '@posthog/icons'
+import { IconPin, IconPinFilled, IconPlusSmall, IconSearch, IconSort, IconX } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTree, LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { ContextMenuGroup, ContextMenuItem } from 'lib/ui/ContextMenu/ContextMenu'
-import { Icon } from 'lib/ui/Icon/Icon'
+import { IconWrapper } from 'lib/ui/IconWrapper/IconWrapper'
 import { useRef } from 'react'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
@@ -72,9 +72,9 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                             onClick={() => alert('Sort by name')}
                             className="hover:bg-fill-highlight-100 shrink-0"
                             icon={
-                                <Icon>
+                                <IconWrapper>
                                     <IconSort />
-                                </Icon>
+                                </IconWrapper>
                             }
                         />
                         {!isMobileLayout && (
@@ -86,13 +86,13 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                                 className="hover:bg-fill-highlight-100 shrink-0"
                                 icon={
                                     isLayoutPanelPinned ? (
-                                        <Icon>
+                                        <IconWrapper>
                                             <IconPinFilled />
-                                        </Icon>
+                                        </IconWrapper>
                                     ) : (
-                                        <Icon>
+                                        <IconWrapper>
                                             <IconPin />
-                                        </Icon>
+                                        </IconWrapper>
                                     )
                                 }
                             />
@@ -104,9 +104,9 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                             onClick={() => createFolder('')}
                             className="hover:bg-fill-highlight-100 shrink-0"
                             icon={
-                                <Icon>
-                                    <IconPlus />
-                                </Icon>
+                                <IconWrapper>
+                                    <IconPlusSmall />
+                                </IconWrapper>
                             }
                         />
                     </div>
@@ -119,9 +119,9 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                             placeholder="Search..."
                             className="w-full"
                             prefix={
-                                <Icon>
+                                <IconWrapper>
                                     <IconSearch />
-                                </Icon>
+                                </IconWrapper>
                             }
                             size="small"
                             value={searchTerm}
@@ -133,9 +133,9 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
                                         type="tertiary"
                                         onClick={() => clearSearch()}
                                         icon={
-                                            <Icon>
+                                            <IconWrapper>
                                                 <IconX />
-                                            </Icon>
+                                            </IconWrapper>
                                         }
                                         className="bg-transparent [&_svg]:opacity-30 hover:[&_svg]:opacity-100"
                                         tooltip="Clear search"

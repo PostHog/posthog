@@ -11,7 +11,7 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
-import { Icon } from 'lib/ui/Icon/Icon'
+import { IconWrapper } from 'lib/ui/IconWrapper/IconWrapper'
 import { cn } from 'lib/utils/css-classes'
 import { useState } from 'react'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -50,23 +50,23 @@ export function OrganizationDropdownMenu(): JSX.Element {
                                 mediaId={currentOrganization.logo_media_id}
                             />
                         ) : (
-                            <Icon>
+                            <IconWrapper>
                                 <IconPlusSmall />
-                            </Icon>
+                            </IconWrapper>
                         )
                     }
                     size="small"
                     className="hover:bg-fill-highlight-100 w-fit"
                     tooltip="Open organization dropdown"
                     sideIcon={
-                        <Icon size="sm">
+                        <IconWrapper size="sm">
                             <IconChevronRight
                                 className={cn(
                                     'transition-transform duration-200 prefers-reduced-motion:transition-none',
                                     isDropdownOpen ? 'rotate-270' : 'rotate-90'
                                 )}
                             />
-                        </Icon>
+                        </IconWrapper>
                     }
                 >
                     <span>{currentOrganization ? currentOrganization.name : 'Open'}</span>
@@ -119,9 +119,9 @@ export function OrganizationDropdownMenu(): JSX.Element {
                     <DropdownMenuItem asChild>
                         <LemonButton
                             icon={
-                                <Icon>
+                                <IconWrapper>
                                     <IconPlusSmall />
-                                </Icon>
+                                </IconWrapper>
                             }
                             onClick={() =>
                                 guardAvailableFeature(

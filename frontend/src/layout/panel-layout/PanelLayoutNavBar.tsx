@@ -14,7 +14,7 @@ import { useActions, useValues } from 'kea'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { Icon } from 'lib/ui/Icon/Icon'
+import { IconWrapper } from 'lib/ui/IconWrapper/IconWrapper'
 import { cn } from 'lib/utils/css-classes'
 import { useRef } from 'react'
 import { urls } from 'scenes/urls'
@@ -64,9 +64,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             }
                             className="hover:bg-fill-highlight-100 shrink-0"
                             icon={
-                                <Icon>
+                                <IconWrapper>
                                     <IconPlusSmall />
-                                </Icon>
+                                </IconWrapper>
                             }
                         />
                     </div>
@@ -83,9 +83,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     activeLayoutNavBarItem === 'project' && 'bg-fill-highlight-50'
                                 )}
                                 icon={
-                                    <Icon>
+                                    <IconWrapper>
                                         <IconFolderOpen className="stroke-[1.2]" />
-                                    </Icon>
+                                    </IconWrapper>
                                 }
                                 onClick={() => {
                                     showLayoutPanel(!isLayoutPanelVisible)
@@ -96,9 +96,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 fullWidth
                                 size="small"
                                 sideIcon={
-                                    <Icon size="sm">
+                                    <IconWrapper size="sm">
                                         <IconChevronRight />
-                                    </Icon>
+                                    </IconWrapper>
                                 }
                             >
                                 <span>Project</span>
@@ -110,9 +110,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 size="small"
                                 onClick={toggleSearchBar}
                                 icon={
-                                    <Icon>
+                                    <IconWrapper>
                                         <IconSearch />
-                                    </Icon>
+                                    </IconWrapper>
                                 }
                             >
                                 <span>Search</span>
@@ -122,15 +122,15 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 className="hover:bg-fill-highlight-100"
                                 fullWidth
                                 icon={
-                                    <Icon>
+                                    <IconWrapper>
                                         <IconBolt />
-                                    </Icon>
+                                    </IconWrapper>
                                 }
                                 size="small"
                                 sideIcon={
-                                    <Icon size="sm">
+                                    <IconWrapper size="sm">
                                         <IconChevronRight />
-                                    </Icon>
+                                    </IconWrapper>
                                 }
                             >
                                 <span>Data</span>
@@ -140,15 +140,15 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 className="hover:bg-fill-highlight-100"
                                 fullWidth
                                 icon={
-                                    <Icon>
+                                    <IconWrapper>
                                         <IconPeople />
-                                    </Icon>
+                                    </IconWrapper>
                                 }
                                 size="small"
                                 sideIcon={
-                                    <Icon size="sm">
+                                    <IconWrapper size="sm">
                                         <IconChevronRight />
-                                    </Icon>
+                                    </IconWrapper>
                                 }
                             >
                                 <span>People</span>
@@ -158,15 +158,15 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 className="hover:bg-fill-highlight-100"
                                 fullWidth
                                 icon={
-                                    <Icon>
+                                    <IconWrapper>
                                         <IconPeople />
-                                    </Icon>
+                                    </IconWrapper>
                                 }
                                 size="small"
                                 sideIcon={
-                                    <Icon size="sm">
+                                    <IconWrapper size="sm">
                                         <IconChevronRight />
-                                    </Icon>
+                                    </IconWrapper>
                                 }
                             >
                                 <span>Products</span>
@@ -179,9 +179,9 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 )}
                                 fullWidth
                                 icon={
-                                    <Icon>
+                                    <IconWrapper>
                                         <IconClock />
-                                    </Icon>
+                                    </IconWrapper>
                                 }
                                 size="small"
                                 to={urls.activity()}
@@ -199,15 +199,15 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 className="hover:bg-fill-highlight-100"
                                 fullWidth
                                 icon={
-                                    <Icon>
+                                    <IconWrapper>
                                         <IconCircleDashed />
-                                    </Icon>
+                                    </IconWrapper>
                                 }
                                 size="small"
                                 sideIcon={
-                                    <Icon size="sm">
+                                    <IconWrapper size="sm">
                                         <IconChevronRight />
-                                    </Icon>
+                                    </IconWrapper>
                                 }
                             >
                                 <span>Quick start</span>
