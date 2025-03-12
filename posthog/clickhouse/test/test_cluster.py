@@ -154,7 +154,7 @@ def test_alter_mutation_single_command(cluster: ClickhouseCluster) -> None:
 
     # nothing should be running yet
     existing_mutations = cluster.map_all_hosts(runner.find_existing_mutations).result()
-    assert all(all(mutation is None for mutation in mutations.values()) for mutations in existing_mutations.values())
+    assert all(not mutations for mutations in existing_mutations.values())
 
     # start all mutations
     shard_mutations = cluster.map_one_host_per_shard(runner).result()
@@ -202,9 +202,7 @@ def test_alter_mutation_multiple_commands(cluster: ClickhouseCluster) -> None:
 
         # nothing should be running yet
         existing_mutations = cluster.map_all_hosts(runner.find_existing_mutations).result()
-        assert all(
-            mutations == {command: None for command in runner.commands} for mutations in existing_mutations.values()
-        )
+        assert all(not mutations for mutations in existing_mutations.values())
 
         # start all mutations
         shard_mutations = cluster.map_one_host_per_shard(runner).result()
@@ -212,9 +210,7 @@ def test_alter_mutation_multiple_commands(cluster: ClickhouseCluster) -> None:
 
         # all commands should have an associated mutation id at this point
         existing_mutations = cluster.map_all_hosts(runner.find_existing_mutations).result()
-        assert all(
-            all(mutation is not None for mutation in mutations.values()) for mutations in existing_mutations.values()
-        )
+        assert all(mutations.keys() == runner.commands for mutations in existing_mutations.values())
 
         # if we run the same mutation with a subset of commands, nothing new should be scheduled (this ensures after a
         # code change that removes a command from the mutation, we won't error when we mutations from previous versions)
@@ -242,16 +238,20 @@ def test_alter_mutation_multiple_commands(cluster: ClickhouseCluster) -> None:
             {*runner.commands, new_command},
         )
 
-        assert all(
-            mutations == {new_command: None, **existing_mutations[host]}
-            for host, mutations in (
-                cluster.map_all_hosts(runner_with_extra_command.find_existing_mutations).result().items()
-            )
-        )
+        # the new command should not yet be findable
+        assert cluster.map_all_hosts(runner_with_extra_command.find_existing_mutations).result() == existing_mutations
 
         # start all mutations
-        shard_mutations = cluster.map_one_host_per_shard(runner).result()
+        shard_mutations = cluster.map_one_host_per_shard(runner_with_extra_command).result()
         wait_and_check_mutations_on_shards(cluster, shard_mutations)
+
+        # now all commands should be present
+        assert all(
+            mutations.keys() == runner_with_extra_command.commands
+            for mutations in (
+                cluster.map_all_hosts(runner_with_extra_command.find_existing_mutations).result().values()
+            )
+        )
 
 
 def test_map_hosts_by_role() -> None:

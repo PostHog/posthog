@@ -455,11 +455,7 @@ class MutationRunner(abc.ABC):
         that can be used to check the status of the mutation and wait for its to be finished.
         """
         expected_commands = self.get_all_commands()
-        mutations_running = {
-            command: mutation
-            for command, mutation in self.find_existing_mutations(client, expected_commands).items()
-            if mutation is not None
-        }
+        mutations_running = self.find_existing_mutations(client, expected_commands)
 
         commands_to_enqueue = expected_commands - mutations_running.keys()
         if not commands_to_enqueue:
@@ -470,11 +466,7 @@ class MutationRunner(abc.ABC):
         # mutations are not always immediately visible, so give anything new a bit of time to show up
         start = time.time()
         for _ in range(5):
-            mutations_running = {
-                command: mutation_id
-                for command, mutation_id in self.find_existing_mutations(client, expected_commands).items()
-                if mutation_id is not None
-            }
+            mutations_running = self.find_existing_mutations(client, expected_commands)
             if mutations_running.keys() == expected_commands:
                 return MutationWaiter(self.table, set(mutations_running.values()))
 
@@ -482,7 +474,7 @@ class MutationRunner(abc.ABC):
             f"unable to find mutation for {expected_commands - mutations_running.keys()!r} after {time.time() - start:0.2f}s!"
         )
 
-    def find_existing_mutations(self, client: Client, commands: Set[str] | None = None) -> Mapping[str, str | None]:
+    def find_existing_mutations(self, client: Client, commands: Set[str] | None = None) -> Mapping[str, str]:
         """
         Find the mutation ID (if it exists) associated with each command provided (or all commands if no commands are
         specified.)
@@ -533,7 +525,9 @@ class MutationRunner(abc.ABC):
             },
         )
         assert len(mutations) == len(command_list)
-        return {command: mutation_id for command, (mutation_id,) in zip(command_list, mutations)}
+        return {
+            command: mutation_id for command, (mutation_id,) in zip(command_list, mutations) if mutation_id is not None
+        }
 
     def run_on_shards(self, cluster: ClickhouseCluster, shards: Iterable[int] | None = None) -> None:
         """
