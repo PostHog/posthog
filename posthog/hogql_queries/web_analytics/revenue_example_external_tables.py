@@ -32,10 +32,13 @@ class RevenueExampleExternalTablesQueryRunner(QueryRunner):
                 queries.append(
                     ast.SelectQuery(
                         select=[
-                            ast.Alias(alias="table_name", expr=ast.Constant(value=table.name)),
-                            ast.Alias(alias="revenue", expr=ast.Field(chain=[table.name, table.revenueColumn])),
+                            ast.Alias(alias="table_name", expr=ast.Constant(value=table.tableName)),
+                            ast.Alias(alias="revenue", expr=ast.Field(chain=[table.tableName, table.revenueColumn])),
                         ],
-                        select_from=ast.JoinExpr(table=ast.Field(chain=[table.name])),
+                        select_from=ast.JoinExpr(table=ast.Field(chain=[table.tableName])),
+                        order_by=[
+                            ast.OrderExpr(expr=ast.Field(chain=[table.tableName, table.timestampColumn]), order="DESC")
+                        ],
                     )
                 )
 

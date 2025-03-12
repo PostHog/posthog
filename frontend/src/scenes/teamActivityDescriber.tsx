@@ -13,7 +13,11 @@ import { Link } from 'lib/lemon-ui/Link'
 import { isNotNil, isObject, pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { RevenueTrackingEventItem } from '~/queries/schema/schema-general'
+import {
+    CurrencyCode,
+    RevenueTrackingEventItem,
+    RevenueTrackingExternalDataSchema,
+} from '~/queries/schema/schema-general'
 import { ActivityScope, TeamSurveyConfigType, TeamType } from '~/types'
 
 import { ThemeName } from './dataThemeLogic'
@@ -412,6 +416,16 @@ const teamActionsMapping: Record<
         if (!change) {
             return null
         }
+
+        const beforeCurrency =
+            typeof change.before === 'object' && change.before && 'baseCurrency' in change.before
+                ? change.before.baseCurrency || CurrencyCode.USD
+                : null
+        const afterCurrency =
+            typeof change.after === 'object' && change.after && 'baseCurrency' in change.after
+                ? change.after.baseCurrency || CurrencyCode.USD
+                : null
+
         const beforeEvents: RevenueTrackingEventItem[] =
             typeof change.before === 'object' && change.before && 'events' in change.before ? change.before.events : []
         const afterEvents: RevenueTrackingEventItem[] =
@@ -422,6 +436,27 @@ const teamActionsMapping: Record<
         const addedEvents = afterEventNames?.filter((event) => !beforeEventNames?.includes(event))
         const removedEvents = beforeEventNames?.filter((event) => !afterEventNames?.includes(event))
         const modifiedEvents = afterEventNames?.filter((event) => beforeEventNames?.includes(event))
+
+        const beforeExternalDataSchemas: RevenueTrackingExternalDataSchema[] =
+            typeof change.before === 'object' && change.before && 'externalDataSchemas' in change.before
+                ? change.before.externalDataSchemas
+                : []
+        const afterExternalDataSchemas: RevenueTrackingExternalDataSchema[] =
+            typeof change.after === 'object' && change.after && 'externalDataSchemas' in change.after
+                ? change.after.externalDataSchemas
+                : []
+
+        const beforeExternalDataSchemaNames = beforeExternalDataSchemas?.map((schema) => schema?.tableName)
+        const afterExternalDataSchemaNames = afterExternalDataSchemas?.map((schema) => schema?.tableName)
+        const addedExternalDataSchemas = afterExternalDataSchemaNames?.filter(
+            (schema) => !beforeExternalDataSchemaNames?.includes(schema)
+        )
+        const removedExternalDataSchemas = beforeExternalDataSchemaNames?.filter(
+            (schema) => !afterExternalDataSchemaNames?.includes(schema)
+        )
+        const modifiedExternalDataSchemas = afterExternalDataSchemaNames?.filter((schema) =>
+            beforeExternalDataSchemaNames?.includes(schema)
+        )
 
         const changes = [
             addedEvents?.length
@@ -447,6 +482,33 @@ const teamActionsMapping: Record<
                       'events',
                       true
                   )} (${modifiedEvents.join(', ')})`
+                : null,
+            addedExternalDataSchemas?.length
+                ? `added ${addedExternalDataSchemas.length} ${pluralize(
+                      addedExternalDataSchemas.length,
+                      'external data schema',
+                      'external data schemas',
+                      true
+                  )} (${addedExternalDataSchemas.join(', ')})`
+                : null,
+            removedExternalDataSchemas?.length
+                ? `removed ${removedExternalDataSchemas.length} ${pluralize(
+                      removedExternalDataSchemas.length,
+                      'external data schema',
+                      'external data schemas',
+                      true
+                  )} (${removedExternalDataSchemas.join(', ')})`
+                : null,
+            modifiedExternalDataSchemas?.length
+                ? `modified ${modifiedExternalDataSchemas.length} ${pluralize(
+                      modifiedExternalDataSchemas.length,
+                      'external data schema',
+                      'external data schemas',
+                      true
+                  )} (${modifiedExternalDataSchemas.join(', ')})`
+                : null,
+            beforeCurrency && afterCurrency && beforeCurrency !== afterCurrency
+                ? `changed the base currency from ${beforeCurrency} to ${afterCurrency}`
                 : null,
         ].filter(isNotNil)
 

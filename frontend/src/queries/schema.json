@@ -14321,21 +14321,25 @@
             "additionalProperties": false,
             "properties": {
                 "baseCurrency": {
-                    "$ref": "#/definitions/CurrencyCode"
+                    "$ref": "#/definitions/CurrencyCode",
+                    "default": "USD"
                 },
                 "events": {
+                    "default": [],
                     "items": {
                         "$ref": "#/definitions/RevenueTrackingEventItem"
                     },
                     "type": "array"
                 },
                 "externalDataSchemas": {
+                    "default": [],
                     "items": {
                         "$ref": "#/definitions/RevenueTrackingExternalDataSchema"
                     },
                     "type": "array"
                 }
             },
+            "required": ["baseCurrency", "events", "externalDataSchemas"],
             "type": "object"
         },
         "RevenueTrackingEventItem": {
@@ -14357,17 +14361,20 @@
         "RevenueTrackingExternalDataSchema": {
             "additionalProperties": false,
             "properties": {
-                "name": {
-                    "type": "string"
-                },
                 "revenueColumn": {
                     "type": "string"
                 },
                 "revenueCurrencyColumn": {
                     "type": "string"
+                },
+                "tableName": {
+                    "type": "string"
+                },
+                "timestampColumn": {
+                    "type": "string"
                 }
             },
-            "required": ["name", "revenueColumn"],
+            "required": ["tableName", "timestampColumn", "revenueColumn"],
             "type": "object"
         },
         "RootAssistantMessage": {

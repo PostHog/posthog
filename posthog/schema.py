@@ -1595,9 +1595,10 @@ class RevenueTrackingExternalDataSchema(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    name: str
     revenueColumn: str
     revenueCurrencyColumn: Optional[str] = None
+    tableName: str
+    timestampColumn: str
 
 
 class SamplingRate(BaseModel):
@@ -2869,9 +2870,9 @@ class RevenueTrackingConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    baseCurrency: Optional[CurrencyCode] = None
-    events: Optional[list[RevenueTrackingEventItem]] = None
-    externalDataSchemas: Optional[list[RevenueTrackingExternalDataSchema]] = None
+    baseCurrency: Optional[CurrencyCode] = CurrencyCode.USD
+    events: Optional[list[RevenueTrackingEventItem]] = []
+    externalDataSchemas: Optional[list[RevenueTrackingExternalDataSchema]] = []
 
 
 class SavedInsightNode(BaseModel):

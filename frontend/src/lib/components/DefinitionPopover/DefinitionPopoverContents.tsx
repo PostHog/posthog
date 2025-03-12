@@ -1,5 +1,5 @@
 import { hide } from '@floating-ui/react'
-import { IconBadge, IconEye, IconHide } from '@posthog/icons'
+import { IconBadge, IconEye, IconHide, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonSegmentedButton, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActionPopoverInfo } from 'lib/components/DefinitionPopover/ActionPopoverInfo'
@@ -358,17 +358,36 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                 <div className="flex flex-col justify-between gap-4">
                     <DefinitionPopover.Section>
                         {dataWarehousePopoverFields.map(
-                            ({ key, label, allowHogQL, hogQLOnly, tableName }: DataWarehousePopoverField) => {
+                            ({
+                                key,
+                                label,
+                                description,
+                                allowHogQL,
+                                hogQLOnly,
+                                tableName,
+                                optional,
+                            }: DataWarehousePopoverField) => {
                                 const fieldValue = key in localDefinition ? localDefinition[key] : undefined
                                 const isHogQL = isUsingHogQLExpression(fieldValue)
 
                                 return (
                                     <Fragment key={key}>
                                         <label className="definition-popover-edit-form-label" htmlFor={key}>
-                                            <span className="label-text">{label}</span>
+                                            <span className="label-text">
+                                                {label}
+                                                {!optional && <span className="text-muted">&nbsp;*</span>}
+                                            </span>
+                                            {description && (
+                                                <Tooltip title={description}>
+                                                    &nbsp;
+                                                    <IconInfo className="ml-1" />
+                                                </Tooltip>
+                                            )}
                                         </label>
                                         {!hogQLOnly && (
                                             <LemonSelect
+                                                fullWidth
+                                                allowClear={optional}
                                                 value={isHogQL ? '' : fieldValue}
                                                 options={allowHogQL ? [...columnOptions, hogqlOption] : columnOptions}
                                                 onChange={(value) => setLocalDefinition({ [key]: value })}
@@ -393,11 +412,11 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                             }}
                             disabledReason={
                                 dataWarehousePopoverFields.every(
-                                    ({ key }: DataWarehousePopoverField) =>
-                                        key in localDefinition && localDefinition[key]
+                                    ({ key, optional }: DataWarehousePopoverField) =>
+                                        optional || (key in localDefinition && localDefinition[key])
                                 )
                                     ? null
-                                    : 'Field mappings must be specified'
+                                    : 'All required field mappings must be specified'
                             }
                             type="primary"
                         >

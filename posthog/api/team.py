@@ -265,6 +265,16 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             representation["default_data_theme"] = (
                 DataColorTheme.objects.filter(team_id__isnull=True).values_list("id", flat=True).first()
             )
+
+        # Guarantee that we're using the default revenue tracking config already validated by pydantic
+        representation["revenue_tracking_config"] = dict(instance.revenue_config)
+        representation["revenue_tracking_config"]["events"] = list(
+            map(dict, representation["revenue_tracking_config"]["events"])
+        )
+        representation["revenue_tracking_config"]["externalDataSchemas"] = list(
+            map(dict, representation["revenue_tracking_config"]["externalDataSchemas"])
+        )
+
         return representation
 
     def get_effective_membership_level(self, team: Team) -> Optional[OrganizationMembership.Level]:

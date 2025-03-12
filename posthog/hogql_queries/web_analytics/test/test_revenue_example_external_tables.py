@@ -27,8 +27,9 @@ SINGLE_TABLE_REVENUE_TRACKING_CONFIG = RevenueTrackingConfig(
     events=[],
     externalDataSchemas=[
         RevenueTrackingExternalDataSchema(
-            name="database_with_revenue_column",
+            tableName="database_with_revenue_column",
             revenueColumn="revenue",
+            timestampColumn="timestamp",
         )
     ],
 )
@@ -37,12 +38,14 @@ MULTIPLE_TABLES_REVENUE_TRACKING_CONFIG = RevenueTrackingConfig(
     events=[],
     externalDataSchemas=[
         RevenueTrackingExternalDataSchema(
-            name="database_with_revenue_column_a",
+            tableName="database_with_revenue_column_a",
             revenueColumn="revenue_a",
+            timestampColumn="timestamp",
         ),
         RevenueTrackingExternalDataSchema(
-            name="database_with_revenue_column_b",
+            tableName="database_with_revenue_column_b",
             revenueColumn="revenue_b",
+            timestampColumn="timestamp",
         ),
     ],
 )

@@ -2702,21 +2702,25 @@ export interface RevenueTrackingEventItem {
 }
 
 export interface RevenueTrackingExternalDataSchema {
-    name: string
+    tableName: string
+    timestampColumn: string
     revenueColumn: string
     revenueCurrencyColumn: string | undefined
 }
 
 export interface RevenueTrackingConfig {
-    baseCurrency?: CurrencyCode
+    /**
+     * @default 'USD'
+     */
+    baseCurrency: CurrencyCode
 
-    /*
+    /**
      * @default []
      */
-    events?: RevenueTrackingEventItem[]
+    events: RevenueTrackingEventItem[]
 
-    /*
+    /**
      * @default []
      */
-    externalDataSchemas?: RevenueTrackingExternalDataSchema[]
+    externalDataSchemas: RevenueTrackingExternalDataSchema[]
 }

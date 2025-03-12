@@ -2,6 +2,7 @@ import { actions, afterMount, connect, kea, path, reducers, selectors } from 'ke
 import { loaders } from 'kea-loaders'
 import { beforeUnload } from 'kea-router'
 import { objectsEqual } from 'lib/utils'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
@@ -12,20 +13,25 @@ import {
     RevenueExampleExternalTablesQuery,
     RevenueTrackingConfig,
     RevenueTrackingEventItem,
+    RevenueTrackingExternalDataSchema,
 } from '~/queries/schema/schema-general'
+import { Region } from '~/types'
 
 import type { revenueEventsSettingsLogicType } from './revenueEventsSettingsLogicType'
 
-const createEmptyConfig = (): RevenueTrackingConfig => ({
+const createEmptyConfig = (region: Region | null | undefined): RevenueTrackingConfig => ({
     events: [],
     externalDataSchemas: [],
-    baseCurrency: undefined,
+
+    // Region won't be always set because we might mount this before we mount preflightLogic
+    // so we default to USD if we can't determine the region
+    baseCurrency: region === Region.EU ? CurrencyCode.EUR : CurrencyCode.USD,
 })
 
 export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
     path(['scenes', 'data-management', 'revenue', 'revenueEventsSettingsLogic']),
     connect({
-        values: [teamLogic, ['currentTeam', 'currentTeamId']],
+        values: [teamLogic, ['currentTeam', 'currentTeamId'], preflightLogic, ['preflight']],
         actions: [teamLogic, ['updateCurrentTeam']],
     }),
     actions({
@@ -39,19 +45,13 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
             revenueCurrencyProperty,
         }),
 
-        addExternalDataSchema: (externalDataSchemaName: string) => ({ externalDataSchemaName }),
+        addExternalDataSchema: (externalDataSchema: RevenueTrackingExternalDataSchema) => externalDataSchema,
         deleteExternalDataSchema: (externalDataSchemaName: string) => ({ externalDataSchemaName }),
-        updateExternalDataSchemaRevenueColumn: (externalDataSchemaName: string, revenueColumn: string) => ({
-            externalDataSchemaName,
-            revenueColumn,
-        }),
-        updateExternalDataSchemaRevenueCurrencyColumn: (
+        updateExternalDataSchemaColumn: (
             externalDataSchemaName: string,
-            revenueCurrencyColumn: string
-        ) => ({
-            externalDataSchemaName,
-            revenueCurrencyColumn,
-        }),
+            key: keyof RevenueTrackingExternalDataSchema,
+            newValue: string
+        ) => ({ externalDataSchemaName, key, newValue }),
 
         resetConfig: true,
     }),
@@ -129,21 +129,19 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
                         }),
                     }
                 },
-                addExternalDataSchema: (state, { externalDataSchemaName }) => {
+                addExternalDataSchema: (state, newExternalDataSchema) => {
+                    // Guarantee we've only got a single external data schema per table
+                    if (state.externalDataSchemas.some((item) => item.tableName === newExternalDataSchema.tableName)) {
+                        return state
+                    }
+
                     if (!state) {
                         return state
                     }
 
                     return {
                         ...state,
-                        externalDataSchemas: [
-                            ...state.externalDataSchemas,
-                            {
-                                name: externalDataSchemaName,
-                                revenueColumn: 'revenue',
-                                revenueCurrencyColumn: undefined,
-                            },
-                        ],
+                        externalDataSchemas: [...state.externalDataSchemas, newExternalDataSchema],
                     }
                 },
                 deleteExternalDataSchema: (state, { externalDataSchemaName }) => {
@@ -153,37 +151,22 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
                     return {
                         ...state,
                         externalDataSchemas: state.externalDataSchemas.filter(
-                            (item) => item.name !== externalDataSchemaName
+                            (item) => item.tableName !== externalDataSchemaName
                         ),
                     }
                 },
-                updateExternalDataSchemaRevenueColumn: (state, { externalDataSchemaName, revenueColumn }) => {
+                updateExternalDataSchemaColumn: (state, { externalDataSchemaName, key, newValue }) => {
                     if (!state) {
                         return state
                     }
+
                     return {
                         ...state,
                         externalDataSchemas: state.externalDataSchemas.map((item) => {
-                            if (item.name === externalDataSchemaName) {
-                                return { ...item, revenueColumn }
+                            if (item.tableName === externalDataSchemaName) {
+                                return { ...item, [key]: newValue }
                             }
-                            return item
-                        }),
-                    }
-                },
-                updateExternalDataSchemaRevenueCurrencyColumn: (
-                    state,
-                    { externalDataSchemaName, revenueCurrencyColumn }
-                ) => {
-                    if (!state) {
-                        return state
-                    }
-                    return {
-                        ...state,
-                        externalDataSchemas: state.externalDataSchemas.map((item) => {
-                            if (item.name === externalDataSchemaName) {
-                                return { ...item, revenueCurrencyColumn }
-                            }
+
                             return item
                         }),
                     }
@@ -194,9 +177,9 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
             },
         ],
         savedRevenueTrackingConfig: [
-            values.currentTeam?.revenue_tracking_config || createEmptyConfig(),
+            values.currentTeam?.revenue_tracking_config || createEmptyConfig(values.preflight?.region),
             {
-                saveChanges: (_, team) => team.revenue_tracking_config || createEmptyConfig(),
+                saveChanges: (_, team) => team.revenue_tracking_config || createEmptyConfig(values.preflight?.region),
             },
         ],
     })),
@@ -234,7 +217,7 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
         ],
 
         exampleEventsQuery: [
-            (s) => [s.revenueTrackingConfig],
+            (s) => [s.savedRevenueTrackingConfig],
             (revenueTrackingConfig: RevenueTrackingConfig | null) => {
                 if (!revenueTrackingConfig) {
                     return null
@@ -257,7 +240,7 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
         ],
 
         exampleExternalDataSchemasQuery: [
-            (s) => [s.revenueTrackingConfig],
+            (s) => [s.savedRevenueTrackingConfig],
             (revenueTrackingConfig: RevenueTrackingConfig | null) => {
                 if (!revenueTrackingConfig) {
                     return null
@@ -283,7 +266,8 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
         saveChanges: {
             save: () => {
                 actions.updateCurrentTeam({
-                    revenue_tracking_config: values.revenueTrackingConfig || createEmptyConfig(),
+                    revenue_tracking_config:
+                        values.revenueTrackingConfig || createEmptyConfig(values.preflight?.region),
                 })
                 return null
             },
@@ -291,7 +275,7 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
         revenueTrackingConfig: {
             loadRevenueTrackingConfig: async () => {
                 if (values.currentTeam) {
-                    return values.currentTeam.revenue_tracking_config || createEmptyConfig()
+                    return values.currentTeam.revenue_tracking_config || createEmptyConfig(values.preflight?.region)
                 }
                 return null
             },
