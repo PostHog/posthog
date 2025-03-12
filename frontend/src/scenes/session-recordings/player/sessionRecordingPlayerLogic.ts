@@ -196,14 +196,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         showNextRecordingConfirmation: true,
         hideNextRecordingConfirmation: true,
         confirmNextRecording: true,
-        loadRecordingMeta: async () => {
-            if (!values.sessionRecordingId) {
-                return
-            }
-            const recording = await api.recordings.get(values.sessionRecordingId)
-            actions.setRecordingMeta(recording)
-            await actions.loadSimilarRecordings()
-        },
+        loadRecordingMeta: true,
         setSimilarRecordings: (results: string[]) => ({ results }),
     }),
     reducers(() => ({
@@ -1175,6 +1168,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 console.error('Failed to load recording meta', e)
                 actions.setPlayerError()
             }
+        },
+        loadRecordingMeta: async () => {
+            if (!values.sessionRecordingId) {
+                return
+            }
+            const recording = await api.recordings.get(values.sessionRecordingId)
+            actions.setRecordingMeta(recording)
+            actions.loadSimilarRecordings()
         },
     })),
 
