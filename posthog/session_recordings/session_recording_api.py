@@ -1014,7 +1014,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
         # Find recordings with similar event sequences using ClickHouse
         similar_recordings = SessionReplayEvents().get_similar_recordings(
-            session_id=str(recording.session_id), team=self.team, limit=10
+            session_id=str(recording.session_id), team=self.team, limit=10, similarity_range=0.5
         )
 
         recordings = []

@@ -184,12 +184,20 @@ class SessionReplayEvents:
         )
         return [{"event": e[0], "timestamp": e[1]} for e in events]
 
-    def get_similar_recordings(self, session_id: str, team: Team, limit: int = 10) -> list[dict]:
+    def get_similar_recordings(
+        self, session_id: str, team: Team, limit: int = 10, similarity_range: float = 0.5
+    ) -> list[dict]:
         """Find recordings with similar event sequences.
         The similarity is based on:
         1. Having similar event patterns (types and order)
         2. Similar activity metrics (clicks, keypresses, etc)
         3. Similar duration
+
+        Args:
+            session_id: The session ID to find similar recordings for
+            team: The team the recording belongs to
+            limit: Maximum number of similar recordings to return
+            similarity_range: How similar the recordings should be (0.0 to 1.0). Default 0.5 means within 50% range
         """
         # First get the target recording's metadata
         target_metadata = self.get_metadata(session_id=session_id, team=team)
@@ -203,7 +211,6 @@ class SessionReplayEvents:
 
         # Build event pattern string for comparison
         target_pattern = ",".join([e["event"] for e in target_events])
-        # target_duration = (target_metadata["end_time"] - target_metadata["start_time"]).total_seconds()
 
         query = """
         SELECT
@@ -230,16 +237,16 @@ class SessionReplayEvents:
             sre.mouse_activity_count,
             sre.active_milliseconds
         HAVING
-            -- Similar activity levels (within 50%% range)
-            abs(click_count - %(target_clicks)s) <= greatest(%(target_clicks)s * 0.5, 5) AND
-            abs(keypress_count - %(target_keypresses)s) <= greatest(%(target_keypresses)s * 0.5, 5) AND
-            abs(mouse_activity_count - %(target_mouse)s) <= greatest(%(target_mouse)s * 0.5, 5) AND
-            abs(active_milliseconds - %(target_active_ms)s) <= greatest(%(target_active_ms)s * 0.5, 5000) AND
+            -- Similar activity levels (within similarity_range)
+            abs(click_count - %(target_clicks)s) <= greatest(%(target_clicks)s * %(similarity_range)s, 5) AND
+            abs(keypress_count - %(target_keypresses)s) <= greatest(%(target_keypresses)s * %(similarity_range)s, 5) AND
+            abs(mouse_activity_count - %(target_mouse)s) <= greatest(%(target_mouse)s * %(similarity_range)s, 5) AND
+            abs(active_milliseconds - %(target_active_ms)s) <= greatest(%(target_active_ms)s * %(similarity_range)s, 5000) AND
             -- Similar event pattern using Levenshtein distance
             length(event_pattern) > 0 AND
             event_pattern != %(target_pattern)s AND
-            length(event_pattern) >= greatest(length(%(target_pattern)s) * 0.5, 1) AND
-            length(event_pattern) <= length(%(target_pattern)s) * 1.5
+            length(event_pattern) >= greatest(length(%(target_pattern)s) * %(similarity_range)s, 1) AND
+            length(event_pattern) <= length(%(target_pattern)s) * (1 + %(similarity_range)s)
         ORDER BY
             -- Order by similarity score (lower is more similar)
             abs(click_count - %(target_clicks)s) +
@@ -260,6 +267,7 @@ class SessionReplayEvents:
                 "target_mouse": target_metadata["mouse_activity_count"],
                 "target_active_ms": target_metadata["active_seconds"] * 1000,  # convert to ms
                 "limit": limit,
+                "similarity_range": similarity_range,
             },
         )
 
