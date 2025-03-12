@@ -4,7 +4,7 @@
 
 ## Install
 
-The `@posthog/icons` pacakge is built and installed as part of pnpm workspaces by turbo.
+The `@posthog/icons` package is built and installed as part of pnpm workspaces by turbo.
 
 ## Usage
 
