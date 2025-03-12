@@ -6,8 +6,9 @@ mod unordered_trends;
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::io::{self, BufRead, Write};
-use serde_json::Value;
 use rmp_serde;
+use serde_json::json;
+
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(untagged)]
@@ -27,18 +28,27 @@ fn main() {
 
     for line in stdin.lock().lines() {
         if let Ok(line) = line {
-            let output = match arg {
-                Some("trends") => trends::process_line(&line),
-                _ => steps::process_line(&line),
-            };
-            
-            if !use_json {
-                // Serialize to MessagePack
-                let bytes = rmp_serde::to_vec(&output).unwrap();
-                stdout.write_all(&bytes).unwrap();
+            // Handle different return types from trends and steps
+            if arg == Some("trends") {
+                let output = trends::process_line(&line);
+                if !use_json {
+                    // Serialize to MessagePack
+                    let bytes = rmp_serde::to_vec(&output).unwrap();
+                    stdout.write_all(&bytes).unwrap();
+                } else {
+                    // Use JSON
+                    writeln!(stdout, "{}", json!({"result": output})).unwrap();
+                }
             } else {
-                // Use JSON as before
-                writeln!(stdout, "{}", output).unwrap();
+                let output = steps::process_line(&line);
+                if !use_json {
+                    // Serialize to MessagePack
+                    let bytes = rmp_serde::to_vec(&output).unwrap();
+                    stdout.write_all(&bytes).unwrap();
+                } else {
+                    // Use JSON
+                    writeln!(stdout, "{}", json!({"result": output})).unwrap();
+                }
             }
             stdout.flush().unwrap();
         }

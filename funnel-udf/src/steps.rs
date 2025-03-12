@@ -2,7 +2,6 @@ use crate::unordered_steps::AggregateFunnelRowUnordered;
 use crate::PropVal;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
 use std::iter::repeat;
 use uuid::Uuid;
 use rmp_serde;
@@ -43,8 +42,7 @@ struct Vars {
 }
 
 struct AggregateFunnelRow {
-    breakdown_step: Option<usize>,
-    results: Vec<Result>,
+    breakdown_step: Option<usize>
 }
 
 const MAX_REPLAY_EVENTS: usize = 10;
@@ -56,22 +54,20 @@ const DEFAULT_ENTERED_TIMESTAMP: EnteredTimestamp = EnteredTimestamp {
     uuids: vec![],
 };
 
-pub fn process_line(line: &str) -> Value {
+pub fn process_line(line: &str) -> Vec<Result> {
     let args = parse_args(line);
     if args.funnel_order_type == "unordered" {
         let mut aggregate_funnel_row = AggregateFunnelRowUnordered {
-            results: Vec::with_capacity(args.prop_vals.len()),
             breakdown_step: Option::None,
         };
         let result = aggregate_funnel_row.calculate_funnel_from_user_events(&args);
-        return json!({ "result": result });
+        return result;
     }
     let mut aggregate_funnel_row = AggregateFunnelRow {
-        results: Vec::with_capacity(args.prop_vals.len()),
         breakdown_step: Option::None,
     };
     let result = aggregate_funnel_row.calculate_funnel_from_user_events(&args);
-    json!({ "result": result })
+    result
 }
 
 #[inline(always)]
@@ -86,20 +82,19 @@ fn parse_args(line: &str) -> Args {
 
 impl AggregateFunnelRow {
     #[inline(always)]
-    fn calculate_funnel_from_user_events(&mut self, args: &Args) -> &Vec<Result> {
+    fn calculate_funnel_from_user_events(&mut self, args: &Args) -> Vec<Result> {
         if args.breakdown_attribution_type.starts_with("step_") {
             self.breakdown_step = args.breakdown_attribution_type[5..].parse::<usize>().ok()
         }
 
         args.prop_vals
             .iter()
-            .for_each(|prop_val| self.loop_prop_val(args, prop_val));
-
-        &self.results
+            .map(|prop_val| self.loop_prop_val(args, prop_val))
+            .collect()
     }
 
     #[inline(always)]
-    fn loop_prop_val(&mut self, args: &Args, prop_val: &PropVal) {
+    fn loop_prop_val(&mut self, args: &Args, prop_val: &PropVal) -> Result {
         let mut vars = Vars {
             max_step: (0, DEFAULT_ENTERED_TIMESTAMP.clone()),
             event_uuids: repeat(Vec::new()).take(args.num_steps).collect(),
@@ -180,9 +175,7 @@ impl AggregateFunnelRow {
         let final_value = &vars.max_step.1;
 
         if final_value.excluded {
-            self.results
-                .push(Result(-1, prop_val.clone(), vec![], vec![]));
-            return;
+            return Result(-1, prop_val.clone(), vec![], vec![]);
         }
 
         for i in 0..final_index {
@@ -191,7 +184,7 @@ impl AggregateFunnelRow {
             // This might create duplicates, but that's fine (we can remove it in clickhouse)
             vars.event_uuids[i].insert(0, final_value.uuids[i].clone());
         }
-        self.results.push(Result(
+        return Result(
             final_index as i8 - 1,
             prop_val.clone(),
             final_value
@@ -200,7 +193,7 @@ impl AggregateFunnelRow {
                 .map(|w| w[1] - w[0])
                 .collect(),
             vars.event_uuids,
-        ))
+        )
     }
 
     #[inline(always)]

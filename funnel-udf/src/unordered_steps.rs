@@ -3,7 +3,6 @@ use crate::PropVal;
 use std::collections::VecDeque;
 use std::iter::repeat;
 use uuid::Uuid;
-use rmp_serde;
 
 struct Vars {
     max_step: (usize, EnteredTimestamp),
@@ -13,7 +12,6 @@ struct Vars {
 
 pub struct AggregateFunnelRowUnordered {
     pub breakdown_step: Option<usize>,
-    pub results: Vec<Result>,
 }
 
 const DEFAULT_ENTERED_TIMESTAMP: EnteredTimestamp = EnteredTimestamp {
@@ -25,20 +23,19 @@ const DEFAULT_ENTERED_TIMESTAMP: EnteredTimestamp = EnteredTimestamp {
 
 impl AggregateFunnelRowUnordered {
     #[inline(always)]
-    pub fn calculate_funnel_from_user_events(&mut self, args: &Args) -> &Vec<Result> {
+    pub fn calculate_funnel_from_user_events(&mut self, args: &Args) -> Vec<Result> {
         if args.breakdown_attribution_type.starts_with("step_") {
             self.breakdown_step = args.breakdown_attribution_type[5..].parse::<usize>().ok()
         }
 
         args.prop_vals
             .iter()
-            .for_each(|prop_val| self.loop_prop_val(args, prop_val));
-
-        &self.results
+            .map(|prop_val| self.loop_prop_val(args, prop_val))
+            .collect()
     }
 
     #[inline(always)]
-    fn loop_prop_val(&mut self, args: &Args, prop_val: &PropVal) {
+    fn loop_prop_val(&mut self, args: &Args, prop_val: &PropVal) -> Result {
         let mut vars = Vars {
             events_by_step: repeat(VecDeque::new()).take(args.num_steps).collect(),
             max_step: (0, DEFAULT_ENTERED_TIMESTAMP.clone()),
@@ -71,7 +68,7 @@ impl AggregateFunnelRowUnordered {
         }
 
         // After processing all events, return the result
-        self.results.push(Result(
+        return Result(
             vars.max_step.0 as i8 - 1,
             prop_val.clone(),
             vars.max_step
@@ -86,7 +83,7 @@ impl AggregateFunnelRowUnordered {
                 .iter()
                 .map(|uuid| vec![*uuid])
                 .collect(),
-        ));
+        );
     }
 
     #[inline(always)]

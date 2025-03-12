@@ -2,7 +2,6 @@ use crate::PropVal;
 use crate::unordered_trends::AggregateFunnelRowUnordered;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::str::FromStr;
 use uuid::Uuid;
@@ -86,20 +85,20 @@ const DEFAULT_ENTERED_TIMESTAMP: EnteredTimestamp = EnteredTimestamp {
     excluded: false,
 };
 
-pub fn process_line(line: &str) -> Value {
+pub fn process_line(line: &str) -> Vec<ResultStruct> {
     let args = parse_args(line);
     if args.funnel_order_type == "unordered" {
         let mut aggregate_funnel_row = AggregateFunnelRowUnordered {
             breakdown_step: Option::None,
         };
         let result = aggregate_funnel_row.calculate_funnel_from_user_events(&args);
-        return json!({ "result": result });
+        return result
     }
     let mut aggregate_funnel_row = AggregateFunnelRow {
         breakdown_step: Option::None,
     };
     let result: Vec<ResultStruct> = aggregate_funnel_row.calculate_funnel_from_user_events(&args);
-    json!({ "result": result })
+    result
 }
 
 #[inline(always)]
