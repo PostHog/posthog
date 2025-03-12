@@ -133,7 +133,7 @@ export function OutputPane(): JSX.Element {
     const { sourceQuery, exportContext, editorKey, metadataLoading } = useValues(multitabEditorLogic)
     const { saveAsInsight, setSourceQuery } = useActions(multitabEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
-    const { cachedResponse: response, responseLoading, responseError, queryId, pollResponse } = useValues(dataNodeLogic)
+    const { response, responseLoading, responseError, queryId, pollResponse } = useValues(dataNodeLogic)
     const { visualizationType, queryCancelled } = useValues(dataVisualizationLogic)
     const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
     const { featureFlags } = useValues(featureFlagLogic)

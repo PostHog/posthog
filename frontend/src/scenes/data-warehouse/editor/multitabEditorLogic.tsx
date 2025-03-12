@@ -371,17 +371,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     }
                 })
                 actions.setLocalState(editorModelsStateKey(props.key), JSON.stringify(queries))
-
-                dataNodeLogic({
-                    key: tabToRemove.uri.path,
-                    query: values.sourceQuery.source,
-                    localCache: true,
-                }).actions.setCachedQuery(null)
-                dataNodeLogic({
-                    key: tabToRemove.uri.path,
-                    query: values.sourceQuery.source,
-                    localCache: true,
-                }).actions.setCachedResponse(null)
             }
         },
         setLocalState: ({ key, value }) => {

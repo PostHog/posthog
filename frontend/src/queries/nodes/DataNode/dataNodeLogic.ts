@@ -166,11 +166,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         setPollResponse: (status: QueryStatus | null) => ({ status }),
         setLoadingTime: (seconds: number) => ({ seconds }),
         resetLoadingTimer: true,
-        setCachedResponse: (response: Record<string, any> | null) => response,
-        setCachedQuery: (query: string | null) => query,
     }),
     loaders(({ actions, cache, values, props }) => ({
-        _response: [
+        response: [
             props.cachedResults ?? null,
             {
                 setResponse: (response) => response,
@@ -190,12 +188,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         }
                     }
 
-                    // if query based and locally cached, return the cached results
+                    // if no query, return null
                     if ('query' in query) {
-                        if (values.cachedResponse && values.cachedQuery === query.query && !refresh) {
-                            return values.cachedResponse
-                        }
-
                         if (!query.query) {
                             return null
                         }
@@ -253,10 +247,6 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         })
                         breakpoint()
                         actions.setElapsedTime(response.duration)
-                        if ('query' in query) {
-                            actions.setCachedQuery(query.query as string)
-                            actions.setCachedResponse(response.data)
-                        }
                         return response.data
                     } catch (error: any) {
                         if (error.duration) {
@@ -438,24 +428,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 cancelQuery: () => null,
             },
         ],
-        _response: {
+        response: {
             // Clear the response if a failure to avoid showing inconsistencies in the UI
             loadDataFailure: () => null,
         },
-        cachedResponse: [
-            null as Record<string, any> | null,
-            { persist: true },
-            {
-                setCachedResponse: (_, response) => response,
-            },
-        ],
-        cachedQuery: [
-            null as string | null,
-            { persist: true },
-            {
-                setCachedQuery: (_, query) => query,
-            },
-        ],
         responseErrorObject: [
             null as Record<string, any> | null,
             {
@@ -487,8 +463,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
                     return error ?? 'Error loading data'
                 },
-                loadDataSuccess: (_, { _response }) => _response?.error ?? null,
-                loadNewDataSuccess: (_, { _response }) => _response?.error ?? null,
+                loadDataSuccess: (_, { response }) => response?.error ?? null,
+                loadNewDataSuccess: (_, { response }) => response?.error ?? null,
             },
         ],
         elapsedTime: [
@@ -513,16 +489,6 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         ],
     })),
     selectors(({ cache }) => ({
-        response: [
-            (s) => [s._response, s.cachedResponse, (_, props) => props.localCache],
-            (response, cachedResponse, localCache) => {
-                if (localCache) {
-                    return cachedResponse
-                }
-                return response
-            },
-        ],
-        responseLoading: [(s) => [s._responseLoading], (responseLoading) => responseLoading],
         variableOverridesAreSet: [
             (_, p) => [p.variablesOverride ?? (() => ({}))],
             (variablesOverride) => !!variablesOverride,
@@ -755,21 +721,21 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             actions.collectionNodeLoadData(props.key)
             actions.resetLoadingTimer()
         },
-        loadDataSuccess: ({ _response }) => {
-            props.onData?.(_response)
+        loadDataSuccess: ({ response }) => {
+            props.onData?.(response)
             actions.collectionNodeLoadDataSuccess(props.key)
             if ('query' in props.query) {
-                cache.localResults[JSON.stringify(props.query.query)] = _response
+                cache.localResults[JSON.stringify(props.query.query)] = response
             }
         },
         loadDataFailure: () => {
             actions.collectionNodeLoadDataFailure(props.key)
         },
-        loadNewDataSuccess: ({ _response }) => {
-            props.onData?.(_response)
+        loadNewDataSuccess: ({ response }) => {
+            props.onData?.(response)
         },
-        loadNextDataSuccess: ({ _response }) => {
-            props.onData?.(_response)
+        loadNextDataSuccess: ({ response }) => {
+            props.onData?.(response)
         },
         resetLoadingTimer: () => {
             if (cache.loadingTimer) {

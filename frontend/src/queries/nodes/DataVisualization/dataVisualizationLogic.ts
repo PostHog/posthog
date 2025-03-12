@@ -235,7 +235,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 variablesOverride: props.variablesOverride,
                 localCache: props.localCache,
             }),
-            ['response', 'cachedResponse', 'responseLoading', 'responseError', 'queryCancelled'],
+            ['response', 'responseLoading', 'responseError', 'queryCancelled'],
             themeLogic,
             ['isDarkModeOn'],
         ],

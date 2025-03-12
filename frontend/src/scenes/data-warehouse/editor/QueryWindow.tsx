@@ -84,7 +84,7 @@ export function QueryWindow(): JSX.Element {
         cachedResults: undefined,
         variablesOverride: undefined,
         setQuery: setSourceQuery,
-        localCache: true,
+        localCache: false,
     }
 
     const dataNodeLogicProps: DataNodeLogicProps = {
@@ -95,7 +95,7 @@ export function QueryWindow(): JSX.Element {
         dataNodeCollectionId: logicKey,
         variablesOverride: undefined,
         autoLoad: false,
-        localCache: true,
+        localCache: false,
     }
 
     const variablesLogicProps: VariablesLogicProps = {
