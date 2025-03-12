@@ -130,12 +130,12 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
                     }
                 },
                 addExternalDataSchema: (state, newExternalDataSchema) => {
-                    // Guarantee we've only got a single external data schema per table
-                    if (state.externalDataSchemas.some((item) => item.tableName === newExternalDataSchema.tableName)) {
+                    if (!state) {
                         return state
                     }
 
-                    if (!state) {
+                    // Guarantee we've only got a single external data schema per table
+                    if (state.externalDataSchemas.some((item) => item.tableName === newExternalDataSchema.tableName)) {
                         return state
                     }
 
