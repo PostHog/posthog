@@ -41,6 +41,8 @@ export interface ComparisonResult {
     }
 }
 
+const PROPERTY_DIFFS_TO_IGNORE = new Set(['sentAt'])
+
 export class HttpCallRecorder {
     private calls: RecordedHttpCall[] = []
 
@@ -216,6 +218,10 @@ export class HttpCallRecorder {
                         path ? `${path}.${key}` : key
                     }: [legacy] ${JSON.stringify(obj1[key])} ≠ [hogfn] undefined`
                 )
+                continue
+            }
+
+            if (PROPERTY_DIFFS_TO_IGNORE.has(key)) {
                 continue
             }
 
