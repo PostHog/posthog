@@ -107,6 +107,10 @@ class Backup:
             raise ValueError(f"could not find backup matching {self!r}")
 
     def wait(self, client: Client) -> None:
+        # The query can take a little bit to appear in the system.processes table,
+        # so we wait a bit before checking if the backup is done.
+        time.sleep(5)
+
         while not self.is_done(client):
             time.sleep(120)
 
