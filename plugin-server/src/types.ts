@@ -18,6 +18,7 @@ import { DateTime } from 'luxon'
 import { VM } from 'vm2'
 
 import { EncryptedFields } from './cdp/encryption-utils'
+import { LegacyOneventCompareService } from './cdp/services/legacy-onevent-compare.service'
 import type { CookielessManager } from './ingestion/cookieless/cookieless-manager'
 import { BatchConsumer } from './kafka/batch-consumer'
 import { KafkaProducerWrapper } from './kafka/producer'
@@ -381,7 +382,7 @@ export interface Hub extends PluginsServerConfig {
     eventsToSkipPersonsProcessingByToken: Map<string, string[]>
     encryptedFields: EncryptedFields
 
-    // cookieless
+    legacyOneventCompareService: LegacyOneventCompareService
     cookielessManager: CookielessManager
 }
 
@@ -1060,9 +1061,6 @@ export interface RawAction {
     updated_at: string
     last_calculated_at: string
     steps_json: ActionStep[] | null
-    bytecode: any[] | null
-    bytecode_error: string | null
-    pinned_at: string | null
 }
 
 /** Usable Action model. */

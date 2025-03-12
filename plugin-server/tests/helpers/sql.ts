@@ -71,8 +71,6 @@ export async function resetTestDatabase(
             is_calculating: false,
             updated_at: new Date().toISOString(),
             last_calculated_at: new Date().toISOString(),
-            bytecode_error: null,
-            bytecode: null,
             steps_json: [
                 {
                     tag_name: null,
