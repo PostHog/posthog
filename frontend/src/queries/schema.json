@@ -9501,9 +9501,6 @@
                         }
                     ]
                 },
-                "includeRecordings": {
-                    "type": "boolean"
-                },
                 "interval": {
                     "$ref": "#/definitions/integer",
                     "description": "An interval selected out of available intervals in source query."
@@ -9523,7 +9520,26 @@
                     "$ref": "#/definitions/integer"
                 },
                 "source": {
-                    "$ref": "#/definitions/InsightQuerySource"
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/TrendsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/FunnelsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/RetentionQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/PathsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/StickinessQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/LifecycleQuery"
+                        }
+                    ]
                 },
                 "status": {
                     "type": "string"

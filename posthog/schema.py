@@ -8141,6 +8141,26 @@ class FunnelCorrelationQuery(BaseModel):
     source: FunnelsActorsQuery
 
 
+class InsightEventsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdown: Optional[Union[str, list[str], int]] = None
+    compare: Optional[Compare] = None
+    day: Optional[Union[str, int]] = None
+    interval: Optional[int] = Field(
+        default=None, description="An interval selected out of available intervals in source query."
+    )
+    kind: Literal["InsightEventsQuery"] = "InsightEventsQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    response: Optional[ActorsQueryResponse] = None
+    series: Optional[int] = None
+    source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]
+    status: Optional[str] = None
+
+
 class InsightVizNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -8288,29 +8308,6 @@ class InsightActorsQueryOptions(BaseModel):
     kind: Literal["InsightActorsQueryOptions"] = "InsightActorsQueryOptions"
     response: Optional[InsightActorsQueryOptionsResponse] = None
     source: Union[InsightActorsQuery, FunnelsActorsQuery, FunnelCorrelationActorsQuery, StickinessActorsQuery]
-
-
-class InsightEventsQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    breakdown: Optional[Union[str, list[str], int]] = None
-    compare: Optional[Compare] = None
-    day: Optional[Union[str, int]] = None
-    includeRecordings: Optional[bool] = None
-    interval: Optional[int] = Field(
-        default=None, description="An interval selected out of available intervals in source query."
-    )
-    kind: Literal["InsightEventsQuery"] = "InsightEventsQuery"
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    response: Optional[ActorsQueryResponse] = None
-    series: Optional[int] = None
-    source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery] = Field(
-        ..., discriminator="kind"
-    )
-    status: Optional[str] = None
 
 
 class ActorsQuery(BaseModel):

@@ -2036,8 +2036,17 @@ export interface InsightActorsQuery<S extends InsightsQueryBase<AnalyticsQueryRe
     compare?: 'current' | 'previous'
 }
 
-export interface InsightEventsQuery extends Omit<InsightActorsQuery, 'kind'> {
+export interface InsightEventsQuery extends DataNode<ActorsQueryResponse> {
     kind: NodeKind.InsightEventsQuery
+    source: TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery
+    day?: string | Day
+    status?: string
+    /** An interval selected out of available intervals in source query. */
+    interval?: integer
+    series?: integer
+    breakdown?: string | BreakdownValueInt | string[]
+    compare?: 'current' | 'previous'
+    modifiers?: HogQLQueryModifiers
 }
 
 export interface StickinessActorsQuery extends InsightActorsQuery {

@@ -20,12 +20,16 @@ from posthog.schema import (
     TrendsQuery,
     FunnelsQuery,
     LifecycleQuery,
+    InsightEventsQuery,
+    ActorsQueryResponse,
+    CachedActorsQueryResponse,
 )
-from posthog.types import InsightActorsQueryNode
 
 
 class InsightEventsQueryRunner(QueryRunner):
-    query: InsightActorsQueryNode
+    query: InsightEventsQuery
+    response: ActorsQueryResponse
+    cached_response: CachedActorsQueryResponse
 
     @cached_property
     def source_runner(self) -> QueryRunner:

@@ -375,7 +375,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
                 // Generate insight events query from actors query
                 const { select: _select, ...source } = actorsQuery
 
-                const insightActorsQuery = source.source as InsightActorsQuery
+                const { includeRecordings, ...insightActorsQuery } = source.source as InsightActorsQuery
 
                 const insightEventsQuery: InsightEventsQuery = {
                     ...insightActorsQuery,
