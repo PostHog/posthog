@@ -158,6 +158,7 @@ def send_password_reset(user_id: int, token: str) -> None:
             "cloud": is_cloud(),
             "site_url": settings.SITE_URL,
             "social_providers": list(user.social_auth.values_list("provider", flat=True)),
+            "url": f"{settings.SITE_URL}/reset/{user.uuid}/{token}",
         },
     )
     message.add_recipient(user.email)
@@ -176,6 +177,7 @@ def send_email_verification(user_id: int, token: str) -> None:
             "preheader": "Please follow the link inside to verify your account.",
             "link": f"/verify_email/{user.uuid}/{token}",
             "site_url": settings.SITE_URL,
+            "url": f"{settings.SITE_URL}/verify_email/{user.uuid}/{token}",
         },
     )
     message.add_recipient(user.pending_email if user.pending_email is not None else user.email)
