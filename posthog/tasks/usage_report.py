@@ -8,7 +8,7 @@ from typing import Any, Literal, Optional, TypedDict, Union
 import celery
 import requests
 import structlog
-from celery import shared_task
+from celery import shared_task, current_task
 from dateutil import parser
 from django.conf import settings
 from django.db import connection
@@ -300,6 +300,15 @@ def send_report_to_billing_service(self: celery.Task, org_id: str, report: dict[
     from ee.billing.billing_manager import BillingManager, build_billing_token
     from ee.billing.billing_types import BillingStatus
     from ee.settings import BILLING_SERVICE_URL
+
+    if current_task:
+        tag_queries(celery_request_id=current_task.request.id)
+
+    # hack to process old entries, remove after 2025.03.12
+    if isinstance(self, str):
+        report = org_id
+        org_id = self
+        self = None
 
     try:
         license = get_cached_instance_license()
@@ -816,7 +825,6 @@ def get_teams_with_recording_bytes_in_period(
 
 @shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=0)
 def capture_report(
-    self: celery.Task,
     *,
     capture_event_name: str,
     org_id: Optional[str] = None,
@@ -1239,6 +1247,7 @@ def _get_full_org_usage_report_as_dict(full_report: FullUsageReport) -> dict[str
 @shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=3)
 def send_all_org_usage_reports(
     self: celery.Task,
+    *,
     dry_run: bool = False,
     at: Optional[str] = None,
     capture_event_name: Optional[str] = None,
@@ -1292,7 +1301,7 @@ def send_all_org_usage_reports(
 
             # Then capture the events to Billing
             if has_non_zero_usage(full_report):
-                send_report_to_billing_service.delay(org_id, full_report_dict)
+                send_report_to_billing_service.delay(org_id=org_id, report=full_report_dict)
         time_since = datetime.now() - time_now
         logger.debug(f"Sending usage reports to PostHog and Billing took {time_since.total_seconds()} seconds.")  # noqa T201
     except Exception as err:
