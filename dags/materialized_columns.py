@@ -112,7 +112,7 @@ class MaterializeColumnConfig(dagster.Config):
             )
         }
 
-        for partition in reversed(self.partitions.iter_ids()):
+        for partition in reversed([*self.partitions.iter_ids()]):
             if partition in remaining_partitions:
                 yield AlterTableMutationRunner(
                     self.table,
