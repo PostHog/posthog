@@ -10,7 +10,7 @@ import { urls } from 'scenes/urls'
 import { PipelineStage, PipelineTab } from '~/types'
 
 import { DESTINATION_TYPES, TRANSFORMATION_TYPES } from './destinations/constants'
-import { DestinationsTable, ReorderTransformationsModal } from './destinations/Destinations'
+import { DestinationsTable } from './destinations/Destinations'
 
 export function Overview(): JSX.Element {
     const menuItems = [
@@ -37,7 +37,6 @@ export function Overview(): JSX.Element {
                     </div>
                 }
             />
-            <ReorderTransformationsModal types={TRANSFORMATION_TYPES} />
             <div className="deprecated-space-y-4">
                 <div>
                     <Link to={urls.pipeline(PipelineTab.Sources)}>
@@ -67,6 +66,7 @@ export function Overview(): JSX.Element {
                         types={TRANSFORMATION_TYPES}
                         hideFeedback={true}
                         hideAddDestinationButton={false}
+                        hideChangeOrderButton={true}
                     />
                 </div>
                 <div>
@@ -77,7 +77,12 @@ export function Overview(): JSX.Element {
                         Send your data to destinations in real time or with batch exports. Only active Destinations are
                         shown here. <Link to={urls.pipeline(PipelineTab.Destinations)}>See all.</Link>
                     </p>
-                    <DestinationsTable types={DESTINATION_TYPES} hideFeedback={true} hideAddDestinationButton={false} />
+                    <DestinationsTable
+                        types={DESTINATION_TYPES}
+                        hideFeedback={true}
+                        hideAddDestinationButton={false}
+                        hideChangeOrderButton={true}
+                    />
                 </div>
             </div>
         </>
