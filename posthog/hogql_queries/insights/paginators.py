@@ -45,7 +45,7 @@ class HogQLHasMorePaginator:
             # Note that simply dividing the limit by the number of queries doesn't work because the offset needs to be applied
             # to each query individually.
             for select_query in query.select_queries():
-                select_query = self.paginate(select_query)
+                self.paginate(select_query)  # Updates in place
             return query
 
         raise ValueError(f"Unsupported query type: {type(query)}, must be one of SELECT type")
