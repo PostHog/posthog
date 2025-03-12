@@ -1,7 +1,7 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
-from dags.backup_database import Backup, BackupConfig, get_latest_backup
+from dags.backup_clickhouse import Backup, BackupConfig, get_latest_backup
 
 
 @pytest.mark.parametrize("table", ["", "test"])
