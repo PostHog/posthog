@@ -20,7 +20,7 @@ class TestRetentionPlannerNode(BaseTest):
         with patch.object(RetentionPlannerNode, "_model") as model_mock:
 
             def assert_prompt(prompt):
-                self.assertIn("retrieve_event_or_action_properties", str(prompt))
+                self.assertIn("retrieve_event_properties", str(prompt))
                 return AIMessage(content="Thought.\nAction: abc")
 
             model_mock.return_value = RunnableLambda(assert_prompt)

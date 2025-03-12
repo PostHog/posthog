@@ -226,11 +226,11 @@ class Assistant:
                     if intermediate_steps := input.intermediate_steps:
                         for action, _ in intermediate_steps:
                             match action.tool:
-                                case "retrieve_event_or_action_properties":
+                                case "retrieve_event_properties":
                                     substeps.append(f"Exploring `{action.tool_input}` event's properties")
                                 case "retrieve_entity_properties":
                                     substeps.append(f"Exploring {action.tool_input} properties")
-                                case "retrieve_event_or_action_property_values":
+                                case "retrieve_event_property_values":
                                     assert isinstance(action.tool_input, dict)
                                     substeps.append(
                                         f"Analyzing `{action.tool_input['property_name']}` event's property `{action.tool_input['event_name']}`"
@@ -249,12 +249,12 @@ class Assistant:
                                     try:
                                         action_model = Action.objects.get(pk=id, team=self._team)
                                         if action.tool == "retrieve_action_properties":
-                                            substeps.append(f"Exploring `{action_model.name}` action's properties")
+                                            substeps.append(f"Exploring `{action_model.name}` action properties")
                                         elif action.tool == "retrieve_action_property_values" and isinstance(
                                             action.tool_input, dict
                                         ):
                                             substeps.append(
-                                                f"Analyzing `{action.tool_input['property_name']}` action's property `{action_model.name}`"
+                                                f"Analyzing `{action.tool_input['property_name']}` action property of `{action_model.name}`"
                                             )
                                     except Action.DoesNotExist:
                                         pass
