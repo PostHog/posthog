@@ -82,7 +82,6 @@ export const errorTrackingIssueEventsQuery = ({
         return null
     }
 
-    // const select = ['person', 'timestamp', 'recording_button(properties.$session_id)']
     // row expansion only works when you fetch the entire event with '*'
     const columns = ['*', 'person', 'timestamp', 'recording_button(properties.$session_id)']
 

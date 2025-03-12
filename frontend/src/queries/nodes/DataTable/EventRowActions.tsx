@@ -48,9 +48,7 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
                         sessionId={event.properties.$session_id}
                         timestamp={event.timestamp}
                         disabledReason={
-                            mightHaveRecording(event.properties)
-                                ? undefined
-                                : 'Replay was not active when capturing this event'
+                            !mightHaveRecording(event.properties) && 'Replay was not active when capturing this event'
                         }
                         data-attr="events-table-usage"
                     />
