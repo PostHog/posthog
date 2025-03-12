@@ -7,7 +7,14 @@ import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/Pr
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { getCoreFilterDefinition, getFirstFilterTypeFor } from 'lib/taxonomy'
-import { ceilMsToClosestSecond, findLastIndex, humanFriendlyDuration, objectsEqual, percentage } from 'lib/utils'
+import {
+    capitalizeFirstLetter,
+    ceilMsToClosestSecond,
+    findLastIndex,
+    humanFriendlyDuration,
+    objectsEqual,
+    percentage,
+} from 'lib/utils'
 import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/geography/country'
 import posthog from 'posthog-js'
 import React from 'react'
@@ -19,7 +26,7 @@ import {
     SessionRecordingPlayerLogicProps,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
-import { PersonType, PropertyFilterType } from '~/types'
+import { PersonType, PropertyFilterType, SessionRecordingType } from '~/types'
 
 import { SimpleTimeLabel } from '../../components/SimpleTimeLabel'
 import { sessionRecordingsListPropertiesLogic } from '../../playlist/sessionRecordingsListPropertiesLogic'
@@ -28,6 +35,19 @@ const recordingPropertyKeys = ['click_count', 'keypress_count', 'console_error_c
 
 export interface SessionSummaryResponse {
     content: string
+}
+
+function allowListedPersonProperties(sessionPlayerMetaData: SessionRecordingType | null): Record<string, any> {
+    const personProperties = sessionPlayerMetaData?.person?.properties ?? {}
+    return Object.fromEntries(
+        Object.entries(personProperties).filter(([key]) => {
+            return ALLOW_LISTED_PERSON_PROPERTIES.includes(key)
+        })
+    )
+}
+
+export function canRenderDirectly(value: any): boolean {
+    return typeof value === 'string' || typeof value === 'number' || React.isValidElement(value)
 }
 
 export function countryTitleFrom(
@@ -266,9 +286,10 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 const recordingProperties = sessionPlayerMetaData?.id
                     ? recordingPropertiesById[sessionPlayerMetaData?.id] || {}
                     : {}
-                const personProperties = sessionPlayerMetaData?.person?.properties ?? {}
+                const personProperties = allowListedPersonProperties(sessionPlayerMetaData)
 
-                const propertiesToUse = Object.keys(recordingProperties).length ? recordingProperties : personProperties
+                const shouldUsePersonProperties = Object.keys(recordingProperties).length === 0
+                const propertiesToUse = shouldUsePersonProperties ? personProperties : recordingProperties
                 if (propertiesToUse['$os_name'] && propertiesToUse['$os']) {
                     // we don't need both, prefer $os_name in case mobile sends better value in that field
                     delete propertiesToUse['$os']
@@ -288,31 +309,27 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                           getFirstFilterTypeFor(property) || TaxonomicFilterGroupType.EventProperties
                         : TaxonomicFilterGroupType.PersonProperties
 
+                    const safeValue = typeof value === 'string' ? value : JSON.stringify(value)
+
+                    const calculatedPropertyType: PropertyFilterType | undefined = shouldUsePersonProperties
+                        ? PropertyFilterType.Person
+                        : propertyType === TaxonomicFilterGroupType.EventProperties
+                        ? PropertyFilterType.Event
+                        : TaxonomicFilterGroupType.SessionProperties
+                        ? PropertyFilterType.Session
+                        : PropertyFilterType.Person
                     items.push({
-                        icon: (
-                            <PropertyFilterIcon
-                                type={
-                                    propertyType === TaxonomicFilterGroupType.EventProperties
-                                        ? PropertyFilterType.Event
-                                        : TaxonomicFilterGroupType.SessionProperties
-                                        ? PropertyFilterType.Session
-                                        : PropertyFilterType.Person
-                                }
-                            />
-                        ),
+                        icon: <PropertyFilterIcon type={calculatedPropertyType} />,
                         label: getCoreFilterDefinition(property, propertyType)?.label ?? property,
-                        value,
-                        keyTooltip:
-                            propertyType === TaxonomicFilterGroupType.EventProperties
-                                ? 'Event property'
-                                : TaxonomicFilterGroupType.SessionProperties
-                                ? 'Session property'
-                                : 'Person property',
+                        value: safeValue,
+                        keyTooltip: calculatedPropertyType
+                            ? `${capitalizeFirstLetter(calculatedPropertyType)} property`
+                            : undefined,
                         valueTooltip:
-                            property === '$geoip_country_code' && value in COUNTRY_CODE_TO_LONG_NAME
+                            property === '$geoip_country_code' && safeValue in COUNTRY_CODE_TO_LONG_NAME
                                 ? countryTitleFrom(recordingProperties, personProperties)
                                 : // we don't want to pass arbitrary objects to the overview grid's tooltip here, so we stringify them
-                                typeof value === 'string' || React.isValidElement(value)
+                                canRenderDirectly(value)
                                 ? value
                                 : JSON.stringify(value),
                         type: 'property',
@@ -339,3 +356,15 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
         },
     })),
 ])
+
+const ALLOW_LISTED_PERSON_PROPERTIES = [
+    '$os_name',
+    '$os',
+    '$browser_name',
+    '$browser',
+    '$device_type',
+    '$referrer',
+    '$geoip_country_code',
+    '$geoip_subdivision_1_name',
+    '$geoip_city_name',
+]
