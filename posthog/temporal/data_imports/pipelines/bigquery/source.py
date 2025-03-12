@@ -32,10 +32,7 @@ def bigquery_storage_read_client(
 
     client = bigquery_storage.BigQueryReadClient(credentials=credentials)
 
-    try:
-        yield client
-    finally:
-        pass
+    yield client
 
 
 def get_primary_keys(table: bigquery.Table, client: bigquery.Client) -> list[str] | None:
@@ -174,7 +171,8 @@ def bigquery_source(
                 )
 
                 if not read_session.streams:
-                    return iter([])  # empty table, nothing to read
+                    # Empty table, nothing to read
+                    return
 
                 stream_name = read_session.streams[0].name
                 read_rows_stream = bq_storage.read_rows(stream_name)

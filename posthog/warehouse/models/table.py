@@ -291,12 +291,18 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
                 del fields[PARTITION_KEY]
                 fields = {**fields, **default_fields}
 
+        access_key: str | None = None
+        access_secret: str | None = None
+        if self.credential:
+            access_key = self.credential.access_key
+            access_secret = self.credential.access_secret
+
         return S3Table(
             name=self.name,
             url=self.url_pattern,
             format=self.format,
-            access_key=self.credential.access_key,
-            access_secret=self.credential.access_secret,
+            access_key=access_key,
+            access_secret=access_secret,
             fields=fields,
             structure=", ".join(structure),
         )

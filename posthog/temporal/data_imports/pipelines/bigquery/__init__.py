@@ -12,8 +12,6 @@ from posthog.warehouse.types import IncrementalFieldType
 @contextlib.contextmanager
 def bigquery_client(project_id: str, private_key: str, private_key_id: str, client_email: str, token_uri: str):
     """Manage a BigQuery client."""
-    from google.cloud import bigquery
-
     credentials = service_account.Credentials.from_service_account_info(
         {
             "private_key": private_key,

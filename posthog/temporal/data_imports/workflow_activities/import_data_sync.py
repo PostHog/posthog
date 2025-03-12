@@ -514,7 +514,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 shutdown_monitor=shutdown_monitor,
             )
         elif model.pipeline.source_type == ExternalDataSource.Type.BIGQUERY:
-            from posthog.temporal.data_imports.pipelines.bigquery.bigquery import bigquery_source
+            from posthog.temporal.data_imports.pipelines.bigquery.source import bigquery_source
             from posthog.temporal.data_imports.pipelines.sql_database import bigquery_source as sql_bigquery_source
 
             dataset_id = model.pipeline.job_inputs.get("dataset_id")

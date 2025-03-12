@@ -1,6 +1,6 @@
+import collections.abc
 import json
 import os
-import typing
 import uuid
 import warnings
 
@@ -46,7 +46,7 @@ def bigquery_config() -> dict[str, str]:
 
 
 @pytest.fixture
-def bigquery_client() -> typing.Generator[bigquery.Client, None, None]:
+def bigquery_client() -> collections.abc.Generator[bigquery.Client, None, None]:
     """Manage a bigquery.Client for testing."""
     client = bigquery.Client()
 
@@ -56,7 +56,7 @@ def bigquery_client() -> typing.Generator[bigquery.Client, None, None]:
 
 
 @pytest.fixture
-def bigquery_dataset(bigquery_config, bigquery_client) -> typing.Generator[bigquery.Dataset, None, None]:
+def bigquery_dataset(bigquery_config, bigquery_client) -> collections.abc.Generator[bigquery.Dataset, None, None]:
     """Manage a bigquery dataset for testing.
 
     We clean up the dataset after every test. Could be quite time expensive, but guarantees a clean slate.
@@ -79,7 +79,7 @@ def bigquery_dataset(bigquery_config, bigquery_client) -> typing.Generator[bigqu
 @pytest.fixture
 def bigquery_table(
     bigquery_config, bigquery_client, bigquery_dataset
-) -> typing.Generator[bigquery.Dataset, None, None]:
+) -> collections.abc.Generator[bigquery.Table, None, None]:
     """Manage a bigquery table for testing.
 
     We clean up the table after every test. Could be quite time expensive, but guarantees a clean slate.
@@ -167,8 +167,8 @@ def setup_bigquery(
         },
     )
     credentials = DataWarehouseCredential.objects.create(
-        access_key=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-        access_secret=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        access_key=str(settings.OBJECT_STORAGE_ACCESS_KEY_ID),
+        access_secret=str(settings.OBJECT_STORAGE_SECRET_ACCESS_KEY),
         team=team,
     )
     warehouse_table = DataWarehouseTable.objects.create(
@@ -267,7 +267,7 @@ def test_bigquery_source_full_refresh(
 
     ids = []
     values = []
-    for row in result:  # type: ignore
+    for row in result:
         ids.append(row[0])
         values.append(row[1])
 
@@ -331,7 +331,7 @@ def test_bigquery_source_incremental(
 
     ids = []
     values = []
-    for row in result:  # type: ignore
+    for row in result:
         ids.append(row[0])
         values.append(row[1])
 
@@ -375,7 +375,7 @@ def test_bigquery_source_incremental(
 
     ids = []
     values = []
-    for row in result:  # type: ignore
+    for row in result:
         ids.append(row[0])
         values.append(row[1])
 
