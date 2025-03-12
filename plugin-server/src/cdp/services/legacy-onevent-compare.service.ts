@@ -163,7 +163,7 @@ export class LegacyOneventCompareService {
 
         // Mapped plugin config inputs are always static values
         const inputs: HogFunctionInvocation['globals']['inputs'] = Object.fromEntries(
-            Object.entries(hogFunction.inputs ?? {}).map(([key, value]) => [key, value.value])
+            Object.entries(hogFunction.inputs ?? {}).map(([key, value]) => [key, value?.value])
         )
 
         const invocation = createInvocation(
