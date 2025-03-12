@@ -1813,6 +1813,12 @@ export interface FileSystemEntry {
     created_at?: string
 }
 
+export interface FileSystemImport extends Omit<FileSystemEntry, 'href'> {
+    icon?: JSX.Element
+    flag?: string
+    href: (ref?: string) => string
+}
+
 export type InsightQueryNode =
     | TrendsQuery
     | FunnelsQuery

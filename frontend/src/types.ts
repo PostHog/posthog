@@ -39,6 +39,7 @@ import type {
     ExperimentFunnelsQuery,
     ExperimentMetric,
     ExperimentTrendsQuery,
+    FileSystemImport,
     HogQLQuery,
     HogQLQueryModifiers,
     HogQLVariable,
@@ -51,8 +52,6 @@ import type {
     RevenueTrackingConfig,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-
-import { FileSystemImport } from './layout/navigation-3000/components/ProjectTree/types'
 
 // Type alias for number to be reflected as integer in json-schema.
 /** @asType integer */
