@@ -1,4 +1,4 @@
-import { actions, kea, key, listeners, path, props, propsChanged, reducers } from 'kea'
+import { actions, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
@@ -32,6 +32,12 @@ export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>([
         save: true,
         toggleSaveAsDefault: true,
     }),
+    selectors(() => ({
+        context: [
+            () => [(_, props) => props.context],
+            (context: NonNullable<ColumnConfiguratorLogicProps['context']>) => context,
+        ],
+    })),
     reducers(({ props }) => ({
         saveAsDefault: [
             false,
@@ -60,12 +66,6 @@ export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>([
                     newColumns.splice(newIndex, 0, removed)
                     return newColumns
                 },
-            },
-        ],
-        context: [
-            props.context,
-            {
-                // No actions modify context after initialization
             },
         ],
     })),
