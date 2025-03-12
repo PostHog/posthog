@@ -1,5 +1,4 @@
 import { IconX } from '@posthog/icons'
-import clsx from 'clsx'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton, LemonButtonProps, LemonButtonWithSideActionProps, SideAction } from 'lib/lemon-ui/LemonButton'
 import {
@@ -7,6 +6,7 @@ import {
     LemonCalendar,
     LemonCalendarProps,
 } from 'lib/lemon-ui/LemonCalendar/LemonCalendar'
+import { cn } from 'lib/utils/css-classes'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { LemonSwitch } from '../LemonSwitch'
@@ -184,7 +184,7 @@ export function LemonCalendarSelect({
                 granularity={granularity}
             />
             <div
-                className={clsx(
+                className={cn(
                     'flex deprecated-space-x-2 items-center border-t p-2 pt-4',
                     showTimeToggle ? 'justify-between' : 'justify-end'
                 )}

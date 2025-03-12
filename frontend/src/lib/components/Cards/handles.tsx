@@ -1,9 +1,9 @@
-import clsx from 'clsx'
+import { cn } from 'lib/utils/css-classes'
 
 /** A one-dimensional (either horizontal or vertical) resize handle. */
 export function ResizeHandle1D({ orientation }: { orientation: 'horizontal' | 'vertical' }): JSX.Element {
     return (
-        <div className={clsx('handle', orientation)}>
+        <div className={cn('handle', orientation)}>
             <svg fill="none" height="24" viewBox="0 0 16 24" width="16" xmlns="http://www.w3.org/2000/svg">
                 <rect fill="var(--bg-surface-primary)" height="23" rx="3.5" width="15" x=".5" y=".5" />
                 <g fill="var(--accent-primary)">

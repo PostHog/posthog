@@ -1,5 +1,5 @@
-import clsx from 'clsx'
 import { useValues } from 'kea'
+import { cn } from 'lib/utils/css-classes'
 
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 
@@ -37,7 +37,7 @@ function ScrollDepthMouseInfo(): JSX.Element | null {
         >
             <div className="border-b border-default w-full opacity-75" />
             <div
-                className={clsx(
+                className={cn(
                     'bg-default whitespace-nowrap text-white rounded p-2 font-semibold opacity-75 hover:opacity-100 transition-all',
                     !shiftPressed ? 'pointer-events-auto' : 'pointer-events-none'
                 )}

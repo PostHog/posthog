@@ -1,7 +1,6 @@
 import { Placement } from '@floating-ui/react'
 import { IconCalendar } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonDivider, Popover } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import {
     CUSTOM_OPTION_DESCRIPTION,
@@ -15,6 +14,7 @@ import { LemonCalendarSelect, LemonCalendarSelectProps } from 'lib/lemon-ui/Lemo
 import { LemonCalendarRange } from 'lib/lemon-ui/LemonCalendarRange/LemonCalendarRange'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { dateFilterToText, dateMapping, uuid } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { useRef, useState } from 'react'
 
 import { DateMappingOption, PropertyOperator } from '~/types'
@@ -250,7 +250,7 @@ export function DateFilter({
                 icon={<IconCalendar />}
                 onClick={isVisible ? close : open}
             >
-                <span className={clsx('text-nowrap', className)}>{label}</span>
+                <span className={cn('text-nowrap', className)}>{label}</span>
             </LemonButton>
         </Popover>
     )

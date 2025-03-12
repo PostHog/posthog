@@ -1,6 +1,6 @@
 import { IconPlus, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-import clsx from 'clsx'
+import { cn } from 'lib/utils/css-classes'
 import { useEffect, useState } from 'react'
 
 import AutoTab from './AutoTab'
@@ -57,7 +57,7 @@ function QueryTabComponent({ model, active, onClear, onClick, onRename }: QueryT
     return (
         <div
             onClick={() => onClick?.(model)}
-            className={clsx(
+            className={cn(
                 'deprecated-space-y-px rounded-t p-1 flex border-b-2 flex-row items-center gap-1 hover:bg-surface-primary cursor-pointer',
                 active
                     ? 'bg-surface-primary border-b-2 !border-brand-yellow'

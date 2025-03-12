@@ -1,7 +1,7 @@
 import { Tooltip } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
 import { TrendResult } from '~/types'
@@ -38,7 +38,7 @@ export function SeriesColumnItem({
                     showCountedByTag={showCountedByTag}
                     hideBreakdown
                     hideIcon
-                    className={clsx({
+                    className={cn({
                         'font-medium': !hasBreakdown,
                     })}
                     pillMaxWidth={165}

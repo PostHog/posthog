@@ -1,8 +1,8 @@
 import './InsightViz.scss'
 
-import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { cn } from 'lib/utils/css-classes'
 import { useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
@@ -120,7 +120,7 @@ export function InsightViz({
                         <div
                             className={
                                 !isEmbedded
-                                    ? clsx('InsightViz', {
+                                    ? cn('InsightViz', {
                                           'InsightViz--horizontal': isFunnels || isRetention || isHorizontalAlways,
                                       })
                                     : 'InsightCard__viz'

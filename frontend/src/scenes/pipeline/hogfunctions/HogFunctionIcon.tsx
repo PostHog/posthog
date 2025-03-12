@@ -1,7 +1,7 @@
 import { LemonButton, LemonFileInput, LemonInput, LemonSkeleton, lemonToast, Popover, Spinner } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { IconUploadFile } from 'lib/lemon-ui/icons'
+import { cn } from 'lib/utils/css-classes'
 import { useState } from 'react'
 
 import { hogFunctionIconLogic, HogFunctionIconLogicProps } from './hogFunctionIconLogic'
@@ -135,7 +135,7 @@ export function HogFunctionIcon({
 
     return (
         <span
-            className={clsx('relative flex items-center justify-center', {
+            className={cn('relative flex items-center justify-center', {
                 'w-8 h-8 text-2xl': size === 'small',
                 'w-10 h-10 text-4xl': size === 'medium',
                 'w-12 h-12 text-6xl': size === 'large',
@@ -144,7 +144,7 @@ export function HogFunctionIcon({
             {src ? (
                 <>
                     <img
-                        className={clsx(
+                        className={cn(
                             'w-full h-full rounded overflow-hidden transition-opacity',
                             loaded ? 'opacity-100' : 'opacity-0'
                         )}

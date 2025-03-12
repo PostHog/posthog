@@ -1,10 +1,10 @@
 import { LemonTag } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { InfiniteList } from 'lib/components/TaxonomicFilter/InfiniteList'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
 import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { cn } from 'lib/utils/css-classes'
 
 import { TaxonomicFilterEmptyState, taxonomicFilterGroupTypesWithEmptyStates } from './TaxonomicFilterEmptyState'
 import { taxonomicFilterLogic } from './taxonomicFilterLogic'
@@ -125,7 +125,7 @@ export function InfiniteSelectResults({
 
             {taxonomicGroupTypes.map((groupType) => {
                 return (
-                    <div key={groupType} className={clsx(groupType === openTab ? 'block' : 'hidden')}>
+                    <div key={groupType} className={cn(groupType === openTab ? 'block' : 'hidden')}>
                         <BindLogic
                             logic={infiniteListLogic}
                             props={{ ...taxonomicFilterLogicProps, listGroupType: groupType }}

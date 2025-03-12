@@ -1,8 +1,8 @@
 import './BillingGauge.scss'
 
-import clsx from 'clsx'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { compactNumber } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { useMemo } from 'react'
 
 import { BillingProductV2AddonType, BillingProductV2Type } from '~/types'
@@ -31,7 +31,7 @@ const BillingGaugeItem = ({
 
     return (
         <div
-            className={clsx(
+            className={cn(
                 `BillingGaugeItem BillingGaugeItem--${item.type}`,
                 {
                     'BillingGaugeItem--within-usage-limit': isWithinUsageLimit,
@@ -48,7 +48,7 @@ const BillingGaugeItem = ({
                 placement="right"
             >
                 <div
-                    className={clsx('BillingGaugeItem__info', {
+                    className={cn('BillingGaugeItem__info', {
                         'BillingGaugeItem__info--bottom': !isTop,
                     })}
                 >

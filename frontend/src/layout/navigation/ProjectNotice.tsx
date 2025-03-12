@@ -1,11 +1,11 @@
 import { IconGear, IconPlus } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonBannerAction } from 'lib/lemon-ui/LemonBanner/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
+import { cn } from 'lib/utils/css-classes'
 import { useEffect, useState } from 'react'
 import { verifyEmailLogic } from 'scenes/authentication/signup/verify-email/verifyEmailLogic'
 import { OnboardingStepKey } from 'scenes/onboarding/onboardingLogic'
@@ -179,7 +179,7 @@ export function ProjectNotice(): JSX.Element | null {
     return (
         <LemonBanner
             type={relevantNotice.type || 'info'}
-            className={clsx('my-4', requiresHorizontalMargin && 'mx-4')}
+            className={cn('my-4', requiresHorizontalMargin && 'mx-4')}
             action={relevantNotice.action}
             onClose={relevantNotice.closeable ? () => closeProjectNotice(projectNoticeVariant) : undefined}
         >

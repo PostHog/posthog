@@ -1,8 +1,8 @@
 import './SelectableElement.scss'
 
-import clsx from 'clsx'
 import { ParsedCSSSelector } from 'lib/components/HTMLElementsDisplay/preselectWithCSS'
 import { objectsEqual } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 
 import { ElementType } from '~/types'
 
@@ -18,7 +18,7 @@ export function TagPart({
     readonly: boolean
 }): JSX.Element {
     const hoverSelector = readonly ? '' : 'hover:underline'
-    const htmlElementsSelector = clsx(
+    const htmlElementsSelector = cn(
         'decoration-accent-primary-highlight',
         !readonly && 'cursor-pointer SelectableElement'
     )
@@ -30,7 +30,7 @@ export function TagPart({
                 e.stopPropagation()
                 return onChange({ ...selectedParts, tag: isSelected ? undefined : tagName })
             }}
-            className={clsx(htmlElementsSelector, isSelected ? 'SelectableElement--selected' : hoverSelector)}
+            className={cn(htmlElementsSelector, isSelected ? 'SelectableElement--selected' : hoverSelector)}
         >
             {tagName}
         </span>
@@ -49,7 +49,7 @@ function IdPart({
     readonly: boolean
 }): JSX.Element | null {
     const hoverSelector = readonly ? '' : 'hover:underline'
-    const htmlElementsSelector = clsx(
+    const htmlElementsSelector = cn(
         'decoration-accent-primary-highlight',
         !readonly && 'cursor-pointer SelectableElement'
     )
@@ -61,7 +61,7 @@ function IdPart({
                 e.stopPropagation()
                 return onChange({ ...selectedParts, id: isSelected ? undefined : id })
             }}
-            className={clsx(htmlElementsSelector, isSelected ? 'SelectableElement--selected' : hoverSelector)}
+            className={cn(htmlElementsSelector, isSelected ? 'SelectableElement--selected' : hoverSelector)}
         >
             {`id="${id}"`}
         </span>
@@ -84,7 +84,7 @@ function AttributeValue({
     allowMultipleSelections?: boolean
 }): JSX.Element {
     const hoverSelector = readonly ? '' : 'hover:underline'
-    const htmlElementsSelector = clsx('decoration-primary-highlight', !readonly && 'cursor-pointer SelectableElement')
+    const htmlElementsSelector = cn('decoration-primary-highlight', !readonly && 'cursor-pointer SelectableElement')
     const selectionContainer = selectedParts[attribute]
     const isSelected =
         !readonly &&
@@ -119,7 +119,7 @@ function AttributeValue({
                         ? multipleSelectionsOnChange()
                         : onChange({ ...selectedParts, [attribute]: isSelected ? undefined : value })
                 }}
-                className={clsx(htmlElementsSelector, isSelected ? 'SelectableElement--selected' : hoverSelector)}
+                className={cn(htmlElementsSelector, isSelected ? 'SelectableElement--selected' : hoverSelector)}
             >
                 {value}
             </span>
@@ -219,7 +219,7 @@ export function SelectableElement({
 
     return (
         <pre
-            className={clsx(
+            className={cn(
                 '!p-0 !m-0 rounded whitespace-pre-wrap break-all text-primary',
                 isDeepestChild && highlight ? 'bg-accent-primary/30 text-primary' : 'bg-transparent',
                 size === 'xsmall' ? 'text-xs' : 'text-sm'

@@ -9,11 +9,11 @@ import {
     IconTrending,
 } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonModal, LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { humanFriendlyNumber } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { useEffect, useRef, useState } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -956,7 +956,7 @@ function SignificanceHighlight({
     return details ? (
         <Tooltip title={details}>
             <div
-                className={clsx({
+                className={cn({
                     'cursor-default': true,
                     'bg-[var(--bg-table)]': true,
                     [className]: true,
@@ -966,6 +966,6 @@ function SignificanceHighlight({
             </div>
         </Tooltip>
     ) : (
-        <div className={clsx({ 'bg-[var(--bg-table)]': true, [className]: true })}>{inner}</div>
+        <div className={cn({ 'bg-[var(--bg-table)]': true, [className]: true })}>{inner}</div>
     )
 }

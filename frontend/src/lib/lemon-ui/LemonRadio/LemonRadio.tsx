@@ -1,5 +1,5 @@
-import clsx from 'clsx'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { cn } from 'lib/utils/css-classes'
 
 export interface LemonRadioOption<T extends React.Key> {
     label: string | JSX.Element
@@ -30,7 +30,7 @@ export function LemonRadio<T extends React.Key>({
 }: LemonRadioProps<T>): JSX.Element {
     return (
         <div
-            className={clsx(
+            className={cn(
                 'flex font-medium',
                 orientation === 'vertical' ? 'flex-col gap-2' : 'flex-row gap-4',
                 className
@@ -40,7 +40,7 @@ export function LemonRadio<T extends React.Key>({
                 const content = (
                     <label
                         key={value}
-                        className={clsx(
+                        className={cn(
                             'grid items-center gap-x-2 grid-cols-[min-content_auto] text-sm',
                             disabledReason ? 'text-secondary cursor-not-allowed' : 'cursor-pointer',
                             {

@@ -2,7 +2,6 @@ import './CorrelationMatrix.scss'
 
 import { IconCheckCircle } from '@posthog/icons'
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { IconCancel, IconErrorOutline, IconTrendingFlat, IconTrendingFlatDown } from 'lib/lemon-ui/icons'
@@ -11,6 +10,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter, percentage, pluralize } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { funnelCorrelationDetailsLogic } from 'scenes/funnels/funnelCorrelationDetailsLogic'
 import { funnelCorrelationLogic } from 'scenes/funnels/funnelCorrelationLogic'
 import { funnelPersonsModalLogic } from 'scenes/funnels/funnelPersonsModalLogic'
@@ -202,7 +202,7 @@ export function CorrelationMatrix(): JSX.Element {
                             score of{' '}
                             <Tooltip title={`This ${actor} has ${correlationScoreStrength} correlation.`}>
                                 <strong
-                                    className={clsx(
+                                    className={cn(
                                         'cursor-help',
                                         correlationScoreStrength === 'strong'
                                             ? 'text-success'

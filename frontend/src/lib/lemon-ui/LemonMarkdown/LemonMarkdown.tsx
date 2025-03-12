@@ -1,7 +1,7 @@
 import './LemonMarkdown.scss'
 
-import clsx from 'clsx'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { cn } from 'lib/utils/css-classes'
 import ReactMarkdown from 'react-markdown'
 
 import { Link } from '../Link'
@@ -23,7 +23,7 @@ export function LemonMarkdown({
     className,
 }: LemonMarkdownProps): JSX.Element {
     return (
-        <div className={clsx('LemonMarkdown', className)}>
+        <div className={cn('LemonMarkdown', className)}>
             {/* eslint-disable-next-line react/forbid-elements */}
             <ReactMarkdown
                 renderers={{

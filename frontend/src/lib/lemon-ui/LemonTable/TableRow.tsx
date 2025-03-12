@@ -1,6 +1,6 @@
 import { IconCollapse, IconExpand } from '@posthog/icons'
-import clsx from 'clsx'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { cn } from 'lib/utils/css-classes'
 import React, { HTMLProps, useState } from 'react'
 
 import { ExpandableConfig, LemonTableColumnGroup, TableCellRepresentation } from './types'
@@ -54,7 +54,7 @@ function TableRowRaw<T extends Record<string, any>>({
         <>
             <tr
                 data-row-key={rowKeyDetermined}
-                className={clsx(
+                className={cn(
                     rowClassNameDetermined,
                     rowStatusDetermined && `LemonTable__row--status-${rowStatusDetermined}`,
                     extraProps?.onClick
@@ -103,7 +103,7 @@ function TableRowRaw<T extends Record<string, any>>({
                             return (
                                 <td
                                     key={`col-${columnGroupIndex}-${columnKeyOrIndex}`}
-                                    className={clsx(
+                                    className={cn(
                                         columnIndex === 0 && 'LemonTable__boundary',
                                         isSticky && 'LemonTable__cell--sticky',
                                         column.align && `text-${column.align}`,
@@ -127,7 +127,7 @@ function TableRowRaw<T extends Record<string, any>>({
             </tr>
 
             {expandable && !!rowExpandable && isRowExpanded && (
-                <tr className={clsx('LemonTable__expansion', expandedRowClassNameDetermined)}>
+                <tr className={cn('LemonTable__expansion', expandedRowClassNameDetermined)}>
                     {!expandable.noIndent && <td />}
                     <td
                         colSpan={

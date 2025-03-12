@@ -1,5 +1,4 @@
 import { IconGearFilled, IconHeadset } from '@posthog/icons'
-import clsx from 'clsx'
 import {
     IconAndroidOS,
     IconAppleIOS,
@@ -22,6 +21,7 @@ import {
     IconWeb,
     IconWindows,
 } from 'lib/lemon-ui/icons'
+import { cn } from 'lib/utils/css-classes'
 import { countryCodeToFlag } from 'lib/utils/geography/country'
 import { forwardRef, Ref } from 'react'
 
@@ -102,7 +102,7 @@ export const PropertyIconStandalone = forwardRef(function PropertyIconBase(
     }
 
     return (
-        <div ref={ref} className={clsx('inline-flex items-center', className)}>
+        <div ref={ref} className={cn('inline-flex items-center', className)}>
             {icon}
         </div>
     )

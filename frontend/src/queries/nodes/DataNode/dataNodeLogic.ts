@@ -1,4 +1,3 @@
-import clsx from 'clsx'
 import {
     actions,
     afterMount,
@@ -20,6 +19,7 @@ import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { shouldCancelQuery, uuid } from 'lib/utils'
 import { ConcurrencyController } from 'lib/utils/concurrencyController'
+import { cn } from 'lib/utils/css-classes'
 import { UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/insights/insightLogic'
 import { compareDataNodeQuery, haveVariablesOrFiltersChanged, validateQuery } from 'scenes/insights/utils/queryUtils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -403,7 +403,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             // store the 'autoload toggle' state in localstorage, separately for each data node kind
             {
                 persist: true,
-                storageKey: clsx('queries.nodes.dataNodeLogic.autoLoadToggled', props.query?.kind, {
+                storageKey: cn('queries.nodes.dataNodeLogic.autoLoadToggled', props.query?.kind, {
                     action: isEventsQuery(props.query) && props.query.actionId,
                     person: isEventsQuery(props.query) && props.query.personId,
                 }),

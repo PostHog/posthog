@@ -1,5 +1,4 @@
 import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
@@ -11,6 +10,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
+import { cn } from 'lib/utils/css-classes'
 import { useEffect } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -343,7 +343,7 @@ export function InviteSignup(): JSX.Element {
     }
 
     return (
-        <div className={clsx('InviteSignup', !!user && 'InviteSignup--authenticated')}>
+        <div className={cn('InviteSignup', !!user && 'InviteSignup--authenticated')}>
             <ErrorView />
             {invite &&
                 (user ? (

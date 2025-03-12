@@ -1,9 +1,9 @@
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { IconSkipBackward } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter, colonDelimitedDuration } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { SimpleTimeLabel } from 'scenes/session-recordings/components/SimpleTimeLabel'
 import { ONE_FRAME_MS, sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
@@ -104,7 +104,7 @@ export function SeekSkip({ direction }: { direction: 'forward' | 'backward' }): 
                 <div className="PlayerControlSeekIcon">
                     <span className="PlayerControlSeekIcon__seconds">{jumpTimeSeconds}</span>
                     <IconSkipBackward
-                        className={clsx('PlayerControlSeekIcon__icon', {
+                        className={cn('PlayerControlSeekIcon__icon', {
                             'PlayerControlSeekIcon__icon--forward': direction === 'forward',
                         })}
                     />

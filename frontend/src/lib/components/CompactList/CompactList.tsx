@@ -1,10 +1,10 @@
 import './CompactList.scss'
 
-import clsx from 'clsx'
 import { useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { cn } from 'lib/utils/css-classes'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
@@ -51,7 +51,7 @@ export function CompactList({
                     </div>
                 </>
             )}
-            <div className={clsx('CompactList__content', contentHeightBehavior === 'shrink' && 'max-h-[16rem] h-auto')}>
+            <div className={cn('CompactList__content', contentHeightBehavior === 'shrink' && 'max-h-[16rem] h-auto')}>
                 {loading ? (
                     <div className="p-2 deprecated-space-y-6">
                         {Array.from({ length: 6 }, (_, index) => (

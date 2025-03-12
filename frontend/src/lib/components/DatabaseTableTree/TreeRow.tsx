@@ -1,8 +1,8 @@
 import { IconChevronDown, IconClock, IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonMenuItem, Spinner, Tooltip } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { cn } from 'lib/utils/css-classes'
 import { useCallback, useState } from 'react'
 
 import { DatabaseSchemaTable } from '~/queries/schema/schema-general'
@@ -21,7 +21,7 @@ export function TreeRow({ item, menuItems }: TreeRowProps): JSX.Element {
     const [isMenuOpen, setIsMenuOpen] = useState(false)
 
     return (
-        <li className={clsx('relative flex items-center', isMenuOpen && 'bg-surface-primary')}>
+        <li className={cn('relative flex items-center', isMenuOpen && 'bg-surface-primary')}>
             <LemonButton
                 onClick={() => {
                     void copyToClipboard(item.name, item.name)
@@ -152,7 +152,7 @@ export function TreeFolderRow({ item, depth, onClick, selectedRow, dropdownOverl
                     <span className="truncate">{name}</span>
                     {item.table?.type === 'materialized_view' && (
                         <Tooltip title={getTooltipLabel()}>
-                            <IconClock className={clsx(getIconColor())} />
+                            <IconClock className={cn(getIconColor())} />
                         </Tooltip>
                     )}
                 </div>

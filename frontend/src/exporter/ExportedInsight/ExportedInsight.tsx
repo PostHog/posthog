@@ -1,6 +1,5 @@
 import './ExportedInsight.scss'
 
-import clsx from 'clsx'
 import { BindLogic, useMountedLogic } from 'kea'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
@@ -9,6 +8,7 @@ import {
     DISPLAY_TYPES_WITHOUT_LEGEND,
 } from 'lib/components/InsightLegend/utils'
 import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
+import { cn } from 'lib/utils/css-classes'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
@@ -96,7 +96,7 @@ export function ExportedInsight({
                     </div>
                 )}
                 <div
-                    className={clsx({
+                    className={cn({
                         ExportedInsight__content: true,
                         'ExportedInsight__content--with-watermark': showWatermark,
                     })}

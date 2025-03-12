@@ -1,7 +1,7 @@
 import { IconCursor, IconKeyboard, IconWarning } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { pluralize } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 
 import { InspectorListItemSummary } from '../playerInspectorLogic'
 
@@ -20,7 +20,7 @@ export function ItemSummary({ item }: { item: InspectorListItemSummary }): JSX.E
                 <span>{pluralize(item.keypressCount || 0, 'keystroke')}</span>
             </div>
             <div
-                className={clsx(
+                className={cn(
                     'flex text-danger items-center justify-end',
                     (item.errorCount || 0) > 0 ? 'text-danger' : 'text-success'
                 )}

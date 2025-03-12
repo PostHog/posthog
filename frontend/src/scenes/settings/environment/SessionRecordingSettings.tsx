@@ -10,7 +10,6 @@ import {
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
@@ -22,6 +21,7 @@ import { SESSION_RECORDING_OPT_OUT_SURVEY_ID } from 'lib/constants'
 import { IconSelectEvents } from 'lib/lemon-ui/icons'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { isObject, objectsEqual } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { ReactNode, useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -36,7 +36,7 @@ interface SupportedPlatformProps {
 function SupportedPlatform(props: SupportedPlatformProps): JSX.Element {
     const node = (
         <div
-            className={clsx(
+            className={cn(
                 props.supported ? 'bg-fill-success-highlight' : 'bg-fill-error-highlight',
                 'px-1 py-0.5',
                 props.note && 'cursor-pointer'

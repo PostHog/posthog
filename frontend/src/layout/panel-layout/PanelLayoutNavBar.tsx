@@ -1,11 +1,11 @@
 import { IconBolt, IconChevronRight, IconClock, IconGear, IconPeople, IconPlus, IconSearch } from '@posthog/icons'
 import { cva } from 'class-variance-authority'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { IconCircleDashed, IconFolderOpen } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
+import { cn } from 'lib/utils/css-classes'
 import { cn } from 'lib/utils/css-classes'
 import { useRef } from 'react'
 import { urls } from 'scenes/urls'
@@ -38,7 +38,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         <>
             <div className="flex gap-0 relative">
                 <nav
-                    className={clsx(
+                    className={cn(
                         'relative flex flex-col max-h-screen min-h-screen bg-surface-tertiary z-[var(--z-project-panel-layout)] w-[250px] border-r border-primary'
                     )}
                     ref={containerRef}

@@ -1,9 +1,9 @@
 import { IconPause, IconPlay } from '@posthog/icons'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconFullScreen, IconSync } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { cn } from 'lib/utils/css-classes'
 import { PlayerUpNext } from 'scenes/session-recordings/player/PlayerUpNext'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
@@ -55,7 +55,7 @@ function FullScreen(): JSX.Element {
                 </>
             }
         >
-            <IconFullScreen className={clsx('text-2xl', isFullScreen ? 'text-link' : 'text-primary-alt')} />
+            <IconFullScreen className={cn('text-2xl', isFullScreen ? 'text-link' : 'text-primary-alt')} />
         </LemonButton>
     )
 }

@@ -2,7 +2,6 @@ import './PropertiesTable.scss'
 
 import { IconPencil, IconTrash, IconWarning } from '@posthog/icons'
 import { LemonCheckbox, LemonDialog, LemonInput, LemonMenu, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -17,6 +16,7 @@ import {
     PROPERTY_KEYS,
 } from 'lib/taxonomy'
 import { isObject, isURL } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { useMemo, useState } from 'react'
 import { NewProperty } from 'scenes/persons/NewProperty'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -102,7 +102,7 @@ function ValueDisplay({
 
     const valueComponent = (
         <span
-            className={clsx(
+            className={cn(
                 'relative inline-flex gap-1 items-center flex flex-row flex-nowrap w-fit break-all',
                 canEdit ? 'editable ph-no-capture' : 'ph-no-capture'
             )}

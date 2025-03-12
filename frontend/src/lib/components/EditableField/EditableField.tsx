@@ -1,7 +1,6 @@
 import './EditableField.scss'
 
 import { IconPencil } from '@posthog/icons'
-import clsx from 'clsx'
 import { useValues } from 'kea'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { IconMarkdown } from 'lib/lemon-ui/icons'
@@ -10,6 +9,7 @@ import { RawInputAutosize } from 'lib/lemon-ui/LemonInput/RawInputAutosize'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { pluralize } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import React, { useEffect, useRef, useState } from 'react'
 import TextareaAutosize from 'react-textarea-autosize'
 
@@ -150,7 +150,7 @@ export function EditableField({
 
     return (
         <div
-            className={clsx(
+            className={cn(
                 'EditableField',
                 multiline && 'EditableField--multiline',
                 isEditing && 'EditableField--editing',
@@ -279,7 +279,7 @@ export function EditableField({
                     <span className="flex items-center">
                         {React.cloneElement(notice.icon, {
                             ...notice.icon.props,
-                            className: clsx(notice.icon.props.className, 'EditableField__notice'),
+                            className: cn(tice.icon.props.className, 'EditableField__notice'),
                         })}
                     </span>
                 </Tooltip>

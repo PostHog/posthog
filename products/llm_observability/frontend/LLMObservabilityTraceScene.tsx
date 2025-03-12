@@ -1,12 +1,12 @@
 import { IconAIText, IconMessage, IconReceipt } from '@posthog/icons'
 import { LemonDivider, LemonTable, LemonTag, LemonTagProps, Link, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
 import classNames from 'classnames'
-import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { NotFound } from 'lib/components/NotFound'
 import { IconArrowDown, IconArrowUp, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { identifierToHuman, isObject, pluralize } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { cn } from 'lib/utils/css-classes'
 import React, { useEffect, useRef, useState } from 'react'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
@@ -196,16 +196,13 @@ function NestingGroup({
     children: React.ReactNode
 }): JSX.Element {
     return (
-        <li className={clsx('flex items-stretch min-w-0', isCollapsed && 'text-border hover:text-muted')}>
+        <li className={cn('flex items-stretch min-w-0', isCollapsed && 'text-border hover:text-muted')}>
             <div
-                className={clsx('mb-1 ml-1 cursor-pointer', !isCollapsed && 'text-border hover:text-muted')}
+                className={cn('mb-1 ml-1 cursor-pointer', !isCollapsed && 'text-border hover:text-muted')}
                 onClick={onToggle}
             >
                 <div
-                    className={clsx(
-                        'w-0 h-full my-0 ml-1 mr-2 border-l border-current',
-                        isCollapsed && 'border-dashed'
-                    )}
+                    className={cn('w-0 h-full my-0 ml-1 mr-2 border-l border-current', isCollapsed && 'border-dashed')}
                 />
             </div>
             <ul className="flex-1 min-w-0">{children}</ul>

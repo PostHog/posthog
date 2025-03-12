@@ -1,8 +1,8 @@
 import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import React from 'react'
 
 import { HedgehogSkin } from '~/types'
@@ -133,7 +133,7 @@ function HedgehogAccessories(): JSX.Element {
                             .map((acc) => (
                                 <LemonButton
                                     key={acc}
-                                    className={clsx(
+                                    className={cn(
                                         'border-2',
                                         accessories.includes(acc) ? 'border-accent-primary' : 'border-transparent'
                                     )}
@@ -167,7 +167,7 @@ function HedgehogColor(): JSX.Element {
                 {skins.map((option) => (
                     <LemonButton
                         key={option}
-                        className={clsx(
+                        className={cn(
                             'border-2',
                             !hedgehogConfig.color && hedgehogConfig.skin === option
                                 ? 'border-accent-primary'
@@ -184,7 +184,7 @@ function HedgehogColor(): JSX.Element {
                 {[...Object.keys(COLOR_TO_FILTER_MAP)].map((option) => (
                     <LemonButton
                         key={option}
-                        className={clsx(
+                        className={cn(
                             'border-2',
                             hedgehogConfig.color === option ? 'border-accent-primary' : 'border-transparent'
                         )}

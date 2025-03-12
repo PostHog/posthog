@@ -1,10 +1,10 @@
 import './FilterRow.scss'
 
 import { IconPlus, IconTrash, IconX } from '@posthog/icons'
-import clsx from 'clsx'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import { cn } from 'lib/utils/css-classes'
 import React, { useState } from 'react'
 
 import { AnyPropertyFilter, PathCleaningFilter } from '~/types'
@@ -61,7 +61,7 @@ export const FilterRow = React.memo(function FilterRow({
     return (
         <>
             <div
-                className={clsx(
+                className={cn(
                     'property-filter-row flex items-center flex-nowrap deprecated-space-x-2 max-w-full grow',
                     {
                         'sm:grow-0': isValid,

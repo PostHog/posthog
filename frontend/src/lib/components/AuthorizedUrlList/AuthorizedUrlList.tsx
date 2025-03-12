@@ -1,11 +1,11 @@
 import { IconCopy, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { IconOpenInApp } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { cn } from 'lib/utils/css-classes'
 
 import { ExperimentIdType } from '~/types'
 
@@ -94,7 +94,7 @@ export function AuthorizedUrlList({
                         />
                     </div>
                 ) : (
-                    <div key={index} className={clsx('border rounded flex items-center p-2 pl-4 bg-surface-primary')}>
+                    <div key={index} className={cn('border rounded flex items-center p-2 pl-4 bg-surface-primary')}>
                         {keyedURL.type === 'suggestion' && (
                             <Tooltip title={'Seen in ' + keyedURL.count + ' events in the last 3 days'}>
                                 <LemonTag type="highlight" className="mr-4 uppercase cursor-pointer">

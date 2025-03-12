@@ -1,4 +1,4 @@
-import clsx from 'clsx'
+import { cn } from 'lib/utils/css-classes'
 
 import { Tooltip } from '../Tooltip'
 import { ProfilePicture } from '.'
@@ -32,7 +32,7 @@ export function ProfileBubbles({
 
     return (
         <Tooltip title={tooltip}>
-            <div className={clsx('ProfileBubbles', !!divProps.onClick && 'cursor-pointer', className)} {...divProps}>
+            <div className={cn('ProfileBubbles', !!divProps.onClick && 'cursor-pointer', className)} {...divProps}>
                 {shownPeople.map(({ email, name, title }, index) => (
                     <ProfilePicture
                         key={email}

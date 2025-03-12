@@ -1,5 +1,5 @@
 import { useMergeRefs } from '@floating-ui/react'
-import clsx from 'clsx'
+import { cn } from 'lib/utils/css-classes'
 import React, { HTMLProps, useLayoutEffect, useRef, useState } from 'react'
 
 interface RawInputAutosizeProps extends HTMLProps<HTMLInputElement> {
@@ -50,7 +50,7 @@ export const RawInputAutosize = React.forwardRef<HTMLInputElement, RawInputAutos
     }, [sizerRef.current, placeHolderSizerRef.current, inputProps.placeholder, inputProps.value, inputWidth])
 
     return (
-        <div className={clsx('relative min-w-0', wrapperClassName)}>
+        <div className={cn('relative min-w-0', wrapperClassName)}>
             <input
                 ref={mergedRefs}
                 /* eslint-disable-next-line react/forbid-dom-props */

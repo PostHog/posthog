@@ -1,12 +1,12 @@
 import './HedgehogBuddy.scss'
 
 import { lemonToast, ProfilePicture } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { range, sampleOne, shouldIgnoreInput } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { ForwardedRef, useEffect, useMemo, useRef, useState } from 'react'
 import React from 'react'
 import { userLogic } from 'scenes/userLogic'
@@ -792,7 +792,7 @@ export class HedgehogActor {
                 >
                     {this.tooltip && !this.isDragging && (
                         <div
-                            className={clsx(
+                            className={cn(
                                 'rounded transition-all absolute -top-10 left-1/2 -translate-x-1/2 pointer-events-none',
                                 this.showTooltip ? 'opacity-100' : 'opacity-0  translate-y-10'
                             )}

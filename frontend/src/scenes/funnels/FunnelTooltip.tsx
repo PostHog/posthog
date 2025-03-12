@@ -1,10 +1,10 @@
-import clsx from 'clsx'
 import { useValues } from 'kea'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { humanFriendlyDuration, humanFriendlyNumber, percentage } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { useEffect, useRef } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { ClickToInspectActors } from 'scenes/insights/InsightTooltip/InsightTooltip'
@@ -45,7 +45,7 @@ export function FunnelTooltip({
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
     return (
         <div
-            className={clsx('FunnelTooltip InsightTooltip', {
+            className={cn('FunnelTooltip InsightTooltip', {
                 'p-2': !embedded,
                 'border-none': embedded,
                 'shadow-none': embedded,

@@ -2,10 +2,10 @@ import './BoldNumber.scss'
 
 import { IconTrending } from '@posthog/icons'
 import { LemonRow, Link } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useValues } from 'kea'
 import { IconFlare, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { percentage } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { useLayoutEffect, useRef, useState } from 'react'
 import { useEffect } from 'react'
 import React from 'react'
@@ -100,7 +100,7 @@ export function BoldNumber({ showPersonsModal = true, context }: ChartParams): J
     return resultSeries ? (
         <div className="BoldNumber">
             <div
-                className={clsx('BoldNumber__value', showPersonsModal ? 'cursor-pointer' : 'cursor-default')}
+                className={cn('BoldNumber__value', showPersonsModal ? 'cursor-pointer' : 'cursor-default')}
                 onClick={
                     context?.onDataPointClick
                         ? () => context?.onDataPointClick?.({ compare: 'current' }, resultSeries)

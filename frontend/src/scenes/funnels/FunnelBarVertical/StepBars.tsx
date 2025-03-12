@@ -1,10 +1,10 @@
-import clsx from 'clsx'
+import { cn } from 'lib/utils/css-classes'
 
 import { StepBar, StepBarProps } from './StepBar'
 
 export function StepBars({ step, stepIndex, showPersonsModal }: Omit<StepBarProps, 'series'>): JSX.Element {
     return (
-        <div className={clsx('StepBars', stepIndex === 0 && 'StepBars--first')}>
+        <div className={cn('StepBars', stepIndex === 0 && 'StepBars--first')}>
             <div className="StepBars__grid">
                 {Array(5)
                     .fill(null)

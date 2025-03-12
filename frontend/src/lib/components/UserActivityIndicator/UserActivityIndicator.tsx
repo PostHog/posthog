@@ -1,7 +1,7 @@
 import './UserActivityIndicator.scss'
 
-import clsx from 'clsx'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { cn } from 'lib/utils/css-classes'
 
 import { UserBasicType } from '~/types'
 
@@ -21,7 +21,7 @@ export function UserActivityIndicator({
     className,
 }: UserActivityIndicatorProps): JSX.Element | null {
     return at || by ? (
-        <div className={clsx('UserActivityIndicator', className)}>
+        <div className={cn('UserActivityIndicator', className)}>
             <div className="flex gap-x-1">
                 <span>{prefix}</span>
                 {at && <TZLabel time={at} />}

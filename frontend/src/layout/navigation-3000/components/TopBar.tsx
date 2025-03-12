@@ -2,7 +2,6 @@ import './TopBar.scss'
 
 import { IconChevronDown, IconX } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { EditableField } from 'lib/components/EditableField/EditableField'
@@ -12,6 +11,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { IconMenu } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import { cn } from 'lib/utils/css-classes'
 import React, { useLayoutEffect, useState } from 'react'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
@@ -71,7 +71,7 @@ export function TopBar(): JSX.Element | null {
 
     return breadcrumbs.length ? (
         <div
-            className={clsx(
+            className={cn(
                 'TopBar3000',
                 effectiveCompactionRate === 0 && 'TopBar3000--full',
                 effectiveCompactionRate === 1 && 'TopBar3000--compact'
@@ -182,7 +182,7 @@ function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.El
     const Component = breadcrumb.path ? Link : 'div'
     const breadcrumbContent = (
         <Component
-            className={clsx(
+            className={cn(
                 'TopBar3000__breadcrumb',
                 popoverShown && 'TopBar3000__breadcrumb--open',
                 (breadcrumb.path || breadcrumb.popover) && 'TopBar3000__breadcrumb--actionable',

@@ -1,7 +1,7 @@
 import './LemonCollapse.scss'
 
 import { IconCollapse, IconExpand } from '@posthog/icons'
-import clsx from 'clsx'
+import { cn } from 'lib/utils/css-classes'
 import React, { ReactNode, useEffect, useState } from 'react'
 import { Transition } from 'react-transition-group'
 import { ENTERED, ENTERING } from 'react-transition-group/Transition'
@@ -84,7 +84,7 @@ export function LemonCollapse<K extends React.Key>({
     const hasExpandablePanels = displayPanels.some((p) => !!p.content)
 
     return (
-        <div className={clsx('LemonCollapse', embedded && 'LemonCollapse--embedded', className)}>
+        <div className={cn('LemonCollapse', embedded && 'LemonCollapse--embedded', className)}>
             {displayPanels.map(({ key, ...panel }) => (
                 <LemonCollapsePanel
                     key={key}
@@ -171,7 +171,7 @@ function LemonCollapsePanel({
                         }
                         aria-busy={status.endsWith('ing')}
                     >
-                        <div className={clsx('LemonCollapsePanel__content', className)} ref={contentRef}>
+                        <div className={cn('LemonCollapsePanel__content', className)} ref={contentRef}>
                             {content}
                         </div>
                     </div>

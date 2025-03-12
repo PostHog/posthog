@@ -1,7 +1,6 @@
 import './DefinitionPopover.scss'
 
 import { LemonDivider, ProfilePicture } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { definitionPopoverLogic, DefinitionPopoverState } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -9,6 +8,7 @@ import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Link } from 'lib/lemon-ui/Link'
 import { getCoreFilterDefinition } from 'lib/taxonomy'
+import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { CoreFilterDefinition, UserBasicType } from '~/types'
@@ -20,7 +20,7 @@ interface DefinitionPopoverProps {
 // Wrapper
 function Wrapper({ children }: DefinitionPopoverProps): JSX.Element {
     const { state } = useValues(definitionPopoverLogic)
-    return <div className={clsx('definition-popover', state)}>{children}</div>
+    return <div className={cn('definition-popover', state)}>{children}</div>
 }
 
 interface HeaderProps {
@@ -188,7 +188,7 @@ function Owner({ user }: { user?: UserBasicType | null }): JSX.Element {
 function HorizontalLine({ className, label }: { className?: string; label?: string }): JSX.Element {
     return (
         <LemonDivider
-            className={clsx('DefinitionPopover items-start my-4', className)}
+            className={cn('DefinitionPopover items-start my-4', className)}
             label={label && <span className="DefinitionPopover__label">{label}</span>}
         />
     )

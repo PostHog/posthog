@@ -2,11 +2,11 @@ import './Components/Chart.scss'
 
 import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
+import { cn } from 'lib/utils/css-classes'
 import { useCallback, useState } from 'react'
 import { DatabaseTableTreeWithItems } from 'scenes/data-warehouse/external/DataWarehouseTables'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
@@ -274,10 +274,10 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                             <SideBar />
                         </div>
                     )}
-                    <div className={clsx('w-full h-full flex-1 overflow-auto')}>
+                    <div className={cn('w-full h-full flex-1 overflow-auto')}>
                         {visualizationType !== ChartDisplayType.ActionsTable && responseError ? (
                             <div
-                                className={clsx('rounded bg-surface-primary relative flex flex-1 flex-col p-2', {
+                                className={cn('rounded bg-surface-primary relative flex flex-1 flex-col p-2', {
                                     border: showEditingUI,
                                 })}
                             >

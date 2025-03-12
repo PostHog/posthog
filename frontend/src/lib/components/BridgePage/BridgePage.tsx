@@ -1,7 +1,7 @@
 import './BridgePage.scss'
 
-import clsx from 'clsx'
 import { useValues } from 'kea'
+import { cn } from 'lib/utils/css-classes'
 import { useEffect, useState } from 'react'
 import { CSSTransition } from 'react-transition-group'
 import { WelcomeLogo } from 'scenes/authentication/WelcomeLogo'
@@ -58,7 +58,7 @@ export function BridgePage({
     }, [])
 
     return (
-        <div className={clsx('BridgePage', fixedWidth && 'BridgePage--fixed-width')}>
+        <div className={cn('BridgePage', fixedWidth && 'BridgePage--fixed-width')}>
             <div className="BridgePage__main">
                 {leftContainerContent || hedgehog ? (
                     <div className="BridgePage__left-wrapper">
@@ -92,7 +92,7 @@ export function BridgePage({
                 ) : null}
                 <div className="BridgePage__content-wrapper">
                     {!noLogo && (
-                        <div className={clsx('BridgePage__header-logo', { mobile: sideLogo })}>
+                        <div className={cn('BridgePage__header-logo', { mobile: sideLogo })}>
                             <WelcomeLogo view={view} />
                         </div>
                     )}

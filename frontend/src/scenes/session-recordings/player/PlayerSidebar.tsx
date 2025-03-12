@@ -1,12 +1,12 @@
 import { IconBottomPanel, IconSidePanel, IconX } from '@posthog/icons'
 import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { resizerLogic, ResizerLogicProps } from 'lib/components/Resizer/resizerLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter, splitKebabCase } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { useRef } from 'react'
 
 import { SessionRecordingSidebarStacking, SessionRecordingSidebarTab } from '~/types'
@@ -49,7 +49,7 @@ export function PlayerSidebar(): JSX.Element {
 
     return (
         <div
-            className={clsx(
+            className={cn(
                 'SessionRecordingPlayer__sidebar',
                 !sidebarOpen && 'SessionRecordingPlayer__sidebar--collapsed'
             )}

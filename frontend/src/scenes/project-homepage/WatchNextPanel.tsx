@@ -1,7 +1,6 @@
 import './ProjectHomepage.scss'
 
 import { IconInfo } from '@posthog/icons'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { CompactList } from 'lib/components/CompactList/CompactList'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
@@ -9,6 +8,7 @@ import { LemonSnack } from 'lib/lemon-ui/LemonSnack'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDuration } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
@@ -48,7 +48,7 @@ function ActivityScoreLabel({ score }: { score: number | undefined }): JSX.Eleme
         description = 'low'
     }
 
-    return <LemonSnack className={clsx(backgroundColor, 'text-xs')}>activity: {description}</LemonSnack>
+    return <LemonSnack className={cn(backgroundColor, 'text-xs')}>activity: {description}</LemonSnack>
 }
 
 export function RecordingRow({ recording }: RecordingRowProps): JSX.Element {

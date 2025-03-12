@@ -1,6 +1,5 @@
 import { IconChevronDown, IconClock, IconEye, IconFilter, IconHide, IconRevert } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonButtonProps, ProfilePicture } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
@@ -9,6 +8,7 @@ import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { cn } from 'lib/utils/css-classes'
 import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
@@ -153,12 +153,12 @@ export const RecordingsUniversalFilters = ({
                 </FlaggedFeature>
             </div>
             <div
-                className={clsx(
+                className={cn(
                     'flex justify-center relative border-r border-l rounded-b overflow-hidden transition-all duration-200',
                     isFiltersExpanded ? 'max-h-[1000px] opacity-100' : 'max-h-0 opacity-0'
                 )}
             >
-                <div className={clsx('divide-y bg-surface-primary rounded-b w-full', className)}>
+                <div className={cn('divide-y bg-surface-primary rounded-b w-full', className)}>
                     <div className="flex items-center my-2">
                         <AndOrFilterSelect
                             value={filters.filter_group.type}

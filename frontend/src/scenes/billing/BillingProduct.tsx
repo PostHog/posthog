@@ -1,6 +1,5 @@
 import { IconChevronDown, IconDocument, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
 import { FEATURE_FLAGS, UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
@@ -11,6 +10,7 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter, humanFriendlyCurrency } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { useRef } from 'react'
 import { getProductIcon } from 'scenes/products/Products'
 
@@ -84,7 +84,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
 
     return (
         <div
-            className={clsx('flex flex-wrap max-w-300 pb-8', {
+            className={cn('flex flex-wrap max-w-300 pb-8', {
                 'flex-col pb-4': size === 'small',
             })}
             ref={ref}

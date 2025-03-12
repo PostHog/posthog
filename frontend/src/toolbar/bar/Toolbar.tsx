@@ -14,12 +14,12 @@ import {
     IconToggle,
     IconX,
 } from '@posthog/icons'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { IconFlare, IconMenu } from 'lib/lemon-ui/icons'
 import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { useEffect, useRef } from 'react'
 
 import { ActionsToolbarMenu } from '~/toolbar/actions/ActionsToolbarMenu'
@@ -129,7 +129,7 @@ export function ToolbarInfoMenu(): JSX.Element | null {
 
     return (
         <div
-            className={clsx(
+            className={cn(
                 'ToolbarMenu',
                 !!content && 'ToolbarMenu--visible',
                 isDragging && 'ToolbarMenu--dragging',
@@ -200,7 +200,7 @@ export function Toolbar(): JSX.Element | null {
             <ToolbarInfoMenu />
             <div
                 ref={ref}
-                className={clsx('Toolbar', {
+                className={cn('Toolbar', {
                     'Toolbar--minimized': minimized,
                     'Toolbar--hedgehog-mode': hedgehogMode,
                     'Toolbar--dragging': isDragging,

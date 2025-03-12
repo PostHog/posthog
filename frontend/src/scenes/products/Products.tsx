@@ -1,10 +1,10 @@
 import * as Icons from '@posthog/icons'
 import { IconArrowRight, IconCheckCircle } from '@posthog/icons'
 import { LemonButton, LemonLabel, LemonSelect, Link, Tooltip } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { LemonCard } from 'lib/lemon-ui/LemonCard/LemonCard'
+import { cn } from 'lib/utils/css-classes'
 import { getProductUri, onboardingLogic } from 'scenes/onboarding/onboardingLogic'
 import { availableOnboardingProducts } from 'scenes/onboarding/utils'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -47,7 +47,7 @@ export function SelectableProductCard({
     return (
         <LemonCard
             data-attr={`${productKey}-onboarding-card`}
-            className={clsx('flex justify-center cursor-pointer', vertical ? 'flex-col' : 'items-center', className)}
+            className={cn('flex justify-center cursor-pointer', vertical ? 'flex-col' : 'items-center', className)}
             key={productKey}
             onClick={onClick}
             focused={selected}

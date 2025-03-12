@@ -1,9 +1,9 @@
 import { LemonDivider, LemonTabs, LemonTag, LemonTagType, Link } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { humanFriendlyMilliseconds, isURL } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { useState } from 'react'
 import { itemSizeInfo, PerformanceEventSizeInfo } from 'scenes/session-recordings/apm/performance-event-utils'
 import { NavigationItem } from 'scenes/session-recordings/player/inspector/components/NavigationItem'
@@ -69,7 +69,7 @@ export interface ItemPerformanceEventProps {
 function renderTimeBenchmark(milliseconds: number | null): JSX.Element | null {
     return milliseconds === null ? null : (
         <span
-            className={clsx('font-semibold', {
+            className={cn('font-semibold', {
                 'text-danger-dark': milliseconds >= 2000,
                 'text-warning-dark': milliseconds >= 500 && milliseconds < 2000,
             })}
@@ -203,7 +203,7 @@ export function ItemPerformanceEvent({ item, finalTimestamp }: ItemPerformanceEv
                         {/* We only show the status if it exists and is an error status */}
                         {otherProps.response_status && otherProps.response_status >= 400 ? (
                             <span
-                                className={clsx(
+                                className={cn(
                                     'font-semibold',
                                     otherProps.response_status >= 400 &&
                                         otherProps.response_status < 500 &&
@@ -215,7 +215,7 @@ export function ItemPerformanceEvent({ item, finalTimestamp }: ItemPerformanceEv
                             </span>
                         ) : null}
                         {renderTimeBenchmark(duration)}
-                        <span className={clsx('font-semibold')}>{sizeInfo.formattedBytes}</span>
+                        <span className={cn('font-semibold')}>{sizeInfo.formattedBytes}</span>
                     </div>
                 )}
             </div>

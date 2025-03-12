@@ -1,8 +1,8 @@
 import { IconCollapse, IconExpand } from '@posthog/icons'
-import clsx from 'clsx'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { inStorybook, inStorybookTestRunner, slugify } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { Fragment, useState } from 'react'
 
 import { InsightQueryNode } from '~/queries/schema/schema-general'
@@ -47,7 +47,7 @@ export function EditorFilterGroup({ insightProps, editorFilterGroup }: EditorFil
 
             {isRowExpanded && (
                 <div
-                    className={clsx('flex flex-col gap-2', {
+                    className={cn('flex flex-col gap-2', {
                         'border rounded p-2 mt-1': isExpandable && isRowExpanded,
                     })}
                 >

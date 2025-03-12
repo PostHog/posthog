@@ -6,7 +6,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { NotebookNodeProps } from '../Notebook/utils'
 import { useEffect, useMemo } from 'react'
-import clsx from 'clsx'
+import { cn } from 'lib/utils/css-classes'
 import { NotFound } from 'lib/components/NotFound'
 import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { IconPeople, IconPerson, IconTrends } from '@posthog/icons'
@@ -126,7 +126,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeCohortAttribute
     }
     return (
         <div className="flex flex-col overflow-hidden">
-            <div className={clsx('p-4 gap-2', !expanded && 'cursor-pointer')}>
+            <div className={cn('p-4 gap-2', !expanded && 'cursor-pointer')}>
                 {cohortLoading ? (
                     <LemonSkeleton className="h-6" />
                 ) : (

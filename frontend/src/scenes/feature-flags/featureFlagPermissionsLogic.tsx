@@ -55,9 +55,8 @@ export const featureFlagPermissionsLogic = kea<featureFlagPermissionsLogicType>(
                         const response = await api.resourceAccessPermissions.featureFlags.list(props.flagId)
 
                         return response.results || []
-                    } else {
-                        return []
                     }
+                    return []
                 },
                 addAssociatedRoles: async (flagId?: number) => {
                     const { rolesToAdd } = values

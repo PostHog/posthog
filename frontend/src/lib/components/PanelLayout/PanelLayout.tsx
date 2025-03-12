@@ -1,6 +1,6 @@
 import { LemonButton, LemonButtonProps, Tooltip } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { LemonMenu, LemonMenuItem, LemonMenuProps } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { cn } from 'lib/utils/css-classes'
 import { PropsWithChildren } from 'react'
 
 type PanelContainerProps = PropsWithChildren<{
@@ -30,13 +30,13 @@ type SettingsToggleProps = SettingsButtonProps & {
 }
 
 function PanelLayout({ className, ...props }: Omit<PanelContainerProps, 'primary'>): JSX.Element {
-    return <Container className={clsx(className, 'PanelLayout')} {...props} primary={false} />
+    return <Container className={cn(className, 'PanelLayout')} {...props} primary={false} />
 }
 
 function Container({ children, primary, className, column }: PanelContainerProps): JSX.Element {
     return (
         <div
-            className={clsx(
+            className={cn(
                 'flex',
                 primary && 'flex-1',
                 column ? 'flex-col gap-y-4' : 'gap-x-2',
@@ -50,9 +50,7 @@ function Container({ children, primary, className, column }: PanelContainerProps
 }
 
 function Panel({ children, primary, className }: Omit<PanelContainerProps, 'column'>): JSX.Element {
-    return (
-        <div className={clsx(primary && 'flex-1', 'border bg-surface-primary rounded-xs', className)}>{children}</div>
-    )
+    return <div className={cn(primary && 'flex-1', 'border bg-surface-primary rounded-xs', className)}>{children}</div>
 }
 
 export function PanelSettings({
@@ -65,7 +63,7 @@ export function PanelSettings({
 }>): JSX.Element {
     return (
         <div
-            className={clsx(
+            className={cn(
                 'flex flex-row w-full overflow-hidden bg-surface-primary items-center justify-between',
                 border === 'bottom' && 'border-b',
                 border === 'top' && 'border-t'

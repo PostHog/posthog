@@ -1,7 +1,7 @@
 import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
 import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react'
 import { NotebookNodeType } from '~/types'
-import clsx from 'clsx'
+import { cn } from 'lib/utils/css-classes'
 import { LemonButton, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { membersLogic } from 'scenes/organization/membersLogic'
@@ -18,7 +18,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
     const member = meFirstMembers.find((member) => member.user.id === id)
 
     return (
-        <NodeViewWrapper as="span" className={clsx('NotebookMention', props.selected && 'NotebookMention--selected')}>
+        <NodeViewWrapper as="span" className={cn('NotebookMention', props.selected && 'NotebookMention--selected')}>
             <Tooltip
                 title={
                     <div className="p-2 flex items-center gap-2">

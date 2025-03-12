@@ -1,5 +1,5 @@
-import clsx from 'clsx'
 import { getCoreFilterDefinition } from 'lib/taxonomy'
+import { cn } from 'lib/utils/css-classes'
 import { getDisplayNameFromEntityFilter, isAllEventsEntityFilter } from 'scenes/insights/utils'
 
 import { ActionFilter, EntityFilter } from '~/types'
@@ -24,7 +24,7 @@ export function EntityFilterInfo({
     if (isAllEventsEntityFilter(filter) && !filter?.custom_name) {
         return (
             <span
-                className={clsx('EntityFilterInfo max-w-100', !allowWrap && 'whitespace-nowrap truncate')}
+                className={cn('EntityFilterInfo max-w-100', !allowWrap && 'whitespace-nowrap truncate')}
                 title="All events"
             >
                 All events
@@ -42,7 +42,7 @@ export function EntityFilterInfo({
             // eslint-disable-next-line react/forbid-dom-props
             <span className={!allowWrap ? 'flex truncate  items-center' : ''} style={style}>
                 <span
-                    className={clsx('EntityFilterInfo max-w-100', !allowWrap && 'whitespace-nowrap truncate')}
+                    className={cn('EntityFilterInfo max-w-100', !allowWrap && 'whitespace-nowrap truncate')}
                     title={titleToDisplay}
                 >
                     {titleToDisplay}
@@ -58,14 +58,14 @@ export function EntityFilterInfo({
         // eslint-disable-next-line react/forbid-dom-props
         <span className={!allowWrap ? 'flex items-baseline' : ''} style={style}>
             <span
-                className={clsx('EntityFilterInfo max-w-100', !allowWrap && 'whitespace-nowrap truncate')}
+                className={cn('EntityFilterInfo max-w-100', !allowWrap && 'whitespace-nowrap truncate')}
                 title={customTitle ?? undefined}
             >
                 {customTitle}
             </span>
             {!showSingleName && (
                 <span
-                    className={clsx(
+                    className={cn(
                         'EntityFilterInfo max-w-100 ml-1 text-secondary text-xs',
                         !allowWrap && 'whitespace-nowrap truncate'
                     )}

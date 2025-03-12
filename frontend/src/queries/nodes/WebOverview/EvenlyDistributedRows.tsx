@@ -1,4 +1,4 @@
-import clsx from 'clsx'
+import { cn } from 'lib/utils/css-classes'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 
 // see https://github.com/PostHog/posthog/pull/20359/files#r1490894232 for a visual example of what this is trying to
@@ -61,7 +61,7 @@ export const EvenlyDistributedRows = ({
 
     return (
         <div
-            className={clsx('grid', className)}
+            className={cn('grid', className)}
             // eslint-disable-next-line react/forbid-dom-props
             style={{ gridTemplateColumns: `repeat(${rowLayout?.itemsPerRow ?? 1}, 1fr)` }}
             ref={elementRef}

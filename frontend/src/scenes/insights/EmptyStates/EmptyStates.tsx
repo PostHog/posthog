@@ -11,7 +11,6 @@ import {
     IconWarning,
 } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { BuilderHog3 } from 'lib/components/hedgehogs'
 import { supportLogic } from 'lib/components/Support/supportLogic'
@@ -23,6 +22,7 @@ import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyNumber, humanizeBytes, inStorybook, inStorybookTestRunner } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
@@ -270,13 +270,13 @@ export function StatelessInsightLoadingState({
     return (
         <div
             data-attr="insight-empty-state"
-            className={clsx('flex flex-col gap-1 rounded p-4 w-full h-full', {
+            className={cn('flex flex-col gap-1 rounded p-4 w-full h-full', {
                 'justify-center items-center': !renderEmptyStateAsSkeleton,
                 'insights-loading-state justify-start': renderEmptyStateAsSkeleton,
             })}
         >
             <span
-                className={clsx(
+                className={cn(
                     'font-semibold transition-opacity duration-300 mb-1',
                     renderEmptyStateAsSkeleton ? 'text-start' : 'text-center',
                     isLoadingMessageVisible ? 'opacity-100' : 'opacity-0'
@@ -294,7 +294,7 @@ export function StatelessInsightLoadingState({
 
             {showLoadingDetails && (
                 <div
-                    className={clsx(
+                    className={cn(
                         'flex flex-col gap-2 justify-center max-w-120',
                         renderEmptyStateAsSkeleton ? 'items-start' : 'items-center'
                     )}

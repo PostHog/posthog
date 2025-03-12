@@ -2,7 +2,6 @@ import './Settings.scss'
 
 import { IconExternal } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonButtonProps, LemonDivider } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { NotFound } from 'lib/components/NotFound'
@@ -10,6 +9,7 @@ import { TimeSensitiveAuthenticationArea } from 'lib/components/TimeSensitiveAut
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconChevronRight, IconLink } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter, inStorybookTestRunner } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import React from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -124,7 +124,7 @@ export function Settings({
     )
 
     return (
-        <div className={clsx('Settings flex', isCompact && 'Settings--compact')} ref={ref}>
+        <div className={cn('Settings flex', isCompact && 'Settings--compact')} ref={ref}>
             {hideSections ? null : (
                 <>
                     {showOptions ? (

@@ -4,7 +4,7 @@ import { NotebookNodeType, NotebookTarget, QueryBasedInsightModel } from '~/type
 import { Link } from '@posthog/lemon-ui'
 import { IconCohort } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
-import clsx from 'clsx'
+import { cn } from 'lib/utils/css-classes'
 import { router } from 'kea-router'
 import { posthogNodePasteRule } from './utils'
 import api from 'lib/api'
@@ -176,7 +176,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
     return (
         <NodeViewWrapper
             as="span"
-            className={clsx('Backlink', isViewing && 'Backlink--active', props.selected && 'Backlink--selected')}
+            className={cn('Backlink', isViewing && 'Backlink--active', props.selected && 'Backlink--selected')}
         >
             <Link
                 to={href}

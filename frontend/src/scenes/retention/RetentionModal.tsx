@@ -1,12 +1,12 @@
 import './RetentionTable.scss'
 
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { dayjs } from 'lib/dayjs'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { capitalizeFirstLetter, isGroupType, percentage } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { asDisplay } from 'scenes/persons/person-utils'
@@ -179,7 +179,7 @@ export function RetentionModal(): JSX.Element | null {
                                                     return (
                                                         <td key={index}>
                                                             <div
-                                                                className={clsx(
+                                                                className={cn(
                                                                     'RetentionTable__Tab',
                                                                     hasAppearance ? 'opacity-100' : 'opacity-20'
                                                                 )}

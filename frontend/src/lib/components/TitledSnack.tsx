@@ -1,4 +1,4 @@
-import clsx from 'clsx'
+import { cn } from 'lib/utils/css-classes'
 
 export function TitledSnack({
     title,
@@ -14,7 +14,7 @@ export function TitledSnack({
     return (
         <div className="flex flex-row items-center">
             <span
-                className={clsx(
+                className={cn(
                     'pl-1.5 pr-1 py-1 max-w-full',
                     'border-r',
                     'rounded-l rounded-r-none',
@@ -28,7 +28,7 @@ export function TitledSnack({
                 </strong>
             </span>
             <span
-                className={clsx(
+                className={cn(
                     'pr-1.5 pl-1 py-1 max-w-full',
                     'rounded-r rounded-l-none',
                     'overflow-hidden text-ellipsis',

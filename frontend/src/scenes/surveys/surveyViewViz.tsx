@@ -7,7 +7,6 @@ import {
     IconThumbsUpFilled,
 } from '@posthog/icons'
 import { LemonButton, LemonTable } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -16,6 +15,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyNumber } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -90,7 +90,7 @@ function StackedBar({ segments }: { segments: StackedBarSegment[] }): JSX.Elemen
                                     placement="top"
                                 >
                                     <div
-                                        className={clsx(
+                                        className={cn(
                                             'h-10 text-white text-center absolute cursor-pointer',
                                             colorClass,
                                             isFirst || isOnly ? 'rounded-l' : '',
@@ -116,7 +116,7 @@ function StackedBar({ segments }: { segments: StackedBarSegment[] }): JSX.Elemen
                                 ({ count, label, colorClass }) =>
                                     count > 0 && (
                                         <div key={`stacked-bar-legend-${label}`} className="flex items-center mr-6">
-                                            <div className={clsx('w-3 h-3 rounded-full mr-2', colorClass)} />
+                                            <div className={cn('-3 h-3 rounded-full mr-2', colorClass)} />
                                             <span className="font-semibold text-secondary">{`${label} (${(
                                                 (count / total) *
                                                 100

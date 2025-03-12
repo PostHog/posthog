@@ -1,6 +1,6 @@
-import clsx from 'clsx'
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
+import { cn } from 'lib/utils/css-classes'
 import posthog from 'posthog-js'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -83,7 +83,7 @@ export const sessionReplayTemplatesLogic = kea<sessionReplayTemplatesLogicType>(
             props.template.variables ?? [],
             {
                 persist: true,
-                storageKey: clsx(
+                storageKey: cn(
                     'session-recordings.templates.variables',
                     values.currentTeam?.id,
                     props.category,

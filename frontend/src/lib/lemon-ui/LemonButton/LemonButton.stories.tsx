@@ -1,12 +1,12 @@
 import { IconGear, IconInfo, IconPlus } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import clsx from 'clsx'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
 import { IconCalculate, IconLink } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { capitalizeFirstLetter, delay, range } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
 import { LemonButton, LemonButtonProps, LemonButtonWithDropdown, LemonButtonWithDropdownProps } from './LemonButton'
@@ -43,7 +43,7 @@ const StatusesTemplate = ({
     ...props
 }: LemonButtonProps & { noText?: boolean; accommodateTooltip?: boolean }): JSX.Element => {
     return (
-        <div className={clsx('flex gap-2 border rounded-lg p-2 flex-wrap', accommodateTooltip && 'pt-12')}>
+        <div className={cn('flex gap-2 border rounded-lg p-2 flex-wrap', accommodateTooltip && 'pt-12')}>
             {statuses.map((status, j) => (
                 <LemonButton key={j} status={status} icon={<IconCalculate />} {...props}>
                     {!noText ? capitalizeFirstLetter(status || 'default') : undefined}

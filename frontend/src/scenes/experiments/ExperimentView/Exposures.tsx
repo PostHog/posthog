@@ -1,9 +1,9 @@
 import { IconCorrelationAnalysis, IconInfo, IconPencil } from '@posthog/icons'
 import { LemonButton, LemonTable, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { Chart, ChartConfiguration } from 'chart.js/auto'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { humanFriendlyNumber } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { useEffect, useRef } from 'react'
 
 import { experimentLogic } from '../experimentLogic'
@@ -103,11 +103,11 @@ export function Exposures(): JSX.Element {
                 </Tooltip>
             </div>
             {exposuresLoading ? (
-                <div className={clsx(chartWrapperClasses, 'flex justify-center items-center')}>
+                <div className={cn(chartWrapperClasses, 'flex justify-center items-center')}>
                     <Spinner className="text-5xl" />
                 </div>
             ) : !exposures?.timeseries?.length ? (
-                <div className={clsx(chartWrapperClasses, 'flex justify-center items-center')}>
+                <div className={cn(chartWrapperClasses, 'flex justify-center items-center')}>
                     <div className="text-center">
                         <IconCorrelationAnalysis className="text-3xl mb-2 text-tertiary" />
                         <h2 className="text-lg leading-tight">No exposures yet</h2>
@@ -129,7 +129,7 @@ export function Exposures(): JSX.Element {
                 </div>
             ) : (
                 <div className="flex gap-2">
-                    <div className={clsx(chartWrapperClasses, 'w-full md:w-2/3')}>
+                    <div className={cn(chartWrapperClasses, 'w-full md:w-2/3')}>
                         <canvas id="exposuresChart" />
                     </div>
                     <div className="h-[250px] md:w-1/3 border rounded bg-surface-primary p-4 overflow-y-auto">

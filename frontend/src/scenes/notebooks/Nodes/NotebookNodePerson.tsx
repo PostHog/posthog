@@ -13,7 +13,7 @@ import { NotebookNodeProps } from '../Notebook/utils'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { useEffect } from 'react'
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
-import clsx from 'clsx'
+import { cn } from 'lib/utils/css-classes'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { NotFound } from 'lib/components/NotFound'
 
@@ -104,7 +104,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonAttribute
     return (
         <div className="flex flex-col overflow-hidden">
             <div
-                className={clsx(
+                className={cn(
                     'p-4 flex-0 flex gap-2 justify-between min-h-20 items-center',
                     !expanded && 'cursor-pointer'
                 )}

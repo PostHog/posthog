@@ -10,13 +10,13 @@ import {
     Spinner,
     Tooltip,
 } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
+import { cn } from 'lib/utils/css-classes'
 import { editor as monacoEditor, MarkerSeverity } from 'monaco-editor'
 import { useRef } from 'react'
 
@@ -169,7 +169,7 @@ export function HogFunctionTest(): JSX.Element {
         <Form logic={hogFunctionTestLogic} props={logicProps} formKey="testInvocation" enableFormOnSubmit>
             <div
                 ref={testResultsRef}
-                className={clsx(
+                className={cn(
                     'border rounded p-3 deprecated-space-y-2',
                     expanded ? 'bg-surface-secondary min-h-120' : 'bg-surface-primary'
                 )}

@@ -19,12 +19,12 @@ import annotationPlugin, { AnnotationPluginOptions, LineAnnotationOptions } from
 import dataLabelsPlugin from 'chartjs-plugin-datalabels'
 import ChartjsPluginStacked100 from 'chartjs-plugin-stacked100'
 import chartTrendline from 'chartjs-plugin-trendline'
-import clsx from 'clsx'
 import { useValues } from 'kea'
 import { Chart, ChartItem, ChartOptions } from 'lib/Chart'
 import { getGraphColors, getSeriesColor } from 'lib/colors'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { hexToRGBA } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { useEffect, useRef } from 'react'
 import { ensureTooltip } from 'scenes/insights/views/LineGraph/LineGraph'
 
@@ -502,7 +502,7 @@ export const LineGraph = (): JSX.Element => {
 
     return (
         <div
-            className={clsx('rounded bg-surface-primary relative flex flex-1 flex-col p-2', {
+            className={cn('rounded bg-surface-primary relative flex flex-1 flex-col p-2', {
                 DataVisualization__LineGraph: presetChartHeight,
                 'h-full': !presetChartHeight,
                 border: showEditingUI,

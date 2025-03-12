@@ -1,12 +1,12 @@
 import './CardMeta.scss'
 
 import { IconPieChart } from '@posthog/icons'
-import clsx from 'clsx'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { IconRefresh, IconSubtitles, IconSubtitlesOff } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { cn } from 'lib/utils/css-classes'
 import React from 'react'
 import { Transition } from 'react-transition-group'
 
@@ -55,12 +55,12 @@ export function CardMeta({
     const showDetailsButtonLabel = !!primaryWidth && primaryWidth > 480
 
     return (
-        <div className={clsx('CardMeta', className, areDetailsShown && 'CardMeta--details-shown')}>
+        <div className={cn('CardMeta', className, areDetailsShown && 'CardMeta--details-shown')}>
             <div className="CardMeta__primary" ref={primaryRef}>
                 {ribbonColor &&
                     ribbonColor !==
                         InsightColor.White /* White has historically meant no color synonymously to null */ && (
-                        <div className={clsx('CardMeta__ribbon', ribbonColor)} />
+                        <div className={cn('CardMeta__ribbon', ribbonColor)} />
                     )}
                 <div className="CardMeta__main">
                     <div className="CardMeta__top">

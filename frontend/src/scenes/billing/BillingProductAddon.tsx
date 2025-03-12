@@ -1,9 +1,9 @@
 import { IconCheckCircle, IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonSelectOptions, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { capitalizeFirstLetter, humanFriendlyCurrency } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { ReactNode, useRef } from 'react'
 import { getProductIcon } from 'scenes/products/Products'
 
@@ -127,7 +127,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
             </div>
 
             {/* Features */}
-            <div className={clsx('mt-3', { 'ml-11': addon.type !== 'mobile_replay' })}>
+            <div className={cn('mt-3', { 'ml-11': addon.type !== 'mobile_replay' })}>
                 {addonFeatures?.length > 2 && (
                     <div>
                         <p className="ml-0 mb-2 max-w-200">Features included:</p>

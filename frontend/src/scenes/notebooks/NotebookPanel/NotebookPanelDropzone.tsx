@@ -1,6 +1,6 @@
 import { LemonButton } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { cn } from 'lib/utils/css-classes'
 import { DragEventHandler, useState } from 'react'
 
 import { NotebookNodeType } from '~/types'
@@ -52,7 +52,7 @@ export function NotebookPanelDropzone(): JSX.Element | null {
 
     return (
         <div
-            className={clsx('NotebookPanelDropzone', {
+            className={cn('NotebookPanelDropzone', {
                 'NotebookPanelDropzone--active': isDragActive,
                 'NotebookPanelDropzone--dropped': !!droppedResource,
             })}

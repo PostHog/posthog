@@ -1,6 +1,5 @@
 import { IconCollapse, IconGear } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonInputSelect, LemonSkeleton, Spinner, Tooltip } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { appEditorUrl, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
@@ -10,6 +9,7 @@ import { DetectiveHog } from 'lib/components/hedgehogs'
 import { heatmapDateOptions } from 'lib/components/IframedToolbarBrowser/utils'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { IconChevronRight, IconOpenInNew } from 'lib/lemon-ui/icons'
+import { cn } from 'lib/utils/css-classes'
 import React, { useEffect, useRef } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -153,7 +153,7 @@ function FilterPanel(): JSX.Element {
     } = useActions(logic)
 
     return (
-        <div className={clsx('flex flex-col gap-y-2 px-2 py-1 border-r', !filterPanelCollapsed && 'w-100')}>
+        <div className={cn('flex flex-col gap-y-2 px-2 py-1 border-r', !filterPanelCollapsed && 'w-100')}>
             {filterPanelCollapsed ? (
                 <Tooltip title="Expand heatmap settings">
                     <LemonButton
@@ -258,7 +258,7 @@ function ViewportChooser({
                     return (
                         <div
                             key={width}
-                            className={clsx(
+                            className={cn(
                                 'absolute h-full border-l border-r cursor-pointer flex items-center justify-center px-2 text-xs transition-colors',
                                 'hover:bg-primary hover:bg-opacity-20',
                                 'left-1/2 -translate-x-1/2',

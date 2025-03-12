@@ -4,11 +4,11 @@ import { horizontalListSortingStrategy, SortableContext, useSortable } from '@dn
 import { CSS } from '@dnd-kit/utilities'
 import { IconPlus } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import { cn } from 'lib/utils/css-classes'
 import { useState } from 'react'
 
 export interface PropertySelectProps {
@@ -33,7 +33,7 @@ const SortableProperty = ({
     return (
         <span
             ref={setNodeRef}
-            className={clsx(sortable ? 'cursor-move' : 'cursor-auto')}
+            className={cn(sortable ? 'cursor-move' : 'cursor-auto')}
             {...attributes}
             {...listeners}
             // eslint-disable-next-line react/forbid-dom-props

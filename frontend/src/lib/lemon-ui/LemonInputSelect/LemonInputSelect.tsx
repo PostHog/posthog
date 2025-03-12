@@ -1,10 +1,10 @@
 import { IconPencil } from '@posthog/icons'
 import { LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import Fuse from 'fuse.js'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
 import { range } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { MouseEvent, useEffect, useMemo, useRef, useState } from 'react'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
@@ -475,7 +475,7 @@ export function LemonInputSelect({
                 disabled={disabled}
                 autoFocus={autoFocus}
                 transparentBackground={transparentBackground}
-                className={clsx(
+                className={cn(
                     '!h-auto leading-7', // leading-7 means line height aligned with LemonSnack height
                     // Putting button-like text styling on the single-select unfocused placeholder
                     // NOTE: We need font-medium on both the input (for autosizing) and its placeholder (for display)

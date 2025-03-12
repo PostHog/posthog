@@ -1,7 +1,6 @@
 import './Billing.scss'
 
 import { LemonButton, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
 import { router } from 'kea-router'
@@ -14,6 +13,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { humanFriendlyCurrency, toSentenceCase } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { useEffect } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -156,14 +156,14 @@ export function Billing(): JSX.Element {
             <CreditCTAHero />
 
             <div
-                className={clsx('flex justify-between', {
+                className={cn('flex justify-between', {
                     'flex-col gap-4': size === 'small',
                     'flex-row': size !== 'small',
                 })}
             >
                 <div>
                     <div
-                        className={clsx('flex flex-wrap gap-6 w-fit mb-4', {
+                        className={cn('flex flex-wrap gap-6 w-fit mb-4', {
                             'flex-col items-stretch': size === 'small',
                             'items-center': size !== 'small',
                         })}

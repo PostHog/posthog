@@ -1,9 +1,9 @@
 import './ToolbarButton.scss'
 
 import { Tooltip } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { FunctionComponent, useEffect } from 'react'
 import React from 'react'
 
@@ -56,7 +56,7 @@ export const ToolbarButton: FunctionComponent<ToolbarButtonProps> = React.forwar
 
     const theButton = (
         <div
-            className={clsx('ToolbarButton', active && 'ToolbarButton--active', flex && 'ToolbarButton--flex')}
+            className={cn('ToolbarButton', active && 'ToolbarButton--active', flex && 'ToolbarButton--flex')}
             aria-label={theTitle}
             ref={ref}
         >

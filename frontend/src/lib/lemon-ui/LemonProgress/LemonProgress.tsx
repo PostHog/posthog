@@ -1,4 +1,4 @@
-import clsx from 'clsx'
+import { cn } from 'lib/utils/css-classes'
 import { forwardRef } from 'react'
 
 export type LemonProgressProps = {
@@ -27,7 +27,7 @@ export const LemonProgress: React.FunctionComponent<LemonProgressProps & React.R
         return (
             <div
                 ref={ref}
-                className={clsx(
+                className={cn(
                     'LemonProgress rounded-full w-full inline-block',
                     size === 'large' ? 'h-5' : 'h-1.5',
                     className
@@ -36,7 +36,7 @@ export const LemonProgress: React.FunctionComponent<LemonProgressProps & React.R
                 style={{ backgroundColor: bgColor }}
             >
                 <span
-                    className={clsx(
+                    className={cn(
                         'LemonProgress__track block h-full rounded-full transition-all',
                         width > 0 ? (size === 'large' ? 'min-w-5' : 'min-w-1.5') : null
                     )}

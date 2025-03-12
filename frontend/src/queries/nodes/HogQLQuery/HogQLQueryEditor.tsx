@@ -1,7 +1,6 @@
 import { Monaco } from '@monaco-editor/react'
 import { IconMagicWand } from '@posthog/icons'
 import { LemonInput, Link } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
@@ -10,6 +9,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
 import { codeEditorLogic, CodeEditorLogicProps } from 'lib/monaco/codeEditorLogic'
+import { cn } from 'lib/utils/css-classes'
 import type { editor as importedEditor, IDisposable } from 'monaco-editor'
 import { useEffect, useRef, useState } from 'react'
 import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSceneLogic'
@@ -92,7 +92,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
         <div className="flex items-start gap-2">
             <div
                 data-attr="hogql-query-editor"
-                className={clsx(
+                className={cn(
                     'flex flex-col rounded deprecated-space-y-2 w-full overflow-hidden',
                     !props.embedded && 'p-2 border'
                 )}

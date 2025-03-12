@@ -12,7 +12,6 @@ import {
     Link,
     SpinnerOverlay,
 } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { combineUrl } from 'kea-router'
@@ -24,6 +23,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
+import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
 import { AvailableFeature } from '~/types'
@@ -238,7 +238,7 @@ export function HogFunctionConfiguration({
                         {showLeftPanel && (
                             <div className="flex flex-col flex-1 gap-4 min-w-100">
                                 <div
-                                    className={clsx(
+                                    className={cn(
                                         'p-3 deprecated-space-y-2 bg-surface-primary',
                                         !embedded && 'border rounded'
                                     )}
@@ -373,7 +373,7 @@ export function HogFunctionConfiguration({
 
                         <div className="deprecated-space-y-4 flex-2 min-w-100">
                             <div
-                                className={clsx(
+                                className={cn(
                                     'p-3 deprecated-space-y-2 bg-surface-primary',
                                     !embedded && 'border rounded'
                                 )}
@@ -425,7 +425,7 @@ export function HogFunctionConfiguration({
 
                             {canEditSource && (
                                 <div
-                                    className={clsx(
+                                    className={cn(
                                         'border rounded p-3 deprecated-space-y-2',
                                         showSource ? 'bg-surface-primary' : 'bg-surface-secondary'
                                     )}

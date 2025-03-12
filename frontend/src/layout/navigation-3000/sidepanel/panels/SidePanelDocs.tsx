@@ -1,7 +1,7 @@
 import { IconExternal, IconHome } from '@posthog/icons'
 import { LemonButton, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { cn } from 'lib/utils/css-classes'
 import { useEffect, useRef } from 'react'
 
 import { themeLogic } from '../../themeLogic'
@@ -97,7 +97,7 @@ export const SidePanelDocs = (): JSX.Element => {
                 <iframe
                     src={iframeSrc}
                     title="Docs"
-                    className={clsx('w-full h-full', !iframeReady && 'hidden')}
+                    className={cn('w-full h-full', !iframeReady && 'hidden')}
                     ref={ref}
                 />
 

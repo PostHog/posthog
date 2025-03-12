@@ -6,7 +6,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { NotebookNodeProps } from '../Notebook/utils'
 import { useEffect } from 'react'
-import clsx from 'clsx'
+import { cn } from 'lib/utils/css-classes'
 import { NotFound } from 'lib/components/NotFound'
 import { groupLogic } from 'scenes/groups/groupLogic'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
@@ -64,7 +64,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeGroupAttributes
 
     return (
         <div className="flex flex-col overflow-hidden">
-            <div className={clsx('p-4 flex-0 flex gap-2 justify-between flex-wrap')}>
+            <div className={cn('p-4 flex-0 flex gap-2 justify-between flex-wrap')}>
                 {groupDataLoading ? (
                     <LemonSkeleton className="h-6" />
                 ) : groupData ? (

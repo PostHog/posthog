@@ -1,9 +1,9 @@
 import './LemonFileInput.scss'
 
-import clsx from 'clsx'
 import { IconUploadFile } from 'lib/lemon-ui/icons'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { cn } from 'lib/utils/css-classes'
 import { ChangeEvent, createRef, RefObject, useEffect, useState } from 'react'
 
 export interface LemonFileInputProps extends Pick<HTMLInputElement, 'multiple' | 'accept'> {
@@ -141,14 +141,14 @@ export const LemonFileInput = ({
         <>
             <div
                 ref={dropRef}
-                className={clsx(
+                className={cn(
                     'FileDropTarget flex flex-col gap-1',
                     !alternativeDropTargetRef?.current && drag && 'FileDropTarget--active'
                 )}
                 aria-disabled={disabled}
             >
                 <label
-                    className={clsx(
+                    className={cn(
                         'text-secondary inline-flex flow-row items-center gap-1',
                         disabled ? 'cursor-not-allowed' : 'cursor-pointer'
                     )}

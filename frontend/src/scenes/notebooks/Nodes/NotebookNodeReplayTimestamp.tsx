@@ -3,7 +3,7 @@ import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react'
 import { NotebookNodeType, NotebookTarget } from '~/types'
 import { dayjs } from 'lib/dayjs'
 import { JSONContent } from '../Notebook/utils'
-import clsx from 'clsx'
+import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 import { LemonButton } from '@posthog/lemon-ui'
 import { notebookLogic } from '../Notebook/notebookLogic'
@@ -39,7 +39,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
     return (
         <NodeViewWrapper
             as="span"
-            className={clsx('NotebookRecordingTimestamp', props.selected && 'NotebookRecordingTimestamp--selected')}
+            className={cn('NotebookRecordingTimestamp', props.selected && 'NotebookRecordingTimestamp--selected')}
         >
             <LemonButton
                 size="small"

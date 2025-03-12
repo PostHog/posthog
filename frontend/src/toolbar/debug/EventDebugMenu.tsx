@@ -1,5 +1,4 @@
 import { BaseIcon, IconCheck, IconChevronDown, IconEye, IconHide, IconLogomark, IconVideoCamera } from '@posthog/icons'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -7,6 +6,7 @@ import { dayjs } from 'lib/dayjs'
 import { IconUnverifiedEvent } from 'lib/lemon-ui/icons'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
+import { cn } from 'lib/utils/css-classes'
 import { SettingsBar, SettingsMenu } from 'scenes/session-recordings/components/PanelSettings'
 import { SimpleKeyValueList } from 'scenes/session-recordings/player/inspector/components/SimpleKeyValueList'
 
@@ -152,7 +152,7 @@ export const EventDebugMenu = (): JSX.Element => {
                                                 value={e.event}
                                                 type={TaxonomicFilterGroupType.Events}
                                             />
-                                            <IconChevronDown className={clsx(expanded ? 'rotate-180' : '')} />
+                                            <IconChevronDown className={cn(expanded ? 'rotate-180' : '')} />
                                         </div>
                                     </div>
                                     {expanded && (

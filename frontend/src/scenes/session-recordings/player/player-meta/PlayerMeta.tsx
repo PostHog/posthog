@@ -1,13 +1,13 @@
 import './PlayerMeta.scss'
 
 import { LemonSelect, LemonSelectOption, Link } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { isObject } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
 import { PlayerMetaBottomSettings } from 'scenes/session-recordings/player/player-meta/PlayerMetaBottomSettings'
@@ -158,7 +158,7 @@ export function PlayerMeta(): JSX.Element {
         <DraggableToNotebook href={urls.replaySingle(logicProps.sessionRecordingId)} onlyWithModifierKey>
             <div
                 ref={ref}
-                className={clsx('PlayerMeta', {
+                className={cn('PlayerMeta', {
                     'PlayerMeta--fullscreen': isFullScreen,
                 })}
             >
@@ -186,7 +186,7 @@ export function PlayerMeta(): JSX.Element {
                             )}
                         </>
                     )}
-                    <div className={clsx('flex-1', size === 'small' ? 'min-w-[1rem]' : 'min-w-[5rem]')} />
+                    <div className={cn('flex-1', size === 'small' ? 'min-w-[1rem]' : 'min-w-[5rem]')} />
                     <PlayerMetaLinks size={size} />
                     <ResolutionView size={size} />
                     <PlayerPersonMeta />

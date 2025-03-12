@@ -1,5 +1,5 @@
 import { IconX } from '@posthog/icons'
-import clsx from 'clsx'
+import { cn } from 'lib/utils/css-classes'
 import React, { useMemo } from 'react'
 
 import { LemonButton, LemonButtonProps } from '../LemonButton'
@@ -142,7 +142,7 @@ export function LemonSelect<T extends string | number | boolean | null>({
             closeParentPopoverOnClickInside={menu?.closeParentPopoverOnClickInside}
         >
             <LemonButton
-                className={clsx(className, 'LemonSelect')}
+                className={cn(className, 'LemonSelect')}
                 icon={activeLeaf?.icon}
                 type="secondary"
                 sideAction={

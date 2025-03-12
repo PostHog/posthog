@@ -1,7 +1,7 @@
 import { IconArrowRight, IconStopFilled } from '@posthog/icons'
 import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { cn } from 'lib/utils/css-classes'
 import { useEffect, useRef } from 'react'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
@@ -24,13 +24,13 @@ export function QuestionInput(): JSX.Element {
 
     return (
         <div
-            className={clsx(
+            className={cn(
                 'px-3',
                 !isFloating ? 'relative w-[min(44rem,100%)]' : 'sticky bottom-0 z-10 w-full max-w-[45rem] self-center'
             )}
         >
             <div
-                className={clsx(
+                className={cn(
                     'flex flex-col items-center gap-2',
                     isFloating &&
                         'p-1 mb-3 bottom-3 border border-[var(--border-primary)] rounded-lg backdrop-blur-sm bg-[var(--glass-bg-3000)]'
@@ -50,10 +50,10 @@ export function QuestionInput(): JSX.Element {
                     disabled={inputDisabled}
                     minRows={1}
                     maxRows={10}
-                    className={clsx('p-3 pr-12', isFloating && 'border-primary')}
+                    className={cn('p-3 pr-12', isFloating && 'border-primary')}
                 />
                 <div
-                    className={clsx(
+                    className={cn(
                         'absolute flex items-center',
                         isFloating ? 'right-3 bottom-[11px]' : 'right-5 bottom-[7px]'
                     )}

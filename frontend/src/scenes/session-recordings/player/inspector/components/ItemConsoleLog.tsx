@@ -1,7 +1,7 @@
 import { LemonDivider } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
+import { cn } from 'lib/utils/css-classes'
 
 import { InspectorListItemConsole } from '../playerInspectorLogic'
 
@@ -15,7 +15,7 @@ export function ItemConsoleLog({ item }: ItemConsoleLogProps): JSX.Element {
             <div className="px-2 py-1 text-xs cursor-pointer truncate font-mono flex-1">{item.data.content}</div>
             {(item.data.count || 1) > 1 ? (
                 <span
-                    className={clsx(
+                    className={cn(
                         'rounded-lg px-1 mx-2 text-white text-xs font-semibold',
                         item.highlightColor === 'danger' && `bg-fill-error-highlight`,
                         item.highlightColor === 'warning' && `bg-fill-warning-highlight`,

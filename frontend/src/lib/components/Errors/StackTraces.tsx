@@ -1,9 +1,9 @@
 import './StackTraces.scss'
 
 import { LemonCollapse, Tooltip } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { cn } from 'lib/utils/css-classes'
 import { useEffect } from 'react'
 
 import { CodeLine, getLanguage, Language } from '../CodeSnippet/CodeSnippet'
@@ -50,7 +50,7 @@ export function ChainedStackTraces({
                     return (
                         <div
                             key={index}
-                            className={clsx('StackTrace flex flex-col gap-y-2', embedded && 'StackTrace--embedded')}
+                            className={cn('StackTrace flex flex-col gap-y-2', embedded && 'StackTrace--embedded')}
                         >
                             <div className="flex flex-col gap-0.5">
                                 <h3 className="StackTrace__type mb-0">{type}</h3>

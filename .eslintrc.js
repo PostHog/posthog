@@ -29,7 +29,12 @@ module.exports = {
         },
         'import/resolver': {
             node: {
-                paths: ['./common/eslint_rules', '../common/eslint_rules', '../../common/eslint_rules', '../../../common/eslint_rules'], // Add the directory containing your custom rules
+                paths: [
+                    './common/eslint_rules',
+                    '../common/eslint_rules',
+                    '../../common/eslint_rules',
+                    '../../../common/eslint_rules',
+                ], // Add the directory containing your custom rules
                 extensions: ['.js', '.jsx', '.ts', '.tsx'], // Ensure ESLint resolves both JS and TS files
             },
         },
@@ -126,6 +131,10 @@ module.exports = {
                     {
                         name: 'dayjs',
                         message: 'Do not directly import dayjs. Only import the dayjs exported from lib/dayjs.',
+                    },
+                    {
+                        name: 'clsx',
+                        message: 'Do not directly import clsx. Use cn from lib/utils/css-classes.ts instead.',
                     },
                 ],
             },

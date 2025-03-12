@@ -1,7 +1,7 @@
-import clsx from 'clsx'
 import { useValues } from 'kea'
 import { CardMeta } from 'lib/components/Cards/CardMeta'
 import { LemonMenuItemList } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { cn } from 'lib/utils/css-classes'
 import React, { useState } from 'react'
 import { urls } from 'scenes/urls'
 
@@ -34,7 +34,7 @@ export const QueryCard = React.forwardRef<HTMLDivElement, QueryCardProps>(functi
 
     return (
         <div
-            className={clsx('InsightCard border', highlighted && 'InsightCard--highlighted', className)}
+            className={cn('InsightCard border', highlighted && 'InsightCard--highlighted', className)}
             data-attr="insight-card"
             {...divProps}
             // eslint-disable-next-line react/forbid-dom-props

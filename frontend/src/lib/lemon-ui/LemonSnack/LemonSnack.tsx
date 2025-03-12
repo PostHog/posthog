@@ -1,6 +1,6 @@
 import { IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-import clsx from 'clsx'
+import { cn } from 'lib/utils/css-classes'
 import React, { forwardRef } from 'react'
 import { twMerge } from 'tailwind-merge'
 
@@ -41,7 +41,7 @@ export const LemonSnack: React.FunctionComponent<LemonSnackProps & React.RefAttr
                 </span>
 
                 {onClose && (
-                    <span className={clsx('LemonSnack__close shrink-0 ml-1', isRegular || '-mr-1')}>
+                    <span className={cn('LemonSnack__close shrink-0 ml-1', isRegular || '-mr-1')}>
                         <LemonButton
                             size="small"
                             noPadding

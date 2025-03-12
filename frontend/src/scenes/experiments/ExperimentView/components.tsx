@@ -12,7 +12,6 @@ import {
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -20,6 +19,7 @@ import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
+import { cn } from 'lib/utils/css-classes'
 import { useEffect, useState } from 'react'
 import { urls } from 'scenes/urls'
 
@@ -77,7 +77,7 @@ export function VariantTag({
 
     if (experiment.holdout && variantKey === `holdout-${experiment.holdout_id}`) {
         return (
-            <span className={clsx('flex items-center min-w-0', className)}>
+            <span className={cn('flex items-center min-w-0', className)}>
                 <div
                     className="w-2 h-2 rounded-full shrink-0"
                     // eslint-disable-next-line react/forbid-dom-props
@@ -93,7 +93,7 @@ export function VariantTag({
     }
 
     return (
-        <span className={clsx('flex items-center min-w-0', className)}>
+        <span className={cn('flex items-center min-w-0', className)}>
             <div
                 className="w-2 h-2 rounded-full shrink-0"
                 // eslint-disable-next-line react/forbid-dom-props

@@ -2,11 +2,11 @@ import './index.scss'
 
 import { IconGear, IconHome, IconLaptop } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonDropdown, LemonDropdownProps } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
 import { IconWeb } from 'lib/lemon-ui/icons'
 import { humanFriendlyDetailedTime, shortTimeZone } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { forwardRef } from 'react'
@@ -42,7 +42,7 @@ const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
     }, [])
 
     return (
-        <div className={clsx('TZLabelPopover', showSeconds && 'TZLabelPopover--seconds')}>
+        <div className={cn('TZLabelPopover', showSeconds && 'TZLabelPopover--seconds')}>
             <div className="flex justify-between items-center">
                 <h3 className="mb-0">Timezone conversion</h3>
                 <span>
@@ -126,7 +126,7 @@ const TZLabelRaw = forwardRef<HTMLElement, TZLabelProps>(function TZLabelRaw(
         <span
             className={
                 !noStyles
-                    ? clsx('whitespace-nowrap align-middle', showPopover && 'border-dotted border-b', className)
+                    ? cn('whitespace-nowrap align-middle', showPopover && 'border-dotted border-b', className)
                     : className
             }
             ref={ref}

@@ -1,4 +1,4 @@
-import clsx from 'clsx'
+import { cn } from 'lib/utils/css-classes'
 import React, { useState } from 'react'
 
 import { LemonSkeleton } from '../LemonSkeleton'
@@ -36,7 +36,7 @@ export const UploadedLogo = React.forwardRef<HTMLDivElement, UploadedLogoProps>(
 
     return (
         <div
-            className={clsx(
+            className={cn(
                 'relative flex overflow-hidden select-none',
                 size === 'xlarge'
                     ? 'size-16 rounded before:absolute before:inset-0 before:border before:rounded'

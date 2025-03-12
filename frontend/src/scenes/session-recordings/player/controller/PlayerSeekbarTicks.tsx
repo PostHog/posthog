@@ -1,7 +1,7 @@
-import clsx from 'clsx'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { autoCaptureEventToDescription } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { memo } from 'react'
 import {
     InspectorListItemComment,
@@ -37,7 +37,7 @@ function PlayerSeekbarTick({
 
     return (
         <div
-            className={clsx('PlayerSeekbarTick', item.highlightColor && `PlayerSeekbarTick--${item.highlightColor}`)}
+            className={cn('PlayerSeekbarTick', item.highlightColor && `PlayerSeekbarTick--${item.highlightColor}`)}
             title={isEventItem ? data.event : data.comment}
             // eslint-disable-next-line react/forbid-dom-props
             style={{

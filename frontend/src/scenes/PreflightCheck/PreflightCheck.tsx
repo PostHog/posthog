@@ -2,7 +2,6 @@ import './PreflightCheck.scss'
 
 import { IconCheckCircle, IconCollapse, IconExpand, IconWarning } from '@posthog/icons'
 import { Link, Spinner } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
@@ -11,6 +10,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { PreflightCheckStatus, PreflightItem, preflightLogic } from './preflightLogic'
@@ -35,7 +35,7 @@ function PreflightCheckIcon({ status, loading }: { status: PreflightCheckStatus;
 function PreflightItemRow({ name, status, caption }: PreflightItem): JSX.Element {
     const { preflightLoading } = useValues(preflightLogic)
     return (
-        <div className={clsx('PreflightItem', preflightLoading ? 'Preflight--loading' : `Preflight--${status}`)}>
+        <div className={cn('PreflightItem', preflightLoading ? 'Preflight--loading' : `Preflight--${status}`)}>
             <div className="PreflightItem__icon-container">
                 <PreflightCheckIcon status={status} loading={preflightLoading} />
             </div>
@@ -142,7 +142,7 @@ export function PreflightCheck(): JSX.Element {
                         <div className="Preflight__checks-container">
                             <div className="Preflight__check-summary">
                                 <div
-                                    className={clsx(
+                                    className={cn(
                                         'Preflight__summary-icon-container',
                                         preflightLoading
                                             ? 'Preflight--loading'

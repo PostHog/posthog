@@ -1,7 +1,6 @@
 import './LemonButton.scss'
 
 import { IconChevronDown } from '@posthog/icons'
-import clsx from 'clsx'
 import { IconChevronRight } from 'lib/lemon-ui/icons'
 import React, { useContext } from 'react'
 
@@ -156,7 +155,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 // Bogus `sideIcon` div prevents overflow under the side button.
                 sideIcon = (
                     <span
-                        className={clsx(
+                        className={cn(
                             'LemonButtonWithSideAction__spacer',
                             usingSideActionDivider && 'LemonButtonWithSideAction__spacer--divider'
                         )}
@@ -212,7 +211,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
             let workingButton: JSX.Element = (
                 <ButtonComponent
                     ref={ref as any}
-                    className={clsx(
+                    className={cn(
                         `LemonButton LemonButton--${type} LemonButton--status-${status}`,
                         loading && `LemonButton--loading`,
                         noPadding && `LemonButton--no-padding`,
@@ -259,7 +258,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
 
                 workingButton = (
                     <div
-                        className={clsx(
+                        className={cn(
                             `LemonButtonWithSideAction LemonButtonWithSideAction--${type}`,
                             fullWidth && 'LemonButtonWithSideAction--full-width'
                         )}

@@ -3,7 +3,6 @@ import '../../lemon-ui/Popover/Popover.scss'
 
 import { IconArchive } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { ControlledDefinitionPopover } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
 import { definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
@@ -19,6 +18,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { pluralize } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { isDefinitionStale } from 'lib/utils/definitions'
 import { useState } from 'react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
@@ -108,7 +108,7 @@ const renderItemContents = ({
         listGroupType === TaxonomicFilterGroupType.SessionProperties ||
         listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix) ? (
         <>
-            <div className={clsx('taxonomic-list-row-contents', isStale && 'text-muted')}>
+            <div className={cn('taxonomic-list-row-contents', isStale && 'text-muted')}>
                 {icon}
                 <PropertyKeyInfo
                     value={item.name ?? ''}
@@ -209,7 +209,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
 
         const commonDivProps: React.HTMLProps<HTMLDivElement> = {
             key: `item_${rowIndex}`,
-            className: clsx(
+            className: cn(
                 'taxonomic-list-row',
                 rowIndex === index && mouseInteractionsEnabled && 'hover',
                 isSelected && 'selected'
@@ -255,7 +255,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
             return (
                 <div
                     {...commonDivProps}
-                    className={clsx(commonDivProps.className, 'expand-row')}
+                    className={cn(commonDivProps.className, 'expand-row')}
                     data-attr={`expand-list-${listGroupType}`}
                     onClick={expand}
                 >
@@ -274,7 +274,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
         return (
             <div
                 {...commonDivProps}
-                className={clsx(commonDivProps.className, 'skeleton-row')}
+                className={cn(commonDivProps.className, 'skeleton-row')}
                 data-attr={`prop-skeleton-${listGroupType}-${rowIndex}`}
             >
                 <div className="taxonomic-list-row-contents">
@@ -288,7 +288,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
     }
 
     return (
-        <div className={clsx('taxonomic-infinite-list', showEmptyState && 'empty-infinite-list')}>
+        <div className={cn('Taxonomic-infinite-list', showEmptyState && 'empty-infinite-list')}>
             {showEmptyState ? (
                 <div className="no-infinite-results flex flex-col deprecated-space-y-1 items-center">
                     <IconArchive className="text-5xl text-tertiary" />

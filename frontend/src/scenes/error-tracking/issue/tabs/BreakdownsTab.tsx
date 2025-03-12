@@ -1,7 +1,7 @@
 import { LemonSegmentedButton, LemonSegmentedButtonOption } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useValues } from 'kea'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
+import { cn } from 'lib/utils/css-classes'
 import { useState } from 'react'
 
 import { Query } from '~/queries/Query/Query'
@@ -44,7 +44,7 @@ export const BreakdownsTab = (): JSX.Element => {
     })
 
     return (
-        <div className={clsx('ErrorTracking__breakdowns grid gap-5', gridColumnsMap[size])} ref={ref}>
+        <div className={cn('ErrorTracking__breakdowns grid gap-5', gridColumnsMap[size])} ref={ref}>
             {breakdownGroups.map((group, index) => (
                 <BreakdownGroup key={index} group={group} />
             ))}

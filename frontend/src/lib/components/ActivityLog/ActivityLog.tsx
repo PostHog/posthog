@@ -3,7 +3,6 @@ import './ActivityLog.scss'
 import { IconCollapse, IconExpand } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonTabs } from '@posthog/lemon-ui'
 import useSize from '@react-hook/size'
-import clsx from 'clsx'
 import { useValues } from 'kea'
 import { activityLogLogic, ActivityLogLogicProps } from 'lib/components/ActivityLog/activityLogLogic'
 import { ActivityChange, HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
@@ -13,6 +12,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { cn } from 'lib/utils/css-classes'
 import { useRef, useState } from 'react'
 import { userLogic } from 'scenes/userLogic'
 
@@ -118,10 +118,8 @@ export const ActivityLogRow = ({ logItem }: { logItem: HumanizedActivityLogItem 
     const [isExpanded, setIsExpanded] = useState(false)
     const [activeTab, setActiveTab] = useState<ActivityLogTabs>('diff')
     return (
-        <div className={clsx('flex flex-col px-1 py-0.5', isExpanded && 'border rounded')}>
-            <div
-                className={clsx('ActivityLogRow flex deprecated-space-x-2', logItem.unread && 'ActivityLogRow--unread')}
-            >
+        <div className={cn('flex flex-col px-1 py-0.5', isExpanded && 'border rounded')}>
+            <div className={cn('ActivityLogRow flex deprecated-space-x-2', logItem.unread && 'ActivityLogRow--unread')}>
                 <ProfilePicture
                     showName={false}
                     user={{

@@ -1,7 +1,6 @@
 import { IconCheckCircle, IconEllipsis, IconX } from '@posthog/icons'
 import { LemonButton, LemonTag, lemonToast } from '@posthog/lemon-ui'
 import { captureException } from '@sentry/react'
-import clsx from 'clsx'
 import { useActions, useAsyncActions, useValues } from 'kea'
 import { TZLabel } from 'lib/components/TZLabel'
 import { isDayjs } from 'lib/dayjs'
@@ -10,6 +9,7 @@ import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Link } from 'lib/lemon-ui/Link'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { InfiniteLoader } from 'react-virtualized/dist/es/InfiniteLoader'
@@ -439,7 +439,7 @@ function SidebarListItem({ item, validateName, active, style }: SidebarListItemP
         <li
             id={`sidebar-${item.key}`}
             title={!isItemTentative(item) && !isListItemAccordion(item) ? item.name : 'New item'}
-            className={clsx(
+            className={cn(
                 'SidebarListItem',
                 'menuItems' in item && item.menuItems?.length && 'SidebarListItem--has-menu',
                 isMenuOpen && 'SidebarListItem--is-menu-open',

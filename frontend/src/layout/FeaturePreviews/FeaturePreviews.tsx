@@ -1,8 +1,8 @@
 import { LemonBanner, LemonButton, LemonDivider, LemonSwitch, LemonTabs, LemonTextArea, Link } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useAsyncActions, useValues } from 'kea'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
+import { cn } from 'lib/utils/css-classes'
 import { useLayoutEffect, useState } from 'react'
 
 import { EnrichedEarlyAccessFeature, featurePreviewsLogic } from './featurePreviewsLogic'
@@ -29,7 +29,7 @@ export function FeaturePreviews({ focusedFeatureFlagKey }: { focusedFeatureFlagK
 
     return (
         <div
-            className={clsx(
+            className={cn(
                 'flex flex-col relative min-h-24',
                 earlyAccessFeatures.length === 0 && 'items-center justify-center'
             )}

@@ -1,10 +1,10 @@
 import { LemonButton, LemonCheckbox, LemonDialog, LemonInput, LemonSelect } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useValues } from 'kea'
 import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { cn } from 'lib/utils/css-classes'
 
 import { AvailableFeature, SurveyAppearance, SurveyAppearance as SurveyAppearanceType } from '~/types'
 
@@ -56,9 +56,7 @@ export function Customization({
                         value={appearance?.backgroundColor}
                         onChange={(backgroundColor) => onAppearanceChange({ ...appearance, backgroundColor })}
                         disabled={!surveysStylingAvailable}
-                        className={clsx(
-                            validationErrors?.backgroundColor ? 'border-danger' : IGNORE_ERROR_BORDER_CLASS
-                        )}
+                        className={cn(validationErrors?.backgroundColor ? 'border-danger' : IGNORE_ERROR_BORDER_CLASS)}
                     />
                     {validationErrors?.backgroundColor && (
                         <LemonField.Error error={validationErrors?.backgroundColor} />
@@ -69,7 +67,7 @@ export function Customization({
                         value={appearance?.borderColor || defaultSurveyAppearance.borderColor}
                         onChange={(borderColor) => onAppearanceChange({ ...appearance, borderColor })}
                         disabled={!surveysStylingAvailable}
-                        className={clsx(validationErrors?.borderColor ? 'border-danger' : IGNORE_ERROR_BORDER_CLASS)}
+                        className={cn(lidationErrors?.borderColor ? 'border-danger' : IGNORE_ERROR_BORDER_CLASS)}
                     />
                     {validationErrors?.borderColor && <LemonField.Error error={validationErrors?.borderColor} />}
                 </LemonField.Pure>
@@ -105,7 +103,7 @@ export function Customization({
                                     onAppearanceChange({ ...appearance, ratingButtonColor })
                                 }
                                 disabled={!surveysStylingAvailable}
-                                className={clsx(
+                                className={cn(
                                     validationErrors?.ratingButtonColor ? 'border-danger' : IGNORE_ERROR_BORDER_CLASS
                                 )}
                             />
@@ -120,7 +118,7 @@ export function Customization({
                                     onAppearanceChange({ ...appearance, ratingButtonActiveColor })
                                 }
                                 disabled={!surveysStylingAvailable}
-                                className={clsx(
+                                className={cn(
                                     validationErrors?.ratingButtonActiveColor
                                         ? 'border-danger'
                                         : IGNORE_ERROR_BORDER_CLASS
@@ -137,7 +135,7 @@ export function Customization({
                         value={appearance?.submitButtonColor}
                         onChange={(submitButtonColor) => onAppearanceChange({ ...appearance, submitButtonColor })}
                         disabled={!surveysStylingAvailable}
-                        className={clsx(
+                        className={cn(
                             validationErrors?.submitButtonColor ? 'border-danger' : IGNORE_ERROR_BORDER_CLASS
                         )}
                     />
@@ -153,7 +151,7 @@ export function Customization({
                             onAppearanceChange({ ...appearance, submitButtonTextColor })
                         }
                         disabled={!surveysStylingAvailable}
-                        className={clsx(
+                        className={cn(
                             validationErrors?.submitButtonTextColor ? 'border-danger' : IGNORE_ERROR_BORDER_CLASS
                         )}
                     />

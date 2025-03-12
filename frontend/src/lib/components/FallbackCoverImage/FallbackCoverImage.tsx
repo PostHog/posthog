@@ -1,5 +1,5 @@
-import clsx from 'clsx'
 import { getSeriesColor } from 'lib/colors'
+import { cn } from 'lib/utils/css-classes'
 import { useState } from 'react'
 
 export function FallbackCoverImage({
@@ -25,7 +25,7 @@ export function FallbackCoverImage({
         <>
             {hasError || !src ? (
                 <div
-                    className={clsx('w-full h-full', className)}
+                    className={cn('w-full h-full', className)}
                     // dynamic color based on index
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
@@ -34,7 +34,7 @@ export function FallbackCoverImage({
                 />
             ) : (
                 <img
-                    className={clsx('object-cover w-full', imageClassName)}
+                    className={cn('object-cover w-full', imageClassName)}
                     src={src}
                     alt={alt}
                     onError={handleImageError}

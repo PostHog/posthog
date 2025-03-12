@@ -1,6 +1,5 @@
 import { IconArchive } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTabs, Link } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { QueryCard } from 'lib/components/Cards/InsightCard/QueryCard'
@@ -10,6 +9,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
+import { cn } from 'lib/utils/css-classes'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -61,7 +61,7 @@ const Tiles = (): JSX.Element => {
                     description={description}
                     query={{ kind: NodeKind.InsightVizNode, source: query } as InsightVizNode}
                     context={context}
-                    className={clsx(
+                    className={cn(
                         'h-96',
                         /* Second row is the only one to have 2 tiles in the xl layout */
                         i < 3 || i >= 5 ? '@4xl/dashboard:col-span-2' : '@4xl/dashboard:col-span-3'

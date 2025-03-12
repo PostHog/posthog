@@ -1,5 +1,5 @@
-import clsx from 'clsx'
 import { useEventListener } from 'lib/hooks/useEventListener'
+import { cn } from 'lib/utils/css-classes'
 import { useRef, useState } from 'react'
 
 export interface LemonSliderProps {
@@ -97,7 +97,7 @@ export function LemonSlider({ value = 0, onChange, min, max, step = 1, className
     const proportion = isNaN(value) ? 0 : Math.round(((constrainedValue - min) / (max - min)) * 100) / 100
 
     return (
-        <div className={clsx('flex items-center relative my-2.5 min-w-16 select-none', className)}>
+        <div className={cn('flex items-center relative my-2.5 min-w-16 select-none', className)}>
             <div
                 className="w-full h-3 flex items-center cursor-pointer"
                 ref={trackRef}
@@ -123,7 +123,7 @@ export function LemonSlider({ value = 0, onChange, min, max, step = 1, className
                 style={{ width: `${proportion * 100}%` }}
             />
             <button
-                className={clsx(
+                className={cn(
                     'absolute size-3 box-content border-2 border-primary rounded-full cursor-pointer bg-accent-primary transition-shadow duration-75',
                     dragging ? 'ring-2 scale-90' : 'ring-0 hover:ring-2 focus:ring-2'
                 )}

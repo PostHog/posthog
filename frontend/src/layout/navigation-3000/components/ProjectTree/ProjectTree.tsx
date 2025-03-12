@@ -1,10 +1,10 @@
 import { IconPin, IconPinFilled, IconPlus, IconSearch, IconSort, IconX } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTree, LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { ContextMenuGroup, ContextMenuItem } from 'lib/ui/ContextMenu/ContextMenu'
+import { cn } from 'lib/utils/css-classes'
 import { useRef } from 'react'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
@@ -57,7 +57,7 @@ export function ProjectTree({ contentRef }: { contentRef: React.RefObject<HTMLEl
     return (
         <>
             <nav
-                className={clsx('flex flex-col max-h-screen min-h-screen relative w-[320px] border-r border-primary')}
+                className={cn('flex flex-col max-h-screen min-h-screen relative w-[320px] border-r border-primary')}
                 ref={containerRef}
             >
                 <div className="flex justify-between p-1 bg-surface-tertiary">

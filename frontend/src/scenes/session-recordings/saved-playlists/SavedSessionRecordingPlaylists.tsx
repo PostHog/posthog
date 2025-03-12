@@ -1,6 +1,5 @@
 import { IconCalendar, IconPin, IconPinFilled } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonDivider, LemonInput, LemonTable, Link, Tooltip } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { MemberSelect } from 'lib/components/MemberSelect'
@@ -11,6 +10,7 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { isObject } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { SavedSessionRecordingPlaylistsEmptyState } from 'scenes/session-recordings/saved-playlists/SavedSessionRecordingPlaylistsEmptyState'
 import { urls } from 'scenes/urls'
 
@@ -29,7 +29,7 @@ function nameColumn(): LemonTableColumn<SessionRecordingPlaylistType, 'name'> {
         render: function Render(name, { short_id, derived_name, description }) {
             return (
                 <>
-                    <Link className={clsx('font-semibold', !name && 'italic')} to={urls.replayPlaylist(short_id)}>
+                    <Link className={cn('font-semibold', !name && 'italic')} to={urls.replayPlaylist(short_id)}>
                         {name || derived_name || 'Unnamed'}
                     </Link>
                     {description ? <div className="truncate">{description}</div> : null}

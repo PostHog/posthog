@@ -1,12 +1,12 @@
 import './LemonCalendar.scss'
 
-import clsx from 'clsx'
 import { useValues } from 'kea'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { dayjs } from 'lib/dayjs'
 import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { range } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { forwardRef, Ref, useEffect, useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -61,7 +61,7 @@ export const LemonCalendar = forwardRef(function LemonCalendar(
     return (
         <div
             ref={ref}
-            className={clsx(
+            className={cn(
                 'LemonCalendar relative flex items-start gap-4 tabular-nums',
                 `LemonCalendar--${granularity}`
             )}
@@ -134,7 +134,7 @@ export const LemonCalendar = forwardRef(function LemonCalendar(
                                     {range(0, 7).map((day) => {
                                         const date = firstDay.add(week * 7 + day, 'day')
                                         const defaultProps: LemonButtonProps = {
-                                            className: clsx('flex-col', {
+                                            className: cn('flex-col', {
                                                 'opacity-25': date.isBefore(startOfMonth) || date.isAfter(endOfMonth),
                                                 LemonCalendar__today: date.isSame(today, 'd'),
                                             }),

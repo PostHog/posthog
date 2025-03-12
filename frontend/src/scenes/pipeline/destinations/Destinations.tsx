@@ -4,7 +4,6 @@ import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } 
 import { CSS } from '@dnd-kit/utilities'
 import { LemonTable, LemonTableColumn, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { LemonBadge, LemonButton, LemonModal } from '@posthog/lemon-ui'
-import { clsx } from 'clsx'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
@@ -13,6 +12,7 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { cn } from 'lib/utils/css-classes'
 import { useEffect, useState } from 'react'
 import { urls } from 'scenes/urls'
 
@@ -477,7 +477,7 @@ const MinimalTransformationView = ({
     return (
         <div
             ref={setNodeRef}
-            className={clsx(
+            className={cn(
                 'relative flex items-center gap-2 p-2 border rounded cursor-move bg-bg-light',
                 isDragging && 'z-[999999]'
             )}

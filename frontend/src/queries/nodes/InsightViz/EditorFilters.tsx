@@ -1,8 +1,8 @@
 import { IconInfo } from '@posthog/icons'
 import { LemonBanner, Link, Tooltip } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useValues } from 'kea'
 import { NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
+import { cn } from 'lib/utils/css-classes'
 import { CSSTransition } from 'react-transition-group'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { Attribution } from 'scenes/insights/EditorFilters/AttributionFilter'
@@ -367,7 +367,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         <CSSTransition in={showing} timeout={250} classNames="anim-" mountOnEnter unmountOnExit>
             <>
                 <div
-                    className={clsx('EditorFiltersWrapper flex flex-row flex-wrap gap-8 shrink-0 bg-surface-primary', {
+                    className={cn('EditorFiltersWrapper flex flex-row flex-wrap gap-8 shrink-0 bg-surface-primary', {
                         'p-4 rounded border': !embedded,
                     })}
                 >

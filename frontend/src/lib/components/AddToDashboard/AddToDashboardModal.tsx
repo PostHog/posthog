@@ -1,5 +1,4 @@
 import { IconHome } from '@posthog/icons'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { addToDashboardModalLogic } from 'lib/components/AddToDashboard/addToDashboardModalLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -8,6 +7,7 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { pluralize } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { CSSProperties } from 'react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'
@@ -43,7 +43,7 @@ const DashboardRelationRow = ({
             data-attr="dashboard-list-item"
             /* eslint-disable-next-line react/forbid-dom-props */
             style={style}
-            className={clsx('flex items-center deprecated-space-x-2', isHighlighted && 'highlighted')}
+            className={cn('flex items-center deprecated-space-x-2', isHighlighted && 'highlighted')}
         >
             <Link
                 to={urls.dashboard(dashboard.id)}

@@ -1,5 +1,5 @@
-import clsx from 'clsx'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { cn } from 'lib/utils/css-classes'
 
 export function PerformanceEventLabel({
     label,
@@ -11,7 +11,7 @@ export function PerformanceEventLabel({
     label?: string | undefined
 }): JSX.Element {
     return (
-        <span className={clsx('flex-1 overflow-hidden', !expanded && 'truncate')}>
+        <span className={cn('flex-1 overflow-hidden', !expanded && 'truncate')}>
             {label}
             {expanded ? (
                 <CodeSnippet language={Language.Markup} wrap thing="performance event name">

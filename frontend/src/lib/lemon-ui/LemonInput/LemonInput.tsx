@@ -2,9 +2,9 @@ import './LemonInput.scss'
 
 import { useMergeRefs } from '@floating-ui/react'
 import { IconEye, IconSearch, IconX } from '@posthog/icons'
-import clsx from 'clsx'
 import { IconEyeHidden } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { cn } from 'lib/utils/css-classes'
 import React, { useRef, useState } from 'react'
 
 import { RawInputAutosize } from './RawInputAutosize'
@@ -156,7 +156,7 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
 
     return (
         <span
-            className={clsx(
+            className={cn(
                 'LemonInput',
                 status !== 'default' && `LemonInput--status-${status}`,
                 type && `LemonInput--type-${type}`,

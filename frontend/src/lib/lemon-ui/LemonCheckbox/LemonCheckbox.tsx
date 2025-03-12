@@ -1,6 +1,6 @@
 import './LemonCheckbox.scss'
 
-import clsx from 'clsx'
+import { cn } from 'lib/utils/css-classes'
 import { useEffect, useMemo, useState } from 'react'
 
 import { Tooltip } from '../Tooltip'
@@ -74,7 +74,7 @@ export function LemonCheckbox({
     return (
         <Tooltip title={disabledReason ? <i>{disabledReason}</i> : null} placement="top-start">
             <span
-                className={clsx(
+                className={cn(
                     'LemonCheckbox',
                     localChecked && 'LemonCheckbox--checked',
                     wasIndeterminateLast && 'LemonCheckbox--indeterminate',

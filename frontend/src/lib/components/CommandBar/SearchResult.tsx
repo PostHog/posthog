@@ -1,7 +1,7 @@
 import { LemonSkeleton } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { useLayoutEffect, useRef } from 'react'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { Notebook } from 'scenes/notebooks/Notebook/Notebook'
@@ -47,7 +47,7 @@ export const SearchResult = ({ result, resultIndex, focused }: SearchResultProps
     return (
         <>
             <div
-                className={clsx(
+                className={cn(
                     'w-full px-2 hover:bg-primary border-l-4 border-b cursor-pointer',
                     focused ? 'bg-surface-secondary border-l-accent-primary' : 'bg-surface-primary'
                 )}

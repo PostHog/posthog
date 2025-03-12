@@ -2,10 +2,10 @@ import './SidePanel.scss'
 
 import { IconEllipsis, IconFeatures, IconGear, IconInfo, IconLock, IconNotebook, IconSupport } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonMenuItems, LemonModal, ProfilePicture } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { resizerLogic, ResizerLogicProps } from 'lib/components/Resizer/resizerLogic'
+import { cn } from 'lib/utils/css-classes'
 import { useEffect, useRef } from 'react'
 import { NotebookPanel } from 'scenes/notebooks/NotebookPanel/NotebookPanel'
 import { userLogic } from 'scenes/userLogic'
@@ -186,7 +186,7 @@ export function SidePanel(): JSX.Element | null {
 
     return (
         <div
-            className={clsx(
+            className={cn(
                 'SidePanel3000',
                 sidePanelOpenAndAvailable && 'SidePanel3000--open',
                 isResizeInProgress && 'SidePanel3000--resizing'

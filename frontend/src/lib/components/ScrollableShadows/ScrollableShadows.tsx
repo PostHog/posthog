@@ -1,7 +1,7 @@
 import './ScrollableShadows.scss'
 
-import { clsx } from 'clsx'
 import { useScrollable } from 'lib/hooks/useScrollable'
+import { cn } from 'lib/utils/css-classes'
 import React, { MutableRefObject } from 'react'
 
 export type ScrollableShadowsProps = {
@@ -32,7 +32,7 @@ export const ScrollableShadows = React.forwardRef<HTMLDivElement, ScrollableShad
 
     return (
         <div
-            className={clsx(
+            className={cn(
                 'ScrollableShadows',
                 `ScrollableShadows--${direction}`,
 
@@ -46,7 +46,7 @@ export const ScrollableShadows = React.forwardRef<HTMLDivElement, ScrollableShad
             {...props}
         >
             <div
-                className={clsx('ScrollableShadows__inner', innerClassName)}
+                className={cn('ScrollableShadows__inner', innerClassName)}
                 ref={(refValue) => {
                     scrollRefScrollable.current = refValue
                     if (scrollRef) {

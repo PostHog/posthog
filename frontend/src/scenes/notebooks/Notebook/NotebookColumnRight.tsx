@@ -1,6 +1,6 @@
-import clsx from 'clsx'
 import { BuiltLogic, useValues } from 'kea'
 import { uuid } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 
 import { NotebookNodeChildRenderer } from '../Nodes/NodeWrapper'
 import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
@@ -12,7 +12,7 @@ export const NotebookColumnRight = (): JSX.Element | null => {
 
     return (
         <div
-            className={clsx('NotebookColumn NotebookColumn--right', {
+            className={cn('NotebookColumn NotebookColumn--right', {
                 'NotebookColumn--showing': isShowing,
             })}
         >

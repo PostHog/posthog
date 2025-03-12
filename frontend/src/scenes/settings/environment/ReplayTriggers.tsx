@@ -1,5 +1,4 @@
 import { IconPencil, IconPlus, IconTrash } from '@posthog/icons'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { EventSelect } from 'lib/components/EventSelect/EventSelect'
@@ -13,6 +12,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { cn } from 'lib/utils/css-classes'
 import { AiRegexHelper, AiRegexHelperButton } from 'scenes/session-recordings/components/AiRegexHelper/AiRegexHelper'
 import { replayTriggersLogic } from 'scenes/settings/environment/replayTriggersLogic'
 import { SupportedPlatforms } from 'scenes/settings/environment/SessionRecordingSettings'
@@ -116,7 +116,7 @@ function UrlConfigRow({
     }
 
     return (
-        <div className={clsx('border rounded flex items-center p-2 pl-4 bg-surface-primary')}>
+        <div className={cn('border rounded flex items-center p-2 pl-4 bg-surface-primary')}>
             <span title={trigger.url} className="flex-1 truncate">
                 <span>{trigger.matching === 'regex' ? 'Matches regex: ' : ''}</span>
                 <span>{trigger.url}</span>

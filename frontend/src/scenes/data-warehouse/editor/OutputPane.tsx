@@ -3,12 +3,12 @@ import './DataGrid.scss'
 
 import { IconExpand, IconGear } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonTable, LemonTabs, Spinner } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { cn } from 'lib/utils/css-classes'
 import { useCallback, useMemo, useState } from 'react'
 import DataGrid, { CellClickArgs } from 'react-data-grid'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
@@ -57,7 +57,7 @@ export function ExpandableCell({
             onMouseEnter={() => setIsHovered(true)}
             onMouseLeave={() => setIsHovered(false)}
         >
-            <div className={clsx('flex-1 overflow-hidden', !isExpanded && 'text-ellipsis whitespace-nowrap')}>
+            <div className={cn('flex-1 overflow-hidden', !isExpanded && 'text-ellipsis whitespace-nowrap')}>
                 {value}
             </div>
             {isHovered && !isExpanded && !hasManualWidth && (
@@ -378,7 +378,7 @@ function InternalDataTableVisualization(
                             <SideBar />
                         </div>
                     )}
-                    <div className={clsx('w-full h-full flex-1 overflow-auto')}>{component}</div>
+                    <div className={cn('w-full h-full flex-1 overflow-auto')}>{component}</div>
                 </div>
             </div>
         </div>
@@ -387,7 +387,7 @@ function InternalDataTableVisualization(
 
 const ErrorState = ({ responseError, sourceQuery, queryCancelled, response }: any): JSX.Element | null => {
     return (
-        <div className={clsx('flex-1 absolute top-0 left-0 right-0 bottom-0 overflow-scroll')}>
+        <div className={cn('flex-1 absolute top-0 left-0 right-0 bottom-0 overflow-scroll')}>
             <InsightErrorState
                 query={sourceQuery}
                 excludeDetail
