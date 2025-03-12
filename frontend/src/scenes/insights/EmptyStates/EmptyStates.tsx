@@ -10,7 +10,7 @@ import {
     IconPlusSquare,
     IconWarning,
 } from '@posthog/icons'
-import { LemonButton, Spinner } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { BuilderHog3 } from 'lib/components/hedgehogs'
@@ -187,7 +187,6 @@ export function StatelessInsightLoadingState({
     delayLoadingAnimation = false,
     loadingTimeSeconds = 0,
     renderEmptyStateAsSkeleton = false,
-    spinner = false,
 }: {
     queryId?: string | null
     pollResponse?: Record<string, QueryStatus | null> | null
@@ -195,7 +194,6 @@ export function StatelessInsightLoadingState({
     delayLoadingAnimation?: boolean
     loadingTimeSeconds?: number
     renderEmptyStateAsSkeleton?: boolean
-    spinner?: boolean
 }): JSX.Element {
     const [rowsRead, setRowsRead] = useState(0)
     const [bytesRead, setBytesRead] = useState(0)
@@ -277,7 +275,6 @@ export function StatelessInsightLoadingState({
                 'insights-loading-state justify-start': renderEmptyStateAsSkeleton,
             })}
         >
-            {spinner && <Spinner className="text-3xl" />}
             <span
                 className={clsx(
                     'font-semibold transition-opacity duration-300 mb-1',
@@ -302,7 +299,7 @@ export function StatelessInsightLoadingState({
                         renderEmptyStateAsSkeleton ? 'items-start' : 'items-center'
                     )}
                 >
-                    {!spinner && <LoadingBar />}
+                    <LoadingBar loadId={queryId} />
                     {suggestions}
                     <LoadingDetails
                         pollResponse={pollResponse}

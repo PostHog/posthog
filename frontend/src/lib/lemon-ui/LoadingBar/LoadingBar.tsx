@@ -3,6 +3,8 @@ import './LoadingBar.scss'
 import { useEffect, useState } from 'react'
 import { twMerge } from 'tailwind-merge'
 
+const progressCache: Record<string, number> = {}
+
 export interface SpinnerProps {
     textColored?: boolean
     className?: string
@@ -15,8 +17,13 @@ export interface SpinnerProps {
 export function LoadingBar({ className, loadId }: SpinnerProps): JSX.Element {
     const [progress, setProgress] = useState(0)
 
+    // Load saved progress from cache on mount
     useEffect(() => {
-        setProgress(0)
+        if (loadId && progressCache[loadId] !== undefined) {
+            setProgress(progressCache[loadId])
+        } else {
+            setProgress(0)
+        }
     }, [loadId])
 
     useEffect(() => {
@@ -33,12 +40,17 @@ export function LoadingBar({ className, loadId }: SpinnerProps): JSX.Element {
                     newProgress = prevProgress
                 }
 
+                // Save progress to cache if loadId is provided
+                if (loadId) {
+                    progressCache[loadId] = newProgress
+                }
+
                 return newProgress
             })
         }, 50)
 
         return () => clearInterval(interval)
-    }, []) // Empty dependency array ensures this effect runs only once
+    }, [loadId])
 
     return (
         <div className="progress-outer max-w-120 w-full my-3">
