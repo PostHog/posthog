@@ -23,7 +23,7 @@ const Example = () => {
 
 ## Publishing to NPM
 
-We use the package as part of a workspace, however if there's a need to share an updated set of icons with the wider world, feel free to bump the version and publish it on npm.
+We use the package as part of a workspace, however if there's a need to share an updated set of icons with the wider world, publish it on npm. To do so, just bump the version in package.json, and CI will do the rest.
 
 ## Requesting icons
 
