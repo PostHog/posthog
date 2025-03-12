@@ -1,0 +1,46 @@
+{
+    "name": "@posthog/icons",
+    "version": "0.11.3",
+    "author": "PostHog <hey@posthog.com>",
+    "license": "MIT",
+    "main": "./dist/posthog-icons.cjs.js",
+    "module": "./dist/posthog-icons.es.js",
+    "types": "./dist/index.d.ts",
+    "files": [
+        "dist/"
+    ],
+    "scripts": {
+        "dev": "vite",
+        "build": "tsc && vite build",
+        "lint": "eslint src --ext ts,tsx --report-unused-disable-directives",
+        "preview": "vite preview",
+        "prepublishOnly": "yarn lint && yarn build",
+        "prepare": "husky",
+        "prettier": "prettier -w ."
+    },
+    "peerDependencies": {
+        "@types/react": "*",
+        "@types/react-dom": "*",
+        "react": "*",
+        "react-dom": "*"
+    },
+    "devDependencies": {
+        "@types/react": "^18.2.14",
+        "@types/react-dom": "^18.2.6",
+        "@typescript-eslint/eslint-plugin": "^7.1.1",
+        "@typescript-eslint/parser": "^7.1.1",
+        "@vitejs/plugin-react": "^4.0.1",
+        "eslint": "^8.57.0",
+        "eslint-plugin-react-hooks": "^4.6.2",
+        "eslint-plugin-react-refresh": "^0.4.1",
+        "eslint-plugin-svg-jsx": "^1.2.4",
+        "husky": "^9.1.6",
+        "lint-staged": "^15.2.10",
+        "prettier": "^3.3.3",
+        "react": "^18.2.0",
+        "react-dom": "^18.2.0",
+        "typescript": "^5.0.2",
+        "vite": "^4.4.0",
+        "vite-plugin-dts": "^3.2.0"
+    }
+}

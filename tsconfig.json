@@ -45,6 +45,7 @@
         "ee/frontend/**/*",
         "products/**/frontend/**/*",
         "products/**/manifest.tsx",
+        "common/icons/src/*",
         "common/esbuilder/*",
         "common/eslint_rules/*",
         "common/storybook/*"

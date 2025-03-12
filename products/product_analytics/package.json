@@ -1,7 +1,7 @@
 {
     "name": "@posthog/products-product-analytics",
     "peerDependencies": {
-        "@posthog/icons": "*",
+        "@posthog/icons": "workspace:*",
         "@types/react": "*",
         "clsx": "*",
         "fuse.js": "*",

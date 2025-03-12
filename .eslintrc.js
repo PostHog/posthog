@@ -17,6 +17,7 @@ module.exports = {
         'plugin-server',
         'rust',
         'livestream',
+        'common/icons',
         'common/hogvm/typescript',
         'common/plugin_transpiler',
         'common/hogvm/__tests__/**/__snapshots__/**',
