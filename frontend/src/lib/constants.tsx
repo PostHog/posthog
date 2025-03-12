@@ -174,7 +174,6 @@ export const FEATURE_FLAGS = {
     AI_SESSION_SUMMARY: 'ai-session-summary', // owner: #team-replay
     AI_SESSION_PERMISSIONS: 'ai-session-permissions', // owner: #team-replay
     SESSION_REPLAY_DOCTOR: 'session-replay-doctor', // owner: #team-replay
-    SAVED_NOT_PINNED: 'saved-not-pinned', // owner: #team-replay
     AUDIT_LOGS_ACCESS: 'audit-logs-access', // owner: #team-growth
     SUBSCRIBE_FROM_PAYGATE: 'subscribe-from-paygate', // owner: #team-growth
     HEATMAPS_UI: 'heatmaps-ui', // owner: @benjackwhite
