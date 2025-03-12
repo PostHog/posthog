@@ -10,6 +10,7 @@ import { getCoreFilterDefinition, getFirstFilterTypeFor } from 'lib/taxonomy'
 import { ceilMsToClosestSecond, findLastIndex, humanFriendlyDuration, objectsEqual, percentage } from 'lib/utils'
 import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/geography/country'
 import posthog from 'posthog-js'
+import React from 'react'
 import { OverviewItem } from 'scenes/session-recordings/components/OverviewGrid'
 import { TimestampFormat } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
@@ -23,7 +24,6 @@ import { PersonType, PropertyFilterType } from '~/types'
 import { SimpleTimeLabel } from '../../components/SimpleTimeLabel'
 import { sessionRecordingsListPropertiesLogic } from '../../playlist/sessionRecordingsListPropertiesLogic'
 import type { playerMetaLogicType } from './playerMetaLogicType'
-
 const recordingPropertyKeys = ['click_count', 'keypress_count', 'console_error_count'] as const
 
 export interface SessionSummaryResponse {
@@ -311,7 +311,10 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                         valueTooltip:
                             property === '$geoip_country_code' && value in COUNTRY_CODE_TO_LONG_NAME
                                 ? countryTitleFrom(recordingProperties, personProperties)
-                                : value,
+                                : // we don't want to pass arbitrary objects to the overview grid's tooltip here, so we stringify them
+                                typeof value === 'string' || React.isValidElement(value)
+                                ? value
+                                : JSON.stringify(value),
                         type: 'property',
                         property,
                     })

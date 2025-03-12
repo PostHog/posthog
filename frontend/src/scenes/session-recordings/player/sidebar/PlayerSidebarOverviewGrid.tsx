@@ -1,6 +1,7 @@
 import { useValues } from 'kea'
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import React from 'react'
 import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
 
 import { OverviewGrid, OverviewGridItem } from '../../components/OverviewGrid'
@@ -18,6 +19,14 @@ export function PlayerSidebarOverviewGrid(): JSX.Element {
             ) : (
                 <OverviewGrid>
                     {overviewItems.map((item) => {
+                        // we don't know what value we're getting here, since it comes off properties.
+                        // so we need to make sure it's safe to render
+                        const safeChildren =
+                            typeof item.value === 'string' || React.isValidElement(item.value) ? (
+                                item.value
+                            ) : (
+                                <code>{JSON.stringify(item.value)}</code>
+                            )
                         return (
                             <OverviewGridItem
                                 key={item.label}
@@ -29,9 +38,12 @@ export function PlayerSidebarOverviewGrid(): JSX.Element {
                             >
                                 <div className="flex flex-row items-center deprecated-space-x-2 justify-start font-medium">
                                     {item.type === 'property' && (
-                                        <PropertyIcon property={item.property} value={item.value} />
+                                        <PropertyIcon
+                                            property={item.property}
+                                            value={typeof item.value === 'string' ? item.value : undefined}
+                                        />
                                     )}
-                                    <span>{item.value}</span>
+                                    <span>{safeChildren}</span>
                                 </div>
                             </OverviewGridItem>
                         )
