@@ -29,7 +29,11 @@ pub struct RawJSFrame {
     pub in_app: bool,
     #[serde(rename = "function")]
     pub fn_name: String,
-    #[serde(rename = "chunkId", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "chunkId",
+        alias = "chunk_id",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub chunk_id: Option<String>,
 }
 
