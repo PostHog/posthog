@@ -11,7 +11,13 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     icon_url="/static/services/zapier.png",
     category=["Custom"],
     hog="""
-let res := fetch(f'https://hooks.zapier.com/{inputs.hook}', {
+let hook_path := inputs.hook;
+let prefix := 'https://hooks.zapier.com/';
+if (position(hook_path, prefix) == 1) {
+  hook_path := replaceOne(hook_path, prefix, '');
+}
+
+let res := fetch(f'https://hooks.zapier.com/{hook_path}', {
   'method': 'POST',
   'body': inputs.body
 });
@@ -26,7 +32,7 @@ if (inputs.debug) {
             "key": "hook",
             "type": "string",
             "label": "Zapier hook path",
-            "description": "The path of the Zapier webhook. This value should be the part of the webhook URL after https://hooks.zapier.com/ (for example: hooks/catch/12345678/2gygaul/). You can create your own or use our native Zapier integration https://zapier.com/apps/posthog/integrations",
+            "description": "Your Zapier webhook URL or just the path. You can create your own or use our native Zapier integration https://zapier.com/apps/posthog/integrations",
             "secret": False,
             "required": True,
             "hidden": False,
