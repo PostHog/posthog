@@ -563,8 +563,8 @@ importers:
         specifier: workspace:*
         version: link:../common/hogvm/typescript
       '@posthog/icons':
-        specifier: 0.11.3
-        version: 0.11.3(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.11.6
+        version: 0.11.6(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@posthog/plugin-scaffold':
         specifier: ^1.4.4
         version: 1.4.4
@@ -1542,7 +1542,7 @@ importers:
     dependencies:
       '@posthog/icons':
         specifier: '*'
-        version: 0.11.3(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        version: 0.11.6(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1569,7 +1569,7 @@ importers:
     dependencies:
       '@posthog/icons':
         specifier: '*'
-        version: 0.11.3(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        version: 0.11.6(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@storybook/react':
         specifier: '*'
         version: 7.6.4(encoding@0.1.13)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@4.9.5)
@@ -1599,7 +1599,7 @@ importers:
     dependencies:
       '@posthog/icons':
         specifier: '*'
-        version: 0.11.3(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        version: 0.11.6(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1626,7 +1626,7 @@ importers:
     dependencies:
       '@posthog/icons':
         specifier: '*'
-        version: 0.11.3(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        version: 0.11.6(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1653,7 +1653,7 @@ importers:
     dependencies:
       '@posthog/icons':
         specifier: '*'
-        version: 0.11.3(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        version: 0.11.6(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1680,7 +1680,7 @@ importers:
     dependencies:
       '@posthog/icons':
         specifier: '*'
-        version: 0.11.3(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        version: 0.11.6(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@storybook/react':
         specifier: '*'
         version: 7.6.4(encoding@0.1.13)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@4.9.5)
@@ -1728,7 +1728,7 @@ importers:
     dependencies:
       '@posthog/icons':
         specifier: '*'
-        version: 0.11.3(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        version: 0.11.6(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1755,7 +1755,7 @@ importers:
     dependencies:
       '@posthog/icons':
         specifier: '*'
-        version: 0.11.3(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        version: 0.11.6(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1782,7 +1782,7 @@ importers:
     dependencies:
       '@posthog/icons':
         specifier: '*'
-        version: 0.11.3(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        version: 0.11.6(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1809,7 +1809,7 @@ importers:
     dependencies:
       '@posthog/icons':
         specifier: '*'
-        version: 0.11.3(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        version: 0.11.6(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1836,7 +1836,7 @@ importers:
     dependencies:
       '@posthog/icons':
         specifier: '*'
-        version: 0.11.3(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        version: 0.11.6(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1863,7 +1863,7 @@ importers:
     dependencies:
       '@posthog/icons':
         specifier: '*'
-        version: 0.11.3(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        version: 0.11.6(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -4389,8 +4389,8 @@ packages:
     resolution: {integrity: sha512-B8hZ8Dh2EoJoDb7Gx38ylBQM92oON/X2IxXCb7BfYStk3m17nStcAyaCsc2zbvxC0fFfTMU8lFRiFSEJmijkyg==}
     engines: {node: '>=12'}
 
-  '@posthog/icons@0.11.3':
-    resolution: {integrity: sha512-JLtZ+0Dd+L7EapxCxH4sUDWrDH67GKdW6hAX4g3bLhp0FbNkwcd3II4+VDfYIz60KXBZCdEvk+dZssuTVYFVnA==}
+  '@posthog/icons@0.11.6':
+    resolution: {integrity: sha512-AQxDzr3W5ukP3k7ECxu6aTwTP765XticGE6zUMI2Fb8/4nPD8xzautY48W8d3NUFQkODSfedezIPmgZmgL4FHw==}
     peerDependencies:
       react: '>=16.14.0'
       react-dom: '>=16.14.0'
@@ -19378,7 +19378,7 @@ snapshots:
 
   '@posthog/clickhouse@1.7.0': {}
 
-  '@posthog/icons@0.11.3(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
+  '@posthog/icons@0.11.6(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
     dependencies:
       react: 18.2.0
       react-dom: 18.2.0(react@18.2.0)
