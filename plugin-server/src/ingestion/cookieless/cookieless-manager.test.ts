@@ -2,6 +2,7 @@ import type { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { createOrganization, createTeam } from '~/tests/helpers/sql'
 
+import doHashTestCases from '../../../../rust/common/cookieless/src/test_cases.json'
 import { cookielessRedisErrorCounter } from '../../main/ingestion-queues/metrics'
 import { CookielessServerHashMode, Hub } from '../../types'
 import { RedisOperationError } from '../../utils/db/error'
@@ -16,7 +17,6 @@ import {
     sessionStateToBuffer,
     toYYYYMMDDInTimezoneSafe,
 } from './cookieless-manager'
-import doHashTestCases from './test_cases.json'
 
 function deepFreeze<T extends object>(t: T): T {
     function deepFreezeInner(obj: any) {
