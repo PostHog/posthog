@@ -13,6 +13,7 @@ describe('SessionConsoleLogRecorder', () => {
     beforeEach(() => {
         mockConsoleLogStore = {
             storeSessionConsoleLogs: jest.fn().mockResolvedValue(undefined),
+            flush: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<SessionConsoleLogStore>
 
         recorder = new SessionConsoleLogRecorder('test_session_id', 1, 'test_batch_id', mockConsoleLogStore)

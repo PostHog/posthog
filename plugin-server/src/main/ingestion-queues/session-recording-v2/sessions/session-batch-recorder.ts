@@ -228,7 +228,7 @@ export class SessionBatchRecorder {
 
             await writer.finish()
             await this.metadataStore.storeSessionBlocks(blockMetadata)
-            // TODO: Should we make sure producers have flushed before committing?
+            await this.consoleLogStore.flush()
             await this.offsetManager.commit()
 
             // Update metrics

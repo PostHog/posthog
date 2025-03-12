@@ -182,6 +182,7 @@ describe('SessionBatchRecorder', () => {
 
         mockConsoleLogStore = {
             storeSessionConsoleLogs: jest.fn().mockResolvedValue(undefined),
+            flush: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<SessionConsoleLogStore>
 
         mockStorage = {
@@ -443,6 +444,7 @@ describe('SessionBatchRecorder', () => {
 
             const writtenData1 = captureWrittenData(mockWriter.writeSession as jest.Mock)
             expect(mockWriter.finish).toHaveBeenCalledTimes(1)
+            expect(mockConsoleLogStore.flush).toHaveBeenCalledTimes(1)
 
             // Reset mock for second batch
             jest.clearAllMocks()
@@ -461,6 +463,7 @@ describe('SessionBatchRecorder', () => {
 
             const writtenData2 = captureWrittenData(mockWriter.writeSession as jest.Mock)
             expect(mockWriter.finish).toHaveBeenCalledTimes(1)
+            expect(mockConsoleLogStore.flush).toHaveBeenCalledTimes(1)
 
             const lines1 = parseLines(writtenData1[0])
             const lines2 = parseLines(writtenData2[0])
@@ -482,6 +485,7 @@ describe('SessionBatchRecorder', () => {
 
             expect(mockStorage.newBatch).toHaveBeenCalledTimes(1)
             expect(mockWriter.finish).toHaveBeenCalledTimes(1)
+            expect(mockConsoleLogStore.flush).toHaveBeenCalledTimes(1)
 
             // Second flush with no new events
             await recorder.flush()
@@ -489,6 +493,7 @@ describe('SessionBatchRecorder', () => {
             // Should not create a new batch or write any data
             expect(mockStorage.newBatch).toHaveBeenCalledTimes(1) // Only from first flush
             expect(mockWriter.finish).toHaveBeenCalledTimes(1) // Only from first flush
+            expect(mockConsoleLogStore.flush).toHaveBeenCalledTimes(1) // Only from first flush
 
             // Should still commit offsets
             expect(mockOffsetManager.commit).toHaveBeenCalledTimes(2)
@@ -501,6 +506,7 @@ describe('SessionBatchRecorder', () => {
             expect(mockStorage.newBatch).not.toHaveBeenCalled()
             expect(mockWriter.finish).not.toHaveBeenCalled()
             expect(mockMetadataStore.storeSessionBlocks).not.toHaveBeenCalled()
+            expect(mockConsoleLogStore.flush).not.toHaveBeenCalled()
 
             // Should still commit offsets
             expect(mockOffsetManager.commit).toHaveBeenCalledTimes(1)
@@ -523,19 +529,32 @@ describe('SessionBatchRecorder', () => {
 
             let finishCalled = false
             let commitCalled = false
+            let consoleLogFlushCalled = false
 
-            mockWriter.finish.mockImplementation(async () => {
+            mockWriter.finish.mockImplementation(() => {
                 finishCalled = true
                 return Promise.resolve()
             })
 
-            mockMetadataStore.storeSessionBlocks.mockImplementation(async () => {
+            mockMetadataStore.storeSessionBlocks.mockImplementation(() => {
                 expect(finishCalled).toBe(true)
+                expect(consoleLogFlushCalled).toBe(false)
                 expect(commitCalled).toBe(false)
                 return Promise.resolve()
             })
 
-            mockOffsetManager.commit.mockImplementation(async () => {
+            mockConsoleLogStore.flush.mockImplementation(() => {
+                expect(finishCalled).toBe(true)
+                expect(consoleLogFlushCalled).toBe(false)
+                expect(commitCalled).toBe(false)
+                consoleLogFlushCalled = true
+                return Promise.resolve()
+            })
+
+            mockOffsetManager.commit.mockImplementation(() => {
+                expect(finishCalled).toBe(true)
+                expect(consoleLogFlushCalled).toBe(true)
+                expect(commitCalled).toBe(false)
                 commitCalled = true
                 return Promise.resolve()
             })
@@ -543,6 +562,7 @@ describe('SessionBatchRecorder', () => {
             await recorder.record(message)
             await recorder.flush()
 
+            expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalledTimes(1)
             expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalledWith([
                 expect.objectContaining({
                     sessionId: 'session1',
@@ -567,6 +587,8 @@ describe('SessionBatchRecorder', () => {
                     snapshotLibrary: null,
                 }),
             ])
+            expect(mockConsoleLogStore.flush).toHaveBeenCalledTimes(1)
+            expect(mockOffsetManager.commit).toHaveBeenCalledTimes(1)
         })
 
         it('should not commit offsets if metadata storage fails', async () => {
@@ -586,6 +608,28 @@ describe('SessionBatchRecorder', () => {
 
             expect(mockWriter.finish).toHaveBeenCalled()
             expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalled()
+            expect(mockConsoleLogStore.flush).not.toHaveBeenCalled()
+            expect(mockOffsetManager.commit).not.toHaveBeenCalled()
+        })
+
+        it('should not commit offsets if console log flush fails', async () => {
+            const error = new Error('Console log flush failed')
+            mockConsoleLogStore.flush.mockRejectedValueOnce(error)
+
+            const message = createMessage('session1', [
+                {
+                    type: EventType.FullSnapshot,
+                    timestamp: 1000,
+                    data: { source: 1 },
+                },
+            ])
+
+            await recorder.record(message)
+            await expect(recorder.flush()).rejects.toThrow(error)
+
+            expect(mockWriter.finish).toHaveBeenCalled()
+            expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalled()
+            expect(mockConsoleLogStore.flush).toHaveBeenCalled()
             expect(mockOffsetManager.commit).not.toHaveBeenCalled()
         })
 

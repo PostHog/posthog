@@ -34,4 +34,8 @@ export class SessionConsoleLogStore {
             })),
         })
     }
+
+    public async flush(): Promise<void> {
+        await this.producer.flush()
+    }
 }

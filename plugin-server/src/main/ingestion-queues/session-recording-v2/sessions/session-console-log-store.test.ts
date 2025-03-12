@@ -14,6 +14,7 @@ describe('SessionConsoleLogStore', () => {
     beforeEach(() => {
         mockProducer = {
             queueMessages: jest.fn().mockResolvedValue(undefined),
+            flush: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<KafkaProducerWrapper>
 
         store = new SessionConsoleLogStore(mockProducer, 'log_entries_v2')
@@ -199,5 +200,18 @@ describe('SessionConsoleLogStore', () => {
 
         const queuedMessage = mockProducer.queueMessages.mock.calls[0][0] as TopicMessage
         expect(queuedMessage.topic).toBe(customTopic)
+    })
+
+    describe('flush behavior', () => {
+        it('should call producer flush', async () => {
+            await store.flush()
+            expect(mockProducer.flush).toHaveBeenCalledTimes(1)
+        })
+
+        it('should handle producer flush errors', async () => {
+            const error = new Error('Flush error')
+            mockProducer.flush.mockRejectedValueOnce(error)
+            await expect(store.flush()).rejects.toThrow(error)
+        })
     })
 })
