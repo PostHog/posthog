@@ -132,7 +132,7 @@ function LogCaptureSettings(): JSX.Element {
         <div>
             <h3>Log capture</h3>
             <SupportedPlatforms
-                android={{ version: '0.0.0' }}
+                android={{ version: '1.0.0' }}
                 ios={false}
                 flutter={false}
                 web={{ version: '1.18.0' }}
