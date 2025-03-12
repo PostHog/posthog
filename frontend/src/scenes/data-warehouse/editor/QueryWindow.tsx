@@ -136,7 +136,10 @@ export function QueryWindow(): JSX.Element {
                                                 onClick={() =>
                                                     updateDataWarehouseSavedQuery({
                                                         id: editingView.id,
-                                                        query: sourceQuery.source,
+                                                        query: {
+                                                            ...sourceQuery.source,
+                                                            query: queryInput,
+                                                        },
                                                         types: response?.types ?? [],
                                                     })
                                                 }

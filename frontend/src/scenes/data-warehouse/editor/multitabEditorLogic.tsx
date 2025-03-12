@@ -477,7 +477,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 },
             })
             dataNodeLogic({
-                key: values.activeModelUri?.uri.path ?? dataNodeKey,
+                key: values.currentDataLogicKey,
                 query: {
                     ...values.sourceQuery.source,
                     query,
@@ -485,7 +485,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             }).mount()
 
             dataNodeLogic({
-                key: values.activeModelUri?.uri.path ?? dataNodeKey,
+                key: values.currentDataLogicKey,
                 query: {
                     ...values.sourceQuery.source,
                     query,
@@ -534,7 +534,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             }
 
             const logic = dataNodeLogic({
-                key: values.activeModelUri?.uri.path ?? dataNodeKey,
+                key: values.currentDataLogicKey,
                 query: queryToSave,
             })
 
@@ -668,6 +668,12 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             (s) => [s.editingView],
             (editingView) => {
                 return !!editingView?.status
+            },
+        ],
+        currentDataLogicKey: [
+            (s) => [s.activeModelUri],
+            (activeModelUri) => {
+                return activeModelUri?.uri.path ?? dataNodeKey
             },
         ],
     }),
