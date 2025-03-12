@@ -34,4 +34,4 @@ We use the package as part of a workspace, however if there's a need to share an
     1. When pasting into `Icons.tsx`, locate where the icon should go _alphabetically_
     1. After pasting, remove any fills and convert `fill-rule` and `clip-rule` to `fillRule` and `clipRule`
 1. Create an issue in this repo so Cory can add the same icon to our [Figma icon library](https://www.figma.com/file/fIXZa0PCGX1oBwQm0sOT7s/Icons?type=design&node-id=0%3A1&mode=design&t=I6lG9OdvUp3ZRt9I-1)
-1. React out to Cory if there is something you would like but can't find
+1. Reach out to Cory if there is something you would like but can't find
