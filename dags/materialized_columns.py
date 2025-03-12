@@ -1,8 +1,8 @@
 import datetime
 import itertools
-from collections.abc import Iterator
-from functools import reduce
-from typing import ClassVar
+from collections.abc import Iterable, Iterator
+from typing import ClassVar, TypeVar
+from collections.abc import Mapping
 
 import dagster
 import pydantic
@@ -53,6 +53,16 @@ class MaterializeColumnConfig(dagster.Config):
     column: str  # TODO: maybe make this a list/set so we can minimize the number of mutations?
     partitions: PartitionRange  # TODO: make optional for non-partitioned tables
 
+    def get_mutations_to_run(self, client: Client) -> Iterable[AlterTableMutationRunner]:
+        # TODO: skip partitions that don't need materialization
+        # TODO: iterate in reverse
+        for partition in self.partitions.iter_ids():
+            yield AlterTableMutationRunner(
+                self.table,
+                {f"MATERIALIZE COLUMN {self.column} IN PARTITION %(partition)s"},
+                parameters={"partition": partition},
+            )
+
     def get_remaining_partitions(self, client: Client) -> set[str]:
         # The primary key column(s) should exist in all parts, so we can determine what parts (and partitions) do not
         # have the target column materialized by finding parts where the key column exists but the target column does
@@ -99,6 +109,20 @@ class MaterializeColumnConfig(dagster.Config):
         }
 
 
+K = TypeVar("K")
+V = TypeVar("V")
+
+
+def zip_values(mapping: Mapping[K, Iterable[V]]) -> Iterator[Mapping[K, V]]:
+    keys, values = [], []
+    for key, value in mapping.items():
+        keys.append(key)
+        values.append(value)
+
+    for chunk in zip(*values):
+        yield dict(zip(keys, chunk))
+
+
 @dagster.op
 def run_materialize_mutations(
     context: dagster.OpExecutionContext,
@@ -109,35 +133,19 @@ def run_materialize_mutations(
     # same set of partitions already materialized, or that a materialization mutation already exists (and is running) if
     # they are lagging behind. (If _this_ host is lagging behind the others, the mutation runner should prevent us from
     # scheduling duplicate mutations on the shard.)
-    remaining_partitions_by_shard = {
-        host.shard_num: partitions
-        for host, partitions in cluster.map_one_host_per_shard(config.get_remaining_partitions).result().items()
+    mutations_to_run_by_shard = {
+        host.shard_num: mutations
+        for host, mutations in cluster.map_one_host_per_shard(config.get_mutations_to_run).result().items()
+        if host.shard_num is not None
     }
 
-    requested_partitions = set(config.partitions.iter_ids())
-    remaining_partitions = reduce(lambda x, y: x | y, remaining_partitions_by_shard.values())
-    context.log.info(
-        "Materializing %s of %s requested partitions (%s already materialized in all shards)",
-        len(remaining_partitions),
-        len(requested_partitions),
-        len(requested_partitions - remaining_partitions),
-    )
-
-    # Step through the remaining partitions, materializing the column in any shards where the column hasn't already been
-    # materialized.
-    for partition in sorted(remaining_partitions, reverse=True):
-        AlterTableMutationRunner(
-            config.table,
-            {f"MATERIALIZE COLUMN {config.column} IN PARTITION %(partition)s"},
-            parameters={"partition": partition},
-        ).run_on_shards(
-            cluster,
-            shards={
-                shard_num
-                for shard_num, remaining_partitions_for_shard in remaining_partitions_by_shard.items()
-                if partition in remaining_partitions_for_shard
-            },
-        )
+    for mutations in zip_values(mutations_to_run_by_shard):
+        shard_waiters = {
+            host.shard_num: waiter
+            for host, waiter in cluster.map_any_host_in_shards(mutations).result().items()
+            if host.shard_num is not None
+        }
+        cluster.map_all_hosts_in_shards(shard_waiters).result()
 
 
 @dagster.job(tags={"owner": JobOwners.TEAM_CLICKHOUSE.value})
