@@ -94,10 +94,10 @@ export function EditSubscription({
                 </div>
             </LemonModal.Header>
 
-            <LemonModal.Content className="space-y-2">
+            <LemonModal.Content className="deprecated-space-y-2">
                 {!subscription ? (
                     subscriptionLoading ? (
-                        <div className="space-y-4">
+                        <div className="deprecated-space-y-4">
                             <LemonSkeleton className="w-1/2 h-4" />
                             <LemonSkeleton.Row />
                             <LemonSkeleton className="w-1/2 h-4" />
@@ -240,7 +240,8 @@ export function EditSubscription({
                                                     <Link to="https://posthog.com/docs/webhooks/slack" target="_blank">
                                                         added the PostHog Slack App
                                                     </Link>{' '}
-                                                    to them
+                                                    to them. You can also paste the channel ID (e.g.{' '}
+                                                    <code>C1234567890</code>) to search for channels.
                                                 </>
                                             }
                                         >

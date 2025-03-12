@@ -1,14 +1,13 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { HogTransformerService } from '~/src/cdp/hog-transformations/hog-transformer.service'
-
+import { HogTransformerService } from '../../../cdp/hog-transformations/hog-transformer.service'
 import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
-import { runInSpan } from '../../../sentry'
-import { Hub, PipelineEvent } from '../../../types'
+import { Hub, PipelineEvent, Team } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
 import { timeoutGuard } from '../../../utils/db/utils'
 import { normalizeProcessPerson } from '../../../utils/event'
 import { captureException } from '../../../utils/posthog'
+import { runInSpan } from '../../../utils/sentry'
 import { status } from '../../../utils/status'
 import { EventsProcessor } from '../process-event'
 import { captureIngestionWarning, generateEventDeadLetterQueueMessage } from '../utils'
@@ -122,9 +121,10 @@ export class EventPipelineRunner {
                 return this.registerLastStep('eventDisallowedStep', [event])
             }
             let result: EventPipelineResult
-            const eventWithTeam = await this.runStep(populateTeamDataStep, [this, event], event.team_id || -1)
-            if (eventWithTeam != null) {
-                result = await this.runEventPipelineSteps(eventWithTeam)
+            const { eventWithTeam, team } =
+                (await this.runStep(populateTeamDataStep, [this, event], event.team_id || -1)) ?? {}
+            if (eventWithTeam != null && team != null) {
+                result = await this.runEventPipelineSteps(eventWithTeam, team)
             } else {
                 result = this.registerLastStep('populateTeamDataStep', [event])
             }
@@ -149,7 +149,7 @@ export class EventPipelineRunner {
         }
     }
 
-    async runEventPipelineSteps(event: PluginEvent): Promise<EventPipelineResult> {
+    async runEventPipelineSteps(event: PluginEvent, team: Team): Promise<EventPipelineResult> {
         const kafkaAcks: Promise<void>[] = []
 
         let processPerson = true // The default.
@@ -261,7 +261,7 @@ export class EventPipelineRunner {
 
         const [postPersonEvent, person, personKafkaAck] = await this.runStep(
             processPersonsStep,
-            [this, normalizedEvent, timestamp, processPerson],
+            [this, normalizedEvent, team, timestamp, processPerson],
             event.team_id
         )
         kafkaAcks.push(personKafkaAck)

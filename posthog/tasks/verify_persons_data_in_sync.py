@@ -8,7 +8,7 @@ from celery import shared_task
 from django.db.models.query import Prefetch
 from django.utils.timezone import now
 
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.models.person import Person
 
 logger = structlog.get_logger(__name__)

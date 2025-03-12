@@ -1,9 +1,9 @@
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
+import { insertHogFunction as _insertHogFunction } from '~/src/cdp/_tests/fixtures'
 import { template as geoipTemplate } from '~/src/cdp/templates/_transformations/geoip/geoip.template'
 import { compileHog } from '~/src/cdp/templates/compiler'
-import { insertHogFunction as _insertHogFunction } from '~/tests/cdp/fixtures'
 import {
     getProducedKafkaMessages,
     getProducedKafkaMessagesForTopic,
@@ -472,6 +472,32 @@ describe('IngestionConsumer', () => {
                 () => [createEvent({ event: '$pageview', properties: { $process_person_profile: false } })],
             ],
             [
+                'forced person upgrade',
+                () => [
+                    createEvent({
+                        event: '$pageview',
+                        properties: { $process_person_profile: false, $set: { update1: '1' } },
+                    }),
+                    createEvent({
+                        event: '$identify',
+                        properties: { $process_person_profile: true, $set: { email: 'test@example.com' } },
+                    }),
+                    // Add an event at least a minute in the future and it should get force upgraded
+                    createEvent({
+                        event: '$pageview',
+                        properties: { $process_person_profile: false, $set: { update2: '2' } },
+                        timestamp: DateTime.now().plus({ minutes: 2 }).toISO(),
+                    }),
+                    // Add a person-full event and ensure all properties are there that should be
+                    createEvent({
+                        event: '$pageview',
+                        properties: { $process_person_profile: true, $set: { update3: '3' } },
+                        timestamp: DateTime.now().plus({ minutes: 3 }).toISO(),
+                    }),
+                    // Snapshot should contain update2 and update3 but not update1
+                ],
+            ],
+            [
                 'client ingestion warning',
                 () => [
                     createEvent({
@@ -479,6 +505,72 @@ describe('IngestionConsumer', () => {
                         properties: { $$client_ingestion_warning_message: 'test' },
                     }),
                 ],
+            ],
+            [
+                'groups',
+                () => [
+                    createEvent({
+                        event: '$pageview',
+                        properties: {
+                            $groups: {
+                                a: 'group-a',
+                                b: 'group-b',
+                                c: 'group-c',
+                                d: 'group-d',
+                                e: 'group-e',
+                                f: 'group-f',
+                            },
+                        },
+                    }),
+                    createEvent({
+                        event: '$groupidentify',
+                        properties: {
+                            $group_type: 'a',
+                            $group_key: 'group-a',
+                            $group_set: {
+                                id: 'group-a',
+                                foo: 'bar',
+                            },
+                        },
+                    }),
+                    // This triggers an event but not a groups clickhouse change as the max groups is already hit
+                    createEvent({
+                        event: '$groupidentify',
+                        properties: {
+                            $group_type: 'f',
+                            $group_key: 'group-f',
+                            $group_set: {
+                                id: 'group-f',
+                                foo: 'bar',
+                            },
+                        },
+                    }),
+                ],
+            ],
+            [
+                'person property merging via alias',
+                () => {
+                    const anonId1 = new UUIDT().toString()
+                    const anonId2 = new UUIDT().toString()
+                    return [
+                        createEvent({
+                            distinct_id: anonId1,
+                            event: 'custom event',
+                            properties: { $set: { k: 'v' } },
+                        }),
+                        createEvent({
+                            distinct_id: anonId2,
+                            event: 'custom event',
+                            properties: { $set: { j: 'w' } },
+                        }),
+                        // final event should have k, j, l
+                        createEvent({
+                            distinct_id: anonId2,
+                            event: '$create_alias',
+                            properties: { alias: anonId1, $set: { l: 'x' } },
+                        }),
+                    ]
+                },
             ],
         ]
 
@@ -682,5 +774,33 @@ describe('IngestionConsumer', () => {
             },
             TRANSFORMATION_TEST_TIMEOUT
         )
+    })
+
+    describe('testing topic', () => {
+        it('should emit to the testing topic', async () => {
+            hub.INGESTION_CONSUMER_TESTING_TOPIC = 'testing_topic'
+            ingester = new IngestionConsumer(hub)
+            await ingester.start()
+
+            const messages = createKafkaMessages([createEvent()])
+            await ingester.handleKafkaBatch(messages)
+
+            expect(forSnapshot(getProducedKafkaMessages())).toMatchInlineSnapshot(`
+                [
+                  {
+                    "key": null,
+                    "topic": "testing_topic",
+                    "value": {
+                      "data": "{"distinct_id":"user-1","uuid":"<REPLACED-UUID-0>","token":"THIS IS NOT A TOKEN FOR TEAM 2","ip":"127.0.0.1","site_url":"us.posthog.com","now":"2025-01-01T00:00:00.000Z","event":"$pageview","properties":{"$current_url":"http://localhost:8000"}}",
+                      "distinct_id": "user-1",
+                      "ip": "127.0.0.1",
+                      "now": "2025-01-01T00:00:00.000Z",
+                      "token": "THIS IS NOT A TOKEN FOR TEAM 2",
+                      "uuid": "<REPLACED-UUID-0>",
+                    },
+                  },
+                ]
+            `)
+        })
     })
 })

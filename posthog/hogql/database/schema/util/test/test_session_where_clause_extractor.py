@@ -495,12 +495,12 @@ FROM
     FROM
         sessions
     WHERE
-        and(equals(sessions.team_id, <TEAM_ID>), greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, %(hogql_val_3)s), toIntervalDay(3)), toStartOfDay(assumeNotNull(toDateTime64(%(hogql_val_4)s, 6, %(hogql_val_5)s)))), lessOrEquals(minus(toTimeZone(sessions.min_timestamp, %(hogql_val_6)s), toIntervalDay(3)), assumeNotNull(toDateTime64(%(hogql_val_7)s, 6, %(hogql_val_8)s))))
+        and(equals(sessions.team_id, <TEAM_ID>), greaterOrEquals(plus(toTimeZone(sessions.min_timestamp, %(hogql_val_3)s), toIntervalDay(3)), toStartOfDay(assumeNotNull(toDateTime(%(hogql_val_4)s, %(hogql_val_5)s)))), lessOrEquals(minus(toTimeZone(sessions.min_timestamp, %(hogql_val_6)s), toIntervalDay(3)), assumeNotNull(toDateTime(%(hogql_val_7)s, %(hogql_val_8)s))))
     GROUP BY
         sessions.session_id,
         sessions.session_id) AS e__session ON equals(e.`$session_id`, e__session.session_id)
 WHERE
-    and(equals(e.team_id, <TEAM_ID>), and(greaterOrEquals(toTimeZone(e.timestamp, %(hogql_val_21)s), toStartOfDay(assumeNotNull(toDateTime64(%(hogql_val_22)s, 6, %(hogql_val_23)s)))), lessOrEquals(toTimeZone(e.timestamp, %(hogql_val_24)s), assumeNotNull(toDateTime64(%(hogql_val_25)s, 6, %(hogql_val_26)s))), equals(e.event, %(hogql_val_27)s), ifNull(in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), (SELECT
+    and(equals(e.team_id, <TEAM_ID>), and(greaterOrEquals(toTimeZone(e.timestamp, %(hogql_val_21)s), toStartOfDay(assumeNotNull(toDateTime(%(hogql_val_22)s, %(hogql_val_23)s)))), lessOrEquals(toTimeZone(e.timestamp, %(hogql_val_24)s), assumeNotNull(toDateTime(%(hogql_val_25)s, %(hogql_val_26)s))), equals(e.event, %(hogql_val_27)s), ifNull(in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), (SELECT
                     cohortpeople.person_id AS person_id
                 FROM
                     cohortpeople

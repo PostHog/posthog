@@ -21,7 +21,7 @@ from posthog.exceptions_capture import capture_exception
 
 from posthog.api.documentation import PropertiesSerializer, extend_schema
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.client import query_with_columns
+from posthog.clickhouse.client import query_with_columns
 from posthog.hogql.constants import DEFAULT_RETURNED_ROWS, MAX_SELECT_RETURNED_ROWS
 from posthog.models import Element, Filter, Person
 from posthog.models.event.query_event_list import query_events_list

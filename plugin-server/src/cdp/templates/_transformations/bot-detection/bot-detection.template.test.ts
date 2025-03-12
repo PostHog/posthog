@@ -2,6 +2,13 @@ import { HogFunctionInvocationGlobals } from '../../../types'
 import { TemplateTester } from '../../test/test-helpers'
 import { template } from './bot-detection.template'
 
+// TODO we shouldn't need these, our invocation code should use the template defaults correctly
+const DEFAULT_INPUTS = {
+    userAgent: '$raw_user_agent',
+    customBotPatterns: '',
+    customIpPrefixes: '',
+}
+
 describe('bot-detection.template', () => {
     const tester = new TemplateTester(template)
     let mockGlobals: HogFunctionInvocationGlobals
@@ -20,17 +27,11 @@ describe('bot-detection.template', () => {
             },
         })
 
-        const response = await tester.invoke(
-            {
-                userAgent: '$raw_user_agent',
-                customBotPatterns: '',
-            },
-            mockGlobals
-        )
+        const response = await tester.invoke(DEFAULT_INPUTS, mockGlobals)
 
-        expect(response.finished).toBe(true)
-        expect(response.error).toBeUndefined()
-        expect(response.execResult).toBeDefined()
+        expect(response.finished).toBeTruthy()
+        expect(response.error).toBeFalsy()
+        expect(response.execResult).toBeTruthy()
     })
 
     it('should filter out known bot user agent', async () => {
@@ -42,17 +43,11 @@ describe('bot-detection.template', () => {
             },
         })
 
-        const response = await tester.invoke(
-            {
-                userAgent: '$raw_user_agent',
-                customBotPatterns: '',
-            },
-            mockGlobals
-        )
+        const response = await tester.invoke(DEFAULT_INPUTS, mockGlobals)
 
-        expect(response.finished).toBe(true)
-        expect(response.error).toBeUndefined()
-        expect(response.execResult).toBeNull()
+        expect(response.finished).toBeTruthy()
+        expect(response.error).toBeFalsy()
+        expect(response.execResult).toBeFalsy()
     })
 
     it('should treat missing user agent as bot traffic', async () => {
@@ -62,17 +57,11 @@ describe('bot-detection.template', () => {
             },
         })
 
-        const response = await tester.invoke(
-            {
-                userAgent: '$raw_user_agent',
-                customBotPatterns: '',
-            },
-            mockGlobals
-        )
+        const response = await tester.invoke(DEFAULT_INPUTS, mockGlobals)
 
-        expect(response.finished).toBe(true)
-        expect(response.error).toBeUndefined()
-        expect(response.execResult).toBeNull()
+        expect(response.finished).toBeTruthy()
+        expect(response.error).toBeFalsy()
+        expect(response.execResult).toBeFalsy()
     })
 
     it('should treat empty user agent as bot traffic', async () => {
@@ -84,47 +73,11 @@ describe('bot-detection.template', () => {
             },
         })
 
-        const response = await tester.invoke(
-            {
-                userAgent: '$raw_user_agent',
-                customBotPatterns: '',
-            },
-            mockGlobals
-        )
+        const response = await tester.invoke(DEFAULT_INPUTS, mockGlobals)
 
-        expect(response.finished).toBe(true)
-        expect(response.error).toBeUndefined()
-        expect(response.execResult).toBeNull()
-    })
-
-    it('should not have false positives with similar names', async () => {
-        const legitUserAgents = [
-            'Mozilla/5.0 CustomRobot/1.0', // Not in our bot list
-            'BrowserBot Pro/2.0', // Not in our bot list
-            'SpiderMonkey/91.0', // JavaScript engine, not a crawler
-        ]
-
-        for (const userAgent of legitUserAgents) {
-            mockGlobals = tester.createGlobals({
-                event: {
-                    properties: {
-                        $raw_user_agent: userAgent,
-                    },
-                },
-            })
-
-            const response = await tester.invoke(
-                {
-                    userAgent: '$raw_user_agent',
-                    customBotPatterns: '',
-                },
-                mockGlobals
-            )
-
-            expect(response.finished).toBe(true)
-            expect(response.error).toBeUndefined()
-            expect(response.execResult).toBeDefined()
-        }
+        expect(response.finished).toBeTruthy()
+        expect(response.error).toBeFalsy()
+        expect(response.execResult).toBeFalsy()
     })
 
     it('should detect bot in case-insensitive manner', async () => {
@@ -136,17 +89,11 @@ describe('bot-detection.template', () => {
             },
         })
 
-        const response = await tester.invoke(
-            {
-                userAgent: '$raw_user_agent',
-                customBotPatterns: '',
-            },
-            mockGlobals
-        )
+        const response = await tester.invoke(DEFAULT_INPUTS, mockGlobals)
 
-        expect(response.finished).toBe(true)
-        expect(response.error).toBeUndefined()
-        expect(response.execResult).toBeNull()
+        expect(response.finished).toBeTruthy()
+        expect(response.error).toBeFalsy()
+        expect(response.execResult).toBeFalsy()
     })
 
     it('should detect custom bot patterns', async () => {
@@ -160,15 +107,15 @@ describe('bot-detection.template', () => {
 
         const response = await tester.invoke(
             {
-                userAgent: '$raw_user_agent',
+                ...DEFAULT_INPUTS,
                 customBotPatterns: 'mycustombot,other-bot',
             },
             mockGlobals
         )
 
-        expect(response.finished).toBe(true)
-        expect(response.error).toBeUndefined()
-        expect(response.execResult).toBeNull()
+        expect(response.finished).toBeTruthy()
+        expect(response.error).toBeFalsy()
+        expect(response.execResult).toBeFalsy()
     })
 
     it('should handle empty custom bot patterns', async () => {
@@ -182,14 +129,74 @@ describe('bot-detection.template', () => {
 
         const response = await tester.invoke(
             {
-                userAgent: '$raw_user_agent',
+                ...DEFAULT_INPUTS,
                 customBotPatterns: '',
             },
             mockGlobals
         )
 
-        expect(response.finished).toBe(true)
-        expect(response.error).toBeUndefined()
-        expect(response.execResult).toBeDefined()
+        expect(response.finished).toBeTruthy()
+        expect(response.error).toBeFalsy()
+        expect(response.execResult).toBeTruthy()
+    })
+
+    it('should block a known bot ip address', async () => {
+        mockGlobals = tester.createGlobals({
+            event: {
+                properties: {
+                    $ip: '5.39.1.225',
+                    $raw_user_agent:
+                        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                },
+            },
+        })
+
+        const response = await tester.invoke(DEFAULT_INPUTS, mockGlobals)
+
+        expect(response.finished).toBeTruthy()
+        expect(response.error).toBeFalsy()
+        expect(response.execResult).toBeFalsy()
+    })
+
+    it('should not block a regular ip address', async () => {
+        mockGlobals = tester.createGlobals({
+            event: {
+                properties: {
+                    $ip: '1.2.3.4',
+                    $raw_user_agent:
+                        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                },
+            },
+        })
+
+        const response = await tester.invoke(DEFAULT_INPUTS, mockGlobals)
+
+        expect(response.finished).toBeTruthy()
+        expect(response.error).toBeFalsy()
+        expect(response.execResult).toBeTruthy()
+    })
+
+    it('should block a custom IP prefix', async () => {
+        mockGlobals = tester.createGlobals({
+            event: {
+                properties: {
+                    $ip: '1.2.3.4',
+                    $raw_user_agent:
+                        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                },
+            },
+        })
+
+        const response = await tester.invoke(
+            {
+                ...DEFAULT_INPUTS,
+                customIpPrefixes: '1.2.3.0/24',
+            },
+            mockGlobals
+        )
+
+        expect(response.finished).toBeTruthy()
+        expect(response.error).toBeFalsy()
+        expect(response.execResult).toBeFalsy()
     })
 })

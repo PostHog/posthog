@@ -77,7 +77,6 @@ class BillingManager:
     def get_billing(
         self,
         organization: Optional[Organization],
-        plan_keys: Optional[str],
         query_params: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
         if organization and self.license and self.license.is_v2_license:
@@ -140,6 +139,21 @@ class BillingManager:
         )
 
         handle_billing_service_error(res)
+
+    def update_available_product_features(self, organization: Organization) -> list[dict[str, Any]]:
+        res = requests.get(
+            f"{BILLING_SERVICE_URL}/api/billing/available_product_features",
+            headers=self.get_auth_headers(organization),
+        )
+
+        handle_billing_service_error(res)
+
+        available_product_features_json = res.json()
+        available_product_features = available_product_features_json.get("available_product_features", [])
+        organization.available_product_features = available_product_features
+        organization.save()
+
+        return available_product_features
 
     def update_billing_organization_users(self, organization: Organization) -> None:
         try:
@@ -394,6 +408,8 @@ class BillingManager:
 
         handle_billing_service_error(res)
 
+        self.update_available_product_features(organization)
+
         return res.json()
 
     def cancel_trial(self, organization: Organization, data: dict[str, Any]):
@@ -404,6 +420,8 @@ class BillingManager:
         )
 
         handle_billing_service_error(res)
+
+        self.update_available_product_features(organization)
 
     def authorize(self, organization: Organization):
         res = requests.post(

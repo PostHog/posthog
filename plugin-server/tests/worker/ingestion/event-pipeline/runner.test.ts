@@ -10,6 +10,7 @@ import {
     PreIngestionEvent,
     ProjectId,
     RawKafkaEvent,
+    Team,
 } from '../../../../src/types'
 import { createEventsToDropByToken } from '../../../../src/utils/db/hub'
 import { cookielessServerHashStep } from '../../../../src/worker/ingestion/event-pipeline/cookielessServerHashStep'
@@ -48,6 +49,11 @@ class TestEventPipelineRunner extends EventPipelineRunner {
         return super.runStep(step, [runner, ...args], teamId, sendtoDLQ)
     }
 }
+
+const team = {
+    id: 2,
+    person_processing_opt_out: false,
+} as Team
 
 const pipelineEvent: PipelineEvent = {
     distinct_id: 'my_id',
@@ -131,7 +137,7 @@ describe('EventPipelineRunner', () => {
         hub = {
             kafkaProducer: mockProducer,
             teamManager: {
-                fetchTeam: jest.fn(() => {}),
+                fetchTeam: jest.fn(() => Promise.resolve(team)),
             },
             db: {
                 kafkaProducer: mockProducer,
@@ -142,7 +148,10 @@ describe('EventPipelineRunner', () => {
 
         runner = new TestEventPipelineRunner(hub, pluginEvent)
 
-        jest.mocked(populateTeamDataStep).mockResolvedValue(pluginEvent)
+        jest.mocked(populateTeamDataStep).mockResolvedValue({
+            eventWithTeam: pluginEvent,
+            team,
+        })
         jest.mocked(cookielessServerHashStep).mockResolvedValue([pluginEvent])
         jest.mocked(pluginsProcessEventStep).mockResolvedValue(pluginEvent)
 
@@ -329,7 +338,10 @@ describe('EventPipelineRunner', () => {
                     team_id: 9,
                 }
 
-                jest.mocked(populateTeamDataStep).mockResolvedValue(event)
+                jest.mocked(populateTeamDataStep).mockResolvedValue({
+                    eventWithTeam: event,
+                    team: { id: 9, person_processing_opt_out: true } as any,
+                })
 
                 await runner.runEventPipeline(event)
                 expect(runner.steps).toEqual(['populateTeamDataStep'])
@@ -352,7 +364,7 @@ describe('EventPipelineRunner', () => {
         })
 
         describe('$$heatmap events', () => {
-            let heatmapEvent: PipelineEvent
+            let heatmapEvent: PluginEvent
             beforeEach(() => {
                 heatmapEvent = {
                     ...pipelineEvent,
@@ -364,13 +376,17 @@ describe('EventPipelineRunner', () => {
                             url2: ['more data'],
                         },
                     },
+                    team_id: 2,
                 }
 
                 // setup just enough mocks that the right pipeline runs
 
                 runner = new TestEventPipelineRunner(hub, heatmapEvent)
 
-                jest.mocked(populateTeamDataStep).mockResolvedValue(heatmapEvent as any)
+                jest.mocked(populateTeamDataStep).mockResolvedValue({
+                    eventWithTeam: heatmapEvent,
+                    team,
+                })
 
                 const heatmapPreIngestionEvent = {
                     ...preIngestionEvent,
@@ -395,10 +411,10 @@ describe('EventPipelineRunner', () => {
         })
 
         describe('$exception events', () => {
-            let exceptionEvent: PipelineEvent
+            let exceptionEvent: PluginEvent
             beforeEach(() => {
                 exceptionEvent = {
-                    ...pipelineEvent,
+                    ...pluginEvent,
                     event: '$exception',
                     properties: {
                         ...pipelineEvent.properties,
@@ -407,13 +423,17 @@ describe('EventPipelineRunner', () => {
                             url2: ['more data'],
                         },
                     },
+                    team_id: 2,
                 }
 
                 // setup just enough mocks that the right pipeline runs
 
                 runner = new TestEventPipelineRunner(hub, exceptionEvent)
 
-                jest.mocked(populateTeamDataStep).mockResolvedValue(exceptionEvent as any)
+                jest.mocked(populateTeamDataStep).mockResolvedValue({
+                    eventWithTeam: exceptionEvent,
+                    team,
+                })
 
                 const heatmapPreIngestionEvent = {
                     ...preIngestionEvent,
@@ -454,7 +474,10 @@ describe('EventPipelineRunner', () => {
                     event: eventName,
                     team_id: 9,
                 }
-                jest.mocked(populateTeamDataStep).mockResolvedValue(event)
+                jest.mocked(populateTeamDataStep).mockResolvedValue({
+                    eventWithTeam: event,
+                    team: { id: 9, person_processing_opt_out: true } as any,
+                })
 
                 await runner.runEventPipeline(event)
                 expect(runner.steps).toEqual(['populateTeamDataStep'])

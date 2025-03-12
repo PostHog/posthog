@@ -1,6 +1,7 @@
 import os
 from contextlib import contextmanager
 from datetime import datetime, timedelta, UTC
+import re
 from typing import Any, cast
 from urllib.parse import urlparse
 
@@ -14,7 +15,7 @@ from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
 from loginas.utils import is_impersonated_session
 from nanoid import generate
-from rest_framework import request, serializers, status, viewsets, exceptions
+from rest_framework import request, serializers, status, viewsets, exceptions, filters
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -28,7 +29,7 @@ from posthog.api.feature_flag import (
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action, get_token
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
@@ -50,6 +51,7 @@ from posthog.utils_cors import cors_response
 
 SURVEY_TARGETING_FLAG_PREFIX = "survey-targeting-"
 ALLOWED_LINK_URL_SCHEMES = ["https", "mailto"]
+EMAIL_REGEX = r"^mailto:[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
 
 
 class SurveySerializer(serializers.ModelSerializer):
@@ -292,10 +294,23 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             link = raw_question.get("link")
             if link:
                 parsed_url = urlparse(link)
-                if parsed_url.scheme not in ALLOWED_LINK_URL_SCHEMES or parsed_url.netloc == "":
+
+                # Check for unsupported schemes
+                if parsed_url.scheme not in ALLOWED_LINK_URL_SCHEMES:
                     raise serializers.ValidationError(
-                        f"Link must be a URL to resource with one of these schemes [{', '.join(ALLOWED_LINK_URL_SCHEMES)}]"
+                        f"Link must be a URL with one of these schemes: [{', '.join(ALLOWED_LINK_URL_SCHEMES)}]"
                     )
+
+                # Separate validation for `mailto:` links
+                if parsed_url.scheme == "mailto":
+                    if not re.match(EMAIL_REGEX, link):
+                        raise serializers.ValidationError(
+                            "Invalid mailto link. Please enter a valid mailto link (e.g., mailto:example@domain.com)."
+                        )
+                # HTTPS validation
+                elif parsed_url.scheme == "https":
+                    if not parsed_url.netloc:
+                        raise serializers.ValidationError("Invalid HTTPS URL. Please enter a valid HTTPS link.")
 
             cleaned_questions.append(cleaned_question)
 
@@ -679,6 +694,8 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "survey"
     queryset = Survey.objects.select_related("linked_flag", "targeting_flag", "internal_targeting_flag").all()
+    filter_backends = [filters.SearchFilter]
+    search_fields = ["name", "description"]
 
     def get_serializer_class(self) -> type[serializers.Serializer]:
         if self.request.method == "POST" or self.request.method == "PATCH":

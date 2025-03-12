@@ -23,6 +23,7 @@ class EnterpriseEventDefinition(EventDefinition):
         blank=True,
         related_name="verifying_user",
     )
+    hidden = models.BooleanField(null=True, blank=True, default=False)
     # Store default columns for event definition view, similar to team.live_events_columns
     default_columns = ArrayField(models.TextField(), null=True, blank=True)
 

@@ -16,6 +16,7 @@ import {
     PluginsAccessLevel,
     PROPERTY_MATCH_TYPE,
     RETENTION_FIRST_TIME,
+    RETENTION_MEAN_NONE,
     RETENTION_RECURRING,
     ShownAsValue,
     TeamMembershipLevel,
@@ -28,7 +29,7 @@ import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/Cohort
 import { Holdout } from 'scenes/experiments/holdoutsLogic'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
-import { Scene } from 'scenes/sceneTypes'
+import { Params, Scene, SceneConfig } from 'scenes/sceneTypes'
 import { WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 
 import type {
@@ -520,6 +521,8 @@ export interface TeamSurveyConfigType {
     appearance?: SurveyAppearance
 }
 
+export type SessionRecordingMaskingLevel = 'normal' | 'total-privacy' | 'free-love'
+
 export interface SessionRecordingMaskingConfig {
     maskAllInputs?: boolean
     maskTextSelector?: string
@@ -771,6 +774,7 @@ export enum PipelineStage {
 export enum PipelineNodeTab {
     Backfills = 'backfills',
     Configuration = 'configuration',
+    Testing = 'testing',
     Runs = 'runs',
     Logs = 'logs',
     Metrics = 'metrics',
@@ -1038,6 +1042,7 @@ export enum SessionRecordingSidebarTab {
     OVERVIEW = 'overview',
     INSPECTOR = 'inspector',
     DEBUGGER = 'debugger',
+    NETWORK_WATERFALL = 'network-waterfall',
 }
 
 export enum SessionRecordingSidebarStacking {
@@ -1433,10 +1438,21 @@ export interface RecordingEventType
     fullyLoaded: boolean
 }
 
-export interface PlaylistRecordingsCounts {
-    query_count?: number
-    pinned_count?: number
+export interface PlaylistCollectionCount {
+    count: number
+    watched_count: number
+}
+
+export interface PlaylistSavedFiltersCount {
+    count: number
+    watched_count: number
     has_more?: boolean
+    increased?: boolean
+}
+
+export interface PlaylistRecordingsCounts {
+    saved_filters?: PlaylistSavedFiltersCount
+    collection: PlaylistCollectionCount
 }
 
 export interface SessionRecordingPlaylistType {
@@ -2457,6 +2473,12 @@ export interface RetentionEntity {
     properties?: AnyPropertyFilter[]
 }
 
+export enum RetentionDashboardDisplayType {
+    TableOnly = 'table_only',
+    GraphOnly = 'graph_only',
+    All = 'all',
+}
+
 export interface RetentionFilterType extends FilterType {
     retention_type?: RetentionType
     /** Whether retention is with regard to initial cohort size, or that of the previous period. */
@@ -2471,7 +2493,8 @@ export interface RetentionFilterType extends FilterType {
     cumulative?: boolean
 
     //frontend only
-    show_mean?: boolean
+    show_mean?: boolean // deprecated
+    mean_retention_calculation?: 'simple' | 'weighted' | typeof RETENTION_MEAN_NONE
 }
 export interface LifecycleFilterType extends FilterType {
     /** @deprecated */
@@ -2900,10 +2923,12 @@ export interface SurveyAppearance {
     widgetLabel?: string
     widgetColor?: string
     fontFamily?: (typeof WEB_SAFE_FONTS)[number]['value']
+    disabledButtonOpacity?: string
 }
 
 export interface SurveyQuestionBase {
     question: string
+    id?: string
     description?: string | null
     descriptionContentType?: SurveyQuestionDescriptionContentType
     optional?: boolean
@@ -3026,6 +3051,8 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     id: number | null
     created_by: UserBasicType | null
     created_at: string | null
+    version: number | null
+    last_modified_by: UserBasicType | null
     is_simple_flag: boolean
     rollout_percentage: number | null
     experiment_set: number[] | null
@@ -3296,6 +3323,7 @@ export interface EventDefinition {
     verified_at?: string
     verified_by?: string
     is_action?: boolean
+    hidden?: boolean
     default_columns?: string[]
 }
 
@@ -3337,6 +3365,7 @@ export interface PropertyDefinition {
     verified?: boolean
     verified_at?: string
     verified_by?: string
+    hidden?: boolean
 }
 
 export enum PropertyDefinitionState {
@@ -3346,6 +3375,7 @@ export enum PropertyDefinitionState {
     Error = 'error',
 }
 
+export type PropertyDefinitionVerificationStatus = 'verified' | 'hidden' | 'visible'
 export type Definition = EventDefinition | PropertyDefinition
 
 export interface PersonProperty {
@@ -3698,6 +3728,11 @@ export enum GroupMathType {
     UniqueGroup = 'unique_group',
 }
 
+export enum ExperimentMetricMathType {
+    TotalCount = 'total',
+    Sum = 'sum',
+}
+
 export enum ActorGroupType {
     Person = 'person',
     GroupPrefix = 'group',
@@ -3800,6 +3835,7 @@ export type IntegrationKind =
     | 'google-ads'
     | 'linkedin-ads'
     | 'snapchat'
+    | 'intercom'
 
 export interface IntegrationType {
     id: number
@@ -3924,13 +3960,14 @@ export type APIScopeObject =
     | 'dashboard'
     | 'dashboard_template'
     | 'early_access_feature'
+    | 'error_tracking'
     | 'event_definition'
     | 'experiment'
     | 'export'
     | 'feature_flag'
     | 'group'
+    | 'hog_function'
     | 'insight'
-    | 'query'
     | 'notebook'
     | 'organization'
     | 'organization_member'
@@ -3938,6 +3975,7 @@ export type APIScopeObject =
     | 'plugin'
     | 'project'
     | 'property_definition'
+    | 'query'
     | 'session_recording'
     | 'session_recording_playlist'
     | 'sharing_configuration'
@@ -4061,7 +4099,7 @@ export type CommentType = {
     created_at: string
     created_by: UserBasicType | null
     source_comment?: string | null
-    scope: ActivityScope
+    scope: ActivityScope | string
     item_id?: string
     item_context: Record<string, any> | null
 }
@@ -4147,6 +4185,7 @@ export interface DataWarehouseSavedQuery {
     last_run_at?: string
     sync_frequency: string
     status?: string
+    latest_error: string | null
 }
 
 export interface DataWarehouseViewLink {
@@ -4232,6 +4271,7 @@ export interface ExternalDataSourceSyncSchema {
     table: string
     rows?: number | null
     should_sync: boolean
+    sync_time_of_day: string | null
     incremental_field: string | null
     incremental_field_type: string | null
     sync_type: 'full_refresh' | 'incremental' | null
@@ -4243,6 +4283,7 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     table?: SimpleDataWarehouseTable
     incremental: boolean
     sync_type: 'incremental' | 'full_refresh' | null
+    sync_time_of_day: string | null
     status?: string
     latest_error: string | null
     incremental_field: string | null
@@ -4505,7 +4546,7 @@ export type SDK = {
     name: string
     key: string
     recommended?: boolean
-    tags: string[]
+    tags: SDKTag[]
     image:
         | string
         | JSX.Element
@@ -4561,12 +4602,12 @@ export enum SDKKey {
 }
 
 export enum SDKTag {
+    RECOMMENDED = 'Recommended',
     WEB = 'Web',
     MOBILE = 'Mobile',
     SERVER = 'Server',
-    INTEGRATION = 'Integration',
-    RECOMMENDED = 'Recommended',
     LLM = 'LLM',
+    INTEGRATION = 'Integration',
     OTHER = 'Other',
 }
 
@@ -4659,6 +4700,7 @@ export interface SourceConfig {
     fields: SourceFieldConfig[]
     disabledReason?: string | null
     oauthPayload?: string[]
+    existingSource?: boolean
 }
 
 export interface ProductPricingTierSubrows {
@@ -5019,4 +5061,12 @@ export type UserGroup = {
 export interface CoreMemory {
     id: string
     text: string
+}
+
+export interface ProductManifest {
+    name: string
+    scenes?: Record<string, SceneConfig>
+    routes?: Record<string, [string /** Scene */, string /** Scene Key (unique for layout tabs) */]>
+    redirects?: Record<string, string | ((params: Params, searchParams: Params, hashParams: Params) => string)>
+    urls?: Record<string, string | ((...args: any[]) => string)>
 }
