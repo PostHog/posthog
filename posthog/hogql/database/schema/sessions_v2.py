@@ -574,6 +574,7 @@ SESSION_PROPERTY_TO_RAW_SESSIONS_EXPR_MAP = {
     "$entry_ttclid": "finalizeAggregation(initial_ttclid)",
     "$entry__kx": "finalizeAggregation(initial__kx)",
     "$entry_irclid": "finalizeAggregation(initial_irclid)",
+    "$entry_pathname": "path(finalizeAggregation(entry_url))",
     "$entry_current_url": "finalizeAggregation(entry_url)",
     "$end_current_url": "finalizeAggregation(end_url)",
     "$end_pathname": "path(finalizeAggregation(end_url))",
