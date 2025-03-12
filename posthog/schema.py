@@ -1281,8 +1281,8 @@ class NodeKind(StrEnum):
     STICKINESS_QUERY = "StickinessQuery"
     LIFECYCLE_QUERY = "LifecycleQuery"
     INSIGHT_ACTORS_QUERY = "InsightActorsQuery"
-    INSIGHT_ACTORS_QUERY_OPTIONS = "InsightActorsQueryOptions"
     INSIGHT_EVENTS_QUERY = "InsightEventsQuery"
+    INSIGHT_ACTORS_QUERY_OPTIONS = "InsightActorsQueryOptions"
     FUNNEL_CORRELATION_QUERY = "FunnelCorrelationQuery"
     WEB_OVERVIEW_QUERY = "WebOverviewQuery"
     WEB_STATS_TABLE_QUERY = "WebStatsTableQuery"
@@ -8290,6 +8290,29 @@ class InsightActorsQueryOptions(BaseModel):
     source: Union[InsightActorsQuery, FunnelsActorsQuery, FunnelCorrelationActorsQuery, StickinessActorsQuery]
 
 
+class InsightEventsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdown: Optional[Union[str, list[str], int]] = None
+    compare: Optional[Compare] = None
+    day: Optional[Union[str, int]] = None
+    includeRecordings: Optional[bool] = None
+    interval: Optional[int] = Field(
+        default=None, description="An interval selected out of available intervals in source query."
+    )
+    kind: Literal["InsightEventsQuery"] = "InsightEventsQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    response: Optional[ActorsQueryResponse] = None
+    series: Optional[int] = None
+    source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery] = Field(
+        ..., discriminator="kind"
+    )
+    status: Optional[str] = None
+
+
 class ActorsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -8397,6 +8420,7 @@ class DataTableNode(BaseModel):
         EventsQuery,
         PersonsNode,
         ActorsQuery,
+        InsightEventsQuery,
         HogQLQuery,
         WebOverviewQuery,
         WebStatsTableQuery,
@@ -8436,6 +8460,7 @@ class HogQLAutocomplete(BaseModel):
             ActorsQuery,
             InsightActorsQuery,
             InsightActorsQueryOptions,
+            InsightEventsQuery,
             SessionsTimelineQuery,
             HogQuery,
             HogQLQuery,
@@ -8484,6 +8509,7 @@ class HogQLMetadata(BaseModel):
             ActorsQuery,
             InsightActorsQuery,
             InsightActorsQueryOptions,
+            InsightEventsQuery,
             SessionsTimelineQuery,
             HogQuery,
             HogQLQuery,
@@ -8530,6 +8556,7 @@ class QueryRequest(BaseModel):
         ActorsQuery,
         InsightActorsQuery,
         InsightActorsQueryOptions,
+        InsightEventsQuery,
         SessionsTimelineQuery,
         HogQuery,
         HogQLQuery,
@@ -8603,6 +8630,7 @@ class QuerySchemaRoot(
             ActorsQuery,
             InsightActorsQuery,
             InsightActorsQueryOptions,
+            InsightEventsQuery,
             SessionsTimelineQuery,
             HogQuery,
             HogQLQuery,
@@ -8650,6 +8678,7 @@ class QuerySchemaRoot(
         ActorsQuery,
         InsightActorsQuery,
         InsightActorsQueryOptions,
+        InsightEventsQuery,
         SessionsTimelineQuery,
         HogQuery,
         HogQLQuery,
