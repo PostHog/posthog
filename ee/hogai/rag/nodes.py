@@ -10,7 +10,7 @@ from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQuer
 from posthog.hogql_queries.ai.vector_search_query_runner import VectorSearchQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Action
-from posthog.schema import TeamTaxonomyQuery, VectorSearchQuery
+from posthog.schema import CachedVectorSearchQueryResponse, TeamTaxonomyQuery, VectorSearchQuery
 
 from .utils import get_cohere_client
 
@@ -18,6 +18,10 @@ NextRagNode = Literal["trends", "funnel", "retention", "end"]
 
 
 class ProductAnalyticsRetriever(AssistantNode):
+    """
+    Injects product analytics context: actions and events.
+    """
+
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         plan = state.root_tool_insight_plan
         if not plan:
@@ -49,6 +53,9 @@ class ProductAnalyticsRetriever(AssistantNode):
             query=VectorSearchQuery(embedding=embedding),
         )
         response = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+        if not isinstance(response, CachedVectorSearchQueryResponse):
+            return ""
+
         actions = Action.objects.filter(team=self._team, id__in=[row.id for row in response.results])
 
         root = ET.Element("defined_actions")
@@ -62,6 +69,9 @@ class ProductAnalyticsRetriever(AssistantNode):
             if description := action.description:
                 desc_tag = ET.SubElement(action_tag, "description")
                 desc_tag.text = description
+            elif summary := action.summary:
+                desc_tag = ET.SubElement(action_tag, "description")
+                desc_tag.text = summary
 
         return ET.tostring(root, encoding="unicode")
 
