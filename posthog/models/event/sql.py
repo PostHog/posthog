@@ -89,6 +89,7 @@ EVENTS_TABLE_MATERIALIZED_COLUMNS = f"""
     , $group_4 VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$group_4')")} COMMENT 'column_materializer::$group_4'
     , $window_id VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$window_id')")} COMMENT 'column_materializer::$window_id'
     , $session_id VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$session_id')")} COMMENT 'column_materializer::$session_id'
+    , $session_id_uuid Nullable(UInt128) MATERIALIZED toUInt128(accurateCastOrNull({trim_quotes_expr("JSONExtractRaw(properties, '$session_id')")}, 'UUID')) COMMENT 'column_materializer::$session_id_uuid'
     , elements_chain_href String MATERIALIZED extract(elements_chain, '(?::|\")href="(.*?)"')
     , elements_chain_texts Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|\")text="(.*?)"'))
     , elements_chain_ids Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|\")attr_id="(.*?)"'))
@@ -100,6 +101,7 @@ EVENTS_TABLE_MATERIALIZED_COLUMNS = f"""
     , INDEX `minmax_$group_4` `$group_4` TYPE minmax GRANULARITY 1
     , INDEX `minmax_$window_id` `$window_id` TYPE minmax GRANULARITY 1
     , INDEX `minmax_$session_id` `$session_id` TYPE minmax GRANULARITY 1
+    , INDEX `minmax_$session_id_uuid` `$session_id_uuid` TYPE minmax GRANULARITY 1
     , {", ".join(property_groups.get_create_table_pieces("sharded_events"))}
 """
 
@@ -111,6 +113,7 @@ EVENTS_TABLE_PROXY_MATERIALIZED_COLUMNS = f"""
     , $group_4 VARCHAR COMMENT 'column_materializer::$group_4'
     , $window_id VARCHAR COMMENT 'column_materializer::$window_id'
     , $session_id VARCHAR COMMENT 'column_materializer::$session_id'
+    , $session_id_uuid Nullable(UInt128) COMMENT 'column_materializer::$session_id_uuid'
     , elements_chain_href String COMMENT 'column_materializer::elements_chain::href'
     , elements_chain_texts Array(String) COMMENT 'column_materializer::elements_chain::texts'
     , elements_chain_ids Array(String) COMMENT 'column_materializer::elements_chain::ids'
