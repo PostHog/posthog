@@ -1387,14 +1387,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "common-symbol-data"
-version = "0.1.0"
-dependencies = [
- "serde",
- "thiserror 1.0.69",
-]
-
-[[package]]
 name = "common-types"
 version = "0.1.0"
 dependencies = [
@@ -1724,7 +1716,6 @@ dependencies = [
  "common-dns",
  "common-kafka",
  "common-metrics",
- "common-symbol-data",
  "common-types",
  "envconfig",
  "health",
@@ -1733,6 +1724,7 @@ dependencies = [
  "mockall",
  "moka",
  "posthog-rs",
+ "posthog-symbol-data 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "rdkafka",
  "reqwest 0.12.3",
  "serde",
@@ -4516,10 +4508,10 @@ version = "0.0.2"
 dependencies = [
  "anyhow",
  "clap",
- "common-symbol-data",
  "crossterm 0.28.1",
  "dirs",
  "inquire",
+ "posthog-symbol-data 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "ratatui",
  "reqwest 0.12.3",
  "serde",
@@ -4528,6 +4520,7 @@ dependencies = [
  "test-log",
  "tracing",
  "tracing-subscriber",
+ "tui-textarea",
  "uuid",
  "walkdir",
 ]
@@ -4545,6 +4538,24 @@ dependencies = [
  "serde",
  "serde_json",
  "uuid",
+]
+
+[[package]]
+name = "posthog-symbol-data"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "posthog-symbol-data"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "155615f55dabf848e8e69d7081412e424afbea5060a49bb9582f48d0f8141f64"
+dependencies = [
+ "serde",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -6832,6 +6843,17 @@ name = "try-lock"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
+
+[[package]]
+name = "tui-textarea"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0a5318dd619ed73c52a9417ad19046724effc1287fb75cdcc4eca1d6ac1acbae"
+dependencies = [
+ "crossterm 0.28.1",
+ "ratatui",
+ "unicode-width 0.2.0",
+]
 
 [[package]]
 name = "typed-arena"

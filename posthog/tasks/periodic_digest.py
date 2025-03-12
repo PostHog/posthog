@@ -264,6 +264,7 @@ def _get_all_org_digest_reports(period_start: datetime, period_end: datetime) ->
 @shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=0)
 def send_all_periodic_digest_reports(
     self: celery.Task,
+    *,
     dry_run: bool = False,
     end_date: Optional[str] = None,
     begin_date: Optional[str] = None,
