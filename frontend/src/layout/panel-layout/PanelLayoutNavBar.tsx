@@ -6,7 +6,6 @@ import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableSh
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { IconCircleDashed, IconFolderOpen } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
 import { cn } from 'lib/utils/css-classes'
-import { cn } from 'lib/utils/css-classes'
 import { useRef } from 'react'
 import { urls } from 'scenes/urls'
 
