@@ -54,16 +54,6 @@ class MaterializeColumnConfig(dagster.Config):
     partitions: PartitionRange  # TODO: make optional for non-partitioned tables
 
     def get_mutations_to_run(self, client: Client) -> Iterable[AlterTableMutationRunner]:
-        # TODO: skip partitions that don't need materialization
-        # TODO: iterate in reverse
-        for partition in self.partitions.iter_ids():
-            yield AlterTableMutationRunner(
-                self.table,
-                {f"MATERIALIZE COLUMN {self.column} IN PARTITION %(partition)s"},
-                parameters={"partition": partition},
-            )
-
-    def get_remaining_partitions(self, client: Client) -> set[str]:
         # The primary key column(s) should exist in all parts, so we can determine what parts (and partitions) do not
         # have the target column materialized by finding parts where the key column exists but the target column does
         # not.
@@ -81,7 +71,7 @@ class MaterializeColumnConfig(dagster.Config):
             {"database": settings.CLICKHOUSE_DATABASE, "table": self.table},
         )
 
-        return {
+        remaining_partitions = {
             partition
             for [partition] in client.execute(
                 """
@@ -107,6 +97,14 @@ class MaterializeColumnConfig(dagster.Config):
                 },
             )
         }
+
+        for partition in reversed(self.partitions.iter_ids()):
+            if partition in remaining_partitions:
+                yield AlterTableMutationRunner(
+                    self.table,
+                    {f"MATERIALIZE COLUMN {self.column} IN PARTITION %(partition)s"},
+                    parameters={"partition": partition},
+                )
 
 
 K = TypeVar("K")
