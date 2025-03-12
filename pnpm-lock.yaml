@@ -560,8 +560,8 @@ importers:
         specifier: workspace:*
         version: link:../common/esbuilder
       '@posthog/hedgehog-mode':
-        specifier: ^0.0.12
-        version: 0.0.12
+        specifier: ^0.0.15
+        version: 0.0.15
       '@posthog/hogvm':
         specifier: workspace:*
         version: link:../common/hogvm/typescript
@@ -4395,8 +4395,8 @@ packages:
     resolution: {integrity: sha512-B8hZ8Dh2EoJoDb7Gx38ylBQM92oON/X2IxXCb7BfYStk3m17nStcAyaCsc2zbvxC0fFfTMU8lFRiFSEJmijkyg==}
     engines: {node: '>=12'}
 
-  '@posthog/hedgehog-mode@0.0.12':
-    resolution: {integrity: sha512-dG3jIwJpShCmLQXUPZEzAr4UySAwlijCXMNvpp+h/flS63RuapjSnnqfaVTLK07XpBR9h6UzmwLAszTnzZwS7A==}
+  '@posthog/hedgehog-mode@0.0.15':
+    resolution: {integrity: sha512-PEP5c0eGdG+Bl4KzlRDyaHh5rrIZs5Slmsc9I8jDMWeSUsSiA9ybws3BwIxsgcKkyimRYDWH2k3jCz2hsIm8Ew==}
     engines: {node: '>=18'}
 
   '@posthog/icons@0.11.1':
@@ -19425,7 +19425,7 @@ snapshots:
 
   '@posthog/clickhouse@1.7.0': {}
 
-  '@posthog/hedgehog-mode@0.0.12':
+  '@posthog/hedgehog-mode@0.0.15':
     dependencies:
       gsap: 3.12.7
       lodash: 4.17.21

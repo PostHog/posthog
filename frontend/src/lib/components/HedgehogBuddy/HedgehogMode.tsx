@@ -4,39 +4,8 @@ import { useActions } from 'kea'
 
 import { hedgehogModeLogic } from './hedgehogModeLogic'
 
-export function HedgehogMode(): JSX.Element {
-    const { setGameRef } = useActions(hedgehogModeLogic)
-
-    // useEffect(() => {
-    //     if (ref) {
-    //         const hedgeHogMode = new HedgeHogMode({
-    //             assetsUrl: '/static/hedgehog-mode/',
-    //             platformSelector:
-    //                 '.border, .border-t, .LemonButton--primary, .LemonButton--secondary:not(.LemonButton--status-alt:not(.LemonButton--active)), .LemonInput, .LemonSelect, .LemonTable, .LemonSwitch--bordered',
-    //         })
-    //         hedgeHogMode
-    //             .render(ref)
-    //             .then(() => {
-    //                 setGame(hedgeHogMode)
-    //             })
-    //             .catch((e) => {
-    //                 console.error('Error rendering hedgehog mode', e)
-    //             })
-    //     }
-    //     return () => game?.destroy()
-    // }, [ref])
-
-    // useEffect(() => {
-    //     if (!game) {
-    //         return
-    //     }
-    //     const player = hedgehogs['me']?.actor ?? game.spawnHedgehog(hedgehogConfig)
-    //     game.isDebugging = true
-
-    //     player.updateOptions(hedgehogConfig)
-
-    //     setHedgehogs((prev) => ({ ...prev, ['me']: { actor: player } }))
-    // }, [game, hedgehogConfig])
+export function HedgehogMode(): JSX.Element | null {
+    const { setGameElement } = useActions(hedgehogModeLogic)
 
     // useEffect(() => {
     //     if (!game) {
@@ -70,5 +39,13 @@ export function HedgehogMode(): JSX.Element {
     // useEffect(() => ensureAllMembersLoaded(), [hedgehogConfig.enabled])
 
     // TODO: Wrap this component in error boundary as we dont want it to crash the app
-    return <div id="game" className="fixed inset-0 antialiased" style={{ zIndex: 99999 }} ref={setGameRef} />
+    return (
+        <div
+            id="game"
+            className="fixed inset-0 antialiased"
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{ zIndex: 99999 }}
+            ref={(ref) => setGameElement(ref)}
+        />
+    )
 }
