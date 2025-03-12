@@ -1,22 +1,10 @@
 # @posthog/icons
 
-[![NPM](https://img.shields.io/npm/v/@posthog/icons.svg)](https://www.npmjs.com/package/@posthog/icons)
-
 <img width="1403" alt="image" src="https://github.com/user-attachments/assets/54131c59-4294-4078-9ff0-751bae88deb0" />
-
-
-
-
 
 ## Install
 
-```bash
-npm install --save @posthog/icons
-
-# or
-
-yarn add @posthog/icons
-```
+The `@posthog/icons` pacakge is built and installed as part of pnpm workspaces by turbo.
 
 ## Usage
 
@@ -34,8 +22,7 @@ const Example = () => {
 
 ## Publishing to NPM
 
-1. Mark your PR with the appropriate label (e.g. `bump patch`)
-2. When merged, it will trigger the bump, followed by publishing to npm
+We use the package as part of a workspace, however if there's a need to share an updated set of icons with the wider world, feel free to bump the version and publish it on npm.
 
 ## Requesting icons
 
