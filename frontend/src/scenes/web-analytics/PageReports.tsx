@@ -3,11 +3,11 @@ import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { XRayHog2 } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { IconBranch, IconOpenInNew } from 'lib/lemon-ui/icons'
+import { IconBranch } from 'lib/lemon-ui/icons'
+import { IconOpenInNew } from 'lib/lemon-ui/icons/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Link } from 'lib/lemon-ui/Link'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
@@ -18,7 +18,6 @@ import { urls } from 'scenes/urls'
 
 import { InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import {
-    AvailableFeature,
     BaseMathType,
     ChartDisplayType,
     InsightLogicProps,
@@ -89,143 +88,99 @@ const LearnMorePopover = ({ url, title, description }: LearnMorePopoverProps): J
 
 // URL Search Header component
 function PageUrlSearchHeader(): JSX.Element {
-    const { pageUrlSearchOptionsWithCount, pageUrl, isPathCleaningEnabled, isLoading } = useValues(pageReportsLogic)
-    const { setPageUrl, setPageUrlSearchTerm, loadPages } = useActions(pageReportsLogic)
-    const { dateFilter, hasAvailableFeature } = useValues(webAnalyticsLogic)
+    const { pageUrl, pageUrlSearchOptionsWithCount, isLoading } = useValues(pageReportsLogic)
+    const { setPageUrl, loadPages } = useActions(pageReportsLogic)
+    const { dateFilter, isPathCleaningEnabled } = useValues(webAnalyticsLogic)
     const { setDates, setIsPathCleaningEnabled } = useActions(webAnalyticsLogic)
-    const hasAdvancedPaths = hasAvailableFeature(AvailableFeature.PATHS_ADVANCED)
 
-    const placeholderUrl = pageUrlSearchOptionsWithCount?.[0]?.url ?? '/pricing'
+    // Override for testing - set to true to always show the Path Cleaning toggle
+    const hasAdvancedPaths = true
 
-    // Add this useEffect to ensure pages are loaded when the component mounts
+    // Load pages when component mounts or when input is focused
     useEffect(() => {
-        // Force load pages when component mounts to ensure data is available
-        loadPages('')
+        loadPages()
     }, [])
 
-    // Create properly formatted options for the dropdown
-    const dropdownOptions = isLoading
-        ? Array(5)
-              .fill(0)
-              .map((_, i) => ({
-                  label: 'Loading...',
-                  key: `loading-${i}`,
-                  labelComponent: (
-                      <div className="flex justify-between items-center w-full gap-4 py-1">
-                          <LemonSkeleton className="w-32 h-4" />
-                          <LemonSkeleton className="w-16 h-4" />
-                      </div>
-                  ),
-              }))
-        : pageUrlSearchOptionsWithCount?.map((page) => ({
-              label: page.url,
-              key: page.url,
-              labelComponent: (
-                  <div className="flex justify-between items-center w-full gap-4 py-1">
-                      <span className="truncate">{page.url}</span>
-                      <span className="text-muted whitespace-nowrap">{page.count.toLocaleString()} views</span>
-                  </div>
-              ),
-          })) ?? []
+    // Convert PageURL[] to LemonInputSelectOption[]
+    const options = pageUrlSearchOptionsWithCount.map((option) => ({
+        key: option.url,
+        label: option.url,
+        labelComponent: (
+            <div className="flex justify-between items-center w-full">
+                <span className="truncate">{option.url}</span>
+                <span className="text-muted ml-2">{option.count.toLocaleString()}</span>
+            </div>
+        ),
+    }))
+
+    const handleInputChange = (val: string): void => {
+        loadPages(val)
+    }
 
     return (
-        <div className="bg-bg-light p-4 rounded mb-4">
-            <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-2 mb-4">
+            <div className="flex items-center gap-2">
+                <div className="flex-1">
+                    <LemonInputSelect
+                        allowCustomValues={false}
+                        placeholder="Click or type to see top pages"
+                        loading={isLoading}
+                        size="small"
+                        mode="single"
+                        value={pageUrl ? [pageUrl] : null}
+                        onChange={(val: string[]) => setPageUrl(val.length > 0 ? val[0] : null)}
+                        options={options}
+                        onInputChange={handleInputChange}
+                        data-attr="page-url-search"
+                        onFocus={() => loadPages()}
+                        className="max-w-full"
+                    />
+                </div>
                 <div>
-                    <h3 className="mb-2">Select a page to analyze</h3>
-                    <p className="text-muted mb-2">
-                        Page Reports provide detailed analytics for a specific page on your website. Select a page to
-                        see visitor behavior, traffic sources, and more.
-                    </p>
+                    <DateFilter
+                        dateFrom={dateFilter.dateFrom}
+                        dateTo={dateFilter.dateTo}
+                        onChange={(fromDate, toDate) => setDates(fromDate, toDate)}
+                    />
                 </div>
-
-                <div className="flex flex-col md:flex-row gap-4">
-                    {/* URL Search Input - Make it larger */}
-                    <div className="flex-1">
-                        <div className="flex flex-col gap-2">
-                            <label className="font-semibold">Page URL</label>
-                            <div className="flex items-center gap-2">
-                                <LemonInputSelect
-                                    mode="single"
-                                    placeholder={`e.g. ${placeholderUrl}`}
-                                    onInputChange={(e) => setPageUrlSearchTerm(e)}
-                                    value={pageUrl ? [pageUrl] : undefined}
-                                    onChange={(v) => {
-                                        setPageUrl(v[0] ?? null)
-                                    }}
-                                    loading={isLoading}
-                                    title="Top pages by views"
-                                    options={dropdownOptions}
-                                    className="flex-1"
-                                />
-                                {pageUrl && (
-                                    <LemonButton
-                                        size="small"
-                                        icon={<IconX />}
-                                        onClick={() => setPageUrl(null)}
-                                        tooltip="Clear selection"
-                                    />
-                                )}
+                {hasAdvancedPaths && (
+                    <Tooltip
+                        title={
+                            <div className="p-2">
+                                <p className="mb-2">
+                                    Path cleaning helps standardize URLs by removing unnecessary parameters and
+                                    fragments.
+                                </p>
+                                <div className="mb-2">
+                                    <Link to="https://posthog.com/docs/product-analytics/paths#path-cleaning-rules">
+                                        Learn more about path cleaning rules
+                                    </Link>
+                                </div>
+                                <LemonButton
+                                    icon={<IconGear />}
+                                    type="primary"
+                                    size="small"
+                                    to={urls.settings('project-product-analytics', 'path-cleaning')}
+                                    targetBlank
+                                    className="w-full"
+                                >
+                                    Edit path cleaning settings
+                                </LemonButton>
                             </div>
-                            {!pageUrl && !isLoading && (
-                                <div className="text-muted text-xs">
-                                    Click to see top pages by pageviews or type to search
-                                </div>
-                            )}
-                            {!pageUrl && isLoading && <div className="text-muted text-xs">Loading top pages...</div>}
-                        </div>
-                    </div>
-
-                    {/* Date Range Filter */}
-                    <div className="flex-shrink-0">
-                        <div className="flex flex-col gap-2">
-                            <label className="font-semibold">Date Range</label>
-                            <DateFilter dateFrom={dateFilter.dateFrom} dateTo={dateFilter.dateTo} onChange={setDates} />
-                        </div>
-                    </div>
-                </div>
-
-                {/* Additional Controls */}
-                <div className="flex flex-wrap gap-2 items-center">
-                    {hasAdvancedPaths && (
-                        <Tooltip
-                            title={
-                                <div className="p-2">
-                                    <p className="mb-2">
-                                        Path cleaning helps standardize URLs by removing unnecessary parameters and
-                                        fragments.
-                                    </p>
-                                    <div className="mb-2">
-                                        <Link to="https://posthog.com/docs/product-analytics/paths#path-cleaning-rules">
-                                            Learn more about path cleaning rules
-                                        </Link>
-                                    </div>
-                                    <LemonButton
-                                        icon={<IconGear />}
-                                        type="primary"
-                                        size="small"
-                                        to={urls.settings('project-product-analytics', 'path-cleaning')}
-                                        targetBlank
-                                        className="w-full"
-                                    >
-                                        Edit path cleaning settings
-                                    </LemonButton>
-                                </div>
-                            }
-                            placement="top"
-                            interactive={true}
+                        }
+                        placement="top"
+                        interactive={true}
+                    >
+                        <LemonButton
+                            icon={<IconBranch />}
+                            onClick={() => setIsPathCleaningEnabled(!isPathCleaningEnabled)}
+                            type="secondary"
+                            size="small"
                         >
-                            <LemonButton
-                                icon={<IconBranch />}
-                                onClick={() => setIsPathCleaningEnabled(!isPathCleaningEnabled)}
-                                type="secondary"
-                                size="small"
-                            >
-                                Path cleaning: <LemonSwitch checked={isPathCleaningEnabled} className="ml-1" />
-                            </LemonButton>
-                        </Tooltip>
-                    )}
-                </div>
+                            Path cleaning: <LemonSwitch checked={isPathCleaningEnabled} className="ml-1" />
+                        </LemonButton>
+                    </Tooltip>
+                )}
             </div>
         </div>
     )
@@ -236,6 +191,7 @@ export const PageReports = (): JSX.Element => {
         useValues(webAnalyticsLogic)
     const { openModal, togglePropertyFilter } = useActions(webAnalyticsLogic)
     const { pageUrl, hasPageUrl } = useValues(pageReportsLogic)
+    const { isPathCleaningEnabled } = useValues(webAnalyticsLogic)
 
     // Find the tiles
     const pathsTile = tiles.find((tile) => tile.tileId === TileId.PATHS) as TabsTile | undefined
@@ -309,9 +265,9 @@ export const PageReports = (): JSX.Element => {
             filterTestAccounts: shouldFilterTestAccounts,
             properties: [
                 {
-                    key: '$pathname',
+                    key: '$current_url',
                     value: pageUrl,
-                    operator: PropertyOperator.Exact,
+                    operator: isPathCleaningEnabled ? PropertyOperator.IsCleanedPathExact : PropertyOperator.Exact,
                     type: PropertyFilterType.Event,
                 },
             ],
@@ -323,7 +279,7 @@ export const PageReports = (): JSX.Element => {
     // Apply the page URL filter when it changes
     useEffect(() => {
         // Apply or remove the filter when pageUrl changes
-        togglePropertyFilter(PropertyFilterType.Event, '$pathname', pageUrl || '')
+        togglePropertyFilter(PropertyFilterType.Event, '$current_url', pageUrl || '')
     }, [pageUrl, togglePropertyFilter])
 
     // Section component for consistent styling
@@ -415,37 +371,14 @@ export const PageReports = (): JSX.Element => {
                 <>
                     {/* Trends Section */}
                     <Section title="Trends over time">
-                        <div>
-                            <div className="flex justify-between items-center mb-1">
-                                <div className="flex gap-1">
-                                    {getNewInsightUrl(TileId.GRAPHS, 'combined') && (
-                                        <LemonButton
-                                            icon={<IconOpenInNew />}
-                                            size="small"
-                                            to={getNewInsightUrl(TileId.GRAPHS, 'combined')}
-                                            onClick={() => {
-                                                void addProductIntentForCrossSell({
-                                                    from: ProductKey.WEB_ANALYTICS,
-                                                    to: ProductKey.PRODUCT_ANALYTICS,
-                                                    intent_context: ProductIntentContext.WEB_ANALYTICS_INSIGHT,
-                                                })
-                                            }}
-                                            tooltip="Open as new Insight"
-                                        />
-                                    )}
-                                </div>
-                            </div>
-                            <div>
-                                <div className="w-full min-h-[350px]">
-                                    <WebQuery
-                                        query={combinedMetricsQuery}
-                                        showIntervalSelect={true}
-                                        tileId={TileId.GRAPHS}
-                                        insightProps={createInsightProps(TileId.GRAPHS, 'combined')}
-                                        key={`combined-metrics-${pageUrl}`}
-                                    />
-                                </div>
-                            </div>
+                        <div className="w-full min-h-[350px]">
+                            <WebQuery
+                                query={combinedMetricsQuery}
+                                showIntervalSelect={true}
+                                tileId={TileId.GRAPHS}
+                                insightProps={createInsightProps(TileId.GRAPHS, 'combined')}
+                                key={`combined-metrics-${pageUrl}`}
+                            />
                         </div>
                     </Section>
 

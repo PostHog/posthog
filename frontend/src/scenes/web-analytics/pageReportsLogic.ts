@@ -24,7 +24,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
     },
 
     actions: {
-        setPageUrl: (url: string | null) => ({ url }),
+        setPageUrl: (url: string | string[] | null) => ({ url }),
         setPageUrlSearchTerm: (searchTerm: string) => ({ searchTerm }),
         loadPages: (searchTerm: string = '') => ({ searchTerm }),
     },
@@ -34,7 +34,12 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
             null as string | null,
             { persist: true },
             {
-                setPageUrl: (_state, { url }) => url,
+                setPageUrl: (_state, { url }) => {
+                    if (Array.isArray(url)) {
+                        return url.length > 0 ? url[0] : null
+                    }
+                    return url
+                },
             },
         ],
         pageUrlSearchTerm: [
@@ -72,7 +77,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                                 kind: NodeKind.HogQLQuery,
                                 query: hogql`
                                     WITH clean_url AS (
-                                        replaceRegexpAll(properties.$pathname, '(\\d+)|([a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12})', '[val]')
+                                        replaceRegexpAll(properties.$current_url, '(\\d+)|([a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12})', '[val]')
                                     )
                                     SELECT clean_url AS url, count() as count
                                     FROM events
@@ -82,7 +87,6 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                                       AND clean_url LIKE ${searchPattern}
                                     GROUP BY url
                                     ORDER BY count DESC
-                                    LIMIT 100
                                 `,
                             }
                         } else {
@@ -91,7 +95,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                                 kind: NodeKind.HogQLQuery,
                                 query: hogql`
                                     WITH clean_url AS (
-                                        replaceRegexpAll(properties.$pathname, '(\\d+)|([a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12})', '[val]')
+                                        replaceRegexpAll(properties.$current_url, '(\\d+)|([a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12})', '[val]')
                                     )
                                     SELECT clean_url AS url, count() as count
                                     FROM events
@@ -100,7 +104,6 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                                       AND timestamp <= ${values.dateFilter.dateTo}
                                     GROUP BY url
                                     ORDER BY count DESC
-                                    LIMIT 100
                                 `,
                             }
                         }
@@ -111,15 +114,14 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                             query = {
                                 kind: NodeKind.HogQLQuery,
                                 query: hogql`
-                                    SELECT properties.$pathname AS url, count() as count
+                                    SELECT properties.$current_url AS url, count() as count
                                     FROM events
                                     WHERE event = '$pageview'
                                       AND timestamp >= ${values.dateFilter.dateFrom}
                                       AND timestamp <= ${values.dateFilter.dateTo}
-                                      AND properties.$pathname LIKE ${searchPattern}
+                                      AND properties.$current_url LIKE ${searchPattern}
                                     GROUP BY url
                                     ORDER BY count DESC
-                                    LIMIT 100
                                 `,
                             }
                         } else {
@@ -127,14 +129,13 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                             query = {
                                 kind: NodeKind.HogQLQuery,
                                 query: hogql`
-                                    SELECT properties.$pathname AS url, count() as count
+                                    SELECT properties.$current_url AS url, count() as count
                                     FROM events
                                     WHERE event = '$pageview'
                                       AND timestamp >= ${values.dateFilter.dateFrom}
                                       AND timestamp <= ${values.dateFilter.dateTo}
                                     GROUP BY url
                                     ORDER BY count DESC
-                                    LIMIT 100
                                 `,
                             }
                         }
@@ -181,6 +182,12 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 return pagesLoading || isInitialLoad
             },
         ],
+        pageUrlArray: [
+            (selectors) => [selectors.pageUrl],
+            (pageUrl: string | null): string[] => {
+                return pageUrl ? [pageUrl] : []
+            },
+        ],
     },
 
     listeners: ({ actions, values }) => ({
@@ -193,6 +200,10 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
             router.actions.replace('/web/page-reports', url ? { pageURL: url } : {}, router.values.hashParams)
         },
         [webAnalyticsLogic.actionTypes.setDates]: () => {
+            actions.loadPages(values.pageUrlSearchTerm)
+        },
+        [webAnalyticsLogic.actionTypes.setIsPathCleaningEnabled]: () => {
+            // Reload pages when path cleaning setting changes
             actions.loadPages(values.pageUrlSearchTerm)
         },
     }),
