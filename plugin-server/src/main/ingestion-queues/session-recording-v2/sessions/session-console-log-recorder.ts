@@ -1,10 +1,33 @@
 import { DateTime } from 'luxon'
 
-import { TimestampFormat } from '../../../../types'
+import { LogLevel, TimestampFormat } from '../../../../types'
 import { castTimestampOrNow } from '../../../../utils/utils'
 import { ParsedMessageData } from '../kafka/types'
 import { ConsoleLogLevel, getConsoleLogLevel } from '../rrweb-types'
 import { ConsoleLogEntry, SessionConsoleLogStore } from './session-console-log-store'
+
+const levelMapping: Record<string, LogLevel> = {
+    info: LogLevel.Info,
+    count: LogLevel.Info,
+    timeEnd: LogLevel.Info,
+    warn: LogLevel.Warn,
+    countReset: LogLevel.Warn,
+    error: LogLevel.Error,
+    assert: LogLevel.Error,
+    // really these should be 'log' but we don't want users to have to think about this
+    log: LogLevel.Info,
+    trace: LogLevel.Info,
+    dir: LogLevel.Info,
+    dirxml: LogLevel.Info,
+    group: LogLevel.Info,
+    groupCollapsed: LogLevel.Info,
+    debug: LogLevel.Info,
+    timeLog: LogLevel.Info,
+}
+
+function safeLevel(level: unknown): LogLevel {
+    return levelMapping[typeof level === 'string' ? level : 'info'] || LogLevel.Info
+}
 
 function sanitizeForUTF8(input: string): string {
     // the JS console truncates some logs...
@@ -66,9 +89,6 @@ export class SessionConsoleLogRecorder {
         for (const events of Object.values(message.eventsByWindowId)) {
             for (const event of events) {
                 const logLevel = getConsoleLogLevel(event)
-                if (!logLevel) {
-                    continue
-                }
 
                 if (logLevel === ConsoleLogLevel.Log) {
                     this.consoleLogCount++
@@ -78,9 +98,11 @@ export class SessionConsoleLogRecorder {
                     this.consoleErrorCount++
                 }
 
-                const eventData = event.data as { plugin?: unknown; payload?: { payload?: unknown } } | undefined
+                const eventData = event.data as
+                    | { plugin?: unknown; payload?: { payload?: unknown; level?: unknown } }
+                    | undefined
                 if (event.type === 6 && eventData?.plugin === 'rrweb/console@1') {
-                    const level = logLevel === ConsoleLogLevel.Log ? 'info' : logLevel.toLowerCase()
+                    const level = safeLevel(eventData?.payload?.level)
                     const maybePayload = eventData?.payload?.payload
                     const payload: unknown[] = Array.isArray(maybePayload) ? maybePayload : []
                     const message = payloadToSafeString(payload)
@@ -88,7 +110,7 @@ export class SessionConsoleLogRecorder {
                     logsToStore.push({
                         team_id: this.teamId,
                         message,
-                        level: level as any,
+                        level,
                         log_source: 'session_replay',
                         log_source_id: this.sessionId,
                         instance_id: null,

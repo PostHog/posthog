@@ -1,5 +1,6 @@
 import { DateTime } from 'luxon'
 
+import { LogLevel } from '../../../../types'
 import { ParsedMessageData } from '../kafka/types'
 import { ConsoleLogLevel, RRWebEventType } from '../rrweb-types'
 import { SessionConsoleLogRecorder } from './session-console-log-recorder'
@@ -15,6 +16,26 @@ describe('SessionConsoleLogRecorder', () => {
         } as unknown as jest.Mocked<SessionConsoleLogStore>
 
         recorder = new SessionConsoleLogRecorder('test_session_id', 1, 'test_batch_id', mockConsoleLogStore)
+    })
+
+    const createConsoleLogEvent = ({
+        level,
+        payload,
+        timestamp,
+    }: {
+        level: ConsoleLogLevel
+        payload: unknown[]
+        timestamp: number
+    }) => ({
+        type: RRWebEventType.Plugin,
+        timestamp,
+        data: {
+            plugin: 'rrweb/console@1',
+            payload: {
+                level,
+                payload,
+            },
+        },
     })
 
     const createMessage = (windowId: string, events: any[]): ParsedMessageData => ({
@@ -281,6 +302,73 @@ describe('SessionConsoleLogRecorder', () => {
             expect(result.consoleLogCount).toBe(1)
             expect(result.consoleWarnCount).toBe(0)
             expect(result.consoleErrorCount).toBe(1)
+        })
+    })
+
+    describe('Log level mapping', () => {
+        const testCases = [
+            // Info level mappings
+            { input: 'info', expected: LogLevel.Info },
+            { input: 'log', expected: LogLevel.Info },
+            { input: 'debug', expected: LogLevel.Info },
+            { input: 'trace', expected: LogLevel.Info },
+            { input: 'dir', expected: LogLevel.Info },
+            { input: 'dirxml', expected: LogLevel.Info },
+            { input: 'group', expected: LogLevel.Info },
+            { input: 'groupCollapsed', expected: LogLevel.Info },
+            { input: 'count', expected: LogLevel.Info },
+            { input: 'timeEnd', expected: LogLevel.Info },
+            { input: 'timeLog', expected: LogLevel.Info },
+            // Warn level mappings
+            { input: 'warn', expected: LogLevel.Warn },
+            { input: 'countReset', expected: LogLevel.Warn },
+            // Error level mappings
+            { input: 'error', expected: LogLevel.Error },
+            { input: 'assert', expected: LogLevel.Error },
+        ]
+
+        test.each(testCases)('maps browser level $input to $expected', async ({ input, expected }) => {
+            const event = createConsoleLogEvent({
+                level: input as ConsoleLogLevel,
+                payload: ['test message'],
+                timestamp: 1000,
+            })
+
+            await recorder.recordMessage(createMessage('window1', [event]))
+
+            expect(mockConsoleLogStore.storeSessionConsoleLogs).toHaveBeenCalledWith([
+                expect.objectContaining({
+                    level: expected,
+                    message: 'test message',
+                }),
+            ])
+        })
+
+        it('handles edge cases', async () => {
+            const edgeCases = [
+                { level: 'unknown' as ConsoleLogLevel, expected: LogLevel.Info },
+                { level: '' as ConsoleLogLevel, expected: LogLevel.Info },
+                { level: undefined as unknown as ConsoleLogLevel, expected: LogLevel.Info },
+                { level: null as unknown as ConsoleLogLevel, expected: LogLevel.Info },
+                { level: 123 as unknown as ConsoleLogLevel, expected: LogLevel.Info },
+            ]
+
+            for (const { level, expected } of edgeCases) {
+                const event = createConsoleLogEvent({
+                    level,
+                    payload: ['test message'],
+                    timestamp: 1000,
+                })
+
+                await recorder.recordMessage(createMessage('window1', [event]))
+
+                expect(mockConsoleLogStore.storeSessionConsoleLogs).toHaveBeenLastCalledWith([
+                    expect.objectContaining({
+                        level: expected,
+                        message: 'test message',
+                    }),
+                ])
+            }
         })
     })
 })
