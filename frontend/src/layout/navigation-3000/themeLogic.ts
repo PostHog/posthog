@@ -83,11 +83,7 @@ export const themeLogic = kea<themeLogicType>([
                     return !!theme?.dark
                 }
                 // NOTE: Unauthenticated users always get the light mode until we have full support across onboarding flows
-                if (
-                    sceneConfig?.layout === 'plain' ||
-                    sceneConfig?.allowUnauthenticated ||
-                    sceneConfig?.onlyUnauthenticated
-                ) {
+                if (sceneConfig?.allowUnauthenticated || sceneConfig?.onlyUnauthenticated) {
                     return false
                 }
 
