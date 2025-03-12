@@ -665,13 +665,23 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 const _model = props.monaco.editor.getModel(activeModelUri.uri)
                 const val = _model?.getValue()
                 actions.setQueryInput(val ?? '')
-                actions.setSourceQuery({
-                    ...values.sourceQuery,
-                    source: {
-                        ...values.sourceQuery.source,
-                        query: val ?? '',
-                    },
-                })
+                if (activeModelUri.sourceQuery) {
+                    actions.setSourceQuery({
+                        ...activeModelUri.sourceQuery,
+                        source: {
+                            ...activeModelUri.sourceQuery.source,
+                            query: val ?? '',
+                        },
+                    })
+                } else {
+                    actions.setSourceQuery({
+                        kind: NodeKind.DataVisualizationNode,
+                        source: {
+                            kind: NodeKind.HogQLQuery,
+                            query: val ?? '',
+                        },
+                    })
+                }
             }
         },
         allTabs: () => {

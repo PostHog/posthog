@@ -105,6 +105,8 @@ export function DataTableVisualization({
     const { insightProps: insightLogicProps } = useValues(insightLogic)
     const { exportContext } = useValues(insightDataLogic(insightLogicProps))
 
+    const { loadData } = useActions(dataVisualizationLogic(dataVisualizationLogicProps))
+
     return (
         <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
             <BindLogic logic={dataVisualizationLogic} props={dataVisualizationLogicProps}>
@@ -115,6 +117,10 @@ export function DataTableVisualization({
                             key: dataVisualizationLogicProps.key,
                             readOnly: readOnly ?? false,
                             dashboardId: insightProps.dashboardId,
+                            setQuery: setQuery,
+                            onUpdate: (query: DataVisualizationNode) => {
+                                loadData(true, undefined, query.source)
+                            },
                         }}
                     >
                         <BindLogic logic={variableModalLogic} props={{ key: dataVisualizationLogicProps.key }}>
