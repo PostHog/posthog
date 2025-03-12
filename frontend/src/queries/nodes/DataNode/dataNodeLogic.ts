@@ -213,6 +213,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     cache.abortController = abortController
                     const methodOptions: ApiMethodOptions = {
                         signal: cache.abortController.signal,
+                        async: refresh === 'blocking' || refresh === 'force_blocking' ? false : true,
                     }
                     try {
                         const response = await concurrencyController.run({
