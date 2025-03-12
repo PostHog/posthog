@@ -30,7 +30,7 @@ export function FeaturePreviews({ focusedFeatureFlagKey }: { focusedFeatureFlagK
     return (
         <div
             className={cn(
-                'flex flex-col relative min-h-24',
+                'flex flex-col relative min-h-24 overflow-y-auto',
                 earlyAccessFeatures.length === 0 && 'items-center justify-center'
             )}
         >
