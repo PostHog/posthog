@@ -1,43 +1,63 @@
-import { IconExpand45, IconGear, IconInfo, IconX } from '@posthog/icons'
+import { IconExpand45, IconInfo, IconX } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { XRayHog2 } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { IconBranch } from 'lib/lemon-ui/icons'
 import { IconOpenInNew } from 'lib/lemon-ui/icons/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect'
+import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
-import { Link } from 'lib/lemon-ui/Link'
-import { Popover } from 'lib/lemon-ui/Popover/Popover'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { Popover } from 'lib/lemon-ui/Popover'
 import { addProductIntentForCrossSell, ProductIntentContext } from 'lib/utils/product-intents'
-import { useEffect, useState } from 'react'
-import { urls } from 'scenes/urls'
+import { useState } from 'react'
 
-import { InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
-import {
-    BaseMathType,
-    ChartDisplayType,
-    InsightLogicProps,
-    ProductKey,
-    PropertyFilterType,
-    PropertyOperator,
-} from '~/types'
+import { InsightLogicProps } from '~/types'
+import { ProductKey } from '~/types'
 
 import { pageReportsLogic } from './pageReportsLogic'
 import { WebQuery } from './tiles/WebAnalyticsTile'
-import {
-    DeviceTab,
-    GeographyTab,
-    PathTab,
-    SourceTab,
-    TabsTile,
-    TileId,
-    WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
-    webAnalyticsLogic,
-} from './webAnalyticsLogic'
+import { DeviceTab, GeographyTab, PathTab, SourceTab, TileId, webAnalyticsLogic } from './webAnalyticsLogic'
+
+// Extended interface for pageReportsLogic values
+interface PageReportsLogicValues {
+    pageUrl: string | null
+    pageUrlSearchTerm: string
+    isInitialLoad: boolean
+    pagesLoading: boolean
+    hasPageUrl: boolean
+    isLoading: boolean
+    pageUrlSearchOptionsWithCount: { url: string; count: number }[]
+    stripQueryParams: boolean
+    // Queries object
+    queries: {
+        entryPathsQuery: any
+        exitPathsQuery: any
+        outboundClicksQuery: any
+        channelsQuery: any
+        referrersQuery: any
+        deviceTypeQuery: any
+        browserQuery: any
+        osQuery: any
+        countriesQuery: any
+        regionsQuery: any
+        citiesQuery: any
+        timezonesQuery: any
+        languagesQuery: any
+    }
+    // Helper functions
+    createInsightProps: (tileId: TileId, tabId?: string) => InsightLogicProps
+    // Combined metrics query
+    combinedMetricsQuery: any
+}
+
+// Extended interface for pageReportsLogic actions
+interface PageReportsLogicActions {
+    setPageUrl: (url: string | string[] | null) => void
+    setPageUrlSearchTerm: (searchTerm: string) => void
+    loadPages: (searchTerm?: string) => void
+    toggleStripQueryParams: () => void
+}
 
 // LearnMorePopover component
 interface LearnMorePopoverProps {
@@ -88,21 +108,13 @@ const LearnMorePopover = ({ url, title, description }: LearnMorePopoverProps): J
 
 // URL Search Header component
 function PageUrlSearchHeader(): JSX.Element {
-    const { pageUrl, pageUrlSearchOptionsWithCount, isLoading } = useValues(pageReportsLogic)
-    const { setPageUrl, loadPages } = useActions(pageReportsLogic)
-    const { dateFilter, isPathCleaningEnabled } = useValues(webAnalyticsLogic)
-    const { setDates, setIsPathCleaningEnabled } = useActions(webAnalyticsLogic)
-
-    // Override for testing - set to true to always show the Path Cleaning toggle
-    const hasAdvancedPaths = true
-
-    // Load pages when component mounts or when input is focused
-    useEffect(() => {
-        loadPages()
-    }, [])
+    const values = useValues(pageReportsLogic) as unknown as PageReportsLogicValues
+    const actions = useActions(pageReportsLogic) as unknown as PageReportsLogicActions
+    const { dateFilter } = useValues(webAnalyticsLogic)
+    const { setDates } = useActions(webAnalyticsLogic)
 
     // Convert PageURL[] to LemonInputSelectOption[]
-    const options = pageUrlSearchOptionsWithCount.map((option) => ({
+    const options = values.pageUrlSearchOptionsWithCount.map((option) => ({
         key: option.url,
         label: option.url,
         labelComponent: (
@@ -113,10 +125,6 @@ function PageUrlSearchHeader(): JSX.Element {
         ),
     }))
 
-    const handleInputChange = (val: string): void => {
-        loadPages(val)
-    }
-
     return (
         <div className="flex flex-col gap-2 mb-4">
             <div className="flex items-center gap-2">
@@ -124,15 +132,15 @@ function PageUrlSearchHeader(): JSX.Element {
                     <LemonInputSelect
                         allowCustomValues={false}
                         placeholder="Click or type to see top pages"
-                        loading={isLoading}
+                        loading={values.isLoading}
                         size="small"
                         mode="single"
-                        value={pageUrl ? [pageUrl] : null}
-                        onChange={(val: string[]) => setPageUrl(val.length > 0 ? val[0] : null)}
+                        value={values.pageUrl ? [values.pageUrl] : null}
+                        onChange={(val: string[]) => actions.setPageUrl(val.length > 0 ? val[0] : null)}
                         options={options}
-                        onInputChange={handleInputChange}
+                        onInputChange={(val: string) => actions.setPageUrlSearchTerm(val)}
                         data-attr="page-url-search"
-                        onFocus={() => loadPages()}
+                        onFocus={() => actions.loadPages('')}
                         className="max-w-full"
                     />
                 </div>
@@ -143,144 +151,24 @@ function PageUrlSearchHeader(): JSX.Element {
                         onChange={(fromDate, toDate) => setDates(fromDate, toDate)}
                     />
                 </div>
-                {hasAdvancedPaths && (
-                    <Tooltip
-                        title={
-                            <div className="p-2">
-                                <p className="mb-2">
-                                    Path cleaning helps standardize URLs by removing unnecessary parameters and
-                                    fragments.
-                                </p>
-                                <div className="mb-2">
-                                    <Link to="https://posthog.com/docs/product-analytics/paths#path-cleaning-rules">
-                                        Learn more about path cleaning rules
-                                    </Link>
-                                </div>
-                                <LemonButton
-                                    icon={<IconGear />}
-                                    type="primary"
-                                    size="small"
-                                    to={urls.settings('project-product-analytics', 'path-cleaning')}
-                                    targetBlank
-                                    className="w-full"
-                                >
-                                    Edit path cleaning settings
-                                </LemonButton>
-                            </div>
-                        }
-                        placement="top"
-                        interactive={true}
-                    >
-                        <LemonButton
-                            icon={<IconBranch />}
-                            onClick={() => setIsPathCleaningEnabled(!isPathCleaningEnabled)}
-                            type="secondary"
-                            size="small"
-                        >
-                            Path cleaning: <LemonSwitch checked={isPathCleaningEnabled} className="ml-1" />
-                        </LemonButton>
-                    </Tooltip>
-                )}
+            </div>
+            <div className="flex items-center gap-2">
+                <LemonSwitch
+                    checked={values.stripQueryParams}
+                    onChange={actions.toggleStripQueryParams}
+                    label="Strip query parameters"
+                    size="small"
+                />
+                <span className="text-muted text-xs">Remove query strings from URLs (e.g. "?utm_source=...")</span>
             </div>
         </div>
     )
 }
 
 export const PageReports = (): JSX.Element => {
-    const { tiles, dateFilter, shouldFilterTestAccounts, compareFilter, getNewInsightUrl } =
-        useValues(webAnalyticsLogic)
-    const { openModal, togglePropertyFilter } = useActions(webAnalyticsLogic)
-    const { pageUrl, hasPageUrl } = useValues(pageReportsLogic)
-    const { isPathCleaningEnabled } = useValues(webAnalyticsLogic)
-
-    // Find the tiles
-    const pathsTile = tiles.find((tile) => tile.tileId === TileId.PATHS) as TabsTile | undefined
-    const sourcesTile = tiles.find((tile) => tile.tileId === TileId.SOURCES) as TabsTile | undefined
-    const devicesTile = tiles.find((tile) => tile.tileId === TileId.DEVICES) as TabsTile | undefined
-    const geographyTile = tiles.find((tile) => tile.tileId === TileId.GEOGRAPHY) as TabsTile | undefined
-
-    // Get the queries for each tab
-    const entryPathsQuery = pathsTile?.tabs.find((tab) => tab.id === PathTab.INITIAL_PATH)?.query
-    const exitPathsQuery = pathsTile?.tabs.find((tab) => tab.id === PathTab.END_PATH)?.query
-    const outboundClicksQuery = pathsTile?.tabs.find((tab) => tab.id === PathTab.EXIT_CLICK)?.query
-
-    // Get source queries
-    const channelsQuery = sourcesTile?.tabs.find((tab) => tab.id === SourceTab.CHANNEL)?.query
-    const referrersQuery = sourcesTile?.tabs.find((tab) => tab.id === SourceTab.REFERRING_DOMAIN)?.query
-
-    // Get device queries
-    const deviceTypeQuery = devicesTile?.tabs.find((tab) => tab.id === DeviceTab.DEVICE_TYPE)?.query
-    const browserQuery = devicesTile?.tabs.find((tab) => tab.id === DeviceTab.BROWSER)?.query
-    const osQuery = devicesTile?.tabs.find((tab) => tab.id === DeviceTab.OS)?.query
-
-    // Get geography queries
-    const countriesQuery = geographyTile?.tabs.find((tab) => tab.id === GeographyTab.COUNTRIES)?.query
-    const regionsQuery = geographyTile?.tabs.find((tab) => tab.id === GeographyTab.REGIONS)?.query
-    const citiesQuery = geographyTile?.tabs.find((tab) => tab.id === GeographyTab.CITIES)?.query
-    const timezonesQuery = geographyTile?.tabs.find((tab) => tab.id === GeographyTab.TIMEZONES)?.query
-    const languagesQuery = geographyTile?.tabs.find((tab) => tab.id === GeographyTab.LANGUAGES)?.query
-
-    // Create insight props for the queries
-    const createInsightProps = (tileId: TileId, tabId?: string): InsightLogicProps => ({
-        dashboardItemId: `new-${tileId}${tabId ? `-${tabId}` : ''}`,
-        loadPriority: 0,
-        dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
-    })
-
-    // Create a combined query for all three metrics
-    const combinedMetricsQuery: InsightVizNode<TrendsQuery> = {
-        kind: NodeKind.InsightVizNode,
-        source: {
-            kind: NodeKind.TrendsQuery,
-            series: [
-                {
-                    event: '$pageview',
-                    kind: NodeKind.EventsNode,
-                    math: BaseMathType.UniqueUsers,
-                    name: '$pageview',
-                    custom_name: 'Unique visitors',
-                },
-                {
-                    event: '$pageview',
-                    kind: NodeKind.EventsNode,
-                    math: BaseMathType.TotalCount,
-                    name: '$pageview',
-                    custom_name: 'Page views',
-                },
-                {
-                    event: '$pageview',
-                    kind: NodeKind.EventsNode,
-                    math: BaseMathType.UniqueSessions,
-                    name: '$pageview',
-                    custom_name: 'Sessions',
-                },
-            ],
-            interval: dateFilter.interval,
-            dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
-            trendsFilter: {
-                display: ChartDisplayType.ActionsLineGraph,
-                showLegend: true,
-            },
-            compareFilter,
-            filterTestAccounts: shouldFilterTestAccounts,
-            properties: [
-                {
-                    key: '$current_url',
-                    value: pageUrl,
-                    operator: isPathCleaningEnabled ? PropertyOperator.IsCleanedPathExact : PropertyOperator.Exact,
-                    type: PropertyFilterType.Event,
-                },
-            ],
-        },
-        hidePersonsModal: true,
-        embedded: true,
-    }
-
-    // Apply the page URL filter when it changes
-    useEffect(() => {
-        // Apply or remove the filter when pageUrl changes
-        togglePropertyFilter(PropertyFilterType.Event, '$current_url', pageUrl || '')
-    }, [pageUrl, togglePropertyFilter])
+    const { getNewInsightUrl } = useValues(webAnalyticsLogic)
+    const { openModal } = useActions(webAnalyticsLogic)
+    const values = useValues(pageReportsLogic) as unknown as PageReportsLogicValues
 
     // Section component for consistent styling
     const Section = ({ title, children }: { title: string; children: React.ReactNode }): JSX.Element => (
@@ -346,10 +234,11 @@ export const PageReports = (): JSX.Element => {
                             query={query}
                             showIntervalSelect={false}
                             tileId={tileId}
-                            insightProps={createInsightProps(tileId, tabId)}
-                            key={`${tileId}-${tabId}-${pageUrl}`}
+                            insightProps={values.createInsightProps(tileId, tabId)}
+                            key={`${tileId}-${tabId}-${values.pageUrl}`}
                         />
                     )}
+                    {!query && <div className="text-muted text-center p-4">No data available for this query</div>}
                 </div>
             </div>
         )
@@ -359,7 +248,7 @@ export const PageReports = (): JSX.Element => {
         <div className="space-y-2 mt-2">
             <PageUrlSearchHeader />
 
-            {!hasPageUrl ? (
+            {!values.hasPageUrl ? (
                 <ProductIntroduction
                     productName="PAGE REPORTS"
                     thingName="page report"
@@ -373,12 +262,28 @@ export const PageReports = (): JSX.Element => {
                     <Section title="Trends over time">
                         <div className="w-full min-h-[350px]">
                             <WebQuery
-                                query={combinedMetricsQuery}
+                                query={values.combinedMetricsQuery}
                                 showIntervalSelect={true}
                                 tileId={TileId.GRAPHS}
-                                insightProps={createInsightProps(TileId.GRAPHS, 'combined')}
-                                key={`combined-metrics-${pageUrl}`}
+                                insightProps={values.createInsightProps(TileId.GRAPHS, 'combined')}
+                                key={`combined-metrics-${values.pageUrl}`}
                             />
+                            <LemonButton
+                                key="open-insight-button"
+                                to={getNewInsightUrl(TileId.GRAPHS, 'combined')}
+                                icon={<IconOpenInNew />}
+                                size="small"
+                                type="secondary"
+                                onClick={() => {
+                                    void addProductIntentForCrossSell({
+                                        from: ProductKey.WEB_ANALYTICS,
+                                        to: ProductKey.PRODUCT_ANALYTICS,
+                                        intent_context: ProductIntentContext.WEB_ANALYTICS_INSIGHT,
+                                    })
+                                }}
+                            >
+                                Open as new Insight
+                            </LemonButton>
                         </div>
                     </Section>
 
@@ -388,7 +293,7 @@ export const PageReports = (): JSX.Element => {
                             <SimpleTile
                                 title="Entry Paths"
                                 description="How users arrive at this page"
-                                query={entryPathsQuery}
+                                query={values.queries.entryPathsQuery}
                                 tileId={TileId.PATHS}
                                 tabId={PathTab.INITIAL_PATH}
                             />
@@ -396,7 +301,7 @@ export const PageReports = (): JSX.Element => {
                             <SimpleTile
                                 title="Exit Paths"
                                 description="Where users go after viewing this page"
-                                query={exitPathsQuery}
+                                query={values.queries.exitPathsQuery}
                                 tileId={TileId.PATHS}
                                 tabId={PathTab.END_PATH}
                             />
@@ -404,7 +309,7 @@ export const PageReports = (): JSX.Element => {
                             <SimpleTile
                                 title="Outbound Clicks"
                                 description="External links users click on this page"
-                                query={outboundClicksQuery}
+                                query={values.queries.outboundClicksQuery}
                                 tileId={TileId.PATHS}
                                 tabId={PathTab.EXIT_CLICK}
                             />
@@ -417,7 +322,7 @@ export const PageReports = (): JSX.Element => {
                             <SimpleTile
                                 title="Channels"
                                 description="Marketing channels bringing users to this page"
-                                query={channelsQuery}
+                                query={values.queries.channelsQuery}
                                 tileId={TileId.SOURCES}
                                 tabId={SourceTab.CHANNEL}
                             />
@@ -425,7 +330,7 @@ export const PageReports = (): JSX.Element => {
                             <SimpleTile
                                 title="Referrers"
                                 description="Websites referring traffic to this page"
-                                query={referrersQuery}
+                                query={values.queries.referrersQuery}
                                 tileId={TileId.SOURCES}
                                 tabId={SourceTab.REFERRING_DOMAIN}
                             />
@@ -438,7 +343,7 @@ export const PageReports = (): JSX.Element => {
                             <SimpleTile
                                 title="Device Types"
                                 description="Types of devices used to access this page"
-                                query={deviceTypeQuery}
+                                query={values.queries.deviceTypeQuery}
                                 tileId={TileId.DEVICES}
                                 tabId={DeviceTab.DEVICE_TYPE}
                             />
@@ -446,7 +351,7 @@ export const PageReports = (): JSX.Element => {
                             <SimpleTile
                                 title="Browsers"
                                 description="Browsers used to access this page"
-                                query={browserQuery}
+                                query={values.queries.browserQuery}
                                 tileId={TileId.DEVICES}
                                 tabId={DeviceTab.BROWSER}
                             />
@@ -454,7 +359,7 @@ export const PageReports = (): JSX.Element => {
                             <SimpleTile
                                 title="Operating Systems"
                                 description="Operating systems used to access this page"
-                                query={osQuery}
+                                query={values.queries.osQuery}
                                 tileId={TileId.DEVICES}
                                 tabId={DeviceTab.OS}
                             />
@@ -467,7 +372,7 @@ export const PageReports = (): JSX.Element => {
                             <SimpleTile
                                 title="Countries"
                                 description="Countries where users access this page from"
-                                query={countriesQuery}
+                                query={values.queries.countriesQuery}
                                 tileId={TileId.GEOGRAPHY}
                                 tabId={GeographyTab.COUNTRIES}
                             />
@@ -475,7 +380,7 @@ export const PageReports = (): JSX.Element => {
                             <SimpleTile
                                 title="Regions"
                                 description="Regions where users access this page from"
-                                query={regionsQuery}
+                                query={values.queries.regionsQuery}
                                 tileId={TileId.GEOGRAPHY}
                                 tabId={GeographyTab.REGIONS}
                             />
@@ -483,7 +388,7 @@ export const PageReports = (): JSX.Element => {
                             <SimpleTile
                                 title="Cities"
                                 description="Cities where users access this page from"
-                                query={citiesQuery}
+                                query={values.queries.citiesQuery}
                                 tileId={TileId.GEOGRAPHY}
                                 tabId={GeographyTab.CITIES}
                             />
@@ -492,7 +397,7 @@ export const PageReports = (): JSX.Element => {
                             <SimpleTile
                                 title="Timezones"
                                 description="Timezones where users access this page from"
-                                query={timezonesQuery}
+                                query={values.queries.timezonesQuery}
                                 tileId={TileId.GEOGRAPHY}
                                 tabId={GeographyTab.TIMEZONES}
                             />
@@ -500,7 +405,7 @@ export const PageReports = (): JSX.Element => {
                             <SimpleTile
                                 title="Languages"
                                 description="Languages of users accessing this page"
-                                query={languagesQuery}
+                                query={values.queries.languagesQuery}
                                 tileId={TileId.GEOGRAPHY}
                                 tabId={GeographyTab.LANGUAGES}
                             />

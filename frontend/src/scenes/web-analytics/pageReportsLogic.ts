@@ -2,11 +2,22 @@ import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
 
-import { NodeKind } from '~/queries/schema/schema-general'
+import { InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
+import { BaseMathType, ChartDisplayType, InsightLogicProps, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { pageReportsLogicType } from './pageReportsLogicType'
-import { webAnalyticsLogic } from './webAnalyticsLogic'
+import {
+    DeviceTab,
+    GeographyTab,
+    PathTab,
+    SourceTab,
+    TabsTile,
+    TileId,
+    WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
+    webAnalyticsLogic,
+    WebAnalyticsTile,
+} from './webAnalyticsLogic'
 
 export interface PageURL {
     url: string
@@ -20,16 +31,18 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
     props: {} as PageReportsLogicProps,
 
     connect: {
-        values: [webAnalyticsLogic, ['dateFilter', 'isPathCleaningEnabled']],
+        values: [webAnalyticsLogic, ['dateFilter', 'tiles', 'shouldFilterTestAccounts', 'compareFilter']],
+        actions: [webAnalyticsLogic, ['togglePropertyFilter']],
     },
 
-    actions: {
+    actions: () => ({
         setPageUrl: (url: string | string[] | null) => ({ url }),
         setPageUrlSearchTerm: (searchTerm: string) => ({ searchTerm }),
         loadPages: (searchTerm: string = '') => ({ searchTerm }),
-    },
+        toggleStripQueryParams: () => ({}),
+    }),
 
-    reducers: {
+    reducers: () => ({
         pageUrl: [
             null as string | null,
             { persist: true },
@@ -54,139 +67,202 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 loadPagesSuccess: () => false,
             },
         ],
-    },
+        stripQueryParams: [
+            false as boolean,
+            { persist: true },
+            {
+                toggleStripQueryParams: (state: boolean) => !state,
+            },
+        ],
+    }),
 
     loaders: ({ values }) => ({
         pages: [
             [] as PageURL[],
             {
                 loadPages: async ({ searchTerm }: { searchTerm: string }) => {
-                    // Use path cleaning if enabled
-                    const pathCleaningEnabled = values.isPathCleaningEnabled
-
-                    // Create the search pattern
-                    const searchPattern = searchTerm ? `%${searchTerm}%` : ''
-
-                    let query
-
-                    if (pathCleaningEnabled) {
-                        // Path cleaning enabled query
+                    try {
+                        let query: { kind: NodeKind; query: string }
+                        // Simple query using the same pattern as heatmapsLogic
                         if (searchTerm) {
-                            // With search term
                             query = {
                                 kind: NodeKind.HogQLQuery,
-                                query: hogql`
-                                    WITH clean_url AS (
-                                        replaceRegexpAll(properties.$current_url, '(\\d+)|([a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12})', '[val]')
-                                    )
-                                    SELECT clean_url AS url, count() as count
-                                    FROM events
-                                    WHERE event = '$pageview'
-                                      AND timestamp >= ${values.dateFilter.dateFrom}
-                                      AND timestamp <= ${values.dateFilter.dateTo}
-                                      AND clean_url LIKE ${searchPattern}
-                                    GROUP BY url
-                                    ORDER BY count DESC
-                                `,
+                                query: values.stripQueryParams
+                                    ? hogql`SELECT DISTINCT cutQueryStringAndFragment(properties.$current_url) AS url, count() as count
+                                        FROM events
+                                        WHERE event = '$pageview'
+                                        AND cutQueryStringAndFragment(properties.$current_url) like '%${hogql.identifier(
+                                            searchTerm
+                                        )}%'
+                                        GROUP BY url
+                                        ORDER BY count DESC
+                                        LIMIT 100`
+                                    : hogql`SELECT DISTINCT properties.$current_url AS url, count() as count
+                                        FROM events
+                                        WHERE event = '$pageview'
+                                        AND properties.$current_url like '%${hogql.identifier(searchTerm)}%'
+                                        GROUP BY url
+                                        ORDER BY count DESC
+                                        LIMIT 100`,
                             }
                         } else {
-                            // Without search term
                             query = {
                                 kind: NodeKind.HogQLQuery,
-                                query: hogql`
-                                    WITH clean_url AS (
-                                        replaceRegexpAll(properties.$current_url, '(\\d+)|([a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12})', '[val]')
-                                    )
-                                    SELECT clean_url AS url, count() as count
-                                    FROM events
-                                    WHERE event = '$pageview'
-                                      AND timestamp >= ${values.dateFilter.dateFrom}
-                                      AND timestamp <= ${values.dateFilter.dateTo}
-                                    GROUP BY url
-                                    ORDER BY count DESC
-                                `,
+                                query: values.stripQueryParams
+                                    ? hogql`SELECT DISTINCT cutQueryStringAndFragment(properties.$current_url) AS url, count() as count
+                                        FROM events
+                                        WHERE event = '$pageview'
+                                        GROUP BY url
+                                        ORDER BY count DESC
+                                        LIMIT 100`
+                                    : hogql`SELECT DISTINCT properties.$current_url AS url, count() as count
+                                        FROM events
+                                        WHERE event = '$pageview'
+                                        GROUP BY url
+                                        ORDER BY count DESC
+                                        LIMIT 100`,
                             }
                         }
-                    } else {
-                        // No path cleaning
-                        if (searchTerm) {
-                            // With search term
-                            query = {
-                                kind: NodeKind.HogQLQuery,
-                                query: hogql`
-                                    SELECT properties.$current_url AS url, count() as count
-                                    FROM events
-                                    WHERE event = '$pageview'
-                                      AND timestamp >= ${values.dateFilter.dateFrom}
-                                      AND timestamp <= ${values.dateFilter.dateTo}
-                                      AND properties.$current_url LIKE ${searchPattern}
-                                    GROUP BY url
-                                    ORDER BY count DESC
-                                `,
-                            }
-                        } else {
-                            // Without search term
-                            query = {
-                                kind: NodeKind.HogQLQuery,
-                                query: hogql`
-                                    SELECT properties.$current_url AS url, count() as count
-                                    FROM events
-                                    WHERE event = '$pageview'
-                                      AND timestamp >= ${values.dateFilter.dateFrom}
-                                      AND timestamp <= ${values.dateFilter.dateTo}
-                                    GROUP BY url
-                                    ORDER BY count DESC
-                                `,
-                            }
-                        }
+
+                        const response = await api.query(query)
+                        const res = response as { results: [string, number][] }
+                        const results = res.results?.map((x) => ({ url: x[0], count: x[1] })) as PageURL[]
+
+                        return results
+                    } catch (error) {
+                        console.error('Error loading pages:', error)
+                        return []
                     }
-
-                    const response = await api.query(query)
-                    const res = response as { results: [string, number][] }
-                    return res.results?.map((x) => ({ url: x[0], count: x[1] })) as PageURL[]
                 },
             },
         ],
     }),
 
     selectors: {
-        topPages: [
-            (selectors) => [selectors.pages, selectors.pageUrlSearchTerm],
-            (pages: PageURL[], searchTerm: string): PageURL[] => {
-                return searchTerm ? [] : pages
-            },
-        ],
-        pageUrlSearchResults: [
-            (selectors) => [selectors.pages, selectors.pageUrlSearchTerm],
-            (pages: PageURL[], searchTerm: string): PageURL[] => {
-                return searchTerm ? pages : []
-            },
-        ],
-        pageUrlSearchOptions: [
-            (selectors) => [selectors.pageUrlSearchResults, selectors.topPages],
-            (pageUrlSearchResults: PageURL[], topPages: PageURL[]): string[] => {
-                return (pageUrlSearchResults.length > 0 ? pageUrlSearchResults : topPages)?.map((x) => x.url) ?? []
-            },
-        ],
-        pageUrlSearchOptionsWithCount: [
-            (selectors) => [selectors.pageUrlSearchResults, selectors.topPages],
-            (pageUrlSearchResults: PageURL[], topPages: PageURL[]): PageURL[] => {
-                return pageUrlSearchResults.length > 0 ? pageUrlSearchResults : topPages ?? []
-            },
-        ],
+        pageUrlSearchOptionsWithCount: [(selectors) => [selectors.pages], (pages: PageURL[]): PageURL[] => pages || []],
         hasPageUrl: [(selectors) => [selectors.pageUrl], (pageUrl: string | null) => !!pageUrl],
         isLoading: [
             (selectors) => [selectors.pagesLoading, selectors.isInitialLoad],
-            (pagesLoading: boolean, isInitialLoad: boolean) => {
-                // Make sure we're showing loading state when either pages are loading or it's the initial load
-                return pagesLoading || isInitialLoad
-            },
+            (pagesLoading: boolean, isInitialLoad: boolean) => pagesLoading || isInitialLoad,
         ],
         pageUrlArray: [
             (selectors) => [selectors.pageUrl],
-            (pageUrl: string | null): string[] => {
-                return pageUrl ? [pageUrl] : []
+            (pageUrl: string | null): string[] => (pageUrl ? [pageUrl] : []),
+        ],
+        // Single queries selector that returns all queries
+        queries: [
+            (s) => [s.tiles],
+            (tiles: WebAnalyticsTile[]) => {
+                // Find tiles by ID
+                const pathsTile = tiles?.find((tile: WebAnalyticsTile) => tile.tileId === TileId.PATHS) as
+                    | TabsTile
+                    | undefined
+                const sourcesTile = tiles?.find((tile: WebAnalyticsTile) => tile.tileId === TileId.SOURCES) as
+                    | TabsTile
+                    | undefined
+                const devicesTile = tiles?.find((tile: WebAnalyticsTile) => tile.tileId === TileId.DEVICES) as
+                    | TabsTile
+                    | undefined
+                const geographyTile = tiles?.find((tile: WebAnalyticsTile) => tile.tileId === TileId.GEOGRAPHY) as
+                    | TabsTile
+                    | undefined
+
+                // Return an object with all queries
+                return {
+                    // Path queries
+                    entryPathsQuery: pathsTile?.tabs.find((tab) => tab.id === PathTab.INITIAL_PATH)?.query,
+                    exitPathsQuery: pathsTile?.tabs.find((tab) => tab.id === PathTab.END_PATH)?.query,
+                    outboundClicksQuery: pathsTile?.tabs.find((tab) => tab.id === PathTab.EXIT_CLICK)?.query,
+
+                    // Source queries
+                    channelsQuery: sourcesTile?.tabs.find((tab) => tab.id === SourceTab.CHANNEL)?.query,
+                    referrersQuery: sourcesTile?.tabs.find((tab) => tab.id === SourceTab.REFERRING_DOMAIN)?.query,
+
+                    // Device queries
+                    deviceTypeQuery: devicesTile?.tabs.find((tab) => tab.id === DeviceTab.DEVICE_TYPE)?.query,
+                    browserQuery: devicesTile?.tabs.find((tab) => tab.id === DeviceTab.BROWSER)?.query,
+                    osQuery: devicesTile?.tabs.find((tab) => tab.id === DeviceTab.OS)?.query,
+
+                    // Geography queries
+                    countriesQuery: geographyTile?.tabs.find((tab) => tab.id === GeographyTab.COUNTRIES)?.query,
+                    regionsQuery: geographyTile?.tabs.find((tab) => tab.id === GeographyTab.REGIONS)?.query,
+                    citiesQuery: geographyTile?.tabs.find((tab) => tab.id === GeographyTab.CITIES)?.query,
+                    timezonesQuery: geographyTile?.tabs.find((tab) => tab.id === GeographyTab.TIMEZONES)?.query,
+                    languagesQuery: geographyTile?.tabs.find((tab) => tab.id === GeographyTab.LANGUAGES)?.query,
+                }
             },
+        ],
+        // Helper function for creating insight props
+        createInsightProps: [
+            () => [],
+            () =>
+                (tileId: TileId, tabId?: string): InsightLogicProps => ({
+                    dashboardItemId: `new-${tileId}${tabId ? `-${tabId}` : ''}`,
+                    loadPriority: 0,
+                    dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
+                }),
+        ],
+        // Combined metrics query
+        combinedMetricsQuery: [
+            (s) => [s.pageUrl, s.stripQueryParams, s.dateFilter, s.compareFilter, s.shouldFilterTestAccounts],
+            (
+                pageUrl: string | null,
+                stripQueryParams: boolean,
+                dateFilter: any,
+                compareFilter: any,
+                shouldFilterTestAccounts: boolean
+            ): InsightVizNode<TrendsQuery> => ({
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    series: [
+                        {
+                            event: '$pageview',
+                            kind: NodeKind.EventsNode,
+                            math: BaseMathType.UniqueUsers,
+                            name: '$pageview',
+                            custom_name: 'Unique visitors',
+                        },
+                        {
+                            event: '$pageview',
+                            kind: NodeKind.EventsNode,
+                            math: BaseMathType.TotalCount,
+                            name: '$pageview',
+                            custom_name: 'Page views',
+                        },
+                        {
+                            event: '$pageview',
+                            kind: NodeKind.EventsNode,
+                            math: BaseMathType.UniqueSessions,
+                            name: '$pageview',
+                            custom_name: 'Sessions',
+                        },
+                    ],
+                    interval: dateFilter.interval,
+                    dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
+                    trendsFilter: {
+                        display: ChartDisplayType.ActionsLineGraph,
+                        showLegend: true,
+                    },
+                    compareFilter,
+                    filterTestAccounts: shouldFilterTestAccounts,
+                    properties: [
+                        {
+                            key: stripQueryParams
+                                ? 'cutQueryStringAndFragment(properties.$current_url)'
+                                : '$current_url',
+                            value: pageUrl,
+                            // Use IContains when stripQueryParams is active to group URLs
+                            operator: stripQueryParams
+                                ? PropertyOperator.IContains
+                                : PropertyOperator.IsCleanedPathExact,
+                            type: PropertyFilterType.Event,
+                        },
+                    ],
+                },
+                hidePersonsModal: true,
+                embedded: true,
+            }),
         ],
     },
 
@@ -198,19 +274,34 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
             // When URL changes, make sure we update the URL in the browser
             // This will trigger the actionToUrl handler
             router.actions.replace('/web/page-reports', url ? { pageURL: url } : {}, router.values.hashParams)
+
+            // Apply or remove the filter when pageUrl changes
+            const stripQueryParams = values.stripQueryParams
+            const key = stripQueryParams ? 'cutQueryStringAndFragment(properties.$current_url)' : '$current_url'
+
+            // Call the connected action directly
+            const urlValue = Array.isArray(url) ? (url.length > 0 ? url[0] : '') : url || ''
+            actions.togglePropertyFilter(PropertyFilterType.Event, key, urlValue)
+        },
+        toggleStripQueryParams: () => {
+            // Reload pages when the strip query params option changes
+            actions.loadPages(values.pageUrlSearchTerm)
+
+            // Update the property filter with the new key and operator
+            const stripQueryParams = values.stripQueryParams
+            const key = stripQueryParams ? 'cutQueryStringAndFragment(properties.$current_url)' : '$current_url'
+
+            // Call the connected action directly
+            actions.togglePropertyFilter(PropertyFilterType.Event, key, values.pageUrl || '')
         },
         [webAnalyticsLogic.actionTypes.setDates]: () => {
-            actions.loadPages(values.pageUrlSearchTerm)
-        },
-        [webAnalyticsLogic.actionTypes.setIsPathCleaningEnabled]: () => {
-            // Reload pages when path cleaning setting changes
             actions.loadPages(values.pageUrlSearchTerm)
         },
     }),
 
     afterMount: ({ actions }: { actions: pageReportsLogicType['actions'] }) => {
         // Load pages immediately when component mounts
-        actions.loadPages()
+        actions.loadPages('')
     },
 
     urlToAction: ({ actions, values }) => ({
@@ -223,17 +314,14 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
 
     actionToUrl: ({ values }) => ({
         setPageUrl: () => {
-            // Create a copy of the current search params
             const searchParams = { ...router.values.searchParams }
 
-            // Update the pageURL parameter
             if (values.pageUrl) {
                 searchParams.pageURL = values.pageUrl
             } else {
                 delete searchParams.pageURL
             }
 
-            // Return the updated URL
             return ['/web/page-reports', searchParams, router.values.hashParams, { replace: true }]
         },
     }),
