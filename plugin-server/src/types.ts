@@ -1092,9 +1092,6 @@ export interface RawAction {
     updated_at: string
     last_calculated_at: string
     steps_json: ActionStep[] | null
-    bytecode: any[] | null
-    bytecode_error: string | null
-    pinned_at: string | null
 }
 
 /** Usable Action model. */
