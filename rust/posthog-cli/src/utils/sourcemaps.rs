@@ -92,7 +92,7 @@ impl SourcePair {
                     .map_err(|err| anyhow!("Failed to serialize source map: {}", err))?
                     .as_bytes(),
             )
-            .expect("Failed to parse adjustment sourcemap");
+            .map_err(|err| anyhow!("Failed to parse adjustment sourcemap: {}", err))?;
             (magic_source.to_string(), adjustment_sourcemap)
         };
 
