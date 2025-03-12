@@ -43,7 +43,7 @@ const DashboardRelationRow = ({
             data-attr="dashboard-list-item"
             /* eslint-disable-next-line react/forbid-dom-props */
             style={style}
-            className={clsx('flex items-center space-x-2', isHighlighted && 'highlighted')}
+            className={clsx('flex items-center deprecated-space-x-2', isHighlighted && 'highlighted')}
         >
             <Link
                 to={urls.dashboard(dashboard.id)}
@@ -146,7 +146,7 @@ export function AddToDashboardModal({
                 </>
             }
         >
-            <div className="space-y-2 w-192 max-w-full">
+            <div className="deprecated-space-y-2 w-192 max-w-full">
                 <LemonInput
                     data-attr="dashboard-searchfield"
                     type="search"
@@ -155,7 +155,7 @@ export function AddToDashboardModal({
                     value={searchQuery}
                     onChange={(newValue) => setSearchQuery(newValue)}
                 />
-                <div className="text-muted-alt">
+                <div className="text-secondary">
                     This insight is referenced on <strong className="text-text-3000">{currentDashboards.length}</strong>{' '}
                     {pluralize(currentDashboards.length, 'dashboard', 'dashboards', false)}
                 </div>

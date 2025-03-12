@@ -59,12 +59,13 @@ export const ProductIntroduction = ({
 
     const actionable = action || actionElementOverride
     return (
-        <div className="border-2 border-dashed border-border w-full p-8 justify-center rounded mt-2 mb-4">
+        <div className="border-2 border-dashed border-primary w-full p-8 justify-center rounded mt-2 mb-4">
             {!isEmpty && (
                 <div className="flex justify-end -mb-6 -mt-2 -mr-2">
                     <div>
                         <LemonButton
                             icon={<IconX />}
+                            size="small"
                             onClick={() => {
                                 productKey && updateHasSeenProductIntroFor(productKey, true)
                             }}
@@ -72,9 +73,9 @@ export const ProductIntroduction = ({
                     </div>
                 </div>
             )}
-            <div className="flex items-center gap-8 w-full justify-center flex-wrap">
+            <div className="flex items-center gap-8 w-full justify-center">
                 <div>
-                    <div className="w-50 mx-auto mb-4">
+                    <div className="w-40 lg:w-50 mx-auto mb-4 hidden md:block">
                         {CustomHog ? (
                             <CustomHog className="w-full h-full" />
                         ) : actionable ? (

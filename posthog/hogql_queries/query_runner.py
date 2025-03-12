@@ -7,8 +7,10 @@ from typing import Any, Generic, Optional, TypeGuard, TypeVar, Union, cast, get_
 import structlog
 from prometheus_client import Counter
 from pydantic import BaseModel, ConfigDict
-from sentry_sdk import capture_exception, get_traceparent, push_scope, set_tag
+from sentry_sdk import get_traceparent, push_scope, set_tag
 
+from posthog.clickhouse.client.limit import get_api_personal_rate_limiter
+from posthog.exceptions_capture import capture_exception
 from posthog.caching.utils import ThresholdMode, cache_target_age, is_stale, last_refresh_from_cached_result
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, enqueue_process_query_task, get_query_status
 from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
@@ -30,6 +32,7 @@ from posthog.schema import (
     DateRange,
     EventsQuery,
     EventTaxonomyQuery,
+    ExperimentExposureQuery,
     FilterLogicalOperator,
     FunnelCorrelationActorsQuery,
     FunnelCorrelationQuery,
@@ -359,6 +362,17 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
+    if kind == "RevenueExampleEventsQuery":
+        from .web_analytics.revenue_example_events import RevenueExampleEventsQueryRunner
+
+        return RevenueExampleEventsQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
     if kind == "ErrorTrackingQuery":
         from .error_tracking_query_runner import ErrorTrackingQueryRunner
 
@@ -391,6 +405,29 @@ def get_query_runner(
             modifiers=modifiers,
             limit_context=limit_context,
         )
+
+    if kind == "ExperimentQuery":
+        from .experiments.experiment_query_runner import ExperimentQueryRunner
+
+        return ExperimentQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
+    if kind == "ExperimentExposureQuery":
+        from posthog.hogql_queries.experiments.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
+
+        return ExperimentExposuresQueryRunner(
+            query=cast(ExperimentExposureQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+        )
+
     if kind == "SuggestedQuestionsQuery":
         from posthog.hogql_queries.ai.suggested_questions_query_runner import SuggestedQuestionsQueryRunner
 
@@ -481,6 +518,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     timings: HogQLTimings
     modifiers: HogQLQueryModifiers
     limit_context: LimitContext
+    is_query_service: bool = False
 
     def __init__(
         self,
@@ -555,6 +593,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             query_json=self.query.model_dump(),
             query_id=self.query_id or cache_manager.cache_key,  # Use cache key as query ID to avoid duplicates
             refresh_requested=refresh_requested,
+            api_query_personal_key=self.query_endpoint_with_personal_key(),
         )
 
     def get_async_query_status(self, *, cache_key: str) -> Optional[QueryStatus]:
@@ -645,6 +684,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # Nothing useful out of cache, nor async query status
         return None
 
+    def query_endpoint_with_personal_key(self):
+        return self.is_query_service and get_query_tag_value("access_method") == "personal_api_key"
+
     def run(
         self,
         execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
@@ -687,7 +729,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             results = self.handle_cache_and_async_logic(
                 execution_mode=execution_mode, cache_manager=cache_manager, user=user
             )
-            if results is not None:
+            if results:
                 return results
 
         last_refresh = datetime.now(UTC)
@@ -699,15 +741,18 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             self.modifiers = create_default_modifiers_for_user(user, self.team, self.modifiers)
             self.modifiers.useMaterializedViews = True
 
-        fresh_response_dict = {
-            **self.calculate().model_dump(),
-            "is_cached": False,
-            "last_refresh": last_refresh,
-            "next_allowed_client_refresh": last_refresh + self._refresh_frequency(),
-            "cache_key": cache_key,
-            "timezone": self.team.timezone,
-            "cache_target_age": target_age,
-        }
+        with get_api_personal_rate_limiter().run(
+            is_api=self.query_endpoint_with_personal_key(), team_id=self.team.pk, task_id=self.query_id
+        ):
+            fresh_response_dict = {
+                **self.calculate().model_dump(),
+                "is_cached": False,
+                "last_refresh": last_refresh,
+                "next_allowed_client_refresh": last_refresh + self._refresh_frequency(),
+                "cache_key": cache_key,
+                "timezone": self.team.timezone,
+                "cache_target_age": target_age,
+            }
         if get_query_tag_value("trigger"):
             fresh_response_dict["calculation_trigger"] = get_query_tag_value("trigger")
         fresh_response = CachedResponse(**fresh_response_dict)
@@ -781,7 +826,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         return timedelta(minutes=1)
 
     def apply_variable_overrides(self, variable_overrides: list[HogQLVariable]):
-        """Irreversably update self.query with provided variable overrides."""
+        """Irreversibly update self.query with provided variable overrides."""
         if not hasattr(self.query, "variables") or not self.query.kind == "HogQLQuery" or len(variable_overrides) == 0:
             return
 
@@ -795,7 +840,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 self.query.variables[variable.variableId] = variable
 
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
-        """Irreversably update self.query with provided dashboard filters."""
+        """Irreversibly update self.query with provided dashboard filters."""
         if not hasattr(self.query, "properties") or not hasattr(self.query, "dateRange"):
             capture_exception(
                 NotImplementedError(

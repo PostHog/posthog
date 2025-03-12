@@ -1,18 +1,16 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
-import * as Sentry from '@sentry/node'
 
-import { HogTransformerService } from '~/src/cdp/hog-transformations/hog-transformer.service'
-
+import { HogTransformerService } from '../../../cdp/hog-transformations/hog-transformer.service'
 import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
-import { runInSpan } from '../../../sentry'
-import { Hub, PipelineEvent } from '../../../types'
+import { Hub, PipelineEvent, Team } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
 import { timeoutGuard } from '../../../utils/db/utils'
 import { normalizeProcessPerson } from '../../../utils/event'
+import { captureException } from '../../../utils/posthog'
+import { runInSpan } from '../../../utils/sentry'
 import { status } from '../../../utils/status'
 import { EventsProcessor } from '../process-event'
 import { captureIngestionWarning, generateEventDeadLetterQueueMessage } from '../utils'
-import { compareToHogTransformStep } from './compareToHogTransformStep'
 import { cookielessServerHashStep } from './cookielessServerHashStep'
 import { createEventStep } from './createEventStep'
 import { emitEventStep } from './emitEventStep'
@@ -123,9 +121,10 @@ export class EventPipelineRunner {
                 return this.registerLastStep('eventDisallowedStep', [event])
             }
             let result: EventPipelineResult
-            const eventWithTeam = await this.runStep(populateTeamDataStep, [this, event], event.team_id || -1)
-            if (eventWithTeam != null) {
-                result = await this.runEventPipelineSteps(eventWithTeam)
+            const { eventWithTeam, team } =
+                (await this.runStep(populateTeamDataStep, [this, event], event.team_id || -1)) ?? {}
+            if (eventWithTeam != null && team != null) {
+                result = await this.runEventPipelineSteps(eventWithTeam, team)
             } else {
                 result = this.registerLastStep('populateTeamDataStep', [event])
             }
@@ -141,7 +140,7 @@ export class EventPipelineRunner {
                 }
             } else {
                 // Otherwise rethrow, which leads to Kafka offsets not getting committed and retries
-                Sentry.captureException(error, {
+                captureException(error, {
                     tags: { pipeline_step: 'outside' },
                     extra: { originalEvent: this.originalEvent },
                 })
@@ -150,7 +149,7 @@ export class EventPipelineRunner {
         }
     }
 
-    async runEventPipelineSteps(event: PluginEvent): Promise<EventPipelineResult> {
+    async runEventPipelineSteps(event: PluginEvent, team: Team): Promise<EventPipelineResult> {
         const kafkaAcks: Promise<void>[] = []
 
         let processPerson = true // The default.
@@ -234,18 +233,6 @@ export class EventPipelineRunner {
 
         const processedEvent = await this.runStep(pluginsProcessEventStep, [this, postCookielessEvent], event.team_id)
 
-        // NOTE: We don't use the step process here as we don't want it to interfere with other metrics
-        try {
-            await compareToHogTransformStep(
-                this.hogTransformer,
-                postCookielessEvent,
-                processedEvent,
-                this.hub.HOG_TRANSFORMATIONS_COMPARISON_PERCENTAGE
-            )
-        } catch (error) {
-            status.error('🔔', 'Error comparing to hog transform', { error })
-        }
-
         if (processedEvent == null) {
             // A plugin dropped the event.
             return this.registerLastStep('pluginsProcessEventStep', [postCookielessEvent], kafkaAcks)
@@ -253,7 +240,7 @@ export class EventPipelineRunner {
 
         const { event: transformedEvent, messagePromises } = await this.runStep(
             transformEventStep,
-            [processedEvent, this.hub.HOG_TRANSFORMATIONS_ENABLED ? this.hogTransformer : null],
+            [processedEvent, this.hogTransformer],
             event.team_id
         )
 
@@ -274,7 +261,7 @@ export class EventPipelineRunner {
 
         const [postPersonEvent, person, personKafkaAck] = await this.runStep(
             processPersonsStep,
-            [this, normalizedEvent, timestamp, processPerson],
+            [this, normalizedEvent, team, timestamp, processPerson],
             event.team_id
         )
         kafkaAcks.push(personKafkaAck)
@@ -379,7 +366,7 @@ export class EventPipelineRunner {
 
     private async handleError(err: any, currentStepName: string, currentArgs: any, teamId: number, sentToDql: boolean) {
         status.error('🔔', 'step_failed', { currentStepName, err })
-        Sentry.captureException(err, {
+        captureException(err, {
             tags: { team_id: teamId, pipeline_step: currentStepName },
             extra: { currentArgs, originalEvent: this.originalEvent },
         })
@@ -404,7 +391,7 @@ export class EventPipelineRunner {
                 await this.hub.db.kafkaProducer.queueMessages(message)
             } catch (dlqError) {
                 status.info('🔔', `Errored trying to add event to dead letter queue. Error: ${dlqError}`)
-                Sentry.captureException(dlqError, {
+                captureException(dlqError, {
                     tags: { team_id: teamId },
                     extra: { currentStepName, currentArgs, originalEvent: this.originalEvent, err },
                 })

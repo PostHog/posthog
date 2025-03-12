@@ -5,11 +5,13 @@ import typing
 
 import pyarrow as pa
 import pytest
-from django.test import override_settings
 
+from posthog.batch_exports.service import BackfillDetails
+from posthog.hogql.hogql import ast
 from posthog.temporal.batch_exports.spmc import (
     Producer,
     RecordBatchQueue,
+    SessionsRecordBatchModel,
     compose_filters_clause,
     slice_record_batch,
     use_distributed_events_recent_table,
@@ -121,6 +123,7 @@ async def test_record_batch_producer_uses_extra_query_parameters(clickhouse_clie
         queue=queue,
         team_id=team_id,
         is_backfill=False,
+        backfill_details=None,
         model_name="events",
         full_range=(data_interval_start, data_interval_end),
         done_ranges=[],
@@ -175,49 +178,45 @@ def test_slice_record_batch_in_half():
 @pytest.mark.parametrize(
     "test_data",
     [
-        # is backfill so shouldn't use events recent
+        # isn't a backfill so should use distributed_events_recent table
+        {
+            "is_backfill": False,
+            "data_interval_start": dt.datetime.now(tz=dt.UTC) - dt.timedelta(days=1),
+            "use_distributed_events_recent_table": True,
+        },
+        # is a backfill within the last 6 days so should use distributed_events_recent table
         {
             "is_backfill": True,
-            "team_id": 1,
-            "rollout": 1.0,
-            "use_events_recent": False,
+            "backfill_start_at": dt.datetime.now(tz=dt.UTC) - dt.timedelta(days=1),
+            "data_interval_start": dt.datetime.now(tz=dt.UTC) - dt.timedelta(days=1),
+            "use_distributed_events_recent_table": True,
         },
-        # rollout is 0 so shouldn't use events recent
+        # is a backfill outside the last 6 days so shouldn't use distributed_events_recent table
         {
-            "is_backfill": False,
-            "team_id": 1,
-            "rollout": 0.0,
-            "use_events_recent": False,
-        },
-        # rollout is 1 so should use events recent
-        {
-            "is_backfill": False,
-            "team_id": 1,
-            "rollout": 1.0,
-            "use_events_recent": True,
-        },
-        # rollout is 0.4 but team_id mod 10 is 7 so should use events recent
-        {
-            "is_backfill": False,
-            "team_id": 17,
-            "rollout": 0.4,
-            "use_events_recent": False,
-        },
-        # rollout is 0.4 but team_id mod 10 is 3 so should use events recent
-        {
-            "is_backfill": False,
-            "team_id": 13,
-            "rollout": 0.4,
-            "use_events_recent": True,
+            "is_backfill": True,
+            "backfill_start_at": dt.datetime.now(tz=dt.UTC) - dt.timedelta(days=7),
+            "data_interval_start": dt.datetime.now(tz=dt.UTC) - dt.timedelta(days=1),
+            "use_distributed_events_recent_table": False,
         },
     ],
 )
-def test_use_events_recent(test_data: dict[str, typing.Any]):
-    with override_settings(BATCH_EXPORT_DISTRIBUTED_EVENTS_RECENT_ROLLOUT=test_data["rollout"]):
-        assert (
-            use_distributed_events_recent_table(is_backfill=test_data["is_backfill"], team_id=test_data["team_id"])
-            == test_data["use_events_recent"]
+def test_use_distributed_events_recent_table(test_data: dict[str, typing.Any]):
+    backfill_details = (
+        BackfillDetails(
+            backfill_id=None,
+            start_at=test_data["backfill_start_at"].isoformat(),
+            end_at=(test_data["backfill_start_at"] + dt.timedelta(days=1)).isoformat(),
+            is_earliest_backfill=False,
         )
+        if test_data["is_backfill"]
+        else None
+    )
+    assert (
+        use_distributed_events_recent_table(
+            test_data["is_backfill"], backfill_details, data_interval_start=test_data["data_interval_start"]
+        )
+        == test_data["use_distributed_events_recent_table"]
+    )
 
 
 @pytest.mark.parametrize(
@@ -229,6 +228,13 @@ def test_use_events_recent(test_data: dict[str, typing.Any]):
             ],
             """ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s), 0)""",
             {"hogql_val_0": "$browser", "hogql_val_1": "Firefox"},
+        ),
+        (
+            [
+                {"key": "$current_url", "operator": "icontains", "type": "event", "value": "https://posthog.com"},
+            ],
+            """ifNull(ilike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '')), %(hogql_val_1)s), 0)""",
+            {"hogql_val_0": "$current_url", "hogql_val_1": "%https://posthog.com%"},
         ),
         (
             [
@@ -246,3 +252,32 @@ def test_compose_filters_clause(
     result_clause, result_values = compose_filters_clause(filters, team_id=ateam.id)
     assert result_clause == expected_clause
     assert result_values == expected_values
+
+
+async def test_sessions_record_batch_model(ateam, data_interval_start, data_interval_end):
+    model = SessionsRecordBatchModel(
+        team_id=ateam.id,
+    )
+    hogql_query = model.get_hogql_query(data_interval_start, data_interval_end)
+    team_id_filter = ast.CompareOperation(
+        op=ast.CompareOperationOp.Eq,
+        left=ast.Field(chain=["sessions", "team_id"]),
+        right=ast.Constant(value=ateam.id),
+    )
+    printed_query, _ = await model.as_query_with_parameters(data_interval_start, data_interval_end)
+
+    assert hogql_query.where is not None
+    assert isinstance(hogql_query.where, ast.And)
+    assert team_id_filter in hogql_query.where.exprs
+
+    assert f"equals(raw_sessions.team_id, {ateam.id})" in printed_query
+    assert "FORMAT ArrowStream" in printed_query
+    assert (
+        f"greaterOrEquals(_inserted_at, toDateTime64('{data_interval_start:%Y-%m-%d %H:%M:%S.%f}', 6, 'UTC')"
+        in printed_query
+    )
+    assert f"less(_inserted_at, toDateTime64('{data_interval_end:%Y-%m-%d %H:%M:%S.%f}', 6, 'UTC')" in printed_query
+
+    # check that we have a date range set on the inner query using the session ID
+    assert "lessOrEquals(minus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight" in printed_query
+    assert "greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight" in printed_query

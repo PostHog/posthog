@@ -10,7 +10,7 @@ import { useEffect, useRef, useState } from 'react'
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { Reload } from '~/queries/nodes/DataNode/Reload'
-import { HogQuery, HogQueryResponse } from '~/queries/schema'
+import { HogQuery, HogQueryResponse } from '~/queries/schema/schema-general'
 
 export interface HogQueryEditorProps {
     query: HogQuery
@@ -41,8 +41,11 @@ export function HogQueryEditor(props: HogQueryEditorProps): JSX.Element {
     }
 
     return (
-        <div className="space-y-2">
-            <div data-attr="hogql-query-editor" className={clsx('flex flex-col rounded space-y-2 w-full p-2 border')}>
+        <div className="deprecated-space-y-2">
+            <div
+                data-attr="hogql-query-editor"
+                className={clsx('flex flex-col rounded deprecated-space-y-2 w-full p-2 border')}
+            >
                 <div className="relative flex-1 overflow-hidden">
                     <div className="resize-y overflow-hidden h-[222px]">
                         <CodeEditor
@@ -112,7 +115,7 @@ export function HogDebug({ query, setQuery, queryKey, debug }: HogDebugProps): J
 
     return (
         <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
-            <div className="space-y-2">
+            <div className="deprecated-space-y-2">
                 {setQuery ? (
                     <>
                         <HogQueryEditor query={query} setQuery={setQuery} queryKey={queryKey} />

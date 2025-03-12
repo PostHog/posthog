@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.db.models import Q, Prefetch
 from pydantic import BaseModel, ConfigDict
-from sentry_sdk import capture_exception
+from posthog.exceptions_capture import capture_exception
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -33,6 +33,7 @@ from posthog.hogql.database.schema.app_metrics2 import AppMetrics2Table
 from posthog.hogql.database.schema.channel_type import create_initial_channel_type, create_initial_domain_type
 from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortPeople
 from posthog.hogql.database.schema.events import EventsTable
+from posthog.hogql.database.schema.exchange_rate import ExchangeRateTable
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.heatmaps import HeatmapsTable
 from posthog.hogql.database.schema.log_entries import (
@@ -123,6 +124,7 @@ class Database(BaseModel):
     batch_export_log_entries: BatchExportLogEntriesTable = BatchExportLogEntriesTable()
     sessions: Union[SessionsTableV1, SessionsTableV2] = SessionsTableV1()
     heatmaps: HeatmapsTable = HeatmapsTable()
+    exchange_rate: ExchangeRateTable = ExchangeRateTable()
 
     raw_session_replay_events: RawSessionReplayEventsTable = RawSessionReplayEventsTable()
     raw_person_distinct_ids: RawPersonDistinctIdsTable = RawPersonDistinctIdsTable()
@@ -153,6 +155,7 @@ class Database(BaseModel):
         "sessions",
         "heatmaps",
         "query_log",
+        "exchange_rate",
     ]
 
     _warehouse_table_names: list[str] = []
@@ -345,37 +348,44 @@ def create_hogql_database(
     views: dict[str, Table] = {}
 
     with timings.measure("data_warehouse_saved_query"):
-        for saved_query in DataWarehouseSavedQuery.objects.filter(team_id=team.pk).exclude(deleted=True):
-            views[saved_query.name] = saved_query.hogql_definition(modifiers)
+        with timings.measure("select"):
+            saved_queries = list(DataWarehouseSavedQuery.objects.filter(team_id=team.pk).exclude(deleted=True))
+        for saved_query in saved_queries:
+            with timings.measure(f"saved_query_{saved_query.name}"):
+                views[saved_query.name] = saved_query.hogql_definition(modifiers)
 
     with timings.measure("data_warehouse_tables"):
-        for table in (
-            DataWarehouseTable.objects.filter(team_id=team.pk)
-            .exclude(deleted=True)
-            .select_related("credential", "external_data_source")
-        ):
+        with timings.measure("select"):
+            tables = list(
+                DataWarehouseTable.objects.filter(team_id=team.pk)
+                .exclude(deleted=True)
+                .select_related("credential", "external_data_source")
+            )
+
+        for table in tables:
             # Skip adding data warehouse tables that are materialized from views (in this case they have the same names)
             if views.get(table.name, None) is not None:
                 continue
 
-            s3_table = table.hogql_definition(modifiers)
+            with timings.measure(f"table_{table.name}"):
+                s3_table = table.hogql_definition(modifiers)
 
-            # If the warehouse table has no _properties_ field, then set it as a virtual table
-            if s3_table.fields.get("properties") is None:
+                # If the warehouse table has no _properties_ field, then set it as a virtual table
+                if s3_table.fields.get("properties") is None:
 
-                class WarehouseProperties(VirtualTable):
-                    fields: dict[str, FieldOrTable] = s3_table.fields
-                    parent_table: S3Table = s3_table
+                    class WarehouseProperties(VirtualTable):
+                        fields: dict[str, FieldOrTable] = s3_table.fields
+                        parent_table: S3Table = s3_table
 
-                    def to_printed_hogql(self):
-                        return self.parent_table.to_printed_hogql()
+                        def to_printed_hogql(self):
+                            return self.parent_table.to_printed_hogql()
 
-                    def to_printed_clickhouse(self, context):
-                        return self.parent_table.to_printed_clickhouse(context)
+                        def to_printed_clickhouse(self, context):
+                            return self.parent_table.to_printed_clickhouse(context)
 
-                s3_table.fields["properties"] = WarehouseProperties(hidden=True)
+                    s3_table.fields["properties"] = WarehouseProperties(hidden=True)
 
-            warehouse_tables[table.name] = s3_table
+                warehouse_tables[table.name] = s3_table
 
     def define_mappings(warehouse: dict[str, Table], get_table: Callable):
         if "id" not in warehouse[warehouse_modifier.table_name].fields.keys():
@@ -384,7 +394,9 @@ def create_hogql_database(
                 expr=parse_expr(warehouse_modifier.id_field),
             )
 
-        if "timestamp" not in warehouse[warehouse_modifier.table_name].fields.keys():
+        if "timestamp" not in warehouse[warehouse_modifier.table_name].fields.keys() or not isinstance(
+            warehouse[warehouse_modifier.table_name].fields.get("timestamp"), DateTimeDatabaseField
+        ):
             table_model = get_table(team=team, warehouse_modifier=warehouse_modifier)
             timestamp_field_type = table_model.get_clickhouse_column_type(warehouse_modifier.timestamp_field)
 
@@ -438,9 +450,9 @@ def create_hogql_database(
             if is_view:
                 views = define_mappings(
                     views,
-                    lambda team, warehouse_modifier: DataWarehouseSavedQuery.objects.filter(
-                        team_id=team.pk, name=warehouse_modifier.table_name
-                    ).latest("created_at"),
+                    lambda team, warehouse_modifier: DataWarehouseSavedQuery.objects.exclude(deleted=True)
+                    .filter(team_id=team.pk, name=warehouse_modifier.table_name)
+                    .latest("created_at"),
                 )
             else:
                 warehouse_tables = define_mappings(
@@ -609,7 +621,9 @@ def serialize_database(
     )
 
     # Fetch all views in a single query
-    all_views = DataWarehouseSavedQuery.objects.filter(team_id=context.team_id, deleted=False).all() if views else []
+    all_views = (
+        DataWarehouseSavedQuery.objects.exclude(deleted=True).filter(team_id=context.team_id).all() if views else []
+    )
 
     # Process warehouse tables
     for warehouse_table in warehouse_tables_with_data:

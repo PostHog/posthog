@@ -4,6 +4,7 @@ import {
     LemonButton,
     LemonDialog,
     LemonDivider,
+    LemonSelect,
     LemonSwitch,
     LemonTag,
     Link,
@@ -24,7 +25,7 @@ import { isObject, objectsEqual } from 'lib/utils'
 import { ReactNode, useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { SessionRecordingAIConfig } from '~/types'
+import { SessionRecordingAIConfig, type SessionRecordingMaskingLevel } from '~/types'
 
 interface SupportedPlatformProps {
     note?: ReactNode
@@ -36,7 +37,7 @@ function SupportedPlatform(props: SupportedPlatformProps): JSX.Element {
     const node = (
         <div
             className={clsx(
-                props.supported ? 'bg-success-highlight' : 'bg-danger-highlight',
+                props.supported ? 'bg-fill-success-highlight' : 'bg-fill-error-highlight',
                 'px-1 py-0.5',
                 props.note && 'cursor-pointer'
             )}
@@ -58,7 +59,7 @@ export function SupportedPlatforms(props: {
     flutter?: boolean | { note?: ReactNode }
 }): JSX.Element {
     return (
-        <div className="text-xs inline-flex flex-row bg-bg-3000 rounded items-center border overflow-hidden mb-2 w-fit">
+        <div className="text-xs inline-flex flex-row bg-primary rounded items-center border overflow-hidden mb-2 w-fit">
             <span className="px-1 py-0.5 font-semibold">Supported platforms:</span>
             <LemonDivider vertical className="h-full" />
             <SupportedPlatform
@@ -169,7 +170,7 @@ function CanvasCaptureSettings(): JSX.Element | null {
                     })
                 }}
                 label={
-                    <div className="space-x-1">
+                    <div className="deprecated-space-x-1">
                         <LemonTag type="success">New</LemonTag>
                         <LemonLabel>Capture canvas elements</LemonLabel>
                     </div>
@@ -250,7 +251,7 @@ export function NetworkCaptureSettings(): JSX.Element {
                     <PayloadWarning />
                 </LemonBanner>
                 <SupportedPlatforms android={false} ios={false} flutter={false} web={true} reactNative={false} />
-                <div className="flex flex-row space-x-2">
+                <div className="flex flex-row deprecated-space-x-2">
                     <LemonSwitch
                         data-attr="opt-in-capture-network-headers-switch"
                         onChange={(checked) => {
@@ -329,7 +330,7 @@ export function NetworkCaptureSettings(): JSX.Element {
  */
 export function ReplayAuthorizedDomains(): JSX.Element {
     return (
-        <div className="space-y-2">
+        <div className="deprecated-space-y-2">
             <SupportedPlatforms android={false} ios={false} flutter={false} web={true} reactNative={false} />
             <p>
                 Use the settings below to restrict the domains where recordings will be captured. If no domains are
@@ -499,6 +500,56 @@ export function ReplayAISettings(): JSX.Element | null {
                     </div>
                 </>
             )}
+        </div>
+    )
+}
+
+export function ReplayMaskingSettings(): JSX.Element {
+    const { updateCurrentTeam } = useActions(teamLogic)
+    const { currentTeam } = useValues(teamLogic)
+
+    const handleMaskingChange = (level: SessionRecordingMaskingLevel): void => {
+        updateCurrentTeam({
+            session_recording_masking_config: {
+                ...currentTeam?.session_recording_masking_config,
+                maskAllInputs: level !== 'free-love',
+                maskTextSelector: level === 'total-privacy' ? '*' : undefined,
+            },
+        })
+    }
+
+    const maskingConfig = {
+        maskAllInputs: currentTeam?.session_recording_masking_config?.maskAllInputs ?? true,
+        maskTextSelector: currentTeam?.session_recording_masking_config?.maskTextSelector,
+    }
+
+    const maskingLevel =
+        maskingConfig.maskTextSelector === '*' && maskingConfig.maskAllInputs
+            ? 'total-privacy'
+            : maskingConfig.maskTextSelector === undefined && !maskingConfig.maskAllInputs
+            ? 'free-love'
+            : 'normal'
+
+    return (
+        <div>
+            <SupportedPlatforms web={true} />
+            <p>This controls what data is masked during session recordings.</p>
+            <p>
+                You can configure more advanced settings or change masking for other platforms directly in code.{' '}
+                <Link to="https://posthog.com/docs/session-replay/privacy" target="_blank">
+                    Learn more
+                </Link>
+            </p>
+            <p>If you specify this in code, it will take precedence over the setting here.</p>
+            <LemonSelect
+                value={maskingLevel}
+                onChange={(val) => val && handleMaskingChange(val)}
+                options={[
+                    { value: 'total-privacy', label: 'Total privacy (mask all text/images)' },
+                    { value: 'normal', label: 'Normal (mask inputs but not text/images)' },
+                    { value: 'free-love', label: 'Free love (mask only passwords)' },
+                ]}
+            />
         </div>
     )
 }

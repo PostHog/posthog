@@ -1,5 +1,5 @@
 import { kea, path, props, selectors } from 'kea'
-// import { HogFunctionConfiguration } from 'scenes/pipeline/hogfunctions/HogFunctionConfiguration'
+import { HogFunctionConfiguration } from 'scenes/pipeline/hogfunctions/HogFunctionConfiguration'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -7,9 +7,20 @@ import { Breadcrumb } from '~/types'
 
 import type { errorTrackingAlertSceneLogicType } from './ErrorTrackingAlertType'
 
+export type ErrorTrackingAlertSceneLogicProps = { id: string }
+
+const ERROR_TRACKING_TEMPLATE_IDS = [
+    'template-slack-error-tracking-issue-created',
+    'template-slack-error-tracking-issue-reopened',
+    'template-discord-error-tracking-issue-created',
+    'template-discord-error-tracking-issue-reopened',
+    'template-microsoft-teams-error-tracking-issue-created',
+    'template-microsoft-teams-error-tracking-issue-reopened',
+]
+
 export const errorTrackingAlertSceneLogic = kea<errorTrackingAlertSceneLogicType>([
     path((key) => ['scenes', 'error-tracking', 'errorTrackingAlertSceneLogic', key]),
-    props({} as { id: string }),
+    props({} as ErrorTrackingAlertSceneLogicProps),
     selectors({
         breadcrumbs: [
             (_, p) => [p.id],
@@ -39,7 +50,7 @@ export const scene: SceneExport = {
     paramsToProps: ({ params: { id } }): (typeof errorTrackingAlertSceneLogic)['props'] => ({ id }),
 }
 
-export function ErrorTrackingAlertScene(): JSX.Element | null {
-    return null
-    // return <HogFunctionConfiguration id={null} templateId="template-error-tracking-alert" />
+export function ErrorTrackingAlertScene({ id }: Partial<ErrorTrackingAlertSceneLogicProps> = {}): JSX.Element {
+    const props = id && ERROR_TRACKING_TEMPLATE_IDS.includes(id) ? { id: null, templateId: id } : { id }
+    return <HogFunctionConfiguration {...props} displayOptions={{ canEditSource: true }} logicKey="errorTracking" />
 }

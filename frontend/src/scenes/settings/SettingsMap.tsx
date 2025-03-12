@@ -1,14 +1,19 @@
+import { LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { dayjs } from 'lib/dayjs'
 import { ErrorTrackingAlerting } from 'scenes/error-tracking/configuration/alerting/ErrorTrackingAlerting'
 import { ErrorTrackingSymbolSets } from 'scenes/error-tracking/configuration/symbol-sets/ErrorTrackingSymbolSets'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { BounceRateDurationSetting } from 'scenes/settings/environment/BounceRateDuration'
 import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/BounceRatePageViewMode'
 import { CookielessServerHashModeSetting } from 'scenes/settings/environment/CookielessServerHashMode'
 import { CustomChannelTypes } from 'scenes/settings/environment/CustomChannelTypes'
 import { DeadClicksAutocaptureSettings } from 'scenes/settings/environment/DeadClicksAutocaptureSettings'
+import { MaxMemorySettings } from 'scenes/settings/environment/MaxMemorySettings'
 import { PersonsJoinMode } from 'scenes/settings/environment/PersonsJoinMode'
 import { PersonsOnEvents } from 'scenes/settings/environment/PersonsOnEvents'
 import { ReplayTriggers } from 'scenes/settings/environment/ReplayTriggers'
 import { SessionsTableVersion } from 'scenes/settings/environment/SessionsTableVersion'
+import { urls } from 'scenes/urls'
 
 import { Realm } from '~/types'
 
@@ -30,12 +35,14 @@ import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
 import { OtherIntegrations } from './environment/OtherIntegrations'
 import { PathCleaningFiltersConfig } from './environment/PathCleaningFiltersConfig'
 import { PersonDisplayNameProperties } from './environment/PersonDisplayNameProperties'
+import { RevenueBaseCurrencySettings } from './environment/RevenueBaseCurrencySettings'
 import { SessionRecordingIngestionSettings } from './environment/SessionRecordingIngestionSettings'
 import {
     NetworkCaptureSettings,
     ReplayAISettings,
     ReplayAuthorizedDomains,
     ReplayGeneral,
+    ReplayMaskingSettings,
 } from './environment/SessionRecordingSettings'
 import { SlackIntegration } from './environment/SlackIntegration'
 import { SurveySettings } from './environment/SurveySettings'
@@ -43,9 +50,9 @@ import { TeamAccessControl } from './environment/TeamAccessControl'
 import { TeamDangerZone } from './environment/TeamDangerZone'
 import {
     Bookmarklet,
+    TeamAuthorizedURLs,
     TeamDisplayName,
     TeamTimezone,
-    TeamToolbarURLs,
     TeamVariables,
     WebSnippet,
 } from './environment/TeamSettings'
@@ -54,6 +61,7 @@ import { UserGroups } from './environment/UserGroups'
 import { WebhookIntegration } from './environment/WebhookIntegration'
 import { Invites } from './organization/Invites'
 import { Members } from './organization/Members'
+import { OrganizationAI } from './organization/OrgAI'
 import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
 import { OrganizationDisplayName } from './organization/OrgDisplayName'
 import { OrganizationEmailPreferences } from './organization/OrgEmailPreferences'
@@ -61,7 +69,8 @@ import { OrganizationLogo } from './organization/OrgLogo'
 import { RoleBasedAccess } from './organization/Permissions/RoleBasedAccess'
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
 import { ProjectDangerZone } from './project/ProjectDangerZone'
-import { ProjectDisplayName, ProjectProductDescription } from './project/ProjectSettings'
+import { ProjectMove } from './project/ProjectMove'
+import { ProjectDisplayName } from './project/ProjectSettings'
 import { SettingSection } from './types'
 import { ChangePassword } from './user/ChangePassword'
 import { HedgehogModeSettings } from './user/HedgehogModeSettings'
@@ -85,17 +94,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <TeamDisplayName />,
             },
             {
-                id: 'product-description',
-                title: 'Product description',
-                description:
-                    'Describe your product in a few sentences. This context helps our AI assistant provide relevant answers and suggestions.',
-                component: <ProjectProductDescription />,
-                flag: ['ARTIFICIAL_HOG', '!ENVIRONMENTS'],
-            },
-            {
                 id: 'snippet',
                 title: 'Web snippet',
                 component: <WebSnippet />,
+            },
+            {
+                id: 'authorized-urls',
+                title: 'Toolbar Authorized URLs',
+                component: <TeamAuthorizedURLs />,
             },
             {
                 id: 'bookmarklet',
@@ -131,12 +137,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <HeatmapsSettings />,
             },
             {
-                id: 'exception-autocapture',
-                title: 'Exception autocapture',
-                component: <ExceptionAutocaptureSettings />,
-                flag: 'ERROR_TRACKING',
-            },
-            {
                 id: 'web-vitals-autocapture',
                 title: 'Web vitals autocapture',
                 component: <WebVitalsAutocaptureSettings />,
@@ -148,7 +148,6 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
         ],
     },
-
     {
         level: 'environment',
         id: 'environment-product-analytics',
@@ -166,7 +165,14 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'data-theme',
-                title: 'Data colors',
+                title: (
+                    <>
+                        Chart color themes
+                        <LemonTag type="warning" className="ml-1 uppercase">
+                            Beta
+                        </LemonTag>
+                    </>
+                ),
                 component: <DataColorThemes />,
                 flag: 'INSIGHT_COLORS',
             },
@@ -220,16 +226,26 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
         ],
     },
-
     {
         level: 'environment',
         id: 'environment-web-analytics',
         title: 'Web analytics',
         settings: [
             {
+                id: 'web-analytics-authorized-urls',
+                title: 'Web Analytics Domains',
+                component: <TeamAuthorizedURLs />,
+            },
+            {
                 id: 'channel-type',
                 title: 'Custom channel type',
                 component: <CustomChannelTypes />,
+            },
+            {
+                id: 'revenue-base-currency',
+                title: 'Revenue base currency',
+                component: <RevenueBaseCurrencySettings />,
+                flag: 'WEB_REVENUE_TRACKING',
             },
             {
                 id: 'cookieless-server-hash-mode',
@@ -250,7 +266,6 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
         ],
     },
-
     {
         level: 'environment',
         id: 'environment-replay',
@@ -265,6 +280,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'replay-network',
                 title: 'Network capture',
                 component: <NetworkCaptureSettings />,
+            },
+            {
+                id: 'replay-masking',
+                title: 'Masking',
+                component: <ReplayMaskingSettings />,
             },
             {
                 id: 'replay-authorized-domains',
@@ -321,6 +341,11 @@ export const SETTINGS_MAP: SettingSection[] = [
         flag: 'ERROR_TRACKING',
         settings: [
             {
+                id: 'error-tracking-exception-autocapture',
+                title: 'Exception autocapture',
+                component: <ExceptionAutocaptureSettings />,
+            },
+            {
                 id: 'error-tracking-user-groups',
                 title: 'User groups',
                 description: 'Allow collections of users to be assigned to issues',
@@ -334,20 +359,23 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'error-tracking-alerting',
                 title: 'Alerting',
-                flag: 'ERROR_TRACKING_ALERTING',
                 component: <ErrorTrackingAlerting />,
             },
         ],
     },
     {
         level: 'environment',
-        id: 'environment-toolbar',
-        title: 'Toolbar',
+        id: 'environment-max',
+        title: 'Max AI',
+        flag: 'ARTIFICIAL_HOG',
         settings: [
             {
-                id: 'authorized-toolbar-urls',
-                title: 'Authorized toolbar URLs',
-                component: <TeamToolbarURLs />,
+                id: 'core-memory',
+                title: 'Memory',
+                description:
+                    'Max automatically remembers details about your company and product. This context helps our AI assistant provide relevant answers and suggestions. If there are any details you don’t want Max to remember, you can edit or remove them below.',
+                component: <MaxMemorySettings />,
+                hideOn: [Realm.SelfHostedClickHouse, Realm.SelfHostedPostgres],
             },
         ],
     },
@@ -396,6 +424,14 @@ export const SETTINGS_MAP: SettingSection[] = [
         title: 'Danger zone',
         settings: [
             {
+                id: 'project-move',
+                title: 'Move project',
+                flag: '!ENVIRONMENTS',
+                component: <ProjectMove />, // There isn't EnvironmentMove yet
+                allowForTeam: () =>
+                    (organizationLogic.findMounted()?.values.currentOrganization?.teams.length ?? 0) > 1,
+            },
+            {
                 id: 'environment-delete',
                 title: 'Delete environment',
                 component: <TeamDangerZone />,
@@ -414,14 +450,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Display name',
                 component: <ProjectDisplayName />,
             },
-            {
-                id: 'product-description',
-                title: 'Product description',
-                description:
-                    'Describe your product in a few sentences. This context helps our AI assistant provide relevant answers and suggestions.',
-                component: <ProjectProductDescription />,
-                flag: 'ARTIFICIAL_HOG',
-            },
         ],
     },
     {
@@ -429,6 +457,13 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'project-danger-zone',
         title: 'Danger zone',
         settings: [
+            {
+                id: 'project-move',
+                title: 'Move project',
+                component: <ProjectMove />,
+                allowForTeam: () =>
+                    (organizationLogic.findMounted()?.values.currentOrganization?.teams.length ?? 0) > 1,
+            },
             {
                 id: 'project-delete',
                 title: 'Delete project',
@@ -452,6 +487,30 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'organization-logo',
                 title: 'Logo',
                 component: <OrganizationLogo />,
+            },
+            {
+                id: 'organization-ai-consent',
+                title: 'PostHog AI data analysis',
+                description: (
+                    // Note: Sync the copy below with AIConsentPopoverWrapper.tsx
+                    <>
+                        PostHog AI features, such as our assistant Max, use{' '}
+                        <Tooltip
+                            title={`As of ${dayjs().format(
+                                'MMMM YYYY'
+                            )}: OpenAI for core analysis, Perplexity for fetching product information`}
+                        >
+                            <dfn>external AI services</dfn>
+                        </Tooltip>{' '}
+                        for data analysis.
+                        <br />
+                        This <i>can</i> involve transfer of identifying user data, so we ask for your org-wide consent
+                        below.
+                        <br />
+                        <strong>Your data will not be used for training models.</strong>
+                    </>
+                ),
+                component: <OrganizationAI />,
             },
         ],
     },
@@ -524,6 +583,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <OrganizationDangerZone />,
             },
         ],
+    },
+    {
+        level: 'organization',
+        id: 'organization-billing',
+        hideSelfHost: true,
+        title: 'Billing',
+        to: urls.organizationBilling(),
+        settings: [],
     },
 
     // USER

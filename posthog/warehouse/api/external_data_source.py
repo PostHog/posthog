@@ -5,12 +5,12 @@ from typing import Any
 import structlog
 import temporalio
 from dateutil import parser
-from django.db.models import Prefetch
+from django.db.models import Prefetch, Q
 from psycopg2 import OperationalError
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
-from sentry_sdk import capture_exception
+from posthog.exceptions_capture import capture_exception
 from snowflake.connector.errors import DatabaseError, ForbiddenError, ProgrammingError
 from sshtunnel import BaseSSHTunnelForwarderError
 
@@ -157,6 +157,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
     client_secret = serializers.CharField(write_only=True)
     last_run_at = serializers.SerializerMethodField(read_only=True)
     created_by = serializers.SerializerMethodField(read_only=True)
+    latest_error = serializers.SerializerMethodField(read_only=True)
     status = serializers.SerializerMethodField(read_only=True)
     schemas = serializers.SerializerMethodField(read_only=True)
 
@@ -170,6 +171,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "client_secret",
             "account_id",
             "source_type",
+            "latest_error",
             "prefix",
             "last_run_at",
             "schemas",
@@ -181,13 +183,61 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "created_at",
             "status",
             "source_type",
+            "latest_error",
             "last_run_at",
             "schemas",
             "prefix",
         ]
-        extra_kwargs = {
-            "job_inputs": {"write_only": True},
+
+    """
+    This method is used to remove sensitive fields from the response.
+    IMPORTANT: This method should be updated when a new source type is added to allow for editing of the new source.
+    """
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+
+        # non-sensitive fields
+        whitelisted_keys = {
+            # stripe
+            "stripe_account_id",
+            # sql
+            "database",
+            "host",
+            "port",
+            "user",
+            "schema",
+            "ssh-tunnel",
+            "use_ssl",
+            # vitally
+            "payload",
+            "prefix",
+            "regionsubdomain",
+            "source_type",
+            # chargebee
+            "site_name",
+            # zendesk
+            "subdomain",
+            "email_address",
+            # hubspot
+            "redirect_uri",
+            # snowflake
+            "account_id",
+            "warehouse",
+            "role",
+            # bigquery
+            "dataset_id",
+            "project_id",
+            "client_email",
+            "token_uri",
         }
+        job_inputs = representation.get("job_inputs", {})
+        if isinstance(job_inputs, dict):
+            for key in list(job_inputs.keys()):  # Use list() to avoid modifying dict during iteration
+                if key not in whitelisted_keys:
+                    job_inputs.pop(key, None)
+
+        return representation
 
     def get_last_run_at(self, instance: ExternalDataSource) -> str:
         latest_completed_run = instance.ordered_jobs[0] if instance.ordered_jobs else None  # type: ignore
@@ -218,6 +268,10 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
         else:
             # Fallback during migration phase of going from source -> schema as the source of truth for syncs
             return instance.status
+
+    def get_latest_error(self, instance: ExternalDataSource):
+        schema_with_error = instance.schemas.filter(latest_error__isnull=False).first()
+        return schema_with_error.latest_error if schema_with_error else None
 
     def get_schemas(self, instance: ExternalDataSource):
         return ExternalDataSchemaSerializer(instance.schemas, many=True, read_only=True, context=self.context).data
@@ -282,7 +336,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     "schemas",
                     queryset=ExternalDataSchema.objects.filter(team_id=self.team_id)
                     .exclude(deleted=True)
-                    .filter(should_sync=True)
+                    .filter(
+                        Q(should_sync=True) | Q(latest_error__isnull=False)
+                    )  # OR to include schemas with errors or marked for sync
                     .select_related("source", "table__credential", "table__external_data_source"),
                     to_attr="active_schemas",
                 ),
@@ -386,6 +442,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             is_incremental = sync_type == "incremental"
             incremental_field = schema.get("incremental_field")
             incremental_field_type = schema.get("incremental_field_type")
+            sync_time_of_day = schema.get("sync_time_of_day")
 
             if is_incremental and incremental_field is None:
                 new_source_model.delete()
@@ -407,12 +464,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 source=new_source_model,
                 should_sync=schema.get("should_sync"),
                 sync_type=sync_type,
-                sync_type_config={
-                    "incremental_field": incremental_field,
-                    "incremental_field_type": incremental_field_type,
-                }
-                if is_incremental
-                else {},
+                sync_time_of_day=sync_time_of_day,
+                sync_type_config=(
+                    {
+                        "incremental_field": incremental_field,
+                        "incremental_field_type": incremental_field_type,
+                    }
+                    if is_incremental
+                    else {}
+                ),
             )
 
             if schema.get("should_sync"):
@@ -429,8 +489,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def _handle_stripe_source(self, request: Request, *args: Any, **kwargs: Any) -> ExternalDataSource:
         payload = request.data["payload"]
-        client_secret = payload.get("client_secret")
-        account_id = payload.get("account_id", None)
+        client_secret = payload.get("stripe_secret_key")
+        account_id = payload.get("stripe_account_id", None)
         prefix = request.data.get("prefix", None)
         source_type = request.data["source_type"]
         # TODO: remove dummy vars
@@ -576,7 +636,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         host = payload.get("host")
         port = payload.get("port")
-        database = payload.get("dbname")
+        database = payload.get("database")
 
         user = payload.get("user")
         password = payload.get("password")
@@ -847,7 +907,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         # Validate sourced credentials
         if source_type == ExternalDataSource.Type.STRIPE:
-            key = request.data.get("client_secret", "")
+            key = request.data.get("stripe_secret_key", "")
             if not validate_stripe_credentials(api_key=key):
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
@@ -876,7 +936,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             subdomain = request.data.get("subdomain", "")
 
             subdomain_regex = re.compile("^[a-zA-Z-]+$")
-            if not subdomain_regex.match(subdomain):
+            if region == "US" and not subdomain_regex.match(subdomain):
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
                     data={"message": "Invalid credentials: Vitally subdomain is incorrect"},
@@ -960,7 +1020,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
             host = request.data.get("host", None)
             port = request.data.get("port", None)
-            database = request.data.get("dbname", None)
+            database = request.data.get("database", None)
 
             user = request.data.get("user", None)
             password = request.data.get("password", None)
@@ -1003,9 +1063,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     return Response(
                         status=status.HTTP_400_BAD_REQUEST,
                         data={
-                            "message": auth_error_message
-                            if len(auth_error_message) > 0
-                            else "Invalid SSH tunnel auth settings"
+                            "message": (
+                                auth_error_message
+                                if len(auth_error_message) > 0
+                                else "Invalid SSH tunnel auth settings"
+                            )
                         },
                     )
 
@@ -1014,9 +1076,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     return Response(
                         status=status.HTTP_400_BAD_REQUEST,
                         data={
-                            "message": port_error_message
-                            if len(port_error_message) > 0
-                            else "Invalid SSH tunnel auth settings"
+                            "message": (
+                                port_error_message
+                                if len(port_error_message) > 0
+                                else "Invalid SSH tunnel auth settings"
+                            )
                         },
                     )
 
@@ -1230,9 +1294,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     for field in incremental_fields.get(row, [])
                 ],
                 "incremental_available": row in incremental_schemas,
-                "incremental_field": incremental_fields.get(row, [])[0]["field"]
-                if row in incremental_schemas
-                else None,
+                "incremental_field": (
+                    incremental_fields.get(row, [])[0]["field"] if row in incremental_schemas else None
+                ),
                 "sync_type": None,
             }
             for row in schemas

@@ -2,7 +2,13 @@ import { connect, kea, path, props, selectors } from 'kea'
 
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
-import { AnyResponseType, DataTableNode, LLMTrace, LLMTraceEvent, TracesQueryResponse } from '~/queries/schema'
+import {
+    AnyResponseType,
+    DataTableNode,
+    LLMTrace,
+    LLMTraceEvent,
+    TracesQueryResponse,
+} from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
 import type { llmObservabilityTraceDataLogicType } from './llmObservabilityTraceDataLogicType'
@@ -24,7 +30,7 @@ function getDataNodeLogicProps({ traceId, query, cachedResults }: TraceDataLogic
         query: query.source,
         key: vizKey,
         dataNodeCollectionId: traceId,
-        alwaysRefresh: false,
+        refresh: false,
         cachedResults: cachedResults || undefined,
     }
     return dataNodeLogicProps
@@ -102,10 +108,10 @@ export interface TraceTreeNode {
 export function restoreTree(events: LLMTraceEvent[], traceId: string): TraceTreeNode[] {
     const childrenMap = new Map<any, any[]>()
     const idMap = new Map<any, LLMTraceEvent>()
+    const visitedNodes = new Set<any>()
 
     // Map all events with parents to their parent IDs
     for (const event of events) {
-        // Exclude all metric and feedback events.
         if (FEEDBACK_EVENTS.has(event.event)) {
             continue
         }
@@ -113,7 +119,6 @@ export function restoreTree(events: LLMTraceEvent[], traceId: string): TraceTree
         const eventId = event.properties.$ai_generation_id ?? event.properties.$ai_span_id ?? event.id
         idMap.set(eventId, event)
 
-        // Filters events for both SDKs with spans and without.
         const parentId = event.properties.$ai_parent_id ?? event.properties.$ai_trace_id
 
         if (parentId !== undefined && parentId !== null) {
@@ -126,15 +131,28 @@ export function restoreTree(events: LLMTraceEvent[], traceId: string): TraceTree
         }
     }
 
-    function traverse(spanId: any): TraceTreeNode {
-        const children = childrenMap.get(spanId)
-        return {
-            event: idMap.get(spanId)!,
-            children: children?.map((child) => traverse(child)),
+    function traverse(spanId: any): TraceTreeNode | null {
+        if (visitedNodes.has(spanId)) {
+            console.warn('Circular reference detected in trace tree:', spanId)
+            return null
         }
+
+        const event = idMap.get(spanId)
+        if (!event) {
+            return null
+        }
+
+        visitedNodes.add(spanId)
+        const children = childrenMap.get(spanId)
+        const result = {
+            event,
+            children: children?.map((child) => traverse(child)).filter((node): node is TraceTreeNode => node !== null),
+        }
+        visitedNodes.delete(spanId)
+        return result
     }
 
     // Get all direct children of the trace ID
     const directChildren = childrenMap.get(traceId) || []
-    return directChildren.map((childId) => traverse(childId))
+    return directChildren.map((childId) => traverse(childId)).filter((node): node is TraceTreeNode => node !== null)
 }

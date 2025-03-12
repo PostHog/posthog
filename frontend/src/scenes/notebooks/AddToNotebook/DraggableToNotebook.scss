@@ -2,7 +2,7 @@
     position: relative;
 
     &--dragging {
-        background-color: var(--bg-light);
+        background-color: var(--bg-surface-primary);
         outline: 1px solid var(--accent-primary);
 
         // Weird hack - this fixes chrome from not correctly identifying the bounds of the component for the drag preview

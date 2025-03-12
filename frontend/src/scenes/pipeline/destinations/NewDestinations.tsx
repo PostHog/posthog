@@ -20,7 +20,7 @@ export interface NewDestinationsProps {
 
 export function NewDestinations({ types }: NewDestinationsProps): JSX.Element {
     return (
-        <div className="space-y-2">
+        <div className="deprecated-space-y-2">
             {types.includes('destination') ? <PayGateMini feature={AvailableFeature.DATA_PIPELINES} /> : null}
             <DestinationsFilters types={types} hideShowPaused />
             <DestinationOptionsTable types={types} />
@@ -100,7 +100,7 @@ export function DestinationOptionsTable({ types }: NewDestinationsProps): JSX.El
                 ]}
             />
             {hiddenDestinations.length > 0 && (
-                <div className="text-muted-alt">
+                <div className="text-secondary">
                     {hiddenDestinations.length} hidden. <Link onClick={() => resetFilters()}>Show all</Link>
                 </div>
             )}

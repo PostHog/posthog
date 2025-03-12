@@ -93,12 +93,14 @@ export type DestinationsTableProps = {
     types: HogFunctionTypeType[]
     hideFeedback?: boolean
     hideAddDestinationButton?: boolean
+    hideChangeOrderButton?: boolean
 }
 
 export function DestinationsTable({
     hideFeedback,
     hideAddDestinationButton,
     types,
+    hideChangeOrderButton = false,
 }: DestinationsTableProps): JSX.Element {
     const { canConfigurePlugins, canEnableDestination } = useValues(pipelineAccessLogic)
     const { loading, filteredDestinations, destinations, hiddenDestinations } = useValues(
@@ -107,7 +109,8 @@ export function DestinationsTable({
     const { toggleNode, deleteNode, openReorderTransformationsModal } = useActions(pipelineDestinationsLogic({ types }))
     const { resetFilters } = useActions(destinationsFiltersLogic({ types }))
 
-    const showFrequencyHistory = types.includes('destination')
+    const showMetricsHistory = types.includes('destination') || types.includes('transformation')
+    const showFrequencyInterval = types.includes('destination')
     const simpleName =
         types.includes('destination') || types.includes('site_destination')
             ? 'destination'
@@ -122,14 +125,14 @@ export function DestinationsTable({
     const showPriorityColumn = types.includes('transformation')
 
     return (
-        <div className="space-y-4">
+        <div className="deprecated-space-y-4">
             <DestinationsFilters
                 types={types}
                 hideFeedback={hideFeedback}
                 hideAddDestinationButton={hideAddDestinationButton}
             />
 
-            {types.includes('transformation') && enabledTransformations.length > 1 && (
+            {types.includes('transformation') && enabledTransformations.length > 1 && !hideChangeOrderButton && (
                 <div className="flex items-center gap-2">
                     Processed sequentially.
                     <LemonButton
@@ -231,7 +234,7 @@ export function DestinationsTable({
                             )
                         },
                     },
-                    ...(showFrequencyHistory
+                    ...(showFrequencyInterval
                         ? [
                               {
                                   title: 'Frequency',
@@ -242,7 +245,7 @@ export function DestinationsTable({
                               } as LemonTableColumn<Destination | Transformation | SiteApp, any>,
                           ]
                         : []),
-                    ...(showFrequencyHistory
+                    ...(showMetricsHistory
                         ? [
                               {
                                   title: 'Last 7 days',
@@ -335,7 +338,7 @@ export function DestinationsTable({
             />
 
             {hiddenDestinations.length > 0 && (
-                <div className="text-muted-alt">
+                <div className="text-secondary">
                     {hiddenDestinations.length} hidden. <Link onClick={() => resetFilters()}>Show all</Link>
                 </div>
             )}

@@ -446,3 +446,30 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         results = self._select(query=query, start=14, end=14)
 
         assert "some_view" in [x.label for x in results.suggestions]
+
+    def test_autocomplete_deleted_warehouse_view(self):
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="DELETED",
+            query={"query": "select * from events"},
+            deleted=True,
+            deleted_name="some_view",
+        )
+        query = "select * from "
+        results = self._select(query=query, start=14, end=14)
+
+        assert "some_view" not in [x.label for x in results.suggestions]
+        assert "DELETED" not in [x.label for x in results.suggestions]
+
+    def test_autocomplete_empty_source_query(self):
+        autocomplete = HogQLAutocomplete(
+            kind="HogQLAutocomplete",
+            query="SELECT * FROM e",
+            language=HogLanguage.HOG_QL,
+            sourceQuery=HogQLQuery(query=""),  # Empty source query
+            startPosition=15,
+            endPosition=15,
+        )
+        results = get_hogql_autocomplete(query=autocomplete, team=self.team)
+
+        assert "events" in [suggestion.label for suggestion in results.suggestions]

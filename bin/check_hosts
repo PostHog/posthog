@@ -1,0 +1,30 @@
+#!/bin/bash
+
+set -eu
+
+EXPECT_HOSTS=(
+  "clickhouse"
+  "clickhouse-coordinator"
+  "kafka"
+)
+
+# Counter for failed lookups
+FAILED_COUNT=0
+
+for DOMAIN in "${EXPECT_HOSTS[@]}"; do
+  if ! ping -c 1 -W 5 "$DOMAIN" &>/dev/null; then
+    echo "❌ Error: Domain '$DOMAIN' could not be resolved."
+    FAILED_COUNT=$((FAILED_COUNT + 1))
+  else
+    echo "✅ Domain '$DOMAIN' resolved successfully."
+  fi
+done
+
+# Check if any lookups failed
+if [ "$FAILED_COUNT" -gt 0 ]; then
+  echo "Error: $FAILED_COUNT domain(s) could not be resolved."
+  exit 1
+else
+  echo "All domains resolved successfully."
+  exit 0
+fi

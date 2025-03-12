@@ -5,7 +5,7 @@ import { urls } from 'scenes/urls'
 
 import { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
-import { AnyResponseType, DataTableNode, NodeKind, TracesQuery } from '~/queries/schema'
+import { AnyResponseType, DataTableNode, NodeKind, TracesQuery } from '~/queries/schema/schema-general'
 import { Breadcrumb, InsightLogicProps } from '~/types'
 
 import type { llmObservabilityTraceLogicType } from './llmObservabilityTraceLogicType'
@@ -30,7 +30,7 @@ export function getDataNodeLogicProps({
         query: query.source,
         key: vizKey,
         dataNodeCollectionId: traceId,
-        alwaysRefresh: false,
+        refresh: false,
         cachedResults: cachedResults || undefined,
     }
     return dataNodeLogicProps

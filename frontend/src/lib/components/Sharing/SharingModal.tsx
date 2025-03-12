@@ -22,7 +22,7 @@ import { urls } from 'scenes/urls'
 
 import { AccessControlPopoutCTA } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlPopoutCTA'
 import { isInsightVizNode } from '~/queries/utils'
-import { AvailableFeature, InsightShortId, QueryBasedInsightModel } from '~/types'
+import { AccessControlResourceType, AvailableFeature, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import { upgradeModalLogic } from '../UpgradeModal/upgradeModalLogic'
 import { sharingLogic } from './sharingLogic'
@@ -90,7 +90,7 @@ export function SharingModalContent({
     }, [iframeProperties.src, sharingConfiguration?.enabled, showPreview])
 
     return (
-        <div className="space-y-4">
+        <div className="deprecated-space-y-4">
             {dashboardId ? (
                 <>
                     <DashboardCollaboration dashboardId={dashboardId} />
@@ -101,6 +101,7 @@ export function SharingModalContent({
             {insightShortId && newAccessControl ? (
                 <>
                     <AccessControlPopoutCTA
+                        resourceType={AccessControlResourceType.Insight}
                         callback={() => {
                             push(urls.insightView(insightShortId))
                         }}
@@ -109,7 +110,7 @@ export function SharingModalContent({
                 </>
             ) : undefined}
 
-            <div className="space-y-2">
+            <div className="deprecated-space-y-2">
                 {!sharingConfiguration && sharingConfigurationLoading ? (
                     <LemonSkeleton.Row repeat={3} />
                 ) : !sharingConfiguration ? (
@@ -129,7 +130,7 @@ export function SharingModalContent({
 
                         {sharingConfiguration.enabled && sharingConfiguration.access_token ? (
                             <>
-                                <div className="space-y-2">
+                                <div className="deprecated-space-y-2">
                                     <LemonButton
                                         data-attr="sharing-link-button"
                                         type="secondary"
@@ -167,9 +168,9 @@ export function SharingModalContent({
                                     logic={sharingLogic}
                                     props={logicProps}
                                     formKey="embedConfig"
-                                    className="space-y-2"
+                                    className="deprecated-space-y-2"
                                 >
-                                    <div className="grid grid-cols-2 gap-2 grid-flow odd:last:*:col-span-2">
+                                    <div className="grid grid-cols-2 gap-2 grid-flow *:odd:last:col-span-2">
                                         {insight && (
                                             <LemonField name="noHeader">
                                                 {({ value, onChange }) => (
@@ -193,7 +194,7 @@ export function SharingModalContent({
                                                             <span>Show PostHog branding</span>
                                                             {!whitelabelAvailable && (
                                                                 <Tooltip title="This is a premium feature, click to learn more.">
-                                                                    <IconLock className="ml-1.5 text-muted text-lg" />
+                                                                    <IconLock className="ml-1.5 text-secondary text-lg" />
                                                                 </Tooltip>
                                                             )}
                                                         </div>

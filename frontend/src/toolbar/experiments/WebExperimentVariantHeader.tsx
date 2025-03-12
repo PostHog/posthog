@@ -32,7 +32,7 @@ export function WebExperimentVariantHeader({ variant }: WebExperimentVariantHead
                         } %`}
                     </span>
                 </LemonTag>
-                {removeVariantAvailable && (
+                {removeVariantAvailable && variant !== 'control' && (
                     <LemonButton
                         icon={<IconTrash />}
                         size="small"

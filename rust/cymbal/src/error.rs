@@ -1,10 +1,10 @@
 use aws_sdk_s3::primitives::ByteStreamError;
+use common_kafka::kafka_producer::KafkaProduceError;
+use common_symbol_data::SymbolDataError;
 use rdkafka::error::KafkaError;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
-
-use crate::hack::js_data::JsDataError;
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -14,12 +14,27 @@ pub enum Error {
     ResolutionError(#[from] FrameError),
 }
 
+// Errors specifically in using chunk ID's. These are
+// handled as distinct from general resolution errors,
+// because we want to handle them differently.
+#[derive(Debug, Error)]
+pub enum ChunkIdError {
+    #[error("Chunk ID not found {0}")]
+    NotFound(String),
+    #[error("Missing storage pointer {0}")]
+    MissingStoragePtr(String),
+    #[error(transparent)]
+    Other(#[from] Error),
+}
+
 #[derive(Debug, Error)]
 pub enum UnhandledError {
     #[error("Config error: {0}")]
     ConfigError(#[from] envconfig::Error),
     #[error("Kafka error: {0}")]
     KafkaError(#[from] KafkaError),
+    #[error("Produce error: {0}")]
+    KafkaProduceError(#[from] KafkaProduceError),
     #[error("Sqlx error: {0}")]
     SqlxError(#[from] sqlx::Error),
     #[error("S3 error: {0}")]
@@ -28,6 +43,8 @@ pub enum UnhandledError {
     ByteStreamError(#[from] ByteStreamError), // AWS specific bytestream error. Idk
     #[error("Unhandled serde error: {0}")]
     SerdeError(#[from] serde_json::Error),
+    #[error("Unhandled error: {0}")]
+    Other(String),
 }
 
 // These are errors that occur during frame resolution. This excludes e.g. network errors,
@@ -50,9 +67,6 @@ pub enum JsResolveErr {
     // We failed to parse a found source map
     #[error("Invalid source map: {0}")]
     InvalidSourceMap(String),
-    // We failed to parse a found source map cache
-    #[error("Invalid source map cache: {0}")]
-    InvalidSourceMapCache(String),
     // We found and parsed the source map, but couldn't find our frames token in it
     #[error("Token not found for frame: {0}:{1}:{2}")]
     TokenNotFound(String, u32, u32),
@@ -86,7 +100,11 @@ pub enum JsResolveErr {
     #[error("Redirect error while fetching: {0}")]
     RedirectError(String),
     #[error("JSDataError: {0}")]
-    JSDataError(#[from] JsDataError),
+    JSDataError(#[from] SymbolDataError),
+    #[error("Invalid Source and Map")]
+    InvalidSourceAndMap,
+    #[error("Invalid data url found at {0}. {1}")]
+    InvalidDataUrl(String, String),
 }
 
 #[derive(Debug, Error)]
@@ -109,11 +127,11 @@ impl From<JsResolveErr> for Error {
     }
 }
 
-impl From<sourcemap::Error> for JsResolveErr {
-    fn from(e: sourcemap::Error) -> Self {
-        JsResolveErr::InvalidSourceMap(e.to_string())
-    }
-}
+// impl From<sourcemap::Error> for JsResolveErr {
+//     fn from(e: sourcemap::Error) -> Self {
+//         JsResolveErr::InvalidSourceMap(e.to_string())
+//     }
+// }
 
 impl From<reqwest::Error> for JsResolveErr {
     fn from(e: reqwest::Error) -> Self {
@@ -143,5 +161,18 @@ impl From<reqwest::Error> for JsResolveErr {
 impl From<aws_sdk_s3::Error> for UnhandledError {
     fn from(e: aws_sdk_s3::Error) -> Self {
         UnhandledError::S3Error(Box::new(e))
+    }
+}
+
+// A couple of conveniences for chunk id specific handling
+impl From<UnhandledError> for ChunkIdError {
+    fn from(e: UnhandledError) -> Self {
+        ChunkIdError::Other(Error::UnhandledError(e))
+    }
+}
+
+impl From<FrameError> for ChunkIdError {
+    fn from(e: FrameError) -> Self {
+        ChunkIdError::Other(Error::ResolutionError(e))
     }
 }

@@ -14,6 +14,7 @@ import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authoriz
 import { IconOpenInApp } from 'lib/lemon-ui/icons'
 import { featureFlagLogic, FeatureFlagLogicProps } from 'scenes/feature-flags/featureFlagLogic'
 
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { Experiment, MultivariateFlagVariant } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
@@ -30,12 +31,14 @@ export function DistributionModal({ experimentId }: { experimentId: Experiment['
     const { setFeatureFlagFilters, distributeVariantsEqually } = useActions(_featureFlagLogic)
 
     const handleRolloutPercentageChange = (index: number, value: number | undefined): void => {
-        if (!featureFlag?.filters?.multivariate || !value) {
+        if (!featureFlag?.filters?.multivariate) {
             return
         }
 
+        const numericValue = value || 0
+
         const updatedVariants = featureFlag.filters.multivariate.variants.map((variant, i) =>
-            i === index ? { ...variant, rollout_percentage: value } : variant
+            i === index ? { ...variant, rollout_percentage: numericValue } : variant
         )
 
         setFeatureFlagFilters(
@@ -72,7 +75,7 @@ export function DistributionModal({ experimentId }: { experimentId: Experiment['
                 </div>
             }
         >
-            <div className="space-y-4">
+            <div className="deprecated-space-y-4">
                 <LemonBanner type="info">
                     Adjusting variant distribution may impact the validity of your results. Adjust only if you're aware
                     of how changes will affect your experiment.
@@ -80,7 +83,7 @@ export function DistributionModal({ experimentId }: { experimentId: Experiment['
 
                 <div>
                     <div className="flex justify-between items-center mb-2">
-                        <h3 className="font-semibold mb-0">Variant Distribution</h3>
+                        <h3 className="font-semibold mb-0">Variant distribution</h3>
                         <LemonButton
                             size="small"
                             onClick={distributeVariantsEqually}
@@ -132,6 +135,7 @@ export function DistributionTable(): JSX.Element {
     const { openDistributionModal } = useActions(experimentLogic)
     const { experimentId, experiment, metricResults } = useValues(experimentLogic)
     const { reportExperimentReleaseConditionsViewed } = useActions(experimentLogic)
+    const { isDarkModeOn } = useValues(themeLogic)
 
     const result = metricResults?.[0]
 
@@ -268,7 +272,13 @@ export function DistributionTable(): JSX.Element {
                 loading={false}
                 columns={columns}
                 dataSource={tableData}
-                rowClassName={(item) => (item.key === `holdout-${experiment.holdout?.id}` ? 'bg-mid' : '')}
+                rowClassName={(item) =>
+                    item.key === `holdout-${experiment.holdout?.id}`
+                        ? isDarkModeOn
+                            ? 'bg-fill-primary'
+                            : 'bg-mid'
+                        : ''
+                }
             />
         </div>
     )

@@ -1,8 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { URL } from 'url'
 
-import { LegacyTransformationPlugin, LegacyTransformationPluginMeta } from '../../types'
-import metadata from './plugin.json'
+import { LegacyTransformationPluginMeta } from '../../types'
 
 // Processes each event, optionally transforming it
 
@@ -40,10 +39,4 @@ export function processEvent(event: PluginEvent, _: LegacyTransformationPluginMe
     }
     // Return the event to be ingested, or return null to discard
     return event
-}
-
-export const pluginStonlyUtmExtractor: LegacyTransformationPlugin = {
-    id: 'plugin-stonly-utm-extractor',
-    metadata,
-    processEvent,
 }

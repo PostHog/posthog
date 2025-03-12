@@ -10,7 +10,7 @@ export function ToolbarMenu({ children, className }: ToolbarMenuProps): JSX.Elem
 }
 
 ToolbarMenu.Header = function ToolbarMenuHeader({ children, className }: ToolbarMenuProps): JSX.Element {
-    return <div className={clsx('px-1 pt-1', className)}>{children}</div>
+    return <div className={clsx('px-2 pt-1', className)}>{children}</div>
 }
 
 ToolbarMenu.Body = function ToolbarMenuBody({ children, className }: ToolbarMenuProps): JSX.Element {

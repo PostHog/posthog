@@ -1,25 +1,10 @@
 .StackTrace {
-    .LemonCollapse {
-        &.LemonCollapse--embedded {
-            border-top: 1px solid var(--border);
-            border-bottom: 1px solid var(--border);
-        }
+    .LemonCollapse .LemonCollapsePanel__header {
+        min-height: 1.875rem !important;
+        background-color: var(--bg-surface-primary);
 
-        .LemonCollapsePanel__header {
-            min-height: 1.875rem !important;
-            padding: 0 !important;
-            background-color: var(--accent-3000);
-
-            &--disabled:hover {
-                background-color: var(--accent-3000) !important;
-            }
-        }
-    }
-
-    &--embedded {
-        .StackTrace__type,
-        .StackTrace__value {
-            margin: 0 8px;
+        &--disabled:hover {
+            background-color: var(--bg-surface-primary) !important;
         }
     }
 }

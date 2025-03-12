@@ -35,7 +35,6 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
-import { AddInsightToDashboardModal } from './AddInsightToDashboardModal'
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DASHBOARD_RESTRICTION_OPTIONS } from './DashboardCollaborators'
 import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
@@ -123,7 +122,6 @@ export function DashboardHeader(): JSX.Element | null {
                     )}
                     {canEditDashboard && <DeleteDashboardModal />}
                     {canEditDashboard && <DuplicateDashboardModal />}
-                    {canEditDashboard && <AddInsightToDashboardModal />}
                 </>
             )}
 
@@ -177,7 +175,7 @@ export function DashboardHeader(): JSX.Element | null {
                                         <>
                                             {dashboard.created_by && (
                                                 <>
-                                                    <div className="flex p-2 text-muted-alt">
+                                                    <div className="flex p-2 text-secondary">
                                                         Created by{' '}
                                                         {dashboard.created_by.first_name ||
                                                             dashboard.created_by.email ||
@@ -289,10 +287,12 @@ export function DashboardHeader(): JSX.Element | null {
                             <LemonDivider vertical />
                             {dashboard && (
                                 <>
-                                    <CollaboratorBubbles
-                                        dashboard={dashboard}
-                                        onClick={() => push(urls.dashboardSharing(dashboard.id))}
-                                    />
+                                    {dashboard.access_control_version === 'v1' && (
+                                        <CollaboratorBubbles
+                                            dashboard={dashboard}
+                                            onClick={() => push(urls.dashboardSharing(dashboard.id))}
+                                        />
+                                    )}
                                     <LemonButton
                                         type="secondary"
                                         data-attr="dashboard-share-button"

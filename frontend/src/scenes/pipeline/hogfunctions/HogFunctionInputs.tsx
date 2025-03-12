@@ -18,8 +18,8 @@ import { useValues } from 'kea'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorInline, CodeEditorInlineProps } from 'lib/monaco/CodeEditorInline'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
-import { capitalizeFirstLetter } from 'lib/utils'
-import { useEffect, useState } from 'react'
+import { capitalizeFirstLetter, objectsEqual } from 'lib/utils'
+import { useEffect, useRef, useState } from 'react'
 
 import {
     HogFunctionConfigurationType,
@@ -123,15 +123,26 @@ function DictionaryField({
     templating: boolean
 }): JSX.Element {
     const [entries, setEntries] = useState<[string, string][]>(Object.entries(value ?? {}))
+    const prevFilteredEntriesRef = useRef<[string, string][]>(entries)
 
     useEffect(() => {
         // NOTE: Filter out all empty entries as fetch will throw if passed in
-        const val = Object.fromEntries(entries.filter(([key, val]) => key.trim() !== '' || val.trim() !== ''))
+        const filteredEntries = entries.filter(([key, val]) => key.trim() !== '' || val.trim() !== '')
+
+        // Compare with previous filtered entries to avoid unnecessary updates
+        if (objectsEqual(filteredEntries, prevFilteredEntriesRef.current)) {
+            return
+        }
+
+        // Update the ref with current filtered entries
+        prevFilteredEntriesRef.current = filteredEntries
+
+        const val = Object.fromEntries(filteredEntries)
         onChange?.(val)
-    }, [entries])
+    }, [entries, onChange])
 
     return (
-        <div className="space-y-2">
+        <div className="deprecated-space-y-2">
             {entries.map(([key, val], index) => (
                 <div className="flex items-center gap-2" key={index}>
                     <LemonInput
@@ -464,7 +475,7 @@ export function HogFunctionInputWithSchema({
                                 </div>
                                 {value?.secret ? (
                                     <div className="flex items-center gap-2 p-1 border border-dashed rounded">
-                                        <span className="flex-1 p-1 italic text-muted-alt">
+                                        <span className="flex-1 p-1 italic text-secondary">
                                             This value is secret and is not displayed here.
                                         </span>
                                         <LemonButton
@@ -489,7 +500,7 @@ export function HogFunctionInputWithSchema({
                     }}
                 </LemonField>
             ) : (
-                <div className="p-2 space-y-4 border border-dashed rounded">
+                <div className="p-2 deprecated-space-y-4 border border-dashed rounded">
                     <HogFunctionInputSchemaControls
                         value={schema}
                         onChange={onSchemaChange}
@@ -513,7 +524,7 @@ export function HogFunctionInputs({
             // If this is a mapping, don't show any error message.
             return null
         }
-        return <span className="italic text-muted-alt">This function does not require any input variables.</span>
+        return <span className="italic text-secondary">This function does not require any input variables.</span>
     }
 
     const inputSchemas = configuration.inputs_schema
@@ -533,16 +544,18 @@ export function HogFunctionInputs({
                 }}
             >
                 <SortableContext disabled={!showSource} items={inputSchemaIds} strategy={verticalListSortingStrategy}>
-                    {configuration.inputs_schema?.map((schema) => {
-                        return (
-                            <HogFunctionInputWithSchema
-                                key={schema.key}
-                                schema={schema}
-                                configuration={configuration}
-                                setConfigurationValue={setConfigurationValue}
-                            />
-                        )
-                    })}
+                    {configuration.inputs_schema
+                        ?.filter((i) => !i.hidden)
+                        .map((schema) => {
+                            return (
+                                <HogFunctionInputWithSchema
+                                    key={schema.key}
+                                    schema={schema}
+                                    configuration={configuration}
+                                    setConfigurationValue={setConfigurationValue}
+                                />
+                            )
+                        })}
                 </SortableContext>
             </DndContext>
         </>

@@ -3,19 +3,22 @@ from datetime import datetime, timedelta
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
+import celery
 import structlog
 from celery import shared_task
 from dateutil import parser
 from django.db.models import QuerySet
 from django.utils import timezone
 from posthoganalytics.client import Client
-from sentry_sdk import capture_exception
+
+from posthog.clickhouse.query_tagging import tag_queries
+from posthog.exceptions_capture import capture_exception
 
 from posthog.models.dashboard import Dashboard
 from posthog.models.event_definition import EventDefinition
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag
-from posthog.models.feedback.survey import Survey
+from posthog.models.surveys.survey import Survey
 from posthog.models.messaging import MessagingRecord
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
@@ -260,6 +263,7 @@ def _get_all_org_digest_reports(period_start: datetime, period_end: datetime) ->
 
 @shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=0)
 def send_all_periodic_digest_reports(
+    self: celery.Task,
     dry_run: bool = False,
     end_date: Optional[str] = None,
     begin_date: Optional[str] = None,
@@ -270,6 +274,8 @@ def send_all_periodic_digest_reports(
         else datetime.now(tz=ZoneInfo("UTC")).replace(hour=0, minute=0, second=0, microsecond=0)
     )
     period_start = parser.parse(begin_date) if begin_date else period_end - timedelta(days=7)
+
+    tag_queries(celery_request_id=self.request.id)
 
     try:
         org_reports = _get_all_org_digest_reports(period_start, period_end)

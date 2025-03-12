@@ -7,7 +7,7 @@ from uuid import UUID
 
 from django.db.models.signals import post_save
 from django.dispatch.dispatcher import receiver
-from sentry_sdk import capture_exception
+from posthog.exceptions_capture import capture_exception
 import structlog
 from django.core.paginator import Paginator
 from django.core.exceptions import ObjectDoesNotExist
@@ -46,6 +46,7 @@ ActivityScope = Literal[
     "Comment",
     "Team",
     "Project",
+    "ErrorTrackingIssue",
 ]
 ChangeAction = Literal["changed", "created", "deleted", "merged", "split", "exported"]
 
@@ -185,6 +186,8 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "is_simple_flag",
         "experiment",
         "featureflagoverride",
+        "usage_dashboard",
+        "analytics_dashboards",
     ],
     "Person": [
         "distinct_ids",
@@ -531,12 +534,14 @@ def activity_log_created(sender, instance: "ActivityLog", created, **kwargs):
                     distinct_id=user_data["distinct_id"] if user_data else f"team_{instance.team_id}",
                     properties=serialized_data,
                 ),
-                person=InternalEventPerson(
-                    id=user_data["id"],
-                    properties=user_data,
-                )
-                if user_data
-                else None,
+                person=(
+                    InternalEventPerson(
+                        id=user_data["id"],
+                        properties=user_data,
+                    )
+                    if user_data
+                    else None
+                ),
             )
     except Exception as e:
         # We don't want to hard fail here.

@@ -33,7 +33,7 @@ export function AppMetricsV2({ id }: AppMetricsV2LogicProps): JSX.Element {
 
     return (
         <BindLogic logic={appMetricsV2Logic} props={{ id }}>
-            <div className="space-y-4">
+            <div className="deprecated-space-y-4">
                 <AppMetricsTotals />
 
                 <div className="flex items-center gap-2">
@@ -79,7 +79,7 @@ function AppMetricBigNumber({
 }): JSX.Element {
     return (
         <Tooltip title={tooltip}>
-            <div className="border p-2 rounded bg-bg-light flex-1 flex flex-col gap-2 items-center">
+            <div className="border p-2 rounded bg-surface-primary flex-1 flex flex-col gap-2 items-center">
                 <div className="uppercase font-bold text-xs">{label.replace(/_/g, ' ')}</div>
                 <div className="text-2xl flex-1 mb-2 flex items-center">{humanFriendlyNumber(value ?? 0)}</div>
             </div>
@@ -91,7 +91,7 @@ function AppMetricsTotals(): JSX.Element {
     const { appMetricsTotals, appMetricsTotalsLoading } = useValues(appMetricsV2Logic)
 
     return (
-        <div className="space-y-4">
+        <div className="deprecated-space-y-4">
             <div className="flex items-center gap-2 flex-wrap">
                 {Object.entries(METRICS_INFO).map(([key, value]) => (
                     <div key={key} className="flex flex-col h-30 min-w-30 flex-1 max-w-100">
@@ -196,7 +196,7 @@ function AppMetricsGraph(): JSX.Element {
     }, [appMetrics])
 
     return (
-        <div className="relative border rounded p-6 bg-bg-light h-[50vh]">
+        <div className="relative border rounded p-6 bg-surface-primary h-[50vh]">
             {appMetricsLoading && <SpinnerOverlay />}
             {!!appMetrics && <canvas ref={canvasRef} />}
             <Popover

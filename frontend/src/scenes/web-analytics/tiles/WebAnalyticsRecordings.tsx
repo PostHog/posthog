@@ -58,9 +58,9 @@ export function WebAnalyticsRecordingsTile({ tile }: { tile: ReplayTile }): JSX.
                 )}
             >
                 <h2 className="m-0 mb-3">Session replay</h2>
-                <div className="border rounded bg-bg-light flex-1 flex flex-col py-2 px-1">
+                <div className="border rounded bg-surface-primary flex-1 flex flex-col py-2 px-1">
                     {sessionRecordingsResponseLoading ? (
-                        <div className="p-2 space-y-6">
+                        <div className="p-2 deprecated-space-y-6">
                             {Array.from({ length: 6 }, (_, index) => (
                                 <LemonSkeleton key={index} />
                             ))}

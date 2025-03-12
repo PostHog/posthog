@@ -698,6 +698,8 @@ class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
                 "$entry_gad_source",
                 "$entry_gclid",
                 "$entry_fbclid",
+                "$entry__kx",
+                "$entry_irclid",
                 "$entry_pathname",
                 "$entry_hostname",
                 "$entry_referring_domain",

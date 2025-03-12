@@ -22,12 +22,18 @@ class Command(BaseCommand):
             help="Whether to migrate destinations or transformations",
             choices=["destination", "transformation"],
         )
+        parser.add_argument("--batch-size", type=int, help="The number of plugins to migrate at a time", default=100)
+        parser.add_argument("--limit", type=int, help="The number of plugins to migrate", default=None)
 
     def handle(self, *args, **options):
         dry_run = options["dry_run"]
         team_ids = options["team_ids"]
         test_mode = options["test_mode"]
         kind = options["kind"]
+        batch_size = options["batch_size"]
+        limit = options["limit"]
         print("Migrating plugins to hog functions", options)  # noqa: T201
 
-        migrate_legacy_plugins(dry_run=dry_run, team_ids=team_ids, test_mode=test_mode, kind=kind)
+        migrate_legacy_plugins(
+            dry_run=dry_run, team_ids=team_ids, test_mode=test_mode, kind=kind, batch_size=batch_size, limit=limit
+        )

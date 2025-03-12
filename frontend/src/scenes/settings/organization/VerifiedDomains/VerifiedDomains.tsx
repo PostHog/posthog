@@ -87,7 +87,7 @@ function VerifiedDomainsTable(): JSX.Element {
                   {
                       key: 'is_verified',
                       title: (
-                          <div className="flex items-center space-x-1">
+                          <div className="flex items-center deprecated-space-x-1">
                               <span>Verification</span>
                               <Tooltip title="Verification (through DNS) is required to use domains for authentication (e.g. SAML or enforce SSO).">
                                   <IconInfo />
@@ -115,7 +115,7 @@ function VerifiedDomainsTable(): JSX.Element {
         {
             key: 'jit_provisioning_enabled',
             title: (
-                <div className="flex items-center space-x-1">
+                <div className="flex items-center deprecated-space-x-1">
                     <span>Automatic provisioning</span>
                     <Tooltip
                         title={`Enables just-in-time provisioning. If a user logs in with SSO with an email address on this domain an account will be created in ${
@@ -140,14 +140,14 @@ function VerifiedDomainsTable(): JSX.Element {
                         />
                     </div>
                 ) : (
-                    <i className="text-muted-alt">Verify domain to enable automatic provisioning</i>
+                    <i className="text-secondary">Verify domain to enable automatic provisioning</i>
                 )
             },
         },
         {
             key: 'sso_enforcement',
             title: (
-                <div className="flex items-center space-x-1">
+                <div className="flex items-center deprecated-space-x-1">
                     <span>Enforce SSO</span>
                     <Tooltip title="Require users with email addresses on this domain to always log in using a specific SSO provider.">
                         <IconInfo />
@@ -174,7 +174,7 @@ function VerifiedDomainsTable(): JSX.Element {
                         disabledReason={restrictionReason}
                     />
                 ) : (
-                    <i className="text-muted-alt">Verify domain to enable</i>
+                    <i className="text-secondary">Verify domain to enable</i>
                 )
             },
         },
@@ -208,7 +208,7 @@ function VerifiedDomainsTable(): JSX.Element {
                         )}
                     </>
                 ) : (
-                    <i className="text-muted-alt">Verify domain to enable</i>
+                    <i className="text-secondary">Verify domain to enable</i>
                 )
             },
         },

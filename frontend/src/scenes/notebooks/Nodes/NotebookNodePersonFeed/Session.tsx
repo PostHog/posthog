@@ -5,7 +5,7 @@ import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDetailedTime, humanFriendlyDuration } from 'lib/utils'
 import { useState } from 'react'
 
-// import { TimelineEntry } from '~/queries/schema'
+// import { TimelineEntry } from '~/queries/schema/schema-general'
 import { NotebookNodeType } from '~/types'
 
 import { notebookNodeLogic } from '../notebookNodeLogic'
@@ -52,8 +52,8 @@ export const Session = ({ session }: SessionProps): JSX.Element => {
     }
 
     return (
-        <div className="flex flex-col rounded bg-bg-3000 border overflow-hidden mb-3" title={session.sessionId}>
-            <div className="flex items-center justify-between bg-bg-light p-0.5 pr-2 text-xs">
+        <div className="flex flex-col rounded bg-primary border overflow-hidden mb-3" title={session.sessionId}>
+            <div className="flex items-center justify-between bg-surface-primary p-0.5 pr-2 text-xs">
                 <div className="flex items-center">
                     <LemonButton
                         size="small"
@@ -77,7 +77,7 @@ export const Session = ({ session }: SessionProps): JSX.Element => {
                 </div>
             </div>
             {!isFolded && (
-                <div className="p-1 border-t space-y-1">
+                <div className="p-1 border-t deprecated-space-y-1">
                     {session.events.map((event: any) => (
                         <SessionEvent key={event.id} event={event} />
                     ))}

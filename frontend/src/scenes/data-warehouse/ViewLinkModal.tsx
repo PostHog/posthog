@@ -18,7 +18,7 @@ import { IconSwapHoriz } from 'lib/lemon-ui/icons'
 import { useState } from 'react'
 import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 
-import { DatabaseSchemaField } from '~/queries/schema'
+import { DatabaseSchemaField } from '~/queries/schema/schema-general'
 
 export function ViewLinkModal(): JSX.Element {
     const { isJoinTableModalOpen } = useValues(viewLinkLogic)
@@ -116,7 +116,7 @@ export function ViewLinkForm(): JSX.Element {
                                     onSelect={selectSourceKey}
                                     value={sourceIsUsingHogQLExpression ? '' : selectedSourceKey ?? undefined}
                                     disabledReason={selectedSourceTableName ? '' : 'Select a table to choose join key'}
-                                    options={[...sourceTableKeys, { value: '', label: <span>HogQL Expression</span> }]}
+                                    options={[...sourceTableKeys, { value: '', label: <span>SQL Expression</span> }]}
                                     placeholder="Select a key"
                                 />
                                 {sourceIsUsingHogQLExpression && (
@@ -142,7 +142,7 @@ export function ViewLinkForm(): JSX.Element {
                                     onSelect={selectJoiningKey}
                                     value={joiningIsUsingHogQLExpression ? '' : selectedJoiningKey ?? undefined}
                                     disabledReason={selectedJoiningTableName ? '' : 'Select a table to choose join key'}
-                                    options={[...joiningTableKeys, { value: '', label: <span>HogQL Expression</span> }]}
+                                    options={[...joiningTableKeys, { value: '', label: <span>SQL Expression</span> }]}
                                     placeholder="Select a key"
                                 />
                                 {joiningIsUsingHogQLExpression && (
@@ -198,7 +198,9 @@ export function ViewLinkForm(): JSX.Element {
                         >
                             <div>
                                 <h3 className="l4 mt-2">Advanced settings</h3>
-                                <div className="text-muted mb-2 font-medium">Customize how the fields are accessed</div>
+                                <div className="text-secondary mb-2 font-medium">
+                                    Customize how the fields are accessed
+                                </div>
                             </div>
                         </LemonButton>
                     </div>

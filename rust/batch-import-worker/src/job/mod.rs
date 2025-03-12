@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{atomic::Ordering, Arc};
 
 use anyhow::{Context, Error};
 
@@ -12,6 +12,7 @@ use crate::{
     emit::Emitter,
     parse::{format::ParserFn, Parsed},
     source::DataSource,
+    spawn_liveness_loop,
 };
 
 pub mod config;
@@ -113,7 +114,7 @@ impl Job {
         if let Err(e) = next_commit {
             // If we fail to commit, we just log and bail out - the job will be paused if it needs to be,
             // but this pod should restart, in case it's sink is in some bad state
-            error!("Failed to commit chunk: {}", e);
+            error!("Failed to commit chunk: {:?}", e);
             return Err(e);
         }
 
@@ -127,13 +128,13 @@ impl Job {
             Err(e) => {
                 // If we fail to fetch and parse, we need to pause the job (assuming manual intervention is required) and
                 // return an Ok(None) - this pod can continue to process other jobs, it just can't work on this one
-                error!("Failed to fetch and parse chunk: {}", e);
+                error!("Failed to fetch and parse chunk: {:?}", e);
                 self.model
                     .lock()
                     .await
                     .pause(
                         self.context.clone(),
-                        format!("Failed to fetch and parse chunk: {}", e),
+                        format!("Failed to fetch and parse chunk: {:?}", e),
                     )
                     .await?;
                 return Ok(None);
@@ -206,6 +207,7 @@ impl Job {
     }
 
     async fn do_commit(&self) -> Result<(), Error> {
+        let liveness_loop_flag = spawn_liveness_loop(self.context.worker_liveness.clone());
         self.shutdown_guard()?;
         let mut checkpoint_lock = self.checkpoint.lock().await;
 
@@ -222,11 +224,11 @@ impl Job {
         let mut sink = self.sink.lock().await;
         self.shutdown_guard()?;
         // If this fails, we just bail out, and then eventually someone else will pick up the job again and re-process this chunk
-        sink.begin_write().await?;
+        let txn = sink.begin_write().await?;
         info!("Writing {} events", parsed.data.len());
         // If this fails, as above
         self.shutdown_guard()?;
-        sink.emit(&parsed.data).await?;
+        txn.emit(&parsed.data).await?;
         // This is where things get tricky - if we fail to commit the chunk to the sink in the next step, and we've told PG we've
         // committed the chunk, we'll bail out, and whoever comes next will end up skipping this chunk. To prevent this, we do a two
         // stage commit, where we pause the job before committing the chunk to the sink, and then only unpause it after the sink commit,
@@ -237,10 +239,14 @@ impl Job {
         info!("Beginning PG part commit");
         self.begin_part_commit(&key, parsed.consumed).await?;
         info!("Beginning emitter part commit");
-        sink.commit_write().await?;
+
+        let to_sleep = txn.commit_write().await?;
         info!("Finishing PG part commit");
         self.complete_commit().await?;
         info!("Committed part {} consumed {} bytes", key, parsed.consumed);
+        info!("Sleeping for {:?}", to_sleep);
+        tokio::time::sleep(to_sleep).await;
+        liveness_loop_flag.store(false, Ordering::Relaxed);
 
         Ok(())
     }

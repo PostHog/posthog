@@ -8,7 +8,7 @@ export enum MetricInsightId {
     SecondaryFunnels = 'new-experiment-secondary-funnels',
 }
 
-export const EXPERIMENT_ALLOWED_MATH_TYPES = [
+export const LEGACY_EXPERIMENT_ALLOWED_MATH_TYPES = [
     BaseMathType.TotalCount,
     BaseMathType.UniqueUsers,
     BaseMathType.UniqueSessions,
@@ -19,3 +19,7 @@ export const EXPERIMENT_ALLOWED_MATH_TYPES = [
     PropertyMathType.Sum,
     HogQLMathType.HogQL,
 ] as const
+
+export const EXPERIMENT_VARIANT_MULTIPLE = '$multiple'
+
+export const EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS = 50

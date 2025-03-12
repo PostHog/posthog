@@ -82,7 +82,12 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeExperimentAttri
                                 <LemonDivider className="my-0" />
                                 <div className="p-2">
                                     <SummaryTable metric={experiment.metrics[0]} />
-                                    <ResultsQuery result={metricResults[0]} showTable={true} />
+                                    {/* TODO: Only show results if the metric is a trends or funnels query. Not supported yet with new query runner */}
+                                    {metricResults[0] &&
+                                        (metricResults[0].kind === 'ExperimentTrendsQuery' ||
+                                            metricResults[0].kind === 'ExperimentFunnelsQuery') && (
+                                            <ResultsQuery result={metricResults[0]} showTable={true} />
+                                        )}
                                 </div>
                             </>
                         )}

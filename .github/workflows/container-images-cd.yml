@@ -22,7 +22,7 @@ jobs:
     posthog_build:
         name: Build and push PostHog
         if: github.repository == 'PostHog/posthog'
-        runs-on: ubuntu-24.04
+        runs-on: depot-ubuntu-latest
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
             contents: read # allow at least reading the repo contents, add other permissions if necessary
@@ -69,6 +69,14 @@ jobs:
                   tags: posthog/posthog:${{ github.sha }},posthog/posthog:latest,${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:master
                   platforms: linux/arm64,linux/amd64
                   build-args: COMMIT_HASH=${{ github.sha }}
+
+            - name: report failure
+              if: failure()
+              uses: PostHog/posthog-github-action@v0.1
+              with:
+                  posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
+                  event: 'posthog-image-build'
+                  properties: '{"status": "failure", "commit_hash": "${{ github.sha }}"}'
 
             - name: get deployer token
               id: deployer
@@ -228,7 +236,7 @@ jobs:
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
 
-            - name: Trigger Data Warehouse V2 Temporal Worker Cloud deployment
+            - name: Trigger Data Warehouse Compaction Temporal Worker Cloud deployment
               if: steps.check_changes_data_warehouse_temporal_worker.outputs.changed == 'true'
               uses: peter-evans/repository-dispatch@v3
               with:
@@ -242,7 +250,7 @@ jobs:
                             "sha": "${{ steps.build.outputs.digest }}"
                           }
                         },
-                        "release": "temporal-worker-data-warehouse-v2",
+                        "release": "temporal-worker-data-warehouse-compaction",
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": ${{ toJson(github.repository) }},
                         "labels": ${{ steps.labels.outputs.labels }},

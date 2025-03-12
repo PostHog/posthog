@@ -15,13 +15,13 @@ export function PipelineNodeConfiguration(): JSX.Element {
     }
 
     return (
-        <div className="space-y-3">
+        <div className="deprecated-space-y-3">
             {node.backend === PipelineBackend.HogFunction ? (
                 <HogFunctionConfiguration id={node.id} />
             ) : node.backend === PipelineBackend.Plugin ? (
                 <PipelinePluginConfiguration stage={stage} pluginConfigId={node.id} />
             ) : (
-                <PipelineBatchExportConfiguration id={node.id} />
+                <PipelineBatchExportConfiguration id={node.id.toString()} />
             )}
         </div>
     )

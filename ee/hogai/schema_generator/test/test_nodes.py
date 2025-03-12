@@ -14,7 +14,6 @@ from posthog.schema import (
     AssistantTrendsQuery,
     FailureMessage,
     HumanMessage,
-    RouterMessage,
     VisualizationMessage,
 )
 from posthog.test.base import BaseTest
@@ -75,7 +74,12 @@ class TestSchemaGeneratorNode(BaseTest):
     def test_agent_reconstructs_conversation_adds_plan(self):
         node = DummyGeneratorNode(self.team)
         history = node._construct_messages(
-            AssistantState(messages=[HumanMessage(content="Text", id="0")], plan="randomplan", start_id="0")
+            AssistantState(
+                messages=[HumanMessage(content="Text", id="0")],
+                plan="randomplan",
+                start_id="0",
+                root_tool_insight_plan="Text",
+            )
         )
         self.assertEqual(len(history), 3)
         self.assertEqual(history[0].type, "human")
@@ -94,8 +98,8 @@ class TestSchemaGeneratorNode(BaseTest):
         history = node._construct_messages(
             AssistantState(
                 messages=[
-                    HumanMessage(content="Text", id="0"),
-                    VisualizationMessage(answer=self.schema, plan="randomplan", id="1", initiator="0"),
+                    HumanMessage(content="Multiple questions", id="0"),
+                    VisualizationMessage(answer=self.schema, plan="randomplan", id="1", initiator="0", query="Query"),
                     HumanMessage(content="Follow Up", id="2"),
                 ],
                 plan="newrandomplan",
@@ -113,7 +117,7 @@ class TestSchemaGeneratorNode(BaseTest):
         self.assertEqual(history[2].type, "human")
         self.assertIn("Answer to this question:", history[2].content)
         self.assertNotIn("{{question}}", history[2].content)
-        self.assertIn("Text", history[2].content)
+        self.assertIn("Query", history[2].content)
         self.assertEqual(history[3].type, "ai")
         self.assertEqual(history[3].content, self.schema.model_dump_json())
         self.assertEqual(history[4].type, "human")
@@ -125,146 +129,60 @@ class TestSchemaGeneratorNode(BaseTest):
         self.assertNotIn("{{question}}", history[5].content)
         self.assertIn("Follow Up", history[5].content)
 
-    def test_agent_reconstructs_conversation_and_does_not_merge_messages(self):
-        node = DummyGeneratorNode(self.team)
-        history = node._construct_messages(
-            AssistantState(
-                messages=[HumanMessage(content="Te", id="0"), HumanMessage(content="xt", id="1")],
-                plan="randomplan",
-                start_id="1",
-            )
-        )
-        self.assertEqual(len(history), 4)
-        self.assertEqual(history[0].type, "human")
-        self.assertIn("mapping", history[0].content)
-        self.assertIn("Te", history[1].content)
-        self.assertEqual(history[2].type, "human")
-        self.assertNotIn("{{plan}}", history[2].content)
-        self.assertIn("randomplan", history[2].content)
-        self.assertEqual(history[3].type, "human")
-        self.assertIn("Answer to this question:", history[3].content)
-        self.assertNotIn("{{question}}", history[3].content)
-        self.assertEqual(history[3].type, "human")
-        self.assertIn("xt", history[3].content)
-
-    def test_filters_out_human_in_the_loop_after_initiator(self):
-        node = DummyGeneratorNode(self.team)
-        history = node._construct_messages(
-            AssistantState(
-                messages=[
-                    HumanMessage(content="Text", id="0"),
-                    VisualizationMessage(answer=self.schema, plan="randomplan", initiator="0", id="1"),
-                    HumanMessage(content="Follow", id="2"),
-                    HumanMessage(content="Up", id="3"),
-                ],
-                plan="newrandomplan",
-                start_id="0",
-            )
-        )
-        self.assertEqual(len(history), 3)
-        self.assertEqual(history[0].type, "human")
-        self.assertIn("mapping", history[0].content)
-        self.assertEqual(history[1].type, "human")
-        self.assertIn("the plan", history[1].content)
-        self.assertNotIn("{{plan}}", history[1].content)
-        self.assertIn("randomplan", history[1].content)
-        self.assertEqual(history[2].type, "human")
-        self.assertIn("Answer to this question:", history[2].content)
-        self.assertNotIn("{{question}}", history[2].content)
-        self.assertIn("Text", history[2].content)
-
-    def test_preserves_human_in_the_loop_before_initiator(self):
-        node = DummyGeneratorNode(self.team)
-        history = node._construct_messages(
-            AssistantState(
-                messages=[
-                    HumanMessage(content="Question 1", id="0"),
-                    AssistantMessage(content="Loop", id="1"),
-                    HumanMessage(content="Answer", id="2"),
-                    VisualizationMessage(answer=self.schema, plan="randomplan", initiator="0", id="3"),
-                    HumanMessage(content="Question 2", id="4"),
-                ],
-                plan="newrandomplan",
-                start_id="4",
-            )
-        )
-        self.assertEqual(len(history), 8)
-        self.assertEqual(history[0].type, "human")
-        self.assertIn("mapping", history[0].content)
-        self.assertEqual(history[1].type, "human")
-        self.assertIn("the plan", history[1].content)
-        self.assertNotIn("{{plan}}", history[1].content)
-        self.assertIn("randomplan", history[1].content)
-        self.assertNotIn("{{question}}", history[2].content)
-        self.assertIn("Question 1", history[2].content)
-        self.assertEqual(history[3].type, "ai")
-        self.assertEqual("Loop", history[3].content)
-        self.assertEqual(history[4].type, "human")
-        self.assertEqual("Answer", history[4].content)
-        self.assertEqual(history[5].type, "ai")
-        self.assertEqual(history[6].type, "human")
-        self.assertIn("the new plan", history[6].content)
-        self.assertIn("newrandomplan", history[6].content)
-        self.assertEqual(history[7].type, "human")
-        self.assertNotIn("{{question}}", history[7].content)
-        self.assertIn("Question 2", history[7].content)
-
     def test_agent_reconstructs_typical_conversation(self):
         node = DummyGeneratorNode(self.team)
         history = node._construct_messages(
             AssistantState(
                 messages=[
                     HumanMessage(content="Question 1", id="0"),
-                    RouterMessage(content="trends", id="1"),
-                    VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="Plan 1", initiator="0", id="2"),
+                    VisualizationMessage(
+                        answer=AssistantTrendsQuery(series=[]), plan="Plan 1", initiator="0", id="2", query="Query 1"
+                    ),
                     AssistantMessage(content="Summary 1", id="3"),
                     HumanMessage(content="Question 2", id="4"),
-                    RouterMessage(content="funnel", id="5"),
-                    VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="Plan 2", initiator="4", id="6"),
+                    VisualizationMessage(
+                        answer=AssistantTrendsQuery(series=[]), plan="Plan 2", initiator="4", id="6", query="Query 2"
+                    ),
                     AssistantMessage(content="Summary 2", id="7"),
                     HumanMessage(content="Question 3", id="8"),
-                    RouterMessage(content="funnel", id="9"),
                 ],
                 plan="Plan 3",
                 start_id="8",
+                root_tool_insight_plan="Query 3",
             )
         )
 
-        self.assertEqual(len(history), 10)
+        self.assertEqual(len(history), 9)
         self.assertEqual(history[0].type, "human")
         self.assertIn("mapping", history[0].content)
         self.assertEqual(history[1].type, "human")
         self.assertIn("Plan 1", history[1].content)
         self.assertEqual(history[2].type, "human")
-        self.assertIn("Question 1", history[2].content)
+        self.assertIn("Query 1", history[2].content)
         self.assertEqual(history[3].type, "ai")
-        self.assertEqual(history[3].content, "Summary 1")
+        AssistantTrendsQuery.model_validate_json(history[3].content)
         self.assertEqual(history[4].type, "human")
         self.assertIn("Plan 2", history[4].content)
         self.assertEqual(history[5].type, "human")
-        self.assertIn("Question 2", history[5].content)
+        self.assertIn("Query 2", history[5].content)
         self.assertEqual(history[6].type, "ai")
-        self.assertEqual(history[6].content, "Summary 2")
-        self.assertEqual(history[7].type, "ai")
+        AssistantTrendsQuery.model_validate_json(history[6].content)
+        self.assertEqual(history[7].type, "human")
+        self.assertIn("Plan 3", history[7].content)
         self.assertEqual(history[8].type, "human")
-        self.assertIn("Plan 3", history[8].content)
-        self.assertEqual(history[9].type, "human")
-        self.assertIn("Question 3", history[9].content)
+        self.assertIn("Query 3", history[8].content)
 
     def test_prompt_messages_merged(self):
         node = DummyGeneratorNode(self.team)
         state = AssistantState(
             messages=[
                 HumanMessage(content="Question 1", id="0"),
-                RouterMessage(content="trends", id="1"),
                 VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="Plan 1", initiator="0", id="2"),
                 AssistantMessage(content="Summary 1", id="3"),
                 HumanMessage(content="Question 2", id="4"),
-                RouterMessage(content="funnel", id="5"),
                 VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="Plan 2", initiator="4", id="6"),
                 AssistantMessage(content="Summary 2", id="7"),
                 HumanMessage(content="Question 3", id="8"),
-                RouterMessage(content="funnel", id="9"),
             ],
             plan="Plan 3",
             start_id="8",
@@ -413,6 +331,114 @@ class TestSchemaGeneratorNode(BaseTest):
             AssistantState(messages=[], intermediate_steps=[(AgentAction(tool="", tool_input="", log=""), None)])
         )
         self.assertEqual(state, "tools")
+
+    def test_injects_insight_description(self):
+        node = DummyGeneratorNode(self.team)
+        history = node._construct_messages(
+            AssistantState(
+                messages=[HumanMessage(content="Text", id="0")],
+                start_id="0",
+                root_tool_insight_plan="Foobar",
+                root_tool_insight_type="trends",
+            )
+        )
+        self.assertEqual(len(history), 2)
+        self.assertEqual(history[0].type, "human")
+        self.assertIn("group", history[0].content)
+        self.assertEqual(history[1].type, "human")
+        self.assertIn("Foobar", history[1].content)
+        self.assertNotIn("{{question}}", history[1].content)
+
+    def test_injects_insight_description_and_keeps_original_question(self):
+        node = DummyGeneratorNode(self.team)
+        history = node._construct_messages(
+            AssistantState(
+                messages=[
+                    HumanMessage(content="Original question", id="1"),
+                    VisualizationMessage(
+                        answer=AssistantTrendsQuery(series=[]), plan="Plan 1", initiator="1", id="2", query="Query 1"
+                    ),
+                    HumanMessage(content="Second question", id="3"),
+                ],
+                start_id="3",
+                root_tool_insight_plan="Foobar",
+                root_tool_insight_type="trends",
+            )
+        )
+        self.assertEqual(len(history), 5)
+        self.assertEqual(history[0].type, "human")
+        self.assertIn("group", history[0].content)
+        self.assertEqual(history[1].type, "human")
+        self.assertIn("Plan 1", history[1].content)
+        self.assertNotIn("{{question}}", history[1].content)
+        self.assertEqual(history[2].type, "human")
+        self.assertIn("Query 1", history[2].content)
+        self.assertNotIn("{{question}}", history[2].content)
+        self.assertEqual(history[3].type, "ai")
+        self.assertEqual(history[4].type, "human")
+        self.assertIn("Foobar", history[4].content)
+        self.assertNotIn("{{question}}", history[4].content)
+
+    def test_keeps_maximum_number_of_viz_messages(self):
+        node = DummyGeneratorNode(self.team)
+        query = AssistantTrendsQuery(series=[])
+        history = node._construct_messages(
+            AssistantState(
+                messages=[
+                    VisualizationMessage(query="Query 1", answer=query, plan="Plan 1", id="1"),
+                    VisualizationMessage(query="Query 2", answer=query, plan="Plan 2", id="2"),
+                    VisualizationMessage(query="Query 3", answer=query, plan="Plan 3", id="3"),
+                    VisualizationMessage(query="Query 4", answer=query, plan="Plan 4", id="4"),
+                    VisualizationMessage(query="Query 5", answer=query, plan="Plan 5", id="5"),
+                    VisualizationMessage(query="Query 6", answer=query, plan="Plan 6", id="6"),
+                    VisualizationMessage(query="Query 7", answer=query, plan="Plan 7", id="7"),
+                ],
+                root_tool_insight_plan="Query 8",
+                root_tool_insight_type="trends",
+            )
+        )
+        self.assertEqual(len(history), 17)
+        self.assertEqual(history[0].type, "human")
+        self.assertIn("group", history[0].content)
+
+        # Query 3
+        self.assertEqual(history[1].type, "human")
+        self.assertIn("Plan 3", history[1].content)
+        self.assertEqual(history[2].type, "human")
+        self.assertIn("Query 3", history[2].content)
+        self.assertEqual(history[3].type, "ai")
+
+        # Query 4
+        self.assertEqual(history[4].type, "human")
+        self.assertIn("Plan 4", history[4].content)
+        self.assertEqual(history[5].type, "human")
+        self.assertIn("Query 4", history[5].content)
+        self.assertEqual(history[6].type, "ai")
+
+        # Query 5
+        self.assertEqual(history[7].type, "human")
+        self.assertIn("Plan 5", history[7].content)
+        self.assertEqual(history[8].type, "human")
+        self.assertIn("Query 5", history[8].content)
+        self.assertEqual(history[9].type, "ai")
+
+        # Query 6
+        self.assertEqual(history[10].type, "human")
+        self.assertIn("Plan 6", history[10].content)
+        self.assertEqual(history[11].type, "human")
+        self.assertIn("Query 6", history[11].content)
+        self.assertEqual(history[12].type, "ai")
+
+        # Query 7
+        self.assertEqual(history[13].type, "human")
+        self.assertIn("Plan 7", history[13].content)
+        self.assertEqual(history[14].type, "human")
+        self.assertIn("Query 7", history[14].content)
+        self.assertEqual(history[15].type, "ai")
+
+        # New query
+        self.assertEqual(history[16].type, "human")
+        self.assertIn("Query 8", history[16].content)
 
 
 class TestSchemaGeneratorToolsNode(BaseTest):

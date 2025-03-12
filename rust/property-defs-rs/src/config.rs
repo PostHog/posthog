@@ -17,11 +17,13 @@ pub struct Config {
     #[envconfig(nested = true)]
     pub consumer: ConsumerConfig,
 
+    // TODO(eli): after observing retry change, consider reducing potential tx contention by 20% (to "8")
     #[envconfig(default = "10")]
     pub max_concurrent_transactions: usize,
 
     // We issue writes (UPSERTS) to postgres in batches of this size.
     // Total concurrent DB ops is max_concurrent_transactions * update_batch_size
+    // TODO(eli): after observing retry change, consider reducing "unchunked" batch size by 20% (to "800")
     #[envconfig(default = "1000")]
     pub update_batch_size: usize,
 
@@ -162,7 +164,7 @@ impl TeamFilterMode {
 
 impl Config {
     pub fn init_with_defaults() -> Result<Self, envconfig::Error> {
-        ConsumerConfig::set_defaults("property-defs-rs", "clickhouse_events_json");
+        ConsumerConfig::set_defaults("property-defs-rs", "clickhouse_events_json", true);
         Config::init_from_env()
     }
 }

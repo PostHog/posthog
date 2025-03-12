@@ -1,5 +1,4 @@
 from concurrent.futures import ThreadPoolExecutor
-import os
 import uuid
 from unittest import mock
 from typing import Any, Optional
@@ -7,7 +6,7 @@ import pytest
 from asgiref.sync import sync_to_async
 from django.test import override_settings
 
-from posthog.temporal.data_imports import import_data_activity_sync
+from posthog.temporal.data_imports.settings import import_data_activity_sync
 from posthog.temporal.data_imports.external_data_job import (
     UpdateExternalDataJobStatusInputs,
     create_source_templates,
@@ -95,7 +94,7 @@ def minio_client(bucket_name):
 
     yield minio_client
 
-    delete_all_from_s3(minio_client, bucket_name, key_prefix="/")
+    delete_all_from_s3(minio_client, bucket_name, key_prefix="")
 
     minio_client.delete_bucket(Bucket=bucket_name)
 
@@ -563,18 +562,6 @@ def test_run_stripe_job(activity_environment, team, minio_client, **kwargs):
             AIRBYTE_BUCKET_REGION="us-east-1",
             BUCKET_NAME=BUCKET_NAME,
         ),
-        # Mock os.environ for the deltalake subprocess
-        mock.patch.dict(
-            os.environ,
-            {
-                "BUCKET_URL": f"s3://{BUCKET_NAME}",
-                "AIRBYTE_BUCKET_KEY": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-                "AIRBYTE_BUCKET_SECRET": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-                "AIRBYTE_BUCKET_REGION": "us-east-1",
-                "BUCKET_NAME": BUCKET_NAME,
-                "AIRBYTE_BUCKET_DOMAIN": "objectstorage:19000",
-            },
-        ),
         mock.patch(
             "posthog.warehouse.models.table.DataWarehouseTable.get_columns",
             return_value={
@@ -600,18 +587,6 @@ def test_run_stripe_job(activity_environment, team, minio_client, **kwargs):
             AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
             AIRBYTE_BUCKET_REGION="us-east-1",
             BUCKET_NAME=BUCKET_NAME,
-        ),
-        # Mock os.environ for the deltalake subprocess
-        mock.patch.dict(
-            os.environ,
-            {
-                "BUCKET_URL": f"s3://{BUCKET_NAME}",
-                "AIRBYTE_BUCKET_KEY": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-                "AIRBYTE_BUCKET_SECRET": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-                "AIRBYTE_BUCKET_REGION": "us-east-1",
-                "BUCKET_NAME": BUCKET_NAME,
-                "AIRBYTE_BUCKET_DOMAIN": "objectstorage:19000",
-            },
         ),
         mock.patch(
             "posthog.warehouse.models.table.DataWarehouseTable.get_columns",
@@ -717,18 +692,6 @@ def test_run_stripe_job_row_count_update(activity_environment, team, minio_clien
             AIRBYTE_BUCKET_REGION="us-east-1",
             BUCKET_NAME=BUCKET_NAME,
         ),
-        # Mock os.environ for the deltalake subprocess
-        mock.patch.dict(
-            os.environ,
-            {
-                "BUCKET_URL": f"s3://{BUCKET_NAME}",
-                "AIRBYTE_BUCKET_KEY": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-                "AIRBYTE_BUCKET_SECRET": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-                "AIRBYTE_BUCKET_REGION": "us-east-1",
-                "BUCKET_NAME": BUCKET_NAME,
-                "AIRBYTE_BUCKET_DOMAIN": "objectstorage:19000",
-            },
-        ),
         mock.patch(
             "posthog.warehouse.models.table.DataWarehouseTable.get_columns",
             return_value={
@@ -794,17 +757,6 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
                 AIRBYTE_BUCKET_REGION="us-east-1",
                 AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
                 BUCKET_NAME=BUCKET_NAME,
-            ),
-            mock.patch.dict(  # Mock os.environ for the deltalake subprocess
-                os.environ,
-                {
-                    "BUCKET_URL": f"s3://{BUCKET_NAME}",
-                    "AIRBYTE_BUCKET_KEY": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-                    "AIRBYTE_BUCKET_SECRET": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-                    "AIRBYTE_BUCKET_REGION": "us-east-1",
-                    "BUCKET_NAME": BUCKET_NAME,
-                    "AIRBYTE_BUCKET_DOMAIN": "objectstorage:19000",
-                },
             ),
         ):
             async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
@@ -921,18 +873,6 @@ async def test_run_postgres_job(
             AIRBYTE_BUCKET_REGION="us-east-1",
             AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
             BUCKET_NAME=BUCKET_NAME,
-        ),
-        # Mock os.environ for the deltalake subprocess
-        mock.patch.dict(
-            os.environ,
-            {
-                "BUCKET_URL": f"s3://{BUCKET_NAME}",
-                "AIRBYTE_BUCKET_KEY": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-                "AIRBYTE_BUCKET_SECRET": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-                "AIRBYTE_BUCKET_REGION": "us-east-1",
-                "BUCKET_NAME": BUCKET_NAME,
-                "AIRBYTE_BUCKET_DOMAIN": "objectstorage:19000",
-            },
         ),
         mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
         mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", mock_to_object_store_rs_credentials),

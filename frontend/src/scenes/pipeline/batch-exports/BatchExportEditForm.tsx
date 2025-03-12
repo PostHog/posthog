@@ -23,7 +23,7 @@ export function BatchExportGeneralEditFields({
 }): JSX.Element {
     return (
         <>
-            <div className="space-y-4">
+            <div className="deprecated-space-y-4">
                 {!isPipeline && (
                     <LemonField name="name" label="Name">
                         <LemonInput placeholder="Name your workflow for future reference" />
@@ -66,7 +66,7 @@ export function BatchExportGeneralEditFields({
                                             "If selected, the Batch Exporter will be created but will be 'paused' allowing you to resumed it at a later date."
                                         }
                                     >
-                                        <IconInfo className=" text-lg text-muted-alt" />
+                                        <IconInfo className=" text-lg text-secondary" />
                                     </Tooltip>
                                 </span>
                             }
@@ -87,7 +87,7 @@ export function BatchExportsEditFields({
 }): JSX.Element {
     return (
         <>
-            <div className="space-y-4 max-w-200 mt-4">
+            <div className="deprecated-space-y-4 max-w-200 mt-4">
                 {batchExportConfigForm.destination === 'S3' ? (
                     <>
                         <div className="flex gap-4">
@@ -316,7 +316,7 @@ export function BatchExportsEditFields({
                                         <span className="flex items-center gap-2">
                                             Does your Postgres instance have a self-signed SSL certificate?
                                             <Tooltip title="In most cases, Heroku and RDS users should check this.">
-                                                <IconInfo className=" text-lg text-muted-alt" />
+                                                <IconInfo className=" text-lg text-secondary" />
                                             </Tooltip>
                                         </span>
                                     }
@@ -387,7 +387,7 @@ export function BatchExportsEditFields({
                                         <span className="flex items-center gap-2">
                                             Export 'properties', 'set', and 'set_once' fields as BigQuery JSON type
                                             <Tooltip title="If left unchecked, these fields will be sent as STRING type. This setting cannot be changed after batch export is created.">
-                                                <IconInfo className=" text-lg text-muted-alt" />
+                                                <IconInfo className=" text-lg text-secondary" />
                                             </Tooltip>
                                         </span>
                                     }

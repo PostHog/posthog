@@ -1,11 +1,10 @@
 import { IconInfo } from '@posthog/icons'
 import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useValues } from 'kea'
 import { useMemo } from 'react'
-import { WEB_VITALS_THRESHOLDS, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
+import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
-import { WebVitalsQueryResponse } from '~/queries/schema'
+import { WebVitalsQueryResponse } from '~/queries/schema/schema-general'
 
 import {
     EXPERIENCE_PER_BAND,
@@ -19,6 +18,7 @@ import {
     POSITIONING_PER_BAND,
     QUANTIFIER_PER_BAND,
     VALUES_PER_BAND,
+    WEB_VITALS_THRESHOLDS,
 } from './definitions'
 
 type WebVitalsContentProps = {
@@ -36,21 +36,17 @@ export const WebVitalsContent = ({ webVitalsQueryResponse }: WebVitalsContentPro
     const withMilliseconds = (values: number[]): string =>
         webVitalsTab === 'CLS' ? values.join(' and ') : values.map((value) => `${value}ms`).join(' and ')
 
-    const threshold = WEB_VITALS_THRESHOLDS[webVitalsTab]
-    const color = getThresholdColor(value, threshold)
-    const band = getMetricBand(value, threshold)
+    const color = getThresholdColor(value, webVitalsTab)
+    const band = getMetricBand(value, webVitalsTab)
 
     // NOTE: `band` will only return `none` if the value is undefined,
     // so this is basically the same check twice, but we need that to make TS happy
     if (value === undefined || band === 'none') {
-        return (
-            <div className="w-full border rounded p-4 md:w-[30%]">
-                <LemonSkeleton fade className="w-full h-40" />
-            </div>
-        )
+        return <LemonSkeleton fade className="w-full h-full rounded sm:w-[30%]" />
     }
 
     const grade = GRADE_PER_BAND[band]
+    const threshold = WEB_VITALS_THRESHOLDS[webVitalsTab]
 
     const Icon = ICON_PER_BAND[band]
     const positioning = POSITIONING_PER_BAND[band]
@@ -59,8 +55,10 @@ export const WebVitalsContent = ({ webVitalsQueryResponse }: WebVitalsContentPro
     const quantifier = QUANTIFIER_PER_BAND[band](webVitalsPercentile)
     const experience = EXPERIENCE_PER_BAND[band]
 
+    const unit = webVitalsTab === 'CLS' ? '' : 'ms'
+
     return (
-        <div className="w-full border rounded p-6 md:w-[30%] flex flex-col gap-2">
+        <div className="w-full p-4 sm:w-[30%] flex flex-col gap-2 bg-surface-primary rounded border">
             <span className="text-lg">
                 <strong>{LONG_METRIC_NAME[webVitalsTab]}</strong>
             </span>
@@ -69,9 +67,13 @@ export const WebVitalsContent = ({ webVitalsQueryResponse }: WebVitalsContentPro
                 <Tooltip
                     title={
                         <div>
-                            Great: Below {threshold.good}ms <br />
-                            Needs Improvement: Between {threshold.good}ms and {threshold.poor}ms <br />
-                            Poor: Above {threshold.poor}ms
+                            Great: Below {threshold.good}
+                            {unit} <br />
+                            Needs Improvement: Between {threshold.good}
+                            {unit} and {threshold.poor}
+                            {unit} <br />
+                            Poor: Above {threshold.poor}
+                            {unit}
                         </div>
                     }
                 >
@@ -80,12 +82,12 @@ export const WebVitalsContent = ({ webVitalsQueryResponse }: WebVitalsContentPro
                 </Tooltip>
 
                 <span>
-                    <Icon className={clsx('inline-block mr-1', `text-${color}`)} />
+                    <Icon className="inline-block mr-1" style={{ color }} />
                     {positioning} {values}
                 </span>
             </div>
 
-            <div className="text-xs text-muted-foreground">
+            <div className="text-xs text-secondary-foreground">
                 {quantifier} {experience}
             </div>
 

@@ -15,6 +15,7 @@ from django.conf import settings
 from django.test import override_settings
 from dlt.common.configuration.specs.aws_credentials import AwsCredentials
 from dlt.common.libs.deltalake import get_delta_tables
+from dlt.common.normalizers.naming.snake_case import NamingConvention
 from freezegun.api import freeze_time
 
 from posthog import constants
@@ -22,8 +23,8 @@ from posthog.hogql.database.database import create_hogql_database
 from posthog.models import Team
 from posthog.temporal.data_modeling.run_workflow import (
     BuildDagActivityInputs,
-    ModelNode,
     CreateTableActivityInputs,
+    ModelNode,
     RunDagActivityInputs,
     RunWorkflow,
     RunWorkflowInputs,
@@ -38,10 +39,9 @@ from posthog.temporal.data_modeling.run_workflow import (
 )
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from posthog.warehouse.models.table import DataWarehouseTable
 from posthog.warehouse.models.modeling import DataWarehouseModelPath
+from posthog.warehouse.models.table import DataWarehouseTable
 from posthog.warehouse.util import database_sync_to_async
-from dlt.common.normalizers.naming.snake_case import NamingConvention
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
@@ -286,6 +286,7 @@ async def pageview_events(clickhouse_client, ateam):
         count=50,
         count_outside_range=0,
         distinct_ids=["a", "b"],
+        table="sharded_events",
     )
     return (events, events_from_other_team)
 

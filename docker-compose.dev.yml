@@ -51,7 +51,7 @@ services:
         ports:
             - '5555:5555'
 
-    clickhouse: &clickhouse
+    clickhouse:
         extends:
             file: docker-compose.base.yml
             service: clickhouse
@@ -69,7 +69,7 @@ services:
             - ./posthog/idl:/idl
             - ./docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
             - ./docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
-            - ./docker/clickhouse/config.d/worker.xml:/etc/clickhouse-server/config.d/worker.xml
+            - ./docker/clickhouse/config.d/default.xml:/etc/clickhouse-server/config.d/default.xml
             - ./docker/clickhouse/users-dev.xml:/etc/clickhouse-server/users.xml
             - ./docker/clickhouse/user_defined_function.xml:/etc/clickhouse-server/user_defined_function.xml
             - ./posthog/user_scripts:/var/lib/clickhouse/user_scripts
@@ -78,23 +78,6 @@ services:
         depends_on:
             - kafka
             - zookeeper
-
-    clickhouse-coordinator:
-        hostname: clickhouse-coordinator
-        <<: *clickhouse
-        volumes:
-            # this new entrypoint file is to fix a bug detailed here https://github.com/ClickHouse/ClickHouse/pull/59991
-            # revert this when we upgrade clickhouse
-            - ./docker/clickhouse/entrypoint.sh:/entrypoint.sh
-            - ./posthog/idl:/idl
-            - ./docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
-            - ./docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
-            - ./docker/clickhouse/config.d/coordinator.xml:/etc/clickhouse-server/config.d/coordinator.xml
-            - ./docker/clickhouse/users-dev.xml:/etc/clickhouse-server/users.xml
-            - ./docker/clickhouse/user_defined_function.xml:/etc/clickhouse-server/user_defined_function.xml
-            - ./posthog/user_scripts:/var/lib/clickhouse/user_scripts
-        ports:
-            - '9001:9001'
 
     zookeeper:
         extends:
@@ -165,13 +148,6 @@ services:
             - redis
             - kafka
 
-    property-defs-rs:
-        extends:
-            file: docker-compose.base.yml
-            service: property-defs-rs
-        depends_on:
-            - kafka
-
     feature-flags:
         extends:
             file: docker-compose.base.yml
@@ -217,27 +193,5 @@ services:
         depends_on:
             temporal:
                 condition: service_started
-            db:
-                condition: service_healthy
-
-    cyclotron-fetch:
-        extends:
-            file: docker-compose.base.yml
-            service: cyclotron-fetch
-        environment:
-            DATABASE_URL: 'postgres://posthog:posthog@db:5432/cyclotron'
-            RUST_LOG: 'info'
-        depends_on:
-            db:
-                condition: service_healthy
-
-    cyclotron-janitor:
-        extends:
-            file: docker-compose.base.yml
-            service: cyclotron-janitor
-        environment:
-            DATABASE_URL: 'postgres://posthog:posthog@db:5432/cyclotron'
-            RUST_LOG: 'info'
-        depends_on:
             db:
                 condition: service_healthy

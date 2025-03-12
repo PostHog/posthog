@@ -1,7 +1,13 @@
 import { ComponentType, HTMLProps } from 'react'
 
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
-import { DataTableNode, DataVisualizationNode, InsightActorsQuery, InsightVizNode } from '~/queries/schema'
+import {
+    DataTableNode,
+    DataVisualizationNode,
+    InsightActorsQuery,
+    InsightVizNode,
+    RefreshType,
+} from '~/queries/schema/schema-general'
 import { InsightLogicProps, TrendResult } from '~/types'
 
 /** Pass custom metadata to queries. Used for e.g. custom columns in the DataTable. */
@@ -16,6 +22,7 @@ export interface QueryContext<T = InsightVizNode> {
     insightProps?: InsightLogicProps<T>
     emptyStateHeading?: string
     emptyStateDetail?: string
+    renderEmptyStateAsSkeleton?: boolean
     rowProps?: (record: unknown) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>
     /**
      * Displayed in insight tooltip's "Click to view {groupTypeLabel}".
@@ -24,8 +31,8 @@ export interface QueryContext<T = InsightVizNode> {
     groupTypeLabel?: string
     /** NOTE: Custom data point click handling is currently only supported for Trends insights. */
     onDataPointClick?: (series: Pick<InsightActorsQuery, 'day' | 'breakdown' | 'compare'>, data: TrendResult) => void
-    /** Whether queries should always be refreshed. */
-    alwaysRefresh?: boolean
+    /** Refresh behaviour for queries. */
+    refresh?: RefreshType
     /** Extra source feature for Data Tables */
     extraDataTableQueryFeatures?: QueryFeature[]
 }

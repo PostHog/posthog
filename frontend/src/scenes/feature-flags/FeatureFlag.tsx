@@ -128,7 +128,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
 
     if (featureFlagLoading) {
         return (
-            <div className="space-y-2">
+            <div className="deprecated-space-y-2">
                 <LemonSkeleton active className="h-4 w-2/5" />
                 <LemonSkeleton active className="h-4 w-full" />
                 <LemonSkeleton active className="h-4 w-full" />
@@ -250,7 +250,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                         props={props}
                         formKey="featureFlag"
                         enableFormOnSubmit
-                        className="space-y-4"
+                        className="deprecated-space-y-4"
                     >
                         <PageHeader
                             buttons={
@@ -280,7 +280,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 </div>
                             }
                         />
-                        {featureFlag.experiment_set && featureFlag.experiment_set?.length > 0 && (
+                        {featureFlag.experiment_set && featureFlag.experiment_set.length > 0 && (
                             <LemonBanner type="warning">
                                 This feature flag is linked to an experiment. Edit settings here only for advanced
                                 functionality. If unsure, go back to{' '}
@@ -290,7 +290,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                             </LemonBanner>
                         )}
                         <div className="my-4">
-                            <div className="max-w-1/2 space-y-4">
+                            <div className="max-w-1/2 deprecated-space-y-4">
                                 <LemonField
                                     name="key"
                                     label="Key"
@@ -329,7 +329,9 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 autoCorrect="off"
                                                 spellCheck={false}
                                             />
-                                            <span className="text-muted text-sm">Feature flag keys must be unique</span>
+                                            <span className="text-secondary text-sm">
+                                                Feature flag keys must be unique
+                                            </span>
                                         </>
                                     )}
                                 </LemonField>
@@ -382,7 +384,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                     fullWidth
                                                     checked={value}
                                                 />
-                                                <div className="text-muted text-sm pl-7">
+                                                <div className="text-secondary text-sm pl-7">
                                                     If your feature flag is applied before identifying the user, use
                                                     this to ensure that the flag value remains consistent for the same
                                                     user. Depending on your setup, this option might not always be
@@ -427,7 +429,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                     >
                                         <div>
                                             <h3 className="l4 mt-2">Advanced settings</h3>
-                                            <div className="text-muted mb-2 font-medium">
+                                            <div className="text-secondary mb-2 font-medium">
                                                 Define who can modify this flag.
                                             </div>
                                         </div>
@@ -438,7 +440,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         {featureFlags[FEATURE_FLAGS.AUTO_ROLLBACK_FEATURE_FLAGS] && (
                                             <FeatureFlagAutoRollback />
                                         )}
-                                        <div className="border rounded bg-bg-light">
+                                        <div className="border rounded bg-surface-primary">
                                             <h3 className="p-2 mb-0">Permissions</h3>
                                             <LemonDivider className="my-0" />
                                             <div className="p-3">
@@ -484,9 +486,9 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                             caption={
                                 <div>
                                     <div className="flex flex-wrap items-center gap-2">
-                                        <div className="flex space-x-1">
+                                        <div className="flex deprecated-space-x-1">
                                             <div>
-                                                <span className="text-muted">Key:</span>{' '}
+                                                <span className="text-secondary">Key:</span>{' '}
                                                 <CopyToClipboardInline
                                                     tooltipMessage={null}
                                                     description="Feature flag key"
@@ -500,7 +502,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             {featureFlag?.tags && (
                                                 <>
                                                     {featureFlag.tags.length > 0 ? (
-                                                        <span className="text-muted">Tags:</span>
+                                                        <span className="text-secondary">Tags:</span>
                                                     ) : null}{' '}
                                                     {featureFlag.can_edit ? (
                                                         <ObjectTags
@@ -544,6 +546,13 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                         </>
                                                     )}
 
+                                                    <LemonButton
+                                                        to={urls.featureFlagDuplicate(featureFlag.id)}
+                                                        fullWidth
+                                                    >
+                                                        <span>Duplicate feature flag</span>
+                                                    </LemonButton>
+                                                    <LemonDivider />
                                                     <AccessControlledLemonButton
                                                         userAccessLevel={featureFlag.user_access_level}
                                                         minAccessLevel="editor"
@@ -686,7 +695,7 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
             ) : (
                 <div>
                     <b>Dashboard</b>
-                    <div className="text-muted mb-2">
+                    <div className="text-secondary mb-2">
                         There is currently no connected dashboard to this feature flag. If there was previously a
                         connected dashboard, it may have been deleted.
                     </div>
@@ -701,19 +710,14 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
             )}
             <div className="mt-4 mb-4">
                 <b>Log</b>
-                <div className="text-muted">{`Feature flag calls for "${featureFlagKey}" will appear here`}</div>
+                <div className="text-secondary">{`Feature flag calls for "${featureFlagKey}" will appear here`}</div>
             </div>
             <Query
                 query={{
                     kind: NodeKind.DataTableNode,
                     source: {
                         kind: NodeKind.EventsQuery,
-                        select: [
-                            ...defaultDataTableColumns(NodeKind.EventsQuery),
-                            featureFlag.filters.multivariate
-                                ? 'properties.$feature_flag_response'
-                                : "if(toString(properties.$feature_flag_response) IN ['1', 'true'], 'true', properties.$feature_flag_response) -- Feature Flag Response",
-                        ],
+                        select: [...defaultDataTableColumns(NodeKind.EventsQuery), 'properties.$feature_flag_response'],
                         event: '$feature_flag_called',
                         properties: propertyFilter,
                         after: '-30d',
@@ -745,6 +749,10 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
         recordingFilterForFlag,
         flagStatus,
         flagType,
+        flagTypeString,
+        hasEncryptedPayloadBeenSaved,
+        hasExperiment,
+        isDraftExperiment,
     } = useValues(featureFlagLogic)
     const {
         distributeVariantsEqually,
@@ -754,6 +762,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
         setFeatureFlag,
         saveFeatureFlag,
         setRemoteConfigEnabled,
+        resetEncryptedPayload,
     } = useActions(featureFlagLogic)
 
     const filterGroups: FeatureFlagGroupType[] = featureFlag.filters.groups || []
@@ -776,6 +785,24 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
         })
     }
 
+    const confirmEncryptedPayloadReset = (): void => {
+        LemonDialog.open({
+            title: 'Reset payload?',
+            description: 'The existing payload will not be reset until the feature flag is saved.',
+            primaryButton: {
+                children: 'Reset',
+                onClick: resetEncryptedPayload,
+                size: 'small',
+                status: 'danger',
+            },
+            secondaryButton: {
+                children: 'Cancel',
+                type: 'tertiary',
+                size: 'small',
+            },
+        })
+    }
+
     const reportViewRecordingsClicked = (variantKey?: string): void => {
         const properties: Record<string, string> = {
             multivariate: multivariateEnabled.toString(),
@@ -784,6 +811,16 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
             properties.variant_key = variantKey
         }
         posthog.capture('viewed recordings from feature flag', properties)
+    }
+
+    const canEditVariant = (index: number): boolean => {
+        if (hasExperiment && !isDraftExperiment) {
+            return false
+        }
+        if (hasExperiment && isDraftExperiment && index === 0) {
+            return false
+        }
+        return true
     }
 
     return (
@@ -858,11 +895,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                 )}
                             </div>
                             <div className="col-span-6">
-                                <span className="mt-1">
-                                    {featureFlag.filters.multivariate
-                                        ? 'Multiple variants with rollout percentages (A/B/n test)'
-                                        : 'Release toggle (boolean)'}
-                                </span>
+                                <span className="mt-1">{flagTypeString}</span>
                             </div>
                         </div>
 
@@ -877,7 +910,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                     {featureFlag.filters.multivariate && (
                         <>
                             <h3 className="l3">Variant keys</h3>
-                            <div className="border rounded p-4 mb-4 bg-bg-light">
+                            <div className="border rounded p-4 mb-4 bg-surface-primary">
                                 <div className="grid grid-cols-10 gap-4 font-semibold">
                                     <div className="col-span-2">Key</div>
                                     <div className="col-span-2">Description</div>
@@ -896,7 +929,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                     style={{
                                                         marginLeft: '0.5rem',
                                                     }}
-                                                    iconStyle={{ color: 'var(--muted-alt)' }}
+                                                    iconStyle={{ color: 'var(--text-secondary)' }}
                                                 >
                                                     {variant.key}
                                                 </CopyToClipboardInline>
@@ -913,7 +946,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                         value={featureFlag.filters.payloads[index]}
                                                     />
                                                 ) : (
-                                                    <span className="text-muted">
+                                                    <span className="text-secondary">
                                                         No payload associated with this variant
                                                     </span>
                                                 )}
@@ -959,10 +992,9 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                 {
                                     label: 'Release toggle (boolean)',
                                     value: 'boolean',
-                                    disabledReason:
-                                        featureFlag.experiment_set && featureFlag.experiment_set?.length > 0
-                                            ? 'This feature flag is associated with an experiment.'
-                                            : undefined,
+                                    disabledReason: hasExperiment
+                                        ? 'This feature flag is associated with an experiment.'
+                                        : undefined,
                                 },
                                 {
                                     label: <span>Multiple variants with rollout percentages (A/B/n test)</span>,
@@ -971,10 +1003,9 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                 {
                                     label: <span>Remote config (single payload)</span>,
                                     value: 'remote_config',
-                                    disabledReason:
-                                        featureFlag.experiment_set && featureFlag.experiment_set?.length > 0
-                                            ? 'This feature flag is associated with an experiment.'
-                                            : undefined,
+                                    disabledReason: hasExperiment
+                                        ? 'This feature flag is associated with an experiment.'
+                                        : undefined,
                                 },
                             ]}
                             onChange={(value) => {
@@ -989,7 +1020,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                             value={flagType}
                         />
                     </div>
-                    <div className="text-muted mb-4">
+                    <div className="text-secondary mb-4">
                         {featureFlag.is_remote_configuration ? (
                             <span>
                                 Remote config flags provide runtime configuration values in your app. Read more in the{' '}
@@ -1024,11 +1055,11 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                             featureFlag.filters.payloads?.['true'] ? (
                                 <JSONEditorInput readOnly={readOnly} value={featureFlag.filters.payloads?.['true']} />
                             ) : (
-                                <span className="text-muted">No payload associated with this flag</span>
+                                <span className="text-secondary">No payload associated with this flag</span>
                             )
                         ) : (
                             <div className="w-1/2">
-                                <div className="text-muted mb-4">
+                                <div className="text-secondary mb-4">
                                     {featureFlag.is_remote_configuration ? (
                                         <>Specify a valid JSON payload to be returned for the config flag</>
                                     ) : (
@@ -1040,19 +1071,60 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                         </>
                                     )}
                                 </div>
-                                <Group name={['filters', 'payloads']}>
-                                    <LemonField name="true">
-                                        <JSONEditorInput
-                                            readOnly={readOnly}
-                                            placeholder={'Examples: "A string", 2500, {"key": "value"}'}
-                                        />
-                                    </LemonField>
-                                </Group>
                                 {featureFlag.is_remote_configuration && (
-                                    <div className="text-sm text-muted mt-4">
+                                    <LemonField name="has_encrypted_payloads">
+                                        {({ value, onChange }) => (
+                                            <div className="border rounded mb-4 p-4">
+                                                <LemonCheckbox
+                                                    id="flag-payload-encrypted-checkbox"
+                                                    label="Encrypt remote configuration payload"
+                                                    onChange={() => onChange(!value)}
+                                                    checked={value}
+                                                    dataAttr="feature-flag-payload-encrypted-checkbox"
+                                                    disabledReason={
+                                                        hasEncryptedPayloadBeenSaved &&
+                                                        'An encrypted payload has already been saved for this flag. Reset the payload or create a new flag to create an unencrypted configuration payload.'
+                                                    }
+                                                />
+                                            </div>
+                                        )}
+                                    </LemonField>
+                                )}
+                                <div className="flex gap-2">
+                                    <Group name={['filters', 'payloads']}>
+                                        <LemonField name="true" className="grow">
+                                            <JSONEditorInput
+                                                readOnly={
+                                                    readOnly ||
+                                                    (featureFlag.has_encrypted_payloads &&
+                                                        Boolean(featureFlag.filters?.payloads?.['true']))
+                                                }
+                                                placeholder={'Examples: "A string", 2500, {"key": "value"}'}
+                                            />
+                                        </LemonField>
+                                    </Group>
+                                    {featureFlag.has_encrypted_payloads && (
+                                        <LemonButton
+                                            className="grow-0"
+                                            icon={<IconTrash />}
+                                            type="secondary"
+                                            size="small"
+                                            status="danger"
+                                            onClick={confirmEncryptedPayloadReset}
+                                        >
+                                            Reset
+                                        </LemonButton>
+                                    )}
+                                </div>
+                                {featureFlag.is_remote_configuration && (
+                                    <div className="text-sm text-secondary mt-4">
                                         Note: remote config flags must be accessed through payloads, e.g.{' '}
-                                        <span className="font-mono font-bold">getFeatureFlagPayload</span>. Using
-                                        standard SDK methods such as{' '}
+                                        <span className="font-mono font-bold">
+                                            {featureFlag.has_encrypted_payloads
+                                                ? 'getDecryptedFeatureFlagPayload'
+                                                : 'getFeatureFlagPayload'}
+                                        </span>
+                                        . Using standard SDK methods such as{' '}
                                         <span className="font-mono font-bold">getFeatureFlag</span> or{' '}
                                         <span className="font-mono font-bold">isFeatureEnabled</span> will always return{' '}
                                         <span className="font-mono font-bold">true</span>
@@ -1086,7 +1158,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                 <div className="feature-flag-variants">
                     <h3 className="l4">Variant keys</h3>
                     <span>The rollout percentage of feature flag variants must add up to 100%</span>
-                    <div className="VariantFormList space-y-2">
+                    <div className="VariantFormList deprecated-space-y-2">
                         <div className="VariantFormList__row grid label-row gap-2 items-center">
                             <div />
                             <div className="col-span-4">Variant key</div>
@@ -1094,7 +1166,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                             <div className="col-span-8">
                                 <div className="flex flex-col">
                                     <b>Payload</b>
-                                    <span className="text-muted font-normal">
+                                    <span className="text-secondary font-normal">
                                         Specify return payload when the variant key matches
                                     </span>
                                 </div>
@@ -1126,12 +1198,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                 autoCapitalize="off"
                                                 autoCorrect="off"
                                                 spellCheck={false}
-                                                disabled={
-                                                    !!(
-                                                        featureFlag.experiment_set &&
-                                                        featureFlag.experiment_set?.length > 0
-                                                    )
-                                                }
+                                                disabled={!canEditVariant(index)}
                                             />
                                         </LemonField>
                                     </div>
@@ -1151,7 +1218,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                     <JSONEditorInput
                                                         onChange={onChange}
                                                         value={value}
-                                                        placeholder={'{"key": "value"}'}
+                                                        placeholder='{"key": "value"}'
                                                     />
                                                 )
                                             }}
@@ -1180,7 +1247,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                     />
                                                     {filterGroups.filter((group) => group.variant === variant.key)
                                                         .length > 0 && (
-                                                        <span className="text-muted text-xs">
+                                                        <span className="text-secondary text-xs">
                                                             Overridden by{' '}
                                                             <strong>
                                                                 {variantConcatWithPunctuation(
@@ -1214,8 +1281,10 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                 noPadding
                                                 onClick={() => removeVariant(index)}
                                                 disabledReason={
-                                                    featureFlag.experiment_set && featureFlag.experiment_set?.length > 0
-                                                        ? 'Cannot delete variants from a feature flag that is part of an experiment'
+                                                    !canEditVariant(index)
+                                                        ? isDraftExperiment
+                                                            ? 'Cannot delete the control variant from an experiment.'
+                                                            : 'Cannot delete variants from a feature flag that is part of a launched experiment.'
                                                         : undefined
                                                 }
                                                 tooltipPlacement="top-end"
@@ -1240,8 +1309,8 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                             }}
                             icon={<IconPlus />}
                             disabledReason={
-                                featureFlag.experiment_set && featureFlag.experiment_set?.length > 0
-                                    ? 'Cannot add variants to a feature flag that is part of an experiment. To update variants, create a new experiment.'
+                                hasExperiment && !isDraftExperiment
+                                    ? 'Cannot add variants to a feature flag that is part of a launched experiment. To update variants, reset the experiment to draft.'
                                     : undefined
                             }
                             tooltipPlacement="top-start"

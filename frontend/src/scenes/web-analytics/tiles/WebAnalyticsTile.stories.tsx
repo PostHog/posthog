@@ -1,9 +1,13 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import { useActions } from 'kea'
+import { useEffect } from 'react'
 
 import { mswDecorator } from '~/mocks/browser'
 import { examples } from '~/queries/examples'
 import { Query } from '~/queries/Query/Query'
+import { WebAnalyticsOrderByFields } from '~/queries/schema/schema-general'
 
+import { webAnalyticsLogic } from '../webAnalyticsLogic'
 import browserMock from './__mocks__/Browser.json'
 import pathMock from './__mocks__/Path.json'
 import referringDomainMock from './__mocks__/ReferringDomain.json'
@@ -46,6 +50,11 @@ const meta: Meta<typeof Query> = {
 export default meta
 
 const Template: StoryFn<typeof Query> = (args) => {
+    const { setTablesOrderBy } = useActions(webAnalyticsLogic)
+    useEffect(() => {
+        setTablesOrderBy('Views' as WebAnalyticsOrderByFields, 'DESC')
+    }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
     return <Query {...args} context={{ ...webAnalyticsDataTableQueryContext }} readOnly />
 }
 

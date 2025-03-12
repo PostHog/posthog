@@ -6,10 +6,16 @@ import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
+import EXPERIMENT_DRAFT from '~/mocks/fixtures/api/experiments/_experiment_draft.json'
+import EXPERIMENT_V3_WITH_ONE_EXPERIMENT_QUERY from '~/mocks/fixtures/api/experiments/_experiment_v3_with_one_metric.json'
+import EXPERIMENT_WITH_ASYMMETRIC_INTERVALS from '~/mocks/fixtures/api/experiments/_experiment_with_asymmetric_credible_interval.json'
 import { toPaginatedResponse } from '~/mocks/handlers'
 import {
+    CachedExperimentExposureQueryResponse,
     CachedExperimentFunnelsQueryResponse,
+    CachedExperimentQueryResponse,
     CachedExperimentTrendsQueryResponse,
+    ExperimentMetricType,
     ExperimentSignificanceCode,
     NodeKind,
     ResultCustomizationBy,
@@ -18,6 +24,8 @@ import {
     BaseMathType,
     ChartDisplayType,
     Experiment,
+    ExperimentMetricMathType,
+    FeatureFlagBasicType,
     FunnelConversionWindowTimeUnit,
     FunnelVizType,
     PropertyFilterType,
@@ -269,6 +277,42 @@ const EXPERIMENT: Experiment = {
     stats_config: {
         version: 2,
     },
+}
+
+const FEATURE_FLAG_163_RESPONSE: FeatureFlagBasicType = {
+    id: 163,
+    team_id: 1,
+    name: 'Feature Flag for Experiment storybook-experiment-3',
+    key: 'storybook-experiment-3',
+    filters: {
+        payloads: {},
+        groups: [
+            {
+                properties: [],
+                rollout_percentage: 100,
+            },
+        ],
+        multivariate: {
+            variants: [
+                {
+                    key: 'control',
+                    rollout_percentage: 34,
+                },
+                {
+                    key: 'test-1',
+                    rollout_percentage: 33,
+                },
+                {
+                    key: 'test-2',
+                    rollout_percentage: 33,
+                },
+            ],
+        },
+        aggregation_group_type_index: null,
+    },
+    deleted: false,
+    active: true,
+    ensure_experience_continuity: false,
 }
 
 const METRIC_FUNNEL_RESULT: CachedExperimentFunnelsQueryResponse = {
@@ -1014,7 +1058,7 @@ const METRIC_TREND_CONTINUOUS_RESULT: any = {
         },
         filterTestAccounts: false,
         interval: 'day',
-        kind: 'TrendsQuery',
+        kind: NodeKind.TrendsQuery,
         modifiers: null,
         properties: [
             {
@@ -1093,7 +1137,7 @@ const METRIC_TREND_CONTINUOUS_RESULT: any = {
         },
         filterTestAccounts: false,
         interval: 'day',
-        kind: 'TrendsQuery',
+        kind: NodeKind.TrendsQuery,
         modifiers: null,
         properties: [
             {
@@ -1566,7 +1610,7 @@ const METRIC_TREND_CONTINUOUS_RESULT: any = {
         },
     ],
     is_cached: true,
-    kind: 'ExperimentTrendsQuery',
+    kind: NodeKind.ExperimentTrendsQuery,
     last_refresh: '2025-01-27T14:06:12.792473Z',
     next_allowed_client_refresh: '2025-01-27T14:07:12.792473Z',
     p_value: 0.0,
@@ -1602,36 +1646,722 @@ const METRIC_TREND_CONTINUOUS_RESULT: any = {
     ],
 }
 
+const EXPERIMENT_QUERY_COUNT_RESULT: CachedExperimentTrendsQueryResponse = {
+    cache_key: 'cache_070ac1966021e76ddc77054a1400be51',
+    cache_target_age: '2025-01-28T13:46:38.714809Z',
+    count_query: {
+        aggregation_group_type_index: null,
+        breakdownFilter: {
+            breakdown: '$feature/storybook-experiment-2',
+            breakdown_group_type_index: null,
+            breakdown_hide_other_aggregation: null,
+            breakdown_type: 'event',
+        },
+        conversionGoal: null,
+        dataColorTheme: null,
+        dateRange: {
+            date_from: '2025-01-01T13:23:00+00:00',
+            date_to: null,
+            explicitDate: true,
+        },
+        filterTestAccounts: false,
+        interval: 'day',
+        kind: NodeKind.TrendsQuery,
+        properties: [
+            {
+                key: '$feature/storybook-experiment-2',
+                operator: PropertyOperator.Exact,
+                type: PropertyFilterType.Event,
+                value: ['control', 'test-1', 'test-2'],
+            },
+        ],
+        samplingFactor: null,
+        series: [
+            {
+                event: 'storybook-click',
+                kind: NodeKind.EventsNode,
+                name: 'storybook-click',
+            },
+        ],
+        trendsFilter: {
+            aggregationAxisFormat: 'numeric',
+            display: ChartDisplayType.ActionsLineGraphCumulative,
+            showAlertThresholdLines: false,
+            showLegend: false,
+            showPercentStackView: false,
+            showValuesOnSeries: false,
+            smoothingIntervals: 1,
+            yAxisScaleType: 'linear',
+        },
+    },
+    credible_intervals: {
+        control: [0.2561766232672143, 0.2865558079632093],
+        'test-2': [0.37437057436784366, 0.41095555855761073],
+        'test-1': [0.32628499711265635, 0.36057812005091006],
+    },
+    exposure_query: {
+        aggregation_group_type_index: null,
+        breakdownFilter: {
+            breakdown: '$feature_flag_response',
+            breakdown_group_type_index: null,
+            breakdown_hide_other_aggregation: null,
+            breakdown_type: PropertyFilterType.Event,
+        },
+        conversionGoal: null,
+        dataColorTheme: null,
+        dateRange: {
+            date_from: '2025-01-01T13:23:00+00:00',
+            date_to: null,
+            explicitDate: true,
+        },
+        filterTestAccounts: false,
+        interval: 'day',
+        kind: NodeKind.TrendsQuery,
+        properties: [
+            {
+                key: '$feature_flag_response',
+                operator: PropertyOperator.Exact,
+                type: PropertyFilterType.Event,
+                value: ['control', 'test-1', 'test-2'],
+            },
+            {
+                key: '$feature_flag',
+                operator: PropertyOperator.Exact,
+                type: PropertyFilterType.Event,
+                value: ['storybook-experiment-2'],
+            },
+        ],
+        samplingFactor: null,
+        series: [
+            {
+                event: '$feature_flag_called',
+                kind: NodeKind.EventsNode,
+                math: BaseMathType.UniqueUsers,
+            },
+        ],
+        trendsFilter: {
+            aggregationAxisFormat: 'numeric',
+            display: ChartDisplayType.ActionsLineGraphCumulative,
+            formula: undefined,
+            goalLines: undefined,
+            hiddenLegendIndexes: undefined,
+            resultCustomizationBy: ResultCustomizationBy.Value,
+            showAlertThresholdLines: false,
+            showLegend: false,
+            showPercentStackView: false,
+            showValuesOnSeries: false,
+            smoothingIntervals: 1,
+            yAxisScaleType: 'linear',
+        },
+    },
+    insight: [
+        {
+            data: [
+                0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 98.0,
+                378.0, 644.0, 863.0, 1118.0, 1383.0, 1636.0, 1767.0,
+            ],
+            labels: [
+                '1-Jan-2025',
+                '2-Jan-2025',
+                '3-Jan-2025',
+                '4-Jan-2025',
+                '5-Jan-2025',
+                '6-Jan-2025',
+                '7-Jan-2025',
+                '8-Jan-2025',
+                '9-Jan-2025',
+                '10-Jan-2025',
+                '11-Jan-2025',
+                '12-Jan-2025',
+                '13-Jan-2025',
+                '14-Jan-2025',
+                '15-Jan-2025',
+                '16-Jan-2025',
+                '17-Jan-2025',
+                '18-Jan-2025',
+                '19-Jan-2025',
+                '20-Jan-2025',
+                '21-Jan-2025',
+                '22-Jan-2025',
+                '23-Jan-2025',
+                '24-Jan-2025',
+                '25-Jan-2025',
+                '26-Jan-2025',
+                '27-Jan-2025',
+            ],
+            days: [
+                '2025-01-01',
+                '2025-01-02',
+                '2025-01-03',
+                '2025-01-04',
+                '2025-01-05',
+                '2025-01-06',
+                '2025-01-07',
+                '2025-01-08',
+                '2025-01-09',
+                '2025-01-10',
+                '2025-01-11',
+                '2025-01-12',
+                '2025-01-13',
+                '2025-01-14',
+                '2025-01-15',
+                '2025-01-16',
+                '2025-01-17',
+                '2025-01-18',
+                '2025-01-19',
+                '2025-01-20',
+                '2025-01-21',
+                '2025-01-22',
+                '2025-01-23',
+                '2025-01-24',
+                '2025-01-25',
+                '2025-01-26',
+                '2025-01-27',
+            ],
+            count: 1767.0,
+            label: 'test-2',
+            filter: {
+                insight: 'TRENDS',
+                properties: [
+                    {
+                        key: '$feature/storybook-experiment-2',
+                        label: null,
+                        operator: 'exact',
+                        type: 'event',
+                        value: ['control', 'test-1', 'test-2'],
+                    },
+                ],
+                filter_test_accounts: false,
+                date_to: '2025-01-27T13:46:39.649328Z',
+                date_from: '2025-01-01T13:23:00Z',
+                entity_type: 'events',
+                interval: 'day',
+                aggregationAxisFormat: 'numeric',
+                display: 'ActionsLineGraphCumulative',
+                resultCustomizationBy: 'value',
+                showAlertThresholdLines: false,
+                showLegend: false,
+                showPercentStackView: false,
+                showValuesOnSeries: false,
+                smoothingIntervals: 1,
+                yAxisScaleType: 'linear',
+                breakdown: '$feature/storybook-experiment-2',
+                breakdown_type: 'event',
+            },
+            action: {
+                days: [
+                    '2025-01-01T00:00:00Z',
+                    '2025-01-02T00:00:00Z',
+                    '2025-01-03T00:00:00Z',
+                    '2025-01-04T00:00:00Z',
+                    '2025-01-05T00:00:00Z',
+                    '2025-01-06T00:00:00Z',
+                    '2025-01-07T00:00:00Z',
+                    '2025-01-08T00:00:00Z',
+                    '2025-01-09T00:00:00Z',
+                    '2025-01-10T00:00:00Z',
+                    '2025-01-11T00:00:00Z',
+                    '2025-01-12T00:00:00Z',
+                    '2025-01-13T00:00:00Z',
+                    '2025-01-14T00:00:00Z',
+                    '2025-01-15T00:00:00Z',
+                    '2025-01-16T00:00:00Z',
+                    '2025-01-17T00:00:00Z',
+                    '2025-01-18T00:00:00Z',
+                    '2025-01-19T00:00:00Z',
+                    '2025-01-20T00:00:00Z',
+                    '2025-01-21T00:00:00Z',
+                    '2025-01-22T00:00:00Z',
+                    '2025-01-23T00:00:00Z',
+                    '2025-01-24T00:00:00Z',
+                    '2025-01-25T00:00:00Z',
+                    '2025-01-26T00:00:00Z',
+                    '2025-01-27T00:00:00Z',
+                ],
+                id: 'storybook-click',
+                type: 'events',
+                order: 0,
+                name: 'storybook-click',
+                custom_name: null,
+                math: 'total',
+                math_property: null,
+                math_hogql: null,
+                math_group_type_index: null,
+                properties: {},
+            },
+            breakdown_value: 'test-2',
+        },
+        {
+            data: [
+                0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 80.0,
+                295.0, 516.0, 788.0, 1011.0, 1222.0, 1414.0, 1538.0,
+            ],
+            labels: [
+                '1-Jan-2025',
+                '2-Jan-2025',
+                '3-Jan-2025',
+                '4-Jan-2025',
+                '5-Jan-2025',
+                '6-Jan-2025',
+                '7-Jan-2025',
+                '8-Jan-2025',
+                '9-Jan-2025',
+                '10-Jan-2025',
+                '11-Jan-2025',
+                '12-Jan-2025',
+                '13-Jan-2025',
+                '14-Jan-2025',
+                '15-Jan-2025',
+                '16-Jan-2025',
+                '17-Jan-2025',
+                '18-Jan-2025',
+                '19-Jan-2025',
+                '20-Jan-2025',
+                '21-Jan-2025',
+                '22-Jan-2025',
+                '23-Jan-2025',
+                '24-Jan-2025',
+                '25-Jan-2025',
+                '26-Jan-2025',
+                '27-Jan-2025',
+            ],
+            days: [
+                '2025-01-01',
+                '2025-01-02',
+                '2025-01-03',
+                '2025-01-04',
+                '2025-01-05',
+                '2025-01-06',
+                '2025-01-07',
+                '2025-01-08',
+                '2025-01-09',
+                '2025-01-10',
+                '2025-01-11',
+                '2025-01-12',
+                '2025-01-13',
+                '2025-01-14',
+                '2025-01-15',
+                '2025-01-16',
+                '2025-01-17',
+                '2025-01-18',
+                '2025-01-19',
+                '2025-01-20',
+                '2025-01-21',
+                '2025-01-22',
+                '2025-01-23',
+                '2025-01-24',
+                '2025-01-25',
+                '2025-01-26',
+                '2025-01-27',
+            ],
+            count: 1538.0,
+            label: 'test-1',
+            filter: {
+                insight: 'TRENDS',
+                properties: [
+                    {
+                        key: '$feature/storybook-experiment-2',
+                        label: null,
+                        operator: 'exact',
+                        type: 'event',
+                        value: ['control', 'test-1', 'test-2'],
+                    },
+                ],
+                filter_test_accounts: false,
+                date_to: '2025-01-27T13:46:39.653630Z',
+                date_from: '2025-01-01T13:23:00Z',
+                entity_type: 'events',
+                interval: 'day',
+                aggregationAxisFormat: 'numeric',
+                display: 'ActionsLineGraphCumulative',
+                resultCustomizationBy: 'value',
+                showAlertThresholdLines: false,
+                showLegend: false,
+                showPercentStackView: false,
+                showValuesOnSeries: false,
+                smoothingIntervals: 1,
+                yAxisScaleType: 'linear',
+                breakdown: '$feature/storybook-experiment-2',
+                breakdown_type: 'event',
+            },
+            action: {
+                days: [
+                    '2025-01-01T00:00:00Z',
+                    '2025-01-02T00:00:00Z',
+                    '2025-01-03T00:00:00Z',
+                    '2025-01-04T00:00:00Z',
+                    '2025-01-05T00:00:00Z',
+                    '2025-01-06T00:00:00Z',
+                    '2025-01-07T00:00:00Z',
+                    '2025-01-08T00:00:00Z',
+                    '2025-01-09T00:00:00Z',
+                    '2025-01-10T00:00:00Z',
+                    '2025-01-11T00:00:00Z',
+                    '2025-01-12T00:00:00Z',
+                    '2025-01-13T00:00:00Z',
+                    '2025-01-14T00:00:00Z',
+                    '2025-01-15T00:00:00Z',
+                    '2025-01-16T00:00:00Z',
+                    '2025-01-17T00:00:00Z',
+                    '2025-01-18T00:00:00Z',
+                    '2025-01-19T00:00:00Z',
+                    '2025-01-20T00:00:00Z',
+                    '2025-01-21T00:00:00Z',
+                    '2025-01-22T00:00:00Z',
+                    '2025-01-23T00:00:00Z',
+                    '2025-01-24T00:00:00Z',
+                    '2025-01-25T00:00:00Z',
+                    '2025-01-26T00:00:00Z',
+                    '2025-01-27T00:00:00Z',
+                ],
+                id: 'storybook-click',
+                type: 'events',
+                order: 0,
+                name: 'storybook-click',
+                custom_name: null,
+                math: 'total',
+                math_property: null,
+                math_hogql: null,
+                math_group_type_index: null,
+                properties: {},
+            },
+            breakdown_value: 'test-1',
+        },
+        {
+            data: [
+                0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 73.0,
+                231.0, 420.0, 615.0, 781.0, 941.0, 1135.0, 1223.0,
+            ],
+            labels: [
+                '1-Jan-2025',
+                '2-Jan-2025',
+                '3-Jan-2025',
+                '4-Jan-2025',
+                '5-Jan-2025',
+                '6-Jan-2025',
+                '7-Jan-2025',
+                '8-Jan-2025',
+                '9-Jan-2025',
+                '10-Jan-2025',
+                '11-Jan-2025',
+                '12-Jan-2025',
+                '13-Jan-2025',
+                '14-Jan-2025',
+                '15-Jan-2025',
+                '16-Jan-2025',
+                '17-Jan-2025',
+                '18-Jan-2025',
+                '19-Jan-2025',
+                '20-Jan-2025',
+                '21-Jan-2025',
+                '22-Jan-2025',
+                '23-Jan-2025',
+                '24-Jan-2025',
+                '25-Jan-2025',
+                '26-Jan-2025',
+                '27-Jan-2025',
+            ],
+            days: [
+                '2025-01-01',
+                '2025-01-02',
+                '2025-01-03',
+                '2025-01-04',
+                '2025-01-05',
+                '2025-01-06',
+                '2025-01-07',
+                '2025-01-08',
+                '2025-01-09',
+                '2025-01-10',
+                '2025-01-11',
+                '2025-01-12',
+                '2025-01-13',
+                '2025-01-14',
+                '2025-01-15',
+                '2025-01-16',
+                '2025-01-17',
+                '2025-01-18',
+                '2025-01-19',
+                '2025-01-20',
+                '2025-01-21',
+                '2025-01-22',
+                '2025-01-23',
+                '2025-01-24',
+                '2025-01-25',
+                '2025-01-26',
+                '2025-01-27',
+            ],
+            count: 1223.0,
+            label: 'control',
+            filter: {
+                insight: 'TRENDS',
+                properties: [
+                    {
+                        key: '$feature/storybook-experiment-2',
+                        label: null,
+                        operator: 'exact',
+                        type: 'event',
+                        value: ['control', 'test-1', 'test-2'],
+                    },
+                ],
+                filter_test_accounts: false,
+                date_to: '2025-01-27T13:46:39.656219Z',
+                date_from: '2025-01-01T13:23:00Z',
+                entity_type: 'events',
+                interval: 'day',
+                aggregationAxisFormat: 'numeric',
+                display: 'ActionsLineGraphCumulative',
+                resultCustomizationBy: 'value',
+                showAlertThresholdLines: false,
+                showLegend: false,
+                showPercentStackView: false,
+                showValuesOnSeries: false,
+                smoothingIntervals: 1,
+                yAxisScaleType: 'linear',
+                breakdown: '$feature/storybook-experiment-2',
+                breakdown_type: 'event',
+            },
+            action: {
+                days: [
+                    '2025-01-01T00:00:00Z',
+                    '2025-01-02T00:00:00Z',
+                    '2025-01-03T00:00:00Z',
+                    '2025-01-04T00:00:00Z',
+                    '2025-01-05T00:00:00Z',
+                    '2025-01-06T00:00:00Z',
+                    '2025-01-07T00:00:00Z',
+                    '2025-01-08T00:00:00Z',
+                    '2025-01-09T00:00:00Z',
+                    '2025-01-10T00:00:00Z',
+                    '2025-01-11T00:00:00Z',
+                    '2025-01-12T00:00:00Z',
+                    '2025-01-13T00:00:00Z',
+                    '2025-01-14T00:00:00Z',
+                    '2025-01-15T00:00:00Z',
+                    '2025-01-16T00:00:00Z',
+                    '2025-01-17T00:00:00Z',
+                    '2025-01-18T00:00:00Z',
+                    '2025-01-19T00:00:00Z',
+                    '2025-01-20T00:00:00Z',
+                    '2025-01-21T00:00:00Z',
+                    '2025-01-22T00:00:00Z',
+                    '2025-01-23T00:00:00Z',
+                    '2025-01-24T00:00:00Z',
+                    '2025-01-25T00:00:00Z',
+                    '2025-01-26T00:00:00Z',
+                    '2025-01-27T00:00:00Z',
+                ],
+                id: 'storybook-click',
+                type: 'events',
+                order: 0,
+                name: 'storybook-click',
+                custom_name: null,
+                math: 'total',
+                math_property: null,
+                math_hogql: null,
+                math_group_type_index: null,
+                properties: {},
+            },
+            breakdown_value: 'control',
+        },
+    ],
+    is_cached: true,
+    kind: NodeKind.ExperimentTrendsQuery,
+    last_refresh: '2025-01-27T13:46:38.714809Z',
+    next_allowed_client_refresh: '2025-01-27T13:47:38.714809Z',
+    p_value: 0.0,
+    probability: {
+        control: 0.0,
+        'test-2': 0.9997,
+        'test-1': 0.0003,
+    },
+    query_status: undefined,
+    significance_code: ExperimentSignificanceCode.Significant,
+    significant: true,
+    stats_version: 2,
+    timezone: 'UTC',
+    variants: [
+        {
+            absolute_exposure: 4513.0,
+            count: 1223.0,
+            exposure: 1.0,
+            key: 'control',
+        },
+        {
+            absolute_exposure: 4504.0,
+            count: 1767.0,
+            exposure: 0.9980057611345003,
+            key: 'test-2',
+        },
+        {
+            absolute_exposure: 4483.0,
+            count: 1538.0,
+            exposure: 0.9933525371150012,
+            key: 'test-1',
+        },
+    ],
+}
+
+const EXPERIMENT_QUERY_RESULT_WITH_ASYMMETRIC_INTERVALS: CachedExperimentQueryResponse = {
+    cache_key: 'cache_1aeef2b7a7acbcc4b54564ba1208a320',
+    cache_target_age: '2025-02-19T09:13:37.273511Z',
+    calculation_trigger: undefined,
+    credible_intervals: {
+        control: [0.07063151332765807, 0.1218892673220187],
+        test: [0.07681082815508776, 0.13286603552770726],
+    },
+    insight: [],
+    is_cached: true,
+    kind: NodeKind.ExperimentQuery,
+    last_refresh: '2025-02-18T09:14:37.273511Z',
+    metric: {
+        inverse: false,
+        kind: NodeKind.ExperimentMetric,
+        metric_config: {
+            event: 'experiment created',
+            kind: NodeKind.ExperimentEventMetricConfig,
+            math: ExperimentMetricMathType.TotalCount,
+            math_hogql: undefined,
+            math_property: undefined,
+            name: 'experiment created',
+            properties: undefined,
+        },
+        metric_type: ExperimentMetricType.MEAN,
+        name: 'Experiments created',
+    },
+    next_allowed_client_refresh: '2025-02-18T09:14:37.273511Z',
+    p_value: 1,
+    probability: {
+        control: 0.3549,
+        test: 0.6451,
+    },
+    query_status: undefined,
+    significance_code: ExperimentSignificanceCode.LowWinProbability,
+    significant: false,
+    stats_version: 2,
+    timezone: 'US/Pacific',
+    variants: [
+        {
+            absolute_exposure: 360,
+            count: 31,
+            exposure: 360,
+            key: 'control',
+        },
+        {
+            absolute_exposure: 339,
+            count: 32,
+            exposure: 339,
+            key: 'test',
+        },
+    ],
+}
+
+const EXPERIMENT_QUERY_EXPOSURE_RESULT: CachedExperimentExposureQueryResponse = {
+    cache_key: 'cache_bba689ce3132fef5d97b652c6a96e871',
+    cache_target_age: '2025-03-07T18:04:07.837340Z',
+    date_range: {
+        date_from: '2025-02-23T18:03:00+00:00',
+        date_to: null,
+        explicitDate: true,
+    },
+    is_cached: true,
+    kind: NodeKind.ExperimentExposureQuery,
+    last_refresh: '2025-03-06T18:04:07.837340Z',
+    next_allowed_client_refresh: '2025-03-06T18:05:07.837340Z',
+    timeseries: [
+        {
+            days: [
+                '2025-02-23',
+                '2025-02-24',
+                '2025-02-25',
+                '2025-02-26',
+                '2025-02-27',
+                '2025-02-28',
+                '2025-03-01',
+                '2025-03-02',
+                '2025-03-03',
+                '2025-03-04',
+                '2025-03-05',
+                '2025-03-06',
+            ],
+            exposure_counts: [0.0, 0.0, 0.0, 0.0, 38.0, 179.0, 317.0, 473.0, 631.0, 756.0, 889.0, 975.0],
+            variant: 'test',
+        },
+        {
+            days: [
+                '2025-02-23',
+                '2025-02-24',
+                '2025-02-25',
+                '2025-02-26',
+                '2025-02-27',
+                '2025-02-28',
+                '2025-03-01',
+                '2025-03-02',
+                '2025-03-03',
+                '2025-03-04',
+                '2025-03-05',
+                '2025-03-06',
+            ],
+            exposure_counts: [0.0, 0.0, 0.0, 0.0, 45.0, 182.0, 347.0, 487.0, 625.0, 780.0, 922.0, 1025.0],
+            variant: 'control',
+        },
+    ],
+    timezone: 'UTC',
+    total_exposures: {
+        test: 975.0,
+        control: 1025.0,
+    },
+}
+
 const meta: Meta = {
     title: 'Scenes-App/Experiments',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2025-01-27',
+        featureFlags: ['experiments-new-query-runner'],
     },
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/experiments/': toPaginatedResponse([EXPERIMENT]),
+                '/api/projects/:team_id/experiments/': toPaginatedResponse([
+                    EXPERIMENT,
+                    EXPERIMENT_V3_WITH_ONE_EXPERIMENT_QUERY,
+                    EXPERIMENT_WITH_ASYMMETRIC_INTERVALS,
+                ]),
                 '/api/projects/:team_id/experiments/66/': EXPERIMENT,
+                '/api/projects/:team_id/experiments/20/': EXPERIMENT_DRAFT,
+                '/api/projects/:team_id/experiments/67/': EXPERIMENT_V3_WITH_ONE_EXPERIMENT_QUERY,
+                '/api/projects/:team_id/experiments/68/': EXPERIMENT_WITH_ASYMMETRIC_INTERVALS,
                 '/api/projects/:team_id/experiment_holdouts': [],
                 '/api/projects/:team_id/experiment_saved_metrics/': [],
+                '/api/projects/:team_id/feature_flags/24/': {},
+                '/api/projects/:team_id/feature_flags/24/status/': {},
                 '/api/projects/997/feature_flags/162/': {},
                 '/api/projects/997/feature_flags/162/status/': {},
+                '/api/projects/997/feature_flags/163/': FEATURE_FLAG_163_RESPONSE,
+                '/api/projects/997/feature_flags/163/status/': {},
             },
             post: {
                 '/api/environments/:team_id/query': (req, res, ctx) => {
                     const body = req.body as Record<string, any>
 
-                    if (body.query.kind === 'ExperimentFunnelsQuery') {
+                    if (body.query.kind === NodeKind.ExperimentExposureQuery) {
+                        return res(ctx.json(EXPERIMENT_QUERY_EXPOSURE_RESULT))
+                    }
+
+                    if (body.query.kind === NodeKind.ExperimentFunnelsQuery) {
                         return res(ctx.json(METRIC_FUNNEL_RESULT))
                     } else if (
-                        body.query.kind === 'ExperimentTrendsQuery' &&
+                        body.query.kind === NodeKind.ExperimentTrendsQuery &&
                         body.query.count_query.series[0].math === 'sum'
                     ) {
                         return res(ctx.json(METRIC_TREND_CONTINUOUS_RESULT))
-                    } else if (body.query.kind === 'ExperimentTrendsQuery') {
+                    } else if (body.query.kind === NodeKind.ExperimentTrendsQuery) {
                         return res(ctx.json(METRIC_TREND_RESULT))
+                    } else if (body.query.experiment_id === EXPERIMENT_WITH_ASYMMETRIC_INTERVALS.id) {
+                        return res(ctx.json(EXPERIMENT_QUERY_RESULT_WITH_ASYMMETRIC_INTERVALS))
+                    } else if (body.query.kind === NodeKind.ExperimentQuery) {
+                        return res(ctx.json(EXPERIMENT_QUERY_COUNT_RESULT))
                     }
                 },
             },
@@ -1646,9 +2376,30 @@ export const ExperimentsList: StoryFn = () => {
     return <App />
 }
 
-export const ExperimentWithThreeMetrics: StoryFn = () => {
+export const ExperimentDraft: StoryFn = () => {
+    useEffect(() => {
+        router.actions.push(urls.experiment(EXPERIMENT_DRAFT.id))
+    }, [])
+    return <App />
+}
+
+export const ExperimentV2WithThreeMetrics: StoryFn = () => {
     useEffect(() => {
         router.actions.push(urls.experiment(EXPERIMENT.id))
+    }, [])
+    return <App />
+}
+
+export const ExperimentV3WithExperimentQuery: StoryFn = () => {
+    useEffect(() => {
+        router.actions.push(urls.experiment(EXPERIMENT_V3_WITH_ONE_EXPERIMENT_QUERY.id))
+    }, [])
+    return <App />
+}
+
+export const ExperimentV3WithAsymmetricIntervals: StoryFn = () => {
+    useEffect(() => {
+        router.actions.push(urls.experiment(EXPERIMENT_WITH_ASYMMETRIC_INTERVALS.id))
     }, [])
     return <App />
 }

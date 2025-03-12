@@ -1,4 +1,5 @@
 import datetime
+import re
 import secrets
 import string
 import uuid
@@ -7,6 +8,8 @@ from contextlib import contextmanager
 from time import time, time_ns
 from typing import TYPE_CHECKING, Any, Optional, TypeVar, Union
 from collections.abc import Callable, Iterator
+
+from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connections, models, transaction
 from django.db.backends.utils import CursorWrapper
 from django.db.backends.ddl_references import Statement
@@ -344,3 +347,12 @@ def execute_with_timeout(timeout: int, database: str = "default") -> Iterator[Cu
         with connections[database].cursor() as cursor:
             cursor.execute("SET LOCAL statement_timeout = %s", [timeout])
             yield cursor
+
+
+def validate_rate_limit(value):
+    # pattern must match throttling::SimpleRateThrottle::parse_rate
+    if value is not None and value != "" and not re.match("^[0-9]+/(s|sec|m|min|h|hour|d|day)$", value):
+        raise ValidationError(
+            "%(value)s is not a valid rate limit format. Use formats like '5/s', '10/min', '2/hour', '1/day'.",
+            params={"value": value},
+        )

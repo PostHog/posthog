@@ -1,7 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { LegacyPluginMeta, LegacyTransformationPlugin } from '../../types'
-import metadata from './plugin.json'
+import { LegacyPluginMeta } from '../../types'
 
 export function processEvent(event: PluginEvent, _: LegacyPluginMeta) {
     switch (event.event) {
@@ -186,10 +185,4 @@ export function processEvent(event: PluginEvent, _: LegacyPluginMeta) {
     }
 
     return event
-}
-
-export const phShotgunProcessEventApp: LegacyTransformationPlugin = {
-    id: 'ph-shotgun-processevent-app',
-    metadata,
-    processEvent,
 }

@@ -24,7 +24,11 @@
 
     &.Lettermark--variant-gray {
         color: var(--text-3000);
-        background: var(--border);
+        background: var(--border-primary);
+    }
+
+    &.Lettermark--small {
+        font-size: 0.625rem;
     }
 
     &.Lettermark--xsmall {

@@ -1,5 +1,4 @@
 import { Upload } from '@aws-sdk/lib-storage'
-import { captureException, captureMessage } from '@sentry/node'
 import { randomUUID } from 'crypto'
 import { createReadStream, createWriteStream } from 'fs'
 import { stat, unlink } from 'fs/promises'
@@ -13,9 +12,10 @@ import * as zlib from 'zlib'
 
 import { PluginsServerConfig } from '../../../../types'
 import { timeoutGuard } from '../../../../utils/db/utils'
+import { ObjectStorage } from '../../../../utils/object_storage'
+import { captureException } from '../../../../utils/posthog'
 import { status } from '../../../../utils/status'
 import { asyncTimeoutGuard } from '../../../../utils/timing'
-import { ObjectStorage } from '../../../services/object_storage'
 import { IncomingRecordingMessage } from '../types'
 import { bufferFileDir, convertForPersistence, getLagMultiplier, maxDefined, minDefined, now } from '../utils'
 import { OffsetHighWaterMarker } from './offset-high-water-marker'
@@ -162,7 +162,7 @@ export class SessionManager {
 
     private captureMessage(message: string, extra: Record<string, any> = {}): void {
         const context = this.logContext()
-        captureMessage(message, {
+        captureException(message, {
             extra: { ...context, ...extra },
             tags: { teamId: context.teamId, sessionId: context.sessionId, partition: context.partition },
         })

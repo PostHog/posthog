@@ -1,5 +1,5 @@
 import { IconBadge } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonLabel, LemonSelect, LemonTable } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonLabel, LemonSelect, LemonTable, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
@@ -21,7 +21,18 @@ export function DataColorThemes(): JSX.Element {
 
     return (
         <PayGateMini feature={AvailableFeature.DATA_COLOR_THEMES}>
-            <div className="space-y-4">
+            <div className="deprecated-space-y-4">
+                <p>
+                    These themes can be used in insights. You can also set a default theme for all insights below. For
+                    more details, check out our{' '}
+                    <Link
+                        to="https://posthog.com/docs/product-analytics/color-themes?utm_campaign=settings&utm_medium=in-product"
+                        target="_blank"
+                    >
+                        docs
+                    </Link>
+                    .
+                </p>
                 <LemonTable
                     loading={themesLoading}
                     dataSource={themes}

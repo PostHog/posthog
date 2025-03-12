@@ -1,10 +1,23 @@
 import { CyclotronJob, CyclotronWorker } from '@posthog/cyclotron'
+import { Counter, Gauge } from 'prom-client'
 
 import { runInstrumentedFunction } from '../../main/utils'
 import { status } from '../../utils/status'
 import { HogFunctionInvocation, HogFunctionInvocationResult, HogFunctionTypeType } from '../types'
 import { cyclotronJobToInvocation, invocationToCyclotronJobUpdate } from '../utils'
-import { CdpConsumerBase, counterJobsProcessed, gaugeBatchUtilization } from './cdp-base.consumer'
+import { CdpConsumerBase } from './cdp-base.consumer'
+
+const cyclotronBatchUtilizationGauge = new Gauge({
+    name: 'cdp_cyclotron_batch_utilization',
+    help: 'Indicates how big batches are we are processing compared to the max batch size. Useful as a scaling metric',
+    labelNames: ['queue'],
+})
+
+const counterJobsProcessed = new Counter({
+    name: 'cdp_cyclotron_jobs_processed',
+    help: 'The number of jobs we are managing to process',
+    labelNames: ['queue'],
+})
 
 /**
  * The future of the CDP consumer. This will be the main consumer that will handle all hog jobs from Cyclotron
@@ -30,9 +43,10 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
             func: async () => await this.processInvocations(invocations),
         })
 
-        await this.processInvocationResults(invocationResults)
+        await this.hogWatcher.observeResults(invocationResults)
+        await this.hogFunctionMonitoringService.processInvocationResults(invocationResults)
         await this.updateJobs(invocationResults)
-        await this.produceQueuedMessages()
+        await this.hogFunctionMonitoringService.produceQueuedMessages()
 
         return invocationResults
     }
@@ -42,7 +56,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
             invocations.map((item) => {
                 if (item.invocation.queue === 'fetch') {
                     // Track a metric purely to say a fetch was attempted (this may be what we bill on in the future)
-                    this.produceAppMetric({
+                    this.hogFunctionMonitoringService.produceAppMetric({
                         team_id: item.invocation.teamId,
                         app_source_id: item.invocation.hogFunction.id,
                         metric_kind: 'other',
@@ -71,7 +85,9 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
     }
 
     private async handleJobBatch(jobs: CyclotronJob[]) {
-        gaugeBatchUtilization.labels({ queue: this.queue }).set(jobs.length / this.hub.CDP_CYCLOTRON_BATCH_SIZE)
+        cyclotronBatchUtilizationGauge
+            .labels({ queue: this.queue })
+            .set(jobs.length / this.hub.CDP_CYCLOTRON_BATCH_SIZE)
         if (!this.cyclotronWorker) {
             throw new Error('No cyclotron worker when trying to handle batch')
         }
@@ -88,7 +104,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
             if (!hogFunction) {
                 // Here we need to mark the job as failed
 
-                status.error('Error finding hog function', {
+                status.error('⚠️', 'Error finding hog function', {
                     id: job.functionId,
                 })
                 this.cyclotronWorker.updateJob(job.id, 'failed')

@@ -1,25 +1,42 @@
-import { IconMagicWand, IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonBanner, LemonDivider, LemonInput, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
+import { IconPlusSmall, IconSparkles, IconToggle, IconTrash } from '@posthog/icons'
+import { LemonBanner, LemonDivider, LemonInput, LemonModal, LemonTextArea, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonTable } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { ExperimentVariantNumber } from 'lib/components/SeriesGlyph'
 import { MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { useState } from 'react'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
+import { urls } from 'scenes/urls'
 
 import { experimentLogic } from './experimentLogic'
+import { featureFlagEligibleForExperiment } from './utils'
 
 const ExperimentFormFields = (): JSX.Element => {
-    const { experiment, groupTypes, aggregationLabel, hasPrimaryMetricSet } = useValues(experimentLogic)
-    const { addVariant, removeExperimentGroup, setExperiment, createExperiment, setExperimentType } =
-        useActions(experimentLogic)
+    const { experiment, groupTypes, aggregationLabel, hasPrimaryMetricSet, validExistingFeatureFlag } =
+        useValues(experimentLogic)
+    const {
+        addVariant,
+        removeExperimentGroup,
+        setExperiment,
+        createExperiment,
+        setExperimentType,
+        validateFeatureFlag,
+    } = useActions(experimentLogic)
     const { webExperimentsAvailable, unavailableFeatureFlagKeys } = useValues(experimentsLogic)
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
+
+    const { reportExperimentFeatureFlagModalOpened, reportExperimentFeatureFlagSelected } = useActions(eventUsageLogic)
+
+    const [showFeatureFlagSelector, setShowFeatureFlagSelector] = useState(false)
 
     return (
         <div>
@@ -28,8 +45,8 @@ const ExperimentFormFields = (): JSX.Element => {
                     Fill out the details below to create your experiment based off of the insight.
                 </LemonBanner>
             )}
-            <div className="space-y-8">
-                <div className="space-y-6 max-w-120">
+            <div className="deprecated-space-y-8">
+                <div className="deprecated-space-y-6 max-w-120">
                     <LemonField name="name" label="Name">
                         <LemonInput placeholder="Pricing page conversion" data-attr="experiment-name" />
                     </LemonField>
@@ -37,14 +54,29 @@ const ExperimentFormFields = (): JSX.Element => {
                         name="feature_flag_key"
                         label="Feature flag key"
                         help={
-                            <div className="flex items-center space-x-2">
+                            <div className="flex items-center deprecated-space-x-2">
                                 <span>
-                                    Each experiment is backed by a feature flag. You'll use this key in your&nbsp;code.
+                                    Each experiment is backed by a feature flag. Create a new one by entering a key, or
+                                    choose an existing feature flag with multiple variants.
                                 </span>
                                 <LemonButton
                                     type="secondary"
                                     size="xsmall"
-                                    disabledReason={experiment.name ? undefined : 'Fill out the experiment name first.'}
+                                    onClick={() => {
+                                        reportExperimentFeatureFlagModalOpened()
+                                        setShowFeatureFlagSelector(true)
+                                    }}
+                                >
+                                    <IconToggle className="mr-1" /> Choose
+                                </LemonButton>
+                                <LemonButton
+                                    type="secondary"
+                                    size="xsmall"
+                                    disabledReason={
+                                        experiment.name
+                                            ? undefined
+                                            : 'Fill out the experiment name first to generate a key from it.'
+                                    }
                                     tooltip={experiment.name ? 'Generate a key from the experiment name' : undefined}
                                     onClick={() => {
                                         setExperiment({
@@ -55,7 +87,7 @@ const ExperimentFormFields = (): JSX.Element => {
                                         })
                                     }}
                                 >
-                                    <IconMagicWand className="mr-1" /> Generate
+                                    <IconSparkles className="mr-1" /> Generate
                                 </LemonButton>
                             </div>
                         }
@@ -69,16 +101,26 @@ const ExperimentFormFields = (): JSX.Element => {
                         />
                     </LemonField>
                 </div>
+                <SelectExistingFeatureFlagModal
+                    isOpen={showFeatureFlagSelector}
+                    onClose={() => setShowFeatureFlagSelector(false)}
+                    onSelect={(key) => {
+                        reportExperimentFeatureFlagSelected(key)
+                        setExperiment({ feature_flag_key: key })
+                        validateFeatureFlag(key)
+                        setShowFeatureFlagSelector(false)
+                    }}
+                />
                 {webExperimentsAvailable && (
                     <div className="mt-10">
                         <h3 className="mb-1">Experiment type</h3>
-                        <div className="text-xs text-muted font-medium tracking-normal">
+                        <div className="text-xs text-secondary font-medium tracking-normal">
                             Select your experiment setup, this cannot be changed once saved.
                         </div>
                         <LemonDivider />
                         <LemonRadio
                             value={experiment.type}
-                            className="space-y-2 -mt-2"
+                            className="deprecated-space-y-2 -mt-2"
                             onChange={(type) => {
                                 setExperimentType(type)
                             }}
@@ -88,7 +130,7 @@ const ExperimentFormFields = (): JSX.Element => {
                                     label: (
                                         <div className="translate-y-2">
                                             <div>Product experiment</div>
-                                            <div className="text-xs text-muted">
+                                            <div className="text-xs text-secondary">
                                                 Use custom code to manage how variants modify your product.
                                             </div>
                                         </div>
@@ -99,7 +141,7 @@ const ExperimentFormFields = (): JSX.Element => {
                                     label: (
                                         <div className="translate-y-2">
                                             <div>No-code web experiment</div>
-                                            <div className="text-xs text-muted">
+                                            <div className="text-xs text-secondary">
                                                 Define variants on your website using the PostHog toolbar, no coding
                                                 required.
                                             </div>
@@ -113,7 +155,7 @@ const ExperimentFormFields = (): JSX.Element => {
                 {groupsAccessStatus === GroupsAccessStatus.AlreadyUsing && (
                     <div>
                         <h3 className="mt-10">Participant type</h3>
-                        <div className="text-xs text-muted">
+                        <div className="text-xs text-secondary">
                             The type on which to aggregate metrics. You can change this at any time during the
                             experiment.
                         </div>
@@ -144,55 +186,43 @@ const ExperimentFormFields = (): JSX.Element => {
                         />
                     </div>
                 )}
-                <div className="mt-10">
-                    <h3 className="mb-1">Variants</h3>
-                    <div className="text-xs text-muted">
-                        Add up to {MAX_EXPERIMENT_VARIANTS - 1} variants to test against your control.
-                    </div>
-                    <LemonDivider />
-                    <div className="grid grid-cols-2 gap-4 max-w-160">
-                        <div className="max-w-60">
-                            <h3>Control</h3>
+                {validExistingFeatureFlag && (
+                    <div className="mt-10">
+                        <h3 className="mb-1">Variants</h3>
+                        <LemonDivider />
+                        <LemonBanner type="info" className="mb-8">
                             <div className="flex items-center">
-                                <Group key={0} name={['parameters', 'feature_flag_variants', 0]}>
-                                    <ExperimentVariantNumber index={0} className="h-7 w-7 text-base" />
-                                    <LemonField name="key" className="ml-2 flex-grow">
-                                        <LemonInput
-                                            disabled
-                                            data-attr="experiment-variant-key"
-                                            data-key-index={0}
-                                            className="ph-ignore-input"
-                                            fullWidth
-                                            autoComplete="off"
-                                            autoCapitalize="off"
-                                            autoCorrect="off"
-                                            spellCheck={false}
-                                        />
-                                    </LemonField>
-                                </Group>
+                                <div>Existing feature flag configuration will be applied to the experiment.</div>
+                                <Link
+                                    to={urls.featureFlag(validExistingFeatureFlag.id as number)}
+                                    target="_blank"
+                                    className="flex items-center"
+                                >
+                                    <IconOpenInNew className="ml-1" />
+                                </Link>
                             </div>
-                            <div className="text-muted text-xs mt-2">
-                                Included automatically, cannot be edited or removed
+                        </LemonBanner>
+                    </div>
+                )}
+                {!validExistingFeatureFlag && (
+                    <>
+                        <div className="mt-10">
+                            <h3 className="mb-1">Variants</h3>
+                            <div className="text-xs text-secondary">
+                                Add up to {MAX_EXPERIMENT_VARIANTS - 1} variants to test against your control.
                             </div>
-                        </div>
-                        <div className="max-w-100">
-                            <h3>Test(s)</h3>
-                            {experiment.parameters.feature_flag_variants?.map((_, index) => {
-                                if (index === 0) {
-                                    return null
-                                }
-
-                                return (
-                                    <Group key={index} name={['parameters', 'feature_flag_variants', index]}>
-                                        <div
-                                            key={`variant-${index}`}
-                                            className={`flex items-center space-x-2 ${index > 1 && 'mt-2'}`}
-                                        >
-                                            <ExperimentVariantNumber index={index} className="h-7 w-7 text-base" />
-                                            <LemonField name="key" className="flex-grow">
+                            <LemonDivider />
+                            <div className="grid grid-cols-2 gap-4 max-w-160">
+                                <div className="max-w-60">
+                                    <h3>Control</h3>
+                                    <div className="flex items-center">
+                                        <Group key={0} name={['parameters', 'feature_flag_variants', 0]}>
+                                            <ExperimentVariantNumber index={0} className="h-7 w-7 text-base" />
+                                            <LemonField name="key" className="ml-2 flex-grow">
                                                 <LemonInput
+                                                    disabled
                                                     data-attr="experiment-variant-key"
-                                                    data-key-index={index.toString()}
+                                                    data-key-index={0}
                                                     className="ph-ignore-input"
                                                     fullWidth
                                                     autoComplete="off"
@@ -201,44 +231,78 @@ const ExperimentFormFields = (): JSX.Element => {
                                                     spellCheck={false}
                                                 />
                                             </LemonField>
-                                            <div className={`${index === 1 && 'pr-9'}`}>
-                                                {index !== 1 && (
-                                                    <Tooltip title="Delete this variant" placement="top-start">
-                                                        <LemonButton
-                                                            size="small"
-                                                            icon={<IconTrash />}
-                                                            onClick={() => removeExperimentGroup(index)}
+                                        </Group>
+                                    </div>
+                                    <div className="text-muted text-xs mt-2">
+                                        Included automatically, cannot be edited or removed
+                                    </div>
+                                </div>
+                                <div className="max-w-100">
+                                    <h3>Test(s)</h3>
+                                    {experiment.parameters.feature_flag_variants?.map((_, index) => {
+                                        if (index === 0) {
+                                            return null
+                                        }
+
+                                        return (
+                                            <Group key={index} name={['parameters', 'feature_flag_variants', index]}>
+                                                <div
+                                                    key={`variant-${index}`}
+                                                    className={`flex items-center deprecated-space-x-2 ${
+                                                        index > 1 && 'mt-2'
+                                                    }`}
+                                                >
+                                                    <ExperimentVariantNumber
+                                                        index={index}
+                                                        className="h-7 w-7 text-base"
+                                                    />
+                                                    <LemonField name="key" className="flex-grow">
+                                                        <LemonInput
+                                                            data-attr="experiment-variant-key"
+                                                            data-key-index={index.toString()}
+                                                            className="ph-ignore-input"
+                                                            fullWidth
+                                                            autoComplete="off"
+                                                            autoCapitalize="off"
+                                                            autoCorrect="off"
+                                                            spellCheck={false}
                                                         />
-                                                    </Tooltip>
-                                                )}
-                                            </div>
-                                        </div>
-                                    </Group>
-                                )
-                            })}
-                            <div className="text-muted text-xs ml-9 mr-20 mt-2">
-                                Alphanumeric, hyphens and underscores only
+                                                    </LemonField>
+                                                    <div className={`${index === 1 && 'pr-9'}`}>
+                                                        {index !== 1 && (
+                                                            <Tooltip title="Delete this variant" placement="top-start">
+                                                                <LemonButton
+                                                                    size="small"
+                                                                    icon={<IconTrash />}
+                                                                    onClick={() => removeExperimentGroup(index)}
+                                                                />
+                                                            </Tooltip>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </Group>
+                                        )
+                                    })}
+                                    <div className="text-secondary text-xs ml-9 mr-20 mt-2">
+                                        Alphanumeric, hyphens and underscores only
+                                    </div>
+                                    {(experiment.parameters.feature_flag_variants.length ?? 0) <
+                                        MAX_EXPERIMENT_VARIANTS && (
+                                        <LemonButton
+                                            className="ml-9 mt-2"
+                                            type="secondary"
+                                            onClick={() => addVariant()}
+                                            icon={<IconPlusSmall />}
+                                            data-attr="add-test-variant"
+                                        >
+                                            Add test variant
+                                        </LemonButton>
+                                    )}
+                                </div>
                             </div>
-                            {(experiment.parameters.feature_flag_variants.length ?? 0) < MAX_EXPERIMENT_VARIANTS && (
-                                <LemonButton
-                                    className="ml-9 mt-2"
-                                    type="secondary"
-                                    onClick={() => addVariant()}
-                                    icon={<IconPlusSmall />}
-                                    data-attr="add-test-variant"
-                                >
-                                    Add test variant
-                                </LemonButton>
-                            )}
                         </div>
-                    </div>
-                </div>
-                <div>
-                    <h3>Holdout group</h3>
-                    <div className="text-xs text-muted">Exclude a stable group of users from the experiment.</div>
-                    <LemonDivider />
-                    <HoldoutSelector />
-                </div>
+                    </>
+                )}
             </div>
             <LemonButton
                 className="mt-2"
@@ -290,7 +354,7 @@ export function ExperimentForm(): JSX.Element {
                 formKey="experiment"
                 props={props}
                 enableFormOnSubmit
-                className="space-y-6 experiment-form"
+                className="deprecated-space-y-6 experiment-form"
             >
                 <ExperimentFormFields />
             </Form>
@@ -313,4 +377,80 @@ const generateFeatureFlagKey = (name: string, unavailableFeatureFlagKeys: Set<st
         counter++
     }
     return key
+}
+
+const SelectExistingFeatureFlagModal = ({
+    isOpen,
+    onClose,
+    onSelect,
+}: {
+    isOpen: boolean
+    onClose: () => void
+    onSelect: (key: string) => void
+}): JSX.Element => {
+    const { featureFlags } = useValues(experimentsLogic)
+
+    return (
+        <LemonModal isOpen={isOpen} onClose={onClose} title="Choose an existing feature flag">
+            <div className="deprecated-space-y-2">
+                <div className="text-muted mb-2 max-w-xl">
+                    Select an existing feature flag to use with this experiment. The feature flag must use multiple
+                    variants with <code>'control'</code> as the first, and not be associated with an existing
+                    experiment.
+                </div>
+                <LemonTable
+                    dataSource={featureFlags.results}
+                    useURLForSorting={false}
+                    columns={[
+                        {
+                            title: 'Key',
+                            dataIndex: 'key',
+                            sorter: (a, b) => (a.key || '').localeCompare(b.key || ''),
+                            render: (key, flag) => (
+                                <div className="flex items-center">
+                                    <div className="font-semibold">{key}</div>
+                                    <Link
+                                        to={urls.featureFlag(flag.id as number)}
+                                        target="_blank"
+                                        className="flex items-center"
+                                    >
+                                        <IconOpenInNew className="ml-1" />
+                                    </Link>
+                                </div>
+                            ),
+                        },
+                        {
+                            title: 'Name',
+                            dataIndex: 'name',
+                            sorter: (a, b) => (a.name || '').localeCompare(b.name || ''),
+                        },
+                        {
+                            title: null,
+                            render: function RenderActions(_, flag) {
+                                let disabledReason: string | undefined = undefined
+                                try {
+                                    featureFlagEligibleForExperiment(flag)
+                                } catch (error) {
+                                    disabledReason = (error as Error).message
+                                }
+                                return (
+                                    <LemonButton
+                                        size="xsmall"
+                                        type="primary"
+                                        disabledReason={disabledReason}
+                                        onClick={() => {
+                                            onSelect(flag.key)
+                                            onClose()
+                                        }}
+                                    >
+                                        Select
+                                    </LemonButton>
+                                )
+                            },
+                        },
+                    ]}
+                />
+            </div>
+        </LemonModal>
+    )
 }

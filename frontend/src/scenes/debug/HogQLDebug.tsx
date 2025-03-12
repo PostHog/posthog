@@ -8,7 +8,7 @@ import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { Reload } from '~/queries/nodes/DataNode/Reload'
 import { EventPropertyFilters } from '~/queries/nodes/EventsNode/EventPropertyFilters'
 import { HogQLQueryEditor } from '~/queries/nodes/HogQLQuery/HogQLQueryEditor'
-import { HogQLQuery, HogQLQueryResponse } from '~/queries/schema'
+import { HogQLQuery, HogQLQueryResponse } from '~/queries/schema/schema-general'
 
 import { QueryTabs } from './QueryTabs'
 
@@ -25,7 +25,7 @@ export function HogQLDebug({ query, setQuery, queryKey }: HogQLDebugProps): JSX.
 
     return (
         <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
-            <div className="space-y-2">
+            <div className="deprecated-space-y-2">
                 <HogQLQueryEditor query={query} setQuery={setQuery} />
                 <Modifiers setQuery={setQuery} query={query} response={response} />
                 <LemonDivider className="my-4" />

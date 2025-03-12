@@ -1,22 +1,21 @@
-from dagster import Definitions, load_assets_from_modules, ScheduleDefinition
+import dagster
+import dagster_slack
+
 from dagster_aws.s3.io_manager import s3_pickle_io_manager
 from dagster_aws.s3.resources import s3_resource
-from dagster import fs_io_manager
 from django.conf import settings
 
-from . import ch_examples, deletes, orm_examples
-from .person_overrides import ClickhouseClusterResource, squash_person_overrides
-
-all_assets = load_assets_from_modules([ch_examples, orm_examples])
-
-# Schedule to run deletes at 10 PM on Saturdays
-deletes_schedule = ScheduleDefinition(
-    job=deletes.deletes_job,
-    cron_schedule="0 22 * * 6",  # At 22:00 (10 PM) on Saturday
-    execution_timezone="UTC",
-    name="deletes_schedule",
+from dags.common import ClickhouseClusterResource
+from dags import (
+    ch_examples,
+    deletes,
+    exchange_rate,
+    export_query_logs_to_s3,
+    materialized_columns,
+    orm_examples,
+    person_overrides,
+    slack_alerts,
 )
-env = "local" if settings.DEBUG else "prod"
 
 # Define resources for different environments
 resources_by_env = {
@@ -26,19 +25,55 @@ resources_by_env = {
             {"s3_bucket": settings.DAGSTER_S3_BUCKET, "s3_prefix": "dag-storage"}
         ),
         "s3": s3_resource,
+        # Using EnvVar instead of the Django setting to ensure that the token is not leaked anywhere in the Dagster UI
+        "slack": dagster_slack.SlackResource(token=dagster.EnvVar("SLACK_TOKEN")),
     },
     "local": {
         "cluster": ClickhouseClusterResource.configure_at_launch(),
-        "io_manager": fs_io_manager,
+        "io_manager": dagster.fs_io_manager,
+        "slack": dagster.ResourceDefinition.none_resource(description="Dummy Slack resource for local development"),
     },
 }
 
+
 # Get resources for current environment, fallback to local if env not found
+env = "local" if settings.DEBUG else "prod"
 resources = resources_by_env.get(env, resources_by_env["local"])
 
-defs = Definitions(
-    assets=all_assets,
-    jobs=[squash_person_overrides, deletes.deletes_job],
-    schedules=[deletes_schedule],
+defs = dagster.Definitions(
+    assets=[
+        ch_examples.get_clickhouse_version,
+        ch_examples.print_clickhouse_version,
+        exchange_rate.daily_exchange_rates,
+        exchange_rate.hourly_exchange_rates,
+        exchange_rate.daily_exchange_rates_in_clickhouse,
+        exchange_rate.hourly_exchange_rates_in_clickhouse,
+        orm_examples.pending_deletions,
+        orm_examples.process_pending_deletions,
+    ],
+    jobs=[
+        deletes.deletes_job,
+        exchange_rate.daily_exchange_rates_job,
+        exchange_rate.hourly_exchange_rates_job,
+        export_query_logs_to_s3.export_query_logs_to_s3,
+        materialized_columns.materialize_column,
+        person_overrides.cleanup_orphaned_person_overrides_snapshot,
+        person_overrides.squash_person_overrides,
+    ],
+    schedules=[
+        exchange_rate.daily_exchange_rates_schedule,
+        exchange_rate.hourly_exchange_rates_schedule,
+        export_query_logs_to_s3.query_logs_export_schedule,
+        person_overrides.squash_schedule,
+    ],
+    sensors=[
+        deletes.run_deletes_after_squash,
+        slack_alerts.notify_slack_on_failure,
+    ],
     resources=resources,
 )
+
+if settings.DEBUG:
+    from . import testing
+
+    defs.jobs.append(testing.error)

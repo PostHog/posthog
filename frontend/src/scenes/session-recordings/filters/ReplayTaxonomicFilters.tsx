@@ -1,5 +1,5 @@
-import { IconTrash } from '@posthog/icons'
-import { LemonButton, Popover } from '@posthog/lemon-ui'
+import { IconInfo, IconPinFilled } from '@posthog/icons'
+import { LemonButton, Popover, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
@@ -52,7 +52,7 @@ export function ReplayTaxonomicFilters({ onChange }: ReplayTaxonomicFiltersProps
         <div className="grid grid-cols-2 gap-4 px-1 pt-1.5 pb-2.5">
             <section>
                 <h5 className="mt-1 mb-0">Replay properties</h5>
-                <ul className="space-y-px">
+                <ul className="deprecated-space-y-px">
                     {properties.map(({ key, taxonomicFilterGroup, propertyFilterType }) => {
                         const label = getFilterLabel(key, taxonomicFilterGroup)
                         return (
@@ -83,8 +83,13 @@ const PersonProperties = ({ onChange }: { onChange: ReplayTaxonomicFiltersProps[
 
     return (
         <section>
-            <h5 className="mt-1 mb-0">Person properties</h5>
-            <ul className="space-y-px">
+            <Tooltip title="Pin person properties to this list to let you quickly filter by the properties you care about. Changes here only affect the list you see.">
+                <h5 className="mt-1 mb-0 flex items-center deprecated-space-x-1">
+                    <IconInfo className="text-lg" />
+                    <span>Pinned person properties</span>
+                </h5>
+            </Tooltip>
+            <ul className="deprecated-space-y-px">
                 {properties.map((property) => (
                     <LemonButton
                         key={property}
@@ -95,7 +100,8 @@ const PersonProperties = ({ onChange }: { onChange: ReplayTaxonomicFiltersProps[
                                 const newProperties = properties.filter((p) => p != property)
                                 setQuickFilterProperties(newProperties)
                             },
-                            icon: <IconTrash />,
+                            icon: <IconPinFilled />,
+                            tooltip: 'Unpin from this quick list.',
                         }}
                         onClick={() => onChange(property, { propertyFilterType: PropertyFilterType.Person })}
                     >
