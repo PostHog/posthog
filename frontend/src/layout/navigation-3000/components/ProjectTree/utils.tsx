@@ -3,10 +3,10 @@ import { Spinner } from '@posthog/lemon-ui'
 import { router } from 'kea-router'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 
-import { FileSystemEntry } from '~/queries/schema/schema-general'
+import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
 
 import { iconForType } from './defaultTree'
-import { FileSystemImport, FolderState } from './types'
+import { FolderState } from './types'
 
 export function convertFileSystemEntryToTreeDataItem(
     imports: (FileSystemImport | FileSystemEntry)[],

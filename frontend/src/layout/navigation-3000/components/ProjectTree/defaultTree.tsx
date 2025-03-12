@@ -21,10 +21,8 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { fileSystemTypes, treeItems } from '~/products'
-import { FileSystemType } from '~/queries/schema/schema-general'
+import { FileSystemImport, FileSystemType } from '~/queries/schema/schema-general'
 import { ActivityTab, PipelineStage } from '~/types'
-
-import { FileSystemImport } from './types'
 
 export function iconForType(type?: FileSystemType): JSX.Element {
     if (type && type in fileSystemTypes && (fileSystemTypes as any)[type].icon) {
