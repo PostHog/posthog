@@ -825,6 +825,7 @@ def get_teams_with_recording_bytes_in_period(
 
 @shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=0)
 def capture_report(
+    self: celery.Task,
     *,
     capture_event_name: str,
     org_id: Optional[str] = None,
