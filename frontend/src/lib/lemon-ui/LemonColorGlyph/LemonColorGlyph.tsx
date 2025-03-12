@@ -8,11 +8,15 @@ import { useEffect, useState } from 'react'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 type LemonColorGlyphProps = {
+    /** 6-digit hex color to display. */
     color?: string | null
+    /** Additional class names. */
     className?: string
+    /** Content to display inside the glyph. */
     children?: React.ReactNode
 }
 
+/** Takes a 6-digit hex color and displays it as a glyph. */
 export function LemonColorGlyph({ color, className, children }: LemonColorGlyphProps): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
     const [lastValidColor, setLastValidColor] = useState<string>('#000000')
