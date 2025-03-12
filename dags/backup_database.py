@@ -99,16 +99,15 @@ class Backup:
 
         if len(rows) > 0:
             [[count]] = rows
-            if count > 0:
-                return False
-            else:
-                self.throw_on_error(client)
+            return count == 0
         else:
             raise ValueError(f"could not find backup matching {self!r}")
 
     def wait(self, client: Client) -> None:
         while not self.is_done(client):
-            time.sleep(5)
+            time.sleep(300)
+
+        self.throw_on_error(client)
 
 
 class BackupConfig(dagster.Config):
@@ -128,10 +127,14 @@ class BackupConfig(dagster.Config):
 
 @dagster.op
 def get_latest_backup(
+    config: BackupConfig,
     s3: S3Resource,
 ) -> Optional[Backup]:
+    """
+    Get the latest backup metadata for a ClickHouse database / table from S3.
+    """
     backups = s3.get_client().list_objects_v2(
-        Bucket=settings.CLICKHOUSE_BACKUPS_BUCKET, Prefix=f"{settings.CLICKHOUSE_DATABASE}/", Delimiter="/"
+        Bucket=settings.CLICKHOUSE_BACKUPS_BUCKET, Prefix=f"{config.database}/", Delimiter="/"
     )
 
     if "CommonPrefixes" not in backups:
@@ -149,11 +152,11 @@ def run_backup(
     latest_backup: Optional[Backup],
 ):
     """
-    Backup ClickHouse database / table to S3 using ClickHouse's native backup functionality.
+    Run the incremental or full backup and wait for it to finish.
     """
     if config.incremental:
         if not latest_backup:
-            raise ValueError("Latest backup not found and incremental backup requested")
+            raise ValueError("Latest backup not found and an incremental backup was requested")
 
     backup = Backup(
         id=context.run_id,
@@ -170,5 +173,8 @@ def run_backup(
 
 @dagster.job
 def backup_database():
+    """
+    Backup ClickHouse database / table to S3 using ClickHouse's native backup functionality.
+    """
     latest_backup = get_latest_backup()
     run_backup(latest_backup)
