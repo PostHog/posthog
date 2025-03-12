@@ -136,6 +136,10 @@ module.exports = {
                         name: 'clsx',
                         message: 'Do not directly import clsx. Use cn from lib/utils/css-classes.ts instead.',
                     },
+                    {
+                        name: 'tailwind-merge',
+                        message: 'Do not directly import twMerge. Use cn from lib/utils/css-classes.ts instead.',
+                    },
                 ],
             },
         ],

@@ -2,6 +2,7 @@ import './LemonButton.scss'
 
 import { IconChevronDown } from '@posthog/icons'
 import { IconChevronRight } from 'lib/lemon-ui/icons'
+import { cn } from 'lib/utils/css-classes'
 import React, { useContext } from 'react'
 
 import { LemonDropdown, LemonDropdownProps } from '../LemonDropdown'
