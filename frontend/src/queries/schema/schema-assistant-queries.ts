@@ -430,6 +430,40 @@ export interface AssistantFunnelsQuery extends AssistantInsightsQueryBase {
     aggregation_group_type_index?: integer
 }
 
+export interface AssistantRetentionEventsNode {
+    type: 'events'
+    /**
+     * Event name from the plan.
+     */
+    name: string
+    /**
+     * Custom name for the event if it is needed to be renamed.
+     */
+    custom_name?: string
+    /**
+     * Property filters for the event.
+     */
+    properties?: AssistantPropertyFilter[]
+}
+
+export interface AssistantRetentionActionsNode {
+    type: 'actions'
+    /**
+     * Action ID from the plan.
+     */
+    id: number
+    /**
+     * Action name from the plan.
+     */
+    name: string
+    /**
+     * Property filters for the action.
+     */
+    properties?: AssistantPropertyFilter[]
+}
+
+export type AssistantRetentionEntity = AssistantRetentionEventsNode | AssistantRetentionActionsNode
+
 export interface AssistantRetentionFilter {
     /**
      * Retention type: recurring or first time.
@@ -444,9 +478,9 @@ export interface AssistantRetentionFilter {
      */
     totalIntervals?: integer
     /** Retention event (event marking the user coming back). */
-    returningEntity?: RetentionFilterLegacy['returning_entity']
+    returningEntity: AssistantRetentionEntity
     /** Activation event (event putting the actor into the initial cohort). */
-    targetEntity?: RetentionFilterLegacy['target_entity']
+    targetEntity: AssistantRetentionEntity
     /**
      * Retention period, the interval to track cohorts by.
      * @default Day

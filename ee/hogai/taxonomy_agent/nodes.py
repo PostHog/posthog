@@ -23,6 +23,7 @@ from ee.hogai.taxonomy_agent.parsers import (
 )
 from ee.hogai.taxonomy_agent.prompts import (
     CORE_MEMORY_INSTRUCTIONS,
+    REACT_ACTIONS_PROMPT,
     REACT_DEFINITIONS_PROMPT,
     REACT_FOLLOW_UP_PROMPT,
     REACT_FORMAT_PROMPT,
@@ -100,6 +101,7 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                         "project_timezone": self.project_timezone,
                         "project_name": self._team.name,
                         "actions": state.rag_context,
+                        "actions_prompt": REACT_ACTIONS_PROMPT,
                     },
                     config,
                 ),

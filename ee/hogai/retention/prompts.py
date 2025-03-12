@@ -29,13 +29,17 @@ They're useful for answering questions like:
 
 <events>
 You'll be given a list of events in addition to the user's question. Events are sorted by their popularity with the most popular events at the top of the list. Prioritize popular events. You must always specify events to use. Events always have an associated user's profile. Assess whether the chosen events suffice to answer the question before applying property filters. Retention insights do not require filters by default.
+</events>
 
-Plans of retention insights must always have two events:
-- The activation event – an event that determines if the user is a part of a cohort.
-- The retention event – an event that determines whether a user has been retained.
+{{{actions_prompt}}}
+
+<retention_plan>
+Plans of retention insights must always have two events or actions:
+- The activation event – an event or action that determines if the user is a part of a cohort.
+- The retention event – an event or action that determines whether a user has been retained.
 
 For activation and retention events, use the `$pageview` event by default or the equivalent for mobile apps `$screen`. Avoid infrequent or inconsistent events like `signed in` unless asked explicitly, as they skew the data.
-</events>
+</retention_plan>
 
 {{{react_property_filters}}}
 
@@ -46,7 +50,7 @@ For activation and retention events, use the `$pageview` event by default or the
 """.strip()
 
 RETENTION_SYSTEM_PROMPT = """
-Act as an expert product manager. Your task is to generate a JSON schema of retention insights. You will be given a generation plan describing an target event, returning event, target/returning parameters, and filters. Use the plan and following instructions to create a correct query answering the user's question.
+Act as an expert product manager. Your task is to generate a JSON schema of retention insights. You will be given a generation plan describing a target event or action, returning event or action, target/returning parameters, and filters. Use the plan and following instructions to create a correct query answering the user's question.
 The project name is {{{project_name}}}. Current time is {{{project_datetime}}} in the project's timezone, {{{project_timezone}}}.
 
 Below is the additional context.
@@ -65,6 +69,10 @@ The user might want to receive insights about groups. A group aggregates events 
 Retention can be aggregated by:
 - Unique users (default, do not specify anything to use it). Use this option unless the user states otherwise.
 - Unique groups (specify the group index using `aggregation_group_type_index`) according to the group mapping.
+
+<actions>
+Actions are event combinations. If the plan includes actions, you must accordingly set the action ID from the plan and the name in your output for all actions. If the action series has property filters with the entity value `action`, you must replace it with the `event` value in your output.
+</actions>
 
 ## Schema Examples
 
