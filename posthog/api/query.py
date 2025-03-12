@@ -129,6 +129,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 execution_mode=execution_mode,
                 query_id=client_query_id,
                 user=request.user,
+                is_query_service=True,
             )
             if isinstance(result, BaseModel):
                 result = result.model_dump(by_alias=True)

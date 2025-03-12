@@ -162,7 +162,6 @@ export const PlanCard: React.FC<PlanCardProps> = ({ planData, product, highlight
                                 to={getUpgradeProductLink({
                                     product,
                                     redirectPath,
-                                    includeAddons: true,
                                 })}
                                 type="primary"
                                 status={highlight ? 'alt' : undefined}

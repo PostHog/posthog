@@ -139,7 +139,7 @@ def _send_via_http(
                     "message_data": properties,
                 }
 
-                response = requests.post("https://api.customer.io/v1/send/email", headers=headers, json=payload)
+                response = requests.post(f"{settings.CUSTOMER_IO_API_URL}/v1/send/email", headers=headers, json=payload)
 
                 if response.status_code != 200:
                     raise Exception(f"Customer.io API error: {response.status_code} - {response.text}")

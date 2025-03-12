@@ -14,6 +14,7 @@ import DataGrid, { CellClickArgs } from 'react-data-grid'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
 
+import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
@@ -321,7 +322,7 @@ export function OutputPane(): JSX.Element {
                 </BindLogic>
             </div>
             <div className="flex justify-between px-2 border-t">
-                <div>{response ? <LoadPreviewText /> : <></>}</div>
+                <div>{response && !responseError ? <LoadPreviewText /> : <></>}</div>
                 <ElapsedTime />
             </div>
             <RowDetailsModal
@@ -387,7 +388,7 @@ function InternalDataTableVisualization(
 
 const ErrorState = ({ responseError, sourceQuery, queryCancelled, response }: any): JSX.Element | null => {
     return (
-        <div className={clsx('flex-1 absolute top-0 left-0 right-0 bottom-0 overflow-scroll')}>
+        <div className={clsx('flex-1 absolute top-0 left-0 right-0 bottom-0')}>
             <InsightErrorState
                 query={sourceQuery}
                 excludeDetail
@@ -436,11 +437,13 @@ const Content = ({
 
         return responseLoading ? (
             <div className="flex flex-1 p-2 w-full justify-center items-center">
-                <StatelessInsightLoadingState queryId={queryId} pollResponse={pollResponse} />
+                <StatelessInsightLoadingState queryId={queryId} pollResponse={pollResponse} spinner />
             </div>
         ) : !response ? (
             <div className="flex flex-1 justify-center items-center">
-                <span className="text-secondary mt-3">Query results will appear here</span>
+                <span className="text-secondary mt-3">
+                    Query results will appear here. Press <KeyboardShortcut command enter /> to run the query.
+                </span>
             </div>
         ) : (
             <TabScroller>

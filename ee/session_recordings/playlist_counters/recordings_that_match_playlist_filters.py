@@ -5,7 +5,7 @@ import posthoganalytics
 from celery import shared_task
 from django.conf import settings
 from prometheus_client import Counter, Histogram
-
+from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.session_recordings.session_recording_playlist_api import PLAYLIST_COUNT_REDIS_PREFIX
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.session_recordings.session_recording_api import list_recordings_from_query, filter_from_params_to_query
@@ -245,6 +245,15 @@ def convert_filters_to_recordings_query(playlist: SessionRecordingPlaylist) -> R
     # limit how many run per worker instance - if we have 10 workers, this will run 600 times per hour
     rate_limit="60/h",
     expires=TASK_EXPIRATION_TIME,
+    autoretry_for=(CHQueryErrorTooManySimultaneousQueries,),
+    # will retry twice, once after 120 seconds (with jitter)
+    # and once after 240 seconds (with jitter)
+    # will be retried again on the next run anyway
+    # so does not need many retries here
+    retry_jitter=True,
+    retry_backoff=120,
+    max_retries=2,
+    store_errors_even_if_ignored=True,
 )
 def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
     playlist: SessionRecordingPlaylist | None = None

@@ -76,6 +76,7 @@ export interface LemonSelectPropsBase<T>
     placeholder?: string
     size?: LemonButtonProps['size']
     menu?: Pick<LemonMenuProps, 'className' | 'closeParentPopoverOnClickInside'>
+    visible?: boolean
 }
 
 export interface LemonSelectPropsClearable<T> extends LemonSelectPropsBase<T> {
@@ -112,6 +113,7 @@ export function LemonSelect<T extends string | number | boolean | null>({
     className,
     menu,
     renderButtonContent,
+    visible,
     ...buttonProps
 }: LemonSelectProps<T>): JSX.Element {
     const [items, allLeafOptions] = useMemo(
@@ -140,6 +142,7 @@ export function LemonSelect<T extends string | number | boolean | null>({
                 .flatMap((i) => (isLemonMenuSection(i) ? i.items.filter(Boolean) : i))
                 .findIndex((i) => (i as LemonMenuItem).active)}
             closeParentPopoverOnClickInside={menu?.closeParentPopoverOnClickInside}
+            visible={visible}
         >
             <LemonButton
                 className={clsx(className, 'LemonSelect')}

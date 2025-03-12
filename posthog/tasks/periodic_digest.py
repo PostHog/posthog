@@ -4,13 +4,14 @@ from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
 import structlog
-from celery import shared_task
+from celery import shared_task, current_task
 from dateutil import parser
 from django.db.models import QuerySet
 from django.utils import timezone
 from posthoganalytics.client import Client
-from posthog.exceptions_capture import capture_exception
 
+from posthog.clickhouse.query_tagging import tag_queries
+from posthog.exceptions_capture import capture_exception
 from posthog.models.dashboard import Dashboard
 from posthog.models.event_definition import EventDefinition
 from posthog.models.experiment import Experiment
@@ -270,6 +271,9 @@ def send_all_periodic_digest_reports(
         else datetime.now(tz=ZoneInfo("UTC")).replace(hour=0, minute=0, second=0, microsecond=0)
     )
     period_start = parser.parse(begin_date) if begin_date else period_end - timedelta(days=7)
+
+    if current_task and current_task.request:
+        tag_queries(celery_request_id=current_task.request.id)
 
     try:
         org_reports = _get_all_org_digest_reports(period_start, period_end)
