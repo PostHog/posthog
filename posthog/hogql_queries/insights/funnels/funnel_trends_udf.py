@@ -54,9 +54,8 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelTrends):
     # This is the function that calls the UDF
     # This is used by both the query itself and the actors query
     def _inner_aggregation_query(self):
-        # If they're asking for a "to_step" just truncate the funnel
         funnelsFilter = self.context.funnelsFilter
-        max_steps = self.context.max_steps if funnelsFilter.funnelToStep is None else funnelsFilter.funnelToStep + 1
+        max_steps = self.context.max_steps
         self.context.max_steps_override = max_steps
 
         if self.context.funnelsFilter.funnelOrderType == "strict":
@@ -93,6 +92,7 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelTrends):
         breakdown_attribution_string = f"{self.context.breakdownAttributionType}{f'_{self.context.funnelsFilter.breakdownAttributionValue}' if self.context.breakdownAttributionType == BreakdownAttributionType.STEP else ''}"
 
         from_step = funnelsFilter.funnelFromStep or 0
+        to_step = max_steps if funnelsFilter.funnelToStep is None else funnelsFilter.funnelToStep + 1
 
         inner_select = cast(
             ast.SelectQuery,
@@ -108,6 +108,7 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelTrends):
                 ))) as events_array,
                 arrayJoin({fn}(
                     {from_step},
+                    {to_step},
                     {max_steps},
                     {self.conversion_window_limit()},
                     '{breakdown_attribution_string}',
