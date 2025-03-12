@@ -41,7 +41,7 @@ export interface ComparisonResult {
     }
 }
 
-const PROPERTY_DIFFS_TO_IGNORE = new Set(['sent_at'])
+const PROPERTY_DIFFS_TO_IGNORE = new Set(['sentAt'])
 
 export class HttpCallRecorder {
     private calls: RecordedHttpCall[] = []
