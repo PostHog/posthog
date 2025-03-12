@@ -318,7 +318,7 @@ export const SidePanelSupport = (): JSX.Element => {
                                 </FlaggedFeature>
                             ) : null}
 
-                            {isCloud || true ? (
+                            {isCloud ? (
                                 <FlaggedFeature flag={FEATURE_FLAGS.INKEEP_MAX_SUPPORT_SIDEBAR} match={true}>
                                     <Section title="Ask Max the Hedgehog">
                                         <>
