@@ -90,7 +90,6 @@ export enum NodeKind {
     StickinessQuery = 'StickinessQuery',
     LifecycleQuery = 'LifecycleQuery',
     InsightActorsQuery = 'InsightActorsQuery',
-    InsightEventsQuery = 'InsightEventsQuery',
     InsightActorsQueryOptions = 'InsightActorsQueryOptions',
     FunnelCorrelationQuery = 'FunnelCorrelationQuery',
 
@@ -132,7 +131,6 @@ export type AnyDataNode =
     | ActorsQuery
     | InsightActorsQuery
     | InsightActorsQueryOptions
-    | InsightEventsQuery
     | SessionsTimelineQuery
     | HogQuery
     | HogQLQuery
@@ -165,7 +163,6 @@ export type QuerySchema =
     | ActorsQuery
     | InsightActorsQuery
     | InsightActorsQueryOptions
-    | InsightEventsQuery
     | SessionsTimelineQuery
     | HogQuery
     | HogQLQuery
@@ -607,6 +604,8 @@ export interface EventsQueryPersonColumn {
 
 export interface EventsQuery extends DataNode<EventsQueryResponse> {
     kind: NodeKind.EventsQuery
+    /** source for querying events for insights */
+    source?: TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery
     /** Return a limited set of data. Required. */
     select: HogQLExpression[]
     /** HogQL filters to apply on returned data */
@@ -669,7 +668,6 @@ export interface DataTableNode
                     | EventsQuery
                     | PersonsNode
                     | ActorsQuery
-                    | InsightEventsQuery
                     | HogQLQuery
                     | WebOverviewQuery
                     | WebStatsTableQuery
@@ -694,7 +692,6 @@ export interface DataTableNode
         | EventsQuery
         | PersonsNode
         | ActorsQuery
-        | InsightEventsQuery
         | HogQLQuery
         | WebOverviewQuery
         | WebStatsTableQuery
@@ -2034,19 +2031,6 @@ export interface InsightActorsQuery<S extends InsightsQueryBase<AnalyticsQueryRe
     series?: integer
     breakdown?: string | BreakdownValueInt | string[]
     compare?: 'current' | 'previous'
-}
-
-export interface InsightEventsQuery extends DataNode<ActorsQueryResponse> {
-    kind: NodeKind.InsightEventsQuery
-    source: TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery
-    day?: string | Day
-    status?: string
-    /** An interval selected out of available intervals in source query. */
-    interval?: integer
-    series?: integer
-    breakdown?: string | BreakdownValueInt | string[]
-    compare?: 'current' | 'previous'
-    modifiers?: HogQLQueryModifiers
 }
 
 export interface StickinessActorsQuery extends InsightActorsQuery {

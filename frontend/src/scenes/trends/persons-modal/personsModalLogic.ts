@@ -20,7 +20,6 @@ import {
     InsightActorsQueryOptions,
     InsightActorsQueryOptionsResponse,
     insightActorsQueryOptionsResponseKeys,
-    InsightEventsQuery,
     NodeKind,
 } from '~/queries/schema/schema-general'
 import {
@@ -377,14 +376,13 @@ export const personsModalLogic = kea<personsModalLogicType>([
 
                 const { includeRecordings, ...insightActorsQuery } = source.source as InsightActorsQuery
 
-                const insightEventsQuery: InsightEventsQuery = {
-                    ...insightActorsQuery,
-                    kind: NodeKind.InsightEventsQuery,
-                }
-
                 const query: DataTableNode = {
                     kind: NodeKind.DataTableNode,
-                    source: insightEventsQuery,
+                    source: {
+                        kind: NodeKind.EventsQuery,
+                        source: insightActorsQuery.source,
+                        select: ['*', 'event', 'person', 'timestamp'],
+                    },
                     full: true,
                 }
 

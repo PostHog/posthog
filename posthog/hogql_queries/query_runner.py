@@ -267,16 +267,6 @@ def get_query_runner(
             limit_context=limit_context,
             modifiers=modifiers,
         )
-    if kind == "InsightEventsQuery":
-        from .insights.insight_events_query_runner import InsightEventsQueryRunner
-
-        return InsightEventsQueryRunner(
-            query=cast(InsightActorsQuery | dict[str, Any], query),
-            team=team,
-            timings=timings,
-            limit_context=limit_context,
-            modifiers=modifiers,
-        )
     if kind == "FunnelCorrelationQuery":
         from .insights.funnels.funnel_correlation_query_runner import (
             FunnelCorrelationQueryRunner,

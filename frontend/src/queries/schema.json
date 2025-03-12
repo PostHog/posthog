@@ -342,9 +342,6 @@
                     "$ref": "#/definitions/InsightActorsQueryOptions"
                 },
                 {
-                    "$ref": "#/definitions/InsightEventsQuery"
-                },
-                {
                     "$ref": "#/definitions/SessionsTimelineQuery"
                 },
                 {
@@ -5774,9 +5771,6 @@
                             "$ref": "#/definitions/ActorsQuery"
                         },
                         {
-                            "$ref": "#/definitions/InsightEventsQuery"
-                        },
-                        {
                             "$ref": "#/definitions/HogQLQuery"
                         },
                         {
@@ -7087,6 +7081,29 @@
                         "$ref": "#/definitions/HogQLExpression"
                     },
                     "type": "array"
+                },
+                "source": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/TrendsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/FunnelsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/RetentionQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/PathsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/StickinessQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/LifecycleQuery"
+                        }
+                    ],
+                    "description": "source for querying events for insights"
                 },
                 "where": {
                     "description": "HogQL filters to apply on returned data",
@@ -9468,86 +9485,6 @@
             },
             "type": "object"
         },
-        "InsightEventsQuery": {
-            "additionalProperties": false,
-            "properties": {
-                "breakdown": {
-                    "anyOf": [
-                        {
-                            "type": "string"
-                        },
-                        {
-                            "$ref": "#/definitions/BreakdownValueInt"
-                        },
-                        {
-                            "items": {
-                                "type": "string"
-                            },
-                            "type": "array"
-                        }
-                    ]
-                },
-                "compare": {
-                    "enum": ["current", "previous"],
-                    "type": "string"
-                },
-                "day": {
-                    "anyOf": [
-                        {
-                            "type": "string"
-                        },
-                        {
-                            "$ref": "#/definitions/Day"
-                        }
-                    ]
-                },
-                "interval": {
-                    "$ref": "#/definitions/integer",
-                    "description": "An interval selected out of available intervals in source query."
-                },
-                "kind": {
-                    "const": "InsightEventsQuery",
-                    "type": "string"
-                },
-                "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers",
-                    "description": "Modifiers used when performing the query"
-                },
-                "response": {
-                    "$ref": "#/definitions/ActorsQueryResponse"
-                },
-                "series": {
-                    "$ref": "#/definitions/integer"
-                },
-                "source": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/TrendsQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/FunnelsQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/RetentionQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/PathsQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/StickinessQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/LifecycleQuery"
-                        }
-                    ]
-                },
-                "status": {
-                    "type": "string"
-                }
-            },
-            "required": ["kind", "source"],
-            "type": "object"
-        },
         "InsightFilter": {
             "anyOf": [
                 {
@@ -10376,7 +10313,6 @@
                 "StickinessQuery",
                 "LifecycleQuery",
                 "InsightActorsQuery",
-                "InsightEventsQuery",
                 "InsightActorsQueryOptions",
                 "FunnelCorrelationQuery",
                 "WebOverviewQuery",
@@ -13251,9 +13187,6 @@
                 },
                 {
                     "$ref": "#/definitions/InsightActorsQueryOptions"
-                },
-                {
-                    "$ref": "#/definitions/InsightEventsQuery"
                 },
                 {
                     "$ref": "#/definitions/SessionsTimelineQuery"
