@@ -61,7 +61,7 @@ defs = dagster.Definitions(
         materialized_columns.materialize_column,
         person_overrides.cleanup_orphaned_person_overrides_snapshot,
         person_overrides.squash_person_overrides,
-        backup_clickhouse.backup_database,
+        backup_clickhouse.backup_clickhouse,
     ],
     schedules=[
         exchange_rate.daily_exchange_rates_schedule,
