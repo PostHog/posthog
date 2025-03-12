@@ -665,6 +665,19 @@ class DataColorToken(StrEnum):
     PRESET_15 = "preset-15"
 
 
+class Type(StrEnum):
+    EVENT_DEFINITION = "event_definition"
+    TEAM_COLUMNS = "team_columns"
+
+
+class Context(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    eventDefinitionId: Optional[str] = None
+    type: Type
+
+
 class DataWarehouseEventsModifier(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -698,7 +711,7 @@ class DatabaseSchemaSource(BaseModel):
     status: str
 
 
-class Type(StrEnum):
+class Type1(StrEnum):
     POSTHOG = "posthog"
     DATA_WAREHOUSE = "data_warehouse"
     VIEW = "view"
@@ -824,7 +837,7 @@ class ErrorTrackingIssueAggregations(BaseModel):
     volumeMonth: list[float]
 
 
-class Type1(StrEnum):
+class Type2(StrEnum):
     USER_GROUP = "user_group"
     USER = "user"
 
@@ -1560,6 +1573,19 @@ class SamplingRate(BaseModel):
     )
     denominator: Optional[float] = None
     numerator: float
+
+
+class Type3(StrEnum):
+    EVENT_DEFINITION = "event_definition"
+    TEAM_COLUMNS = "team_columns"
+
+
+class Context1(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    eventDefinitionId: Optional[str] = None
+    type: Type3
 
 
 class SessionAttributionGroupBy(StrEnum):
@@ -2358,7 +2384,7 @@ class DatabaseSchemaTableCommon(BaseModel):
     fields: dict[str, DatabaseSchemaField]
     id: str
     name: str
-    type: Type
+    type: Type1
 
 
 class Day(RootModel[int]):
@@ -2381,7 +2407,7 @@ class ErrorTrackingIssueAssignee(BaseModel):
         extra="forbid",
     )
     id: Union[str, int]
-    type: Type1
+    type: Type2
 
 
 class ErrorTrackingRelationalIssue(BaseModel):
@@ -2824,6 +2850,9 @@ class SavedInsightNode(BaseModel):
     )
     allowSorting: Optional[bool] = Field(
         default=None, description="Can the user click on column headers to sort the table? (default: true)"
+    )
+    context: Optional[Context1] = Field(
+        default=None, description="Context for the table, used by components like ColumnConfigurator"
     )
     embedded: Optional[bool] = Field(default=None, description="Query is embedded inside another bordered component")
     expandable: Optional[bool] = Field(
@@ -8338,6 +8367,9 @@ class DataTableNode(BaseModel):
     )
     columns: Optional[list[str]] = Field(
         default=None, description="Columns shown in the table, unless the `source` provides them."
+    )
+    context: Optional[Context] = Field(
+        default=None, description="Context for the table, used by components like ColumnConfigurator"
     )
     embedded: Optional[bool] = Field(default=None, description="Uses the embedded version of LemonTable")
     expandable: Optional[bool] = Field(
