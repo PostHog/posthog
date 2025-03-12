@@ -4537,7 +4537,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sourcemap 9.1.2",
- "tempfile",
  "test-log",
  "tracing",
  "tracing-subscriber",

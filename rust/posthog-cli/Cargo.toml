@@ -35,7 +35,6 @@ sourcemap = "9.1.2"
 magic_string = "0.3.4"
 
 [dev-dependencies]
-tempfile = "3.18.0"
 test-log = "0.2.17"
 
 [lints]
