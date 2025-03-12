@@ -395,17 +395,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     }
                 })
                 actions.setLocalState(editorModelsStateKey(props.key), JSON.stringify(queries))
-
-                dataNodeLogic({
-                    key: tabToRemove.uri.path,
-                    query: values.sourceQuery.source,
-                    localCache: true,
-                }).actions.setCachedQuery(null)
-                dataNodeLogic({
-                    key: tabToRemove.uri.path,
-                    query: values.sourceQuery.source,
-                    localCache: true,
-                }).actions.setCachedResponse(null)
             }
         },
         setLocalState: ({ key, value }) => {
@@ -675,7 +664,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             if (props.monaco) {
                 const _model = props.monaco.editor.getModel(activeModelUri.uri)
                 const val = _model?.getValue()
-
                 actions.setQueryInput(val ?? '')
                 actions.setSourceQuery({
                     ...values.sourceQuery,
