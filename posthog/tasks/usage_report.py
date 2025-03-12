@@ -84,7 +84,9 @@ class UsageReportCounters:
 
     # Recordings
     recording_count_in_period: int
+    recording_bytes_in_period: int
     mobile_recording_count_in_period: int
+    mobile_recording_bytes_in_period: int
     mobile_billable_recording_count_in_period: int
     # Persons and Groups
     group_types_total: int
