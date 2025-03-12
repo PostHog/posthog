@@ -72,8 +72,6 @@ export interface DataVisualizationLogicProps {
     loadPriority?: number
     /** Dashboard variables to override the ones in the query */
     variablesOverride?: Record<string, HogQLVariable> | null
-    /** Whether to use local cache for the response. */
-    localCache?: boolean
 }
 
 export interface SelectedYAxis {
@@ -233,9 +231,8 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 dataNodeCollectionId: props.dataNodeCollectionId,
                 loadPriority: props.loadPriority,
                 variablesOverride: props.variablesOverride,
-                localCache: props.localCache,
             }),
-            ['response', 'cachedResponse', 'responseLoading', 'responseError', 'queryCancelled'],
+            ['response', 'responseLoading', 'responseError', 'queryCancelled'],
             themeLogic,
             ['isDarkModeOn'],
         ],
@@ -247,7 +244,6 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 dataNodeCollectionId: props.dataNodeCollectionId,
                 loadPriority: props.loadPriority,
                 variablesOverride: props.variablesOverride,
-                localCache: props.localCache,
             }),
             ['loadData'],
         ],
