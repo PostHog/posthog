@@ -10,6 +10,7 @@ describe('SessionMetadataStore', () => {
     beforeEach(() => {
         mockProducer = {
             queueMessages: jest.fn().mockResolvedValue(undefined),
+            flush: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<KafkaProducerWrapper>
 
         store = new SessionMetadataStore(mockProducer)
@@ -98,6 +99,8 @@ describe('SessionMetadataStore', () => {
         expect(queuedMessages[0].key).toEqual('session123')
         expect(queuedMessages[1].key).toEqual('different456')
         expect(queuedMessages[2].key).toEqual('session123')
+
+        expect(mockProducer.flush).toHaveBeenCalledTimes(1)
     })
 
     it('should handle empty blocks array', async () => {
@@ -106,6 +109,7 @@ describe('SessionMetadataStore', () => {
             topic: 'clickhouse_session_replay_events_v2_test_test',
             messages: [],
         })
+        expect(mockProducer.flush).toHaveBeenCalledTimes(1)
     })
 
     it('should handle producer errors', async () => {
@@ -148,6 +152,7 @@ describe('SessionMetadataStore', () => {
         const parsedEvent = JSON.parse(queuedMessage.messages[0].value as string)
         expect(parsedEvent.block_url).toBeNull()
         expect(parsedEvent.distinct_id).toBe('user1')
+        expect(mockProducer.flush).toHaveBeenCalledTimes(1)
     })
 
     it('should preserve batch IDs when storing blocks', async () => {
@@ -181,5 +186,28 @@ describe('SessionMetadataStore', () => {
 
         expect(parsedEvents[0].batch_id).toBe('batch1')
         expect(parsedEvents[1].batch_id).toBe('batch2')
+        expect(mockProducer.flush).toHaveBeenCalledTimes(1)
+    })
+
+    it('should handle flush errors', async () => {
+        const error = new Error('Kafka flush error')
+        mockProducer.flush.mockRejectedValueOnce(error)
+
+        const blocks = [
+            {
+                sessionId: 'session1',
+                teamId: 1,
+                distinctId: 'user1',
+                batchId: 'batch1',
+                blockLength: 100,
+                startDateTime: DateTime.fromISO('2025-01-01T10:00:00.000Z'),
+                endDateTime: DateTime.fromISO('2025-01-01T10:00:02.000Z'),
+                blockUrl: 's3://bucket/file1',
+            },
+        ]
+
+        await expect(store.storeSessionBlocks(blocks)).rejects.toThrow(error)
+        expect(mockProducer.queueMessages).toHaveBeenCalled()
+        expect(mockProducer.flush).toHaveBeenCalledTimes(1)
     })
 })
