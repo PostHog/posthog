@@ -9,7 +9,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0683_externaldataschema_sync_time_of_day"),
+        ("posthog", "0684_action_embedding_last_synced_at_and_more"),
     ]
 
     operations = [
