@@ -44,10 +44,6 @@ pub enum SourcemapCommand {
         /// The directory containing the bundled chunks
         #[arg(short, long)]
         directory: PathBuf,
-
-        /// Where to write the injected chunks. If not provided, the original files will be overwritten
-        #[arg(short, long)]
-        output: Option<PathBuf>,
     },
     /// Upload the bundled chunks to PostHog
     Upload {
@@ -70,8 +66,8 @@ impl Cli {
                 login::login()?;
             }
             Commands::Sourcemap { cmd } => match cmd {
-                SourcemapCommand::Inject { directory, output } => {
-                    sourcemap::inject::inject(directory, output)?;
+                SourcemapCommand::Inject { directory } => {
+                    sourcemap::inject::inject(directory)?;
                 }
                 SourcemapCommand::Upload { directory, build } => {
                     sourcemap::upload::upload(&command.host, directory, build)?;

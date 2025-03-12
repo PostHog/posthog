@@ -79,13 +79,15 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
     entry_url AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
     exit_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
-
     initial_referring_domain AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+
     initial_utm_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
     initial_utm_campaign AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
     initial_utm_medium AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
     initial_utm_term AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
     initial_utm_content AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+
+    -- Other Ad / campaign / attribution IDs
     initial_gclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
     initial_gad_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
     initial_gclsrc AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
