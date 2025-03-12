@@ -54,8 +54,7 @@ const DEFAULT_ENTERED_TIMESTAMP: EnteredTimestamp = EnteredTimestamp {
     uuids: vec![],
 };
 
-pub fn process_line(line: &str) -> Vec<Result> {
-    let args = parse_args(line);
+pub fn process_line(args: Args) -> Vec<Result> {
     if args.funnel_order_type == "unordered" {
         let mut aggregate_funnel_row = AggregateFunnelRowUnordered {
             breakdown_step: Option::None,
@@ -68,16 +67,6 @@ pub fn process_line(line: &str) -> Vec<Result> {
     };
     let result = aggregate_funnel_row.calculate_funnel_from_user_events(&args);
     result
-}
-
-#[inline(always)]
-fn parse_args(line: &str) -> Args {
-    // Try to parse as MessagePack first
-    match rmp_serde::from_slice(line.as_bytes()) {
-        Ok(args) => args,
-        // Fall back to JSON if MessagePack parsing fails
-        Err(_) => serde_json::from_str(line).expect("Invalid input format")
-    }
 }
 
 impl AggregateFunnelRow {

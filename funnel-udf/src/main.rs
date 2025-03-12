@@ -7,7 +7,6 @@ use serde::{Deserialize, Serialize};
 use std::env;
 use std::io::{self, BufRead, Write};
 use rmp_serde;
-use serde_json::json;
 
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
@@ -21,36 +20,42 @@ enum PropVal {
 fn main() {
     let args: Vec<String> = env::args().collect();
     let arg = args.get(1).map(|x| x.as_str());
-    let use_json = args.get(2).map_or(false, |x| x == "--json");
 
     let stdin = io::stdin();
     let mut stdout = io::stdout();
+    let mut stdin = stdin.lock();
 
-    for line in stdin.lock().lines() {
-        if let Ok(line) = line {
-            // Handle different return types from trends and steps
-            if arg == Some("trends") {
-                let output = trends::process_line(&line);
-                if !use_json {
+    if arg == Some("trends") {
+        loop {
+            match rmp_serde::from_read(&mut stdin) {
+                Ok(value) => {
+                    let output = trends::process_line(value);
                     // Serialize to MessagePack
                     let bytes = rmp_serde::to_vec(&output).unwrap();
                     stdout.write_all(&bytes).unwrap();
-                } else {
-                    // Use JSON
-                    writeln!(stdout, "{}", json!({"result": output})).unwrap();
+                    stdout.flush().unwrap();
                 }
-            } else {
-                let output = steps::process_line(&line);
-                if !use_json {
-                    // Serialize to MessagePack
-                    let bytes = rmp_serde::to_vec(&output).unwrap();
-                    stdout.write_all(&bytes).unwrap();
-                } else {
-                    // Use JSON
-                    writeln!(stdout, "{}", json!({"result": output})).unwrap();
+                Err(e) => {
+                    // End of input or error
+                    break;
                 }
             }
-            stdout.flush().unwrap();
+        }
+    } else {
+        loop {
+            match rmp_serde::from_read(&mut stdin) {
+                Ok(value) => {
+                    let output = steps::process_line(value);
+                    // Serialize to MessagePack
+                    let bytes = rmp_serde::to_vec(&output).unwrap();
+                    stdout.write_all(&bytes).unwrap();
+                    stdout.flush().unwrap();
+                }
+                Err(e) => {
+                    // End of input or error
+                    break;
+                }
+            }
         }
     }
 }
