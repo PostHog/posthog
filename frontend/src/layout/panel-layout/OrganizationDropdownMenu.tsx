@@ -69,7 +69,7 @@ export function OrganizationDropdownMenu(): JSX.Element {
                         </IconWrapper>
                     }
                 >
-                    <span>{currentOrganization ? currentOrganization.name : 'Open'}</span>
+                    <span>{currentOrganization ? currentOrganization.name : 'Select organization'}</span>
                 </LemonButton>
             </DropdownMenuTrigger>
             <DropdownMenuContent loop align="start">
