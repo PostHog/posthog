@@ -193,7 +193,7 @@ export class LegacyPluginExecutorService {
                         setupPromise = plugin.setupPlugin({
                             ...meta,
                             // Setup receives the real fetch always
-                            fetch: fetch,
+                            fetch: this.fetch,
                             storage: this.legacyStorage(invocation.hogFunction.team_id, legacyPluginConfigId),
                         })
                     }
@@ -213,11 +213,6 @@ export class LegacyPluginExecutorService {
             }
 
             const start = performance.now()
-
-            status.info('⚡️', 'Executing plugin', {
-                pluginId,
-                invocationId: invocation.id,
-            })
 
             const person: ProcessedPluginEvent['person'] = invocation.globals.person
                 ? {
@@ -284,7 +279,7 @@ export class LegacyPluginExecutorService {
             }
 
             status.error('💩', 'Plugin errored', {
-                error: e,
+                error: e.message,
                 pluginId,
                 invocationId: invocation.id,
             })

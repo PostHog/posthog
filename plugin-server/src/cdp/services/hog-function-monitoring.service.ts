@@ -1,3 +1,5 @@
+import { Counter } from 'prom-client'
+
 import { runInstrumentedFunction } from '../../main/utils'
 import { AppMetric2Type, Hub, TimestampFormat } from '../../types'
 import { safeClickhouseString } from '../../utils/db/utils'
@@ -11,6 +13,12 @@ import {
 } from '../types'
 import { fixLogDeduplication } from '../utils'
 import { convertToCaptureEvent } from '../utils'
+
+export const counterHogFunctionMetric = new Counter({
+    name: 'cdp_hog_function_metric',
+    help: 'A function invocation was evaluated with an outcome',
+    labelNames: ['metric_kind', 'metric_name'],
+})
 
 export class HogFunctionMonitoringService {
     messagesToProduce: HogFunctionMessageToProduce[] = []
@@ -44,6 +52,8 @@ export class HogFunctionMonitoringService {
             ...metric,
             timestamp: castTimestampOrNow(null, TimestampFormat.ClickHouse),
         }
+
+        counterHogFunctionMetric.labels(metric.metric_kind, metric.metric_name).inc(appMetric.count)
 
         this.messagesToProduce.push({
             topic: this.hub.KAFKA_APP_METRICS_2,
