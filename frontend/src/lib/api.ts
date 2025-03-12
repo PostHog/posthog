@@ -753,12 +753,20 @@ class ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('error_tracking')
     }
 
+    public errorTrackingIssues(teamId?: TeamType['id']): ApiRequest {
+        return this.errorTracking(teamId).addPathComponent('issue')
+    }
+
     public errorTrackingIssue(id: ErrorTrackingIssue['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.errorTracking(teamId).addPathComponent('issue').addPathComponent(id)
+        return this.errorTrackingIssues(teamId).addPathComponent(id)
     }
 
     public errorTrackingIssueMerge(into: ErrorTrackingIssue['id']): ApiRequest {
         return this.errorTrackingIssue(into).addPathComponent('merge')
+    }
+
+    public errorTrackingIssueBulk(teamId?: TeamType['id']): ApiRequest {
+        return this.errorTrackingIssues(teamId).addPathComponent('bulk')
     }
 
     public errorTrackingAssignIssue(into: ErrorTrackingIssue['id']): ApiRequest {
@@ -2089,6 +2097,17 @@ const api = {
             assignee: ErrorTrackingIssue['assignee']
         ): Promise<{ content: string }> {
             return await new ApiRequest().errorTrackingAssignIssue(id).update({ data: { assignee } })
+        },
+
+        async bulkResolve(ids: ErrorTrackingIssue['id'][]): Promise<{ content: string }> {
+            return await new ApiRequest().errorTrackingIssueBulk().create({ data: { action: 'resolve', ids } })
+        },
+
+        async bulkAssign(
+            ids: ErrorTrackingIssue['id'][],
+            assignee: ErrorTrackingIssue['assignee']
+        ): Promise<{ content: string }> {
+            return await new ApiRequest().errorTrackingIssueBulk().create({ data: { action: 'assign', ids, assignee } })
         },
 
         async mergeInto(

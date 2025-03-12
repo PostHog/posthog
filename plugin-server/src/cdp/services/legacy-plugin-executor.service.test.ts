@@ -182,16 +182,7 @@ describe('LegacyPluginExecutorService', () => {
                   "$set_once": undefined,
                   "distinct_id": "distinct_id",
                   "event": "mycustomevent",
-                  "ip": undefined,
-                  "person": {
-                    "created_at": "",
-                    "properties": {
-                      "email": "test@posthog.com",
-                      "first_name": "Pumpkin",
-                    },
-                    "team_id": 2,
-                    "uuid": "uuid",
-                  },
+                  "ip": null,
                   "properties": {
                     "email": "test@posthog.com",
                   },
@@ -219,7 +210,7 @@ describe('LegacyPluginExecutorService', () => {
                   [
                     "https://track.customer.io/api/v1/customers/distinct_id",
                     {
-                      "body": "{"_update":false,"identifier":"distinct_id","email":"test@posthog.com"}",
+                      "body": "{"_update":false,"identifier":"distinct_id"}",
                       "headers": {
                         "Authorization": "Basic MTIzNDU2Nzg5MDpjaW8tdG9rZW4=",
                         "Content-Type": "application/json",
@@ -247,9 +238,38 @@ describe('LegacyPluginExecutorService', () => {
             expect(res.logs.map((l) => l.message)).toMatchInlineSnapshot(`
                 [
                   "Successfully authenticated with Customer.io. Completing setupPlugin.",
-                  "Detected email, test@posthog.com",
-                  "{"status":{},"existsAlready":false,"email":"test@posthog.com"}",
+                  "Detected email, null",
+                  "{"status":{},"existsAlready":false,"email":null}",
                   "true",
+                ]
+            `)
+        })
+
+        it('should mock out fetch if it is a test function', async () => {
+            jest.spyOn(customerIoPlugin, 'onEvent')
+
+            const invocation = createInvocation(fn, globals)
+            invocation.hogFunction.name = 'My function [CDP-TEST-HIDDEN]'
+            invocation.globals.event.event = 'mycustomevent'
+            invocation.globals.event.properties = {
+                email: 'test@posthog.com',
+            }
+
+            const res = await service.execute(invocation)
+
+            // NOTE: Setup call is not mocked
+            expect(mockFetch).toHaveBeenCalledTimes(1)
+
+            expect(customerIoPlugin.onEvent).toHaveBeenCalledTimes(1)
+
+            expect(forSnapshot(res.logs.map((l) => l.message))).toMatchInlineSnapshot(`
+                [
+                  "Successfully authenticated with Customer.io. Completing setupPlugin.",
+                  "Detected email, null",
+                  "{"status":{},"existsAlready":false,"email":null}",
+                  "true",
+                  "Fetch called but mocked due to test function",
+                  "Fetch called but mocked due to test function",
                 ]
             `)
         })
@@ -282,8 +302,8 @@ describe('LegacyPluginExecutorService', () => {
             expect(forSnapshot(res.logs.map((l) => l.message))).toMatchInlineSnapshot(`
                 [
                   "Successfully authenticated with Customer.io. Completing setupPlugin.",
-                  "Detected email, test@posthog.com",
-                  "{"status":{},"existsAlready":false,"email":"test@posthog.com"}",
+                  "Detected email, null",
+                  "{"status":{},"existsAlready":false,"email":null}",
                   "true",
                   "Plugin execution failed: Received a potentially intermittent error from the Customer.io API. Response 500: {}",
                 ]

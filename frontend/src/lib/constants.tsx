@@ -247,6 +247,9 @@ export const FEATURE_FLAGS = {
     ONBOARDING_NEW_INSTALLATION_STEP: 'onboarding-new-installation-step', // owner: @joshsny #team-growth
     WEB_ANALYTICS_TREND_VIZ_TOGGLE: 'web-analytics-trend-viz-toggle', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_HIDE_MODAL_ACTORS: 'web-analytics-hide-modal-actors', // owner: @lricoy #team-web-analytics
+    SUPPORT_FORM_IN_ONBOARDING: 'support-form-in-onboarding', // owner: @joshsny #team-growth
+    AI_SETUP_WIZARD: 'ai-setup-wizard', // owner: @joshsny #team-growth
+    CRM_BLOCKING_QUERIES: 'crm-blocking-queries', // owner: @danielbachhuber #team-crm
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
