@@ -30,7 +30,7 @@ use tokio::time::{sleep, timeout};
 use tracing::{error, info};
 
 pub type TeamId = i32;
-pub type ProjectId = i32;
+pub type ProjectId = i64;
 pub type PersonId = i32;
 pub type GroupTypeIndex = i32;
 pub type PostgresReader = Arc<dyn DatabaseClient + Send + Sync>;
