@@ -189,7 +189,7 @@ def run_backup(
 
 
 @dagster.job
-def backup_clickhouse():
+def backup():
     """
     Backup ClickHouse database / table to S3 using ClickHouse's native backup functionality.
     """
