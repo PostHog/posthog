@@ -542,7 +542,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         3,
         signatures=[
             ((DateType(), UnknownType()), DateType()),
-            ((StringType(), UnknownType()), DateType()),
+            ((StringType(), UnknownType(), DateType()), DateType()),
         ],
     ),
     "timeStampAdd": HogQLFunctionMeta("timeStampAdd", 2, 2),
