@@ -528,16 +528,13 @@ describe('SessionBatchRecorder', () => {
             ])
 
             let finishCalled = false
-            let commitCalled = false
+            let metadataStoreCalled = false
             let consoleLogFlushCalled = false
+            let commitCalled = false
 
             mockWriter.finish.mockImplementation(() => {
                 finishCalled = true
-                return Promise.resolve()
-            })
-
-            mockMetadataStore.storeSessionBlocks.mockImplementation(() => {
-                expect(finishCalled).toBe(true)
+                expect(metadataStoreCalled).toBe(false)
                 expect(consoleLogFlushCalled).toBe(false)
                 expect(commitCalled).toBe(false)
                 return Promise.resolve()
@@ -545,15 +542,21 @@ describe('SessionBatchRecorder', () => {
 
             mockConsoleLogStore.flush.mockImplementation(() => {
                 expect(finishCalled).toBe(true)
-                expect(consoleLogFlushCalled).toBe(false)
+                expect(metadataStoreCalled).toBe(false)
                 expect(commitCalled).toBe(false)
                 consoleLogFlushCalled = true
                 return Promise.resolve()
             })
 
-            mockOffsetManager.commit.mockImplementation(() => {
-                expect(finishCalled).toBe(true)
+            mockMetadataStore.storeSessionBlocks.mockImplementation(() => {
                 expect(consoleLogFlushCalled).toBe(true)
+                expect(commitCalled).toBe(false)
+                metadataStoreCalled = true
+                return Promise.resolve()
+            })
+
+            mockOffsetManager.commit.mockImplementation(() => {
+                expect(metadataStoreCalled).toBe(true)
                 expect(commitCalled).toBe(false)
                 commitCalled = true
                 return Promise.resolve()
@@ -562,6 +565,8 @@ describe('SessionBatchRecorder', () => {
             await recorder.record(message)
             await recorder.flush()
 
+            expect(mockWriter.finish).toHaveBeenCalledTimes(1)
+            expect(mockConsoleLogStore.flush).toHaveBeenCalledTimes(1)
             expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalledTimes(1)
             expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalledWith([
                 expect.objectContaining({
@@ -587,7 +592,6 @@ describe('SessionBatchRecorder', () => {
                     snapshotLibrary: null,
                 }),
             ])
-            expect(mockConsoleLogStore.flush).toHaveBeenCalledTimes(1)
             expect(mockOffsetManager.commit).toHaveBeenCalledTimes(1)
         })
 
@@ -606,9 +610,9 @@ describe('SessionBatchRecorder', () => {
             await recorder.record(message)
             await expect(recorder.flush()).rejects.toThrow(error)
 
-            expect(mockWriter.finish).toHaveBeenCalled()
-            expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalled()
-            expect(mockConsoleLogStore.flush).not.toHaveBeenCalled()
+            expect(mockWriter.finish).toHaveBeenCalledTimes(1)
+            expect(mockConsoleLogStore.flush).toHaveBeenCalledTimes(1)
+            expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalledTimes(1)
             expect(mockOffsetManager.commit).not.toHaveBeenCalled()
         })
 
@@ -627,9 +631,9 @@ describe('SessionBatchRecorder', () => {
             await recorder.record(message)
             await expect(recorder.flush()).rejects.toThrow(error)
 
-            expect(mockWriter.finish).toHaveBeenCalled()
-            expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalled()
-            expect(mockConsoleLogStore.flush).toHaveBeenCalled()
+            expect(mockWriter.finish).toHaveBeenCalledTimes(1)
+            expect(mockConsoleLogStore.flush).toHaveBeenCalledTimes(1)
+            expect(mockMetadataStore.storeSessionBlocks).not.toHaveBeenCalled()
             expect(mockOffsetManager.commit).not.toHaveBeenCalled()
         })
 

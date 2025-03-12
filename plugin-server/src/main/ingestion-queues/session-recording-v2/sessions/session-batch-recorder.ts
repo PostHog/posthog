@@ -227,8 +227,8 @@ export class SessionBatchRecorder {
             }
 
             await writer.finish()
-            await this.metadataStore.storeSessionBlocks(blockMetadata)
             await this.consoleLogStore.flush()
+            await this.metadataStore.storeSessionBlocks(blockMetadata)
             await this.offsetManager.commit()
 
             // Update metrics
