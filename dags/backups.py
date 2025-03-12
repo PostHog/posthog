@@ -74,7 +74,7 @@ class Backup:
 
         client.execute(query, query_id=f"{self.id}-{shard}")
 
-    def throw_on_error(self, client: Client) -> bool:
+    def throw_on_error(self, client: Client) -> None:
         rows = client.execute(
             f"""
             SELECT hostname(), argMax(status, event_time_microseconds), argMax(left(error, 200), event_time_microseconds)
