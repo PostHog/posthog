@@ -437,7 +437,7 @@ const Content = ({
 
         return responseLoading ? (
             <div className="flex flex-1 p-2 w-full justify-center items-center">
-                <StatelessInsightLoadingState queryId={queryId} pollResponse={pollResponse} spinner />
+                <StatelessInsightLoadingState queryId={queryId} pollResponse={pollResponse} />
             </div>
         ) : !response ? (
             <div className="flex flex-1 justify-center items-center">
