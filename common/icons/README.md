@@ -18,7 +18,8 @@ const Example = () => {
 
 ## Development
 
-`yarn dev`
+- Run: `turbo --filter=@posthog/icons dev`
+- Open: http://localhost:5173/
 
 ## Publishing to NPM
 
