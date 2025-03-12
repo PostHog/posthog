@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Any, Optional
 
 from dateutil import parser
+from django.conf import settings
 from django.db import close_old_connections
 from django.db.models import Prefetch
 from dlt.sources import DltSource
@@ -513,7 +514,8 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                 shutdown_monitor=shutdown_monitor,
             )
         elif model.pipeline.source_type == ExternalDataSource.Type.BIGQUERY:
-            from posthog.temporal.data_imports.pipelines.sql_database import bigquery_source
+            from posthog.temporal.data_imports.pipelines.bigquery.bigquery import bigquery_source
+            from posthog.temporal.data_imports.pipelines.sql_database import bigquery_source as sql_bigquery_source
 
             dataset_id = model.pipeline.job_inputs.get("dataset_id")
             project_id = model.pipeline.job_inputs.get("project_id")
@@ -552,23 +554,47 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
             )
 
             try:
-                source = bigquery_source(
-                    dataset_id=dataset_id,
-                    project_id=project_id,
-                    private_key=private_key,
-                    private_key_id=private_key_id,
-                    client_email=client_email,
-                    token_uri=token_uri,
-                    table_name=schema.name,
-                    bq_destination_table_id=destination_table,
-                    incremental_field=schema.sync_type_config.get("incremental_field")
-                    if schema.is_incremental
-                    else None,
-                    incremental_field_type=schema.sync_type_config.get("incremental_field_type")
-                    if schema.is_incremental
-                    else None,
-                    db_incremental_field_last_value=processed_incremental_last_value if schema.is_incremental else None,
-                )
+                if str(inputs.team_id) in settings.NEW_BIGQUERY_SOURCE_TEAM_IDS:
+                    source = bigquery_source(
+                        dataset_id=dataset_id,
+                        project_id=project_id,
+                        private_key=private_key,
+                        private_key_id=private_key_id,
+                        client_email=client_email,
+                        token_uri=token_uri,
+                        table_name=schema.name,
+                        is_incremental=schema.is_incremental,
+                        bq_destination_table_id=destination_table,
+                        incremental_field=schema.sync_type_config.get("incremental_field")
+                        if schema.is_incremental
+                        else None,
+                        incremental_field_type=schema.sync_type_config.get("incremental_field_type")
+                        if schema.is_incremental
+                        else None,
+                        db_incremental_field_last_value=processed_incremental_last_value
+                        if schema.is_incremental
+                        else None,
+                    )
+                else:
+                    source = sql_bigquery_source(
+                        dataset_id=dataset_id,
+                        project_id=project_id,
+                        private_key=private_key,
+                        private_key_id=private_key_id,
+                        client_email=client_email,
+                        token_uri=token_uri,
+                        table_name=schema.name,
+                        bq_destination_table_id=destination_table,
+                        incremental_field=schema.sync_type_config.get("incremental_field")
+                        if schema.is_incremental
+                        else None,
+                        incremental_field_type=schema.sync_type_config.get("incremental_field_type")
+                        if schema.is_incremental
+                        else None,
+                        db_incremental_field_last_value=processed_incremental_last_value
+                        if schema.is_incremental
+                        else None,
+                    )
 
                 _run(
                     job_inputs=job_inputs,
