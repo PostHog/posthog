@@ -3,6 +3,7 @@ use crate::PropVal;
 use std::collections::VecDeque;
 use std::iter::repeat;
 use uuid::Uuid;
+use rmp_serde;
 
 struct Vars {
     max_step: (usize, EnteredTimestamp),

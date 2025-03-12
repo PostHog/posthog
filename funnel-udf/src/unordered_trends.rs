@@ -3,6 +3,7 @@ use crate::PropVal;
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::iter::repeat;
+use rmp_serde;
 
 pub type ResultsMap = HashMap<u64, ResultStruct>;
 

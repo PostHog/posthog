@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::iter::repeat;
 use uuid::Uuid;
+use rmp_serde;
 
 #[derive(Clone, Deserialize)]
 pub struct EnteredTimestamp {
@@ -75,7 +76,12 @@ pub fn process_line(line: &str) -> Value {
 
 #[inline(always)]
 fn parse_args(line: &str) -> Args {
-    serde_json::from_str(line).expect("Invalid JSON input")
+    // Try to parse as MessagePack first
+    match rmp_serde::from_slice(line.as_bytes()) {
+        Ok(args) => args,
+        // Fall back to JSON if MessagePack parsing fails
+        Err(_) => serde_json::from_str(line).expect("Invalid input format")
+    }
 }
 
 impl AggregateFunnelRow {
