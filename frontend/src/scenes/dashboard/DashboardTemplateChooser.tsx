@@ -1,10 +1,10 @@
 import './DashboardTemplateChooser.scss'
 
 import { LemonTag } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { FallbackCoverImage } from 'lib/components/FallbackCoverImage/FallbackCoverImage'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { cn } from 'lib/utils/css-classes'
 import BlankDashboardHog from 'public/blank-dashboard-hog.png'
 import { useState } from 'react'
 import {
@@ -129,9 +129,7 @@ function TemplateItem({
             onMouseLeave={() => setIsHovering(false)}
             data-attr={dataAttr}
         >
-            <div
-                className={clsx('transition-all w-full overflow-hidden', isHovering ? 'h-4 min-h-4' : 'h-30 min-h-30')}
-            >
+            <div className={cn('transition-all w-full overflow-hidden', isHovering ? 'h-4 min-h-4' : 'h-30 min-h-30')}>
                 <FallbackCoverImage src={template?.image_url} alt="cover photo" index={index} imageClassName="h-30" />
             </div>
 
@@ -144,7 +142,7 @@ function TemplateItem({
                 ))}
             </div>
             <div className="px-2 py-1 overflow-y-auto grow">
-                <p className={clsx('text-secondary text-xs', isHovering ? '' : 'line-clamp-2')}>
+                <p className={cn('text-secondary text-xs', isHovering ? '' : 'line-clamp-2')}>
                     {template?.dashboard_description ?? ' '}
                 </p>
             </div>

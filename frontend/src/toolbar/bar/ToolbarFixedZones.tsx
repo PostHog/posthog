@@ -1,5 +1,5 @@
-import clsx from 'clsx'
 import { useValues } from 'kea'
+import { cn } from 'lib/utils/css-classes'
 
 import { TOOLBAR_FIXED_POSITION_HITBOX, toolbarLogic } from './toolbarLogic'
 
@@ -26,7 +26,7 @@ function ToolbarFixedZone({ id, position }: { id: string; position: { x: number;
 
     return (
         <div
-            className={clsx(
+            className={cn(
                 'transition-all absolute border rounded-lg bg-primary',
                 selected ? 'opacity-50' : 'opacity-20'
             )}

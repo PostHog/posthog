@@ -1,6 +1,6 @@
 import './LemonProgressCircle.scss'
 
-import clsx from 'clsx'
+import { cn } from 'lib/utils/css-classes'
 
 export type LemonProgressCircleProps = {
     strokePercentage?: number
@@ -26,7 +26,7 @@ export const LemonProgressCircle = ({
 
     return (
         <span
-            className={clsx('LemonProgressCircle', className)}
+            className={cn('LemonProgressCircle', className)}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 height: size,

@@ -1,8 +1,8 @@
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { cn } from 'lib/utils/css-classes'
 import { useRef } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -21,7 +21,7 @@ export function Navbar(): JSX.Element {
 
     return (
         <>
-            <nav className={clsx('Navbar3000', !isNavShown && 'Navbar3000--hidden')} ref={containerRef}>
+            <nav className={cn('Navbar3000', !isNavShown && 'Navbar3000--hidden')} ref={containerRef}>
                 <div
                     className="Navbar3000__content"
                     // eslint-disable-next-line react/forbid-dom-props
@@ -72,7 +72,7 @@ export function Navbar(): JSX.Element {
             </nav>
             {mobileLayout && (
                 <div
-                    className={clsx('Navbar3000__overlay', !isNavShown && 'Navbar3000--hidden')}
+                    className={cn('Navbar3000__overlay', !isNavShown && 'Navbar3000--hidden')}
                     onClick={() => hideNavOnMobile()}
                 />
             )}

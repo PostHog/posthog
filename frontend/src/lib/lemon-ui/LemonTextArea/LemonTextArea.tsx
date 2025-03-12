@@ -1,6 +1,6 @@
 import './LemonTextArea.scss'
 
-import clsx from 'clsx'
+import { cn } from 'lib/utils/css-classes'
 import React, { useRef } from 'react'
 import TextareaAutosize from 'react-textarea-autosize'
 
@@ -51,7 +51,7 @@ export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextArea
         <TextareaAutosize
             minRows={minRows}
             ref={textRef}
-            className={clsx('LemonTextArea', className)}
+            className={cn('LemonTextArea', className)}
             onKeyDown={(e) => {
                 if (stopPropagation) {
                     e.stopPropagation()

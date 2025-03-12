@@ -1,11 +1,11 @@
 import '~/styles'
 import './Exporter.scss'
 
-import clsx from 'clsx'
 import { useValues } from 'kea'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { useThemedHtml } from 'lib/hooks/useThemedHtml'
 import { Link } from 'lib/lemon-ui/Link'
+import { cn } from 'lib/utils/css-classes'
 import { useEffect } from 'react'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
@@ -39,7 +39,7 @@ export function Exporter(props: ExportedData): JSX.Element {
 
     return (
         <div
-            className={clsx('Exporter', {
+            className={cn('Exporter', {
                 'Exporter--insight': !!insight,
                 'Exporter--dashboard': !!dashboard,
                 'Exporter--recording': !!recording,

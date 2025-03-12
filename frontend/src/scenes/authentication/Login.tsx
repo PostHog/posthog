@@ -2,7 +2,6 @@ import './Login.scss'
 
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import { captureException } from '@sentry/react'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
@@ -10,6 +9,7 @@ import { SocialLoginButtons, SSOEnforcedLoginButton } from 'lib/components/Socia
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
+import { cn } from 'lib/utils/css-classes'
 import { useEffect, useRef } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -118,7 +118,7 @@ export function Login(): JSX.Element {
                             }}
                         />
                     </LemonField>
-                    <div className={clsx('PasswordWrapper', isPasswordHidden && 'zero-height')}>
+                    <div className={cn('PasswordWrapper', isPasswordHidden && 'zero-height')}>
                         <LemonField
                             name="password"
                             label={

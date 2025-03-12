@@ -1,8 +1,8 @@
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
+import { cn } from 'lib/utils/css-classes'
 import { useState } from 'react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { urls } from 'scenes/urls'
@@ -38,7 +38,7 @@ export function QueryEditor(props: QueryEditorProps): JSX.Element {
             ) : null}
             <div
                 data-attr="query-editor"
-                className={clsx(
+                className={cn(
                     'flex flex-col p-2 bg-primary deprecated-space-y-2 resize-y overflow-auto h-80 rounded',
                     props.className
                 )}

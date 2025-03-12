@@ -1,12 +1,12 @@
 import './InsightCard.scss'
 
 import { useMergeRefs } from '@floating-ui/react'
-import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
 import { Resizeable } from 'lib/components/Cards/CardMeta'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { cn } from 'lib/utils/css-classes'
 import React, { useState } from 'react'
 import { Layout } from 'react-grid-layout'
 import { useInView } from 'react-intersection-observer'
@@ -138,7 +138,7 @@ function InsightCardInternal(
 
     return (
         <div
-            className={clsx('InsightCard border', highlighted && 'InsightCard--highlighted', className)}
+            className={cn('InsightCard border', highlighted && 'InsightCard--highlighted', className)}
             data-attr="insight-card"
             {...divProps}
             // eslint-disable-next-line react/forbid-dom-props

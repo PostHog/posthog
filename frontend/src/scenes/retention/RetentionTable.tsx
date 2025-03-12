@@ -1,11 +1,11 @@
 import './RetentionTable.scss'
 
-import clsx from 'clsx'
 import { mean, sum } from 'd3'
 import { useActions, useValues } from 'kea'
 import { RETENTION_MEAN_NONE } from 'lib/constants'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { gradateColor, range } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { retentionModalLogic } from './retentionModalLogic'
@@ -24,7 +24,7 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
 
     return (
         <table
-            className={clsx('RetentionTable', { 'RetentionTable--small-layout': retentionVizOptions?.useSmallLayout })}
+            className={cn('RetentionTable', { 'RetentionTable--small-layout': retentionVizOptions?.useSmallLayout })}
             data-attr="retention-table"
             // eslint-disable-next-line react/forbid-dom-props
             style={
@@ -141,7 +141,7 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                         {row.map((column, columnIndex) => (
                             <td
                                 key={columnIndex}
-                                className={clsx({ 'pt-2': rowIndex === 0 && meanRetentionCalculation !== 'none' })}
+                                className={cn({ 'pt-2': rowIndex === 0 && meanRetentionCalculation !== 'none' })}
                             >
                                 {columnIndex <= (hideSizeColumn ? 0 : 1) ? (
                                     <span className="RetentionTable__TextTab">{column}</span>
@@ -181,7 +181,7 @@ function CohortDay({
 
     const numberCell = (
         <div
-            className={clsx('RetentionTable__Tab', {
+            className={cn('RetentionTable__Tab', {
                 'RetentionTable__Tab--clickable': clickable,
                 'RetentionTable__Tab--period': isCurrentPeriod,
             })}

@@ -1,11 +1,11 @@
 import { LemonBanner, LemonLabel, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 import { id } from 'chartjs-plugin-trendline'
-import clsx from 'clsx'
 import { useValues } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { cn } from 'lib/utils/css-classes'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
@@ -87,7 +87,7 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
 
     return (
         <div
-            className={clsx(
+            className={cn(
                 'deprecated-space-y-2 rounded bg-surface-primary',
                 !embedded && 'border p-3',
                 embedded && 'p-2'

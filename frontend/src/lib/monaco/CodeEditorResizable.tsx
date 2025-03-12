@@ -1,5 +1,5 @@
-import clsx from 'clsx'
 import { CodeEditor, CodeEditorProps } from 'lib/monaco/CodeEditor'
+import { cn } from 'lib/utils/css-classes'
 import { useEffect, useRef, useState } from 'react'
 import AutoSizer from 'react-virtualized/dist/es/AutoSizer'
 
@@ -35,7 +35,7 @@ export function CodeEditorResizeable({
     return (
         <div
             ref={ref}
-            className={clsx('CodeEditorResizeable relative', !embedded ? 'border rounded w-full' : '', className)}
+            className={cn('CodeEditorResizeable relative', !embedded ? 'border rounded w-full' : '', className)}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 minHeight,

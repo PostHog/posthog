@@ -1,4 +1,4 @@
-import { clsx } from 'clsx'
+import { cn } from 'lib/utils/css-classes'
 import { useEffect, useRef, useState } from 'react'
 
 import { Edge, Node, NodePosition, NodePositionWithBounds, NodeWithDepth } from './types'
@@ -268,7 +268,7 @@ export function NodeCanvas<T extends Node>({ nodes, renderNode }: NodeCanvasProp
                 onMouseMove={handleMouseMove}
                 onMouseUp={handleMouseUp}
                 onMouseLeave={handleMouseUp}
-                className={clsx('w-full h-full absolute inset-0', isDragging ? 'cursor-grabbing' : 'cursor-grab')}
+                className={cn('w-full h-full absolute inset-0', isDragging ? 'cursor-grabbing' : 'cursor-grab')}
             />
             <svg className="absolute inset-0 w-full h-full pointer-events-none">
                 {edges.map((edge, index) => {

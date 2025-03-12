@@ -1,7 +1,7 @@
-import clsx from 'clsx'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { shortTimeZone } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { memo } from 'react'
 import { TimestampFormat } from 'scenes/session-recordings/player/playerSettingsLogic'
 
@@ -63,7 +63,7 @@ export function _SimpleTimeLabel({
     const formattedTime = formattedReplayTime(startTime, timestampFormat, containerSize === 'small')
     return (
         <div
-            className={clsx(
+            className={cn(
                 'overflow-hidden text-ellipsis shrink-0',
                 muted && 'text-muted',
                 size === 'xsmall' && 'text-xs',

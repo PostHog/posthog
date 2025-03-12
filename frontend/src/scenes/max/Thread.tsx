@@ -10,12 +10,12 @@ import {
     IconX,
 } from '@posthog/icons'
 import { LemonButton, LemonButtonPropsBase, LemonInput, ProfilePicture, Spinner, Tooltip } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { BreakdownSummary, PropertiesSummary, SeriesSummary } from 'lib/components/Cards/InsightCard/InsightDetails'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { cn } from 'lib/utils/css-classes'
 import posthog from 'posthog-js'
 import React, { useMemo, useState } from 'react'
 import { urls } from 'scenes/urls'
@@ -66,7 +66,7 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
 
     return (
         <div
-            className={clsx(
+            className={cn(
                 'relative flex gap-2',
                 groupType === 'human' ? 'flex-row-reverse ml-4 @md/thread:ml-10 ' : 'mr-4 @md/thread:mr-10'
             )}
@@ -83,7 +83,7 @@ function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): J
                 />
             </Tooltip>
             <div
-                className={clsx(
+                className={cn(
                     'flex flex-col gap-2 min-w-0 w-full',
                     groupType === 'human' ? 'items-end' : 'items-start'
                 )}

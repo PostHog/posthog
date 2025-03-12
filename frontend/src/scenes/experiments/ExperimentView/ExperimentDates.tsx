@@ -1,9 +1,9 @@
 import { IconPencil } from '@posthog/icons'
 import { LemonButton, LemonCalendarSelectInput } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
+import { cn } from 'lib/utils/css-classes'
 import { useState } from 'react'
 
 import { experimentLogic } from '../experimentLogic'
@@ -29,7 +29,7 @@ export function ExperimentDates(): JSX.Element {
         <>
             <div className="block" data-attr="experiment-start-date">
                 <div
-                    className={clsx(
+                    className={cn(
                         'text-xs font-semibold uppercase tracking-wide',
                         isStartDatePickerOpen && 'text-center'
                     )}

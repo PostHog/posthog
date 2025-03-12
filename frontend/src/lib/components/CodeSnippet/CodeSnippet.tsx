@@ -1,10 +1,10 @@
 import './CodeSnippet.scss'
 
 import { IconCollapse, IconCopy, IconExpand } from '@posthog/icons'
-import clsx from 'clsx'
 import { useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { cn } from 'lib/utils/css-classes'
 import { useEffect, useState } from 'react'
 import { PrismAsyncLight as SyntaxHighlighter } from 'react-syntax-highlighter'
 import bash from 'react-syntax-highlighter/dist/esm/languages/prism/bash'
@@ -174,7 +174,7 @@ export function CodeSnippet({
     }
 
     return (
-        <div className={clsx('CodeSnippet', compact && 'CodeSnippet--compact', className)}>
+        <div className={cn('CodeSnippet', compact && 'CodeSnippet--compact', className)}>
             <div className="CodeSnippet__actions">
                 {actions}
                 <LemonButton

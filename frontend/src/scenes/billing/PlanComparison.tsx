@@ -2,11 +2,11 @@ import './PlanComparison.scss'
 
 import { IconCheckCircle, IconWarning, IconX } from '@posthog/icons'
 import { LemonModal, LemonTag, Link } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { cn } from 'lib/utils/css-classes'
 import React, { useState } from 'react'
 import { getProductIcon } from 'scenes/products/Products'
 import useResizeObserver from 'use-resize-observer'
@@ -31,11 +31,11 @@ export function PlanIcon({
         <div className="flex items-center text-xs text-secondary">
             {!feature ? (
                 <>
-                    <IconX className={clsx('text-danger mx-4', className)} />
+                    <IconX className={cn('text-danger mx-4', className)} />
                 </>
             ) : feature.limit ? (
                 <>
-                    <IconWarning className={clsx('text-warning mx-4 shrink-0', className)} />
+                    <IconWarning className={cn('text-warning mx-4 shrink-0', className)} />
                     {feature.limit &&
                         `${convertLargeNumberToWords(feature.limit, null)} ${feature.unit && feature.unit}${
                             timeDenominator ? `/${timeDenominator}` : ''
@@ -44,7 +44,7 @@ export function PlanIcon({
                 </>
             ) : (
                 <>
-                    <IconCheckCircle className={clsx('text-success mx-4 shrink-0', className)} />
+                    <IconCheckCircle className={cn('text-success mx-4 shrink-0', className)} />
                     {feature.note}
                 </>
             )}
@@ -71,10 +71,7 @@ const PricingTiers = ({
                 tiers?.map((tier, i) => (
                     <div
                         key={`${plan.plan_key}-${product.type}-${tier.up_to}`}
-                        className={clsx(
-                            'flex',
-                            width && width < 100 ? 'flex-col mb-2' : 'justify-between items-center'
-                        )}
+                        className={cn('flex', width && width < 100 ? 'flex-col mb-2' : 'justify-between items-center')}
                         ref={tiersRef}
                     >
                         <span className="text-xs">
@@ -90,7 +87,7 @@ const PricingTiers = ({
             ) : product?.free_allocation ? (
                 <div
                     key={`${plan.plan_key}-${product.type}-tiers`}
-                    className={clsx('flex', width && width < 100 ? 'flex-col mb-2' : ' justify-between items-center')}
+                    className={cn('flex', width && width < 100 ? 'flex-col mb-2' : ' justify-between items-center')}
                     ref={tiersRef}
                 >
                     <span className="text-xs">
@@ -266,14 +263,14 @@ export const PlanComparison = ({
                 {fullyFeaturedPlan?.features?.map((feature, i) => (
                     <tr
                         key={`tr-${feature.key}`}
-                        className={clsx(
+                        className={cn(
                             i == fullyFeaturedPlan?.features?.length - 1 && !billing?.has_active_subscription
                                 ? 'PlanTable__tr__border'
                                 : ''
                         )}
                     >
                         <th
-                            className={clsx(
+                            className={cn(
                                 'PlanTable__th__feature',
                                 width && width < 600 && 'PlanTable__th__feature--reduced_padding',
                                 i == fullyFeaturedPlan?.features?.length - 1 && 'PlanTable__th__last-feature'
@@ -344,7 +341,7 @@ export const PlanComparison = ({
                                             ?.features?.map((feature, i) => (
                                                 <tr key={`tr-${feature.key}`}>
                                                     <th
-                                                        className={clsx(
+                                                        className={cn(
                                                             'text-secondary PlanTable__th__feature',
                                                             width &&
                                                                 width < 600 &&

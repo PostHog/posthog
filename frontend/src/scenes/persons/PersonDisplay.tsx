@@ -1,12 +1,12 @@
 import './PersonDisplay.scss'
 
 import { IconCopy } from '@posthog/icons'
-import clsx from 'clsx'
 import { router } from 'kea-router'
 import { Link } from 'lib/lemon-ui/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { ProfilePicture, ProfilePictureProps } from 'lib/lemon-ui/ProfilePicture'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { cn } from 'lib/utils/css-classes'
 import React, { useMemo, useState } from 'react'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 
@@ -84,9 +84,9 @@ export function PersonDisplay({
     }
 
     let content = children || (
-        <span className={clsx('flex items-center', isCentered && 'justify-center')}>
+        <span className={cn('flex items-center', isCentered && 'justify-center')}>
             {withIcon && <PersonIcon person={person} size={typeof withIcon === 'string' ? withIcon : 'md'} />}
-            <span className={clsx('ph-no-capture', !noEllipsis && 'truncate')}>{display}</span>
+            <span className={cn('ph-no-capture', !noEllipsis && 'truncate')}>{display}</span>
         </span>
     )
 

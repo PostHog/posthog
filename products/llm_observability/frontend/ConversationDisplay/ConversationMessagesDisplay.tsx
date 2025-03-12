@@ -1,11 +1,11 @@
 import { IconEye, IconMarkdown, IconMarkdownFilled } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { IconExclamation, IconEyeHidden } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { isObject } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import React from 'react'
 
 import { LLMInputOutput } from '../LLMInputOutput'
@@ -168,7 +168,7 @@ export const LLMMessageDisplay = React.memo(
 
         return (
             <div
-                className={clsx(
+                className={cn(
                     'rounded border text-default',
                     isOutput
                         ? 'bg-[var(--bg-fill-success-tertiary)]'

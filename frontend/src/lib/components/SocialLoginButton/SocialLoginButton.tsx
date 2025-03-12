@@ -1,9 +1,9 @@
-import clsx from 'clsx'
 import { useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { SSO_PROVIDER_NAMES } from 'lib/constants'
 import { LemonButton, LemonButtonWithoutSideActionProps } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { cn } from 'lib/utils/css-classes'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { SSOProvider } from '~/types'
@@ -89,7 +89,7 @@ export function SocialLoginButtons({
         <>
             {topDivider ? <LemonDivider dashed className="my-4" /> : null}
 
-            <div className={clsx(className, 'text-center deprecated-space-y-4')}>
+            <div className={cn(className, 'text-center deprecated-space-y-4')}>
                 {title && <h3>{title}</h3>}
                 {caption && captionLocation === 'top' && <p className="text-secondary">{caption}</p>}
                 <div className="flex gap-2 justify-center flex-wrap">

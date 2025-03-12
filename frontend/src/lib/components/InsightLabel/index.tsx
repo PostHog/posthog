@@ -1,13 +1,13 @@
 import './InsightLabel.scss'
 
 import { LemonTag } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useValues } from 'kea'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter, hexToRGBA, midEllipsis } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -116,7 +116,7 @@ export function InsightLabel({
     )
 
     return (
-        <div className={clsx('insights-label', className)}>
+        <div className={cn('insights-label', className)}>
             <div className="flex items-center w-fit">
                 {!(hasMultipleSeries && !breakdownValue) && !hideIcon && (
                     <div
@@ -140,10 +140,7 @@ export function InsightLabel({
                         hasBreakdown={!!breakdownValue}
                     />
                 )}
-                <div
-                    className={clsx('flex items-center w-fit gap-x-2', allowWrap && 'flex-wrap')}
-                    onClick={onLabelClick}
-                >
+                <div className={cn('flex items-center w-fit gap-x-2', allowWrap && 'flex-wrap')} onClick={onLabelClick}>
                     {showEventName && (
                         <>
                             {action ? (

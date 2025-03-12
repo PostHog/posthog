@@ -1,8 +1,8 @@
 // Loads custom icons (some icons may come from a third-party library)
 import './icons.scss'
 
-import clsx from 'clsx'
 import { LemonBadge, LemonBadgeProps } from 'lib/lemon-ui/LemonBadge'
+import { cn } from 'lib/utils/css-classes'
 import { CSSProperties, PropsWithChildren, SVGAttributes } from 'react'
 
 interface IconWithBadgeProps {
@@ -26,7 +26,7 @@ export function IconWithCount({
     className,
 }: PropsWithChildren<IconWithCountProps>): JSX.Element {
     return (
-        <span className={clsx('relative inline-flex', className)}>
+        <span className={cn('relative inline-flex', className)}>
             {children}
             <LemonBadge.Number count={count} size="small" position="top-right" showZero={showZero} status={status} />
         </span>
@@ -40,7 +40,7 @@ export function IconWithBadge({
     className,
 }: PropsWithChildren<IconWithBadgeProps>): JSX.Element {
     return (
-        <span className={clsx('relative inline-flex', className)}>
+        <span className={cn('relative inline-flex', className)}>
             {children}
             <LemonBadge visible={!!content} content={content} size="small" position="top-right" status={status} />
         </span>
@@ -56,7 +56,7 @@ export interface LemonIconProps {
 
 const LemonIconBase: React.FC<SVGAttributes<SVGSVGElement>> = ({ className, ...props }) => (
     <svg
-        className={clsx('LemonIcon', className)}
+        className={cn('LemonIcon', className)}
         width="1em"
         height="1em"
         fill="none"

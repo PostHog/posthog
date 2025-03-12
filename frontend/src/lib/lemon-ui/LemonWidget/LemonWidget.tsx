@@ -1,7 +1,7 @@
 import './LemonWidget.scss'
 
 import { IconX } from '@posthog/icons'
-import clsx from 'clsx'
+import { cn } from 'lib/utils/css-classes'
 
 import { LemonButton } from '../LemonButton'
 
@@ -28,11 +28,11 @@ export function LemonWidget({ title, onClose, actions, children, className }: Le
 }
 
 const Widget = ({ children, className }: { children: React.ReactNode; className?: string }): JSX.Element => {
-    return <div className={clsx('LemonWidget', className)}>{children}</div>
+    return <div className={cn('LemonWidget', className)}>{children}</div>
 }
 
 const Header = ({ children, className }: { children: React.ReactNode; className?: string }): JSX.Element => {
-    return <div className={clsx('LemonWidget__header', className)}>{children}</div>
+    return <div className={cn('LemonWidget__header', className)}>{children}</div>
 }
 
 const Content = ({ children }: { children: React.ReactNode }): JSX.Element => {

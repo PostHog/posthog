@@ -1,7 +1,6 @@
 import './SessionRecordingPreview.scss'
 
 import { IconBug, IconCursorClick, IconKeyboard, IconLive, IconPinFilled } from '@posthog/icons'
-import clsx from 'clsx'
 import { useValues } from 'kea'
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -10,6 +9,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { colonDelimitedDuration } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { SimpleTimeLabel } from 'scenes/session-recordings/components/SimpleTimeLabel'
@@ -165,7 +165,7 @@ export function UnwatchedIndicator({ otherViewersCount }: { otherViewersCount: n
     return (
         <Tooltip title={tooltip}>
             <div
-                className={clsx(
+                className={cn(
                     'UnwatchedIndicator w-2 h-2 rounded-full',
                     otherViewersCount ? 'UnwatchedIndicator--secondary' : 'UnwatchedIndicator--primary'
                 )}
@@ -206,7 +206,7 @@ export function SessionRecordingPreview({
         <DraggableToNotebook href={urls.replaySingle(recording.id)}>
             <div
                 key={recording.id}
-                className={clsx(
+                className={cn(
                     'SessionRecordingPreview flex overflow-hidden cursor-pointer py-0.5 px-1 text-xs',
                     isActive && 'SessionRecordingPreview--active'
                 )}
@@ -272,7 +272,7 @@ export function SessionRecordingPreview({
                 </div>
 
                 <div
-                    className={clsx(
+                    className={cn(
                         'min-w-6 flex flex-col gap-x-0.5 items-center',
                         // need different margin if the first item is an icon
                         recording.ongoing || pinned ? 'mt-1' : 'mt-2'

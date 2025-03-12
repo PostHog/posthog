@@ -1,5 +1,5 @@
-import clsx from 'clsx'
 import { CodeEditorResizableProps, CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
+import { cn } from 'lib/utils/css-classes'
 
 export interface CodeEditorInlineProps extends Omit<CodeEditorResizableProps, 'height'> {
     minHeight?: string
@@ -9,7 +9,7 @@ export function CodeEditorInline(props: CodeEditorInlineProps): JSX.Element {
         <CodeEditorResizeable
             minHeight="29px"
             {...props}
-            className={clsx('.CodeEditorInline', props.className)}
+            className={cn('.CodeEditorInline', props.className)}
             options={{
                 // Note: duplicate anything you add here with its default into <CodeEditor />
                 lineNumbers: 'off',

@@ -1,6 +1,6 @@
 import './LemonRow.scss'
 
-import clsx from 'clsx'
+import { cn } from 'lib/utils/css-classes'
 import React from 'react'
 
 import { Spinner } from '../Spinner/Spinner'
@@ -67,7 +67,7 @@ export const LemonRow = React.forwardRef(function LemonRowInternal<T extends key
     const element = React.createElement(
         tag || 'div',
         {
-            className: clsx(
+            className: cn(
                 'LemonRow',
                 className,
                 status && status !== 'default' ? `LemonRow--status-${status}` : undefined,

@@ -6,7 +6,6 @@ import { DeepPartial } from 'chart.js/dist/types/utils'
 import annotationPlugin from 'chartjs-plugin-annotation'
 import ChartDataLabels from 'chartjs-plugin-datalabels'
 import ChartjsPluginStacked100, { ExtendedChartData } from 'chartjs-plugin-stacked100'
-import clsx from 'clsx'
 import { useValues } from 'kea'
 import {
     ActiveElement,
@@ -28,6 +27,7 @@ import { getBarColorFromStatus, getGraphColors } from 'lib/colors'
 import { AnnotationsOverlay } from 'lib/components/AnnotationsOverlay'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
+import { cn } from 'lib/utils/css-classes'
 import { useEffect, useRef, useState } from 'react'
 import { createRoot, Root } from 'react-dom/client'
 import { formatAggregationAxisValue, formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
@@ -967,7 +967,7 @@ export function LineGraph_({
     ])
 
     return (
-        <div className={clsx('LineGraph w-full grow relative overflow-hidden')} data-attr={dataAttr}>
+        <div className={cn('LineGraph w-full grow relative overflow-hidden')} data-attr={dataAttr}>
             <canvas ref={canvasRef} />
             {showAnnotations && myLineChart && chartWidth && chartHeight ? (
                 <AnnotationsOverlay

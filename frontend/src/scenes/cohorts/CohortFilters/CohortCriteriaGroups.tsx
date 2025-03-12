@@ -1,7 +1,6 @@
 import './CohortCriteriaGroups.scss'
 
 import { IconCopy, IconPlusSmall, IconTrash } from '@posthog/icons'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Group } from 'kea-forms'
 import { Field as KeaField } from 'kea-forms/lib/components'
@@ -10,6 +9,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { alphabet } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { cohortEditLogic, CohortLogicProps } from 'scenes/cohorts/cohortEditLogic'
 import { CohortCriteriaRowBuilder } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
 import { criteriaToBehavioralFilterType, isCohortCriteriaGroup } from 'scenes/cohorts/cohortUtils'
@@ -36,7 +36,7 @@ export function CohortCriteriaGroups(logicProps: CohortLogicProps): JSX.Element 
                             template={({ error, kids }) => {
                                 return (
                                     <div
-                                        className={clsx(
+                                        className={cn(
                                             'CohortCriteriaGroups__matching-group',
                                             error && `CohortCriteriaGroups__matching-group--error`
                                         )}

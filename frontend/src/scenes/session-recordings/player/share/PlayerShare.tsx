@@ -1,12 +1,12 @@
 import { IconCopy, IconExternal } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonTextArea } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { SharingModalContent } from 'lib/components/Sharing/SharingModal'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { cn } from 'lib/utils/css-classes'
 import posthog from 'posthog-js'
 
 import { playerShareLogic, PlayerShareLogicProps } from './playerShareLogic'
@@ -25,7 +25,7 @@ function TimestampForm(props: PlayerShareLogicProps): JSX.Element {
                 </LemonField>
                 <LemonField name="time" inline>
                     <LemonInput
-                        className={clsx('w-20', { 'opacity-50': !privateLinkForm.includeTime })}
+                        className={cn('w-20', { 'opacity-50': !privateLinkForm.includeTime })}
                         placeholder="00:00"
                         onFocus={() => setPrivateLinkFormValue('includeTime', true)}
                         fullWidth={false}
@@ -116,7 +116,7 @@ function LinearLink(props: PlayerShareLogicProps): JSX.Element {
                     </LemonField>
                     <LemonField name="time" inline>
                         <LemonInput
-                            className={clsx('w-20', { 'opacity-50': !linearLinkForm.includeTime })}
+                            className={cn('w-20', { 'opacity-50': !linearLinkForm.includeTime })}
                             onFocus={() => setLinearLinkFormValue('includeTime', true)}
                             placeholder="00:00"
                             fullWidth={false}

@@ -1,9 +1,9 @@
 import './ProfilePicture.scss'
 
-import clsx from 'clsx'
 import { useValues } from 'kea'
 import { HedgehogBuddyProfile } from 'lib/components/HedgehogBuddy/HedgehogBuddyRender'
 import { fullName, inStorybookTestRunner } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import md5 from 'md5'
 import React, { useMemo, useState } from 'react'
 import { userLogic } from 'scenes/userLogic'
@@ -59,7 +59,7 @@ export const ProfilePicture = React.forwardRef<HTMLSpanElement, ProfilePicturePr
     }, [email, hedgehogProfile])
 
     const pictureComponent = (
-        <span className={clsx('ProfilePicture', size, className)} ref={ref}>
+        <span className={cn('ProfilePicture', size, className)} ref={ref}>
             {hedgehogProfile ? (
                 <HedgehogBuddyProfile {...user.hedgehog_config} size="100%" />
             ) : (

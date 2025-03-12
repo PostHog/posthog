@@ -1,11 +1,11 @@
 import './InsightTooltip.scss'
 
-import clsx from 'clsx'
 import { useValues } from 'kea'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { IconHandClick } from 'lib/lemon-ui/icons'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { shortTimeZone } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { ReactNode } from 'react'
 import { formatAggregationValue } from 'scenes/insights/utils'
 
@@ -174,7 +174,7 @@ export function InsightTooltip({
         }
 
         return (
-            <div className={clsx('InsightTooltip', embedded && 'InsightTooltip--embedded')}>
+            <div className={cn('InsightTooltip', embedded && 'InsightTooltip--embedded')}>
                 <LemonTable
                     dataSource={dataSource.slice(0, rowCutoff)}
                     columns={columns}
@@ -234,7 +234,7 @@ export function InsightTooltip({
     })
 
     return (
-        <div className={clsx('InsightTooltip', embedded && 'InsightTooltip--embedded')}>
+        <div className={cn('InsightTooltip', embedded && 'InsightTooltip--embedded')}>
             <LemonTable
                 dataSource={dataSource.slice(0, rowCutoff)}
                 columns={columns}

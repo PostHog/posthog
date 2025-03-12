@@ -1,7 +1,7 @@
 import './InsightLegend.scss'
 
-import clsx from 'clsx'
 import { useValues } from 'kea'
+import { cn } from 'lib/utils/css-classes'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
@@ -19,7 +19,7 @@ export function InsightLegend({ horizontal, inCardView, readOnly = false }: Insi
 
     return hasLegend ? (
         <div
-            className={clsx('InsightLegendMenu', 'flex overflow-auto border rounded', {
+            className={cn('InsightLegendMenu', 'flex overflow-auto border rounded', {
                 'InsightLegendMenu--horizontal': horizontal,
                 'InsightLegendMenu--readonly': readOnly,
                 'InsightLegendMenu--in-card-view': inCardView,

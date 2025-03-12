@@ -1,4 +1,3 @@
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
@@ -9,6 +8,7 @@ import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { cn } from 'lib/utils/css-classes'
 import { useEffect } from 'react'
 import { urls } from 'scenes/urls'
 
@@ -57,7 +57,7 @@ export const FlagsToolbarMenu = (): JSX.Element => {
                         filteredFlags.map(
                             ({ feature_flag, value, hasOverride, hasVariants, currentValue, payloadOverride }) => (
                                 <div
-                                    className={clsx('-mx-1 py-1 px-2', hasOverride && 'bg-fill-primary')}
+                                    className={cn('-mx-1 py-1 px-2', hasOverride && 'bg-fill-primary')}
                                     key={feature_flag.key}
                                 >
                                     <div className="flex flex-row items-center deprecated-space-x-2">
@@ -107,7 +107,7 @@ export const FlagsToolbarMenu = (): JSX.Element => {
                                         <>
                                             {hasVariants ? (
                                                 <LemonRadio
-                                                    className={clsx('pt-1 pl-4 w-full', hasOverride && 'bg-mark')}
+                                                    className={cn('pt-1 pl-4 w-full', hasOverride && 'bg-mark')}
                                                     value={typeof currentValue === 'string' ? currentValue : undefined}
                                                     options={
                                                         feature_flag.filters?.multivariate?.variants.map((variant) => ({
@@ -125,11 +125,11 @@ export const FlagsToolbarMenu = (): JSX.Element => {
                                                 />
                                             ) : null}
 
-                                            <div className={clsx(hasVariants && 'py-1 pl-4')}>
+                                            <div className={cn(hasVariants && 'py-1 pl-4')}>
                                                 {openPayloadEditors[feature_flag.key] ? (
                                                     <div className="flex gap-2 items-start mt-1">
                                                         <LemonTextArea
-                                                            className={clsx(
+                                                            className={cn(
                                                                 'font-mono text-xs flex-1 !rounded',
                                                                 payloadErrors[feature_flag.key] && 'border-danger'
                                                             )}

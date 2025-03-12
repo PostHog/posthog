@@ -11,7 +11,6 @@ import {
     Spinner,
     Tooltip,
 } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
@@ -20,6 +19,7 @@ import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedAr
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { cn } from 'lib/utils/css-classes'
 
 import { AvailableFeature } from '~/types'
 
@@ -60,7 +60,7 @@ export function ManagedReverseProxy(): JSX.Element {
 
                 return (
                     <div
-                        className={clsx(
+                        className={cn(
                             'deprecated-space-x-1',
                             status === 'valid'
                                 ? 'text-success'

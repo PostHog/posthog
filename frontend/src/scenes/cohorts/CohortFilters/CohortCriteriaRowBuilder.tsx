@@ -2,11 +2,11 @@ import './CohortCriteriaRowBuilder.scss'
 
 import { IconCopy, IconTrash } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions } from 'kea'
 import { Field as KeaField } from 'kea-forms'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { cn } from 'lib/utils/css-classes'
 import { cohortEditLogic, CohortLogicProps } from 'scenes/cohorts/cohortEditLogic'
 import { renderField, ROWS } from 'scenes/cohorts/CohortFilters/constants'
 import { BehavioralFilterType, CohortFieldProps, Field, FilterType } from 'scenes/cohorts/CohortFilters/types'
@@ -63,7 +63,7 @@ export function CohortCriteriaRowBuilder({
                     return (
                         <>
                             <div
-                                className={clsx(
+                                className={cn(
                                     'CohortCriteriaRow__Criteria',
                                     error && `CohortCriteriaRow__Criteria--error`
                                 )}
@@ -87,7 +87,7 @@ export function CohortCriteriaRowBuilder({
                                 return (
                                     <>
                                         <div
-                                            className={clsx(
+                                            className={cn(
                                                 'CohortCriteriaRow__Criteria__Field',
                                                 error && `CohortCriteriaRow__Criteria__Field--error`
                                             )}
@@ -131,7 +131,7 @@ export function CohortCriteriaRowBuilder({
                                                 return (
                                                     <>
                                                         <div
-                                                            className={clsx(
+                                                            className={cn(
                                                                 'CohortCriteriaRow__Criteria__Field',
                                                                 error && `CohortCriteriaRow__Criteria__Field--error`
                                                             )}

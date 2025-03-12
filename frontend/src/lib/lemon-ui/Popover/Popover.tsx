@@ -13,11 +13,11 @@ import {
     UseFloatingReturn,
     useMergeRefs,
 } from '@floating-ui/react'
-import clsx from 'clsx'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { useEventListener } from 'lib/hooks/useEventListener'
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 import { CLICK_OUTSIDE_BLOCK_CLASS, useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
+import { cn } from 'lib/utils/css-classes'
 import React, { MouseEventHandler, ReactElement, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { CSSTransition } from 'react-transition-group'
 
@@ -248,7 +248,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                         >
                             <PopoverOverlayContext.Provider value={[visible, currentPopoverLevel]}>
                                 <div
-                                    className={clsx(
+                                    className={cn(
                                         'Popover',
                                         padded && 'Popover--padded',
                                         maxContentWidth && 'Popover--max-content-width',

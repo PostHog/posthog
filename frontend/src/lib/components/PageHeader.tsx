@@ -1,6 +1,6 @@
-import clsx from 'clsx'
 import { useValues } from 'kea'
 import { WithinPageHeaderContext } from 'lib/lemon-ui/LemonButton/LemonButton'
+import { cn } from 'lib/utils/css-classes'
 import { createPortal } from 'react-dom'
 import { DraggableToNotebookProps } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 
@@ -26,7 +26,7 @@ export function PageHeader({ caption, buttons, tabbedPage }: PageHeaderProps): J
                     actionsContainer
                 )}
 
-            {caption && <div className={clsx('page-caption', tabbedPage && 'tabbed')}>{caption}</div>}
+            {caption && <div className={cn('page-caption', tabbedPage && 'tabbed')}>{caption}</div>}
         </>
     )
 }
@@ -38,7 +38,7 @@ interface SubtitleProps {
 
 export function Subtitle({ subtitle, buttons }: SubtitleProps): JSX.Element {
     return (
-        <div className={clsx('flex mt-5 items-center', buttons ? 'justify-between' : 'justify-start')}>
+        <div className={cn('flex mt-5 items-center', buttons ? 'justify-between' : 'justify-start')}>
             <h2 className="subtitle">{subtitle}</h2>
             {buttons}
         </div>

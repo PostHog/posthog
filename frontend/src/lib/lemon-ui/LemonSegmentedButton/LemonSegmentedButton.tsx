@@ -1,6 +1,6 @@
 import './LemonSegmentedButton.scss'
 
-import clsx from 'clsx'
+import { cn } from 'lib/utils/css-classes'
 import React from 'react'
 
 import { useSliderPositioning } from '../hooks'
@@ -48,7 +48,7 @@ export function LemonSegmentedButton<T extends React.Key>({
 
     return (
         <div
-            className={clsx(
+            className={cn(
                 'LemonSegmentedButton',
                 fullWidth && 'LemonSegmentedButton--full-width',
                 transitioning && 'LemonSegmentedButton--transitioning',
@@ -65,7 +65,7 @@ export function LemonSegmentedButton<T extends React.Key>({
         >
             {sliderWidth > 0 && (
                 <div
-                    className={clsx(
+                    className={cn(
                         'LemonSegmentedButton__slider',
                         value === options[0].value
                             ? 'LemonSegmentedButton__slider--first'
@@ -79,7 +79,7 @@ export function LemonSegmentedButton<T extends React.Key>({
                 {options.map((option) => (
                     <li
                         key={option.value}
-                        className={clsx(
+                        className={cn(
                             'LemonSegmentedButton__option',
                             option.disabledReason && 'LemonSegmentedButton__option--disabled',
                             option.value === value && 'LemonSegmentedButton__option--selected'

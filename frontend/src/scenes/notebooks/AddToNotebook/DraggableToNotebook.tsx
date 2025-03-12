@@ -1,8 +1,8 @@
 import './DraggableToNotebook.scss'
 
-import clsx from 'clsx'
 import { useActions } from 'kea'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
+import { cn } from 'lib/utils/css-classes'
 import React, { useState } from 'react'
 
 import { NotebookNodeType } from '~/types'
@@ -85,7 +85,7 @@ export function DraggableToNotebook({
     return (
         <>
             <span
-                className={clsx('DraggableToNotebook', className, isDragging && 'DraggableToNotebook--dragging')}
+                className={cn('DraggableToNotebook', className, isDragging && 'DraggableToNotebook--dragging')}
                 draggable={draggable}
                 {...elementProps}
             >

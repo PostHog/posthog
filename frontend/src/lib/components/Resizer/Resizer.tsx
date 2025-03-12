@@ -1,7 +1,7 @@
 import './Resizer.scss'
 
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { cn } from 'lib/utils/css-classes'
 import { useEffect, useState } from 'react'
 
 import { resizerLogic, ResizerLogicProps } from './resizerLogic'
@@ -26,7 +26,7 @@ export function Resizer(props: ResizerProps): JSX.Element {
 
     return (
         <div
-            className={clsx(
+            className={cn(
                 'Resizer',
                 isResizeInProgress && isSelected && 'Resizer--resizing',
                 `Resizer--${props.placement}`

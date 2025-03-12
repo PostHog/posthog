@@ -2,11 +2,11 @@ import './UniversalFilterButton.scss'
 
 import { IconFilter, IconLogomark, IconX } from '@posthog/icons'
 import { LemonButton, PopoverReferenceContext } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useValues } from 'kea'
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
 import { IconWithCount } from 'lib/lemon-ui/icons'
 import { midEllipsis } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import React from 'react'
 
 import { cohortsModel } from '~/models/cohortsModel'
@@ -37,7 +37,7 @@ export const UniversalFilterButton = React.forwardRef<HTMLElement, UniversalFilt
             <div
                 ref={ref as any}
                 onClick={isEditable ? onClick : undefined}
-                className={clsx('UniversalFilterButton inline-flex items-center', {
+                className={cn('UniversalFilterButton inline-flex items-center', {
                     'UniversalFilterButton--clickable': isEditable,
                     'UniversalFilterButton--closeable': closable,
                     'ph-no-capture': true,

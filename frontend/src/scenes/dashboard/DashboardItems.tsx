@@ -1,11 +1,11 @@
 import './DashboardItems.scss'
 
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { TextCard } from 'lib/components/Cards/TextCard/TextCard'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { cn } from 'lib/utils/css-classes'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { useRef, useState } from 'react'
 import { Responsive as ReactGridLayout } from 'react-grid-layout'
@@ -46,7 +46,7 @@ export function DashboardItems(): JSX.Element {
     // cannot click links when dragging and 250ms after
     const isDragging = useRef(false)
     const dragEndTimeout = useRef<number | null>(null)
-    const className = clsx({
+    const className = cn({
         'dashboard-view-mode': dashboardMode !== DashboardMode.Edit,
         'dashboard-edit-mode': dashboardMode === DashboardMode.Edit,
     })

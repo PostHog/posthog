@@ -1,7 +1,7 @@
 import './Seekbar.scss'
 
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { cn } from 'lib/utils/css-classes'
 import { useEffect, useRef } from 'react'
 import React from 'react'
 
@@ -25,10 +25,7 @@ const SeekbarSegment = React.memo(function SeekbarSegmentRaw({
 }): JSX.Element {
     return (
         <div
-            className={clsx(
-                'PlayerSeekbar__segments__item',
-                segment.isActive && 'PlayerSeekbar__segments__item--active'
-            )}
+            className={cn('PlayerSeekbar__segments__item', segment.isActive && 'PlayerSeekbar__segments__item--active')}
             title={!segment.isActive ? 'Inactive period' : 'Active period'}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
@@ -81,7 +78,7 @@ export function Seekbar(): JSX.Element {
         <div className="flex flex-col items-end h-8 mx-4 mt-2" data-attr="rrweb-controller">
             <PlayerSeekbarTicks seekbarItems={seekbarItems} endTimeMs={endTimeMs} seekToTime={seekToTime} />
 
-            <div className={clsx('PlayerSeekbar', { 'PlayerSeekbar--scrubbing': isScrubbing })} ref={seekBarRef}>
+            <div className={cn('PlayerSeekbar', { 'PlayerSeekbar--scrubbing': isScrubbing })} ref={seekBarRef}>
                 <div
                     className="PlayerSeekbar__slider"
                     ref={sliderRef}

@@ -1,6 +1,6 @@
 import { Mark, mergeAttributes } from '@tiptap/core'
-import clsx from 'clsx'
 import { BuiltLogic } from 'kea'
+import { cn } from 'lib/utils/css-classes'
 
 import type { notebookLogicType } from '../Notebook/notebookLogicType'
 
@@ -38,7 +38,7 @@ export const NotebookMarkComment = Mark.create({
         return [
             'span',
             mergeAttributes(HTMLAttributes, {
-                class: clsx('NotebookComment'),
+                class: cn('NotebookComment'),
             }),
             0,
         ]

@@ -2,7 +2,7 @@ import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { IconArrowCircleRight } from '@posthog/icons'
 import { LemonSnack, Tooltip } from '@posthog/lemon-ui'
-import clsx from 'clsx'
+import { cn } from 'lib/utils/css-classes'
 import { isValidRegexp } from 'lib/utils/regexp'
 import { useState } from 'react'
 
@@ -50,7 +50,7 @@ export function PathCleanFilterItem({ filter, onChange, onRemove }: PathCleanFil
                         onClick={() => setVisible(!visible)}
                         onClose={onRemove}
                         title={`${filter.regex} is mapped to ${filter.alias}`}
-                        className={clsx({ 'border border-accent-primary': isInvalidRegex })}
+                        className={cn({ 'border border-accent-primary': isInvalidRegex })}
                     >
                         <span className="inline-flex items-center">
                             <span className="font-mono text-accent-primary text-xs">{filter.regex ?? '(Empty)'}</span>

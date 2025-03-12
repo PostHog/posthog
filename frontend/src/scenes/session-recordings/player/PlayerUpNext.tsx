@@ -1,10 +1,10 @@
 import './PlayerUpNext.scss'
 
 import { IconPlay } from '@posthog/icons'
-import clsx from 'clsx'
 import { BuiltLogic, useActions, useValues } from 'kea'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { cn } from 'lib/utils/css-classes'
 import { useEffect, useRef, useState } from 'react'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
@@ -83,7 +83,7 @@ export function PlayerUpNext({ playlistLogic }: PlayerUpNextProps): JSX.Element 
         >
             <div className="PlayerUpNext text-xs">
                 <div
-                    className={clsx('px-1 py-0.5 PlayerUpNextButton', animate && 'PlayerUpNextButton--animating')}
+                    className={cn('px-1 py-0.5 PlayerUpNextButton', animate && 'PlayerUpNextButton--animating')}
                     onClick={() => goToRecording(false)}
                 >
                     <div className="PlayerUpNextButtonBackground" />

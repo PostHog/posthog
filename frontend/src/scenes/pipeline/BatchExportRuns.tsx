@@ -1,11 +1,11 @@
 import { IconCalendar } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonSwitch, LemonTable, Tooltip } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconCancel, IconRefresh } from 'lib/lemon-ui/icons'
+import { cn } from 'lib/utils/css-classes'
 
 import { BatchExportConfiguration, BatchExportRun, GroupedBatchExportRuns } from '~/types'
 
@@ -426,7 +426,7 @@ export function BatchExportRunIcon({
             }
         >
             <span
-                className={clsx(
+                className={cn(
                     `BatchExportRunIcon h-6 p-2 border-2 flex items-center justify-center rounded-full font-semibold text-xs border-${color} text-${color}-dark select-none`,
                     color === 'primary' && 'BatchExportRunIcon--pulse',
                     showLabel ? '' : 'w-6'

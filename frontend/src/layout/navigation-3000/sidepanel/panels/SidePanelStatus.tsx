@@ -1,9 +1,9 @@
 import { IconCloud, IconExternal } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { IconWithBadge } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { useState } from 'react'
 
 import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
@@ -64,7 +64,7 @@ export const SidePanelStatus = (): JSX.Element => {
                 <iframe
                     src={STATUS_PAGE_BASE}
                     title="Status"
-                    className={clsx('w-full h-full', !ready && 'hidden')}
+                    className={cn('w-full h-full', !ready && 'hidden')}
                     onLoad={() => setReady(true)}
                 />
 

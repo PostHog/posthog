@@ -1,7 +1,7 @@
 import { LemonInput } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { LogicWrapper, useActions, useValues } from 'kea'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { cn } from 'lib/utils/css-classes'
 import React, { useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
@@ -39,7 +39,7 @@ export function Sidebar({ navbarItem, sidebarOverlay, sidebarOverlayProps }: Sid
 
     return (
         <div
-            className={clsx(
+            className={cn(
                 'Sidebar3000',
                 isResizeInProgress && 'Sidebar3000--resizing',
                 overslideDirection && `Sidebar3000--overslide-${overslideDirection}`
@@ -164,7 +164,7 @@ function SidebarOverlay({
 
     return (
         <div
-            className={clsx('absolute top-0 left-0 h-full bg-primary z-10', className)}
+            className={cn('absolute top-0 left-0 h-full bg-primary z-10', className)}
             // eslint-disable-next-line react/forbid-dom-props
             style={{ width: `${width}px` }}
         >

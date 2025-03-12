@@ -15,13 +15,13 @@ import {
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { capitalizeFirstLetter, humanFriendlyDetailedTime } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { Fragment, useEffect } from 'react'
 
 import { API_KEY_SCOPE_PRESETS, APIScopes, MAX_API_KEYS_PER_USER, personalAPIKeysLogic } from './personalAPIKeysLogic'
@@ -245,7 +245,7 @@ function EditKeyModal(): JSX.Element {
                                                     <Fragment key={key}>
                                                         <div className="flex items-center justify-between gap-2 min-h-8">
                                                             <div
-                                                                className={clsx(
+                                                                className={cn(
                                                                     'flex items-center gap-1',
                                                                     disabledDueToProjectScope && 'text-muted'
                                                                 )}

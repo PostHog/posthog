@@ -18,8 +18,8 @@ import {
     useRole,
     useTransitionStyles,
 } from '@floating-ui/react'
-import clsx from 'clsx'
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
+import { cn } from 'lib/utils/css-classes'
 import React, { useRef, useState } from 'react'
 
 export interface TooltipProps {
@@ -128,7 +128,7 @@ export function Tooltip({
                         })}
                     >
                         <div
-                            className={clsx(
+                            className={cn(
                                 'bg-surface-tooltip text-primary-inverse py-1.5 px-2 break-words rounded text-start',
                                 className
                             )}

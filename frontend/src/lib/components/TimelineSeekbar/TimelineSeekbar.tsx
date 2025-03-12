@@ -1,11 +1,11 @@
 import './TimelineSeekbar.scss'
 
 import { LemonBadge } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { Dayjs } from 'lib/dayjs'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDetailedTime, pluralize } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 
 export interface TimelinePoint {
     timestamp: Dayjs
@@ -35,7 +35,7 @@ export function TimelineSeekbar({
         selectedPointIndex !== null ? points[selectedPointIndex] : undefined
 
     return (
-        <div className={clsx('TimelineSeekbar', className)}>
+        <div className={cn('TimelineSeekbar', className)}>
             <div className="TimelineSeekbar__meta">
                 <div className="TimelineSeekbar__note">
                     {note}

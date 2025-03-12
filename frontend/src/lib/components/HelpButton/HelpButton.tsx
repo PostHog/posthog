@@ -2,10 +2,10 @@ import './HelpButton.scss'
 
 import { Placement } from '@floating-ui/react'
 import { IconBug, IconChevronDown, IconDocument, IconQuestion, IconSupport } from '@posthog/icons'
-import clsx from 'clsx'
 import { actions, connect, kea, key, listeners, path, props, reducers, useActions, useValues } from 'kea'
 import { IconFeedback, IconQuestionAnswer } from 'lib/lemon-ui/icons'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
+import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
@@ -148,7 +148,7 @@ export function HelpButton({
                 placement={placement}
                 onClickOutside={hideHelp}
             >
-                <div className={clsx('help-button', inline && 'inline')} onClick={toggleHelp} data-attr="help-button">
+                <div className={cn('help-button', inline && 'inline')} onClick={toggleHelp} data-attr="help-button">
                     {customComponent || (
                         <>
                             <IconQuestion />

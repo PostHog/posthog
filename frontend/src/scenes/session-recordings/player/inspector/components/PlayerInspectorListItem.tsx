@@ -14,13 +14,13 @@ import {
     IconTerminal,
 } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Dayjs } from 'lib/dayjs'
 import useIsHovering from 'lib/hooks/useIsHovering'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
 import { ceilMsToClosestSecond, colonDelimitedDuration } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { useEffect, useRef } from 'react'
 import { ItemComment, ItemCommentDetail } from 'scenes/session-recordings/player/inspector/components/ItemComment'
 import { ItemInactivity } from 'scenes/session-recordings/player/inspector/components/ItemInactivity'
@@ -273,7 +273,7 @@ export function PlayerInspectorListItem({
     return (
         <div
             ref={ref}
-            className={clsx(
+            className={cn(
                 'ml-1 flex flex-col items-center',
                 isExpanded && 'border border-accent-primary',
                 isExpanded && item.highlightColor && `border border-${item.highlightColor}-dark`,
@@ -325,7 +325,7 @@ export function PlayerInspectorListItem({
                     {TypeIcon ? <TypeIcon /> : <BaseIcon className="min-w-4" />}
 
                     <div
-                        className={clsx(
+                        className={cn(
                             'flex-1 overflow-hidden',
                             item.highlightColor === 'danger' && `bg-fill-error-highlight`,
                             item.highlightColor === 'warning' && `bg-fill-warning-highlight`,
@@ -353,7 +353,7 @@ export function PlayerInspectorListItem({
 
             {isExpanded ? (
                 <div
-                    className={clsx(
+                    className={cn(
                         'w-full mx-2 overflow-hidden',
                         item.highlightColor && `bg-${item.highlightColor}-highlight`
                     )}

@@ -1,7 +1,7 @@
 import './KeyboardShortcut.scss'
 
-import clsx from 'clsx'
 import { isMac, isMobile } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 
 import { HotKeyOrModifier } from '~/types'
 
@@ -41,7 +41,7 @@ export function KeyboardShortcut({ className, ...keys }: KeyboardShortcutProps):
     }
 
     return (
-        <kbd className={clsx('KeyboardShortcut gap-x-0.5', className)}>
+        <kbd className={cn('KeyboardShortcut gap-x-0.5', className)}>
             {sortedKeys.map((key) => (
                 <span key={key}>{KEY_TO_SYMBOL[key] || key}</span>
             ))}

@@ -1,11 +1,11 @@
 import { IconCheckCircle, IconChevronRight, IconCollapse, IconExpand, IconLock, IconPlus } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { ProfessorHog } from 'lib/components/hedgehogs'
 import type { LemonIconProps } from 'lib/lemon-ui/icons'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonProgressCircle } from 'lib/lemon-ui/LemonProgressCircle'
+import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import {
@@ -95,7 +95,7 @@ export const SidePanelActivationIcon = ({ className }: { className?: LemonIconPr
             progress={completionPercent / 100}
             strokePercentage={0.15}
             size={20}
-            className={clsx(activeTasks.length > 0 ? 'text-accent-primary' : 'text-muted-alt', className)}
+            className={cn(activeTasks.length > 0 ? 'text-accent-primary' : 'text-muted-alt', className)}
         >
             <span className="text-xs font-semibold">{activeTasks.length}</span>
         </LemonProgressCircle>
@@ -139,7 +139,7 @@ const ActivationSectionComponent = ({
     return (
         <div className="py-3">
             <button
-                className={clsx(
+                className={cn(
                     'flex items-center justify-between select-none w-full',
                     section.visible && 'cursor-pointer'
                 )}
@@ -158,7 +158,7 @@ const ActivationSectionComponent = ({
                         </span>
                     )}
                     {section.visible ? (
-                        <IconChevronRight className={clsx('h-4 w-4', section.open && 'rotate-90')} />
+                        <IconChevronRight className={cn('h-4 w-4', section.open && 'rotate-90')} />
                     ) : (
                         <LemonButton
                             icon={<IconPlus className="h-4 w-4" />}
@@ -216,7 +216,7 @@ const ActivationTask = ({
 
     return (
         <li
-            className={clsx(
+            className={cn(
                 'p-2 border bg-primary-alt-highlight flex items-center justify-between gap-2 select-none',
                 completed || skipped ? 'line-through opacity-70' : '',
                 canInteract && 'cursor-pointer',

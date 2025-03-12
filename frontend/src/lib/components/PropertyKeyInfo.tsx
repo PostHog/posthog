@@ -1,9 +1,9 @@
 import './PropertyKeyInfo.scss'
 
 import { LemonDivider, TooltipProps } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { getCoreFilterDefinition, PropertyKey } from 'lib/taxonomy'
+import { cn } from 'lib/utils/css-classes'
 import React, { useState } from 'react'
 
 import { TaxonomicFilterGroupType } from './TaxonomicFilter/types'
@@ -43,7 +43,7 @@ export const PropertyKeyInfo = React.forwardRef<HTMLSpanElement, PropertyKeyInfo
 
     const innerContent = (
         <span
-            className={clsx('PropertyKeyInfo', className)}
+            className={cn('PropertyKeyInfo', className)}
             aria-label={valueDisplayText}
             title={ellipsis && disablePopover ? valueDisplayText : undefined}
             ref={ref}
@@ -51,7 +51,7 @@ export const PropertyKeyInfo = React.forwardRef<HTMLSpanElement, PropertyKeyInfo
             {recognizedSource && !disableIcon && (
                 <span className={`PropertyKeyInfo__logo PropertyKeyInfo__logo--${recognizedSource}`} />
             )}
-            <span className={clsx('PropertyKeyInfo__text', ellipsis && 'PropertyKeyInfo__text--ellipsis')}>
+            <span className={cn('PropertyKeyInfo__text', ellipsis && 'PropertyKeyInfo__text--ellipsis')}>
                 {valueDisplayElement}
             </span>
         </span>

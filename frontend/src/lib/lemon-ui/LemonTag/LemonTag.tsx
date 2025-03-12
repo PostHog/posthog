@@ -1,9 +1,9 @@
 import './LemonTag.scss'
 
 import { IconEllipsis, IconX } from '@posthog/icons'
-import clsx from 'clsx'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonButtonDropdown } from 'lib/lemon-ui/LemonButton'
+import { cn } from 'lib/utils/css-classes'
 import { forwardRef } from 'react'
 
 export type LemonTagType =
@@ -56,7 +56,7 @@ export const LemonTag: React.FunctionComponent<LemonTagProps & React.RefAttribut
         return (
             <div
                 ref={ref}
-                className={clsx(
+                className={cn(
                     'LemonTag',
                     `LemonTag--size-${size}`,
                     disabledReason ? 'cursor-not-allowed' : props.onClick ? 'cursor-pointer' : undefined,

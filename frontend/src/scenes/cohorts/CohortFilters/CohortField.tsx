@@ -1,6 +1,5 @@
 import './CohortField.scss'
 
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
@@ -13,6 +12,7 @@ import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { formatDate } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { useEffect, useMemo, useRef } from 'react'
 import { cohortFieldLogic } from 'scenes/cohorts/CohortFilters/cohortFieldLogic'
 import {
@@ -291,7 +291,7 @@ export function CohortRelativeAndExactTimeField({
 }
 
 export function CohortTextField({ value }: CohortTextFieldProps): JSX.Element {
-    return <span className={clsx('CohortField', 'CohortField__CohortTextField')}>{value}</span>
+    return <span className={cn('CohortField', 'CohortField__CohortTextField')}>{value}</span>
 }
 
 export function CohortNumberField({
@@ -318,7 +318,7 @@ export function CohortNumberField({
             }}
             min={1}
             step={1}
-            className={clsx('CohortField', 'CohortField__CohortNumberField')}
+            className={cn('CohortField', 'CohortField__CohortNumberField')}
         />
     )
 }

@@ -3,7 +3,7 @@ import { NotebookNodeType } from '~/types'
 import { BindLogic, useActions, useValues } from 'kea'
 import { featureFlagLogic, FeatureFlagLogicProps } from 'scenes/feature-flags/featureFlagLogic'
 import { IconRecording, IconSurveys } from 'lib/lemon-ui/icons'
-import clsx from 'clsx'
+import { cn } from 'lib/utils/css-classes'
 import { LemonDivider } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -112,7 +112,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeFlagAttributes>
                         <>
                             <span className="flex-1 font-semibold truncate">{featureFlag.key}</span>
                             <span
-                                className={clsx(
+                                className={cn(
                                     'text-white rounded px-1',
                                     featureFlag.active ? 'bg-success' : 'bg-muted-alt'
                                 )}

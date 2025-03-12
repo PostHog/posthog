@@ -4,12 +4,12 @@ import { DndContext } from '@dnd-kit/core'
 import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifiers'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { IconPlusSmall } from '@posthog/icons'
-import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { DataWarehousePopoverField, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { DISPLAY_TYPES_TO_CATEGORIES as DISPLAY_TYPES_TO_CATEGORY } from 'lib/constants'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { verticalSortableListCollisionDetection } from 'lib/sortable'
+import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React, { useEffect } from 'react'
 import { RenameModal } from 'scenes/insights/filters/ActionFilter/RenameModal'
@@ -190,7 +190,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
 
     return (
         <div
-            className={clsx('ActionFilter', {
+            className={cn('ActionFilter', {
                 'ActionFilter--bordered': bordered,
             })}
             ref={ref}

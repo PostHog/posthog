@@ -1,9 +1,9 @@
 import './Link.scss'
 
 import { IconExternal, IconOpenSidebar } from '@posthog/icons'
-import clsx from 'clsx'
 import { router } from 'kea-router'
 import { isExternalLink } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { addProjectIdIfMissing } from 'lib/utils/router-utils'
 import React, { useContext } from 'react'
@@ -167,7 +167,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             // eslint-disable-next-line react/forbid-elements
             <a
                 ref={ref as any}
-                className={clsx('Link', subtle && 'Link--subtle', className)}
+                className={cn('Link', subtle && 'Link--subtle', className)}
                 onClick={onClick}
                 href={href}
                 target={target}
@@ -188,7 +188,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                 <span>
                     <button
                         ref={ref as any}
-                        className={clsx('Link', subtle && 'Link--subtle', className)}
+                        className={cn('Link', subtle && 'Link--subtle', className)}
                         onClick={onClick}
                         type="button"
                         disabled={disabled || !!disabledReason}

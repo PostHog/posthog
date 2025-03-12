@@ -1,7 +1,7 @@
 import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { cn } from 'lib/utils/css-classes'
 import { getClampedExclusionStepRange } from 'scenes/funnels/funnelUtils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -45,7 +45,7 @@ export function ExclusionRowSuffix({
     }
 
     return (
-        <div className={clsx('flex items-center flex-nowrap pl-1 mx-0', isVertical ? 'w-full my-1' : 'w-auto my-0')}>
+        <div className={cn('flex items-center flex-nowrap pl-1 mx-0', isVertical ? 'w-full my-1' : 'w-auto my-0')}>
             between
             <LemonSelect
                 className="mx-1"

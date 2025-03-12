@@ -1,8 +1,8 @@
 import { IconCopy } from '@posthog/icons'
-import clsx from 'clsx'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { cn } from 'lib/utils/css-classes'
 import React from 'react'
 
 interface InlinePropsBase {
@@ -63,7 +63,7 @@ export const CopyToClipboardInline = React.forwardRef<HTMLSpanElement, InlinePro
     if (children) {
         content = (
             <span
-                className={clsx(
+                className={cn(
                     'relative truncate inline-flex items-center flex-nowrap w-fit break-all',
                     selectable ? 'cursor-text' : 'cursor-pointer',
                     iconPosition === 'end' ? 'flex-row' : 'flex-row-reverse',

@@ -1,13 +1,13 @@
 import './SessionRecordingPlayer.scss'
 
 import { LemonButton } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { BuilderHog2 } from 'lib/components/hedgehogs'
 import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 import { HotkeysInterface, useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { usePageVisibilityCb } from 'lib/hooks/usePageVisibility'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
+import { cn } from 'lib/utils/css-classes'
 import { useMemo, useRef } from 'react'
 import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { RecordingNotFound } from 'scenes/session-recordings/player/RecordingNotFound'
@@ -160,7 +160,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         <BindLogic logic={sessionRecordingPlayerLogic} props={logicProps}>
             <div
                 ref={playerRef}
-                className={clsx(
+                className={cn(
                     'SessionRecordingPlayer',
                     {
                         'SessionRecordingPlayer--fullscreen': isFullScreen,

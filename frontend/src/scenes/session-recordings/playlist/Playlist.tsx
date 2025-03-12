@@ -2,11 +2,11 @@ import './Playlist.scss'
 
 import { IconX } from '@posthog/icons'
 import { LemonButton, LemonCollapse, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import { range } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import posthog from 'posthog-js'
 import { ReactNode, useRef, useState } from 'react'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
@@ -143,7 +143,7 @@ export function Playlist({
     return (
         <>
             <div
-                className={clsx(`w-full mb-8`, {
+                className={cn(`w-full mb-8`, {
                     hidden: !isExpanded,
                 })}
             >
@@ -160,7 +160,7 @@ export function Playlist({
             </div>
 
             <div
-                className={clsx('flex flex-col w-full gap-2 h-full', {
+                className={cn('flex flex-col w-full gap-2 h-full', {
                     'xl:flex-row': true,
                 })}
             >
@@ -169,7 +169,7 @@ export function Playlist({
                     <div
                         ref={playlistRef}
                         data-attr={dataAttr}
-                        className={clsx('Playlist w-full min-w-60 min-h-96', {
+                        className={cn('Playlist w-full min-w-60 min-h-96', {
                             'Playlist--wide': size !== 'small',
                             'Playlist--embedded': embedded,
                         })}
@@ -235,7 +235,7 @@ export function Playlist({
                     </div>
                 </div>
                 <div
-                    className={clsx(
+                    className={cn(
                         'Playlist h-full min-h-96 w-full min-w-96 lg:min-w-[560px] order-first xl:order-none',
                         {
                             'Playlist--wide': size !== 'small',

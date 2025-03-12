@@ -1,10 +1,10 @@
 import { IconCalendar } from '@posthog/icons'
 import { LemonButton, Popover } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { cn } from 'lib/utils/css-classes'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { TaxonomicBreakdownFilter } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownFilter'
@@ -65,7 +65,7 @@ export function DashboardEditBar(): JSX.Element {
             showArrow
         >
             <div
-                className={clsx(
+                className={cn(
                     'flex gap-2 items-center justify-between flex-wrap border md:[&>*]:grow-0 [&>*]:grow',
                     dashboardMode === DashboardMode.Edit
                         ? '-m-1.5 p-1.5 border-primary border-dashed rounded-lg'

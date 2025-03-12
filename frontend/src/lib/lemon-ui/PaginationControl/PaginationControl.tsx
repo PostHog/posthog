@@ -1,8 +1,8 @@
 import './PaginationControl.scss'
 
-import clsx from 'clsx'
 import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { cn } from 'lib/utils/css-classes'
 
 import { PaginationState } from './types'
 
@@ -36,7 +36,7 @@ export function PaginationControl<T>({
     const currentPageSize = dataSourcePage.length
 
     return showPagination ? (
-        <div className={clsx('PaginationControl', bordered && 'PaginationControl--bordered')}>
+        <div className={cn('PaginationControl', bordered && 'PaginationControl--bordered')}>
             <span>
                 {currentPageSize === 0
                     ? `No ${nouns[1]}`

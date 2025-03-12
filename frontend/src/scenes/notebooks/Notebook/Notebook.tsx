@@ -1,11 +1,11 @@
 import './Notebook.scss'
 
-import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { useWhyDidIRender } from 'lib/hooks/useWhyDidIRender'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { cn } from 'lib/utils/css-classes'
 import { useEffect } from 'react'
 import { notebookLogic, NotebookLogicProps } from 'scenes/notebooks/Notebook/notebookLogic'
 
@@ -96,7 +96,7 @@ export function Notebook({
                 <NotFound object="notebook" />
             ) : (
                 <div
-                    className={clsx(
+                    className={cn(
                         'Notebook',
                         !isExpanded && 'Notebook--compact',
                         mode && `Notebook--${mode}`,

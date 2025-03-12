@@ -1,8 +1,8 @@
-import clsx from 'clsx'
 import { useValues } from 'kea'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { cn } from 'lib/utils/css-classes'
 import { Funnel } from 'scenes/funnels/Funnel'
 import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
@@ -236,7 +236,7 @@ export function InsightVizDisplay({
         <>
             {/* These are filters that are reused between insight features. They each have generic logic that updates the url */}
             <div
-                className={clsx(
+                className={cn(
                     `InsightVizDisplay InsightVizDisplay--type-${activeView.toLowerCase()}`,
                     !embedded && 'border rounded bg-surface-primary'
                 )}
@@ -264,7 +264,7 @@ export function InsightVizDisplay({
                         )}
 
                         <div
-                            className={clsx(
+                            className={cn(
                                 'InsightVizDisplay__content',
                                 supportsDisplay && showLegend && 'InsightVizDisplay__content--with-legend'
                             )}

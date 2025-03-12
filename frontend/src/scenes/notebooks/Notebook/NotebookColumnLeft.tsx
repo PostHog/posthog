@@ -1,7 +1,7 @@
 import { LemonButton } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { BindLogic, BuiltLogic, useActions, useValues } from 'kea'
 import { LemonWidget } from 'lib/lemon-ui/LemonWidget'
+import { cn } from 'lib/utils/css-classes'
 import { useEffect, useRef, useState } from 'react'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
@@ -16,7 +16,7 @@ export const NotebookColumnLeft = (): JSX.Element | null => {
 
     return (
         <div
-            className={clsx('NotebookColumn NotebookColumn--left', {
+            className={cn('NotebookColumn NotebookColumn--left', {
                 'NotebookColumn--showing': isShowingLeftColumn,
             })}
         >

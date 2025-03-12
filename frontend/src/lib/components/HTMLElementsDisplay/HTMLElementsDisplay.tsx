@@ -1,8 +1,8 @@
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { htmlElementsDisplayLogic } from 'lib/components/HTMLElementsDisplay/htmlElementsDisplayLogic'
 import { ParsedCSSSelector } from 'lib/components/HTMLElementsDisplay/preselectWithCSS'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { cn } from 'lib/utils/css-classes'
 import { useState } from 'react'
 
 import { ElementType } from '~/types'
@@ -35,7 +35,7 @@ function CloseAllTags({
                         }}
                     >
                         <pre
-                            className={clsx(
+                            className={cn(
                                 'whitespace-pre-wrap break-all !p-0 !m-0 rounded-none text-primary',
                                 size === 'xsmall' ? 'text-xs' : 'text-sm'
                             )}
@@ -152,12 +152,12 @@ export function HTMLElementsDisplay({
     const { setParsedSelectors, showAdditionalElements } = useActions(logic)
 
     return (
-        <div className={clsx('flex flex-col gap-1', size === 'xsmall' && 'text-xxs')}>
+        <div className={cn('flex flex-col gap-1', size === 'xsmall' && 'text-xxs')}>
             {editable && !!parsedElements.length && (
                 <div className="flex flex-col gap-2 mb-2">
                     <div>Selector:</div>
                     <div className="w-full border rounded bg-primary px-4 py-2 select-text">
-                        <pre className={clsx('m-0', size === 'xsmall' ? 'text-xxs' : 'text-sm')}>{chosenSelector}</pre>
+                        <pre className={cn('m-0', size === 'xsmall' ? 'text-xxs' : 'text-sm')}>{chosenSelector}</pre>
                     </div>
                 </div>
             )}
@@ -176,7 +176,7 @@ export function HTMLElementsDisplay({
                     <>
                         {elementsToShowDepth ? (
                             <pre
-                                className={clsx(
+                                className={cn(
                                     '!p-1 !m-0 opacity-50 text-primary cursor-pointer',
                                     size === 'xsmall' ? 'text-xxs' : 'text-sm'
                                 )}

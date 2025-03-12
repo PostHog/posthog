@@ -1,9 +1,9 @@
-import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
+import { cn } from 'lib/utils/css-classes'
 import type { IDisposable } from 'monaco-editor'
 import { useEffect, useRef, useState } from 'react'
 
@@ -44,7 +44,7 @@ export function HogQueryEditor(props: HogQueryEditorProps): JSX.Element {
         <div className="deprecated-space-y-2">
             <div
                 data-attr="hogql-query-editor"
-                className={clsx('flex flex-col rounded deprecated-space-y-2 w-full p-2 border')}
+                className={cn('flex flex-col rounded deprecated-space-y-2 w-full p-2 border')}
             >
                 <div className="relative flex-1 overflow-hidden">
                     <div className="resize-y overflow-hidden h-[222px]">

@@ -1,9 +1,9 @@
 import { LemonTag } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { cn } from 'lib/utils/css-classes'
 import React, { FunctionComponent, ReactElement, useState } from 'react'
 import { sceneLogic } from 'scenes/sceneLogic'
 
@@ -84,7 +84,7 @@ export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardR
                 setHasBeenClicked(true)
                 onClick?.(e)
             }}
-            className={clsx('NavbarButton', isUsingNewNav && here && 'NavbarButton--here')}
+            className={cn('NavbarButton', isUsingNewNav && here && 'NavbarButton--here')}
             fullWidth
             type="secondary"
             status="alt"

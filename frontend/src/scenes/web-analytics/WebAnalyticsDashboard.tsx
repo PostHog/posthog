@@ -1,6 +1,5 @@
 import { IconExpand45, IconInfo, IconLineGraph, IconOpenSidebar, IconX } from '@posthog/icons'
 import { LemonSegmentedButton } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -12,6 +11,7 @@ import { PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNotNil } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { addProductIntentForCrossSell, ProductIntentContext } from 'lib/utils/product-intents'
 import React, { useState } from 'react'
 import { WebAnalyticsErrorTrackingTile } from 'scenes/web-analytics/tiles/WebAnalyticsErrorTracking'
@@ -97,7 +97,7 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
 
     return (
         <div
-            className={clsx(
+            className={cn(
                 'col-span-1 row-span-1 flex flex-col',
                 layout.colSpanClassName ?? 'md:col-span-6',
                 layout.rowSpanClassName ?? 'md:row-span-1',
@@ -135,7 +135,7 @@ const TabsTileItem = ({ tile }: { tile: TabsTile }): JSX.Element => {
 
     return (
         <WebTabs
-            className={clsx(
+            className={cn(
                 'col-span-1 row-span-1',
                 layout.colSpanClassName || 'md:col-span-1',
                 layout.rowSpanClassName || 'md:row-span-1',
@@ -242,7 +242,7 @@ export const WebTabs = ({
     ].filter(isNotNil)
 
     return (
-        <div className={clsx(className, 'flex flex-col')}>
+        <div className={cn(className, 'flex flex-col')}>
             <div className="flex flex-row items-center self-stretch mb-3">
                 <h2 className="flex-1 m-0 flex flex-row ml-1">
                     {activeTab?.title}
@@ -351,7 +351,7 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
                 <VersionCheckerBanner />
                 <div className="WebAnalyticsDashboard w-full flex flex-col">
                     <div
-                        className={clsx(
+                        className={cn(
                             'sticky z-20 bg-primary border-b pb-2',
                             mobileLayout
                                 ? 'top-[var(--breadcrumbs-height-full)]'

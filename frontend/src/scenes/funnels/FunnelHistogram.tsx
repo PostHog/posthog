@@ -1,9 +1,9 @@
 import './FunnelHistogram.scss'
 
 import useSize from '@react-hook/size'
-import clsx from 'clsx'
 import { useValues } from 'kea'
 import { hashCodeForString, humanFriendlyDuration } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { useRef } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { Histogram } from 'scenes/insights/views/Histogram'
@@ -27,7 +27,7 @@ export function FunnelHistogram(): JSX.Element | null {
 
     return (
         <div
-            className={clsx('FunnelHistogram', {
+            className={cn('FunnelHistogram', {
                 scrollable: !isInDashboardContext,
                 'overflow-hidden': isInDashboardContext,
                 'dashboard-wrapper': isInDashboardContext,

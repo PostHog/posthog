@@ -1,7 +1,7 @@
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { cn } from 'lib/utils/css-classes'
 import { useMemo, useState } from 'react'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
@@ -146,10 +146,10 @@ const Content = ({
     const hasNoValues = values?.length === 0
 
     return (
-        <div className={clsx('pt-4', { 'h-full': loadedValues })}>
-            <div className={clsx('flex flex-col gap-1', { 'justify-center': hasNoValues, 'h-full': loadedValues })}>
+        <div className={cn('pt-4', { 'h-full': loadedValues })}>
+            <div className={cn('flex flex-col gap-1', { 'justify-center': hasNoValues, 'h-full': loadedValues })}>
                 {responseLoading ? (
-                    <LemonSkeleton fade className={clsx('w-full', SKELETON_HEIGHT[band])} />
+                    <LemonSkeleton fade className={cn('w-full', SKELETON_HEIGHT[band])} />
                 ) : values?.length ? (
                     values?.map(({ path, value }) => {
                         const width = computePositionInBand(value, webVitalsTab) * 100

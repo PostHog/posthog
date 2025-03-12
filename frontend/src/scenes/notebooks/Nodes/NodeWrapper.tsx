@@ -7,7 +7,7 @@ import {
     getExtensionField,
 } from '@tiptap/react'
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
-import clsx from 'clsx'
+import { cn } from 'lib/utils/css-classes'
 import { IconDragHandle, IconLink } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 import './NodeWrapper.scss'
@@ -183,7 +183,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                 <NodeViewWrapper as="div">
                     <div
                         ref={setRefs}
-                        className={clsx(nodeType, 'NotebookNode', {
+                        className={cn(nodeType, 'NotebookNode', {
                             'NotebookNode--auto-hide-metadata': autoHideMetadata,
                             'NotebookNode--editable': getPos && isEditable,
                             'NotebookNode--selected': isEditable && selected,
@@ -271,7 +271,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
 
                                         <div
                                             ref={contentRef}
-                                            className={clsx(
+                                            className={cn(
                                                 'NotebookNode__content flex flex-col relative z-0 overflow-hidden',
                                                 isEditable && isResizeable && 'resize-y'
                                             )}

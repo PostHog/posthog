@@ -1,8 +1,8 @@
 import { IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { IconSort } from 'lib/lemon-ui/icons'
+import { cn } from 'lib/utils/css-classes'
 import { ProductTab, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { WebAnalyticsOrderByFields } from '~/queries/schema/schema-general'
@@ -36,7 +36,7 @@ export const TableSortingIndicator = (): JSX.Element | null => {
         <LemonButton
             type="secondary"
             size="small"
-            icon={<IconSort className={clsx({ 'rotate-180': tablesOrderBy[1] === 'ASC' })} />}
+            icon={<IconSort className={cn({ 'rotate-180': tablesOrderBy[1] === 'ASC' })} />}
             sideIcon={<IconX />}
             onClick={clearTablesOrderBy}
         >

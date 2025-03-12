@@ -1,12 +1,12 @@
 import { IconPauseFilled, IconPlayFilled } from '@posthog/icons'
 import { LemonButton, Spinner, Tooltip } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { cn } from 'lib/utils/css-classes'
 import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 
@@ -77,7 +77,7 @@ export function LiveEventsTable(): JSX.Element {
                         <div className="flex justify-center items-center bg-surface-primary px-3 py-2 rounded border border-primary text-xs font-medium text-secondary gap-x-2.5">
                             <span className="relative flex h-2.5 w-2.5">
                                 <span
-                                    className={clsx(
+                                    className={cn(
                                         'absolute inline-flex h-full w-full rounded-full bg-danger',
                                         stats?.users_on_product != null && 'animate-ping'
                                     )}

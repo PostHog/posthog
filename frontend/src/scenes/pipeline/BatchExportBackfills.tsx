@@ -1,11 +1,11 @@
 import { LemonButton, LemonDialog, LemonTable } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconCancel, IconRefresh } from 'lib/lemon-ui/icons'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
+import { cn } from 'lib/utils/css-classes'
 
 import { BatchExportBackfill } from '~/types'
 
@@ -97,7 +97,7 @@ function BatchExportLatestBackfills({ id }: BatchExportBackfillsLogicProps): JSX
                             } as const
                             return (
                                 <span
-                                    className={clsx(
+                                    className={cn(
                                         'h-6 p-2 border-2 flex items-center justify-center rounded-full font-semibold text-xs select-none',
                                         statusStyles[color]
                                     )}

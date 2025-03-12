@@ -1,6 +1,5 @@
 import { IconChevronDown, IconTrending, IconWarning } from '@posthog/icons'
 import { Link, Tooltip } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { getColorVar } from 'lib/colors'
 import { IntervalFilterStandalone } from 'lib/components/IntervalFilter'
@@ -11,6 +10,7 @@ import { IconOpenInNew, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { percentage, tryDecodeURIComponent, UnexpectedNeverError } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import {
     COUNTRY_CODE_TO_LONG_NAME,
     countryCodeToFlag,
@@ -117,7 +117,7 @@ const VariationCell = (
                 : null
 
         return (
-            <div className={clsx({ 'pr-4': !trend })}>
+            <div className={cn({ 'pr-4': !trend })}>
                 <Tooltip title={tooltip}>
                     <span>
                         {formatNumber(current)}&nbsp;
@@ -316,7 +316,7 @@ const SortableCell = (name: string, orderByField: WebAnalyticsOrderByFields): Qu
                 {name}
                 <IconChevronDown
                     fontSize="20px"
-                    className={clsx('-mr-1 ml-1 text-muted-alt opacity-0 group-hover:opacity-100', {
+                    className={cn('mr-1 ml-1 text-muted-alt opacity-0 group-hover:opacity-100', {
                         'text-primary opacity-100': isSortedByMyField,
                         'rotate-180': isSortedByMyField && isAscending,
                     })}

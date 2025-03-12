@@ -1,7 +1,7 @@
 import './LemonBadge.scss'
 
-import clsx from 'clsx'
 import { compactNumber, humanFriendlyNumber } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { forwardRef } from 'react'
 import { CSSTransition } from 'react-transition-group'
 
@@ -50,7 +50,7 @@ const LemonBadgeComponent: React.FunctionComponent<LemonBadgeProps & React.RefAt
             <CSSTransition in={visible} timeout={150} classNames="LemonBadge-" mountOnEnter unmountOnExit>
                 <span
                     ref={ref}
-                    className={clsx(
+                    className={cn(
                         'LemonBadge',
                         !content && 'LemonBadge--dot',
                         `LemonBadge--${size}`,

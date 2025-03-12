@@ -13,13 +13,13 @@ import {
     IconShieldLock,
 } from '@posthog/icons'
 import { LemonButtonPropsBase } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { ThemeSwitcher } from 'scenes/settings/user/ThemeSwitcher'
@@ -48,7 +48,7 @@ function AccountPopoverSection({
     children: any
 }): JSX.Element {
     return (
-        <div className={clsx('AccountPopover__section', className)}>
+        <div className={cn('AccountPopover__section', className)}>
             {title && <h5 className="flex items-center">{title}</h5>}
             {children}
         </div>

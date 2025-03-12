@@ -1,7 +1,7 @@
 import './LemonLabel.scss'
 
 import { IconInfo } from '@posthog/icons'
-import clsx from 'clsx'
+import { cn } from 'lib/utils/css-classes'
 
 import { Link, LinkProps } from '../Link'
 import { Tooltip } from '../Tooltip'
@@ -26,7 +26,7 @@ export function LemonLabel({
     ...props
 }: LemonLabelProps): JSX.Element {
     return (
-        <label className={clsx('LemonLabel', className)} htmlFor={htmlFor} {...props}>
+        <label className={cn('LemonLabel', className)} htmlFor={htmlFor} {...props}>
             {children}
 
             {showOptional ? <span className="LemonLabel__extra">(optional)</span> : null}

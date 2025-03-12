@@ -1,7 +1,7 @@
-import clsx from 'clsx'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { humanFriendlyMilliseconds } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 
 import { PerformanceEvent, RecordingEventType } from '~/types'
 
@@ -149,7 +149,7 @@ export function PerformanceDuration({
         <>-</>
     ) : (
         <span
-            className={clsx({
+            className={cn({
                 'text-error': !loading && value >= benchmarks[1],
                 'text-warning': !loading && value >= benchmarks[0] && value < benchmarks[1],
                 'text-success': !loading && value < benchmarks[0],
@@ -221,7 +221,7 @@ export function PerformanceCardDescriptions({
 }): JSX.Element {
     const performanceValues = itemToPerformanceValues(item)
     return (
-        <div className={clsx('p-2 text-xs border-t', !expanded && 'hidden')}>
+        <div className={cn('p-2 text-xs border-t', !expanded && 'hidden')}>
             {Object.entries(summaryMapping)
                 .filter(([key]) => performanceValues[key] !== undefined)
                 .map(([key, summary]) => (

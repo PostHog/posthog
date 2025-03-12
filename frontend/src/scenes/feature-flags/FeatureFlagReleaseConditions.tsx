@@ -2,7 +2,6 @@ import './FeatureFlag.scss'
 
 import { IconCopy, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonInput, LemonSelect, LemonSnack, Link } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
@@ -22,6 +21,7 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { getFilterLabel } from 'lib/taxonomy'
 import { capitalizeFirstLetter, dateFilterToText, dateStringToComponents, humanFriendlyNumber } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -361,7 +361,7 @@ export function FeatureFlagReleaseConditions({
                                     />
                                 </LemonField.Pure>{' '}
                                 <div
-                                    className={clsx(
+                                    className={cn(
                                         propertySelectErrors?.[index]?.rollout_percentage ? 'basis-full h-0' : ''
                                     )}
                                 />

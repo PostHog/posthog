@@ -1,5 +1,5 @@
-import clsx from 'clsx'
 import { useActions } from 'kea'
+import { cn } from 'lib/utils/css-classes'
 import { useEffect, useRef } from 'react'
 
 import { CommandResultDisplayable } from '../CommandPalette/commandPaletteLogic'
@@ -24,7 +24,7 @@ export const ActionResult = ({ result, focused }: SearchResultProps): JSX.Elemen
 
     return (
         <div
-            className={clsx(
+            className={cn(
                 'border-l-4',
                 focused ? 'border-accent-primary' : !isExecutable ? 'border-transparent' : null
             )}

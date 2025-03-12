@@ -1,6 +1,6 @@
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { percentage } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { useRef } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
@@ -30,7 +30,7 @@ export function StepBar({ step, stepIndex, series, showPersonsModal }: StepBarPr
 
     return (
         <div
-            className={clsx('StepBar', !showPersonsModal && 'StepBar__unclickable')}
+            className={cn('StepBar', !showPersonsModal && 'StepBar__unclickable')}
             /* eslint-disable-next-line react/forbid-dom-props */
             style={
                 {

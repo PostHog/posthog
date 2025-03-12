@@ -1,6 +1,6 @@
-import clsx from 'clsx'
 import { dayjs } from 'lib/dayjs'
 import { LemonCalendar } from 'lib/lemon-ui/LemonCalendar/LemonCalendar'
+import { cn } from 'lib/utils/css-classes'
 import { useEffect, useState } from 'react'
 
 import { LemonCalendarRangeProps } from './LemonCalendarRange'
@@ -102,7 +102,7 @@ export function LemonCalendarRangeInline({
                         className:
                             date.isSame(rangeStart, 'd') && date.isSame(rangeEnd, 'd')
                                 ? props.className
-                                : clsx(
+                                : cn(
                                       props.className,
                                       {
                                           'rounded-r-none': date.isSame(rangeStart, 'd') && dayIndex < 6,
@@ -115,7 +115,7 @@ export function LemonCalendarRangeInline({
                 } else if (rangeStart && rangeEnd && date > rangeStart && date < rangeEnd) {
                     return {
                         ...props,
-                        className: clsx(
+                        className: cn(
                             props.className,
                             dayIndex === 0 ? 'rounded-r-none' : dayIndex === 6 ? 'rounded-l-none' : 'rounded-none'
                         ),

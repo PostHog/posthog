@@ -1,12 +1,12 @@
 import { IconBrackets, IconDatabase } from '@posthog/icons'
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
-import { clsx } from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { DatabaseTableTree, TreeItem } from 'lib/components/DatabaseTableTree/DatabaseTableTree'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { cn } from 'lib/utils/css-classes'
 import { useState } from 'react'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -293,7 +293,7 @@ export const DatabaseTableTreeWithItems = ({ inline, collapsible = true }: Datab
 
     return (
         <div
-            className={clsx(
+            className={cn(
                 `bg-surface-primary rounded deprecated-space-y-px border p-2 overflow-y-auto`,
                 !collapsed ? 'min-w-80 flex-1' : ''
             )}

@@ -1,12 +1,12 @@
 import './FunnelBarHorizontal.scss'
 
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { IconInfinity, IconTrendingFlat, IconTrendingFlatDown } from 'lib/lemon-ui/icons'
 import { humanFriendlyDuration, percentage, pluralize } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { getActionFilterFromFunnelStep } from 'scenes/insights/views/Funnels/funnelStepTableUtils'
 
@@ -41,7 +41,7 @@ export function FunnelBarHorizontal({
 
     // Everything rendered after is a funnel in top-to-bottom mode.
     return (
-        <div data-attr="funnel-bar-horizontal" className={clsx('FunnelBarHorizontal')} ref={graphRef}>
+        <div data-attr="funnel-bar-horizontal" className={cn('FunnelBarHorizontal')} ref={graphRef}>
             {steps.map((step, stepIndex) => {
                 const basisStep = getReferenceStep(steps, stepReference, stepIndex)
                 const showLineBefore = stepIndex > 0
@@ -95,7 +95,7 @@ export function FunnelBarHorizontal({
                                 </div>
                             ) : null}
                         </header>
-                        <div className={clsx('funnel-bar-wrapper', { breakdown: isBreakdown })} aria-busy={!width}>
+                        <div className={cn('funnel-bar-wrapper', { breakdown: isBreakdown })} aria-busy={!width}>
                             {!width ? null : isBreakdown ? (
                                 <>
                                     {step?.nested_breakdown?.map((breakdown, index) => {

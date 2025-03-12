@@ -1,10 +1,10 @@
 import './LemonBanner.scss'
 
 import { IconInfo, IconWarning, IconX } from '@posthog/icons'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { LemonButton, SideAction } from 'lib/lemon-ui/LemonButton'
 import { LemonButtonPropsBase } from 'lib/lemon-ui/LemonButton'
+import { cn } from 'lib/utils/css-classes'
 
 import { lemonBannerLogic } from './lemonBannerLogic'
 
@@ -52,12 +52,7 @@ export function LemonBanner({
 
     return (
         <div
-            className={clsx(
-                'LemonBanner @container',
-                `LemonBanner--${type}`,
-                className,
-                square && 'LemonBanner--square'
-            )}
+            className={cn('LemonBanner @container', `LemonBanner--${type}`, className, square && 'LemonBanner--square')}
         >
             <div className="flex items-center gap-2 grow @md:!px-1">
                 {!hideIcon &&

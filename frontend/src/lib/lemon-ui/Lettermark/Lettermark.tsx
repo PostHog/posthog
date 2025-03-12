@@ -1,6 +1,6 @@
 import './Lettermark.scss'
 
-import clsx from 'clsx'
+import { cn } from 'lib/utils/css-classes'
 import React from 'react'
 
 // This is the number of known --lettermark-* variables in `globals.scss`
@@ -43,7 +43,7 @@ export const Lettermark = React.forwardRef<HTMLDivElement, LettermarkProps>(func
 
     return (
         <div
-            className={clsx(
+            className={cn(
                 `Lettermark Lettermark--${size}`,
                 colorIndex && `Lettermark--variant-${colorIndex}`,
                 outlined && 'Lettermark--outlined',

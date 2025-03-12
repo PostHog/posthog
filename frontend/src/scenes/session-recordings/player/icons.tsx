@@ -1,4 +1,4 @@
-import clsx from 'clsx'
+import { cn } from 'lib/utils/css-classes'
 
 interface IconWindowProps {
     value: number | string
@@ -11,7 +11,7 @@ export function IconWindow({ value, className = '', size = 'medium' }: IconWindo
 
     return (
         <div
-            className={clsx(
+            className={cn(
                 'flex justify-center items-center shrink-0 bg-muted-alt text-white rounded',
                 size === 'medium' && 'w-5 h-5',
                 size === 'small' && 'w-4 h-4',
@@ -19,11 +19,7 @@ export function IconWindow({ value, className = '', size = 'medium' }: IconWindo
             )}
         >
             <span
-                className={clsx(
-                    'font-bold select-none',
-                    size === 'medium' && 'text-xs',
-                    size === 'small' && 'text-xxs'
-                )}
+                className={cn('font-bold select-none', size === 'medium' && 'text-xs', size === 'small' && 'text-xxs')}
             >
                 {shortValue}
             </span>

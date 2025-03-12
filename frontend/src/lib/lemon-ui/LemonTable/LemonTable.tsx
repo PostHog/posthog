@@ -1,12 +1,12 @@
 import './LemonTable.scss'
 
 import { IconInfo } from '@posthog/icons'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { cn } from 'lib/utils/css-classes'
 import React, { HTMLProps, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { PaginationAuto, PaginationControl, PaginationManual, usePagination } from '../PaginationControl'
@@ -222,7 +222,7 @@ export function LemonTable<T extends Record<string, any>>({
     return (
         <div
             id={id}
-            className={clsx(
+            className={cn(
                 'LemonTable',
                 size && size !== 'middle' && `LemonTable--${size}`,
                 inset && 'LemonTable--inset',
@@ -291,7 +291,7 @@ export function LemonTable<T extends Record<string, any>>({
                                                     key={`LemonTable-th-${columnGroupIndex}-${
                                                         determineColumnKey(column) ?? columnIndex
                                                     }`}
-                                                    className={clsx(
+                                                    className={cn(
                                                         'LemonTable__header',
                                                         column.sorter && 'LemonTable__header--actionable',
                                                         columnIndex === 0 && 'LemonTable__boundary',
@@ -334,7 +334,7 @@ export function LemonTable<T extends Record<string, any>>({
                                                         style={{ justifyContent: column.align }}
                                                     >
                                                         <div
-                                                            className={clsx(
+                                                            className={cn(
                                                                 'flex items-center',
                                                                 column?.fullWidth && 'w-full'
                                                             )}
@@ -442,7 +442,7 @@ export function LemonTable<T extends Record<string, any>>({
                                                 columnGroup.children.map((column, columnIndex) => (
                                                     <td
                                                         key={`LemonTable-td-${columnGroupIndex}-${columnIndex}`}
-                                                        className={clsx(
+                                                        className={cn(
                                                             columnIndex === columnGroup.children.length - 1 &&
                                                                 'LemonTable__boundary',
                                                             firstColumnSticky &&

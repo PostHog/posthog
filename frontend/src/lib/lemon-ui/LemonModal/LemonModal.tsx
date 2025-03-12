@@ -1,9 +1,9 @@
 import './LemonModal.scss'
 
 import { IconX } from '@posthog/icons'
-import clsx from 'clsx'
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { cn } from 'lib/utils/css-classes'
 import { useEffect, useRef, useState } from 'react'
 import Modal from 'react-modal'
 
@@ -54,16 +54,16 @@ export interface LemonModalProps {
 }
 
 export const LemonModalHeader = ({ children, className }: LemonModalInnerProps): JSX.Element => {
-    return <header className={clsx('LemonModal__header', className)}>{children}</header>
+    return <header className={cn('LemonModal__header', className)}>{children}</header>
 }
 
 export const LemonModalFooter = ({ children, className }: LemonModalInnerProps): JSX.Element => {
-    return <footer className={clsx('LemonModal__footer', className)}>{children}</footer>
+    return <footer className={cn('LemonModal__footer', className)}>{children}</footer>
 }
 
 export const LemonModalContent = ({ children, className, embedded = false }: LemonModalContentProps): JSX.Element => {
     return (
-        <section className={clsx('LemonModal__content', embedded && 'LemonModal__content--embedded', className)}>
+        <section className={cn('LemonModal__content', embedded && 'LemonModal__content--embedded', className)}>
             {children}
         </section>
     )
@@ -103,7 +103,7 @@ export function LemonModal({
                 // providing immediate visual feedback on click
                 <div
                     key={ignoredOverlayClickCount}
-                    className={clsx(
+                    className={cn(
                         'LemonModal__close',
                         ignoredOverlayClickCount > 0 && 'LemonModal__close--highlighted'
                     )}
@@ -186,8 +186,8 @@ export function LemonModal({
             shouldCloseOnEsc={closable}
             onAfterClose={onAfterClose}
             closeTimeoutMS={250}
-            className={clsx('LemonModal', fullScreen && 'LemonModal--fullscreen')}
-            overlayClassName={clsx(
+            className={cn('LemonModal', fullScreen && 'LemonModal--fullscreen')}
+            overlayClassName={cn(
                 'LemonModal__overlay',
                 zIndex && `LemonModal__overlay--z-${zIndex}`,
                 forceAbovePopovers && 'LemonModal__overlay--force-modal-above-popovers'

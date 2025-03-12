@@ -1,6 +1,6 @@
 import { IconInfo } from '@posthog/icons'
 import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
-import clsx from 'clsx'
+import { cn } from 'lib/utils/css-classes'
 
 import { WebVitalsMetric } from '~/queries/schema/schema-general'
 
@@ -23,7 +23,7 @@ export function WebVitalsTab({ value, metric, isActive, setTab }: WebVitalsTabPr
     return (
         <div
             onClick={setTab}
-            className={clsx(
+            className={cn(
                 'flex-1 gap-2 border p-2 bg-surface-primary rounded items-center sm:items-start flex flex-col justify-between cursor-pointer',
                 isActive && 'border-accent-primary border-2'
             )}

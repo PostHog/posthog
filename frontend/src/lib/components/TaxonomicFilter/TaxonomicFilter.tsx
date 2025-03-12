@@ -1,7 +1,6 @@
 import './TaxonomicFilter.scss'
 
 import { IconKeyboard } from '@posthog/icons'
-import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import {
     TaxonomicFilterGroupType,
@@ -10,6 +9,7 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { cn } from 'lib/utils/css-classes'
 import { useEffect, useMemo, useRef } from 'react'
 
 import { InfiniteSelectResults } from './InfiniteSelectResults'
@@ -89,7 +89,7 @@ export function TaxonomicFilter({
         <BindLogic logic={taxonomicFilterLogic} props={taxonomicFilterLogicProps}>
             <div
                 ref={taxonomicFilterRef}
-                className={clsx(
+                className={cn(
                     'taxonomic-filter',
                     taxonomicGroupTypes.length === 1 && 'one-taxonomic-tab',
                     !width && 'force-minimum-width'

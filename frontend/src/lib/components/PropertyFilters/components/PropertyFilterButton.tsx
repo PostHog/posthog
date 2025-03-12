@@ -2,10 +2,10 @@ import './PropertyFilterButton.scss'
 
 import { IconX } from '@posthog/icons'
 import { LemonButton, PopoverReferenceContext, Tooltip } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useValues } from 'kea'
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
 import { midEllipsis } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import React from 'react'
 
 import { cohortsModel } from '~/models/cohortsModel'
@@ -39,7 +39,7 @@ export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilter
             <ButtonComponent
                 ref={ref as any}
                 onClick={disabledReason ? undefined : onClick}
-                className={clsx('PropertyFilterButton', 'grow', {
+                className={cn('PropertyFilterButton', 'grow', {
                     'PropertyFilterButton--closeable': closable,
                     'PropertyFilterButton--clickable': clickable,
                     'ph-no-capture': true,

@@ -1,8 +1,8 @@
-import clsx from 'clsx'
 import { Chart, ChartItem } from 'lib/Chart'
 import { getColorVar } from 'lib/colors'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { humanFriendlyNumber } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { useEffect, useRef, useState } from 'react'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 
@@ -172,7 +172,7 @@ export function Sparkline({
     }, [labels, data])
 
     const dataPointCount = adjustedData[0].values.length
-    const finalClassName = clsx(
+    const finalClassName = cn(
         dataPointCount > 16 ? 'w-64' : dataPointCount > 8 ? 'w-48' : dataPointCount > 4 ? 'w-32' : 'w-24',
         className
     )

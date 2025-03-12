@@ -2,12 +2,12 @@ import './PlanCards.scss'
 
 import { IconCheck, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
 import { HeartHog } from 'lib/components/hedgehogs'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import React, { useState } from 'react'
 import { getUpgradeProductLink } from 'scenes/billing/billing-utils'
@@ -91,14 +91,14 @@ export const PlanCard: React.FC<PlanCardProps> = ({ planData, product, highlight
             <HeartHog
                 width="100"
                 height="100"
-                className={clsx(
+                className={cn(
                     hogPositionClass,
                     isHovering === true && `${hogPositionClass}--peek`,
                     isHovering === false && `${hogPositionClass}--hide`
                 )}
             />
             <div
-                className={clsx(
+                className={cn(
                     'relative flex flex-col h-full p-6 bg-bg-light dark:bg-bg-depth rounded-xs border transition-transform transform hover:scale-[1.02] hover:shadow-lg',
                     highlight ? 'border-2 border-accent-primary-active' : 'border-gray-200 dark:border-gray-700'
                 )}

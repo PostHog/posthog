@@ -1,11 +1,11 @@
 import { IconFilter, IconGear, IconGlobe } from '@posthog/icons'
 import { LemonButton, LemonSelect, LemonSwitch, Link, Tooltip } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { IconBranch, IconMonitor, IconPhone } from 'lib/lemon-ui/icons/icons'
 import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect'
+import { cn } from 'lib/utils/css-classes'
 import { useState } from 'react'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -54,7 +54,7 @@ export const WebAnalyticsFilters = (): JSX.Element => {
             </div>
 
             <div
-                className={clsx(
+                className={cn(
                     'flex sm:hidden flex-col gap-2 overflow-hidden transition-all duration-200',
                     expanded ? 'max-h-[500px]' : 'max-h-0'
                 )}

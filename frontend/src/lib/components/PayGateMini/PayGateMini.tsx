@@ -1,7 +1,7 @@
 import { IconInfo, IconOpenSidebar, IconUnlock } from '@posthog/icons'
 import { LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { cn } from 'lib/utils/css-classes'
 import posthog from 'posthog-js'
 import { useEffect } from 'react'
 import { billingLogic } from 'scenes/billing/billingLogic'
@@ -152,7 +152,7 @@ function PayGateContent({
 
     return (
         <div
-            className={clsx(
+            className={cn(
                 className,
                 background && 'bg-primary border border-primary',
                 'PayGateMini rounded flex flex-col items-center p-4 text-center'

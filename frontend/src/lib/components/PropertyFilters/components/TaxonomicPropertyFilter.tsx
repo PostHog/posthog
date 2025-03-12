@@ -2,7 +2,6 @@ import './TaxonomicPropertyFilter.scss'
 
 import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { OperatorValueSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
 import { PropertyFilterInternalProps } from 'lib/components/PropertyFilters/types'
@@ -20,6 +19,7 @@ import {
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
 import { isOperatorMulti, isOperatorRegex } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { useMemo } from 'react'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
@@ -155,7 +155,7 @@ export function TaxonomicPropertyFilter({
 
     return (
         <div
-            className={clsx('TaxonomicPropertyFilter', {
+            className={cn('TaxonomicPropertyFilter', {
                 'TaxonomicPropertyFilter--in-dropdown': !showInitialSearchInline && !disablePopover,
             })}
         >
@@ -163,7 +163,7 @@ export function TaxonomicPropertyFilter({
                 taxonomicFilter
             ) : (
                 <div
-                    className={clsx('TaxonomicPropertyFilter__row', {
+                    className={cn('TaxonomicPropertyFilter__row', {
                         'TaxonomicPropertyFilter__row--or-filtering': orFiltering,
                         'TaxonomicPropertyFilter__row--showing-operators': showOperatorValueSelect,
                     })}
