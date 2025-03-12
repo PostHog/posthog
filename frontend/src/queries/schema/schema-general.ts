@@ -90,6 +90,7 @@ export enum NodeKind {
     StickinessQuery = 'StickinessQuery',
     LifecycleQuery = 'LifecycleQuery',
     InsightActorsQuery = 'InsightActorsQuery',
+    InsightEventsQuery = 'InsightEventsQuery',
     InsightActorsQueryOptions = 'InsightActorsQueryOptions',
     FunnelCorrelationQuery = 'FunnelCorrelationQuery',
 
@@ -131,6 +132,7 @@ export type AnyDataNode =
     | ActorsQuery
     | InsightActorsQuery
     | InsightActorsQueryOptions
+    | InsightEventsQuery
     | SessionsTimelineQuery
     | HogQuery
     | HogQLQuery
@@ -163,6 +165,7 @@ export type QuerySchema =
     | ActorsQuery
     | InsightActorsQuery
     | InsightActorsQueryOptions
+    | InsightEventsQuery
     | SessionsTimelineQuery
     | HogQuery
     | HogQLQuery
@@ -666,6 +669,7 @@ export interface DataTableNode
                     | EventsQuery
                     | PersonsNode
                     | ActorsQuery
+                    | InsightEventsQuery
                     | HogQLQuery
                     | WebOverviewQuery
                     | WebStatsTableQuery
@@ -690,6 +694,7 @@ export interface DataTableNode
         | EventsQuery
         | PersonsNode
         | ActorsQuery
+        | InsightEventsQuery
         | HogQLQuery
         | WebOverviewQuery
         | WebStatsTableQuery
@@ -2029,6 +2034,10 @@ export interface InsightActorsQuery<S extends InsightsQueryBase<AnalyticsQueryRe
     series?: integer
     breakdown?: string | BreakdownValueInt | string[]
     compare?: 'current' | 'previous'
+}
+
+export interface InsightEventsQuery extends Omit<InsightActorsQuery, 'kind'> {
+    kind: NodeKind.InsightEventsQuery
 }
 
 export interface StickinessActorsQuery extends InsightActorsQuery {

@@ -342,6 +342,9 @@
                     "$ref": "#/definitions/InsightActorsQueryOptions"
                 },
                 {
+                    "$ref": "#/definitions/InsightEventsQuery"
+                },
+                {
                     "$ref": "#/definitions/SessionsTimelineQuery"
                 },
                 {
@@ -5771,6 +5774,9 @@
                             "$ref": "#/definitions/ActorsQuery"
                         },
                         {
+                            "$ref": "#/definitions/InsightEventsQuery"
+                        },
+                        {
                             "$ref": "#/definitions/HogQLQuery"
                         },
                         {
@@ -9462,6 +9468,70 @@
             },
             "type": "object"
         },
+        "InsightEventsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "breakdown": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "$ref": "#/definitions/BreakdownValueInt"
+                        },
+                        {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        }
+                    ]
+                },
+                "compare": {
+                    "enum": ["current", "previous"],
+                    "type": "string"
+                },
+                "day": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "$ref": "#/definitions/Day"
+                        }
+                    ]
+                },
+                "includeRecordings": {
+                    "type": "boolean"
+                },
+                "interval": {
+                    "$ref": "#/definitions/integer",
+                    "description": "An interval selected out of available intervals in source query."
+                },
+                "kind": {
+                    "const": "InsightEventsQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/ActorsQueryResponse"
+                },
+                "series": {
+                    "$ref": "#/definitions/integer"
+                },
+                "source": {
+                    "$ref": "#/definitions/InsightQuerySource"
+                },
+                "status": {
+                    "type": "string"
+                }
+            },
+            "required": ["kind", "source"],
+            "type": "object"
+        },
         "InsightFilter": {
             "anyOf": [
                 {
@@ -10290,6 +10360,7 @@
                 "StickinessQuery",
                 "LifecycleQuery",
                 "InsightActorsQuery",
+                "InsightEventsQuery",
                 "InsightActorsQueryOptions",
                 "FunnelCorrelationQuery",
                 "WebOverviewQuery",
@@ -13164,6 +13235,9 @@
                 },
                 {
                     "$ref": "#/definitions/InsightActorsQueryOptions"
+                },
+                {
+                    "$ref": "#/definitions/InsightEventsQuery"
                 },
                 {
                     "$ref": "#/definitions/SessionsTimelineQuery"

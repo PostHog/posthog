@@ -20,6 +20,7 @@ import {
     InsightActorsQueryOptions,
     InsightActorsQueryOptionsResponse,
     insightActorsQueryOptionsResponseKeys,
+    InsightEventsQuery,
     NodeKind,
 } from '~/queries/schema/schema-general'
 import {
@@ -361,6 +362,32 @@ export const personsModalLogic = kea<personsModalLogicType>([
                     source,
                     full: true,
                 }
+                return urls.insightNew({ query })
+            },
+        ],
+        insightEventsQueryUrl: [
+            (s) => [s.actorsQuery],
+            (actorsQuery): string | null => {
+                if (!actorsQuery) {
+                    return null
+                }
+
+                // Generate insight events query from actors query
+                const { select: _select, ...source } = actorsQuery
+
+                const insightActorsQuery = source.source as InsightActorsQuery
+
+                const insightEventsQuery: InsightEventsQuery = {
+                    ...insightActorsQuery,
+                    kind: NodeKind.InsightEventsQuery,
+                }
+
+                const query: DataTableNode = {
+                    kind: NodeKind.DataTableNode,
+                    source: insightEventsQuery,
+                    full: true,
+                }
+
                 return urls.insightNew({ query })
             },
         ],
