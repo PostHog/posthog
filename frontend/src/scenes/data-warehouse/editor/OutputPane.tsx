@@ -388,7 +388,7 @@ function InternalDataTableVisualization(
 
 const ErrorState = ({ responseError, sourceQuery, queryCancelled, response }: any): JSX.Element | null => {
     return (
-        <div className={clsx('flex-1 absolute top-0 left-0 right-0 bottom-0')}>
+        <div className={clsx('flex-1 absolute top-0 left-0 right-0 bottom-0 overflow-scroll')}>
             <InsightErrorState
                 query={sourceQuery}
                 excludeDetail
