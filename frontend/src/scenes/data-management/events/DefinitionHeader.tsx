@@ -96,12 +96,7 @@ export function getEventDefinitionIcon(definition: EventDefinition & { value?: s
             />
         )
     }
-    if (
-        definition.name &&
-        !!CORE_FILTER_DEFINITIONS_BY_GROUP.events[
-            definition.name as keyof typeof CORE_FILTER_DEFINITIONS_BY_GROUP.events
-        ]
-    ) {
+    if (definition.name && !!CORE_FILTER_DEFINITIONS_BY_GROUP.events[definition.name]) {
         return (
             <IconWithBadge
                 icon={<IconLogomark />}
