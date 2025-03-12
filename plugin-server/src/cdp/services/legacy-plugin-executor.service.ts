@@ -18,7 +18,7 @@ import {
 } from '../legacy-plugins/types'
 import { sanitizeLogMessage } from '../services/hog-executor.service'
 import { HogFunctionInvocation, HogFunctionInvocationResult } from '../types'
-import { isLegacyPluginHogFunction } from '../utils'
+import { CDP_TEST_ID, isLegacyPluginHogFunction } from '../utils'
 
 const pluginExecutionDuration = new Histogram({
     name: 'cdp_plugin_execution_duration_ms',
@@ -116,8 +116,6 @@ export class LegacyPluginExecutorService {
         invocation: HogFunctionInvocation,
         options?: LegacyPluginExecutorOptions
     ): Promise<HogFunctionInvocationResult> {
-        const fetch = options?.fetch || this.fetch
-
         const result: HogFunctionInvocationResult = {
             invocation,
             finished: true,
@@ -212,16 +210,32 @@ export class LegacyPluginExecutorService {
                 throw new Error(`Plugin ${pluginId} setup failed: ${e.message}`)
             }
 
-            const start = performance.now()
+            const isTestFunction = invocation.hogFunction.name.includes(CDP_TEST_ID)
 
-            const person: ProcessedPluginEvent['person'] = invocation.globals.person
-                ? {
-                      uuid: invocation.globals.person.id,
-                      team_id: invocation.hogFunction.team_id,
-                      properties: invocation.globals.person.properties,
-                      created_at: '', // NOTE: We don't have this anymore - see if any plugin uses it...
-                  }
-                : undefined
+            const fetch = async (...args: Parameters<typeof trackedFetch>) => {
+                // TRICKY: We use the overridden fetch here if given as it is used by the comparer service
+                // Additionally we don't do real fetches for test functions
+                const method = args[1] && typeof args[1].method === 'string' ? args[1].method : 'GET'
+
+                if (isTestFunction && method.toUpperCase() !== 'GET') {
+                    // For testing we mock out all non-GET requests
+                    addLog('info', 'Fetch called but mocked due to test function')
+                    // Simulate a mini bit of fetch delay
+                    await new Promise((resolve) => setTimeout(resolve, 200))
+                    return {
+                        status: 200,
+                        json: () =>
+                            Promise.resolve({
+                                status: 'OK',
+                                message: 'Test function',
+                            }),
+                    } as Response
+                }
+
+                return (options?.fetch || this.fetch)(...args)
+            }
+
+            const start = performance.now()
 
             const event = {
                 distinct_id: invocation.globals.event.distinct_id,
@@ -239,7 +253,7 @@ export class LegacyPluginExecutorService {
                 // Destination style
                 const processedEvent: ProcessedPluginEvent = {
                     ...event,
-                    person,
+                    ip: null, // convertToOnEventPayload removes this so we should too
                     properties: event.properties || {},
                 }
 

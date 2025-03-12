@@ -101,6 +101,15 @@ describe('Hog Executor', () => {
             })
         })
 
+        it('can handle null input values', () => {
+            hogFunction.inputs!.debug = null
+            const invocation = createInvocation(hogFunction)
+
+            const result = executor.execute(invocation)
+            expect(result.finished).toBe(false)
+            expect(result.error).toBeUndefined()
+        })
+
         it('collects logs from the function', () => {
             const invocation = createInvocation(hogFunction)
             const result = executor.execute(invocation)
@@ -720,7 +729,7 @@ describe('Hog Executor', () => {
                 }
             `)
             // Check it doesn't do it for redirect
-            fn.inputs!.url.bytecode = ['_h', 32, 'https://nasty.com?redirect=https://googleads.googleapis.com/1234']
+            fn.inputs!.url!.bytecode = ['_h', 32, 'https://nasty.com?redirect=https://googleads.googleapis.com/1234']
             const invocation2 = createInvocation(fn)
             const result2 = executor.execute(invocation2)
             expect((result2.invocation.queueParameters as any)?.headers).toMatchInlineSnapshot(`
