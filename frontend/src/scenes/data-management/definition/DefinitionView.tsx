@@ -25,7 +25,6 @@ import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { FilterLogicalOperator, PropertyDefinition, PropertyDefinitionVerificationStatus, ReplayTabs } from '~/types'
-import { EventDefinition } from '~/types'
 
 export const scene: SceneExport = {
     component: DefinitionView,
@@ -69,10 +68,6 @@ const getStatusProps = (isProperty: boolean): Record<PropertyDefinitionVerificat
     },
 })
 
-function hasDefaultColumns(definition: EventDefinition): boolean {
-    return 'default_columns' in definition && !!definition.default_columns?.length
-}
-
 export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
     const logic = definitionLogic(props)
     const { definition, definitionLoading, definitionMissing, hasTaxonomyFeatures, singular, isEvent, isProperty } =
@@ -80,9 +75,10 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
     const { deleteDefinition } = useActions(logic)
 
     const memoizedQuery = useMemo(() => {
-        const columnsToUse = hasDefaultColumns(definition)
-            ? (definition as EventDefinition).default_columns
-            : defaultDataTableColumns(NodeKind.EventsQuery)
+        const columnsToUse =
+            'default_columns' in definition && !!definition.default_columns?.length
+                ? definition.default_columns
+                : defaultDataTableColumns(NodeKind.EventsQuery)
 
         return {
             kind: NodeKind.DataTableNode,
