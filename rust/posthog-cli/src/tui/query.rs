@@ -27,6 +27,7 @@ pub struct QueryTui {
     bg_query_handle: Option<JoinHandle<Result<HogQLQueryResult, Error>>>,
     focus: Focus,
     debug: bool,
+    state_dirty: bool,
 }
 
 enum LowerPanelState {
@@ -56,6 +57,7 @@ impl QueryTui {
             focus: Focus::Editor,
             debug,
             bg_query_handle: None,
+            state_dirty: false,
         }
     }
 
@@ -67,15 +69,23 @@ impl QueryTui {
             .constraints([Constraint::Fill(1)].as_ref())
             .split(area);
 
-        let mut top_title = "Posthog Query Editor".to_string();
+        let mut top_title =
+            "Posthog Query Editor - Ctrl+R to run query, ESC to quit, Ctrl+F to switch focus"
+                .to_string();
         if self.bg_query_handle.is_some() {
             top_title.push_str(" (Running query, Ctrl+C to cancel)");
         }
 
+        let border_color = if self.bg_query_handle.is_some() {
+            Color::LightBlue
+        } else {
+            Color::Black
+        };
+
         let outer_block = Block::bordered()
             .title_top(top_title)
-            .title_bottom("Ctrl+R to run query, ESC to quit, Ctrl+F to switch focus")
             .border_type(BorderType::Rounded)
+            .border_style(Style::new().bg(border_color))
             .title_alignment(Alignment::Center);
 
         let inner_area = outer_block.inner(outer[0]);
@@ -86,6 +96,9 @@ impl QueryTui {
     }
 
     fn save_editor_state(&self, lines: Vec<String>) -> Result<(), Error> {
+        if !self.state_dirty {
+            return Ok(());
+        }
         let home_dir = posthog_home_dir();
         let editor_state_path = home_dir.join("editor_state.json");
         let state = PersistedEditorState {
@@ -171,20 +184,63 @@ impl QueryTui {
         }
     }
 
-    fn handle_bg_query(&mut self) -> Result<bool, Error> {
+    fn handle_bg_query(&mut self) -> Result<(), Error> {
         let Some(handle) = self.bg_query_handle.take() else {
-            return Ok(false);
+            return Ok(());
         };
 
         if !handle.is_finished() {
             self.bg_query_handle = Some(handle);
-            return Ok(false);
+            return Ok(());
         }
 
         let res = handle.join().expect("Task did not panic")?;
 
         self.current_result = Some(res);
-        Ok(true)
+        self.state_dirty = true;
+        Ok(())
+    }
+
+    fn handle_keypress(&mut self, text_area: &mut TextArea, key: KeyEvent) -> Result<(), Error> {
+        if key.code == KeyCode::Char('r') && key.modifiers == KeyModifiers::CONTROL {
+            let lines = text_area.lines().to_vec();
+            self.spawn_bg_query(lines);
+            return Ok(()); // Simply starting the query doesn't modify the state
+        }
+
+        if key.code == KeyCode::Char('c') && key.modifiers == KeyModifiers::CONTROL {
+            // TODO - we don't have proper task cancellation here, but this "cancels" the query from the
+            // user's perspective - they will never see the results
+            self.bg_query_handle = None;
+            return Ok(()); // As above, this doesn't modify the state
+        }
+
+        if key.code == KeyCode::Char('f') && key.modifiers == KeyModifiers::CONTROL {
+            self.focus = match self.focus {
+                Focus::Editor => Focus::Output,
+                Focus::Output => Focus::Editor,
+            };
+            return Ok(()); // As above, this doesn't modify the state
+        }
+
+        if key.code == KeyCode::Char('q') && key.modifiers == KeyModifiers::CONTROL {
+            self.current_result = None;
+            self.lower_panel_state = None;
+            self.state_dirty = true; // We've discarded the current result
+            return Ok(());
+        }
+
+        match self.focus {
+            Focus::Editor => {
+                text_area.input(key);
+                self.state_dirty = true; // Keys into the editor modify the state
+            }
+            Focus::Output => {
+                self.handle_output_event(key);
+            }
+        }
+
+        Ok(())
     }
 
     fn handle_events(&mut self, text_area: &mut TextArea) -> Result<Option<String>, Error> {
@@ -193,48 +249,14 @@ impl QueryTui {
         if !event::poll(Duration::from_millis(17))? {
             return Ok(None);
         }
+
         if let Event::Key(key) = event::read()? {
-            // Your own key mapping to break the event loop
             if key.code == KeyCode::Esc {
                 let last_query = text_area.lines().join("\n");
                 return Ok(Some(last_query));
             }
 
-            if key.code == KeyCode::Char('r') && key.modifiers == KeyModifiers::CONTROL {
-                let lines = text_area.lines().to_vec();
-                self.spawn_bg_query(lines);
-                return Ok(None);
-            }
-
-            if key.code == KeyCode::Char('c') && key.modifiers == KeyModifiers::CONTROL {
-                // TODO - we don't have proper task cancellation here, but this "cancels" the query from the
-                // user's perspective - they will never see the results
-                self.bg_query_handle = None;
-                return Ok(None);
-            }
-
-            if key.code == KeyCode::Char('f') && key.modifiers == KeyModifiers::CONTROL {
-                self.focus = match self.focus {
-                    Focus::Editor => Focus::Output,
-                    Focus::Output => Focus::Editor,
-                };
-                return Ok(None);
-            }
-
-            if key.code == KeyCode::Char('q') && key.modifiers == KeyModifiers::CONTROL {
-                self.current_result = None;
-                self.lower_panel_state = None;
-                return Ok(None);
-            }
-
-            match self.focus {
-                Focus::Editor => {
-                    text_area.input(key);
-                }
-                Focus::Output => {
-                    self.handle_output_event(key);
-                }
-            }
+            self.handle_keypress(text_area, key)?;
         }
 
         Ok(None)
