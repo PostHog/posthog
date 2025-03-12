@@ -1,6 +1,5 @@
 import { kea } from 'kea'
 import api from 'lib/api'
-import { urls } from 'scenes/urls'
 
 import type { paymentEntryLogicType } from './paymentEntryLogicType'
 
@@ -14,7 +13,7 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
         initiateAuthorization: (redirectPath: string | null) => ({ redirectPath }),
         pollAuthorizationStatus: (paymentIntentId?: string) => ({ paymentIntentId }),
         setAuthorizationStatus: (status: string | null) => ({ status }),
-        showPaymentEntryModal: true,
+        showPaymentEntryModal: (redirectPath?: string | null) => ({ redirectPath }),
         hidePaymentEntryModal: true,
         setRedirectPath: (redirectPath: string | null) => ({ redirectPath }),
     },
@@ -55,18 +54,18 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
             null as string | null,
             {
                 setRedirectPath: (_, { redirectPath }) => redirectPath,
+                showPaymentEntryModal: (state, { redirectPath }) => redirectPath ?? state,
             },
         ],
     },
 
     listeners: ({ actions, values }) => ({
-        initiateAuthorization: async ({ redirectPath }) => {
+        initiateAuthorization: async () => {
             actions.setLoading(true)
             actions.setError(null)
             try {
                 const response = await api.create('api/billing/activate/authorize')
                 actions.setClientSecret(response.clientSecret)
-                actions.setRedirectPath(redirectPath)
                 actions.setLoading(false)
             } catch (error) {
                 actions.setError('Failed to initialize payment')
@@ -93,7 +92,7 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>({
                         if (values.redirectPath) {
                             window.location.pathname = values.redirectPath
                         } else {
-                            window.location.pathname = urls.organizationBilling()
+                            window.location.reload()
                         }
                         return
                     } else if (status === 'failed') {
