@@ -305,12 +305,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         ? [
                               {
                                   path: 'Groups',
-                                  href: urls.groups(0),
+                                  href: () => urls.groups(0),
                               },
                           ]
                         : Array.from(groupTypes.values()).map((groupType) => ({
                               path: capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural),
-                              href: urls.groups(groupType.group_type_index),
+                              href: () => urls.groups(groupType.group_type_index),
                           }))),
                 ]
 
