@@ -250,7 +250,9 @@ class Assistant:
                                         action_model = Action.objects.get(pk=id, team=self._team)
                                         if action.tool == "retrieve_action_properties":
                                             substeps.append(f"Exploring `{action_model.name}` action's properties")
-                                        elif action.tool == "retrieve_action_property_values":
+                                        elif action.tool == "retrieve_action_property_values" and isinstance(
+                                            action.tool_input, dict
+                                        ):
                                             substeps.append(
                                                 f"Analyzing `{action.tool_input['property_name']}` action's property `{action_model.name}`"
                                             )

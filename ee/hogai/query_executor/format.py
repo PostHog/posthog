@@ -11,6 +11,8 @@ from posthog.hogql_queries.insights.trends.breakdown import (
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
 from posthog.schema import (
+    AssistantFunnelsActionsNode,
+    AssistantFunnelsEventsNode,
     AssistantFunnelsQuery,
     AssistantRetentionQuery,
     AssistantTrendsQuery,
@@ -467,8 +469,10 @@ class FunnelResultsFormatter:
     def _format_filter_series_label(self) -> str:
         series_labels: list[str] = []
         for node in self._query.series:
-            if node.custom_name is not None:
+            if isinstance(node, AssistantFunnelsEventsNode) and node.custom_name is not None:
                 series_labels.append(f"{node.event} ({node.custom_name})")
+            elif isinstance(node, AssistantFunnelsActionsNode):
+                series_labels.append(f"{node.name} (action {node.id})")
             else:
                 series_labels.append(node.event)
         return " -> ".join(series_labels)
