@@ -46,11 +46,6 @@ export function bufferToStream(binary: Buffer): Readable {
     return readableInstanceStream
 }
 
-export function base64StringToUint32ArrayLE(base64: string): Uint32Array {
-    const buffer = Buffer.from(base64, 'base64')
-    return bufferToUint32ArrayLE(buffer)
-}
-
 export function bufferToUint32ArrayLE(buffer: Buffer): Uint32Array {
     const dataView = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength)
     const length = buffer.byteLength / 4
@@ -62,10 +57,6 @@ export function bufferToUint32ArrayLE(buffer: Buffer): Uint32Array {
     }
 
     return result
-}
-
-export function uint32ArrayLEToBase64String(uint32Array: Uint32Array): string {
-    return uint32ArrayLEToBuffer(uint32Array).toString('base64')
 }
 
 export function uint32ArrayLEToBuffer(uint32Array: Uint32Array): Buffer {
