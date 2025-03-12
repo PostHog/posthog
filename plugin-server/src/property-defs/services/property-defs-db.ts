@@ -34,6 +34,25 @@ export class PropertyDefsDB {
             })
     }
 
+    async writeEventProperiesBatch(eventProperties: EventPropertyType[]) {
+        const values = Array(eventProperties.length).fill('($1, $2, $3, $4)').join(', ')
+        const query = `INSERT INTO posthog_eventproperty (event, property, team_id, project_id)
+                    VALUES ${values}
+                    ON CONFLICT DO NOTHING`
+        const args: any[][] = Array(
+            eventProperties.map((eventProperty) => {
+                ;[eventProperty.event, eventProperty.property, eventProperty.team_id, eventProperty.project_id]
+            })
+        )
+
+        await this.hub.postgres
+            .query(PostgresUse.COMMON_WRITE, query, args, 'upsertEventPropertiesBatch')
+            .catch((e) => {
+                status.error('🔁', `Error writing event properties batch`, { error: e.message })
+                throw e
+            })
+    }
+
     async writePropertyDefinition(propertyDefinition: PropertyDefinitionType) {
         await this.hub.postgres
             .query(
@@ -56,7 +75,40 @@ export class PropertyDefsDB {
                 'upsertPropertyDefinition'
             )
             .catch((e) => {
-                status.error('🔁', `Error writing property definition`, { propertyDefinition, error: e.message })
+                status.error('🔁', `Error writing property definitions batch`, {
+                    propertyDefinition: propertyDefinition,
+                    error: e.message,
+                })
+                throw e
+            })
+    }
+
+    async writePropertyDefinitionsBatch(propertyDefinitions: PropertyDefinitionType[]) {
+        const values = Array(propertyDefinitions.length).fill('($1, $2, $3, $4, $5, $6, $7, $8, NULL, NULL)').join(', ')
+        const query = `INSERT INTO posthog_propertydefinition (id, name, type, group_type_index, is_numerical, team_id, project_id, property_type, volume_30_day, query_usage_30_day)
+                    VALUES ${values}
+                    ON CONFLICT (coalesce(project_id, team_id::bigint), name, type, coalesce(group_type_index, -1))
+                    DO UPDATE SET property_type=EXCLUDED.property_type
+                    WHERE posthog_propertydefinition.property_type IS NULL`
+        const args: any[][] = Array(
+            propertyDefinitions.map((propertyDefinition) => {
+                ;[
+                    propertyDefinition.id,
+                    propertyDefinition.name,
+                    propertyDefinition.type,
+                    propertyDefinition.group_type_index,
+                    propertyDefinition.is_numerical,
+                    propertyDefinition.team_id,
+                    propertyDefinition.project_id,
+                    propertyDefinition.property_type,
+                ]
+            })
+        )
+
+        await this.hub.postgres
+            .query(PostgresUse.COMMON_WRITE, query, args, 'upsertPropertyDefinitionsBatch')
+            .catch((e) => {
+                status.error('🔁', `Error writing property definitions batch`, { error: e.message })
                 throw e
             })
     }
@@ -82,6 +134,33 @@ export class PropertyDefsDB {
             )
             .catch((e) => {
                 status.error('🔁', `Error writing event definition`, { eventDefinition, error: e.message })
+                throw e
+            })
+    }
+
+    async writeEventDefinitionsBatch(eventDefinitions: EventDefinitionType[]) {
+        const values = Array(eventDefinitions.length).fill('($1, $2, $3, $4, $5, $6, NULL, NULL)').join(', ')
+        const query = `INSERT INTO posthog_eventdefinition (id, name, team_id, project_id, last_seen_at, created_at, volume_30_day, query_usage_30_day)
+                    VALUES ${values}
+                    ON CONFLICT (coalesce(project_id, team_id::bigint), name)
+                    DO UPDATE SET last_seen_at=EXCLUDED.last_seen_at WHERE posthog_eventdefinition.last_seen_at < EXCLUDED.last_seen_at`
+        const args: any[][] = Array(
+            eventDefinitions.map((eventDefinition) => {
+                ;[
+                    eventDefinition.id,
+                    eventDefinition.name,
+                    eventDefinition.team_id,
+                    eventDefinition.project_id,
+                    DateTime.now().toISO(), // TODO: Should this be the event timestamp?
+                    DateTime.now().toISO(),
+                ]
+            })
+        )
+
+        await this.hub.postgres
+            .query(PostgresUse.COMMON_WRITE, query, args, 'writeEventDefinitionsBatch')
+            .catch((e) => {
+                status.error('🔁', `Error writing event definitions batch`, { error: e.message })
                 throw e
             })
     }
