@@ -61,15 +61,3 @@ class TestProductAnalyticsRetriever(ClickhouseTestMixin, BaseTest):
         self.assertIn("Description", response.rag_context)
         self.assertIn(str(self.action.id), response.rag_context)
         self.assertEqual(embed_mock.call_count, 1)
-
-    def test_uses_summary_fallback(self, cohere_mock, embed_mock):
-        # Reset description
-        self.action.description = ""
-        self.action.save()
-
-        retriever = ProductAnalyticsRetriever(team=self.team)
-        response = retriever.run(AssistantState(root_tool_insight_plan="Plan", messages=[]), {})
-        self.assertIn("Action", response.rag_context)
-        self.assertIn("Summary", response.rag_context)
-        self.assertIn(str(self.action.id), response.rag_context)
-        self.assertEqual(embed_mock.call_count, 1)

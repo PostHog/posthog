@@ -68,9 +68,6 @@ class ProductAnalyticsRetriever(AssistantNode):
             if description := action.description:
                 desc_tag = ET.SubElement(action_tag, "description")
                 desc_tag.text = description
-            elif summary := action.summary:
-                desc_tag = ET.SubElement(action_tag, "description")
-                desc_tag.text = summary
 
         return ET.tostring(root, encoding="unicode")
 
