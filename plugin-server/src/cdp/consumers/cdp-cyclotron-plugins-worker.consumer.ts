@@ -1,5 +1,6 @@
 import { Hub } from '~/src/types'
 
+import { runInstrumentedFunction } from '../../main/utils'
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
 import { HogFunctionInvocation, HogFunctionInvocationResult, HogFunctionTypeType } from '../types'
 import { CdpCyclotronWorker } from './cdp-cyclotron-worker.consumer'
@@ -20,6 +21,13 @@ export class CdpCyclotronWorkerPlugins extends CdpCyclotronWorker {
 
     public async processInvocations(invocations: HogFunctionInvocation[]): Promise<HogFunctionInvocationResult[]> {
         // Plugins fire fetch requests and so need to be run in true parallel
-        return await Promise.all(invocations.map((item) => this.pluginExecutor.execute(item)))
+        return await Promise.all(
+            invocations.map((item) =>
+                runInstrumentedFunction({
+                    statsKey: `cdpConsumer.handleEachBatch.executePluginInvocation`,
+                    func: async () => await this.pluginExecutor.execute(item),
+                })
+            )
+        )
     }
 }
