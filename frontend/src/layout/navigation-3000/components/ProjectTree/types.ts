@@ -12,7 +12,7 @@ export interface ProjectTreeAction {
 export interface FileSystemImport extends Omit<FileSystemEntry, 'href'> {
     icon?: JSX.Element
     flag?: FeatureFlagKey
-    href: string | ((ref?: string) => string)
+    href: (ref?: string) => string
 }
 
 export type FolderState = 'loading' | 'loaded' | 'has-more' | 'error'

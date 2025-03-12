@@ -62,128 +62,128 @@ export const getDefaultTree = (groupNodes: FileSystemImport[]): FileSystemImport
         {
             path: `Create new/AI chat`,
             type: 'aichat' as const,
-            href: urls.max(),
+            href: () => urls.max(),
             flag: FEATURE_FLAGS.ARTIFICIAL_HOG,
         },
         {
             path: `Create new/Feature`,
             type: 'feature' as const,
-            href: urls.featureManagement('new'),
+            href: () => urls.featureManagement('new'),
         },
         {
             path: `Create new/Repl`,
             type: 'repl' as const,
-            href: urls.debugHog() + '#repl=[]&code=',
+            href: () => urls.debugHog() + '#repl=[]&code=',
         },
         {
             path: `Create new/Survey`,
             type: 'survey' as const,
-            href: urls.survey('new'),
+            href: () => urls.survey('new'),
         },
         {
             path: `Create new/SQL query`,
             type: 'sql' as const,
-            href: urls.sqlEditor(),
+            href: () => urls.sqlEditor(),
         },
         {
             path: `Create new/Data pipeline/Source`,
             type: 'source' as const,
-            href: urls.pipelineNodeNew(PipelineStage.Source),
+            href: () => urls.pipelineNodeNew(PipelineStage.Source),
         },
         {
             path: `Create new/Data pipeline/Destination`,
             type: 'destination' as const,
-            href: urls.pipelineNodeNew(PipelineStage.Destination),
+            href: () => urls.pipelineNodeNew(PipelineStage.Destination),
         },
         {
             path: `Create new/Data pipeline/Transformation`,
             type: 'transformation' as const,
-            href: urls.pipelineNodeNew(PipelineStage.Transformation),
+            href: () => urls.pipelineNodeNew(PipelineStage.Transformation),
         },
         {
             path: `Create new/Data pipeline/Site app`,
             type: 'site_app' as const,
-            href: urls.pipelineNodeNew(PipelineStage.SiteApp),
+            href: () => urls.pipelineNodeNew(PipelineStage.SiteApp),
         },
         {
             path: 'Explore/Data management/Event Definitions',
             icon: <IconDatabase />,
-            href: urls.eventDefinitions(),
+            href: () => urls.eventDefinitions(),
         },
         {
             path: 'Explore/Data management/Actions',
             icon: <IconRocket />,
-            href: urls.actions(),
+            href: () => urls.actions(),
         },
 
         {
             path: 'Explore/Data management/Property Definitions',
             icon: <IconDatabase />,
-            href: urls.propertyDefinitions(),
+            href: () => urls.propertyDefinitions(),
         },
 
         {
             path: 'Explore/Data management/Annotations',
             icon: <IconNotification />,
-            href: urls.annotations(),
+            href: () => urls.annotations(),
         },
 
         {
             path: 'Explore/Data management/History',
             icon: <IconDatabase />,
-            href: urls.dataManagementHistory(),
+            href: () => urls.dataManagementHistory(),
         },
 
         {
             path: 'Explore/Data management/Revenue',
             icon: <IconHandMoney />,
-            href: urls.revenue(),
+            href: () => urls.revenue(),
             flag: FEATURE_FLAGS.WEB_REVENUE_TRACKING,
         },
         {
             path: 'Explore/Data management/Ingestion Warnings',
             icon: <IconWarning />,
-            href: urls.ingestionWarnings(),
+            href: () => urls.ingestionWarnings(),
             flag: FEATURE_FLAGS.INGESTION_WARNINGS_ENABLED,
         },
 
         {
             path: 'Explore/Data warehouse',
             icon: <IconDatabase />,
-            href: urls.dataWarehouse(),
+            href: () => urls.dataWarehouse(),
         },
         {
             path: 'Explore/People and groups/Cohorts',
             icon: <IconPeople />,
-            href: urls.cohorts(),
+            href: () => urls.cohorts(),
         },
         ...groupNodes.map((groupNode) => ({ ...groupNode, path: `Explore/People and groups/${groupNode.path}` })),
         {
             path: 'Explore/Activity',
             icon: <IconLive />,
-            href: urls.activity(ActivityTab.ExploreEvents),
+            href: () => urls.activity(ActivityTab.ExploreEvents),
         },
         {
             path: 'Explore/Live',
             icon: <IconLive />,
-            href: urls.activity(ActivityTab.LiveEvents),
+            href: () => urls.activity(ActivityTab.LiveEvents),
         },
         {
             path: 'Explore/LLM ovservability',
             icon: <IconAI />,
-            href: urls.llmObservabilityDashboard(),
+            href: () => urls.llmObservabilityDashboard(),
             flag: FEATURE_FLAGS.LLM_OBSERVABILITY,
         },
         {
             path: 'Explore/Error tracking',
             icon: <IconWarning />,
-            href: urls.errorTracking(),
+            href: () => urls.errorTracking(),
             flag: FEATURE_FLAGS.ERROR_TRACKING,
         },
         {
             path: 'Explore/Heatmaps',
             icon: <IconCursorClick />,
-            href: urls.heatmaps(),
+            href: () => urls.heatmaps(),
             flag: FEATURE_FLAGS.HEATMAPS_UI,
         },
     ].sort((a, b) => a.path.localeCompare(b.path))
