@@ -77,7 +77,7 @@ fn test_property_timestamp_detection() {
     );
 
     assert_eq!(
-        detect_property_type("random_property", &Value::from("2023-13-12 15:45:30")),
+        detect_property_type("random_property", &Value::from("2023-12-13 15:45:30")),
         Some(PropertyValueType::DateTime)
     );
 
