@@ -5,7 +5,6 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import Any, Literal, Optional, TypedDict, Union
 
-import celery
 import requests
 import structlog
 from celery import shared_task, current_task
@@ -67,7 +66,6 @@ QUERY_RETRY_DELAY = 1
 QUERY_RETRY_BACKOFF = 2
 
 USAGE_REPORT_TASK_KWARGS = {
-    "bind": True,
     "queue": CeleryQueue.USAGE_REPORTS.value,
     "ignore_result": True,
     "autoretry_for": (Exception,),
@@ -293,7 +291,7 @@ def get_org_user_count(organization_id: str) -> int:
 
 
 @shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=3, rate_limit="5/s")
-def send_report_to_billing_service(self: celery.Task, org_id: str, report: dict[str, Any]) -> None:
+def send_report_to_billing_service(org_id: str, report: dict[str, Any]) -> None:
     if not settings.EE_AVAILABLE:
         return
 
@@ -301,14 +299,8 @@ def send_report_to_billing_service(self: celery.Task, org_id: str, report: dict[
     from ee.billing.billing_types import BillingStatus
     from ee.settings import BILLING_SERVICE_URL
 
-    if current_task:
+    if current_task and current_task.request:
         tag_queries(celery_request_id=current_task.request.id)
-
-    # hack to process old entries, remove after 2025.03.12
-    if isinstance(self, str):
-        report = org_id  # type: ignore
-        org_id = self
-        self = None
 
     try:
         license = get_cached_instance_license()
@@ -792,8 +784,7 @@ def get_teams_with_recording_bytes_in_period(
 ) -> list[tuple[int, int]]:
     previous_begin = begin - (end - begin)
 
-    result = sync_execute(
-        """
+    query = """
         SELECT team_id, sum(total_size) as bytes
         FROM (
             SELECT any(team_id) as team_id, session_id, sum(size) as total_size
@@ -814,18 +805,20 @@ def get_teams_with_recording_bytes_in_period(
             GROUP BY session_id
         )
         GROUP BY team_id
-    """,
-        {"previous_begin": previous_begin, "begin": begin, "end": end, "snapshot_source": snapshot_source},
-        workload=Workload.OFFLINE,
-        settings=CH_BILLING_SETTINGS,
-    )
+    """
+    with tags_context(usage_report="get_teams_with_recording_bytes_in_period"):
+        result = sync_execute(
+            query,
+            {"previous_begin": previous_begin, "begin": begin, "end": end, "snapshot_source": snapshot_source},
+            workload=Workload.OFFLINE,
+            settings=CH_BILLING_SETTINGS,
+        )
 
     return result
 
 
 @shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=0)
 def capture_report(
-    self: celery.Task,
     *,
     capture_event_name: str,
     org_id: Optional[str] = None,
@@ -1247,8 +1240,6 @@ def _get_full_org_usage_report_as_dict(full_report: FullUsageReport) -> dict[str
 
 @shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=3)
 def send_all_org_usage_reports(
-    self: celery.Task,
-    *,
     dry_run: bool = False,
     at: Optional[str] = None,
     capture_event_name: Optional[str] = None,
@@ -1258,7 +1249,8 @@ def send_all_org_usage_reports(
     import posthoganalytics
     from sentry_sdk import capture_message
 
-    tag_queries(celery_request_id=self.request.id)
+    if current_task and current_task.request:
+        tag_queries(celery_request_id=current_task.request.id)
 
     are_usage_reports_disabled = posthoganalytics.feature_enabled("disable-usage-reports", "internal_billing_events")
     if are_usage_reports_disabled:
