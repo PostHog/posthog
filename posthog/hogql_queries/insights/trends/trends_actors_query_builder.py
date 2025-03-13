@@ -183,7 +183,7 @@ class TrendsActorsQueryBuilder:
         # TODO: Add the ability to add event_cols here
         actor_col = ast.Alias(alias="actor_id", expr=self._actor_id_expr())
 
-        event_columns = {"uuid"}
+        event_columns = {"uuid", "timestamp"}
         if self.include_recordings:
             event_columns.add("$session_id")
             event_columns.add("window_id")
@@ -223,7 +223,6 @@ class TrendsActorsQueryBuilder:
             query = ast.SelectQuery(
                 select=[
                     actor_col,
-                    ast.Alias(alias="timestamp", expr=ast.Field(chain=["e", "timestamp"])),
                     *columns,
                 ],
                 select_from=ast.JoinExpr(
