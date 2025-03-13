@@ -96,7 +96,7 @@ class ProductAnalyticsRetriever(AssistantNode):
         )
 
     def _report_metrics(self, distances: list[float], trace_id: Any | None, distinct_id: Any | None):
-        if not trace_id or not distinct_id:
+        if not trace_id or not distinct_id or not distances:
             return
         metrics = {
             "actions_avg_distance": sum(distances) / len(distances),
