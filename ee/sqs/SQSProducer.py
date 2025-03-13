@@ -153,7 +153,24 @@ class SQSProducer:
             entries.append(entry)
 
         try:
-            response = self.sqs.send_message_batch(QueueUrl=self.queue_url, Entries=entries)
+            response = self.sqs.send_message_batch(
+                QueueUrl=self.queue_url,
+                Entries=[
+                    {
+                        "Id": entry["Id"],
+                        "MessageBody": entry["MessageBody"],
+                        "DelaySeconds": entry["DelaySeconds"],
+                        **({"MessageAttributes": entry["MessageAttributes"]} if "MessageAttributes" in entry else {}),
+                        **({"MessageGroupId": entry["MessageGroupId"]} if "MessageGroupId" in entry else {}),
+                        **(
+                            {"MessageDeduplicationId": entry["MessageDeduplicationId"]}
+                            if "MessageDeduplicationId" in entry
+                            else {}
+                        ),
+                    }
+                    for entry in entries
+                ],
+            )
 
             # Log successful and failed messages
             successful = response.get("Successful", [])
