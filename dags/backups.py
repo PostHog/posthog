@@ -72,7 +72,7 @@ class Backup:
             settings=", ".join([f"{k} = {v}" for k, v in backup_settings.items()]),
         )
 
-        client.execute(query, query_id=f"{self.id}-{self.shard}")
+        client.execute(query, query_id=f"{self.id}-{self.shard if self.shard else 'noshard'}")
 
     def throw_on_error(self, client: Client) -> None:
         rows = client.execute(
@@ -94,17 +94,16 @@ class Backup:
         # because the backup_log table could not be updated (for example, if the server is restarted)
         rows = client.execute(
             f"""
-            SELECT count()
-            FROM system.processes
-            WHERE query_kind = 'Backup' AND query like '%{self.path}%'
+            SELECT EXISTS(
+                SELECT 1
+                FROM system.processes
+                WHERE query_kind = 'Backup' AND query like '%{self.path}%'
+            )
             """
         )
 
-        if len(rows) > 0:
-            [[count]] = rows
-            return count == 0
-        else:
-            raise ValueError(f"could not find backup matching {self!r}")
+        [[exists]] = rows
+        return exists
 
     def wait(self, client: Client) -> None:
         # The query can take a little bit to appear in the system.processes table,
@@ -230,18 +229,7 @@ def full_sharded_backup_schedule():
     """Launch a full backup for sharded tables"""
     timestamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     tables = [
-        # "sharded_app_metrics",
-        # "sharded_app_metrics2",
-        # "sharded_events",
-        # "sharded_heatmaps",
-        # "sharded_ingestion_warnings",
-        # "sharded_performance_events",
-        # "sharded_raw_sessions",
-        # "sharded_session_recording_events",
-        # "sharded_session_replay_embeddings",
-        # "sharded_session_replay_events",
-        # "sharded_session_replay_events_v2_test",
-        "sharded_sessions",
+        "sharded_app_metrics2",
     ]
 
     for table in tables:

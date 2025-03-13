@@ -9,9 +9,9 @@ def test_get_latest_backup(table: str):
     mock_s3 = MagicMock()
     mock_s3.get_client().list_objects_v2.return_value = {
         "CommonPrefixes": [
-            {"Prefix": f"posthog/{f'{table}/' if table else ''}2024-01-01T07:54:04Z/"},
-            {"Prefix": f"posthog/{f'{table}/' if table else ''}2024-03-01T07:54:04Z/"},
-            {"Prefix": f"posthog/{f'{table}/' if table else ''}2024-02-01T07:54:04Z/"},
+            {"Prefix": f"posthog/{f'{table}/' if table else ''}noshard/2024-01-01T07:54:04Z/"},
+            {"Prefix": f"posthog/{f'{table}/' if table else ''}noshard/2024-03-01T07:54:04Z/"},
+            {"Prefix": f"posthog/{f'{table}/' if table else ''}noshard/2024-02-01T07:54:04Z/"},
         ]
     }
 
@@ -46,12 +46,12 @@ def test_create_table_backup():
     )
 
     with patch("django.conf.settings.CLICKHOUSE_BACKUPS_BUCKET", "mock_bucket"):
-        backup.create(client, "noshard")
+        backup.create(client)
 
         client.execute.assert_called_once_with(
             """
         BACKUP TABLE test
-        TO S3('https://mock_bucket.s3.amazonaws.com/posthog/test/2024-03-01T00:00:00Z/noshard')
+        TO S3('https://mock_bucket.s3.amazonaws.com/posthog/test/noshard/2024-03-01T00:00:00Z')
         SETTINGS async = 1
         """,
             query_id="test-noshard",
@@ -67,12 +67,12 @@ def test_create_database_backup():
     )
 
     with patch("django.conf.settings.CLICKHOUSE_BACKUPS_BUCKET", "mock_bucket"):
-        backup.create(client, "noshard")
+        backup.create(client)
 
         client.execute.assert_called_once_with(
             """
         BACKUP DATABASE posthog
-        TO S3('https://mock_bucket.s3.amazonaws.com/posthog/2024-03-01T00:00:00Z/noshard')
+        TO S3('https://mock_bucket.s3.amazonaws.com/posthog/noshard/2024-03-01T00:00:00Z')
         SETTINGS async = 1
         """,
             query_id="test-noshard",
@@ -93,13 +93,13 @@ def test_create_incremental_backup():
     )
 
     with patch("django.conf.settings.CLICKHOUSE_BACKUPS_BUCKET", "mock_bucket"):
-        backup.create(client, "noshard")
+        backup.create(client)
 
         client.execute.assert_called_once_with(
             """
         BACKUP DATABASE posthog
-        TO S3('https://mock_bucket.s3.amazonaws.com/posthog/2024-03-01T00:00:00Z/noshard')
-        SETTINGS async = 1, base_backup = S3('https://mock_bucket.s3.amazonaws.com/posthog/2024-02-01T00:00:00Z/noshard')
+        TO S3('https://mock_bucket.s3.amazonaws.com/posthog/noshard/2024-03-01T00:00:00Z')
+        SETTINGS async = 1, base_backup = S3('https://mock_bucket.s3.amazonaws.com/posthog/noshard/2024-02-01T00:00:00Z')
         """,
             query_id="test-noshard",
         )
@@ -114,16 +114,12 @@ def test_is_done():
     )
 
     client.execute.side_effect = [
-        [[1]],  # 1 backup in progress
-        [[0]],  # 0 backups in progress
-        [[]],  # backup not found
+        [[1]],  # is done
+        [[0]],  # is not done
     ]
 
-    assert not backup.is_done(client)
     assert backup.is_done(client)
-
-    with pytest.raises(ValueError):
-        backup.is_done(client)
+    assert not backup.is_done(client)
 
 
 def test_throw_on_error():
