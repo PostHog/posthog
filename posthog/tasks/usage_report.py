@@ -298,13 +298,17 @@ def send_report_to_billing_service(org_id: str, report: dict[str, Any]) -> None:
     from ee.billing.billing_types import BillingStatus
     from ee.settings import BILLING_SERVICE_URL
 
+    logger.info(f"[Send Usage Report To Billing] Sending Usage Report to billing for organization: {org_id}")
+
     try:
         license = get_cached_instance_license()
         if not license or not license.is_v2_license:
+            logger.info(f"[Send Usage Report To Billing] No license found for organization: {org_id}")
             return
 
         organization = Organization.objects.get(id=org_id)
         if not organization:
+            logger.info(f"[Send Usage Report To Billing] No organization found for organization: {org_id}")
             return
 
         token = build_billing_token(license, organization)
@@ -312,19 +316,22 @@ def send_report_to_billing_service(org_id: str, report: dict[str, Any]) -> None:
         if token:
             headers["Authorization"] = f"Bearer {token}"
 
-        response = requests.post(f"{BILLING_SERVICE_URL}/api/usage", json=report, headers=headers, timeout=15)
+        response = requests.post(f"{BILLING_SERVICE_URL}/api/usage", json=report, headers=headers, timeout=30)
+        logger.info(f"[Send Usage Report To Billing] Usage response: {response.status_code}")
         if response.status_code != 200:
             raise Exception(
                 f"Failed to send usage report to billing service code:{response.status_code} response:{response.text}"
             )
 
-        logger.info(f"UsageReport sent to Billing for organization: {organization.id}")
+        logger.info(f"[Send Usage Report To Billing] Usage Report sent to Billing for organization: {org_id}")
 
         response_data: BillingStatus = response.json()
         BillingManager(license).update_org_details(organization, response_data)
 
     except Exception as err:
-        logger.exception(f"UsageReport failed sending to Billing for organization: {organization.id}: {err}")
+        logger.exception(
+            f"[Send Usage Report To Billing] Usage Report failed sending to Billing for organization: {org_id}: {err}"
+        )
         capture_exception(err)
         pha_client = Client("sTMFPsFhdP1Ssg", sync_mode=True)
         capture_event(
