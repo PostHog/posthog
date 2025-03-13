@@ -541,7 +541,7 @@ describe('SessionConsoleLogRecorder', () => {
         })
 
         it('should deduplicate across multiple windows', async () => {
-            const message1 = createMessage(
+            const message = createMessage(
                 'window1',
                 [
                     createConsoleLogEvent({
@@ -553,29 +553,19 @@ describe('SessionConsoleLogRecorder', () => {
                 { sessionId: 'session_dedup_3', distinctId: 'user_12' }
             )
 
-            const message2 = createMessage(
-                'window2',
-                [
-                    createConsoleLogEvent({
-                        level: 'info',
-                        payload: ['Duplicate message'],
-                        timestamp: 2000,
-                    }),
-                ],
-                { sessionId: 'session_dedup_3', distinctId: 'user_12' }
-            )
-
-            await recorder.recordMessage(message1)
-            await recorder.recordMessage(message2)
-
-            expect(mockConsoleLogStore.storeSessionConsoleLogs).toHaveBeenCalledTimes(2)
-            expect(mockConsoleLogStore.storeSessionConsoleLogs).toHaveBeenNthCalledWith(1, [
-                expect.objectContaining({
-                    level: LogLevel.Info,
-                    message: 'Duplicate message',
+            // Add events from window2 to the same message
+            message.eventsByWindowId['window2'] = [
+                createConsoleLogEvent({
+                    level: 'info',
+                    payload: ['Duplicate message'],
+                    timestamp: 2000,
                 }),
-            ])
-            expect(mockConsoleLogStore.storeSessionConsoleLogs).toHaveBeenNthCalledWith(2, [
+            ]
+
+            await recorder.recordMessage(message)
+
+            expect(mockConsoleLogStore.storeSessionConsoleLogs).toHaveBeenCalledTimes(1)
+            expect(mockConsoleLogStore.storeSessionConsoleLogs).toHaveBeenCalledWith([
                 expect.objectContaining({
                     level: LogLevel.Info,
                     message: 'Duplicate message',
