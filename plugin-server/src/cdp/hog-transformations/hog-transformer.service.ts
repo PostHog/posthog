@@ -11,15 +11,22 @@ import { createInvocation, isLegacyPluginHogFunction } from '../../cdp/utils'
 import { runInstrumentedFunction } from '../../main/utils'
 import { Hub } from '../../types'
 import { status } from '../../utils/status'
+import { execHog } from '../services/hog-executor.service'
 import { buildGlobalsWithInputs, HogExecutorService } from '../services/hog-executor.service'
 import { HogFunctionManagerService } from '../services/hog-function-manager.service'
 import { HogFunctionMonitoringService } from '../services/hog-function-monitoring.service'
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
+import { convertToHogFunctionFilterGlobal } from '../utils'
 import { cleanNullValues } from './transformation-functions'
 
 export const hogTransformationDroppedEvents = new Counter({
     name: 'hog_transformation_dropped_events',
     help: 'Indicates how many events are dropped by hog transformations',
+})
+
+export const filterTransformationDroppedEvents = new Counter({
+    name: 'filter_transformation_dropped_events',
+    help: 'Indicates how many events are dropped by filter transformations',
 })
 
 export const hogTransformationInvocations = new Counter({
@@ -51,12 +58,10 @@ export interface TransformationResult extends TransformationResultPure {
 export class HogTransformerService {
     private hogExecutor: HogExecutorService
     private hogFunctionManager: HogFunctionManagerService
-    private hub: Hub
     private pluginExecutor: LegacyPluginExecutorService
     private hogFunctionMonitoringService: HogFunctionMonitoringService
 
-    constructor(hub: Hub) {
-        this.hub = hub
+    constructor(public hub: Hub) {
         this.hogFunctionManager = new HogFunctionManagerService(hub)
         this.hogExecutor = new HogExecutorService(hub, this.hogFunctionManager)
         this.pluginExecutor = new LegacyPluginExecutorService(hub)
@@ -106,14 +111,47 @@ export class HogTransformerService {
             statsKey: `hogTransformer.transformEventAndProduceMessages`,
             func: async () => {
                 hogTransformationAttempts.inc({ type: 'with_messages' })
-                const teamHogFunctions = this.hogFunctionManager.getTeamHogFunctions(event.team_id)
-                const transformationResult = await this.transformEvent(event, teamHogFunctions)
-                await this.hogFunctionMonitoringService.processInvocationResults(transformationResult.invocationResults)
-
-                hogTransformationCompleted.inc({ type: 'with_messages' })
-                return {
-                    ...transformationResult,
-                    messagePromises: [this.hogFunctionMonitoringService.produceQueuedMessages()],
+                
+                // Check if filter transformations are enabled
+                if (this.hub.FILTER_TRANSFORMATIONS_ENABLED) {
+                    // First check if the event should be filtered out
+                    const teamHogFunctions = this.hogFunctionManager.getTeamHogFunctions(event.team_id)
+                    const filterResult = await this.checkFilterBasedTransformations(event, teamHogFunctions)
+                    
+                    if (filterResult.shouldDrop) {
+                        // Return a result indicating the event should be dropped
+                        return {
+                            event: null,
+                            invocationResults: filterResult.invocationResults,
+                            messagePromises: [],
+                        }
+                    }
+                    
+                    // Filter out the filter-based transformations for regular processing
+                    const nonFilterTransformations = teamHogFunctions.filter(
+                        (hogFunction) => hogFunction.template_id !== 'template-event-filter'
+                    )
+                    
+                    // Process the remaining transformations
+                    const transformationResult = await this.transformEvent(event, nonFilterTransformations)
+                    await this.hogFunctionMonitoringService.processInvocationResults(transformationResult.invocationResults)
+                    
+                    hogTransformationCompleted.inc({ type: 'with_messages' })
+                    return {
+                        ...transformationResult,
+                        messagePromises: [this.hogFunctionMonitoringService.produceQueuedMessages()],
+                    }
+                } else {
+                    // Standard transformation process
+                    const teamHogFunctions = this.hogFunctionManager.getTeamHogFunctions(event.team_id)
+                    const transformationResult = await this.transformEvent(event, teamHogFunctions)
+                    await this.hogFunctionMonitoringService.processInvocationResults(transformationResult.invocationResults)
+                    
+                    hogTransformationCompleted.inc({ type: 'with_messages' })
+                    return {
+                        ...transformationResult,
+                        messagePromises: [this.hogFunctionMonitoringService.produceQueuedMessages()],
+                    }
                 }
             },
         })
@@ -238,5 +276,94 @@ export class HogTransformerService {
             ? await this.pluginExecutor.execute(invocation)
             : this.hogExecutor.execute(invocation, { functions: transformationFunctions })
         return result
+    }
+    
+    /**
+     * Checks if an event should be dropped based on filter-based transformations
+     */
+    private async checkFilterBasedTransformations(
+        event: PluginEvent,
+        teamHogFunctions: HogFunctionType[]
+    ): Promise<{ shouldDrop: boolean; invocationResults: any[] }> {
+        // Find any filter-based transformations
+        const filterBasedTransformations = teamHogFunctions.filter(
+            (hogFunction) => hogFunction.template_id === 'template-event-filter'
+        )
+        
+        // If there are no filter-based transformations, don't drop the event
+        if (filterBasedTransformations.length === 0) {
+            return { shouldDrop: false, invocationResults: [] }
+        }
+
+        // Process filter-based transformations
+        for (const filterTransformation of filterBasedTransformations) {
+            // Skip disabled transformations
+            if (!filterTransformation.enabled || filterTransformation.deleted) {
+                continue
+            }
+
+            // Create invocation globals for filtering
+            const globals = this.createInvocationGlobals(event)
+            const filterGlobals = convertToHogFunctionFilterGlobal(globals)
+
+            // Check if the event should be filtered out based on the transformation's filters
+            const shouldKeepEvent = this.checkEventAgainstFilters(filterTransformation, filterGlobals)
+            
+            if (!shouldKeepEvent) {
+                status.info('🔍', 'Event filtered out by filter-based transformation', {
+                    event_id: event.uuid,
+                    transformation_id: filterTransformation.id,
+                    transformation_name: filterTransformation.name,
+                })
+                
+                filterTransformationDroppedEvents.inc()
+                
+                // Return that the event should be dropped
+                return { shouldDrop: true, invocationResults: [] }
+            }
+        }
+
+        // If the event passes all filter-based transformations, don't drop it
+        return { shouldDrop: false, invocationResults: [] }
+    }
+
+    /**
+     * Checks if an event matches the filters of a transformation
+     */
+    private checkEventAgainstFilters(
+        hogFunction: HogFunctionType,
+        filterGlobals: any
+    ): boolean {
+        // If there are no filters, keep the event
+        if (!hogFunction.filters?.bytecode) {
+            return true
+        }
+
+        try {
+            // Use execHog directly to evaluate the filters
+            const filterResult = execHog(hogFunction.filters.bytecode, {
+                globals: filterGlobals,
+            })
+
+            // If there was an error evaluating the filters, log it and keep the event
+            if (filterResult.error) {
+                status.error('🔍', 'Error evaluating filters for filter-based transformation', {
+                    error: filterResult.error.message,
+                    transformation_id: hogFunction.id,
+                    transformation_name: hogFunction.name,
+                })
+                return true
+            }
+
+            // The filter result is a boolean indicating whether to keep the event
+            return typeof filterResult.result === 'boolean' && filterResult.result
+        } catch (error) {
+            status.error('🔍', 'Exception evaluating filters for filter-based transformation', {
+                error: error.message,
+                transformation_id: hogFunction.id,
+                transformation_name: hogFunction.name,
+            })
+            return true
+        }
     }
 }
