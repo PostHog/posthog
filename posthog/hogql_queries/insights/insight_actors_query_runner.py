@@ -93,9 +93,9 @@ class InsightActorsQueryRunner(QueryRunner):
             )
 
         if isinstance(self.source_runner, RetentionQueryRunner):
-            trends_runner = cast(RetentionQueryRunner, self.source_runner)
+            retention_runner = cast(RetentionQueryRunner, self.source_runner)
             query = cast(InsightActorsQuery, self.query)
-            return trends_runner.to_events_query(
+            return retention_runner.to_events_query(
                 interval=query.interval,
             )
 

@@ -554,7 +554,7 @@ class RetentionQueryRunner(QueryRunner):
                     )
                 )
 
-            actor_subquery = parse_select(
+            actor_subquery: ast.SelectQuery = parse_select(
                 """
                 SELECT
                     actor_id,
@@ -581,7 +581,7 @@ class RetentionQueryRunner(QueryRunner):
             event_filters = self.events_where_clause(event_query_type)
 
             # The event query will join actors with their events
-            events_query = parse_select(
+            events_query: ast.SelectQuery = parse_select(
                 """
                 SELECT
                     events.timestamp as 'timestamp',

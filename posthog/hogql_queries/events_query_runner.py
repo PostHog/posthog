@@ -49,6 +49,9 @@ class EventsQueryRunner(QueryRunner):
 
     @cached_property
     def source_runner(self) -> InsightActorsQueryRunner:
+        if not self.query.source:
+            raise ValueError("Source query is required")
+
         return cast(
             InsightActorsQueryRunner,
             get_query_runner(self.query.source, self.team, self.timings, self.limit_context, self.modifiers),
