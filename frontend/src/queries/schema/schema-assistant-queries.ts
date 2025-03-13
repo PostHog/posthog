@@ -25,14 +25,6 @@ export interface AssistantDateRange {
      * ISO8601 date string.
      */
     date_to?: string | null
-    /** Whether the date_from and date_to should be used verbatim. Disables
-     * rounding to the start and end of period.
-     * For example if the explicitDate is true, if `date_from` is set to `2025-03-06` and `date_to` is set to `2025-03-07`,
-     * it will include the events from `2025-03-06 00:00:00` (date_from) to `2025-03-07 00:00:00` (date_to). If it's
-     * false, it will include the events from `2025-03-06 00:00:00` to `2025-03-07 23:59:59`.
-     * @default false
-     * */
-    explicitDate: boolean
 }
 
 /**

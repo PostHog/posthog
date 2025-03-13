@@ -197,17 +197,3 @@ def test_trends_does_not_include_time_properties(metric, call_node):
         actual_output=call_node(query),
     )
     assert_test(test_case, [metric])
-
-
-def test_trends_planner_sets_time_period_and_granularity(metric, call_node):
-    query = "pageview count?"
-    test_case = LLMTestCase(
-        input=query,
-        expected_output="""
-        Events:
-        - $pageview
-            - math operation: total count
-        """,
-        actual_output=call_node(query),
-    )
-    assert_test(test_case, [metric])

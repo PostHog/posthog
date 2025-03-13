@@ -582,14 +582,9 @@
                 "date_to": {
                     "description": "ISO8601 date string.",
                     "type": ["string", "null"]
-                },
-                "explicitDate": {
-                    "default": false,
-                    "description": "Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period. For example if the explicitDate is true, if `date_to` is set to `2025-03-07`, it will include the events from `date_from` to `2025-03-07 00:00:00`. If it's false, it will include the events from `date_from` to `2025-03-07 23:59:59`.",
-                    "type": "boolean"
                 }
             },
-            "required": ["date_from", "explicitDate"],
+            "required": ["date_from"],
             "type": "object"
         },
         "AssistantDateRangeFilter": {

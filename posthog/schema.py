@@ -66,15 +66,6 @@ class AssistantDateRange(BaseModel):
     )
     date_from: str = Field(..., description="ISO8601 date string.")
     date_to: Optional[str] = Field(default=None, description="ISO8601 date string.")
-    explicitDate: Optional[bool] = Field(
-        default=False,
-        description=(
-            "Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of"
-            " period. For example if the explicitDate is true, if `date_to` is set to `2025-03-07`, it will include the"
-            " events from `date_from` to `2025-03-07 00:00:00`. If it's false, it will include the events from"
-            " `date_from` to `2025-03-07 23:59:59`."
-        ),
-    )
 
 
 class AssistantDateTimePropertyFilterOperator(StrEnum):
