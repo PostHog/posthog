@@ -13,7 +13,7 @@ export type GroupTypesByProjectId = Record<ProjectId, GroupTypeToColumnIndex>
 export class GroupTypeManager {
     private groupTypesCache: Map<ProjectId, [GroupTypeToColumnIndex, number]>
 
-    constructor(private postgres: PostgresRouter, private teamManager: TeamManager, instanceSiteUrl?: string | null) {
+    constructor(private postgres: PostgresRouter, private teamManager: TeamManager) {
         this.groupTypesCache = new Map()
     }
 
