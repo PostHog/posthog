@@ -1,7 +1,7 @@
 import datetime
 import itertools
 from collections import defaultdict
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from typing import ClassVar, TypeVar, cast
 
 import dagster
@@ -67,7 +67,7 @@ class MaterializationConfig(dagster.Config):
     indexes: list[str]
     partitions: PartitionRange  # TODO: make optional for non-partitioned tables
 
-    def get_mutations_to_run(self, client: Client) -> Iterable[AlterTableMutationRunner]:
+    def get_mutations_to_run(self, client: Client) -> Sequence[AlterTableMutationRunner]:
         # The primary key column(s) should exist in all parts, so we can determine what parts (and partitions) do not
         # have the target column materialized by finding parts where the key column exists but the target column does
         # not.
@@ -113,6 +113,8 @@ class MaterializationConfig(dagster.Config):
             for [partition] in results:
                 columns_remaining_by_partition[partition].add(column)
 
+        mutations = []
+
         for partition in reversed([*self.partitions.iter_ids()]):
             commands = set()
 
@@ -125,7 +127,9 @@ class MaterializationConfig(dagster.Config):
                 commands.add(f"MATERIALIZE INDEX {index} IN PARTITION %(partition)s")
 
             if commands:
-                yield AlterTableMutationRunner(self.table, commands, parameters={"partition": partition})
+                mutations.append(AlterTableMutationRunner(self.table, commands, parameters={"partition": partition}))
+
+        return mutations
 
 
 T = TypeVar("T")
