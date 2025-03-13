@@ -567,6 +567,7 @@ export function ReplayMaskingSettings(): JSX.Element {
     const maskingConfig = {
         maskAllInputs: currentTeam?.session_recording_masking_config?.maskAllInputs ?? true,
         maskTextSelector: currentTeam?.session_recording_masking_config?.maskTextSelector,
+        blockSelector: currentTeam?.session_recording_masking_config?.blockSelector,
     }
 
     const maskingLevel =
