@@ -2,11 +2,11 @@ import { cva } from 'class-variance-authority'
 import { useActions, useValues } from 'kea'
 import { cn } from 'lib/utils/css-classes'
 
-import { ProjectTree } from '~/layout/navigation-3000/components/ProjectTree/ProjectTree'
-
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { panelLayoutLogic } from './panelLayoutLogic'
 import { PanelLayoutNavBar } from './PanelLayoutNavBar'
+import { PersonsTree } from './PersonsTree/PersonsTree'
+import { ProjectTree } from './ProjectTree/ProjectTree'
 
 const panelLayoutStyles = cva('gap-0 w-fit relative h-screen z-[var(--z-project-panel-layout)]', {
     variants: {
@@ -61,6 +61,7 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
         isLayoutPanelVisible,
         isLayoutNavbarVisibleForMobile,
         isLayoutNavbarVisibleForDesktop,
+        activeLayoutNavBarItem,
     } = useValues(panelLayoutLogic)
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
     const { showLayoutPanel, showLayoutNavBar } = useActions(panelLayoutLogic)
@@ -83,7 +84,8 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
                 )}
             >
                 <PanelLayoutNavBar>
-                    <ProjectTree contentRef={mainRef} />
+                    {activeLayoutNavBarItem === 'project' && <ProjectTree mainRef={mainRef} />}
+                    {activeLayoutNavBarItem === 'persons' && <PersonsTree mainRef={mainRef} />}
                 </PanelLayoutNavBar>
             </div>
 

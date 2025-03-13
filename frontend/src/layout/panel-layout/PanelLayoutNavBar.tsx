@@ -13,14 +13,16 @@ import { useActions, useValues } from 'kea'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { IconWrapper } from 'lib/ui/IconWrapper/IconWrapper'
 import { cn } from 'lib/utils/css-classes'
 import { useRef } from 'react'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
+import { panelLayoutLogic, PanelLayoutNavItem } from '~/layout/panel-layout/panelLayoutLogic'
 
+import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { OrganizationDropdownMenu } from './OrganizationDropdownMenu'
 
 const panelStyles = cva('z-[var(--z-project-panel-layout)] h-screen left-0', {
@@ -36,11 +38,20 @@ const panelStyles = cva('z-[var(--z-project-panel-layout)] h-screen left-0', {
 })
 
 export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): JSX.Element {
-    const { theme } = useValues(themeLogic)
     const { toggleSearchBar } = useActions(commandBarLogic)
     const containerRef = useRef<HTMLDivElement | null>(null)
     const { showLayoutPanel, setActiveLayoutNavBarItem } = useActions(panelLayoutLogic)
     const { isLayoutPanelVisible, activeLayoutNavBarItem } = useValues(panelLayoutLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { navbarItems } = useValues(navigation3000Logic)
+    const { activeScene } = useValues(sceneLogic)
+
+    function handleClick(item: PanelLayoutNavItem): void {
+        if (activeLayoutNavBarItem !== item) {
+            setActiveLayoutNavBarItem(item)
+            showLayoutPanel(true)
+        }
+    }
 
     return (
         <>
@@ -70,11 +81,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                         />
                     </div>
 
-                    <div
-                        className="z-[var(--z-main-nav)] flex flex-col flex-1 overflow-y-auto"
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={theme?.sidebarStyle}
-                    >
+                    <div className="z-[var(--z-main-nav)] flex flex-col flex-1 overflow-y-auto">
                         <ScrollableShadows innerClassName="overflow-y-auto" direction="vertical" className="px-2 pb-2">
                             <LemonButton
                                 className={cn(
@@ -86,12 +93,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                         <IconFolderOpen className="stroke-[1.2]" />
                                     </IconWrapper>
                                 }
-                                onClick={() => {
-                                    showLayoutPanel(!isLayoutPanelVisible)
-                                    if (activeLayoutNavBarItem !== 'project') {
-                                        setActiveLayoutNavBarItem('project')
-                                    }
-                                }}
+                                onClick={() => handleClick('project')}
                                 fullWidth
                                 size="small"
                                 sideIcon={
@@ -136,7 +138,10 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             </LemonButton>
 
                             <LemonButton
-                                className="hover:bg-fill-highlight-100"
+                                className={cn(
+                                    'hover:bg-fill-highlight-100',
+                                    activeLayoutNavBarItem === 'persons' && 'bg-fill-highlight-50'
+                                )}
                                 fullWidth
                                 icon={
                                     <IconWrapper>
@@ -149,6 +154,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                         <IconChevronRight />
                                     </IconWrapper>
                                 }
+                                onClick={() => handleClick('persons')}
                             >
                                 <span>People</span>
                             </LemonButton>
@@ -194,6 +200,42 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 <span>Activity</span>
                             </LemonButton>
                         </ScrollableShadows>
+
+                        <div className="border-b border-secondary h-px" />
+
+                        <div className="px-2 pt-3">
+                            <div className="flex justify-between items-center pt-1 pl-2 pr-0 pb-2">
+                                <span className="text-xs font-bold text-tertiary">Products</span>
+                            </div>
+
+                            <ScrollableShadows innerClassName="overflow-y-auto" direction="vertical">
+                                {navbarItems.map((section, index) => (
+                                    <ul key={index}>
+                                        {section.map((item) =>
+                                            item.featureFlag && !featureFlags[item.featureFlag] ? null : (
+                                                <LemonButton
+                                                    key={item.identifier}
+                                                    className={cn(
+                                                        'hover:bg-fill-highlight-100',
+                                                        activeScene?.toLowerCase() === item.identifier.toLowerCase() &&
+                                                            'bg-fill-highlight-50'
+                                                    )}
+                                                    icon={<IconWrapper>{item.icon}</IconWrapper>}
+                                                    fullWidth
+                                                    size="small"
+                                                    to={'to' in item ? item.to : undefined}
+                                                    onClick={() => {
+                                                        item.onClick?.()
+                                                    }}
+                                                >
+                                                    {item.label}
+                                                </LemonButton>
+                                            )
+                                        )}
+                                    </ul>
+                                ))}
+                            </ScrollableShadows>
+                        </div>
                     </div>
                 </nav>
                 <div
