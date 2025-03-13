@@ -52,6 +52,11 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
     }
 
     protected async updateJobs(invocations: HogFunctionInvocationResult[]) {
+        const cyclotronWorker = this.cyclotronWorker
+        if (!cyclotronWorker) {
+            throw new Error('No cyclotron worker when trying to update jobs')
+        }
+
         await Promise.all(
             invocations.map((item) => {
                 if (item.invocation.queue === 'fetch') {
@@ -68,18 +73,18 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
                 const id = item.invocation.id
                 if (item.error) {
                     status.debug('⚡️', 'Updating job to failed', id)
-                    this.cyclotronWorker?.updateJob(id, 'failed')
+                    cyclotronWorker.updateJob(id, 'failed')
                 } else if (item.finished) {
                     status.debug('⚡️', 'Updating job to completed', id)
-                    this.cyclotronWorker?.updateJob(id, 'completed')
+                    cyclotronWorker.updateJob(id, 'completed')
                 } else {
                     status.debug('⚡️', 'Updating job to available', id)
 
                     const updates = invocationToCyclotronJobUpdate(item.invocation)
 
-                    this.cyclotronWorker?.updateJob(id, 'available', updates)
+                    cyclotronWorker.updateJob(id, 'available', updates)
                 }
-                return this.cyclotronWorker?.releaseJob(id)
+                return cyclotronWorker.releaseJob(id)
             })
         )
     }
