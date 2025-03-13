@@ -1,5 +1,6 @@
 from datetime import timedelta
-from typing import Optional
+from functools import cached_property
+from typing import Optional, cast
 
 from django.db.models import Prefetch
 from django.utils.timezone import now
@@ -12,8 +13,9 @@ from posthog.hogql.ast import Alias
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import action_to_expr, has_aggregation, property_to_expr
 from posthog.hogql.timings import HogQLTimings
+from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
 from posthog.models import Action, Person
 from posthog.models.element import chain_to_elements
 from posthog.models.person.person import get_distinct_ids_for_subquery
@@ -43,6 +45,13 @@ class EventsQueryRunner(QueryRunner):
         super().__init__(*args, **kwargs)
         self.paginator = HogQLHasMorePaginator.from_limit_context(
             limit_context=self.limit_context, limit=self.query.limit, offset=self.query.offset
+        )
+
+    @cached_property
+    def source_runner(self) -> InsightActorsQueryRunner:
+        return cast(
+            InsightActorsQueryRunner,
+            get_query_runner(self.query.source, self.team, self.timings, self.limit_context, self.modifiers),
         )
 
     def select_cols(self) -> tuple[list[str], list[ast.Expr]]:
@@ -176,9 +185,14 @@ class EventsQueryRunner(QueryRunner):
                     order_by = []
 
             with self.timings.measure("select"):
+                if self.query.source is None:
+                    select_from = ast.JoinExpr(table=ast.Field(chain=["events"]))
+                else:
+                    select_from = ast.JoinExpr(table=self.source_runner.to_events_query())
+
                 stmt = ast.SelectQuery(
                     select=select,
-                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                    select_from=select_from,
                     where=where,
                     having=having,
                     group_by=group_by if has_any_aggregation else None,

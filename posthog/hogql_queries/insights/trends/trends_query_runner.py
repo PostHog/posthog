@@ -162,7 +162,7 @@ class TrendsQueryRunner(QueryRunner):
         breakdown_value: Optional[str | int | list[str]] = None,
         compare_value: Optional[Compare] = None,
         include_recordings: Optional[bool] = None,
-    ) -> ast.SelectQuery | ast.SelectSetQuery:
+    ) -> TrendsActorsQueryBuilder:
         if self.query.breakdownFilter and self.query.breakdownFilter.breakdown_type == BreakdownType.COHORT:
             if self.query.breakdownFilter.breakdown in ("all", ["all"]) or breakdown_value == "all":
                 self.query.breakdownFilter = None

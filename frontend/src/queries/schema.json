@@ -7083,26 +7083,7 @@
                     "type": "array"
                 },
                 "source": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/TrendsQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/FunnelsQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/RetentionQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/PathsQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/StickinessQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/LifecycleQuery"
-                        }
-                    ],
+                    "$ref": "#/definitions/InsightActorsQuery",
                     "description": "source for querying events for insights"
                 },
                 "where": {

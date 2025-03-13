@@ -80,6 +80,20 @@ class InsightActorsQueryRunner(QueryRunner):
     def to_actors_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         return self.to_query()
 
+    def to_events_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        if isinstance(self.source_runner, TrendsQueryRunner):
+            trends_runner = cast(TrendsQueryRunner, self.source_runner)
+            query = cast(InsightActorsQuery, self.query)
+            return trends_runner.to_events_query(
+                time_frame=cast(Optional[str], query.day),  # Other runner accept day as int, but not this one
+                series_index=query.series or 0,
+                breakdown_value=query.breakdown,
+                compare_value=query.compare,
+                include_recordings=query.includeRecordings,
+            )
+
+        raise ValueError(f"Cannot convert source query of type {self.query.source.kind} to events query")
+
     @property
     def group_type_index(self) -> int | None:
         if isinstance(self.source_runner, RetentionQueryRunner):
