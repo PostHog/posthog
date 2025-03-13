@@ -72,6 +72,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
             {
                 setPageUrl: (_state, { url }) => {
                     if (Array.isArray(url)) {
+                        // We're querying by url and count()
                         return url.length > 0 ? url[0] : null
                     }
                     return url
@@ -91,7 +92,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
             },
         ],
         stripQueryParams: [
-            false as boolean,
+            true,
             { persist: true },
             {
                 toggleStripQueryParams: (state: boolean) => !state,
@@ -172,15 +173,10 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
     }),
 
     selectors: {
-        pageUrlSearchOptionsWithCount: [(selectors) => [selectors.pages], (pages: PageURL[]): PageURL[] => pages || []],
         hasPageUrl: [(selectors) => [selectors.pageUrl], (pageUrl: string | null) => !!pageUrl],
         isLoading: [
             (selectors) => [selectors.pagesLoading, selectors.isInitialLoad],
             (pagesLoading: boolean, isInitialLoad: boolean) => pagesLoading || isInitialLoad,
-        ],
-        pageUrlArray: [
-            (selectors) => [selectors.pageUrl],
-            (pageUrl: string | null): string[] => (pageUrl ? [pageUrl] : []),
         ],
         queries: [
             (s) => [s.tiles, s.pageUrl, s.stripQueryParams],
@@ -300,10 +296,6 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
             // Reload pages when the strip query params option changes
             actions.loadPages(values.pageUrlSearchTerm)
         },
-        [webAnalyticsLogic.actionTypes.setDates]: () => {
-            // Also reload pages when web analytics dates change
-            actions.loadPages(values.pageUrlSearchTerm)
-        },
     }),
 
     afterMount: ({ actions }: { actions: pageReportsLogicType['actions'] }) => {
@@ -328,6 +320,11 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
             } else {
                 delete searchParams.pageURL
             }
+
+            return ['/web/page-reports', searchParams, router.values.hashParams, { replace: true }]
+        },
+        toggleStripQueryParams: () => {
+            const searchParams = { ...router.values.searchParams }
 
             return ['/web/page-reports', searchParams, router.values.hashParams, { replace: true }]
         },

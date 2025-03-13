@@ -892,9 +892,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 currentTeam,
                 tileVisualizations
             ): WebAnalyticsTile[] => {
-                // If we're on the PAGE_REPORTS tab, we want to show the same content as the ANALYTICS tab
-                const effectiveProductTab = productTab === ProductTab.PAGE_REPORTS ? ProductTab.ANALYTICS : productTab
-
                 const dateRange = { date_from: dateFrom, date_to: dateTo }
                 const sampling = { enabled: false, forceSamplingRate: { numerator: 1, denominator: 10 } }
 
@@ -1092,7 +1089,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     }
                 }
 
-                if (effectiveProductTab === ProductTab.WEB_VITALS) {
+                if (productTab === ProductTab.WEB_VITALS) {
                     const createSeries = (name: WebVitalsMetric, math: PropertyMathType): AnyEntityNode => ({
                         kind: NodeKind.EventsNode,
                         event: '$web_vitals',
@@ -2336,14 +2333,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             const { featureFlags } = featureFlagLogic.values
             const pageReportsEnabled = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PAGE_REPORTS]
 
-            // If trying to access page reports but the feature flag is not enabled, use analytics tab instead
-            const effectiveProductTab =
-                !pageReportsEnabled && productTab === ProductTab.PAGE_REPORTS ? ProductTab.ANALYTICS : productTab
-
-            if (effectiveProductTab !== ProductTab.ANALYTICS) {
-                urlParams.set('product_tab', effectiveProductTab)
-            }
-            if (effectiveProductTab === ProductTab.WEB_VITALS) {
+            if (productTab === ProductTab.WEB_VITALS) {
                 urlParams.set('percentile', webVitalsPercentile)
             }
             if (domainFilter) {
@@ -2357,9 +2347,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             }
 
             let basePath = '/web'
-            if (pageReportsEnabled && effectiveProductTab === ProductTab.PAGE_REPORTS) {
+            if (pageReportsEnabled && productTab === ProductTab.PAGE_REPORTS) {
                 basePath = '/web/page-reports'
-            } else if (effectiveProductTab === ProductTab.WEB_VITALS) {
+            } else if (productTab === ProductTab.WEB_VITALS) {
                 basePath = '/web/web-vitals'
             }
             return `${basePath}${urlParams.toString() ? '?' + urlParams.toString() : ''}`

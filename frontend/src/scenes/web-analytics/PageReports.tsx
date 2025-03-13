@@ -19,7 +19,7 @@ export function PageReportsFilters(): JSX.Element {
     const { setDates } = useActions(webAnalyticsLogic)
 
     // Convert PageURL[] to LemonInputSelectOption[]
-    const options = values.pageUrlSearchOptionsWithCount.map((option) => ({
+    const options = values.pages.map((option) => ({
         key: option.url,
         label: option.url,
         labelComponent: (

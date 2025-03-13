@@ -413,7 +413,6 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
                     </div>
 
                     <WebAnalyticsHealthCheck />
-
                     <MainContent />
                 </div>
             </BindLogic>
