@@ -236,7 +236,7 @@ export function chunkMutationSnapshot(snapshot: RecordingSnapshot): RecordingSna
 
         const chunkSnapshot: RecordingSnapshot = {
             ...snapshot,
-            timestamp: snapshot.timestamp + i, // Just increment by 1ms for each chunk
+            timestamp: snapshot.timestamp,
             data: {
                 ...snapshot.data,
                 adds: adds.slice(startIdx, endIdx),
@@ -250,7 +250,7 @@ export function chunkMutationSnapshot(snapshot: RecordingSnapshot): RecordingSna
 
         // If delay was present in the original snapshot, increment it by 1 for each chunk
         if ('delay' in snapshot) {
-            chunkSnapshot.delay = (snapshot.delay || 0) + i
+            chunkSnapshot.delay = snapshot.delay || 0
         }
 
         chunks.push(chunkSnapshot)
