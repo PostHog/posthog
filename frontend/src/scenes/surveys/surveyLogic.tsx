@@ -800,9 +800,6 @@ export const surveyLogic = kea<surveyLogicType>([
             duplicateSurveySuccess: () => {
                 actions.loadSurveys()
             },
-            duplicateToProjectSuccess: () => {
-                actions.loadSurveys()
-            },
             launchSurveySuccess: ({ survey }) => {
                 lemonToast.success(<>Survey {survey.name} launched</>)
                 actions.loadSurveys()
