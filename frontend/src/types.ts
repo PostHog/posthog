@@ -526,6 +526,7 @@ export type SessionRecordingMaskingLevel = 'normal' | 'total-privacy' | 'free-lo
 export interface SessionRecordingMaskingConfig {
     maskAllInputs?: boolean
     maskTextSelector?: string
+    blockSelector?: string
 }
 
 export enum ActivationTaskStatus {
@@ -4450,6 +4451,23 @@ export type BatchExportConfiguration = {
     model: string
     filters: AnyPropertyFilter[]
     latest_runs?: BatchExportRun[]
+}
+
+export type BatchExportConfigurationTestStepStatus = 'Passed' | 'Failed'
+
+export type BatchExportConfigurationTestStepResult = {
+    status: BatchExportConfigurationTestStepStatus
+    message: string
+}
+
+export type BatchExportConfigurationTestStep = {
+    name: string
+    description: string
+    result: BatchExportConfigurationTestStepResult | null
+}
+
+export type BatchExportConfigurationTest = {
+    steps: BatchExportConfigurationTestStep[]
 }
 
 export type RawBatchExportRun = {

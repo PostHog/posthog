@@ -8,7 +8,6 @@ from django.conf import settings
 
 from posthog.caching.warming import schedule_warming_for_teams_task
 from posthog.utils import get_instance_region
-from posthog.celery import app
 from posthog.tasks.alerts.checks import (
     alerts_backlog_task,
     check_alerts_task,
@@ -52,7 +51,7 @@ from posthog.tasks.tasks import (
     stop_surveys_reached_target,
     sync_all_organization_available_product_features,
     update_event_partitions,
-    update_quota_limiting,
+    run_quota_limiting,
     update_survey_adaptive_sampling,
     update_survey_iteration,
     verify_persons_data_in_sync,
@@ -86,7 +85,6 @@ def add_periodic_task_with_expiry(
     )
 
 
-@app.on_after_configure.connect
 def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     # Monitoring tasks
     add_periodic_task_with_expiry(
@@ -133,9 +131,9 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         )
 
     sender.add_periodic_task(
-        crontab(hour="*/2", minute="0"),
-        update_quota_limiting.s(),
-        name="update quota limiting",
+        crontab(hour="*", minute="30"),
+        run_quota_limiting.s(),
+        name="run quota limiting",
     )
 
     # Send all periodic digest reports

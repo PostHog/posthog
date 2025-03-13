@@ -1,11 +1,19 @@
-import { IconBolt, IconChevronRight, IconClock, IconGear, IconPeople, IconPlus, IconSearch } from '@posthog/icons'
+import {
+    IconBolt,
+    IconChevronRight,
+    IconClock,
+    IconFolderOpen,
+    IconPeople,
+    IconPlusSmall,
+    IconSearch,
+} from '@posthog/icons'
 import { cva } from 'class-variance-authority'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { IconCircleDashed, IconFolderOpen } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
+import { IconWrapper } from 'lib/ui/IconWrapper/IconWrapper'
 import { cn } from 'lib/utils/css-classes'
 import { useRef } from 'react'
 import { urls } from 'scenes/urls'
@@ -54,7 +62,11 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 alert('global “new” button which would let you create a bunch of new things')
                             }
                             className="hover:bg-fill-highlight-100 shrink-0"
-                            icon={<IconPlus className="size-4" />}
+                            icon={
+                                <IconWrapper>
+                                    <IconPlusSmall />
+                                </IconWrapper>
+                            }
                         />
                     </div>
 
@@ -69,7 +81,11 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     'hover:bg-fill-highlight-100',
                                     activeLayoutNavBarItem === 'project' && 'bg-fill-highlight-50'
                                 )}
-                                icon={<IconFolderOpen className="size-5 stroke-[1.2]" />}
+                                icon={
+                                    <IconWrapper>
+                                        <IconFolderOpen className="stroke-[1.2]" />
+                                    </IconWrapper>
+                                }
                                 onClick={() => {
                                     showLayoutPanel(!isLayoutPanelVisible)
                                     if (activeLayoutNavBarItem !== 'project') {
@@ -78,7 +94,11 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 }}
                                 fullWidth
                                 size="small"
-                                sideIcon={<IconChevronRight className="size-4" />}
+                                sideIcon={
+                                    <IconWrapper size="sm">
+                                        <IconChevronRight />
+                                    </IconWrapper>
+                                }
                             >
                                 <span>Project</span>
                             </LemonButton>
@@ -88,7 +108,11 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 fullWidth
                                 size="small"
                                 onClick={toggleSearchBar}
-                                icon={<IconSearch className="size-5" />}
+                                icon={
+                                    <IconWrapper>
+                                        <IconSearch />
+                                    </IconWrapper>
+                                }
                             >
                                 <span>Search</span>
                             </LemonButton>
@@ -96,9 +120,17 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             <LemonButton
                                 className="hover:bg-fill-highlight-100"
                                 fullWidth
-                                icon={<IconBolt className="size-5" />}
+                                icon={
+                                    <IconWrapper>
+                                        <IconBolt />
+                                    </IconWrapper>
+                                }
                                 size="small"
-                                sideIcon={<IconChevronRight className="size-4" />}
+                                sideIcon={
+                                    <IconWrapper size="sm">
+                                        <IconChevronRight />
+                                    </IconWrapper>
+                                }
                             >
                                 <span>Data</span>
                             </LemonButton>
@@ -106,9 +138,17 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             <LemonButton
                                 className="hover:bg-fill-highlight-100"
                                 fullWidth
-                                icon={<IconPeople className="size-5" />}
+                                icon={
+                                    <IconWrapper>
+                                        <IconPeople />
+                                    </IconWrapper>
+                                }
                                 size="small"
-                                sideIcon={<IconChevronRight className="size-4" />}
+                                sideIcon={
+                                    <IconWrapper size="sm">
+                                        <IconChevronRight />
+                                    </IconWrapper>
+                                }
                             >
                                 <span>People</span>
                             </LemonButton>
@@ -116,9 +156,17 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             <LemonButton
                                 className="hover:bg-fill-highlight-100"
                                 fullWidth
-                                icon={<IconPeople className="size-5" />}
+                                icon={
+                                    <IconWrapper>
+                                        <IconPeople />
+                                    </IconWrapper>
+                                }
                                 size="small"
-                                sideIcon={<IconChevronRight className="size-4" />}
+                                sideIcon={
+                                    <IconWrapper size="sm">
+                                        <IconChevronRight />
+                                    </IconWrapper>
+                                }
                             >
                                 <span>Products</span>
                             </LemonButton>
@@ -129,7 +177,11 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                     activeLayoutNavBarItem === 'activity' && 'bg-fill-highlight-50'
                                 )}
                                 fullWidth
-                                icon={<IconClock className="size-5" />}
+                                icon={
+                                    <IconWrapper>
+                                        <IconClock />
+                                    </IconWrapper>
+                                }
                                 size="small"
                                 to={urls.activity()}
                                 onClick={() => {
@@ -141,47 +193,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             >
                                 <span>Activity</span>
                             </LemonButton>
-
-                            <LemonButton
-                                className="hover:bg-fill-highlight-100"
-                                fullWidth
-                                icon={<IconCircleDashed className="size-5" />}
-                                size="small"
-                                sideIcon={<IconChevronRight className="size-4" />}
-                            >
-                                <span>Quick start</span>
-                            </LemonButton>
                         </ScrollableShadows>
-
-                        <div className="border-b border-secondary h-px" />
-
-                        <div className="px-2 pt-3">
-                            <div className="flex justify-between items-center pt-1 pl-2 pr-0 pb-2">
-                                <span className="text-xs font-bold text-tertiary">Shortcuts</span>
-
-                                <div className="relative">
-                                    <LemonButton
-                                        className="hover:bg-fill-highlight-100 absolute right-0 top-1/2 -translate-y-1/2"
-                                        size="small"
-                                        onClick={() => alert('new organization')}
-                                        icon={<IconGear className="size-4" />}
-                                    />
-                                </div>
-                            </div>
-
-                            <ScrollableShadows innerClassName="overflow-y-auto" direction="vertical">
-                                <LemonButton
-                                    className="hover:bg-fill-highlight-100"
-                                    icon={<IconFolderOpen className="size-5 stroke-[1.2]" />}
-                                    fullWidth
-                                    size="small"
-                                    sideIcon={<IconChevronRight className="size-4" />}
-                                >
-                                    <span>Project</span>
-                                </LemonButton>
-                            </ScrollableShadows>
-                        </div>
-                        {/* <NavbarBottom /> */}
                     </div>
                 </nav>
                 <div
