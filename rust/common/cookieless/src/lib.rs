@@ -30,9 +30,13 @@ pub fn do_hash(
     let truncated_hash_extra: String = hash_extra.chars().take(100).collect();
 
     // Build the input string
-    let input_str = format!(
-        "{}-{}-{}-{}-{}-{}",
-        team_id, ip, root_domain, user_agent, n, truncated_hash_extra
+    let input_str = build_input_str(
+        team_id,
+        ip,
+        root_domain,
+        user_agent,
+        n,
+        &truncated_hash_extra,
     );
 
     // Compute SipHash 2-4
@@ -50,6 +54,42 @@ pub fn do_hash(
     rearranged.extend_from_slice(&h1[0..4]);
 
     Ok(rearranged)
+}
+
+fn build_input_str(
+    team_id: u64,
+    ip: &str,
+    root_domain: &str,
+    user_agent: &str,
+    n: u64,
+    truncated_hash_extra: &str,
+) -> String {
+    let mut input_str = String::with_capacity(
+        20 + // Maximum team_id.len() for an u64
+        ip.len() +
+        root_domain.len() +
+        user_agent.len() +
+        20 + // Maximum n.len() for an u64
+        truncated_hash_extra.len() +
+        5, // 5 dashes/hyphens
+    );
+
+    // Use itoa for efficient integer formatting without allocations
+    let mut team_id_buffer = itoa::Buffer::new();
+    let mut n_buffer = itoa::Buffer::new();
+    input_str.push_str(team_id_buffer.format(team_id));
+    input_str.push('-');
+    input_str.push_str(ip);
+    input_str.push('-');
+    input_str.push_str(root_domain);
+    input_str.push('-');
+    input_str.push_str(user_agent);
+    input_str.push('-');
+    input_str.push_str(n_buffer.format(n));
+    input_str.push('-');
+    input_str.push_str(truncated_hash_extra);
+
+    input_str
 }
 
 #[cfg(test)]

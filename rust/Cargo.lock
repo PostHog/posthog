@@ -1370,6 +1370,7 @@ name = "common-cookieless"
 version = "0.0.1"
 dependencies = [
  "base64 0.22.0",
+ "itoa",
  "serde",
  "serde_json",
  "siphasher 1.0.1",
@@ -3445,9 +3446,9 @@ dependencies = [
 
 [[package]]
 name = "itoa"
-version = "1.0.10"
+version = "1.0.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b1a46d1a171d865aa5f83f92695765caa047a9b4cbae2cbf37dbd613a793fd4c"
+checksum = "4a5f13b858c8d314ee3e8f639011f7ccefe71f97f96e50151fb991f267928e2c"
 
 [[package]]
 name = "jobserver"
