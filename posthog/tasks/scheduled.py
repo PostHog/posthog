@@ -52,7 +52,7 @@ from posthog.tasks.tasks import (
     stop_surveys_reached_target,
     sync_all_organization_available_product_features,
     update_event_partitions,
-    update_quota_limiting,
+    run_quota_limiting,
     update_survey_adaptive_sampling,
     update_survey_iteration,
     verify_persons_data_in_sync,
@@ -133,9 +133,9 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         )
 
     sender.add_periodic_task(
-        crontab(hour="*/2"),
-        update_quota_limiting.s(),
-        name="update quota limiting",
+        crontab(hour="*", minute="30"),
+        run_quota_limiting.s(),
+        name="run quota limiting",
     )
 
     # Send all periodic digest reports
