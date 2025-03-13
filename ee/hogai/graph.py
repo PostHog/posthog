@@ -35,6 +35,7 @@ from ee.hogai.trends.nodes import (
 from ee.hogai.inkeep_docs.nodes import InkeepDocsNode
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from posthog.models.team.team import Team
+from ee.hogai.session_recordings_filters.nodes import SessionRecordingsFiltersNode
 
 checkpointer = DjangoCheckpointer()
 
@@ -73,6 +74,7 @@ class AssistantGraph:
             "funnel": AssistantNodeName.FUNNEL_PLANNER,
             "retention": AssistantNodeName.RETENTION_PLANNER,
             "docs": AssistantNodeName.INKEEP_DOCS,
+            "session_recordings_filters": AssistantNodeName.SESSION_RECORDINGS_FILTERS,
             "root": AssistantNodeName.ROOT,
             "end": AssistantNodeName.END,
         }
@@ -303,6 +305,13 @@ class AssistantGraph:
         )
         return self
 
+    def add_session_recordings_filters(self, next_node: AssistantNodeName = AssistantNodeName.ROOT):
+        builder = self._graph
+        session_recordings_filters_node = SessionRecordingsFiltersNode(self._team)
+        builder.add_node(AssistantNodeName.SESSION_RECORDINGS_FILTERS, session_recordings_filters_node)
+        builder.add_edge(AssistantNodeName.SESSION_RECORDINGS_FILTERS, next_node)
+        return self
+
     def compile_full_graph(self):
         return (
             self.add_memory_initializer()
@@ -317,5 +326,6 @@ class AssistantGraph:
             .add_retention_planner()
             .add_retention_generator()
             .add_query_executor()
+            .add_session_recordings_filters()
             .compile()
         )

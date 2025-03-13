@@ -1,8 +1,23 @@
-import { actions, connect, kea, listeners, path, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { urls } from 'scenes/urls'
+
+import { AssistantContextualTool } from '~/queries/schema/schema-assistant-messages'
 
 import type { maxGlobalLogicType } from './maxGlobalLogicType'
+
+export interface ToolDefinition {
+    /** A unique identifier for the tool */
+    name: AssistantContextualTool
+    /** A user-friendly display name for the tool */
+    displayName: string
+    /** Contextual data to be included for use by the LLM */
+    context: Record<string, any>
+    /** The callback function that will be executed with the LLM's tool call output */
+    callback: (toolOutput: any) => void
+}
 
 export const maxGlobalLogic = kea<maxGlobalLogicType>([
     path(['scenes', 'max', 'maxGlobalLogic']),
@@ -12,6 +27,36 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
     }),
     actions({
         acceptDataProcessing: (testOnlyOverride?: boolean) => ({ testOnlyOverride }),
+        registerTool: (tool: ToolDefinition) => ({ tool }),
+        deregisterTool: (key: string) => ({ key }),
+    }),
+    reducers({
+        toolMap: [
+            {
+                navigate_to_page: {
+                    name: 'navigate_to_page',
+                    displayName: 'Navigate',
+                    context: {},
+                    callback: (toolOutput: string) => {
+                        const urlFunc = urls[toolOutput as keyof typeof urls]
+                        if (urlFunc) {
+                            router.actions.push(urlFunc())
+                        }
+                    },
+                },
+            } as Record<string, ToolDefinition>,
+            {
+                registerTool: (state, { tool }) => ({
+                    ...state,
+                    [tool.name]: tool,
+                }),
+                deregisterTool: (state, { key }) => {
+                    const newState = { ...state }
+                    delete newState[key]
+                    return newState
+                },
+            },
+        ],
     }),
     listeners(({ actions }) => ({
         acceptDataProcessing: ({ testOnlyOverride }) => {
@@ -31,5 +76,6 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                     ? `Ask an admin or owner of ${currentOrganization?.name} to approve this`
                     : null,
         ],
+        tools: [(s) => [s.toolMap], (toolMap): ToolDefinition[] => Object.values(toolMap)],
     }),
 ])
