@@ -13,7 +13,7 @@ def cancel_query_on_cluster(team_id: int, client_query_id: str) -> None:
     statsd.incr("clickhouse.query.cancellation.requested", tags={"team_id": team_id})
     try:
         result = sync_execute(
-            f"""
+            """
             SELECT hostname(), query_id
             FROM clusterAllReplicas(posthog, system.processes)
             WHERE query_id LIKE %(client_query_id)s
@@ -30,7 +30,7 @@ def cancel_query_on_cluster(team_id: int, client_query_id: str) -> None:
         logger.debug("Found initiator host for query %s, cancelling query on host", initiator_host, client_query_id)
         with default_client(host=initiator_host) as client:
             result = sync_execute(
-                f"KILL QUERY WHERE query_id=%(query_id)s SETTINGS max_execution_time = 5",
+                "KILL QUERY WHERE query_id=%(query_id)s SETTINGS max_execution_time = 5",
                 {"query_id": query_id},
                 sync_client=client,
             )
