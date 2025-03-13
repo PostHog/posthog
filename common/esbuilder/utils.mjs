@@ -556,7 +556,7 @@ export function gatherProductManifests(__dirname) {
     const routes = []
     const redirects = []
     const fileSystemTypes = []
-    const treeItems = []
+    const treeItems = {}
 
     const sourceFiles = []
     for (const product of products) {
@@ -653,7 +653,15 @@ export function gatherProductManifests(__dirname) {
                 node.name.text === 'treeItems'
             ) {
                 for (const element of node.initializer.elements) {
-                    treeItems.push(cloneNode(element))
+                    if (ts.isObjectLiteralExpression(element)) {
+                        const pathNode = element.properties.find((p) => p.name.text === 'path')
+                        const path = pathNode ? pathNode.initializer.text : null
+                        if (path) {
+                            treeItems[path] = cloneNode(element)
+                        } else {
+                            console.error('Tree item without path:', element)
+                        }
+                    }
                 }
             } else {
                 ts.forEachChild(node, visit)
@@ -667,13 +675,14 @@ export function gatherProductManifests(__dirname) {
         ts.factory.createToken(ts.SyntaxKind.EndOfFileToken),
         ts.NodeFlags.None
     )
+    fileSystemTypes.sort((a, b) => a.name.text.localeCompare(b.name.text))
     const manifestUrls = printer.printNode(ts.EmitHint.Unspecified, ts.factory.createObjectLiteralExpression(urls), sourceFile)
     const manifestScenes = printer.printNode(ts.EmitHint.Unspecified, ts.factory.createObjectLiteralExpression(scenes), sourceFile)
     const manifestSceneConfig = printer.printNode(ts.EmitHint.Unspecified, ts.factory.createObjectLiteralExpression(sceneConfigs), sourceFile)
     const manifestRedirects = printer.printNode(ts.EmitHint.Unspecified, ts.factory.createObjectLiteralExpression(redirects), sourceFile)
     const manifestRoutes = printer.printNode(ts.EmitHint.Unspecified, ts.factory.createObjectLiteralExpression(routes), sourceFile)
     const manifestFileSystemTypes = printer.printNode(ts.EmitHint.Unspecified, ts.factory.createObjectLiteralExpression(fileSystemTypes), sourceFile)
-    const manifestTreeItems = printer.printNode(ts.EmitHint.Unspecified, ts.factory.createArrayLiteralExpression(treeItems), sourceFile)
+    const manifestTreeItems = printer.printNode(ts.EmitHint.Unspecified, ts.factory.createArrayLiteralExpression(Object.keys(treeItems).sort().map(key => treeItems[key])), sourceFile)
 
     const autogenComment = "/** This const is auto-generated, as is the whole file */"
     let preservedImports = ''
