@@ -584,10 +584,10 @@ class RetentionQueryRunner(QueryRunner):
             events_query = parse_select(
                 """
                 SELECT
-                    events.timestamp,
-                    events.event,
-                    events.person_id,
-                    events.properties,
+                    events.timestamp as 'timestamp',
+                    events.event as 'event',
+                    events.person_id as 'person_id',
+                    events.properties as 'properties',
                     {start_of_interval_sql} AS interval_timestamp,
                     multiIf(
                         -- Start events are those that occur in the start interval and match start entity
@@ -602,7 +602,12 @@ class RetentionQueryRunner(QueryRunner):
                         'return_event',
                         NULL
                     ) AS event_type,
-                    actors.intervals_from_base
+                    actors.intervals_from_base,
+                    events.uuid as 'uuid',
+                    events.distinct_id as 'distinct_id',
+                    events.team_id,
+                    events.elements_chain as 'elements_chain',
+                    events.created_at as 'created_at'
                 FROM
                     events
                 JOIN
