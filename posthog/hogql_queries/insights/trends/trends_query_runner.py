@@ -142,11 +142,9 @@ class TrendsQueryRunner(QueryRunner):
         return queries
 
     def to_events_query(self, *args, **kwargs) -> ast.SelectQuery | ast.SelectSetQuery:
-        from posthog.hogql_queries.events_query_runner import SELECT_STAR_FROM_EVENTS_FIELDS
-
         with self.timings.measure("trends_to_events_query"):
             query_builder = self._get_trends_actors_query_builder(*args, **kwargs)
-            query = query_builder._get_events_query(SELECT_STAR_FROM_EVENTS_FIELDS)
+            query = query_builder._get_events_query()
 
         return query
 

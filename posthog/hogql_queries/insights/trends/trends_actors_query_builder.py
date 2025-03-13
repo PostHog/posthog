@@ -179,24 +179,20 @@ class TrendsActorsQueryBuilder:
             group_by=[ast.Field(chain=["actor_id"])],
         )
 
-    def _get_events_query(self, extra_event_columns: Optional[list[str]] = None) -> ast.SelectQuery:
+    def _get_events_query(self) -> ast.SelectQuery:
         actor_col = ast.Alias(alias="actor_id", expr=self._actor_id_expr())
 
-        event_columns = {"uuid", "timestamp"}
+        event_columns = ["uuid", "timestamp"]
         if self.include_recordings:
-            event_columns.add("$session_id")
-            event_columns.add("$window_id")
+            event_columns.append("$session_id")
+            event_columns.append("$window_id")
 
         actor_distinct_id_col = self._actor_distinct_id_col()
         if actor_distinct_id_col:
-            event_columns.add(actor_distinct_id_col)
-
-        if extra_event_columns:
-            for event_column in extra_event_columns:
-                event_columns.add(event_column)
+            event_columns.append(actor_distinct_id_col)
 
         columns: list[ast.Expr] = [
-            ast.Alias(alias=column, expr=ast.Field(chain=["e", *column.split(".")])) for column in event_columns
+            ast.Alias(alias=column, expr=ast.Field(chain=["e", column])) for column in event_columns
         ]
 
         if self.trends_aggregation_operations.is_first_time_ever_math():
