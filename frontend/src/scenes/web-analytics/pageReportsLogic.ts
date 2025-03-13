@@ -2,7 +2,7 @@ import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
 
-import { InsightVizNode, NodeKind, QuerySchema, TrendsQuery } from '~/queries/schema/schema-general'
+import { CompareFilter, InsightVizNode, NodeKind, QuerySchema, TrendsQuery } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import {
     AnyPropertyFilter,
@@ -227,7 +227,6 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 }
             },
         ],
-
         createInsightProps: [
             () => [],
             () =>
@@ -240,7 +239,10 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
         combinedMetricsQuery: [
             (s) => [s.pageUrl, s.stripQueryParams, s.shouldFilterTestAccounts],
             (pageUrl: string | null, stripQueryParams: boolean, shouldFilterTestAccounts: boolean) =>
-                (dateFilter: any, compareFilter: any): InsightVizNode<TrendsQuery> => ({
+                (
+                    dateFilter: typeof webAnalyticsLogic.values.dateFilter,
+                    compareFilter: CompareFilter
+                ): InsightVizNode<TrendsQuery> => ({
                     kind: NodeKind.InsightVizNode,
                     source: {
                         kind: NodeKind.TrendsQuery,
@@ -308,6 +310,10 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
             if (searchParams.pageURL && searchParams.pageURL !== values.pageUrl) {
                 actions.setPageUrl(searchParams.pageURL)
             }
+
+            if (searchParams.stripQueryParams !== values.stripQueryParams) {
+                actions.toggleStripQueryParams()
+            }
         },
     }),
 
@@ -321,10 +327,15 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 delete searchParams.pageURL
             }
 
+            searchParams.stripQueryParams = values.stripQueryParams
+
+            // So far we don't need to do anything for date because webAnalyticsLogic does this
+
             return ['/web/page-reports', searchParams, router.values.hashParams, { replace: true }]
         },
         toggleStripQueryParams: () => {
             const searchParams = { ...router.values.searchParams }
+            searchParams.stripQueryParams = values.stripQueryParams
 
             return ['/web/page-reports', searchParams, router.values.hashParams, { replace: true }]
         },

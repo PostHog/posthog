@@ -7,6 +7,8 @@ import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
+import { QuerySchema } from '~/queries/schema/schema-general'
+
 import { pageReportsLogic } from './pageReportsLogic'
 import { WebQuery } from './tiles/WebAnalyticsTile'
 import { LearnMorePopover } from './WebAnalyticsDashboard'
@@ -80,10 +82,15 @@ const SimpleTile = ({
 }: {
     title: string
     description: string
-    query: any
+    query: QuerySchema | undefined
     tileId: TileId
 }): JSX.Element => {
     const { createInsightProps } = useValues(pageReportsLogic)
+
+    // Keeps TS happy because we're finding the queries over the webAnalyticsLogic.
+    if (!query) {
+        return <div>There was a problem loading this tile.</div>
+    }
 
     return (
         <div>
