@@ -181,18 +181,23 @@ class TrendsActorsQueryBuilder:
 
     def _get_events_query(self) -> ast.SelectQuery:
         actor_col = ast.Alias(alias="actor_id", expr=self._actor_id_expr())
-
-        event_columns = ["uuid", "timestamp"]
-        if self.include_recordings:
-            event_columns.append("$session_id")
-            event_columns.append("$window_id")
-
-        actor_distinct_id_col = self._actor_distinct_id_col()
-        if actor_distinct_id_col:
-            event_columns.append(actor_distinct_id_col)
-
+        actor_distinct_id_expr = self._actor_distinct_id_expr()
+        actor_distinct_id_col = (
+            ast.Alias(alias="distinct_id", expr=actor_distinct_id_expr) if actor_distinct_id_expr else None
+        )
         columns: list[ast.Expr] = [
-            ast.Alias(alias=column, expr=ast.Field(chain=["e", column])) for column in event_columns
+            ast.Alias(alias="uuid", expr=ast.Field(chain=["e", "uuid"])),
+            *(
+                [ast.Alias(alias="$session_id", expr=ast.Field(chain=["e", "$session_id"]))]
+                if self.include_recordings
+                else []
+            ),
+            *(
+                [ast.Alias(alias="$window_id", expr=ast.Field(chain=["e", "$window_id"]))]
+                if self.include_recordings
+                else []
+            ),
+            *([actor_distinct_id_col] if actor_distinct_id_col else []),
         ]
 
         if self.trends_aggregation_operations.is_first_time_ever_math():
@@ -218,6 +223,7 @@ class TrendsActorsQueryBuilder:
             query = ast.SelectQuery(
                 select=[
                     actor_col,
+                    ast.Alias(alias="timestamp", expr=ast.Field(chain=["e", "timestamp"])),
                     *columns,
                 ],
                 select_from=ast.JoinExpr(
@@ -269,10 +275,10 @@ class TrendsActorsQueryBuilder:
             return ast.Field(chain=["e", f"$group_{int(self.entity.math_group_type_index)}"])
         return ast.Field(chain=["e", "person_id"])
 
-    def _actor_distinct_id_col(self) -> str | None:
+    def _actor_distinct_id_expr(self) -> ast.Expr | None:
         if self.entity.math == "unique_group" and self.entity.math_group_type_index is not None:
             return None
-        return "distinct_id"
+        return ast.Field(chain=["e", "distinct_id"])
 
     def _events_where_expr(
         self,
