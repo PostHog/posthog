@@ -110,6 +110,10 @@ export class HogFunctionMonitoringService {
                             }))
                         )
 
+                        if (result.metrics) {
+                            this.produceAppMetrics(result.metrics)
+                        }
+
                         // Clear the logs so we don't pass them on to the next invocation
                         result.logs = []
 
