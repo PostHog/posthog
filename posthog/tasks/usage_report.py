@@ -291,7 +291,7 @@ def get_org_user_count(organization_id: str) -> int:
 
 
 @cached(cache={})
-def get_ph_client(*args, **kwargs) -> PostHogClient:
+def get_ph_client(*args: Any, **kwargs: Any) -> PostHogClient:
     return PostHogClient("sTMFPsFhdP1Ssg", *args, **kwargs)
 
 
