@@ -5080,7 +5080,7 @@ export interface CoreMemory {
     text: string
 }
 
-export interface ProductFileType {
+export interface FileSystemType {
     icon?: JSX.Element
     href?: (ref: string) => string
 }
@@ -5091,6 +5091,6 @@ export interface ProductManifest {
     routes?: Record<string, [string /** Scene */, string /** Scene Key (unique for layout tabs) */]>
     redirects?: Record<string, string | ((params: Params, searchParams: Params, hashParams: Params) => string)>
     urls?: Record<string, string | ((...args: any[]) => string)>
-    fileSystemTypes?: Record<string, ProductFileType>
+    fileSystemTypes?: Record<string, FileSystemType>
     treeItems?: FileSystemImport[]
 }

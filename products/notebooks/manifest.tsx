@@ -19,7 +19,7 @@ export const manifest: ProductManifest = {
     treeItems: [
         {
             path: `Create new/Notebook`,
-            type: 'notebook' as const,
+            type: 'notebook',
             href: () => urls.notebook('new'),
         },
     ],

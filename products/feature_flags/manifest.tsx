@@ -19,7 +19,7 @@ export const manifest: ProductManifest = {
     treeItems: [
         {
             path: `Create new/Feature flag`,
-            type: 'feature_flag' as const,
+            type: 'feature_flag',
             href: () => urls.featureFlag('new'),
         },
     ],

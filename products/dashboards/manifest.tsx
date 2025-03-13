@@ -28,7 +28,7 @@ export const manifest: ProductManifest = {
     treeItems: [
         {
             path: `Create new/Dashboard`,
-            type: 'dashboard' as const,
+            type: 'dashboard',
             href: () => urls.dashboards() + '#newDashboard=modal',
         },
     ],

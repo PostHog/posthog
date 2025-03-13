@@ -48,7 +48,7 @@ export const manifest: ProductManifest = {
     treeItems: [
         {
             path: `Create new/Broadcast`,
-            type: 'broadcast' as const,
+            type: 'broadcast',
             href: () => urls.messagingBroadcastNew(),
         },
     ],

@@ -239,41 +239,33 @@ export const fileSystemTypes = {
 
 /** This const is auto-generated, as is the whole file */
 export const treeItems = [
-    { path: `Create new/Dashboard`, type: 'dashboard' as const, href: () => urls.dashboards() + '#newDashboard=modal' },
+    { path: `Create new/Dashboard`, type: 'dashboard', href: () => urls.dashboards() + '#newDashboard=modal' },
     { path: 'Explore/Early access features', icon: <IconRocket />, href: () => urls.earlyAccessFeatures() },
-    { path: `Create new/Experiment`, type: 'experiment' as const, href: () => urls.experiment('new') },
-    { path: `Create new/Feature flag`, type: 'feature_flag' as const, href: () => urls.featureFlag('new') },
-    { path: `Create new/Broadcast`, type: 'broadcast' as const, href: () => urls.messagingBroadcastNew() },
-    { path: `Create new/Notebook`, type: 'notebook' as const, href: () => urls.notebook('new') },
+    { path: `Create new/Experiment`, type: 'experiment', href: () => urls.experiment('new') },
+    { path: `Create new/Feature flag`, type: 'feature_flag', href: () => urls.featureFlag('new') },
+    { path: `Create new/Broadcast`, type: 'broadcast', href: () => urls.messagingBroadcastNew() },
+    { path: `Create new/Notebook`, type: 'notebook', href: () => urls.notebook('new') },
     { path: 'Explore/People and groups/People', icon: <IconPerson />, href: () => urls.persons() },
-    {
-        path: `Create new/Insight/Trends`,
-        type: 'insight' as const,
-        href: () => urls.insightNew({ type: InsightType.TRENDS }),
-    },
-    {
-        path: `Create new/Insight/Funnels`,
-        type: 'insight' as const,
-        href: () => urls.insightNew({ type: InsightType.FUNNELS }),
-    },
+    { path: `Create new/Insight/Trends`, type: 'insight', href: () => urls.insightNew({ type: InsightType.TRENDS }) },
+    { path: `Create new/Insight/Funnels`, type: 'insight', href: () => urls.insightNew({ type: InsightType.FUNNELS }) },
     {
         path: `Create new/Insight/Retention`,
-        type: 'insight' as const,
+        type: 'insight',
         href: () => urls.insightNew({ type: InsightType.RETENTION }),
     },
     {
         path: `Create new/Insight/User paths`,
-        type: 'insight' as const,
+        type: 'insight',
         href: () => urls.insightNew({ type: InsightType.PATHS }),
     },
     {
         path: `Create new/Insight/Stickiness`,
-        type: 'insight' as const,
+        type: 'insight',
         href: () => urls.insightNew({ type: InsightType.STICKINESS }),
     },
     {
         path: `Create new/Insight/Lifecycle`,
-        type: 'insight' as const,
+        type: 'insight',
         href: () => urls.insightNew({ type: InsightType.LIFECYCLE }),
     },
     { path: 'Explore/Recordings/Recordings', href: () => urls.replay(ReplayTabs.Home), icon: <IconRewindPlay /> },
