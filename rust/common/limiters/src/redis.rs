@@ -1,4 +1,4 @@
-use common_redis::Client;
+use common_redis::{Client, CustomRedisError};
 use metrics::gauge;
 use std::time::Duration as StdDuration;
 use std::{collections::HashSet, sync::Arc};
@@ -153,7 +153,7 @@ impl RedisLimiter {
     async fn fetch_limited(
         client: &Arc<dyn Client + Send + Sync>,
         key: &String,
-    ) -> anyhow::Result<Vec<String>> {
+    ) -> anyhow::Result<Vec<String>, CustomRedisError> {
         let now = OffsetDateTime::now_utc().unix_timestamp();
         client
             .zrangebyscore(key.to_string(), now.to_string(), String::from("+Inf"))

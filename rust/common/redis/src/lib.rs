@@ -1,13 +1,11 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use anyhow::Result;
 use async_trait::async_trait;
 use redis::{AsyncCommands, RedisError};
 use thiserror::Error;
 use tokio::time::timeout;
 
-// average for all commands is <10ms, check grafana
 const REDIS_TIMEOUT_MILLISECS: u64 = 10;
 
 #[derive(Error, Debug, Clone)]
@@ -40,17 +38,22 @@ impl From<tokio::time::error::Elapsed> for CustomRedisError {
     }
 }
 
-/// A unified Redis client that supports quota and rate limiting operations
-/// Implements functionality from both feature-flags and capture Redis clients
 #[async_trait]
 pub trait Client {
-    async fn zrangebyscore(&self, k: String, min: String, max: String) -> Result<Vec<String>>;
+    async fn zrangebyscore(
+        &self,
+        k: String,
+        min: String,
+        max: String,
+    ) -> Result<Vec<String>, CustomRedisError>;
+
     async fn hincrby(
         &self,
         k: String,
         v: String,
         count: Option<i32>,
     ) -> Result<(), CustomRedisError>;
+
     async fn get(&self, k: String) -> Result<String, CustomRedisError>;
     async fn set(&self, k: String, v: String) -> Result<(), CustomRedisError>;
     async fn del(&self, k: String) -> Result<(), CustomRedisError>;
@@ -62,7 +65,7 @@ pub struct RedisClient {
 }
 
 impl RedisClient {
-    pub fn new(addr: String) -> Result<RedisClient> {
+    pub fn new(addr: String) -> Result<RedisClient, CustomRedisError> {
         let client = redis::Client::open(addr)?;
         Ok(RedisClient { client })
     }
@@ -70,7 +73,12 @@ impl RedisClient {
 
 #[async_trait]
 impl Client for RedisClient {
-    async fn zrangebyscore(&self, k: String, min: String, max: String) -> Result<Vec<String>> {
+    async fn zrangebyscore(
+        &self,
+        k: String,
+        min: String,
+        max: String,
+    ) -> Result<Vec<String>, CustomRedisError> {
         let mut conn = self.client.get_async_connection().await?;
         let results = conn.zrangebyscore(k, min, max);
         let fut = timeout(Duration::from_millis(REDIS_TIMEOUT_MILLISECS), results).await?;
@@ -92,53 +100,37 @@ impl Client for RedisClient {
 
     async fn get(&self, k: String) -> Result<String, CustomRedisError> {
         let mut conn = self.client.get_async_connection().await?;
-
         let results = conn.get(k);
         let fut: Result<Vec<u8>, RedisError> =
             timeout(Duration::from_millis(REDIS_TIMEOUT_MILLISECS), results).await?;
 
-        // return NotFound error when empty or not found
-        if match &fut {
-            Ok(v) => v.is_empty(),
-            Err(_) => false,
-        } {
+        // return NotFound error when empty
+        if matches!(&fut, Ok(v) if v.is_empty()) {
             return Err(CustomRedisError::NotFound);
         }
 
         let raw_bytes = fut?;
-
-        // TRICKY: We serialise data to json, then django pickles it.
-        // Here we deserialize the bytes using serde_pickle, to get the json string.
         let string_response: String = serde_pickle::from_slice(&raw_bytes, Default::default())?;
-
         Ok(string_response)
     }
 
     async fn set(&self, k: String, v: String) -> Result<(), CustomRedisError> {
-        // TRICKY: We serialise data to json, then django pickles it.
-        // Here we serialize the json string to bytes using serde_pickle.
         let bytes = serde_pickle::to_vec(&v, Default::default())?;
-
         let mut conn = self.client.get_async_connection().await?;
-
         let results = conn.set(k, bytes);
         let fut = timeout(Duration::from_millis(REDIS_TIMEOUT_MILLISECS), results).await?;
-
         Ok(fut?)
     }
 
     async fn del(&self, k: String) -> Result<(), CustomRedisError> {
         let mut conn = self.client.get_async_connection().await?;
-
         let results = conn.del(k);
         let fut = timeout(Duration::from_millis(REDIS_TIMEOUT_MILLISECS), results).await?;
-
         fut.map_err(|e| CustomRedisError::Other(e.to_string()))
     }
 
     async fn hget(&self, k: String, field: String) -> Result<String, CustomRedisError> {
         let mut conn = self.client.get_async_connection().await?;
-
         let results = conn.hget(k, field);
         let fut: Result<Option<String>, RedisError> =
             timeout(Duration::from_millis(REDIS_TIMEOUT_MILLISECS), results).await?;
@@ -150,7 +142,6 @@ impl Client for RedisClient {
     }
 }
 
-// Mock client implementation for testing
 #[derive(Clone, Default)]
 pub struct MockRedisClient {
     zrangebyscore_ret: HashMap<String, Vec<String>>,
@@ -199,10 +190,15 @@ impl MockRedisClient {
 
 #[async_trait]
 impl Client for MockRedisClient {
-    async fn zrangebyscore(&self, key: String, _min: String, _max: String) -> Result<Vec<String>> {
+    async fn zrangebyscore(
+        &self,
+        key: String,
+        _min: String,
+        _max: String,
+    ) -> Result<Vec<String>, CustomRedisError> {
         match self.zrangebyscore_ret.get(&key) {
             Some(val) => Ok(val.clone()),
-            None => Err(CustomRedisError::NotFound.into()),
+            None => Err(CustomRedisError::NotFound),
         }
     }
 
@@ -227,9 +223,7 @@ impl Client for MockRedisClient {
 
     async fn set(&self, key: String, _value: String) -> Result<(), CustomRedisError> {
         match self.set_ret.get(&key) {
-            Some(result) => result
-                .clone()
-                .map_err(|e| CustomRedisError::Other(e.to_string())),
+            Some(result) => result.clone(),
             None => Err(CustomRedisError::NotFound),
         }
     }
