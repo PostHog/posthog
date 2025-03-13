@@ -57,40 +57,6 @@ export class TeamManager {
         }
     }
 
-    // given an array of TeamId, return those known to actually exist in posthog_team.
-    // yes I know returning number[] is gross we'll clean it up ;)
-    public async validateTeamIds(teamIds: TeamId[]): Promise<number[]> {
-        const out: number[] = []
-        if (teamIds.length === 0) {
-            return out
-        }
-
-        // capture any team IDs already cached in the manager
-        const dedupedTeamIds = new Set(teamIds)
-        const cachedTeamIds = new Set(
-            Array.from(dedupedTeamIds).filter((teamId) => {
-                this.getCachedTeam(teamId)
-            })
-        )
-        out.push(...cachedTeamIds)
-
-        // finally, figure out what we need to fetch from the DB, then do so in batches
-        const teamIdsToFetch = Array.from(dedupedTeamIds.difference(cachedTeamIds))
-
-        const handles: Promise<number[]>[] = []
-        for (let i = 0; i < teamIdsToFetch.length; i += CHUNK_SIZE) {
-            const chunk = teamIdsToFetch.slice(i, i + CHUNK_SIZE)
-            handles.push(this.fetchIdsForTeams(chunk))
-        }
-
-        // each query can throw if it fails
-        await Promise.all(handles).then((results) => {
-            results.forEach((foundIdsForTeams) => out.push(...foundIdsForTeams))
-        })
-
-        return out
-    }
-
     // why not just fetch nice Team objects here? it's hacky but if
     // we care about query overhead, the caller only needs IDs and
     // this will be covered by the table's clustering index, so
