@@ -126,6 +126,11 @@ describe('PropertyDefsConsumer', () => {
     let team: Team
     let propertyDefsDB: PropertyDefsDB
 
+    const advanceTime = (amount: number) => {
+        fixedTime = fixedTime.plus({ seconds: amount })
+        jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
+    }
+
     beforeEach(async () => {
         fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
         jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
@@ -214,6 +219,79 @@ describe('PropertyDefsConsumer', () => {
             expect(propertyDefsDB.writeEventProperties).toHaveBeenCalledTimes(1)
 
             // Snapshot shows a String type as it was the first seen value
+            expect(forSnapshot(await propertyDefsDB.listPropertyDefinitions(team.id))).toMatchSnapshot()
+        })
+
+        it('should batch multiple writes', async () => {
+            await ingester.handleKafkaBatch(
+                createKafkaMessages([
+                    createClickHouseEvent({
+                        team_id: team.id,
+                        project_id: team.project_id,
+                        event: 'event1',
+                        properties: {
+                            url: 'http://example.com',
+                        },
+                    }),
+                    createClickHouseEvent({
+                        team_id: team.id,
+                        project_id: team.project_id,
+                        event: 'event2',
+                        properties: {
+                            foo: 'bar',
+                            test: 4,
+                        },
+                    }),
+                ])
+            )
+
+            expect(propertyDefsDB.writeEventDefinitions).toHaveBeenCalledTimes(1)
+            expect(propertyDefsDB.writePropertyDefinitions).toHaveBeenCalledTimes(1)
+            expect(propertyDefsDB.writeEventProperties).toHaveBeenCalledTimes(1)
+
+            // Snapshot shows a String type as it was the first seen value
+            expect(forSnapshot(await propertyDefsDB.listPropertyDefinitions(team.id))).toMatchSnapshot()
+        })
+
+        it('should handle existing property defs', async () => {
+            await ingester.handleKafkaBatch(
+                createKafkaMessages([
+                    createClickHouseEvent({
+                        team_id: team.id,
+                        project_id: team.project_id,
+                        event: 'event1',
+                        properties: {
+                            foo: 1,
+                        },
+                    }),
+                ])
+            )
+            expect(forSnapshot(await propertyDefsDB.listPropertyDefinitions(team.id))).toMatchSnapshot()
+
+            advanceTime(1000)
+
+            await ingester.handleKafkaBatch(
+                createKafkaMessages([
+                    createClickHouseEvent({
+                        team_id: team.id,
+                        project_id: team.project_id,
+                        event: 'event1',
+                        properties: {
+                            other: 'property',
+                        },
+                    }),
+                    createClickHouseEvent({
+                        team_id: team.id,
+                        project_id: team.project_id,
+                        event: 'event1',
+                        properties: {
+                            foo: 'changed!!',
+                        },
+                    }),
+                ])
+            )
+
+            // Contains both properties but only one updated
             expect(forSnapshot(await propertyDefsDB.listPropertyDefinitions(team.id))).toMatchSnapshot()
         })
     })
