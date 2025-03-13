@@ -55,6 +55,7 @@ export function SurveyEditQuestionHeader({
                     listeners={listeners}
                     isDraftSurvey={getSurveyStatus(survey) === ProgressStatus.Draft}
                     hasMultipleQuestions={survey.questions.length > 1}
+                    allQuestionsHaveIds={survey.questions.every((question) => question.id)}
                 />
 
                 <b>
