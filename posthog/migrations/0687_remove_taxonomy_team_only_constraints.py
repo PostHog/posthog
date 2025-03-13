@@ -19,6 +19,6 @@ class Migration(migrations.Migration):
         ),
         migrations.AlterUniqueTogether(
             name="eventdefinition",
-            unique_together=set(),
+            unique_together=("team", "name"),
         ),
     ]
