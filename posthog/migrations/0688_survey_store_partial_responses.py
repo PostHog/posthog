@@ -11,7 +11,7 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
             model_name="survey",
-            name="store_partial_responses",
+            name="enable_partial_responses",
             field=models.BooleanField(default=False, null=True),
         ),
     ]
