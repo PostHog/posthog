@@ -103,8 +103,8 @@ else:
 
 SQS_QUEUES = {
     "usage_reports": {
-        "url": os.getenv("POSTHOG_SQS_USAGE_REPORTS_URL", ""),
-        "region": os.getenv("POSTHOG_SQS_REGION", "us-east-1"),
+        "url": os.getenv("SQS_USAGE_REPORT_QUEUE_URL", ""),
+        "region": os.getenv("SQS_REGION", "us-east-1"),
         "type": "usage_reports",
     }
 }
