@@ -334,7 +334,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                 data-attr="billing-page-addon-cta-upgrade-cta"
                                                 disableClientSideRouting
                                                 loading={!!billingProductLoading}
-                                                onClick={showPaymentEntryModal}
+                                                onClick={() => showPaymentEntryModal()}
                                             >
                                                 Upgrade now
                                             </BillingUpgradeCTA>

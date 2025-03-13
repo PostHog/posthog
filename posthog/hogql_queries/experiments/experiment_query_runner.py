@@ -412,7 +412,7 @@ class ExperimentQueryRunner(QueryRunner):
                 ast.Field(chain=["exposure_data", "entity_id"]),
                 parse_expr("coalesce(argMax(events_after_exposure.value, events_after_exposure.timestamp), 0) as value")
                 if is_funnel_metric
-                else parse_expr("sum(coalesce(events_after_exposure.value, 0)) as value"),
+                else parse_expr("sum(coalesce(toFloat(events_after_exposure.value), 0)) as value"),
             ],
             select_from=ast.JoinExpr(
                 table=exposure_query,
