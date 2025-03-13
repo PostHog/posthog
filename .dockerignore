@@ -2,6 +2,7 @@
 !.devcontainer
 !.kearc
 !bin
+!common/icons
 !common/hogvm
 !common/esbuilder
 !common/eslint_rules

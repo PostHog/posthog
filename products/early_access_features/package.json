@@ -1,7 +1,7 @@
 {
     "name": "@posthog/products-early-access-features",
     "peerDependencies": {
-        "@posthog/icons": "*",
+        "@posthog/icons": "workspace:*",
         "@storybook/react": "*",
         "@types/react": "*",
         "clsx": "*",

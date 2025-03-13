@@ -45,6 +45,7 @@ celerybeat-schedule
 celerybeat.pid
 common/hogvm/typescript/.parcel-cache
 common/hogvm/typescript/dist
+common/icons/dist
 common/plugin_transpiler/dist
 common/tailwind/dist
 coverage-*.xml

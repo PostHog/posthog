@@ -1,0 +1,64 @@
+name: 'CD'
+
+on:
+    push:
+        branches:
+            - main
+
+jobs:
+    check-package-version:
+        name: Check package version and detect an update
+        runs-on: ubuntu-20.04
+        outputs:
+            committed-version: ${{ steps.check-package-version.outputs.committed-version }}
+            published-version: ${{ steps.check-package-version.outputs.published-version }}
+            is-new-version: ${{ steps.check-package-version.outputs.is-new-version }}
+        steps:
+            - name: Checkout the repository
+              uses: actions/checkout@v2
+
+            - name: Check package version and detect an update
+              id: check-package-version
+              uses: PostHog/check-package-version@v2
+              with:
+                  path: common/icons/package.json
+
+    release:
+        name: Publish release if new version
+        runs-on: ubuntu-20.04
+        needs: check-package-version
+        # Only run if a new version was detected
+        if: needs.check-package-version.outputs.is-new-version == 'true'
+        env:
+            COMMITTED_VERSION: ${{ needs.check-package-version.outputs.committed-version }}
+            PUBLISHED_VERSION: ${{ needs.check-package-version.outputs.published-version }}
+        steps:
+            - name: Checkout the repository
+              uses: actions/checkout@v2
+              with:
+                  fetch-depth: 0
+                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+
+            - name: Set up Node 18
+              uses: actions/setup-node@v3
+              with:
+                  node-version: 18
+                  registry-url: https://registry.npmjs.org
+
+            - name: Install dependencies
+              run: yarn --frozen-lockfile
+
+            - name: Publish the package in the npm registry
+              # Publish from the icons folder
+              run: npm publish --access public
+              working-directory: common/icons
+              env:
+                  NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+            - name: Create GitHub release
+              uses: actions/create-release@v1
+              env:
+                  GITHUB_TOKEN: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+              with:
+                  tag_name: v${{ env.COMMITTED_VERSION }}
+                  release_name: ${{ env.COMMITTED_VERSION }}

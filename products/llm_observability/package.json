@@ -5,7 +5,7 @@
         "eslint-plugin-posthog": "workspace:*"
     },
     "peerDependencies": {
-        "@posthog/icons": "*",
+        "@posthog/icons": "workspace:*",
         "@storybook/react": "*",
         "@types/react": "*",
         "classnames": "*",
