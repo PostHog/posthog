@@ -26,7 +26,7 @@ def get_sqs_producer(queue_name):
         return None
 
     return SQSProducer(
-        queue_url=queue_settings["url"],
+        queue_url=queue_settings.get("url") if queue_settings and "url" in queue_settings else None,
         region_name=queue_settings.get("region", "us-east-1"),
     )
 
@@ -36,15 +36,13 @@ class SQSProducer:
     A class for sending messages to an AWS SQS queue.
     """
 
-    def __init__(self, queue_url, region_name="us-east-1", aws_access_key_id=None, aws_secret_access_key=None):
+    def __init__(self, queue_url, region_name="us-east-1"):
         """
         Initialize the SQS producer.
 
         Args:
             queue_url (str): The URL of the SQS queue
             region_name (str): AWS region name
-            aws_access_key_id (str, optional): AWS access key ID
-            aws_secret_access_key (str, optional): AWS secret access key
         """
         self.queue_url = queue_url
 
@@ -52,8 +50,6 @@ class SQSProducer:
         self.sqs = boto3.client(
             "sqs",
             region_name=region_name,
-            aws_access_key_id=aws_access_key_id,
-            aws_secret_access_key=aws_secret_access_key,
         )
 
     def send_message(

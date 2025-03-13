@@ -101,6 +101,14 @@ else:
         f'The environment vars "DATABASE_URL" or "POSTHOG_DB_NAME" are absolutely required to run this software'
     )
 
+SQS_QUEUES = {
+    "usage_reports": {
+        "url": os.getenv("POSTHOG_SQS_USAGE_REPORTS_URL", ""),
+        "region": os.getenv("POSTHOG_SQS_REGION", "us-east-1"),
+        "type": "usage_reports",
+    }
+}
+
 # Configure the database which will be used as a read replica.
 # This should have all the same config as our main writer DB, just use a different host.
 # Our database router will point here.
