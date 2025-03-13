@@ -2,7 +2,6 @@ import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
-import { buildStringMatcher } from '../config/config'
 import { buildIntegerMatcher } from '../config/config'
 import { BatchConsumer, startBatchConsumer } from '../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../kafka/config'
@@ -37,10 +36,6 @@ import {
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
 
-const BATCH_SIZE = 100
-
-// TODO(eli): wire up LOTS more metrics ASAP!
-
 const propertyDefTypesCounter = new Counter({
     name: 'property_defs_types_total',
     help: 'Count of derived property types.',
@@ -61,6 +56,12 @@ const propDefDroppedCounter = new Counter({
     name: 'prop_defs_dropped_total',
     help: 'Count of property definitions dropped.',
     labelNames: ['type', 'reason'],
+})
+
+const propDefsPostgresWritesCounter = new Counter({
+    name: 'prop_defs_postgres_writes_total',
+    help: 'Count of property definitions written to Postgres.',
+    labelNames: ['type'],
 })
 
 export type CollectedPropertyDefinitions = {
@@ -175,7 +176,9 @@ export class PropertyDefsConsumer {
         )
 
         if (eventDefinitions.length > 0) {
+            eventDefTypesCounter.inc(eventDefinitions.length)
             status.info('🔁', `Writing event definitions batch of size ${eventDefinitions.length}`)
+            propDefsPostgresWritesCounter.inc({ type: 'event_definitions' })
             void this.scheduleWork(this.propertyDefsDB.writeEventDefinitions(eventDefinitions))
         }
 
@@ -184,7 +187,11 @@ export class PropertyDefsConsumer {
         )
 
         if (propertyDefinitions.length > 0) {
+            for (const propDef of propertyDefinitions) {
+                propertyDefTypesCounter.inc({ type: propDef.type })
+            }
             status.info('🔁', `Writing property definitions batch of size ${propertyDefinitions.length}`)
+            propDefsPostgresWritesCounter.inc({ type: 'property_definitions' })
             void this.scheduleWork(this.propertyDefsDB.writePropertyDefinitions(propertyDefinitions))
         }
 
@@ -193,7 +200,9 @@ export class PropertyDefsConsumer {
         )
 
         if (eventProperties.length > 0) {
+            eventPropTypesCounter.inc(eventProperties.length)
             status.info('🔁', `Writing event properties batch of size ${eventProperties.length}`)
+            propDefsPostgresWritesCounter.inc({ type: 'event_properties' })
             void this.scheduleWork(this.propertyDefsDB.writeEventProperties(eventProperties))
         }
 
