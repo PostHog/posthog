@@ -41,7 +41,7 @@ export class GroupTypeManager {
         const timeout = timeoutGuard(`Still running "fetchGroupTypes". Timeout warning after 30 sec!`)
         try {
             const { rows } = await this.postgres.query(
-                PostgresUse.COMMON_WRITE, // TODO: can we get away with COMMON_READ here? cc Ben
+                PostgresUse.COMMON_READ,
                 `SELECT * FROM posthog_grouptypemapping WHERE project_id = ANY($1)`,
                 [projectIdsToLoad],
                 'fetchGroupTypes'
