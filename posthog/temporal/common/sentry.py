@@ -1,6 +1,7 @@
 from dataclasses import is_dataclass
 from typing import Any, Optional, Union
 
+import structlog
 from temporalio import activity, workflow
 from temporalio.worker import (
     ActivityInboundInterceptor,
@@ -14,10 +15,24 @@ from temporalio.worker import (
 with workflow.unsafe.imports_passed_through():
     from sentry_sdk import Hub, capture_exception, set_context, set_tag
 
+logger = structlog.get_logger()
+
 
 def _set_common_workflow_tags(info: Union[workflow.Info, activity.Info]):
     set_tag("temporal.workflow.type", info.workflow_type)
     set_tag("temporal.workflow.id", info.workflow_id)
+
+
+def _set_tags_from_safe_inputs(input: ExecuteActivityInput | ExecuteWorkflowInput):
+    if len(input.args) == 1 and is_dataclass(input.args[0]) and hasattr(input.args[0], "safe_properties"):
+        try:
+            safe_inputs = {
+                k: getattr(input.args[0], k) for k in input.args[0].safe_properties() if hasattr(input.args[0], k)
+            }
+            for k, v in safe_inputs.items():
+                set_tag(k, v)
+        except Exception as e:
+            logger.awarning("Failed to get safe properties for %s", input.args[0], exc_info=e)
 
 
 class _SentryActivityInboundInterceptor(ActivityInboundInterceptor):
@@ -37,12 +52,10 @@ class _SentryActivityInboundInterceptor(ActivityInboundInterceptor):
             try:
                 return await super().execute_activity(input)
             except Exception:
-                if len(input.args) == 1 and is_dataclass(input.args[0]):
-                    team_id = getattr(input.args[0], "team_id", None)
-                    if team_id:
-                        set_tag("team_id", team_id)
+                _set_tags_from_safe_inputs(input)
                 set_context("temporal.activity.info", activity.info().__dict__)
                 capture_exception()
+
                 raise
 
 
@@ -60,10 +73,7 @@ class _SentryWorkflowInterceptor(WorkflowInboundInterceptor):
             try:
                 return await super().execute_workflow(input)
             except Exception:
-                if len(input.args) == 1 and is_dataclass(input.args[0]):
-                    team_id = getattr(input.args[0], "team_id", None)
-                    if team_id:
-                        set_tag("team_id", team_id)
+                _set_tags_from_safe_inputs(input)
                 set_context("temporal.workflow.info", workflow.info().__dict__)
 
                 if not workflow.unsafe.is_replaying():

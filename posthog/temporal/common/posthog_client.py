@@ -1,6 +1,7 @@
 from dataclasses import is_dataclass
 from typing import Any, Optional
 
+import structlog
 from posthoganalytics import api_key, capture_exception
 from temporalio import activity, workflow
 from temporalio.worker import (
@@ -12,17 +13,18 @@ from temporalio.worker import (
     WorkflowInterceptorClassInput,
 )
 
-SAFE_INPUTS = (
-    "team_id",
-    "batch_export_id",
-    "interval",
-    "data_interval_start",
-    "data_interval_end",
-    "exclude_events",
-    "include_events",
-    "backfill_details",
-    "batch_export_model",
-)
+logger = structlog.get_logger()
+
+
+def _add_safe_inputs_to_properties(properties: dict[str, Any], input: ExecuteActivityInput | ExecuteWorkflowInput):
+    if len(input.args) == 1 and is_dataclass(input.args[0]) and hasattr(input.args[0], "safe_properties"):
+        try:
+            safe_inputs = {
+                k: getattr(input.args[0], k) for k in input.args[0].safe_properties() if hasattr(input.args[0], k)
+            }
+            properties.update(safe_inputs)
+        except Exception as e:
+            logger.awarning("Failed to get safe properties for %s", input.args[0], exc_info=e)
 
 
 class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
@@ -43,10 +45,7 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
                 "temporal.workflow.run_id": activity_info.workflow_run_id,
                 "temporal.workflow.type": activity_info.workflow_type,
             }
-            if len(input.args) == 1 and is_dataclass(input.args[0]):
-                safe_inputs = {k: getattr(input.args[0], k) for k in SAFE_INPUTS if hasattr(input.args[0], k)}
-                properties.update(safe_inputs)
-
+            _add_safe_inputs_to_properties(properties, input)
             if api_key:
                 capture_exception(e, properties=properties)
             raise
@@ -67,10 +66,7 @@ class _PostHogClientWorkflowInterceptor(WorkflowInboundInterceptor):
                 "temporal.workflow.type": workflow_info.workflow_type,
                 "temporal.workflow.id": workflow_info.workflow_id,
             }
-            if len(input.args) == 1 and is_dataclass(input.args[0]):
-                safe_inputs = {k: getattr(input.args[0], k) for k in SAFE_INPUTS if hasattr(input.args[0], k)}
-                properties.update(safe_inputs)
-
+            _add_safe_inputs_to_properties(properties, input)
             if api_key and not workflow.unsafe.is_replaying():
                 with workflow.unsafe.sandbox_unrestricted():
                     capture_exception(e, properties=properties)
