@@ -14,10 +14,6 @@ class EventProperty(models.Model):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(
-                fields=["team", "event", "property"],
-                name="posthog_event_property_unique_team_event_property",
-            ),
             UniqueConstraintByExpression(
                 concurrently=True,
                 name="posthog_event_property_unique_proj_event_property",
