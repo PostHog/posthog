@@ -176,7 +176,7 @@ class HogQLQueryExecutor:
             LimitContext.QUERY_ASYNC,
             LimitContext.SAVED_QUERY,
         ):
-            settings.max_execution_time = HOGQL_INCREASED_MAX_EXECUTION_TIME
+            settings.max_execution_time = max(settings.max_execution_time, HOGQL_INCREASED_MAX_EXECUTION_TIME)
         try:
             self.clickhouse_context = dataclasses.replace(
                 self.context,
