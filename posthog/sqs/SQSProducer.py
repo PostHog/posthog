@@ -28,8 +28,6 @@ def get_sqs_producer(queue_name):
     return SQSProducer(
         queue_url=queue_settings["url"],
         region_name=queue_settings.get("region", "us-east-1"),
-        aws_access_key_id=queue_settings.get("access_key_id"),
-        aws_secret_access_key=queue_settings.get("secret_access_key"),
     )
 
 
