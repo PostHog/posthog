@@ -45,7 +45,7 @@ impl Issue {
         Self {
             id: Uuid::new_v4(),
             team_id,
-            status: IssueStatus::Active, // TODO - we should at some point use an enum here
+            status: IssueStatus::Active,
             name: Some(name),
             description: Some(description),
         }
