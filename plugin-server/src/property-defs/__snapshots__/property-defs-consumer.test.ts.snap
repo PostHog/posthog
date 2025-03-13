@@ -1,5 +1,77 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
+exports[`PropertyDefsConsumer group updates should create group properties from the $group_set property 1`] = `
+[
+  {
+    "created_at": "2025-01-01T01:00:00.000Z",
+    "id": "<REPLACED-UUID-0>",
+    "last_seen_at": "2025-01-01T01:00:00.000Z",
+    "name": "$groupidentify",
+    "project_id": "2",
+    "query_usage_30_day": null,
+    "team_id": 2,
+    "volume_30_day": null,
+  },
+]
+`;
+
+exports[`PropertyDefsConsumer group updates should create group properties from the $group_set property 2`] = `
+[
+  {
+    "group_type_index": 0,
+    "id": "<REPLACED-UUID-0>",
+    "is_numerical": false,
+    "name": "prop1",
+    "project_id": "2",
+    "property_type": "String",
+    "property_type_format": null,
+    "query_usage_30_day": null,
+    "team_id": 2,
+    "type": 3,
+    "volume_30_day": null,
+  },
+  {
+    "group_type_index": 0,
+    "id": "<REPLACED-UUID-1>",
+    "is_numerical": true,
+    "name": "prop2",
+    "project_id": "2",
+    "property_type": "Numeric",
+    "property_type_format": null,
+    "query_usage_30_day": null,
+    "team_id": 2,
+    "type": 3,
+    "volume_30_day": null,
+  },
+  {
+    "group_type_index": null,
+    "id": "<REPLACED-UUID-2>",
+    "is_numerical": false,
+    "name": "$group_type",
+    "project_id": "2",
+    "property_type": "String",
+    "property_type_format": null,
+    "query_usage_30_day": null,
+    "team_id": 2,
+    "type": 1,
+    "volume_30_day": null,
+  },
+  {
+    "group_type_index": null,
+    "id": "<REPLACED-UUID-3>",
+    "is_numerical": false,
+    "name": "$group_key",
+    "project_id": "2",
+    "property_type": "String",
+    "property_type_format": null,
+    "query_usage_30_day": null,
+    "team_id": 2,
+    "type": 1,
+    "volume_30_day": null,
+  },
+]
+`;
+
 exports[`PropertyDefsConsumer property updates should batch multiple writes 1`] = `
 [
   {

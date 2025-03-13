@@ -261,24 +261,19 @@ export class PropertyDefsConsumer {
             }
 
             // Decision: are there group properties eligible for capture in this event?
-            let shouldCaptureGroupProps: boolean = true
-
+            let shouldCaptureGroupProps: boolean = event.event === '$groupidentify'
             const groupTypesForProject = groupTypesByProjectId[event.project_id]
-            if (event.event === '$groupidentify') {
-                // bail if the team ID doesn't exist in posthog_team
+
+            if (shouldCaptureGroupProps) {
+                shouldCaptureGroupProps = true
+
                 if (!groupTypesForProject) {
                     propDefDroppedCounter.inc({ type: 'group', reason: 'team_groups_not_found' })
                     shouldCaptureGroupProps = false
-                }
-
-                // bail if there's no group type assigned to the event
-                if (!event.properties['$group_type']) {
+                } else if (!event.properties['$group_type']) {
                     propDefDroppedCounter.inc({ type: 'group', reason: 'undefined_group' })
                     shouldCaptureGroupProps = false
-                }
-
-                // bail if the group type on the event was not resolved to an index in posthog_grouptypemappings
-                if (!groupTypesForProject?.[event.properties['$group_type']]) {
+                } else if (typeof groupTypesForProject[event.properties['$group_type']] !== 'number') {
                     propDefDroppedCounter.inc({ type: 'group', reason: 'group_index_not_found' })
                     shouldCaptureGroupProps = false
                 }

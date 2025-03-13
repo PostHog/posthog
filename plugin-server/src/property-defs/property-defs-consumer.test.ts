@@ -8,6 +8,7 @@ import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { insertHogFunction as _insertHogFunction } from '../cdp/_tests/fixtures'
 import { ClickHouseEvent, Hub, ProjectId, RawClickHouseEvent, Team, TimestampFormat } from '../types'
 import { closeHub, createHub } from '../utils/db/hub'
+import { PostgresUse } from '../utils/db/postgres'
 import { castTimestampOrNow } from '../utils/utils'
 import { PropertyDefsConsumer } from './property-defs-consumer'
 import { PropertyDefsDB } from './services/property-defs-db'
@@ -139,6 +140,20 @@ describe('PropertyDefsConsumer', () => {
         await resetTestDatabase()
         hub = await createHub()
         team = await getFirstTeam(hub)
+
+        // Create some default group type mappings
+        const groupTypeMappings = [
+            { group_type: 'group-a', group_type_index: 0 },
+            { group_type: 'group-b', group_type_index: 1 },
+        ]
+        for (const mapping of groupTypeMappings) {
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `INSERT INTO posthog_grouptypemapping (team_id, project_id, group_type, group_type_index) VALUES ($1, $2, $3, $4)`,
+                [team.id, team.project_id, mapping.group_type, mapping.group_type_index],
+                'createGroupTypeMappings'
+            )
+        }
 
         hub.PROPERTY_DEFS_CONSUMER_ENABLED_TEAMS = '*'
         ingester = new PropertyDefsConsumer(hub)
@@ -294,6 +309,35 @@ describe('PropertyDefsConsumer', () => {
             )
 
             // Contains both properties but only one updated
+            expect(forSnapshot(await propertyDefsDB.listPropertyDefinitions(team.id))).toMatchSnapshot()
+        })
+    })
+
+    describe('group updates', () => {
+        it('should create group properties from the $group_set property', async () => {
+            await ingester.handleKafkaBatch(
+                createKafkaMessages([
+                    createClickHouseEvent({
+                        team_id: team.id,
+                        project_id: team.project_id,
+                        event: '$groupidentify',
+                        properties: {
+                            $group_type: 'group-a',
+                            $group_key: 'key-1',
+                            $group_set: {
+                                prop1: 'foo',
+                                prop2: 2,
+                            },
+                        },
+                    }),
+                ])
+            )
+
+            expect(propertyDefsDB.writeEventDefinitions).toHaveBeenCalledTimes(1)
+            expect(propertyDefsDB.writePropertyDefinitions).toHaveBeenCalledTimes(1)
+            expect(propertyDefsDB.writeEventProperties).toHaveBeenCalledTimes(1)
+
+            expect(forSnapshot(await propertyDefsDB.listEventDefinitions(team.id))).toMatchSnapshot()
             expect(forSnapshot(await propertyDefsDB.listPropertyDefinitions(team.id))).toMatchSnapshot()
         })
     })
