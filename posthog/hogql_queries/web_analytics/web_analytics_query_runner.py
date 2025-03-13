@@ -190,7 +190,7 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
     def conversion_revenue_expr(self) -> ast.Expr:
         if not self.team.revenue_config.events:
             return ast.Constant(value=None)
-        
+
         if isinstance(self.query.conversionGoal, CustomEventConversionGoal):
             event_name = self.query.conversionGoal.customEventName
             revenue_property = next(
