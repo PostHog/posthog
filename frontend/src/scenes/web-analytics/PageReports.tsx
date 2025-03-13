@@ -5,6 +5,7 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { pageReportsLogic } from './pageReportsLogic'
 import { WebQuery } from './tiles/WebAnalyticsTile'
@@ -48,6 +49,17 @@ function PageUrlSearchHeader(): JSX.Element {
                         className="max-w-full"
                     />
                 </div>
+                <Tooltip title="Strip query parameters from URLs (e.g. '?utm_source=...'). This will match the base URL regardless of query parameters.">
+                    <div className="inline-block">
+                        <LemonSwitch
+                            checked={values.stripQueryParams}
+                            onChange={actions.toggleStripQueryParams}
+                            label="Strip query params"
+                            size="small"
+                            bordered
+                        />
+                    </div>
+                </Tooltip>
                 <div>
                     <DateFilter
                         dateFrom={dateFilter.dateFrom}
@@ -55,18 +67,6 @@ function PageUrlSearchHeader(): JSX.Element {
                         onChange={(fromDate, toDate) => setDates(fromDate, toDate)}
                     />
                 </div>
-            </div>
-            <div className="flex items-center gap-2">
-                <LearnMorePopover
-                    title="Strip query parameters"
-                    description="Remove query strings from URLs (e.g. '?utm_source=...'). This will match the base URL regardless of query parameters. For example, 'https://example.com/products' and 'https://example.com/products?id=123' will be treated as the same page, but 'https://example.com/products-new' will be treated as a different page."
-                />
-                <LemonSwitch
-                    checked={values.stripQueryParams}
-                    onChange={actions.toggleStripQueryParams}
-                    label="Strip query parameters"
-                    size="small"
-                />
             </div>
         </div>
     )
