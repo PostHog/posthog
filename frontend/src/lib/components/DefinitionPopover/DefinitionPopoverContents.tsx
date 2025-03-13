@@ -54,7 +54,9 @@ export function PropertyStatusControl({
 }): JSX.Element {
     const definitionType = isProperty ? 'property' : 'event'
     const copy = {
-        verified: `Prioritize this ${definitionType} in filters and other selection components to signal to collaborators that this ${definitionType} should be used in favor of similar ${definitionType === 'property' ? 'properties' : `${definitionType}s`}.`,
+        verified: `Prioritize this ${definitionType} in filters and other selection components to signal to collaborators that this ${definitionType} should be used in favor of similar ${
+            definitionType === 'property' ? 'properties' : `${definitionType}s`
+        }.`,
         visible: `${
             definitionType.charAt(0).toUpperCase() + definitionType.slice(1)
         } is available for use but has not been verified by the team.`,
