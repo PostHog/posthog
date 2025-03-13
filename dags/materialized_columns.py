@@ -18,6 +18,10 @@ V = TypeVar("V")
 
 
 def zip_values(mapping: Mapping[K, Iterable[V]]) -> Iterator[Mapping[K, V]]:
+    """
+    Takes a mapping that contains values of sequences if identical lengths, returns an iterator of dictionaries for each
+    index in the sequence, with keys for each value taken from the input mapping.
+    """
     keys, values = [], []
     for key, value in mapping.items():
         keys.append(key)
