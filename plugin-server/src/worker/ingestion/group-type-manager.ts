@@ -26,17 +26,18 @@ export class GroupTypeManager {
 
     public async fetchGroupTypesForProjects(projectIds: ProjectId[] | Set<ProjectId>): Promise<GroupTypesByProjectId> {
         const projectIdsSet = new Set(projectIds)
+        const projectIdsToLoad = new Set<ProjectId>()
         const response: GroupTypesByProjectId = {}
 
         for (const projectId of projectIdsSet) {
             const cachedGroupTypes = getByAge(this.groupTypesCache, projectId)
 
             response[projectId] = cachedGroupTypes ?? null
-        }
 
-        const projectIdsToLoad = Object.keys(response).filter(
-            (projectId) => response[projectId as unknown as ProjectId] === null
-        )
+            if (cachedGroupTypes === null) {
+                projectIdsToLoad.add(projectId)
+            }
+        }
 
         const timeout = timeoutGuard(`Still running "fetchGroupTypes". Timeout warning after 30 sec!`)
         try {

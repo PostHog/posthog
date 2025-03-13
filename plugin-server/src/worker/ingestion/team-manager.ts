@@ -9,8 +9,6 @@ import { timeoutGuard } from '../../utils/db/utils'
 import { captureTeamEvent } from '../../utils/posthog'
 import { status } from '../../utils/status'
 
-const CHUNK_SIZE = 100
-
 export class TeamManager {
     postgres: PostgresRouter
     teamCache: LRU<TeamId, Team | null>
