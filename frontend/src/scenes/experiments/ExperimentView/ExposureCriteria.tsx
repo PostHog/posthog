@@ -15,7 +15,7 @@ import { experimentLogic } from '../experimentLogic'
 import { commonActionFilterProps } from '../Metrics/Selectors'
 import { exposureConfigToFilter, filterToExposureConfig } from '../utils'
 
-function ExposureCriteriaModal(): JSX.Element {
+export function ExposureCriteriaModal(): JSX.Element {
     const { experiment, isExposureCriteriaModalOpen } = useValues(experimentLogic)
     const { closeExposureCriteriaModal, restoreUnmodifiedExperiment, setExposureCriteria, updateExposureCriteria } =
         useActions(experimentLogic)
@@ -57,7 +57,7 @@ function ExposureCriteriaModal(): JSX.Element {
                     className={`trends-metric-form__exposure-button flex-1 cursor-pointer p-4 rounded border ${
                         !experiment.exposure_criteria?.exposure_config
                             ? 'border-accent-primary bg-accent-primary-highlight'
-                            : 'border-border'
+                            : 'border-primary'
                     }`}
                     onClick={() => {
                         setExposureCriteria({
@@ -81,7 +81,7 @@ function ExposureCriteriaModal(): JSX.Element {
                     className={`trends-metric-form__exposure-button flex-1 cursor-pointer p-4 rounded border ${
                         experiment.exposure_criteria?.exposure_config
                             ? 'border-accent-primary bg-accent-primary-highlight'
-                            : 'border-border'
+                            : 'border-primary'
                     }`}
                     onClick={() => {
                         setExposureCriteria({
@@ -143,18 +143,5 @@ function ExposureCriteriaModal(): JSX.Element {
                 fullWidth
             />
         </LemonModal>
-    )
-}
-
-export function ExposureCriteria(): JSX.Element {
-    const { openExposureCriteriaModal } = useActions(experimentLogic)
-    return (
-        <div>
-            <h2 className="font-semibold text-lg mb-0">Exposure criteria</h2>
-            <LemonButton className="mt-2" size="xsmall" type="secondary" onClick={() => openExposureCriteriaModal()}>
-                Edit
-            </LemonButton>
-            <ExposureCriteriaModal />
-        </div>
     )
 }

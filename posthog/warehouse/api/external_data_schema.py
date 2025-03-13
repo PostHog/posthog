@@ -51,6 +51,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
     incremental_field_type = serializers.SerializerMethodField(read_only=True)
     sync_frequency = serializers.SerializerMethodField(read_only=True)
     status = serializers.SerializerMethodField(read_only=True)
+    sync_time_of_day = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = ExternalDataSchema
@@ -68,6 +69,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "incremental_field",
             "incremental_field_type",
             "sync_frequency",
+            "sync_time_of_day",
         ]
 
         read_only_fields = [
@@ -109,6 +111,9 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
     def get_sync_frequency(self, schema: ExternalDataSchema):
         return sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval)
 
+    def get_sync_time_of_day(self, schema: ExternalDataSchema):
+        return schema.sync_time_of_day
+
     def update(self, instance: ExternalDataSchema, validated_data: dict[str, Any]) -> ExternalDataSchema:
         data = self.context["request"].data
 
@@ -142,6 +147,9 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             payload["incremental_field"] = data.get("incremental_field")
             payload["incremental_field_type"] = data.get("incremental_field_type")
             payload["incremental_field_last_value"] = None
+            payload["partitioning_enabled"] = None
+            payload["partitioning_size"] = None
+            payload["partitioning_keys"] = None
 
             validated_data["sync_type_config"] = payload
         else:
@@ -149,12 +157,17 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             payload.pop("incremental_field", None)
             payload.pop("incremental_field_type", None)
             payload.pop("incremental_field_last_value", None)
+            payload.pop("partitioning_enabled", None)
+            payload.pop("partitioning_size", None)
+            payload.pop("partitioning_keys", None)
 
             validated_data["sync_type_config"] = payload
 
         should_sync = validated_data.get("should_sync", None)
         sync_frequency = data.get("sync_frequency", None)
+        sync_time_of_day = data.get("sync_time_of_day", None)
         was_sync_frequency_updated = False
+        was_sync_time_of_day_updated = False
 
         if sync_frequency:
             sync_frequency_interval = sync_frequency_to_sync_frequency_interval(sync_frequency)
@@ -163,6 +176,12 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                 was_sync_frequency_updated = True
                 validated_data["sync_frequency_interval"] = sync_frequency_interval
                 instance.sync_frequency_interval = sync_frequency_interval
+
+        if sync_time_of_day is not None:
+            if sync_time_of_day != instance.sync_time_of_day:
+                was_sync_time_of_day_updated = True
+                validated_data["sync_time_of_day"] = sync_time_of_day
+                instance.sync_time_of_day = sync_time_of_day
 
         if should_sync is True and sync_type is None and instance.sync_type is None:
             raise ValidationError("Sync type must be set up first before enabling schema")
@@ -178,7 +197,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             if should_sync is True:
                 sync_external_data_job_workflow(instance, create=True)
 
-        if was_sync_frequency_updated:
+        if was_sync_frequency_updated or was_sync_time_of_day_updated:
             sync_external_data_job_workflow(instance, create=False)
 
         if trigger_refresh:

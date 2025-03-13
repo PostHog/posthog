@@ -1,5 +1,4 @@
-import { IconInfo } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonModal, LemonSelect, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 import { Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { humanFriendlyNumber } from 'lib/utils'
@@ -22,6 +21,7 @@ export function RunningTimeCalculatorModal(): JSX.Element {
         uniqueUsers,
         averageEventsPerUser,
         averagePropertyValuePerUser,
+        conversionRate,
         metricResultLoading,
     } = useValues(runningTimeCalculatorLogic({ experimentId }))
     const { setMinimumDetectableEffect, setMetricIndex } = useActions(runningTimeCalculatorLogic({ experimentId }))
@@ -50,6 +50,7 @@ export function RunningTimeCalculatorModal(): JSX.Element {
                                         ...experiment?.parameters,
                                         recommended_running_time: recommendedRunningTime,
                                         recommended_sample_size: recommendedSampleSize || undefined,
+                                        minimum_detectable_effect: minimumDetectableEffect || undefined,
                                     },
                                 })
                                 closeCalculateRunningTimeModal()
@@ -103,33 +104,23 @@ export function RunningTimeCalculatorModal(): JSX.Element {
                                     <Spinner className="text-3xl transform -translate-y-[-10px]" />
                                 </div>
                             </div>
-                        ) : uniqueUsers !== null && standardDeviation !== null ? (
+                        ) : (
                             <div className="border-t pt-2">
                                 <div className="grid grid-cols-3 gap-4">
-                                    <div>
-                                        <div className="card-secondary">Unique users</div>
-                                        <div className="font-semibold">
-                                            ~{humanFriendlyNumber(uniqueUsers || 0, 0)} persons
+                                    {uniqueUsers !== null && (
+                                        <div>
+                                            <div className="card-secondary">Unique users</div>
+                                            <div className="font-semibold">
+                                                ~{humanFriendlyNumber(uniqueUsers || 0, 0)} persons
+                                            </div>
+                                            <div className="text-xs text-muted">
+                                                Last {TIMEFRAME_HISTORICAL_DATA_DAYS} days
+                                            </div>
                                         </div>
-                                        <div className="text-xs text-muted">
-                                            Last {TIMEFRAME_HISTORICAL_DATA_DAYS} days
-                                        </div>
-                                    </div>
+                                    )}
                                     {averageEventsPerUser !== null && (
                                         <div>
-                                            <div className="card-secondary">
-                                                <span>Avg. events per user</span>
-                                                <Tooltip
-                                                    title={
-                                                        <>
-                                                            The average number of times each user triggered this event
-                                                            in the last 14 days.
-                                                        </>
-                                                    }
-                                                >
-                                                    <IconInfo className="text-secondary ml-1" />
-                                                </Tooltip>
-                                            </div>
+                                            <div className="card-secondary">Avg. events per user</div>
                                             <div className="font-semibold">
                                                 ~{humanFriendlyNumber(averageEventsPerUser || 0, 0)}
                                             </div>
@@ -137,49 +128,31 @@ export function RunningTimeCalculatorModal(): JSX.Element {
                                     )}
                                     {averagePropertyValuePerUser !== null && (
                                         <div>
-                                            <div className="card-secondary">
-                                                <span>Avg. property value per user</span>
-                                                <Tooltip
-                                                    title={
-                                                        <>
-                                                            The average value of this property per user in the last 14
-                                                            days.
-                                                        </>
-                                                    }
-                                                >
-                                                    <IconInfo className="text-secondary ml-1" />
-                                                </Tooltip>
-                                            </div>
+                                            <div className="card-secondary">Avg. property value per user</div>
                                             <div className="font-semibold">
                                                 ~{humanFriendlyNumber(averagePropertyValuePerUser, 0)}
                                             </div>
                                         </div>
                                     )}
-                                    <div>
-                                        <div className="card-secondary">
-                                            <span>Est. standard deviation</span>
-                                            <Tooltip
-                                                className="ml-1"
-                                                title={
-                                                    <>
-                                                        The estimated standard deviation of the metric in the last 14
-                                                        days. It's the "human-readable" version of the amount of
-                                                        dispersion in the dataset, and is calculated as the square root
-                                                        of the variance. The variance informs the recommended sample
-                                                        size.
-                                                    </>
-                                                }
-                                            >
-                                                <IconInfo className="text-secondary ml-1" />
-                                            </Tooltip>
+                                    {conversionRate !== null && (
+                                        <div>
+                                            <div className="card-secondary">Conversion rate</div>
+                                            <div className="font-semibold">
+                                                ~{humanFriendlyNumber(conversionRate * 100, 2)}%
+                                            </div>
                                         </div>
-                                        <div className="font-semibold">
-                                            ~{humanFriendlyNumber(standardDeviation, 0)}
+                                    )}
+                                    {standardDeviation !== null && (
+                                        <div>
+                                            <div className="card-secondary">Estimated standard deviation</div>
+                                            <div className="font-semibold">
+                                                ~{humanFriendlyNumber(standardDeviation, 0)}
+                                            </div>
                                         </div>
-                                    </div>
+                                    )}
                                 </div>
                             </div>
-                        ) : null}
+                        )}
                     </div>
                 </div>
 

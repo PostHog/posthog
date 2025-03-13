@@ -1,5 +1,10 @@
-pub mod auth;
+pub mod login;
+pub mod query;
+pub mod sourcemap;
+
 use clap::{Parser, Subcommand};
+use query::QueryCommand;
+use std::path::PathBuf;
 
 use crate::error::CapturedError;
 
@@ -18,6 +23,38 @@ pub struct Cli {
 pub enum Commands {
     /// Authenticate with PostHog, storing a personal API token locally
     Login,
+
+    /// Run a SQL query against any data you have in posthog. This is mostly for fun, and subject to change
+    Query {
+        #[command(subcommand)]
+        cmd: QueryCommand,
+    },
+
+    #[command(about = "Upload a directory of bundled chunks to PostHog")]
+    Sourcemap {
+        #[command(subcommand)]
+        cmd: SourcemapCommand,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum SourcemapCommand {
+    /// Inject each bundled chunk with a posthog chunk ID
+    Inject {
+        /// The directory containing the bundled chunks
+        #[arg(short, long)]
+        directory: PathBuf,
+    },
+    /// Upload the bundled chunks to PostHog
+    Upload {
+        /// The directory containing the bundled chunks
+        #[arg(short, long)]
+        directory: PathBuf,
+
+        /// The build ID to associate with the uploaded chunks
+        #[arg(short, long)]
+        build: Option<String>,
+    },
 }
 
 impl Cli {
@@ -26,8 +63,17 @@ impl Cli {
 
         match &command.command {
             Commands::Login => {
-                auth::login()?;
+                login::login()?;
             }
+            Commands::Sourcemap { cmd } => match cmd {
+                SourcemapCommand::Inject { directory } => {
+                    sourcemap::inject::inject(directory)?;
+                }
+                SourcemapCommand::Upload { directory, build } => {
+                    sourcemap::upload::upload(&command.host, directory, build)?;
+                }
+            },
+            Commands::Query { cmd } => query::query_command(&command.host, cmd)?,
         }
 
         Ok(())

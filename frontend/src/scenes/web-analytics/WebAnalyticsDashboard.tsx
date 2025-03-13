@@ -1,13 +1,16 @@
-import { IconExpand45, IconInfo, IconOpenSidebar, IconX } from '@posthog/icons'
+import { IconExpand45, IconInfo, IconLineGraph, IconOpenSidebar, IconX } from '@posthog/icons'
+import { LemonSegmentedButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { IconOpenInNew, IconTableChart } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect/LemonSegmentedSelect'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNotNil } from 'lib/utils'
 import { addProductIntentForCrossSell, ProductIntentContext } from 'lib/utils/product-intents'
 import React, { useState } from 'react'
@@ -20,6 +23,7 @@ import {
     QueryTile,
     TabsTile,
     TileId,
+    TileVisualizationOption,
     WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
     webAnalyticsLogic,
 } from 'scenes/web-analytics/webAnalyticsLogic'
@@ -113,6 +117,7 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
                 insightProps={insightProps}
                 control={control}
                 showIntervalSelect={showIntervalSelect}
+                tileId={tile.tileId}
             />
 
             {buttonsRow.length > 0 ? (
@@ -148,6 +153,7 @@ const TabsTileItem = ({ tile }: { tile: TabsTile }): JSX.Element => {
                         showIntervalSelect={tab.showIntervalSelect}
                         control={tab.control}
                         insightProps={tab.insightProps}
+                        tileId={tile.tileId}
                     />
                 ),
                 linkText: tab.linkText,
@@ -192,6 +198,16 @@ export const WebTabs = ({
 }): JSX.Element => {
     const activeTab = tabs.find((t) => t.id === activeTabId)
     const newInsightUrl = getNewInsightUrl(tileId, activeTabId)
+
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const { setTileVisualization } = useActions(webAnalyticsLogic)
+    const { tileVisualizations } = useValues(webAnalyticsLogic)
+    const visualization = tileVisualizations[tileId]
+
+    const isVisualizationToggleEnabled =
+        featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TREND_VIZ_TOGGLE] &&
+        [TileId.SOURCES, TileId.DEVICES, TileId.PATHS].includes(tileId)
 
     const buttonsRow = [
         activeTab?.canOpenInsight && newInsightUrl ? (
@@ -238,6 +254,25 @@ export const WebTabs = ({
                         />
                     )}
                 </h2>
+
+                {isVisualizationToggleEnabled && (
+                    <LemonSegmentedButton
+                        value={visualization || 'table'}
+                        onChange={(value) => setTileVisualization(tileId, value as TileVisualizationOption)}
+                        options={[
+                            {
+                                value: 'table',
+                                icon: <IconTableChart />,
+                            },
+                            {
+                                value: 'graph',
+                                icon: <IconLineGraph />,
+                            },
+                        ]}
+                        size="small"
+                        className="mr-2"
+                    />
+                )}
 
                 <LemonSegmentedSelect
                     shrinkOn={7}

@@ -14,6 +14,7 @@ from posthog.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueFingerprintV2,
+    UserGroup,
 )
 from posthog.models.utils import uuid7
 from botocore.config import Config
@@ -309,6 +310,46 @@ class TestErrorTracking(APIBaseTest):
         )
         # cannot assign issues from other teams
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_error_tracking_issue_bulk_resolve(self):
+        issue_one = self.create_issue()
+        issue_two = self.create_issue()
+
+        self.assertEqual(issue_one.status, ErrorTrackingIssue.Status.ACTIVE)
+        self.assertEqual(issue_two.status, ErrorTrackingIssue.Status.ACTIVE)
+
+        self.client.post(
+            f"/api/projects/{self.team.id}/error_tracking/issue/bulk",
+            data={"ids": [issue_one.id, issue_two.id], "action": "resolve"},
+        )
+
+        issue_one.refresh_from_db()
+        issue_two.refresh_from_db()
+
+        self.assertEqual(issue_one.status, ErrorTrackingIssue.Status.RESOLVED)
+        self.assertEqual(issue_two.status, ErrorTrackingIssue.Status.RESOLVED)
+
+    def test_error_tracking_issue_bulk_assign(self):
+        issue_one = self.create_issue()
+        issue_two = self.create_issue()
+
+        ErrorTrackingIssueAssignment.objects.create(issue=issue_one, user=self.user)
+        user_group = UserGroup.objects.create(team=self.team, name="Team group")
+        user_group.members.set([self.user])
+
+        self.client.post(
+            f"/api/projects/{self.team.id}/error_tracking/issue/bulk",
+            data={
+                "ids": [issue_one.id, issue_two.id],
+                "action": "assign",
+                "assignee": {"id": user_group.id, "type": "user_group"},
+            },
+        )
+
+        self.assertEqual(len(ErrorTrackingIssueAssignment.objects.filter(issue=issue_one, user=self.user)), 0)
+        self.assertEqual(
+            len(ErrorTrackingIssueAssignment.objects.filter(issue__in=[issue_one, issue_two], user_group=user_group)), 2
+        )
 
     def _assert_logs_the_activity(self, error_tracking_issue_id: int, expected: list[dict]) -> None:
         activity_response = self._get_error_tracking_issue_activity(error_tracking_issue_id)
