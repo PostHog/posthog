@@ -215,7 +215,7 @@ function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'dis
 
             <p>
                 Data will be queried directly from your data source that you manage.{' '}
-                <Link to="https://posthog.com/docs/data-warehouse/setup#linking-a-custom-source">Learn more</Link>
+                <Link to="https://posthog.com/docs/cdp/sources">Learn more</Link>
             </p>
             <LemonTable
                 dataSource={manualConnectors}
