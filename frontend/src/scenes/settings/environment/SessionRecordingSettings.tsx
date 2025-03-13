@@ -559,6 +559,7 @@ export function ReplayMaskingSettings(): JSX.Element {
                 ...currentTeam?.session_recording_masking_config,
                 maskAllInputs: level !== 'free-love',
                 maskTextSelector: level === 'total-privacy' ? '*' : undefined,
+                blockSelector: level === 'total-privacy' ? 'img' : undefined,
             },
         })
     }
