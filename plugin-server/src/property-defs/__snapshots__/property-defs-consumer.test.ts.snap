@@ -3,9 +3,9 @@
 exports[`PropertyDefsConsumer group updates should create group properties from the $group_set property 1`] = `
 [
   {
-    "created_at": "2025-01-01T01:00:00.000Z",
+    "created_at": "<REPLACED_DATE>",
     "id": "<REPLACED-UUID-0>",
-    "last_seen_at": "2025-01-01T01:00:00.000Z",
+    "last_seen_at": "<REPLACED_DATE>",
     "name": "$groupidentify",
     "project_id": "2",
     "query_usage_30_day": null,
@@ -186,9 +186,9 @@ exports[`PropertyDefsConsumer property updates should only write the first seen 
 exports[`PropertyDefsConsumer property updates should write simple property defs to the DB 1`] = `
 [
   {
-    "created_at": "2025-01-01T01:00:00.000Z",
+    "created_at": "<REPLACED_DATE>",
     "id": "<REPLACED-UUID-0>",
-    "last_seen_at": "2025-01-01T01:00:00.000Z",
+    "last_seen_at": "<REPLACED_DATE>",
     "name": "$pageview",
     "project_id": "2",
     "query_usage_30_day": null,

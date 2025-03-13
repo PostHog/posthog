@@ -2,7 +2,7 @@ import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
 import { mockProducer } from '~/tests/helpers/mocks/producer.mock'
-import { forSnapshot } from '~/tests/helpers/snapshots'
+import { forSnapshot as _forSnapshot } from '~/tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { insertHogFunction as _insertHogFunction } from '../cdp/_tests/fixtures'
@@ -175,6 +175,17 @@ describe('PropertyDefsConsumer', () => {
         jest.useRealTimers()
     })
 
+    const forSnapshot = <T>(value: T, overrides: Record<string, string> = {}): T => {
+        return _forSnapshot(value, {
+            overrides: {
+                // Dates are tricky as it comes from the DB so is timezone dependent
+                created_at: '<REPLACED_DATE>',
+                last_seen_at: '<REPLACED_DATE>',
+                ...overrides,
+            },
+        })
+    }
+
     describe('property updates', () => {
         it('should write simple property defs to the DB', async () => {
             await ingester.handleKafkaBatch(
@@ -197,7 +208,8 @@ describe('PropertyDefsConsumer', () => {
 
             expect(
                 forSnapshot(await propertyDefsDB.listEventProperties(team.id), {
-                    overrides: { id: '<REPLACED_NUMBER>' },
+                    // NOTE: The event properties are not sorted by the DB so we need to sort them to be deterministic
+                    id: '<REPLACED_NUMBER>',
                 })
             ).toMatchSnapshot()
 
