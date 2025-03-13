@@ -281,6 +281,16 @@ export function renderColumn(
                 {String(value)}
             </CopyToClipboardInline>
         )
+    } else if (key === 'key' && isGroupsQuery(query.source)) {
+        return (
+            <CopyToClipboardInline
+                explicitValue={String(value)}
+                iconStyle={{ color: 'var(--accent-primary)' }}
+                description="group id"
+            >
+                {String(value)}
+            </CopyToClipboardInline>
+        )
     } else if (key === 'group_name' && isGroupsQuery(query.source)) {
         const key = (record as any[])[1] // 'key' is the second column in the groups query
         return <Link to={urls.group(query.source.group_type_index, key, false)}>{value}</Link>
