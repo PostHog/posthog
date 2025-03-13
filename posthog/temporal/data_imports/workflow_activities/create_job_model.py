@@ -4,14 +4,12 @@ import uuid
 from django.db import close_old_connections
 from temporalio import activity
 
-# TODO: remove dependency
-
+from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
 from posthog.warehouse.data_load.service import delete_external_data_schedule
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSource
-from posthog.warehouse.models.external_data_schema import (
-    ExternalDataSchema,
-)
-from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
+from posthog.warehouse.models.external_data_schema import ExternalDataSchema
+
+# TODO: remove dependency
 
 
 @dataclasses.dataclass
@@ -20,6 +18,9 @@ class CreateExternalDataJobModelActivityInputs:
     schema_id: uuid.UUID
     source_id: uuid.UUID
     billable: bool
+
+    def properties_to_log(self) -> list[str]:
+        return ["team_id", "schema_id", "source_id", "billable"]
 
 
 @activity.defn
