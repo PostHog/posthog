@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock, patch
 
-from pytest import skip
+import pytest
 from posthog.clickhouse.client import sync_execute
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
@@ -21,7 +21,7 @@ class TestQueryLogTable(ClickhouseTestMixin, APIBaseTest):
         self.database = create_hogql_database(self.team.pk)
         self.context = HogQLContext(database=self.database, team_id=self.team.pk, enable_select_queries=True)
 
-    @skip(reason="Failing in CI")
+    @pytest.mark.skip(reason="Failing in CI")
     @patch("posthog.hogql.query.sync_execute", wraps=sync_execute)
     def test_simple_query(self, mock_sync_execute: MagicMock):
         response = execute_hogql_query("select query_start_time from query_log limit 10", self.team)
