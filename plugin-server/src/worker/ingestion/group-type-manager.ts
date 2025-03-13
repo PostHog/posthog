@@ -68,24 +68,24 @@ export class GroupTypeManager {
 
         if (groupType in groupTypes) {
             return groupTypes[groupType]
-        } else {
-            const [groupTypeIndex, isInsert] = await this.insertGroupType(
-                teamId,
-                projectId,
-                groupType,
-                Object.keys(groupTypes).length
-            )
-            if (groupTypeIndex !== null) {
-                this.groupTypesCache.delete(projectId)
-            }
-
-            if (isInsert && groupTypeIndex !== null) {
-                // TODO: Is the `group type ingested` event being valuable? If not, we can remove
-                // `captureGroupTypeInsert()`. If yes, we should move this capture to use the project instead of team
-                await this.captureGroupTypeInsert(teamId, groupType, groupTypeIndex)
-            }
-            return groupTypeIndex
         }
+
+        const [groupTypeIndex, isInsert] = await this.insertGroupType(
+            teamId,
+            projectId,
+            groupType,
+            Object.keys(groupTypes).length
+        )
+        if (groupTypeIndex !== null) {
+            this.groupTypesCache.delete(projectId)
+        }
+
+        if (isInsert && groupTypeIndex !== null) {
+            // TODO: Is the `group type ingested` event being valuable? If not, we can remove
+            // `captureGroupTypeInsert()`. If yes, we should move this capture to use the project instead of team
+            await this.captureGroupTypeInsert(teamId, groupType, groupTypeIndex)
+        }
+        return groupTypeIndex
     }
 
     public async insertGroupType(
