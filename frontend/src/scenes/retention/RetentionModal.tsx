@@ -89,7 +89,7 @@ export function RetentionModal(): JSX.Element | null {
                             <LemonButton
                                 type="primary"
                                 to={insightEventsQueryUrl}
-                                data-attr="person-modal-new-insight"
+                                data-attr="person-modal-view-events"
                                 onClick={() => {
                                     closeModal()
                                 }}
