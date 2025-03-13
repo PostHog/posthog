@@ -708,7 +708,11 @@ export function gatherProductManifests(__dirname) {
         ${autogenComment}
         export const treeItems = ${manifestTreeItems}\n
     `
-    fse.writeFileSync(path.join(__dirname, 'src/products.tsx'), productsTsx)
 
-    ps.execSync('prettier --write src/products.tsx')
+    // safe temporary path in /tmp
+    fse.mkdirSync(path.join(__dirname, 'tmp'), { recursive: true })
+    let tempfile = path.join(__dirname, 'tmp/products.tsx')
+    fse.writeFileSync(tempfile, productsTsx)
+    ps.execSync(`prettier --write ${tempfile}`)
+    fse.renameSync(tempfile, path.join(__dirname, 'src/products.tsx'))
 }
