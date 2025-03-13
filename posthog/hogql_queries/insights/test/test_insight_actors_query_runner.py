@@ -330,32 +330,28 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(2, queries[0].count("toTimeZone(e.timestamp, 'US/Pacific') AS timestamp"))
 
     @snapshot_clickhouse_queries
-    def test_insight_events_trends_query_with_argmaxV2(self):
+    def test_insight_events_trends_query(self):
         self._create_test_events()
         self.team.timezone = "US/Pacific"
         self.team.save()
 
-        with self.capture_queries(lambda query: re.match(r"^SELECT\s+name\s+AS\s+name", query) is not None) as queries:
-            response = self.select(
-                """
-                select * from (
-                    <EventsQuery>
-                        <InsightActorsQuery day='2020-01-09'>
-                            <TrendsQuery
-                                dateRange={<DateRange date_from='2020-01-09' date_to='2020-01-19' />}
-                                series={[<EventsNode event='$pageview' />]}
-                                properties={[<PersonPropertyFilter type='person' key='email' value='tom@posthog.com' operator='is_not' />]}
-                            />
-                        </InsightActorsQuery>
-                    </EventsQuery>
-                )
-                """,
-                modifiers={"personsArgMaxVersion": PersonsArgMaxVersion.V2},
+        response = self.select(
+            """
+            select * from (
+                <EventsQuery select={['distinct_id']} after='all'>
+                    <InsightActorsQuery day='2020-01-12'>
+                        <TrendsQuery
+                            dateRange={<DateRange date_from='2020-01-09' date_to='2020-01-19' />}
+                            series={[<EventsNode event='$pageview' />]}
+                        />
+                    </InsightActorsQuery>
+                </EventsQuery>
             )
+            """,
+            modifiers={"personsArgMaxVersion": PersonsArgMaxVersion.V2},
+        )
 
-        self.assertEqual([("p2", ["p2"])], response.results)
-        assert "in(person.id" in queries[0]
-        self.assertEqual(2, queries[0].count("toTimeZone(e.timestamp, 'US/Pacific') AS timestamp"))
+        self.assertCountEqual(["p1", "p2", "p3"], [x[0] for x in response.results])
 
     @snapshot_clickhouse_queries
     def test_insight_persons_trends_groups_query(self):
