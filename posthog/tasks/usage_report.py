@@ -1307,7 +1307,7 @@ def send_all_org_usage_reports(
         raise
 
 
-def _send_batch(producer, messages, processed_orgs):
+def _send_batch(producer, messages, processed_orgs) -> dict[str, int]:
     """
     Send a batch of messages to SQS and handle the response.
 
