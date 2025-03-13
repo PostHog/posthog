@@ -87,6 +87,7 @@ pub struct FeatureFlagEvaluationContext {
 }
 
 impl FeatureFlagEvaluationContext {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         team_id: i32,
         project_id: i64,
@@ -406,7 +407,7 @@ async fn fetch_and_filter_flags(
 
     // 3. If there are specific keys to filter on
     if let Some(flag_keys) = &request.flag_keys {
-        let flag_keys_set: HashSet<String> = flag_keys.into_iter().cloned().collect();
+        let flag_keys_set: HashSet<String> = flag_keys.iter().cloned().collect();
         let filtered: Vec<FeatureFlag> = all_flags
             .flags
             .into_iter()
@@ -419,6 +420,7 @@ async fn fetch_and_filter_flags(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn evaluate_flags_for_request(
     state: &State<router::State>,
     team_id: i32,

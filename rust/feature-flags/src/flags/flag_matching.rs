@@ -225,6 +225,7 @@ pub struct FeatureFlagMatcher {
 const LONG_SCALE: u64 = 0xfffffffffffffff;
 
 impl FeatureFlagMatcher {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         distinct_id: String,
         team_id: TeamId,
