@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS posthog_eventdefinition (
     team_id INTEGER NOT NULL,
     project_id BIGINT NULL,
     last_seen_at TIMESTAMPTZ NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS event_definition_proj_uniq ON posthog_eventdefinition (coalesce(project_id, team_id), name);
