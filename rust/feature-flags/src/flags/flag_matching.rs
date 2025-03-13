@@ -339,6 +339,7 @@ impl FeatureFlagMatcher {
             self.reader.clone(),
             self.team_id,
             self.distinct_id.clone(),
+            self.project_id,
             hash_key.clone(),
         )
         .await
@@ -367,6 +368,7 @@ impl FeatureFlagMatcher {
                 self.writer.clone(),
                 self.team_id,
                 target_distinct_ids.clone(),
+                self.project_id,
                 hash_key.clone(),
             )
             .await
@@ -1856,6 +1858,7 @@ async fn set_feature_flag_hash_key_overrides(
     writer: PostgresWriter,
     team_id: TeamId,
     distinct_ids: Vec<String>,
+    project_id: ProjectId,
     hash_key_override: String,
 ) -> Result<bool, FlagError> {
     const MAX_RETRIES: u32 = 2;
@@ -1875,11 +1878,16 @@ async fn set_feature_flag_hash_key_overrides(
                 WHERE team_id = $1 AND person_id IN (SELECT person_id FROM target_person_ids)
             ),
             flags_to_override AS (
-                SELECT key FROM posthog_featureflag WHERE team_id = $1 AND ensure_experience_continuity = TRUE AND active = TRUE AND deleted = FALSE
-                AND key NOT IN (SELECT feature_flag_key FROM existing_overrides)
+                SELECT flag.key FROM posthog_featureflag flag
+                JOIN posthog_team team ON flag.team_id = team.id
+                WHERE team.project_id = $3 
+                AND flag.ensure_experience_continuity = TRUE 
+                AND flag.active = TRUE 
+                AND flag.deleted = FALSE
+                AND flag.key NOT IN (SELECT feature_flag_key FROM existing_overrides)
             )
             INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
-                SELECT team_id, person_id, key, $3
+                SELECT team_id, person_id, key, $4
                 FROM flags_to_override, target_person_ids
                 WHERE EXISTS (SELECT 1 FROM posthog_person WHERE id = person_id AND team_id = $1)
             ON CONFLICT DO NOTHING
@@ -1888,6 +1896,7 @@ async fn set_feature_flag_hash_key_overrides(
         let result: Result<PgQueryResult, sqlx::Error> = sqlx::query(query)
             .bind(team_id)
             .bind(&distinct_ids)
+            .bind(project_id)
             .bind(&hash_key_override)
             .execute(&mut *transaction)
             .await;
@@ -1932,6 +1941,7 @@ async fn should_write_hash_key_override(
     reader: PostgresReader,
     team_id: TeamId,
     distinct_id: String,
+    project_id: ProjectId,
     hash_key_override: String,
 ) -> Result<bool, FlagError> {
     const QUERY_TIMEOUT: Duration = Duration::from_millis(1000);
@@ -1951,12 +1961,10 @@ async fn should_write_hash_key_override(
             FROM posthog_featureflaghashkeyoverride
             WHERE team_id = $1 AND person_id IN (SELECT person_id FROM target_person_ids)
         )
-        SELECT key 
-        FROM posthog_featureflag 
-        WHERE team_id = $1 
-            AND ensure_experience_continuity = TRUE 
-            AND active = TRUE 
-            AND deleted = FALSE
+        SELECT key FROM posthog_featureflag flag
+        JOIN posthog_team team ON flag.team_id = team.id
+        WHERE team.project_id = $3
+            AND flag.ensure_experience_continuity = TRUE AND flag.active = TRUE AND flag.deleted = FALSE
             AND key NOT IN (SELECT feature_flag_key FROM existing_overrides)
     "#;
 
@@ -1969,6 +1977,7 @@ async fn should_write_hash_key_override(
             let rows = sqlx::query(query)
                 .bind(team_id)
                 .bind(&distinct_ids)
+                .bind(project_id)
                 .fetch_all(&mut *conn)
                 .await
                 .map_err(|e| FlagError::DatabaseError(format!("Query execution failed: {}", e)))?;
@@ -4599,6 +4608,7 @@ mod tests {
             writer.clone(),
             team.id,
             vec![distinct_id.clone()],
+            team.project_id,
             "hash_key_2".to_string(),
         )
         .await
@@ -4669,6 +4679,7 @@ mod tests {
             writer.clone(),
             team.id,
             vec![distinct_id.clone()],
+            team.project_id,
             "hash_key_2".to_string(),
         )
         .await
@@ -4739,6 +4750,7 @@ mod tests {
             writer.clone(),
             team.id,
             vec![distinct_id.clone()],
+            team.project_id,
             "hash_key_continuity".to_string(),
         )
         .await
@@ -4926,6 +4938,7 @@ mod tests {
             writer.clone(),
             team.id,
             vec![distinct_id.clone()],
+            team.project_id,
             "hash_key_mixed".to_string(),
         )
         .await
