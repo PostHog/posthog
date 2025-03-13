@@ -43,7 +43,7 @@ from posthog.utils import (
 )
 from posthog.warehouse.models import ExternalDataJob
 from posthog.models.error_tracking import ErrorTrackingIssue, ErrorTrackingSymbolSet
-from myapp.sqs import get_sqs_producer
+from posthog.sqs.SQSProducer import get_sqs_producer
 
 logger = structlog.get_logger(__name__)
 
