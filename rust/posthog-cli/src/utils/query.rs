@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use anyhow::Error;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -7,19 +9,35 @@ use serde_json::Value;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueryRequest {
     pub query: Query,
-    pub refresh: QueryRefresh,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refresh: Option<QueryRefresh>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind")]
 pub enum Query {
     HogQLQuery { query: String },
+    HogQLMetadata(MetadataQuery),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryRefresh {
     Blocking,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MetadataQuery {
+    pub language: MetadataLanguage,
+    pub query: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<Box<Query>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum MetadataLanguage {
+    #[serde(rename = "hogQL")]
+    HogQL,
 }
 
 pub type HogQLQueryResult = Result<HogQLQueryResponse, HogQLQueryErrorResponse>;
@@ -50,6 +68,8 @@ pub struct HogQLQueryResponse {
     pub results: Vec<Vec<Value>>,
     #[serde(default, deserialize_with = "null_is_empty")]
     pub timings: Vec<Timing>,
+    #[serde(flatten, skip_serializing_if = "HashMap::is_empty")]
+    pub other: HashMap<String, Value>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -58,12 +78,58 @@ pub struct HogQLQueryErrorResponse {
     pub detail: String,
     #[serde(rename = "type")]
     pub error_type: String,
+    #[serde(flatten, skip_serializing_if = "HashMap::is_empty")]
+    pub other: HashMap<String, Value>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Timing {
     pub k: String,
     pub t: f64,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct MetadataResponse {
+    #[serde(default, deserialize_with = "null_is_empty")]
+    pub errors: Vec<Notice>,
+    #[serde(default, deserialize_with = "null_is_empty")]
+    pub notices: Vec<Notice>,
+    #[serde(default, deserialize_with = "null_is_empty")]
+    pub warnings: Vec<Notice>,
+    #[serde(default, rename = "isUsingIndices")]
+    pub is_using_indices: Option<IndicesUsage>,
+    #[serde(default, deserialize_with = "null_is_false", rename = "isValid")]
+    pub is_valid: bool,
+    #[serde(default, deserialize_with = "null_is_false")]
+    pub is_valid_view: bool,
+    #[serde(default, deserialize_with = "null_is_empty")]
+    pub table_names: Vec<String>,
+    #[serde(flatten, skip_serializing_if = "HashMap::is_empty")]
+    pub other: HashMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum IndicesUsage {
+    Undecisive,
+    No,
+    Partial,
+    Yes,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct Notice {
+    pub message: String,
+    #[serde(flatten)]
+    pub span: Option<NoticeSpan>,
+    #[serde(flatten, skip_serializing_if = "HashMap::is_empty")]
+    pub other: HashMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct NoticeSpan {
+    pub start: usize,
+    pub end: usize,
 }
 
 fn null_is_empty<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
@@ -96,7 +162,7 @@ pub fn run_query(endpoint: &str, token: &str, to_run: &str) -> Result<HogQLQuery
         query: Query::HogQLQuery {
             query: to_run.to_string(),
         },
-        refresh: QueryRefresh::Blocking,
+        refresh: Some(QueryRefresh::Blocking),
     };
 
     let response = client
@@ -118,6 +184,43 @@ pub fn run_query(endpoint: &str, token: &str, to_run: &str) -> Result<HogQLQuery
     // NOTE: We don't do any pagination here, because the HogQLQuery runner doesn't support it
     let response: HogQLQueryResponse = serde_json::from_value(value)?;
     Ok(Ok(response))
+}
+
+pub fn check_query(endpoint: &str, token: &str, to_run: &str) -> Result<MetadataResponse, Error> {
+    let client = reqwest::blocking::Client::new();
+
+    let query = MetadataQuery {
+        language: MetadataLanguage::HogQL,
+        query: to_run.to_string(),
+        source: None, // TODO - allow for this to be set? Idk if it matters much
+    };
+
+    let query = Query::HogQLMetadata(query);
+
+    let request = QueryRequest {
+        query,
+        refresh: None,
+    };
+
+    let response = client
+        .post(endpoint)
+        .json(&request)
+        .bearer_auth(token)
+        .send()?;
+
+    let code = response.status();
+    let body = response.text()?;
+
+    let value: Value = serde_json::from_str(&body)?;
+
+    if !code.is_success() {
+        let error: MetadataResponse = serde_json::from_value(value)?;
+        return Ok(error);
+    }
+
+    let response: MetadataResponse = serde_json::from_value(value)?;
+
+    Ok(response)
 }
 
 impl std::error::Error for HogQLQueryErrorResponse {}
