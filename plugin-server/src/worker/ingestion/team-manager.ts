@@ -3,10 +3,13 @@ import LRU from 'lru-cache'
 
 import { ONE_MINUTE } from '../../config/constants'
 import { TeamIDWithConfig } from '../../main/ingestion-queues/session-recording/session-recordings-consumer'
-import { PipelineEvent, ProjectId, Team, TeamId } from '../../types'
+import { PipelineEvent, ProjectId, Team, TeamId, TeamIdRow } from '../../types'
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
 import { timeoutGuard } from '../../utils/db/utils'
 import { captureTeamEvent } from '../../utils/posthog'
+import { status } from '../../utils/status'
+
+const CHUNK_SIZE = 100
 
 export class TeamManager {
     postgres: PostgresRouter
@@ -54,6 +57,60 @@ export class TeamManager {
         }
     }
 
+    // given an array of TeamId, return those known to actually exist in posthog_team.
+    // yes I know returning number[] is gross we'll clean it up ;)
+    public async validateTeamIds(teamIds: TeamId[]): Promise<number[]> {
+        const out: number[] = []
+        if (teamIds.length === 0) {
+            return out
+        }
+
+        // capture any team IDs already cached in the manager
+        const dedupedTeamIds = new Set(teamIds)
+        const cachedTeamIds = new Set(
+            Array.from(dedupedTeamIds).filter((teamId) => {
+                this.getCachedTeam(teamId)
+            })
+        )
+        out.push(...cachedTeamIds)
+
+        // finally, figure out what we need to fetch from the DB, then do so in batches
+        const teamIdsToFetch = Array.from(dedupedTeamIds.difference(cachedTeamIds))
+
+        const handles: Promise<number[]>[] = []
+        for (let i = 0; i < teamIdsToFetch.length; i += CHUNK_SIZE) {
+            const chunk = teamIdsToFetch.slice(i, i + CHUNK_SIZE)
+            handles.push(this.fetchIdsForTeams(chunk))
+        }
+
+        // each query can throw if it fails
+        await Promise.all(handles).then((results) => {
+            results.forEach((foundIdsForTeams) => out.push(...foundIdsForTeams))
+        })
+
+        return out
+    }
+
+    // why not just fetch nice Team objects here? it's hacky but if
+    // we care about query overhead, the caller only needs IDs and
+    // this will be covered by the table's clustering index, so
+    // should be faster/cheaper than fetching row data too
+    async fetchIdsForTeams(teamIds: TeamId[]): Promise<number[]> {
+        const result = await this.postgres
+            .query<TeamIdRow>(
+                PostgresUse.COMMON_READ,
+                `SELECT id AS team_id FROM posthog_team WHERE id = ANY ($1)`,
+                [teamIds],
+                'fetchIdsForTeams'
+            )
+            .catch((e) => {
+                status.error('🔁', `Error fetching team IDs`, { error: e.message })
+                throw e
+            })
+
+        return result.rows.map((row: TeamIdRow) => row.teamId)
+    }
+
     public getCachedTeam(teamId: TeamId): Team | null | undefined {
         return this.teamCache.get(teamId)
     }
@@ -64,7 +121,7 @@ export class TeamManager {
          *
          * Caching is added to reduce the load on Postgres, not to be resilient
          * to failures. If PG is unavailable and the cache expired, this function
-         * will trow and the lookup must be retried later.
+         * will throw and the lookup must be retried later.
          *
          * Returns null if the token is invalid.
          */

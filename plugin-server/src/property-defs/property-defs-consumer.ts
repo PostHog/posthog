@@ -10,17 +10,20 @@ import {
     ClickHouseEvent,
     EventDefinitionType,
     EventPropertyType,
+    GroupTypeToColumnIndex,
     Hub,
     PluginServerService,
     PropertyDefinitionType,
     PropertyDefinitionTypeEnum,
     PropertyType,
     RawClickHouseEvent,
-    ResolvedGroups,
+    TeamId,
 } from '../types'
 import { parseRawClickHouseEvent } from '../utils/event'
 import { status } from '../utils/status'
 import { UUIDT } from '../utils/utils'
+import { GroupTypeManager } from '../worker/ingestion/group-type-manager'
+import { TeamManager } from '../worker/ingestion/team-manager'
 import { PropertyDefsDB } from './services/property-defs-db'
 import {
     getPropertyType,
@@ -31,6 +34,8 @@ import {
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
+
+const BATCH_SIZE = 100
 
 // TODO(eli): wire up LOTS more metrics ASAP!
 
@@ -59,8 +64,8 @@ const propDefDroppedCounter = new Counter({
 export type CollectedPropertyDefinitions = {
     // looked up prior to event/prop extraction
     knownTeamIds: Set<number>
-    // looked up prior to event/prop extraction
-    resolvedTeamGroups: Record<number, ResolvedGroups>
+    // looked up prior to event/prop extraction. map of project_id => group_type => group_index
+    resolvedTeamGroups: Record<number, GroupTypeToColumnIndex>
     // known team ID => resolved group_type & group_type_index
     eventDefinitionsById: Record<number, Record<string, EventDefinitionType>>
     // known team ID => deduped properties
@@ -79,6 +84,8 @@ export class PropertyDefsConsumer {
 
     private batchConsumer?: BatchConsumer
     private propertyDefsDB: PropertyDefsDB
+    private teamManager: TeamManager
+    private groupTypeManager: GroupTypeManager
     private isStopping = false
     protected heartbeat = () => {}
     protected promises: Set<Promise<any>> = new Set()
@@ -87,6 +94,8 @@ export class PropertyDefsConsumer {
         this.groupId = hub.PROPERTY_DEFS_CONSUMER_GROUP_ID
         this.topic = hub.PROPERTY_DEFS_CONSUMER_CONSUME_TOPIC
         this.propertyDefsDB = new PropertyDefsDB(hub)
+        this.teamManager = new TeamManager(hub.postgres)
+        this.groupTypeManager = new GroupTypeManager(hub.postgres, this.teamManager)
     }
 
     public get service(): PluginServerService {
@@ -133,7 +142,9 @@ export class PropertyDefsConsumer {
     }
 
     public async handleKafkaBatch(messages: Message[]) {
-        const parsedMessages = await this.runInstrumented('parseKafkaMessages', () => this.parseKafkaBatch(messages))
+        const parsedMessages: ClickHouseEvent[] = await this.runInstrumented('parseKafkaMessages', () =>
+            this.parseKafkaBatch(messages)
+        )
 
         // used to filter and dedup to minimum batch of writable records
         const collected: CollectedPropertyDefinitions = {
@@ -144,18 +155,18 @@ export class PropertyDefsConsumer {
             eventPropertiesById: {},
         }
 
-        const teamsInBatch = this.extractTeamIds(parsedMessages)
-        const groupTeamsInBatch = this.extractGroupTeamIds(parsedMessages, collected.knownTeamIds)
+        const eventTeamIds = parsedMessages.map((msg) => msg.team_id as TeamId)
+        const groupTeamIds = parsedMessages.filter((msg) => msg.event == '$groupidentify').map((msg) => msg.team_id)
 
-        const [knownTeamIds, resolvedTeamGroups] = await Promise.all([
-            this.runInstrumented('resolveTeams', () => this.resolveTeams(this.propertyDefsDB, teamsInBatch)),
-            this.runInstrumented('resolveGroupsForTeams', () =>
-                this.resolveGroupsForTeams(this.propertyDefsDB, groupTeamsInBatch)
+        const [knownTeamIds, resolvedProjectGroups] = await Promise.all([
+            this.runInstrumented('resolveTeams', () => this.teamManager.validateTeamIds(eventTeamIds)),
+            this.runInstrumented('resolveProjectGroupTypeIndices', () =>
+                this.groupTypeManager.fetchGroupTypesIndicesForTeams(groupTeamIds)
             ),
         ])
 
-        collected.knownTeamIds = knownTeamIds
-        collected.resolvedTeamGroups = resolvedTeamGroups
+        collected.knownTeamIds = new Set(knownTeamIds)
+        collected.resolvedTeamGroups = resolvedProjectGroups
 
         console.log('🔁', `Event batch teams and group indices resolved`)
 
@@ -167,83 +178,53 @@ export class PropertyDefsConsumer {
         console.log('🔁', `Property definitions collected`, JSON.stringify(collected, null, 2))
 
         for (const knownTeamId in collected.eventDefinitionsById) {
+            let buffer: EventDefinitionType[] = []
             for (const key in collected.eventDefinitionsById[knownTeamId]) {
                 const eventDef = collected.eventDefinitionsById[knownTeamId][key]
-
+                buffer.push(eventDef)
                 eventDefTypesCounter.inc()
-                status.info('🔁', `Writing event definition`, { eventDef })
 
-                // TODO: Batch all these DB writes
-                void this.scheduleWork(this.propertyDefsDB.writeEventDefinition(eventDef))
+                if (buffer.length === BATCH_SIZE) {
+                    status.info('🔁', `Writing event definition batch of size ${buffer.length}`)
+                    void this.scheduleWork(this.propertyDefsDB.writeEventDefinitionsBatch(buffer))
+                    buffer = []
+                }
             }
         }
 
         for (const knownTeamId in collected.propertyDefinitionsById) {
+            let buffer: PropertyDefinitionType[] = []
             for (const key in collected.propertyDefinitionsById[knownTeamId]) {
                 const propDef: PropertyDefinitionType = collected.propertyDefinitionsById[knownTeamId][key]
-
+                buffer.push(propDef)
                 propertyDefTypesCounter.inc({ type: propDef.property_type?.toString() ?? 'unknown' })
-                status.info('🔁', `Writing property definition`, { propDef })
 
-                // TODO: Batch all these DB writes
-                void this.scheduleWork(this.propertyDefsDB.writePropertyDefinition(propDef))
+                if (buffer.length === BATCH_SIZE) {
+                    status.info('🔁', `Writing property definitions batch of size ${buffer.length}`)
+                    void this.scheduleWork(this.propertyDefsDB.writePropertyDefinitionsBatch(buffer))
+                    buffer = []
+                }
             }
         }
 
         for (const knownTeamId in collected.eventPropertiesById) {
+            let buffer: EventPropertyType[] = []
             for (const key in collected.eventPropertiesById[knownTeamId]) {
                 const eventProp = collected.eventPropertiesById[knownTeamId][key]
-
                 eventPropTypesCounter.inc()
-                status.info('🔁', `Writing event property`, { eventProp })
+                buffer.push(eventProp)
 
-                // TODO: Batch all these DB writes
-                void this.scheduleWork(this.propertyDefsDB.writeEventProperty(eventProp))
+                if (buffer.length === BATCH_SIZE) {
+                    status.info('🔁', `Writing event properties batch of size ${buffer.length}`)
+                    void this.scheduleWork(this.propertyDefsDB.writeEventPropertiesBatch(buffer))
+                    buffer = []
+                }
             }
         }
 
         status.debug('🔁', `Waiting for promises`, { promises: this.promises.size })
         await this.runInstrumented('awaitScheduledWork', () => Promise.all(this.promises))
         status.debug('🔁', `Processed batch`)
-    }
-
-    private async resolveTeams(db: PropertyDefsDB, teamIdsInBatch: Set<number>): Promise<Set<number>> {
-        const teamsFound = await db.findTeamIds(Array.from(teamIdsInBatch))
-        return new Set(teamsFound.filter((row) => !teamIdsInBatch.has(row.teamId)).map((row) => row.teamId))
-    }
-
-    private async resolveGroupsForTeams(
-        db: PropertyDefsDB,
-        knownTeamIdsWithGroup: Set<number>
-    ): Promise<Record<number, ResolvedGroups>> {
-        const result = await db.resolveGroupsForTeams(Array.from(knownTeamIdsWithGroup))
-
-        const out: Record<number, ResolvedGroups> = {}
-        result.forEach((row) => {
-            let resolved: ResolvedGroups
-            if (out[row.teamId]) {
-                resolved = out[row.teamId]
-            } else {
-                resolved = {}
-            }
-
-            resolved[row.groupName] = row.groupIndex
-            out[row.teamId] = resolved
-        })
-
-        return out
-    }
-
-    private extractTeamIds(events: ClickHouseEvent[]): Set<number> {
-        return new Set(events.map((event) => event.team_id))
-    }
-
-    private extractGroupTeamIds(events: ClickHouseEvent[], knownTeamIds: Set<number>): Set<number> {
-        return new Set(
-            events
-                .filter((event) => event.event == '$groupidentify' && knownTeamIds.has(event.team_id))
-                .map((event) => event.team_id)
-        )
     }
 
     private extractPropertyDefinitions(events: ClickHouseEvent[], collected: CollectedPropertyDefinitions) {

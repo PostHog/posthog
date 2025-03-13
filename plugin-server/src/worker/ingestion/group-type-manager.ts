@@ -1,12 +1,15 @@
-import { GroupTypeIndex, GroupTypeToColumnIndex, ProjectId, Team, TeamId } from '../../types'
+import { GroupTypeIndex, GroupTypeToColumnIndex, ProjectId, Team, TeamGroupRow, TeamId } from '../../types'
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
 import { timeoutGuard } from '../../utils/db/utils'
 import { captureTeamEvent } from '../../utils/posthog'
+import { status } from '../../utils/status'
 import { getByAge } from '../../utils/utils'
 import { TeamManager } from './team-manager'
 
 /** How many unique group types to allow per team */
 export const MAX_GROUP_TYPES_PER_TEAM = 5
+
+const CHUNK_SIZE = 100
 
 export class GroupTypeManager {
     private groupTypesCache: Map<ProjectId, [GroupTypeToColumnIndex, number]>
@@ -15,6 +18,77 @@ export class GroupTypeManager {
     constructor(private postgres: PostgresRouter, private teamManager: TeamManager, instanceSiteUrl?: string | null) {
         this.groupTypesCache = new Map()
         this.instanceSiteUrl = instanceSiteUrl || 'unknown'
+    }
+
+    // BaseEvent doesn't have project_id yet so still using team_id here.
+    // TODO(eli): see if the underlying Kafka event payload does and we can add it (cc Ben)
+    public async fetchGroupTypesIndicesForTeams(
+        groupTeamIds: TeamId[]
+    ): Promise<Record<number, GroupTypeToColumnIndex>> {
+        const out: Record<number, GroupTypeToColumnIndex> = {}
+        if (groupTeamIds.length === 0) {
+            return out
+        }
+
+        const dedupedTeamIds = new Set(groupTeamIds)
+
+        // first, capture already cached group types and their indexes
+        const cachedTeamIds = new Set(
+            Array.from(dedupedTeamIds).filter((teamId) => {
+                const gtci = this.groupTypesCache.get(teamId as ProjectId) // HACK ALERT!! no way this is a good idea (cc Ben)
+                if (gtci) {
+                    gtci.forEach((entry) => {
+                        // if it's a GroupTypeToColumnIndex, not a number, we can use it
+                        if (typeof entry !== 'number') {
+                            if (!out[teamId]) {
+                                out[teamId] = entry
+                            }
+                        }
+                    })
+                    return true
+                }
+                return false
+            })
+        )
+
+        // finally, figure out what we need to fetch from the DB, then do so in batches
+        const teamIdsToFetch = Array.from(dedupedTeamIds.difference(cachedTeamIds))
+
+        const handles: Promise<TeamGroupRow[]>[] = []
+        for (let i = 0; i < teamIdsToFetch.length; i += CHUNK_SIZE) {
+            const chunk = teamIdsToFetch.slice(i, i + CHUNK_SIZE)
+            handles.push(this.fetchGroupTypeIndicesForTeams(chunk))
+        }
+
+        await Promise.all(handles).then((results) => {
+            results.forEach((foundGTIs) =>
+                foundGTIs.forEach((teamGroupRow) => {
+                    if (!out[teamGroupRow.teamId]) {
+                        out[teamGroupRow.teamId] = {}
+                    }
+                    out[teamGroupRow.teamId][teamGroupRow.groupName] = teamGroupRow.groupIndex as GroupTypeIndex
+                })
+            )
+        })
+
+        return out
+    }
+
+    // TODO(eli): convert to use ProjectId if we can add to ClickHouseEvent
+    private async fetchGroupTypeIndicesForTeams(teamIds: TeamId[]): Promise<TeamGroupRow[]> {
+        const result = await this.postgres
+            .query<TeamGroupRow>(
+                PostgresUse.COMMON_READ,
+                `SELECT team_id, group_type, group_type_index FROM posthog_grouptypemapping WHERE team_id = ANY ($1)`,
+                [teamIds],
+                'findGroupTypeIndicesForTeams'
+            )
+            .catch((e) => {
+                status.error('🔁', `Error fetching group type mappings`, { error: e.message })
+                throw e
+            })
+
+        return result.rows
     }
 
     public async fetchGroupTypes(projectId: ProjectId): Promise<GroupTypeToColumnIndex> {
@@ -26,7 +100,7 @@ export class GroupTypeManager {
         const timeout = timeoutGuard(`Still running "fetchGroupTypes". Timeout warning after 30 sec!`)
         try {
             const { rows } = await this.postgres.query(
-                PostgresUse.COMMON_WRITE,
+                PostgresUse.COMMON_WRITE, // TODO: can we get away with COMMON_READ here? cc Ben
                 `SELECT * FROM posthog_grouptypemapping WHERE project_id = $1`,
                 [projectId],
                 'fetchGroupTypes'

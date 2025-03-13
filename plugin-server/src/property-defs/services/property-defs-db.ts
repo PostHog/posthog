@@ -4,16 +4,6 @@ import { EventDefinitionType, EventPropertyType, Hub, PropertyDefinitionType } f
 import { PostgresUse } from '../../utils/db/postgres'
 import { status } from '../../utils/status'
 
-export interface TeamIdRow {
-    teamId: number
-}
-
-export interface TeamGroupRow {
-    teamId: number
-    groupName: string
-    groupIndex: number
-}
-
 export class PropertyDefsDB {
     constructor(private hub: Hub) {}
 
@@ -34,7 +24,7 @@ export class PropertyDefsDB {
             })
     }
 
-    async writeEventProperiesBatch(eventProperties: EventPropertyType[]) {
+    async writeEventPropertiesBatch(eventProperties: EventPropertyType[]) {
         const values = Array(eventProperties.length).fill('($1, $2, $3, $4)').join(', ')
         const query = `INSERT INTO posthog_eventproperty (event, property, team_id, project_id)
                     VALUES ${values}
@@ -76,7 +66,7 @@ export class PropertyDefsDB {
             )
             .catch((e) => {
                 status.error('🔁', `Error writing property definitions batch`, {
-                    propertyDefinition: propertyDefinition,
+                    propertyDefinition,
                     error: e.message,
                 })
                 throw e
@@ -163,28 +153,6 @@ export class PropertyDefsDB {
                 status.error('🔁', `Error writing event definitions batch`, { error: e.message })
                 throw e
             })
-    }
-
-    async findTeamIds(teamIds: number[]): Promise<TeamIdRow[]> {
-        const result = await this.hub.postgres.query<TeamIdRow>(
-            PostgresUse.COMMON_READ,
-            `SELECT id AS team_id FROM posthog_team WHERE id = ANY ($1)`,
-            [teamIds],
-            'findTeamIds'
-        )
-
-        return result.rows
-    }
-
-    async resolveGroupsForTeams(teamIds: number[]): Promise<TeamGroupRow[]> {
-        const result = await this.hub.postgres.query<TeamGroupRow>(
-            PostgresUse.COMMON_READ,
-            `SELECT team_ids, group_type_index FROM posthog_grouptype WHERE team_ids = ANY ($1)`,
-            [teamIds],
-            'findTeamIds'
-        )
-
-        return result.rows
     }
 
     async listPropertyDefinitions(teamId: number): Promise<PropertyDefinitionType[]> {
