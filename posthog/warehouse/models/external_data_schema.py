@@ -2,7 +2,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 import tempfile
 import os
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 from django.db import models
 from django_deprecate_fields import deprecate_field
 import numpy
@@ -53,7 +53,7 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
     status = models.CharField(max_length=400, null=True, blank=True)
     last_synced_at = models.DateTimeField(null=True, blank=True)
     sync_type = models.CharField(max_length=128, choices=SyncType.choices, null=True, blank=True)
-    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partitioning_keys": list[str] }
+    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partitioning_keys": list[str] }
     sync_type_config = models.JSONField(
         default=dict,
         blank=True,
@@ -131,16 +131,38 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
         return None
 
     @property
+    def partition_size(self) -> int | None:
+        if self.sync_type_config:
+            return self.sync_type_config.get("partition_size", None)
+
+        return None
+
+    @property
+    def partition_mode(self) -> Literal["md5"] | Literal["numerical"] | None:
+        if self.sync_type_config:
+            return self.sync_type_config.get("partition_mode", None)
+
+        return None
+
+    @property
     def partitioning_keys(self) -> list[str] | None:
         if self.sync_type_config:
             return self.sync_type_config.get("partitioning_keys", None)
 
         return None
 
-    def set_partitioning_enabled(self, partitioning_keys: list[str], partition_count: int) -> None:
+    def set_partitioning_enabled(
+        self,
+        partitioning_keys: list[str],
+        partition_count: int,
+        partition_size: int,
+        partition_mode: Literal["md5"] | Literal["numerical"],
+    ) -> None:
         self.sync_type_config["partitioning_enabled"] = True
         self.sync_type_config["partition_count"] = partition_count
+        self.sync_type_config["partition_size"] = partition_size
         self.sync_type_config["partitioning_keys"] = partitioning_keys
+        self.sync_type_config["partition_mode"] = partition_mode
         self.save()
 
     def update_sync_type_config_for_reset_pipeline(self) -> None:

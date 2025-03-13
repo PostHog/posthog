@@ -295,16 +295,25 @@ def normalize_table_column_names(table: pa.Table) -> pa.Table:
 
 
 def append_partition_key_to_table(
-    table: pa.Table, partition_count: int, primary_keys: list[str], logger: FilteringBoundLogger
-) -> pa.Table:
+    table: pa.Table,
+    partition_count: int,
+    partition_size: int,
+    primary_keys: list[str],
+    partition_mode: Literal["md5"] | Literal["numerical"] | None,
+    logger: FilteringBoundLogger,
+) -> tuple[pa.Table, Literal["md5"] | Literal["numerical"]]:
     normalized_primary_keys = [normalize_column_name(key) for key in primary_keys]
 
     partition_array: list[str] = []
 
-    mode: Literal["md5"] | Literal["numerical"] = "md5"
+    mode: Literal["md5"] | Literal["numerical"] = partition_mode or "md5"
 
     # If there is only one primary key and it's a numerical ID, then bucket by the ID itself instead of hashing it
-    if len(normalized_primary_keys) == 1 and pa.types.is_integer(table.field(normalized_primary_keys[0]).type):
+    if (
+        partition_mode is None
+        and len(normalized_primary_keys) == 1
+        and pa.types.is_integer(table.field(normalized_primary_keys[0]).type)
+    ):
         mode = "numerical"
 
     for batch in table.to_batches():
@@ -319,14 +328,14 @@ def append_partition_key_to_table(
                 partition_array.append(str(partition))
             else:
                 key = normalized_primary_keys[0]
-                partition = row[key] % partition_count
+                partition = row[key] // partition_size
 
                 partition_array.append(str(partition))
 
     new_column = pa.array(partition_array, type=pa.string())
     logger.debug(f"Partition key added")
 
-    return table.append_column(PARTITION_KEY, new_column)
+    return table.append_column(PARTITION_KEY, new_column), mode
 
 
 def _update_incremental_state(schema: ExternalDataSchema | None, table: pa.Table, logger: FilteringBoundLogger) -> None:
