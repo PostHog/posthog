@@ -8,12 +8,13 @@ use crate::{
         flag_request::FlagRequest,
         flag_service::FlagService,
     },
+    metrics::metrics_consts::FLAG_CACHE_HIT_COUNTER,
     router,
 };
 use axum::{extract::State, http::HeaderMap};
 use base64::{engine::general_purpose, Engine as _};
 use bytes::Bytes;
-use derive_builder::Builder;
+use common_metrics::inc;
 use flate2::read::GzDecoder;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -65,23 +66,48 @@ pub struct RequestContext {
     pub body: Bytes,
 }
 
-#[derive(Builder, Clone)]
-#[builder(setter(into))]
 pub struct FeatureFlagEvaluationContext {
     team_id: i32,
+    project_id: i64,
     distinct_id: String,
     feature_flags: FeatureFlagList,
     reader: Arc<dyn Client + Send + Sync>,
     writer: Arc<dyn Client + Send + Sync>,
     cohort_cache: Arc<CohortCacheManager>,
-    #[builder(default)]
     person_property_overrides: Option<HashMap<String, Value>>,
-    #[builder(default)]
     group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
-    #[builder(default)]
     groups: Option<HashMap<String, Value>>,
-    #[builder(default)]
     hash_key_override: Option<String>,
+}
+
+impl FeatureFlagEvaluationContext {
+    pub fn new(
+        team_id: i32,
+        project_id: i64,
+        distinct_id: String,
+        feature_flags: FeatureFlagList,
+        reader: Arc<dyn Client + Send + Sync>,
+        writer: Arc<dyn Client + Send + Sync>,
+        cohort_cache: Arc<CohortCacheManager>,
+        person_property_overrides: Option<HashMap<String, Value>>,
+        group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
+        groups: Option<HashMap<String, Value>>,
+        hash_key_override: Option<String>,
+    ) -> Self {
+        Self {
+            team_id,
+            project_id,
+            distinct_id,
+            feature_flags,
+            reader,
+            writer,
+            cohort_cache,
+            person_property_overrides,
+            group_property_overrides,
+            groups,
+            hash_key_override,
+        }
+    }
 }
 
 /// Process a feature flag request and return the evaluated flags
@@ -92,7 +118,7 @@ pub struct FeatureFlagEvaluationContext {
 /// 3. Retrieves team information
 /// 4. Processes person and group properties
 /// 5. Retrieves feature flags
-/// 6. Evaluates flags based on the context
+/// 6. Evaluates flags given all the relevant request context
 ///
 /// ## Error Handling
 /// - Returns early if any step fails
@@ -123,6 +149,7 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
         .get_team_from_cache_or_pg(&verified_token)
         .await?;
     let team_id = team.id;
+    let project_id = team.project_id;
 
     // Process properties and overrides
     let person_property_overrides = get_person_property_overrides(
@@ -137,24 +164,36 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
         process_group_property_overrides(groups.clone(), request.group_properties.clone());
     let hash_key_override = request.anon_distinct_id.clone();
 
-    // Get and evaluate flags
-    let feature_flags_from_cache_or_pg = flag_service
-        .get_flags_from_cache_or_pg(team_id, &state.redis, &state.reader)
+    // Get flags from cache or database, tracking if we had a cache hit or not
+    // If we do have to hit the database, we also update the cache afterwards
+    let (feature_flags_from_cache_or_pg, cache_hit) = flag_service
+        .get_flags_from_cache_or_pg(project_id, &state.redis, &state.reader)
         .await?;
 
-    let evaluation_context = FeatureFlagEvaluationContextBuilder::default()
-        .team_id(team_id)
-        .distinct_id(distinct_id)
-        .feature_flags(feature_flags_from_cache_or_pg)
-        .reader(state.reader.clone())
-        .writer(state.writer.clone())
-        .cohort_cache(state.cohort_cache_manager.clone())
-        .person_property_overrides(person_property_overrides)
-        .group_property_overrides(group_property_overrides)
-        .groups(groups)
-        .hash_key_override(hash_key_override)
-        .build()
-        .expect("Failed to build FeatureFlagEvaluationContext");
+    // Track cache hits and misses.
+    inc(
+        FLAG_CACHE_HIT_COUNTER,
+        &[
+            ("team_id".to_string(), team_id.to_string()),
+            ("cache_hit".to_string(), cache_hit.to_string()),
+        ],
+        1,
+    );
+
+    // Evaluate flags
+    let evaluation_context = FeatureFlagEvaluationContext::new(
+        team_id,
+        project_id,
+        distinct_id,
+        feature_flags_from_cache_or_pg,
+        state.reader.clone(),
+        state.writer.clone(),
+        state.cohort_cache_manager.clone(),
+        person_property_overrides,
+        group_property_overrides,
+        groups,
+        hash_key_override,
+    );
 
     let flags_response = evaluate_feature_flags(evaluation_context).await;
 
@@ -324,10 +363,12 @@ pub fn decode_request(
 // which flags failed to evaluate
 pub async fn evaluate_feature_flags(context: FeatureFlagEvaluationContext) -> FlagsResponse {
     let group_type_mapping_cache =
-        GroupTypeMappingCache::new(context.team_id, context.reader.clone());
+        GroupTypeMappingCache::new(context.project_id, context.reader.clone());
+
     let mut feature_flag_matcher = FeatureFlagMatcher::new(
         context.distinct_id,
         context.team_id,
+        context.project_id,
         context.reader,
         context.writer,
         context.cohort_cache,
@@ -502,16 +543,19 @@ mod tests {
         let mut person_properties = HashMap::new();
         person_properties.insert("country".to_string(), json!("US"));
 
-        let evaluation_context = FeatureFlagEvaluationContextBuilder::default()
-            .team_id(1)
-            .distinct_id("user123".to_string())
-            .feature_flags(feature_flag_list)
-            .reader(reader)
-            .writer(writer)
-            .cohort_cache(cohort_cache)
-            .person_property_overrides(Some(person_properties))
-            .build()
-            .expect("Failed to build FeatureFlagEvaluationContext");
+        let evaluation_context = FeatureFlagEvaluationContext::new(
+            1,
+            1,
+            "user123".to_string(),
+            feature_flag_list,
+            reader,
+            writer,
+            cohort_cache,
+            Some(person_properties),
+            None,
+            None,
+            None,
+        );
 
         let result = evaluate_feature_flags(evaluation_context).await;
 
@@ -688,15 +732,19 @@ mod tests {
 
         let feature_flag_list = FeatureFlagList { flags };
 
-        let evaluation_context = FeatureFlagEvaluationContextBuilder::default()
-            .team_id(1)
-            .distinct_id("user123".to_string())
-            .feature_flags(feature_flag_list)
-            .reader(reader)
-            .writer(writer)
-            .cohort_cache(cohort_cache)
-            .build()
-            .expect("Failed to build FeatureFlagEvaluationContext");
+        let evaluation_context = FeatureFlagEvaluationContext::new(
+            1,
+            1,
+            "user123".to_string(),
+            feature_flag_list,
+            reader,
+            writer,
+            cohort_cache,
+            None,
+            None,
+            None,
+            None,
+        );
 
         let result = evaluate_feature_flags(evaluation_context).await;
 
@@ -788,19 +836,23 @@ mod tests {
             ]),
         )]);
 
-        let evaluation_context = FeatureFlagEvaluationContextBuilder::default()
-            .team_id(team.id)
-            .distinct_id("user123".to_string())
-            .feature_flags(feature_flag_list)
-            .reader(reader)
-            .writer(writer)
-            .cohort_cache(cohort_cache)
-            .group_property_overrides(Some(group_property_overrides))
-            .groups(Some(groups))
-            .build()
-            .expect("Failed to build FeatureFlagEvaluationContext");
+        let evaluation_context = FeatureFlagEvaluationContext::new(
+            team.id,
+            team.project_id,
+            "user123".to_string(),
+            feature_flag_list,
+            reader,
+            writer,
+            cohort_cache,
+            None,
+            Some(group_property_overrides),
+            Some(groups),
+            None,
+        );
 
         let result = evaluate_feature_flags(evaluation_context).await;
+
+        println!("result: {:?}", result);
 
         assert!(
             !result.errors_while_computing_flags,
@@ -852,15 +904,19 @@ mod tests {
 
         let feature_flag_list = FeatureFlagList { flags: vec![flag] };
 
-        let evaluation_context = FeatureFlagEvaluationContextBuilder::default()
-            .team_id(1)
-            .distinct_id(long_id)
-            .feature_flags(feature_flag_list)
-            .reader(reader)
-            .writer(writer)
-            .cohort_cache(cohort_cache)
-            .build()
-            .expect("Failed to build FeatureFlagEvaluationContext");
+        let evaluation_context = FeatureFlagEvaluationContext::new(
+            1,
+            1,
+            long_id,
+            feature_flag_list,
+            reader,
+            writer,
+            cohort_cache,
+            None,
+            None,
+            None,
+            None,
+        );
 
         let result = evaluate_feature_flags(evaluation_context).await;
 
