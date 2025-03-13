@@ -2329,7 +2329,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 urlParams.set('compare_filter', JSON.stringify(compareFilter))
             }
 
-            // Check if the page reports feature flag is enabled
             const { featureFlags } = featureFlagLogic.values
             const pageReportsEnabled = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PAGE_REPORTS]
 
@@ -2400,7 +2399,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 tile_visualizations,
             }: Record<string, any>
         ): void => {
-            // Check if the page reports feature flag is enabled
             const { featureFlags } = featureFlagLogic.values
             const pageReportsEnabled = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PAGE_REPORTS]
 
