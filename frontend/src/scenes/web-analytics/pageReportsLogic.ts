@@ -304,8 +304,8 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                                   {
                                       key: '$current_url',
                                       // If stripQueryParams is true, we'll extract the base URL without query params
-                                      value: stripQueryParams ? pageUrl.split('?')[0] : pageUrl,
-                                      operator: PropertyOperator.Exact,
+                                      value: pageUrl,
+                                      operator: stripQueryParams ? PropertyOperator.IContains : PropertyOperator.Exact,
                                       type: PropertyFilterType.Event,
                                   },
                               ]
