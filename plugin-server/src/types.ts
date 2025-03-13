@@ -1190,16 +1190,6 @@ export interface EventPropertyType {
     project_id: number | null
 }
 
-export interface TeamIdRow {
-    teamId: number
-}
-
-export interface TeamGroupRow {
-    teamId: number
-    groupName: string
-    groupIndex: number
-}
-
 export type GroupTypeToColumnIndex = Record<string, GroupTypeIndex>
 
 export enum PropertyUpdateOperation {
