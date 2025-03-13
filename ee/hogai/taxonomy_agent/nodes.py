@@ -27,7 +27,6 @@ from ee.hogai.taxonomy_agent.prompts import (
     REACT_DEFINITIONS_PROMPT,
     REACT_FOLLOW_UP_PROMPT,
     REACT_FORMAT_PROMPT,
-    REACT_FORMAT_REMINDER_PROMPT,
     REACT_HELP_REQUEST_PROMPT,
     REACT_HUMAN_IN_THE_LOOP_PROMPT,
     REACT_MALFORMED_JSON_PROMPT,
@@ -213,9 +212,6 @@ class TaxonomyAgentPlannerNode(AssistantNode):
                 )
             )
             conversation.append(LangchainAssistantMessage(content=message.plan or ""))
-
-        # Add a reminder to the agent about the format of the response.
-        conversation.append(HumanMessagePromptTemplate.from_template(REACT_FORMAT_REMINDER_PROMPT).format())
 
         # The description of a new insight is added to the end of the conversation.
         new_insight_prompt = REACT_USER_PROMPT if not conversation else REACT_FOLLOW_UP_PROMPT

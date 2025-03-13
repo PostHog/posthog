@@ -288,15 +288,15 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             ]
             self.assertConversationEqual(output, expected_output)
 
-    def _test_human_in_the_loop(self, insight_type: Literal["trends", "funnel", "retention"]):
+    def _test_human_in_the_loop(
+        self, insight_type: Literal["trends", "funnel", "retention"], node_name: AssistantNodeName
+    ):
         graph = (
             AssistantGraph(self.team)
             .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
             .add_root(
                 {
-                    "trends": AssistantNodeName.TRENDS_PLANNER,
-                    "funnel": AssistantNodeName.FUNNEL_PLANNER,
-                    "retention": AssistantNodeName.RETENTION_PLANNER,
+                    "insights": node_name,
                     "root": AssistantNodeName.ROOT,
                     "end": AssistantNodeName.END,
                 }
@@ -366,13 +366,13 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             self.assertFalse(snapshot.values["root_tool_calls_count"])
 
     def test_trends_interrupt_when_asking_for_help(self):
-        self._test_human_in_the_loop("trends")
+        self._test_human_in_the_loop("trends", AssistantNodeName.TRENDS_PLANNER)
 
     def test_funnels_interrupt_when_asking_for_help(self):
-        self._test_human_in_the_loop("funnel")
+        self._test_human_in_the_loop("funnel", AssistantNodeName.FUNNEL_PLANNER)
 
     def test_retention_interrupt_when_asking_for_help(self):
-        self._test_human_in_the_loop("retention")
+        self._test_human_in_the_loop("retention", AssistantNodeName.RETENTION_PLANNER)
 
     def test_ai_messages_appended_after_interrupt(self):
         with patch("ee.hogai.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model") as mock:
