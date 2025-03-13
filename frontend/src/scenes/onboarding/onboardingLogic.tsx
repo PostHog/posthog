@@ -65,6 +65,8 @@ export const getProductUri = (productKey: ProductKey, replayLandingPage: ReplayT
             return urls.featureFlag('new')
         case ProductKey.SURVEYS:
             return urls.surveyTemplates()
+        case ProductKey.ERROR_TRACKING:
+            return urls.errorTracking()
         default:
             return urls.default()
     }
