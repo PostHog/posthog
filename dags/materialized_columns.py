@@ -1,9 +1,8 @@
-from collections import defaultdict
 import datetime
 import itertools
-from collections.abc import Iterable, Iterator
+from collections import defaultdict
+from collections.abc import Iterable, Iterator, Mapping
 from typing import ClassVar, TypeVar
-from collections.abc import Mapping
 
 import dagster
 import pydantic
@@ -12,8 +11,7 @@ from dateutil.relativedelta import relativedelta
 
 from dags.common import JobOwners
 from posthog import settings
-from posthog.clickhouse.cluster import ClickhouseCluster, AlterTableMutationRunner
-
+from posthog.clickhouse.cluster import AlterTableMutationRunner, ClickhouseCluster
 
 K = TypeVar("K")
 V = TypeVar("V")
