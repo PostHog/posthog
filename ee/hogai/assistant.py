@@ -79,6 +79,7 @@ class Assistant:
     _latest_message: HumanMessage
     _state: Optional[AssistantState]
     _callback_handler: Optional[BaseCallbackHandler]
+    _trace_id: Optional[str | UUID]
 
     def __init__(
         self,
@@ -110,6 +111,7 @@ class Assistant:
             if posthoganalytics.default_client
             else None
         )
+        self._trace_id = trace_id
 
     def stream(self):
         if SERVER_GATEWAY_INTERFACE == "ASGI":
@@ -186,7 +188,11 @@ class Assistant:
         config: RunnableConfig = {
             "recursion_limit": 48,
             "callbacks": callbacks,
-            "configurable": {"thread_id": self._conversation.id},
+            "configurable": {
+                "thread_id": self._conversation.id,
+                "trace_id": self._trace_id,
+                "distinct_id": self._user.distinct_id if self._user else None,
+            },
         }
         return config
 

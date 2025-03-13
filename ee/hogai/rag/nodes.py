@@ -1,6 +1,8 @@
+import json
 import xml.etree.ElementTree as ET
-from typing import Literal, cast
+from typing import Any, Literal, cast
 
+import posthoganalytics
 from cohere.core.api_error import ApiError as BaseCohereApiError
 from langchain_core.runnables import RunnableConfig
 
@@ -22,6 +24,10 @@ class ProductAnalyticsRetriever(AssistantNode):
     """
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
+        configurable = config.get("configurable", {})
+        trace_id = configurable.get("trace_id")
+        distinct_id = configurable.get("distinct_id")
+
         plan = state.root_tool_insight_plan
         if not plan:
             return None
@@ -40,13 +46,19 @@ class ProductAnalyticsRetriever(AssistantNode):
             return None
         if not response.embeddings.float_:
             return None
-        return PartialAssistantState(rag_context=self._retrieve_actions(response.embeddings.float_[0]))
+        return PartialAssistantState(
+            rag_context=self._retrieve_actions(
+                response.embeddings.float_[0], trace_id=trace_id, distinct_id=distinct_id
+            )
+        )
 
     def router(self, state: AssistantState) -> NextRagNode:
         next_node = cast(NextRagNode, state.root_tool_insight_type or "end")
         return next_node
 
-    def _retrieve_actions(self, embedding: list[float]) -> str:
+    def _retrieve_actions(
+        self, embedding: list[float], trace_id: Any | None = None, distinct_id: Any | None = None
+    ) -> str:
         runner = VectorSearchQueryRunner(
             team=self._team,
             query=VectorSearchQuery(embedding=embedding),
@@ -69,6 +81,9 @@ class ProductAnalyticsRetriever(AssistantNode):
                 desc_tag = ET.SubElement(action_tag, "description")
                 desc_tag.text = description
 
+        distances = [row.distance for row in response.results]
+        self._report_metrics(distances, trace_id, distinct_id)
+
         return ET.tostring(root, encoding="unicode")
 
     def _prewarm_queries(self):
@@ -79,3 +94,22 @@ class ProductAnalyticsRetriever(AssistantNode):
         TeamTaxonomyQueryRunner(TeamTaxonomyQuery(), self._team).run(
             ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE
         )
+
+    def _report_metrics(self, distances: list[float], trace_id: Any | None, distinct_id: Any | None):
+        if not trace_id or not distinct_id:
+            return
+        metrics = {
+            "actions_avg_distance": sum(distances) / len(distances),
+            "actions_med_distance": sorted(distances)[len(distances) // 2],
+            "actions_distances": json.dumps(distances),
+        }
+        for metric_name, metric_value in metrics.items():
+            posthoganalytics.capture(
+                distinct_id,
+                "$ai_metric",
+                {
+                    "$ai_trace_id": trace_id,
+                    "$ai_metric_name": metric_name,
+                    "$ai_metric_value": metric_value,
+                },
+            )
