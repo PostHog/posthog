@@ -43,6 +43,7 @@ from posthog.utils import (
 )
 from posthog.warehouse.models import ExternalDataJob
 from posthog.models.error_tracking import ErrorTrackingIssue, ErrorTrackingSymbolSet
+from myapp.sqs import get_sqs_producer
 
 logger = structlog.get_logger(__name__)
 
@@ -1248,10 +1249,19 @@ def send_all_org_usage_reports(
 
         logger.info("Sending usage reports to PostHog and Billing...")  # noqa T201
         time_now = datetime.now()
-        for org_report in org_reports.values():
-            org_id = org_report.organization_id
 
-            if only_organization_id and only_organization_id != org_id:
+        producer = get_sqs_producer("orders")
+        if not producer:
+            logger.error("Failed to get SQS producer for 'orders' queue")
+            return
+
+        messages = []
+        processed_orgs = []
+
+        for org_report in org_reports.values():
+            organization_id = org_report.organization_id
+
+            if only_organization_id and only_organization_id != organization_id:
                 continue
 
             full_report = _get_full_org_usage_report(org_report, instance_metadata)
@@ -1261,20 +1271,69 @@ def send_all_org_usage_reports(
                 continue
 
             # First capture the events to PostHog
-            if not skip_capture_event:
-                at_date_str = at_date.isoformat() if at_date else None
-                capture_report.delay(
-                    capture_event_name=capture_event_name,
-                    org_id=org_id,
-                    full_report_dict=full_report_dict,
-                    at_date=at_date_str,
-                )
+            # if not skip_capture_event:
+            #     at_date_str = at_date.isoformat() if at_date else None
+            #     capture_report.delay(
+            #         capture_event_name=capture_event_name,
+            #         org_id=org_id,
+            #         full_report_dict=full_report_dict,
+            #         at_date=at_date_str,
+            #     )
 
             # Then capture the events to Billing
             if has_non_zero_usage(full_report):
-                send_report_to_billing_service.delay(org_id=org_id, report=full_report_dict)
+                messages.append({"body": {"organization_id": organization_id, "usage_report": full_report_dict}})
+                processed_orgs.append(organization_id)
+
+                # Send in batches of 10 (SQS batch limit)
+                if len(messages) >= 10:
+                    _send_batch(producer, messages, processed_orgs)
+                    messages = []
+                    processed_orgs = []
+
+        # Send any remaining messages
+        if messages:
+            _send_batch(producer, messages, processed_orgs)
+
         time_since = datetime.now() - time_now
         logger.debug(f"Sending usage reports to PostHog and Billing took {time_since.total_seconds()} seconds.")  # noqa T201
     except Exception as err:
         capture_exception(err)
         raise
+
+
+def _send_batch(producer, messages, processed_orgs):
+    """
+    Send a batch of messages to SQS and handle the response.
+
+    Args:
+        producer: SQSProducer instance
+        messages: List of message dicts to send
+        processed_orgs: List of organization IDs corresponding to messages
+
+    Returns:
+        dict: Results with counts of successful and failed messages
+    """
+    response = producer.send_message_batch(messages)
+
+    results = {"successful": 0, "failed": 0}
+
+    if response:
+        successful = response.get("Successful", [])
+        failed = response.get("Failed", [])
+
+        results["successful"] = len(successful)
+        results["failed"] = len(failed)
+
+        if failed:
+            for fail in failed:
+                fail_id = int(fail.get("Id", "").split("-")[1])  # Extract index from ID
+                if 0 <= fail_id < len(processed_orgs):
+                    logger.error(
+                        f"Failed to send usage report for organization {processed_orgs[fail_id]}: {fail.get('Message')}"
+                    )
+    else:
+        results["failed"] = len(messages)
+        logger.error(f"Failed to send batch of {len(messages)} usage reports")
+
+    return results
