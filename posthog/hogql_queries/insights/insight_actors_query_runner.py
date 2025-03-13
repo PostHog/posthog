@@ -92,6 +92,13 @@ class InsightActorsQueryRunner(QueryRunner):
                 include_recordings=query.includeRecordings,
             )
 
+        if isinstance(self.source_runner, RetentionQueryRunner):
+            trends_runner = cast(RetentionQueryRunner, self.source_runner)
+            query = cast(InsightActorsQuery, self.query)
+            return trends_runner.to_events_query(
+                interval=query.interval,
+            )
+
         raise ValueError(f"Cannot convert source query of type {self.query.source.kind} to events query")
 
     @property

@@ -169,12 +169,6 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPerson,
         inMenu: false,
     },
-    [NodeKind.InsightEventsQuery]: {
-        name: 'InsightEventsQuery',
-        description: 'List and explore events that match specified conditions on the insight.',
-        icon: IconCursor,
-        inMenu: true,
-    },
     [NodeKind.InsightActorsQueryOptions]: {
         name: 'Persons',
         description: 'Options for InsightActorsQuery.',
