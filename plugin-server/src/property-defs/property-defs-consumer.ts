@@ -10,19 +10,18 @@ import {
     ClickHouseEvent,
     EventDefinitionType,
     EventPropertyType,
-    GroupTypeToColumnIndex,
     Hub,
     PluginServerService,
+    ProjectId,
     PropertyDefinitionType,
     PropertyDefinitionTypeEnum,
     PropertyType,
     RawClickHouseEvent,
-    TeamId,
 } from '../types'
 import { parseRawClickHouseEvent } from '../utils/event'
 import { status } from '../utils/status'
 import { UUIDT } from '../utils/utils'
-import { GroupTypeManager } from '../worker/ingestion/group-type-manager'
+import { GroupTypeManager, GroupTypesByProjectId } from '../worker/ingestion/group-type-manager'
 import { TeamManager } from '../worker/ingestion/team-manager'
 import { PropertyDefsDB } from './services/property-defs-db'
 import {
@@ -62,16 +61,12 @@ const propDefDroppedCounter = new Counter({
 })
 
 export type CollectedPropertyDefinitions = {
-    // looked up prior to event/prop extraction
-    knownTeamIds: Set<number>
-    // looked up prior to event/prop extraction. map of project_id => group_type => group_index
-    resolvedTeamGroups: Record<number, GroupTypeToColumnIndex>
-    // known team ID => resolved group_type & group_type_index
-    eventDefinitionsById: Record<number, Record<string, EventDefinitionType>>
-    // known team ID => deduped properties
-    propertyDefinitionsById: Record<number, Record<string, PropertyDefinitionType>>
-    // known team ID => deduped event_properties
-    eventPropertiesById: Record<number, Record<string, EventPropertyType>>
+    // known project ID => resolved group_type & group_type_index
+    eventDefinitionsById: Record<ProjectId, Record<string, EventDefinitionType>>
+    // known project ID => deduped properties
+    propertyDefinitionsById: Record<ProjectId, Record<string, PropertyDefinitionType>>
+    // known project ID => deduped event_properties
+    eventPropertiesById: Record<ProjectId, Record<string, EventPropertyType>>
 }
 
 /**
@@ -146,80 +141,50 @@ export class PropertyDefsConsumer {
             this.parseKafkaBatch(messages)
         )
 
-        // used to filter and dedup to minimum batch of writable records
-        const collected: CollectedPropertyDefinitions = {
-            knownTeamIds: new Set<number>(),
-            resolvedTeamGroups: {},
-            eventDefinitionsById: {},
-            propertyDefinitionsById: {},
-            eventPropertiesById: {},
-        }
+        const projectsToLoadGroupsFor = new Set<ProjectId>()
 
-        const eventTeamIds = parsedMessages.map((msg) => msg.team_id as TeamId)
-        const groupTeamIds = parsedMessages.filter((msg) => msg.event == '$groupidentify').map((msg) => msg.team_id)
+        parsedMessages.forEach((msg) => {
+            if (msg.event === '$groupidentify') {
+                projectsToLoadGroupsFor.add(msg.project_id)
+            }
+        })
 
-        const [knownTeamIds, resolvedProjectGroups] = await Promise.all([
-            this.runInstrumented('resolveTeams', () => this.teamManager.validateTeamIds(eventTeamIds)),
-            this.runInstrumented('resolveProjectGroupTypeIndices', () =>
-                this.groupTypeManager.fetchGroupTypesIndicesForTeams(groupTeamIds)
-            ),
-        ])
-
-        collected.knownTeamIds = new Set(knownTeamIds)
-        collected.resolvedTeamGroups = resolvedProjectGroups
+        const groupTypesByProjectId = await this.groupTypeManager.fetchGroupTypesForProjects(projectsToLoadGroupsFor)
 
         console.log('🔁', `Event batch teams and group indices resolved`)
 
         // extract and dedup event and property definitions
-        await this.runInstrumented('derivePropDefs', () =>
-            Promise.resolve(this.extractPropertyDefinitions(parsedMessages, collected))
+        const collected = await this.runInstrumented('derivePropDefs', () =>
+            Promise.resolve(this.extractPropertyDefinitions(parsedMessages, groupTypesByProjectId))
         )
 
         console.log('🔁', `Property definitions collected`, JSON.stringify(collected, null, 2))
 
-        for (const knownTeamId in collected.eventDefinitionsById) {
-            let buffer: EventDefinitionType[] = []
-            for (const key in collected.eventDefinitionsById[knownTeamId]) {
-                const eventDef = collected.eventDefinitionsById[knownTeamId][key]
-                buffer.push(eventDef)
-                eventDefTypesCounter.inc()
+        const eventDefinitions = Object.values(collected.eventDefinitionsById).flatMap((eventDefinitions) =>
+            Object.values(eventDefinitions)
+        )
 
-                if (buffer.length === BATCH_SIZE) {
-                    status.info('🔁', `Writing event definition batch of size ${buffer.length}`)
-                    void this.scheduleWork(this.propertyDefsDB.writeEventDefinitionsBatch(buffer))
-                    buffer = []
-                }
-            }
+        if (eventDefinitions.length > 0) {
+            status.info('🔁', `Writing event definitions batch of size ${eventDefinitions.length}`)
+            void this.scheduleWork(this.propertyDefsDB.writeEventDefinitionsBatch(eventDefinitions))
         }
 
-        for (const knownTeamId in collected.propertyDefinitionsById) {
-            let buffer: PropertyDefinitionType[] = []
-            for (const key in collected.propertyDefinitionsById[knownTeamId]) {
-                const propDef: PropertyDefinitionType = collected.propertyDefinitionsById[knownTeamId][key]
-                buffer.push(propDef)
-                propertyDefTypesCounter.inc({ type: propDef.property_type?.toString() ?? 'unknown' })
+        const propertyDefinitions = Object.values(collected.propertyDefinitionsById).flatMap((propertyDefinitions) =>
+            Object.values(propertyDefinitions)
+        )
 
-                if (buffer.length === BATCH_SIZE) {
-                    status.info('🔁', `Writing property definitions batch of size ${buffer.length}`)
-                    void this.scheduleWork(this.propertyDefsDB.writePropertyDefinitionsBatch(buffer))
-                    buffer = []
-                }
-            }
+        if (propertyDefinitions.length > 0) {
+            status.info('🔁', `Writing property definitions batch of size ${propertyDefinitions.length}`)
+            void this.scheduleWork(this.propertyDefsDB.writePropertyDefinitionsBatch(propertyDefinitions))
         }
 
-        for (const knownTeamId in collected.eventPropertiesById) {
-            let buffer: EventPropertyType[] = []
-            for (const key in collected.eventPropertiesById[knownTeamId]) {
-                const eventProp = collected.eventPropertiesById[knownTeamId][key]
-                eventPropTypesCounter.inc()
-                buffer.push(eventProp)
+        const eventProperties = Object.values(collected.eventPropertiesById).flatMap((eventProperties) =>
+            Object.values(eventProperties)
+        )
 
-                if (buffer.length === BATCH_SIZE) {
-                    status.info('🔁', `Writing event properties batch of size ${buffer.length}`)
-                    void this.scheduleWork(this.propertyDefsDB.writeEventPropertiesBatch(buffer))
-                    buffer = []
-                }
-            }
+        if (eventProperties.length > 0) {
+            status.info('🔁', `Writing event properties batch of size ${eventProperties.length}`)
+            void this.scheduleWork(this.propertyDefsDB.writeEventPropertiesBatch(eventProperties))
         }
 
         status.debug('🔁', `Waiting for promises`, { promises: this.promises.size })
@@ -227,12 +192,17 @@ export class PropertyDefsConsumer {
         status.debug('🔁', `Processed batch`)
     }
 
-    private extractPropertyDefinitions(events: ClickHouseEvent[], collected: CollectedPropertyDefinitions) {
+    private extractPropertyDefinitions(
+        events: ClickHouseEvent[],
+        groupTypesByProjectId: GroupTypesByProjectId
+    ): CollectedPropertyDefinitions {
+        const collected: CollectedPropertyDefinitions = {
+            eventDefinitionsById: {},
+            propertyDefinitionsById: {},
+            eventPropertiesById: {},
+        }
+
         for (const event of events) {
-            if (!collected.knownTeamIds.has(event.team_id)) {
-                propDefDroppedCounter.inc({ type: 'event', reason: 'team_id_not_found' })
-                continue
-            }
             event.event = sanitizeEventName(event.event)
 
             if (!willFitInPostgres(event.event)) {
@@ -240,13 +210,19 @@ export class PropertyDefsConsumer {
                 continue
             }
 
-            if (!collected.eventDefinitionsById[event.team_id]) {
-                collected.eventDefinitionsById[event.team_id] = {}
-            }
+            // Setup all the objects for this event's project ID
+            const eventDefinitions = (collected.eventDefinitionsById[event.project_id] =
+                collected.eventDefinitionsById[event.project_id] ?? {})
+
+            const propertyDefinitions = (collected.propertyDefinitionsById[event.project_id] =
+                collected.propertyDefinitionsById[event.project_id] ?? {})
+
+            const eventProperties = (collected.eventPropertiesById[event.project_id] =
+                collected.eventPropertiesById[event.project_id] ?? {})
 
             // Capture event definition
-            if (!collected.eventDefinitionsById[event.team_id][event.event]) {
-                collected.eventDefinitionsById[event.team_id][event.event] = {
+            if (!eventDefinitions[event.event]) {
+                eventDefinitions[event.event] = {
                     id: new UUIDT().toString(),
                     name: event.event,
                     team_id: event.team_id,
@@ -259,9 +235,11 @@ export class PropertyDefsConsumer {
 
             // Decision: are there group properties eligible for capture in this event?
             let shouldCaptureGroupProps: boolean = true
+
+            const groupTypesForProject = groupTypesByProjectId[event.project_id]
             if (event.event === '$groupidentify') {
                 // bail if the team ID doesn't exist in posthog_team
-                if (!collected.resolvedTeamGroups[event.team_id]) {
+                if (!groupTypesForProject) {
                     propDefDroppedCounter.inc({ type: 'group', reason: 'team_groups_not_found' })
                     shouldCaptureGroupProps = false
                 }
@@ -273,15 +251,16 @@ export class PropertyDefsConsumer {
                 }
 
                 // bail if the group type on the event was not resolved to an index in posthog_grouptypemappings
-                if (!collected.resolvedTeamGroups[event.team_id][event.properties['$group_type']]) {
+                if (!groupTypesForProject?.[event.properties['$group_type']]) {
                     propDefDroppedCounter.inc({ type: 'group', reason: 'group_index_not_found' })
                     shouldCaptureGroupProps = false
                 }
             }
 
             // Capture group properties
-            if (shouldCaptureGroupProps) {
+            if (shouldCaptureGroupProps && groupTypesForProject) {
                 const groupType: string = event.properties['$group_type'] // e.g. "organization"
+                const groupTypeIndex = groupTypesForProject[groupType]
                 const groupProperties: Record<string, any> | undefined = event.properties['$group_set'] // { name: 'value', id: 'id', foo: "bar" }
 
                 for (const [property, value] of Object.entries(groupProperties ?? {})) {
@@ -296,10 +275,9 @@ export class PropertyDefsConsumer {
                         continue
                     }
 
-                    const groupTypeIndex = collected.resolvedTeamGroups[event.team_id][groupType]
                     const propDefKey = `${groupType}:${property}`
-                    if (!collected.propertyDefinitionsById[event.team_id][propDefKey]) {
-                        collected.propertyDefinitionsById[event.team_id][propDefKey] = {
+                    if (!propertyDefinitions[propDefKey]) {
+                        propertyDefinitions[propDefKey] = {
                             id: new UUIDT().toString(),
                             name: property,
                             is_numerical: propType === PropertyType.Numeric,
@@ -322,10 +300,10 @@ export class PropertyDefsConsumer {
                 }
 
                 const propDefKey = `person:${property}`
-                if (!collected.propertyDefinitionsById[event.team_id][propDefKey]) {
+                if (!propertyDefinitions[propDefKey]) {
                     const propType = getPropertyType(property, value)
                     if (propType) {
-                        collected.propertyDefinitionsById[event.team_id][propDefKey] = {
+                        propertyDefinitions[propDefKey] = {
                             id: new UUIDT().toString(),
                             name: property,
                             is_numerical: propType === PropertyType.Numeric,
@@ -351,10 +329,10 @@ export class PropertyDefsConsumer {
                 }
 
                 const propDefKey = `event:${property}`
-                if (!collected.propertyDefinitionsById[event.team_id][propDefKey]) {
+                if (!propertyDefinitions[propDefKey]) {
                     const propType = getPropertyType(property, value)
                     if (propType) {
-                        collected.propertyDefinitionsById[event.team_id][propDefKey] = {
+                        propertyDefinitions[propDefKey] = {
                             id: new UUIDT().toString(),
                             name: property,
                             is_numerical: propType === PropertyType.Numeric,
@@ -367,8 +345,8 @@ export class PropertyDefsConsumer {
                 }
 
                 const eventPropKey = `${event.event}:${property}`
-                if (!collected.eventPropertiesById[event.team_id][eventPropKey]) {
-                    collected.eventPropertiesById[event.team_id][eventPropKey] = {
+                if (!eventProperties[eventPropKey]) {
+                    eventProperties[eventPropKey] = {
                         id: new UUIDT().toString(),
                         event: event.event,
                         property,
@@ -378,6 +356,8 @@ export class PropertyDefsConsumer {
                 }
             }
         }
+
+        return collected
     }
 
     private parseKafkaBatch(messages: Message[]): Promise<ClickHouseEvent[]> {

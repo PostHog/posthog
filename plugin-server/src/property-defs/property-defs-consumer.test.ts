@@ -6,7 +6,7 @@ import { forSnapshot } from '~/tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { insertHogFunction as _insertHogFunction } from '../cdp/_tests/fixtures'
-import { ClickHouseEvent, Hub, RawClickHouseEvent, Team, TimestampFormat } from '../types'
+import { ClickHouseEvent, Hub, ProjectId, RawClickHouseEvent, Team, TimestampFormat } from '../types'
 import { closeHub, createHub } from '../utils/db/hub'
 import { castTimestampOrNow } from '../utils/utils'
 import { PropertyDefsConsumer } from './property-defs-consumer'
@@ -70,6 +70,7 @@ const createClickHouseEvent = (event: Partial<ClickHouseEvent> = {}): ClickHouse
         uuid: event.uuid ?? '123',
         event: event.event ?? '$pageview',
         team_id: event.team_id ?? 1,
+        project_id: event.project_id ?? (1 as ProjectId),
         distinct_id: event.distinct_id ?? 'distinct_id_1',
         /** Person UUID. */
         person_id: event.person_id ?? undefined,
@@ -138,9 +139,9 @@ describe('PropertyDefsConsumer', () => {
         hub.kafkaProducer = mockProducer
         propertyDefsDB = ingester['propertyDefsDB']
 
-        jest.spyOn(propertyDefsDB, 'writeEventDefinition')
-        jest.spyOn(propertyDefsDB, 'writePropertyDefinition')
-        jest.spyOn(propertyDefsDB, 'writeEventProperty')
+        jest.spyOn(propertyDefsDB, 'writeEventDefinitionsBatch')
+        jest.spyOn(propertyDefsDB, 'writePropertyDefinitionsBatch')
+        jest.spyOn(propertyDefsDB, 'writeEventPropertiesBatch')
     })
 
     afterEach(async () => {
@@ -158,6 +159,7 @@ describe('PropertyDefsConsumer', () => {
                 createKafkaMessages([
                     createClickHouseEvent({
                         team_id: team.id,
+                        project_id: team.project_id,
                         properties: {
                             url: 'http://example.com',
                         },
@@ -165,9 +167,9 @@ describe('PropertyDefsConsumer', () => {
                 ])
             )
 
-            expect(propertyDefsDB.writeEventDefinition).toHaveBeenCalledTimes(1)
-            expect(propertyDefsDB.writePropertyDefinition).toHaveBeenCalledTimes(1)
-            expect(propertyDefsDB.writeEventProperty).toHaveBeenCalledTimes(1)
+            expect(propertyDefsDB.writeEventDefinitionsBatch).toHaveBeenCalledTimes(1)
+            expect(propertyDefsDB.writePropertyDefinitionsBatch).toHaveBeenCalledTimes(1)
+            expect(propertyDefsDB.writeEventPropertiesBatch).toHaveBeenCalledTimes(1)
 
             expect(forSnapshot(await propertyDefsDB.listEventDefinitions(team.id))).toMatchSnapshot()
 
@@ -185,18 +187,21 @@ describe('PropertyDefsConsumer', () => {
                 createKafkaMessages([
                     createClickHouseEvent({
                         team_id: team.id,
+                        project_id: team.project_id,
                         properties: {
                             url: 'http://example.com',
                         },
                     }),
                     createClickHouseEvent({
                         team_id: team.id,
+                        project_id: team.project_id,
                         properties: {
                             url: 2,
                         },
                     }),
                     createClickHouseEvent({
                         team_id: team.id,
+                        project_id: team.project_id,
                         properties: {
                             url: 5,
                         },
@@ -204,9 +209,9 @@ describe('PropertyDefsConsumer', () => {
                 ])
             )
 
-            expect(propertyDefsDB.writeEventDefinition).toHaveBeenCalledTimes(1)
-            expect(propertyDefsDB.writePropertyDefinition).toHaveBeenCalledTimes(1)
-            expect(propertyDefsDB.writeEventProperty).toHaveBeenCalledTimes(1)
+            expect(propertyDefsDB.writeEventDefinitionsBatch).toHaveBeenCalledTimes(1)
+            expect(propertyDefsDB.writePropertyDefinitionsBatch).toHaveBeenCalledTimes(1)
+            expect(propertyDefsDB.writeEventPropertiesBatch).toHaveBeenCalledTimes(1)
 
             // Snapshot shows a String type as it was the first seen value
             expect(forSnapshot(await propertyDefsDB.listPropertyDefinitions(team.id))).toMatchSnapshot()

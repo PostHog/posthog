@@ -715,6 +715,7 @@ export type PersonMode = 'full' | 'propertyless' | 'force_upgrade'
 
 /** Raw event row from ClickHouse. */
 export interface RawClickHouseEvent extends BaseEvent {
+    project_id: ProjectId
     timestamp: ClickHouseTimestamp
     created_at: ClickHouseTimestamp
     properties?: string
@@ -744,6 +745,7 @@ export interface RawKafkaEvent extends RawClickHouseEvent {
 
 /** Parsed event row from ClickHouse. */
 export interface ClickHouseEvent extends BaseEvent {
+    project_id: ProjectId
     timestamp: DateTime
     created_at: DateTime
     properties: Record<string, any>
