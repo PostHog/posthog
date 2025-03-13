@@ -1138,7 +1138,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
         showNextRecordingConfirmation: () => {
             if (props.playlistLogic) {
-                //props.playlistLogic.actions.loadNextRecording()
+                props.playlistLogic.actions.loadNext()
             }
         },
         confirmNextRecording: async () => {
@@ -1152,7 +1152,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             )
             actions.hideNextRecordingConfirmation()
             if (props.playlistLogic) {
-                props.playlistLogic.actions.loadNextRecording()
+                props.playlistLogic.actions.loadNext()
             }
         },
         loadSimilarRecordings: async () => {
@@ -1170,20 +1170,16 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             breakpoint()
 
             try {
-                const recording = await api.recordings.get(values.sessionRecordingId)
-                actions.setRecordingMeta(recording)
                 actions.loadSimilarRecordings()
             } catch (e) {
                 console.error('Failed to load recording meta', e)
-                actions.setPlayerError()
+                actions.setPlayerError('Failed to load recording meta')
             }
         },
         loadRecordingMeta: async () => {
             if (!values.sessionRecordingId) {
                 return
             }
-            const recording = await api.recordings.get(values.sessionRecordingId)
-            actions.setRecordingMeta(recording)
             actions.loadSimilarRecordings()
         },
     })),
