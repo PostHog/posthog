@@ -339,12 +339,14 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             response = self.select(
                 """
                 select * from (
-                    <EventsQuery day='2020-01-09'>
-                        <TrendsQuery
-                            dateRange={<DateRange date_from='2020-01-09' date_to='2020-01-19' />}
-                            series={[<EventsNode event='$pageview' />]}
-                            properties={[<PersonPropertyFilter type='person' key='email' value='tom@posthog.com' operator='is_not' />]}
-                        />
+                    <EventsQuery>
+                        <InsightActorsQuery day='2020-01-09'>
+                            <TrendsQuery
+                                dateRange={<DateRange date_from='2020-01-09' date_to='2020-01-19' />}
+                                series={[<EventsNode event='$pageview' />]}
+                                properties={[<PersonPropertyFilter type='person' key='email' value='tom@posthog.com' operator='is_not' />]}
+                            />
+                        </InsightActorsQuery>
                     </EventsQuery>
                 )
                 """,
