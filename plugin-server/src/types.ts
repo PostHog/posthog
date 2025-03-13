@@ -343,6 +343,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
 
     PROPERTY_DEFS_CONSUMER_GROUP_ID: string
     PROPERTY_DEFS_CONSUMER_CONSUME_TOPIC: string
+    PROPERTY_DEFS_CONSUMER_ENABLED_TEAMS: string
 }
 
 export interface Hub extends PluginsServerConfig {

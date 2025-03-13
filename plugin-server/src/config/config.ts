@@ -222,6 +222,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         // PropertyDefsConsumer config
         PROPERTY_DEFS_CONSUMER_GROUP_ID: 'property-defs-consumer',
         PROPERTY_DEFS_CONSUMER_CONSUME_TOPIC: KAFKA_EVENTS_JSON,
+        PROPERTY_DEFS_CONSUMER_ENABLED_TEAMS: isDevEnv() ? '*' : '',
 
         // Session recording V2
         SESSION_RECORDING_MAX_BATCH_SIZE_KB: 100 * 1024, // 100MB

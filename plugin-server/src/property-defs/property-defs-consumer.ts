@@ -2,6 +2,8 @@ import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
+import { buildStringMatcher } from '../config/config'
+import { buildIntegerMatcher } from '../config/config'
 import { BatchConsumer, startBatchConsumer } from '../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../kafka/config'
 import { addSentryBreadcrumbsEventListeners } from '../main/ingestion-queues/kafka-metrics'
@@ -17,6 +19,7 @@ import {
     PropertyDefinitionTypeEnum,
     PropertyType,
     RawClickHouseEvent,
+    ValueMatcher,
 } from '../types'
 import { parseRawClickHouseEvent } from '../utils/event'
 import { status } from '../utils/status'
@@ -84,6 +87,7 @@ export class PropertyDefsConsumer {
     private isStopping = false
     protected heartbeat = () => {}
     protected promises: Set<Promise<any>> = new Set()
+    private propDefsEnabledProjects: ValueMatcher<number>
 
     constructor(private hub: Hub) {
         this.groupId = hub.PROPERTY_DEFS_CONSUMER_GROUP_ID
@@ -91,6 +95,7 @@ export class PropertyDefsConsumer {
         this.propertyDefsDB = new PropertyDefsDB(hub)
         this.teamManager = new TeamManager(hub.postgres)
         this.groupTypeManager = new GroupTypeManager(hub.postgres, this.teamManager)
+        this.propDefsEnabledProjects = buildIntegerMatcher(hub.PROPERTY_DEFS_CONSUMER_ENABLED_TEAMS, true)
     }
 
     public get service(): PluginServerService {
@@ -137,9 +142,16 @@ export class PropertyDefsConsumer {
     }
 
     public async handleKafkaBatch(messages: Message[]) {
-        const parsedMessages: ClickHouseEvent[] = await this.runInstrumented('parseKafkaMessages', () =>
+        let parsedMessages: ClickHouseEvent[] = await this.runInstrumented('parseKafkaMessages', () =>
             this.parseKafkaBatch(messages)
         )
+
+        parsedMessages = parsedMessages.filter((msg) => this.propDefsEnabledProjects(msg.project_id))
+
+        if (parsedMessages.length === 0) {
+            status.debug('🔁', `No messages to process`)
+            return
+        }
 
         const projectsToLoadGroupsFor = new Set<ProjectId>()
 

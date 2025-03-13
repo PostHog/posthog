@@ -139,6 +139,8 @@ describe('PropertyDefsConsumer', () => {
         await resetTestDatabase()
         hub = await createHub()
         team = await getFirstTeam(hub)
+
+        hub.PROPERTY_DEFS_CONSUMER_ENABLED_TEAMS = '*'
         ingester = new PropertyDefsConsumer(hub)
 
         hub.kafkaProducer = mockProducer
