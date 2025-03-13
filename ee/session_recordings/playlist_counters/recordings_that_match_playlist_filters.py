@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 from typing import Any, Optional
 import posthoganalytics
@@ -357,11 +357,10 @@ def enqueue_recordings_that_match_playlist_filters() -> None:
             deleted=False,
             filters__isnull=False,
         )
-        .filter(Q(last_counted_at__isnull=True) | Q(last_counted_at__lt=timezone.now() - timezone.timedelta(hours=2)))
+        .filter(Q(last_counted_at__isnull=True) | Q(last_counted_at__lt=timezone.now() - timedelta(hours=2)))
         .order_by(F("last_counted_at").asc(nulls_first=True))[:60000]
     )
 
-    REPLAY_TEAM_PLAYLISTS_IN_TEAM_COUNT.inc(all_playlists.count())
-
     for playlist in all_playlists:
         count_recordings_that_match_playlist_filters.delay(playlist.id)
+        REPLAY_TEAM_PLAYLISTS_IN_TEAM_COUNT.inc()
