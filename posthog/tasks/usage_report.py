@@ -803,30 +803,31 @@ def capture_report(
     at_date: Optional[datetime] = None,
     send_for_all_members: bool = False,
 ) -> None:
-    if not org_id and not team_id:
-        raise ValueError("Either org_id or team_id must be provided")
-    pha_client = Client("sTMFPsFhdP1Ssg", sync_mode=True)
-    try:
-        capture_event(
-            pha_client=pha_client,
-            name=capture_event_name,
-            organization_id=org_id,
-            team_id=team_id,
-            properties=full_report_dict,
-            timestamp=at_date,
-        )
-        logger.info(f"UsageReport sent to PostHog for organization {org_id}")
-    except Exception as err:
-        logger.exception(
-            f"UsageReport sent to PostHog for organization {org_id} failed: {str(err)}",
-        )
-        capture_event(
-            pha_client=pha_client,
-            name=f"{capture_event_name} failure",
-            organization_id=org_id,
-            team_id=team_id,
-            properties={"error": str(err)},
-        )
+    return
+    # if not org_id and not team_id:
+    #     raise ValueError("Either org_id or team_id must be provided")
+    # pha_client = Client("sTMFPsFhdP1Ssg", sync_mode=True)
+    # try:
+    #     capture_event(
+    #         pha_client=pha_client,
+    #         name=capture_event_name,
+    #         organization_id=org_id,
+    #         team_id=team_id,
+    #         properties=full_report_dict,
+    #         timestamp=at_date,
+    #     )
+    #     logger.info(f"UsageReport sent to PostHog for organization {org_id}")
+    # except Exception as err:
+    #     logger.exception(
+    #         f"UsageReport sent to PostHog for organization {org_id} failed: {str(err)}",
+    #     )
+    #     capture_event(
+    #         pha_client=pha_client,
+    #         name=f"{capture_event_name} failure",
+    #         organization_id=org_id,
+    #         team_id=team_id,
+    #         properties={"error": str(err)},
+    #     )
 
 
 # extend this with future usage based products
