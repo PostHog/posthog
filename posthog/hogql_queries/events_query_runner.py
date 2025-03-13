@@ -10,7 +10,9 @@ from posthog.api.element import ElementSerializer
 from posthog.api.utils import get_pk_or_uuid
 from posthog.hogql import ast
 from posthog.hogql.ast import Alias
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_expr, parse_order_expr
+from posthog.hogql.printer import print_ast
 from posthog.hogql.property import action_to_expr, has_aggregation, property_to_expr
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
@@ -188,7 +190,15 @@ class EventsQueryRunner(QueryRunner):
                 if self.query.source is None:
                     select_from = ast.JoinExpr(table=ast.Field(chain=["events"]))
                 else:
-                    select_from = ast.JoinExpr(table=self.source_runner.to_events_query())
+                    select_input.append("properties")
+                    source = self.source_runner.to_events_query()
+                    query_str = print_ast(
+                        source,
+                        HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+                        "clickhouse",
+                        pretty=True,
+                    )
+                    select_from = ast.JoinExpr(table=source)
 
                 stmt = ast.SelectQuery(
                     select=select,

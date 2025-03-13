@@ -381,7 +381,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
                     source: {
                         kind: NodeKind.EventsQuery,
                         source: insightActorsQuery,
-                        select: ['*', 'event', 'person', 'timestamp'],
+                        select: ['event', 'person', 'timestamp'],
                         after: 'all', // Show all events by default because date range is filtered by the source
                     },
                     full: true,

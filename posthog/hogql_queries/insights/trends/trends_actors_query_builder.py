@@ -180,7 +180,6 @@ class TrendsActorsQueryBuilder:
         )
 
     def _get_events_query(self, extra_event_columns: Optional[list[str]] = None) -> ast.SelectQuery:
-        # TODO: Add the ability to add event_cols here
         actor_col = ast.Alias(alias="actor_id", expr=self._actor_id_expr())
 
         event_columns = {"uuid", "timestamp"}
@@ -197,7 +196,7 @@ class TrendsActorsQueryBuilder:
                 event_columns.add(event_column)
 
         columns: list[ast.Expr] = [
-            ast.Alias(alias=column, expr=ast.Field(chain=["e", column])) for column in event_columns
+            ast.Alias(alias=column, expr=ast.Field(chain=["e", *column.split(".")])) for column in event_columns
         ]
 
         if self.trends_aggregation_operations.is_first_time_ever_math():
