@@ -4,6 +4,8 @@ from django.db import migrations
 
 
 class Migration(migrations.Migration):
+    atomic = False  # Because revert contains CURRENTLY
+
     dependencies = [
         ("posthog", "0686_alter_errortrackingissue_status"),
     ]
