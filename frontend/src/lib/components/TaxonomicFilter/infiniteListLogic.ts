@@ -156,6 +156,10 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
 
                     const queryChanged = values.remoteItems.searchQuery !== values.searchQuery
 
+                    // Fix: Properly read count from response
+                    const responseCount =
+                        response.count ?? (Array.isArray(response) ? response.length : (response.results || []).length)
+
                     await captureTimeToSeeData(values.currentTeamId, {
                         type: 'properties_load',
                         context: 'filters',
@@ -175,11 +179,8 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                         ),
                         searchQuery: values.searchQuery,
                         queryChanged,
-                        count:
-                            response.count ||
-                            (Array.isArray(response) ? response.length : 0) ||
-                            (response.results || []).length,
-                        expandedCount: expandedCountResponse?.count,
+                        count: responseCount,
+                        expandedCount: expandedCountResponse?.count ?? responseCount,
                     }
                 },
                 updateRemoteItem: ({ item }) => {
@@ -216,6 +217,19 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         startIndex: [0, { onRowsRendered: (_, { rowInfo: { startIndex } }) => startIndex }],
         stopIndex: [0, { onRowsRendered: (_, { rowInfo: { stopIndex } }) => stopIndex }],
         isExpanded: [false, { expand: () => true }],
+        totalCount: [
+            0,
+            {
+                loadRemoteItemsSuccess: (_, { remoteItems }) => remoteItems.count || 0,
+            },
+        ],
+        hasMore: [
+            true,
+            {
+                loadRemoteItemsSuccess: (_, { remoteItems }) =>
+                    remoteItems.results.length > 0 && remoteItems.count > remoteItems.results.length,
+            },
+        ],
     })),
     selectors({
         listGroupType: [() => [(_, props) => props.listGroupType], (listGroupType) => listGroupType],
@@ -343,7 +357,10 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 }
             },
         ],
-        totalResultCount: [(s) => [s.items], (items) => items.count || 0],
+        totalResultCount: [
+            (s) => [s.items, s.totalCount],
+            (items: ListStorage, totalCount: number) => Math.max(items.count || 0, totalCount || 0),
+        ],
         totalExtraCount: [
             (s) => [s.isExpandable, s.hasRenderFunction],
             (isExpandable, hasRenderFunction) => (isExpandable ? 1 : 0) + (hasRenderFunction ? 1 : 0),
@@ -368,18 +385,19 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         ],
     }),
     listeners(({ values, actions, props, cache }) => ({
-        onRowsRendered: ({ rowInfo: { startIndex, stopIndex, overscanStopIndex } }) => {
+        onRowsRendered: async ({ rowInfo: { stopIndex } }, breakpoint) => {
             if (values.hasRemoteDataSource) {
-                let loadFrom: number | null = null
-                for (let i = startIndex; i < (stopIndex + overscanStopIndex) / 2; i++) {
-                    if (!values.results[i]) {
-                        loadFrom = i
-                        break
+                try {
+                    const shouldLoadMore = stopIndex > 0 && stopIndex >= (values.results?.length || 0) - 5
+                    if (shouldLoadMore && !values.isLoading && values.hasMore) {
+                        await breakpoint(100)
+                        const offset = values.results?.length || 0
+                        actions.loadRemoteItems({ offset, limit: values.limit })
                     }
-                }
-                if (loadFrom !== null) {
-                    const offset = (loadFrom || startIndex) - values.localItems.count
-                    actions.loadRemoteItems({ offset, limit: values.limit })
+                } catch (error) {
+                    if (error instanceof Error && error.name !== 'AbortError') {
+                        throw error
+                    }
                 }
             }
         },
