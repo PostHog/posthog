@@ -26,6 +26,7 @@ from ee.hogai.taxonomy_agent.prompts import (
     REACT_DEFINITIONS_PROMPT,
     REACT_FOLLOW_UP_PROMPT,
     REACT_FORMAT_PROMPT,
+    REACT_FORMAT_REMINDER_PROMPT,
     REACT_HELP_REQUEST_PROMPT,
     REACT_HUMAN_IN_THE_LOOP_PROMPT,
     REACT_MALFORMED_JSON_PROMPT,
@@ -215,6 +216,7 @@ class TaxonomyAgentPlannerNode(AssistantNode):
         conversation.append(
             HumanMessagePromptTemplate.from_template(new_insight_prompt, template_format="mustache").format(
                 question=state.root_tool_insight_plan,
+                react_format_reminder=REACT_FORMAT_REMINDER_PROMPT,
             )
         )
 
