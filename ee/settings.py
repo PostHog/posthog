@@ -79,3 +79,11 @@ LANGFUSE_HOST = get_from_env("LANGFUSE_HOST", "https://us.cloud.langfuse.com", t
 
 ANTHROPIC_API_KEY = get_from_env("ANTHROPIC_API_KEY", "")
 INKEEP_API_KEY = get_from_env("INKEEP_API_KEY", "")
+
+SQS_QUEUES = {
+    "usage_reports": {
+        "url": os.getenv("SQS_USAGE_REPORT_QUEUE_URL", ""),
+        "region": os.getenv("SQS_REGION", "us-east-1"),
+        "type": "usage_reports",
+    }
+}
