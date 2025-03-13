@@ -94,7 +94,7 @@ class Backup:
         # because the backup_log table could not be updated (for example, if the server is restarted)
         rows = client.execute(
             f"""
-            SELECT EXISTS(
+            SELECT NOT EXISTS(
                 SELECT 1
                 FROM system.processes
                 WHERE query_kind = 'Backup' AND query like '%{self.path}%'
