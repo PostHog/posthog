@@ -2103,6 +2103,10 @@ const api = {
             return await new ApiRequest().errorTrackingIssueBulk().create({ data: { action: 'resolve', ids } })
         },
 
+        async bulkSuppress(ids: ErrorTrackingIssue['id'][]): Promise<{ content: string }> {
+            return await new ApiRequest().errorTrackingIssueBulk().create({ data: { action: 'suppress', ids } })
+        },
+
         async bulkAssign(
             ids: ErrorTrackingIssue['id'][],
             assignee: ErrorTrackingIssue['assignee']

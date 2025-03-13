@@ -810,6 +810,7 @@ class Status(StrEnum):
     ACTIVE = "active"
     RESOLVED = "resolved"
     PENDING_RELEASE = "pending_release"
+    SUPPRESSED = "suppressed"
 
 
 class ErrorTrackingIssueAggregations(BaseModel):
@@ -842,6 +843,7 @@ class Status1(StrEnum):
     ACTIVE = "active"
     RESOLVED = "resolved"
     PENDING_RELEASE = "pending_release"
+    SUPPRESSED = "suppressed"
     ALL = "all"
 
 
@@ -850,6 +852,7 @@ class Status2(StrEnum):
     ACTIVE = "active"
     RESOLVED = "resolved"
     PENDING_RELEASE = "pending_release"
+    SUPPRESSED = "suppressed"
 
 
 class Interval(StrEnum):

@@ -15,7 +15,7 @@ export const ErrorTrackingListOptions = (): JSX.Element => {
 
     const { selectedIssueIds } = useValues(errorTrackingSceneLogic)
     const { setSelectedIssueIds } = useActions(errorTrackingSceneLogic)
-    const { mergeIssues, assignIssues, resolveIssues } = useActions(errorTrackingDataNodeLogic)
+    const { mergeIssues, assignIssues, resolveIssues, suppressIssues } = useActions(errorTrackingDataNodeLogic)
 
     return (
         <>
@@ -48,6 +48,16 @@ export const ErrorTrackingListOptions = (): JSX.Element => {
                                 }}
                             >
                                 Resolve
+                            </LemonButton>
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                onClick={() => {
+                                    suppressIssues(selectedIssueIds)
+                                    setSelectedIssueIds([])
+                                }}
+                            >
+                                Suppress
                             </LemonButton>
                             <AssigneeSelect
                                 type="secondary"
@@ -85,6 +95,14 @@ export const ErrorTrackingListOptions = (): JSX.Element => {
                                     {
                                         value: 'active',
                                         label: 'Active',
+                                    },
+                                    {
+                                        value: 'resolved',
+                                        label: 'Resolved',
+                                    },
+                                    {
+                                        value: 'suppressed',
+                                        label: 'Suppressed',
                                     },
                                     {
                                         value: 'resolved',
