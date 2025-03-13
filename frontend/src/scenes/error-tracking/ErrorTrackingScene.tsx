@@ -15,7 +15,6 @@ import { FeedbackNotice } from 'lib/components/FeedbackNotice'
 import { PageHeader } from 'lib/components/PageHeader'
 import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
-import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { humanFriendlyLargeNumber } from 'lib/utils'
 import { posthog } from 'posthog-js'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -139,9 +138,9 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
     const checked = selectedIssueIds.includes(record.id)
 
     return (
-        <div className="flex items-start gap-x-1.5 group">
+        <div className="flex items-start gap-x-2 group my-1">
             <LemonCheckbox
-                className="pt-1"
+                className="h-[1.2rem]"
                 checked={checked}
                 onChange={(newValue) => {
                     setSelectedIssueIds(
@@ -151,26 +150,7 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                     )
                 }}
             />
-            <LemonTableLink
-                title={record.name || 'Unknown Type'}
-                description={
-                    <div className="deprecated-space-y-1">
-                        <div className="line-clamp-1">{record.description}</div>
-                        <div className="deprecated-space-x-1">
-                            <TZLabel time={record.first_seen} className="border-dotted border-b" delayMs={750} />
-                            <span>|</span>
-                            {record.last_seen ? (
-                                <TZLabel time={record.last_seen} className="border-dotted border-b" delayMs={750} />
-                            ) : (
-                                <LemonSkeleton />
-                            )}
-                            <span>|</span>
-                            <span>
-                                <LemonTag>{STATUS_LABEL[record.status]}</LemonTag>
-                            </span>
-                        </div>
-                    </div>
-                }
+            <Link
                 className="flex-1 pr-12"
                 to={urls.errorTrackingIssue(record.id)}
                 onClick={() => {
@@ -178,7 +158,29 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                     issueLogic.mount()
                     issueLogic.actions.setIssue(record)
                 }}
-            />
+            >
+                <div className="flex flex-col gap-[2px]">
+                    <div className="flex items-center font-semibold h-[1.2rem] text-[1.2em]">
+                        {record.name || 'Unknown Type'}
+                    </div>
+                    <div className="line-clamp-0 text-gray-600">{record.description}</div>
+                    <div className="flex gap-1 items-center text-gray-500">
+                        <TZLabel time={record.first_seen} className="border-dotted border-b text-xs" delayMs={750} />
+                        <span>|</span>
+                        {record.last_seen ? (
+                            <TZLabel time={record.last_seen} className="border-dotted border-b text-xs" delayMs={750} />
+                        ) : (
+                            <LemonSkeleton />
+                        )}
+                        <span>|</span>
+                        <span>
+                            <LemonTag size="small" className="bg-blue-100">
+                                {STATUS_LABEL[record.status]}
+                            </LemonTag>
+                        </span>
+                    </div>
+                </div>
+            </Link>
         </div>
     )
 }
