@@ -34,7 +34,7 @@ export class GroupTypeManager {
 
             response[projectId] = cachedGroupTypes ?? null
 
-            if (cachedGroupTypes === null) {
+            if (!cachedGroupTypes) {
                 projectIdsToLoad.add(projectId)
             }
         }
@@ -44,7 +44,7 @@ export class GroupTypeManager {
             const { rows } = await this.postgres.query(
                 PostgresUse.COMMON_READ,
                 `SELECT * FROM posthog_grouptypemapping WHERE project_id = ANY($1)`,
-                [projectIdsToLoad],
+                [Array.from(projectIdsToLoad)],
                 'fetchGroupTypes'
             )
 
