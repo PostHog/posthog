@@ -572,6 +572,9 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
 
             if arrow_schema and pa.types.is_decimal(arrow_schema.field(field_index).type):
                 new_field_type = arrow_schema.field(field_index).type
+            elif arrow_schema and pa.types.is_floating(arrow_schema.field(field_index).type):
+                # float values with no pre-defined precision/scale. Use a max decimal 256 to support all current and future values
+                new_field_type = pa.decimal256(DEFAULT_NUMERIC_PRECISION, DEFAULT_NUMERIC_SCALE)
             else:
                 new_field_type = _get_max_decimal_type([x for x in all_values_as_decimals_or_none if x is not None])
 
