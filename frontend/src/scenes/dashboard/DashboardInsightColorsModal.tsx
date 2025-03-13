@@ -2,12 +2,18 @@ import { LemonButton, LemonModal, LemonTable, LemonTableColumns, Popover } from 
 import { useActions, useValues } from 'kea'
 import { AnimationType } from 'lib/animations/animations'
 import { Animation } from 'lib/components/Animation/Animation'
-import { getFunnelDatasetKey, getTrendDatasetKey } from 'scenes/insights/utils'
+import { formatBreakdownLabel, getFunnelDatasetKey, getTrendDatasetKey } from 'scenes/insights/utils'
 
 import { isFunnelsQuery, isInsightVizNode, isTrendsQuery } from '~/queries/utils'
 import { DashboardTile, QueryBasedInsightModel } from '~/types'
 
 import { dashboardInsightColorsLogic } from './dashboardInsightColorsLogic'
+import { ColorResult, GithubPicker, TwitterPicker } from 'react-color'
+import { ColorGlyph } from 'lib/components/SeriesGlyph'
+import { useState } from 'react'
+import stringWithWBR from 'lib/utils/stringWithWBR'
+import { cohortsModel } from '~/models/cohortsModel'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 
 function extractBreakdownValues(insightTiles: DashboardTile<QueryBasedInsightModel>[] | null): string[] {
     if (insightTiles == null) {
@@ -49,6 +55,27 @@ export const ColorPickerButton = ({}: // color,
 // colorChoices = DEFAULT_PICKER_COLORS,
 ColorPickerButtonProps): JSX.Element => {
     const [isOpen, setIsOpen] = useState(false)
+    const color = '#000000'
+    const colors = [
+        '#000000',
+        '#111111',
+        '#222222',
+        '#333333',
+        '#444444',
+        '#555555',
+        '#666666',
+        '#777777',
+        '#888888',
+        '#999999',
+        '#aaaaaa',
+        '#bbbbbb',
+        '#cccccc',
+        '#dddddd',
+        '#eeeeee',
+    ]
+    const onColorSelect = (colorResult: ColorResult): void => {
+        console.log(colorResult)
+    }
     // const [pickerOpen, setPickerOpen] = useState(false)
     // const { isDarkModeOn } = useValues(themeLogic)
 
@@ -67,12 +94,12 @@ ColorPickerButtonProps): JSX.Element => {
     return (
         <Popover
             visible={isOpen}
-            overlay={<TwitterPicker color={color} colors={colors} onChangeComplete={onColorSelect} />}
+            overlay={<GithubPicker color={color} colors={colors} onChangeComplete={onColorSelect} />}
             onClickOutside={() => setIsOpen(false)}
             padded={false}
         >
             <LemonButton
-                type="secondary"
+                type="tertiary"
                 onClick={() => setIsOpen(!isOpen)}
                 // sideIcon={<></>}
                 // className="ConditionalFormattingTab__ColorPicker"
@@ -87,6 +114,9 @@ export function DashboardInsightColorsModal(): JSX.Element {
     const { dashboardInsightColorsModalVisible, insightTiles, insightTilesLoading } =
         useValues(dashboardInsightColorsLogic)
     const { hideDashboardInsightColorsModal } = useActions(dashboardInsightColorsLogic)
+    const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
+    const { cohorts } = useValues(cohortsModel)
+
     const breakdownValues = extractBreakdownValues(insightTiles)
 
     const columns: LemonTableColumns<string[]> = [
@@ -98,16 +128,28 @@ export function DashboardInsightColorsModal(): JSX.Element {
             },
         },
         {
-            title: 'Breakdown Value',
+            title: 'Breakdown',
             key: 'breakdown_value',
             // width: 0,
-            render: (_, breakdownValue) => <span>{breakdownValue}</span>,
+            render: (_, breakdownValue) => {
+                // TODO: support for cohorts and nested breakdowns
+                const breakdownFilter = {}
+                const breakdownLabel = formatBreakdownLabel(
+                    breakdownValue,
+                    breakdownFilter,
+                    cohorts?.results,
+                    formatPropertyValueForDisplay
+                )
+                const formattedLabel = stringWithWBR(breakdownLabel, 20)
+
+                return <span>{formattedLabel}</span>
+            },
         },
     ]
 
     return (
         <LemonModal
-            title="Customise Colors"
+            title="Customize Colors"
             isOpen={dashboardInsightColorsModalVisible}
             onClose={hideDashboardInsightColorsModal}
         >

@@ -177,16 +177,6 @@ export function DashboardHeader(): JSX.Element | null {
                                 overlay={
                                     dashboard ? (
                                         <>
-                                            {canEditDashboard && (
-                                                <LemonButton
-                                                    onClick={() => {
-                                                        showDashboardInsightColorsModal(dashboard.id)
-                                                    }}
-                                                    fullWidth
-                                                >
-                                                    Customize Colors
-                                                </LemonButton>
-                                            )}
                                             {dashboard.created_by && (
                                                 <>
                                                     <div className="flex p-2 text-secondary">
@@ -198,6 +188,16 @@ export function DashboardHeader(): JSX.Element | null {
                                                     </div>
                                                     <LemonDivider />
                                                 </>
+                                            )}
+                                            {canEditDashboard && (
+                                                <LemonButton
+                                                    onClick={() => {
+                                                        showDashboardInsightColorsModal(dashboard.id)
+                                                    }}
+                                                    fullWidth
+                                                >
+                                                    Customize Colors
+                                                </LemonButton>
                                             )}
                                             {canEditDashboard && (
                                                 <LemonButton
