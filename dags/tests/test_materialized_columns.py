@@ -26,6 +26,9 @@ def test_zip_values():
         {1: "b", 2: "d"},
     ]
 
+    with pytest.raises(ValueError):
+        next(zip_values({1: ["a"], 2: ["c", "d"]}))
+
 
 def test_partition_range_validation():
     assert set(PartitionRange(lower="202401", upper="202403").iter_ids()) == {"202401", "202402", "202403"}

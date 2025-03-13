@@ -23,6 +23,9 @@ def zip_values(mapping: Mapping[K, Iterable[V]]) -> Iterator[Mapping[K, V]]:
         keys.append(key)
         values.append(value)
 
+    if len({len(value) for value in values}) > 1:
+        raise ValueError("expected all value sequences to be of the same length")
+
     for chunk in zip(*values):
         yield dict(zip(keys, chunk))
 
