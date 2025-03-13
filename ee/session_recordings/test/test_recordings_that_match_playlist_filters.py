@@ -262,7 +262,7 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest):
         )
 
         playlist4 = SessionRecordingPlaylist.objects.create(
-            team=self.team, name="test3", filters={"date_from": "-21d"}, last_counted_at=None
+            team=self.team, name="test4", filters={"date_from": "-21d"}, last_counted_at=None
         )
 
         with override_settings(PLAYLIST_COUNTER_PROCESSING_MAX_ALLOWED_TEAM_ID=self.team.id + 1):
